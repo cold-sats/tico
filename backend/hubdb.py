@@ -504,11 +504,39 @@ CREATE TABLE IF NOT EXISTS usage_alerts (
   PRIMARY KEY (bot, period, level));
 """
 
+GENERAL_TYPE = "general"
+PIPELINES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_types (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, created TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS task_steps (
+  id TEXT PRIMARY KEY, type_id TEXT NOT NULL REFERENCES task_types(id), name TEXT NOT NULL,
+  position INTEGER NOT NULL, status TEXT NOT NULL
+    CHECK(status IN ('open','doing','waiting','review','ready','done','closed','declined')),
+  UNIQUE(type_id, name));
+CREATE INDEX IF NOT EXISTS task_steps_type ON task_steps(type_id, position, id);
+ALTER TABLE tasks ADD COLUMN type_id TEXT REFERENCES task_types(id);
+ALTER TABLE tasks ADD COLUMN step_id TEXT REFERENCES task_steps(id);
+CREATE INDEX IF NOT EXISTS tasks_type_step ON tasks(type_id, step_id);
+INSERT OR IGNORE INTO task_types(id,name,created,updated)
+  VALUES('general','General',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+""" + "\n".join(
+    f"INSERT OR IGNORE INTO task_steps(id,type_id,name,position,status) "
+    f"VALUES('general-{status}','general','{status.title()}',{position},'{status}');"
+    for position, status in enumerate(TASK_STATUSES)
+) + """
+UPDATE tasks SET type_id='general', step_id=(SELECT id FROM task_steps
+  WHERE type_id='general' AND status=tasks.status ORDER BY position,id LIMIT 1)
+  WHERE type_id IS NULL;
+"""
+
+# The tags track replaces this slot before the combined release ships.
+TAGS_SCHEMA_PLACEHOLDER = "-- Reserved migration for tags.\n"
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
               REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA,
-              USAGE_LIMITS_SCHEMA]
+              USAGE_LIMITS_SCHEMA, TAGS_SCHEMA_PLACEHOLDER, PIPELINES_SCHEMA]
 
 
 class Refused(Exception):
@@ -1600,6 +1628,158 @@ def can_move(conn, actor):
     return bool(row and set(row.get("teams") or []) & set(MOVER_TEAMS))
 
 
+# ----------------------------------------------------------------------------- task pipelines
+def type_get(conn, value):
+    row = _one(conn, "SELECT * FROM task_types WHERE id=? OR name=? COLLATE NOCASE ORDER BY id=? DESC LIMIT 1",
+               (value, value, value))
+    if row:
+        row["steps"] = _rows(conn.execute("SELECT * FROM task_steps WHERE type_id=? ORDER BY position,id", (row["id"],)))
+    return row
+
+
+def type_list(conn):
+    rows = _rows(conn.execute("SELECT * FROM task_types ORDER BY id<>?,name", (GENERAL_TYPE,)))
+    steps = _rows(conn.execute("SELECT * FROM task_steps ORDER BY position,id"))
+    for row in rows:
+        row["steps"] = [step for step in steps if step["type_id"] == row["id"]]
+    return rows
+
+
+def _type_writer(conn, actor, mover):
+    _writer(conn, actor)
+    if not (actor == KEEPER or mover or mover is None and can_move(conn, actor)):
+        refuse(conn, actor, "identity", "Task types are managed by movers")
+
+
+def _type_name(conn, actor, name, type_id=None):
+    name = str(name or "").strip()
+    if not name:
+        refuse(conn, actor, "lint", "Give the type a name")
+    existing = type_get(conn, name)
+    if existing and existing["id"] != type_id:
+        refuse(conn, actor, "duplicate", "A task type already has that name")
+    return name
+
+
+def _type_steps(conn, actor, type_id, steps):
+    existing = {row["id"]: row for row in (type_get(conn, type_id) or {}).get("steps", [])}
+    clean, names, ids = [], set(), set()
+    for position, raw in enumerate(steps):
+        name = str(raw.get("name") or "").strip()
+        status = raw.get("status")
+        ident = raw.get("id") or new_id()
+        if not name or name in names or ident in ids:
+            refuse(conn, actor, "kind", "Steps need distinct names and ids")
+        if raw.get("id") and ident not in existing:
+            refuse(conn, actor, "not-found", "That step does not belong to this type")
+        if status not in TASK_STATUSES:
+            refuse(conn, actor, "kind", f"A step status is {'|'.join(TASK_STATUSES)}")
+        names.add(name); ids.add(ident)
+        clean.append({"id": ident, "type_id": type_id, "name": name,
+                      "position": raw.get("position") if raw.get("position") is not None else position,
+                      "status": status})
+    removed = set(existing) - ids
+    for ident in removed:
+        if _one(conn, "SELECT id FROM tasks WHERE step_id=? LIMIT 1", (ident,)):
+            refuse(conn, actor, "in-use", "Move tasks off this step before deleting it")
+    for ident in removed:
+        conn.execute("DELETE FROM task_steps WHERE id=?", (ident,))
+    # Temporary names let retained steps swap names without dropping referenced rows.
+    for ident in ids & set(existing):
+        conn.execute("UPDATE task_steps SET name=? WHERE id=?", (new_id(), ident))
+    for row in clean:
+        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status) "
+                     "VALUES(:id,:type_id,:name,:position,:status) ON CONFLICT(id) DO UPDATE SET "
+                     "name=excluded.name,position=excluded.position,status=excluded.status", row)
+    for row in clean:
+        if row["id"] in existing and row["status"] != existing[row["id"]]["status"]:
+            for task_row in _rows(conn.execute("SELECT * FROM tasks WHERE step_id=?", (row["id"],))):
+                task_update(conn, KEEPER, task_row["id"], step=row["id"], quiet=True)
+                conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_row["id"],))
+
+
+def type_create(conn, actor, name, steps=(), mover=None):
+    _type_writer(conn, actor, mover)
+    name = _type_name(conn, actor, name)
+    ident, ts = new_id(), now()
+    conn.execute("INSERT INTO task_types(id,name,created,updated) VALUES(?,?,?,?)", (ident, name, ts, ts))
+    _type_steps(conn, actor, ident, steps)
+    row = type_get(conn, ident)
+    event(conn, actor, "task_type.create", ident, row)
+    return row
+
+
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None):
+    _type_writer(conn, actor, mover)
+    row = type_get(conn, type_id)
+    if not row:
+        refuse(conn, actor, "not-found", "No such task type")
+    if row["id"] == GENERAL_TYPE:
+        refuse(conn, actor, "built-in", "General keeps the standard statuses")
+    if name is not None:
+        name = _type_name(conn, actor, name, row["id"])
+        conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
+    if steps is not None:
+        _type_steps(conn, actor, row["id"], steps)
+    conn.execute("UPDATE task_types SET updated=? WHERE id=?", (now(), row["id"]))
+    after = type_get(conn, row["id"])
+    event(conn, actor, "task_type.update", row["id"], after)
+    return after
+
+
+def type_delete(conn, actor, type_id, mover=None):
+    _type_writer(conn, actor, mover)
+    row = type_get(conn, type_id)
+    if not row:
+        refuse(conn, actor, "not-found", "No such task type")
+    if row["id"] == GENERAL_TYPE:
+        refuse(conn, actor, "built-in", "General keeps the standard statuses")
+    if _one(conn, "SELECT id FROM tasks WHERE type_id=? LIMIT 1", (row["id"],)):
+        refuse(conn, actor, "in-use", "Move tasks to another type before deleting it")
+    conn.execute("DELETE FROM task_steps WHERE type_id=?", (row["id"],))
+    conn.execute("DELETE FROM task_types WHERE id=?", (row["id"],))
+    event(conn, actor, "task_type.delete", row["id"], {"name": row["name"]})
+    return row
+
+
+def _task_state(conn, actor, row, status=None, type=None, step=None):
+    """Resolve the step before checking permissions on its effective status."""
+    typ = type_get(conn, type if type is not None else row.get("type_id") or GENERAL_TYPE)
+    if not typ:
+        refuse(conn, actor, "not-found", "No such task type")
+    effective = status if status is not None else row.get("status") or "open"
+    current = next((s for s in typ["steps"] if s["id"] == row.get("step_id")), None)
+    if step is not None:
+        chosen = next((s for s in typ["steps"] if s["id"] == step), None)
+        chosen = chosen or next((s for s in typ["steps"] if s["name"] == step), None)
+        if not chosen and step != "":
+            refuse(conn, actor, "not-found", "No such step in this task type")
+        if chosen:
+            effective = chosen["status"]
+    elif current and current["status"] == effective:
+        chosen = current
+    else:
+        chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
+    if effective not in TASK_STATUSES:
+        refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
+    return typ["id"], chosen["id"] if chosen else None, effective
+
+
+def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
+    """Every task status write keeps its type and step consistent, including old runners."""
+    type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
+    ts = now()
+    conn.execute("UPDATE tasks SET status=?,type_id=?,step_id=?,updated=? WHERE id=?",
+                 (effective, type_id, step_id, ts, row["id"]))
+    if row.get("type_id") != type_id:
+        _task_event(conn, row["id"], actor, "type", row.get("type_id"), type_id, note)
+    if row.get("step_id") != step_id:
+        _task_event(conn, row["id"], actor, "step", row.get("step_id"), step_id, note)
+    if row.get("status") != effective:
+        _task_event(conn, row["id"], actor, "status", row.get("status"), effective, note)
+    return effective
+
+
 def _labels(labels):
     """Labels are lower-case free text, one word or a hyphenated few, unique, in the order given."""
     out = []
@@ -1751,7 +1931,7 @@ def task_comments(conn, task_id):
 
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
-                goal_id=None, next_run=False):
+                goal_id=None, next_run=False, type=None, step=None):
     """Rule 5. Anyone may open a task for any active owner; a human owner is linted (rule 7).
 
     `next_run` files it for the bot's next run instead of starting one: the notice is written
@@ -1784,6 +1964,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" else []
     if plain and TITLE_LINT == "refuse":
         refuse(conn, actor, "lint", "; ".join(plain), severity)
+    _task_state(conn, actor, {}, type=type, step=step)
     labels = _labels(labels)
     dup = _one(conn, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
                      f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
@@ -1805,15 +1986,17 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
            "created": ts, "updated": ts, "done_at": None, "closed_at": None, "closed_by": None,
            "note": "", "lane": lane, "rank": _queue_end(conn, target, top),
            "labels_json": _dump(labels), "goal_id": goal_id or None, "next_run": 1 if next_run else 0}
-    conn.execute("INSERT INTO tasks (id, title, body, requester, owner, status, due, parent_id, "
+    conn.execute("INSERT INTO tasks (id, title, body, requester, owner, due, parent_id, "
                  "conversation_id, created, updated, done_at, closed_at, closed_by, note, lane, rank, "
                  "labels_json, goal_id, next_run) VALUES "
-                 "(:id, :title, :body, :requester, :owner, :status, :due, :parent_id, "
+                 "(:id, :title, :body, :requester, :owner, :due, :parent_id, "
                  ":conversation_id, :created, :updated, :done_at, :closed_at, :closed_by, :note, "
                  ":lane, :rank, :labels_json, :goal_id, :next_run)", row)
     if dedicated:
         conn.execute("UPDATE conversations SET task_id=? WHERE id=?", (row["id"], conv["id"]))
-    _task_event(conn, row["id"], actor, "status", None, "open", "")
+    _set_status(conn, actor, {**row, "status": None}, status="open", type=type)
+    if step is not None:
+        task_update(conn, actor, row["id"], step=step)
     if goal_id:
         _task_event(conn, row["id"], actor, "goal_id", None, goal_id, "")
     if plain:
@@ -1844,7 +2027,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
 
 
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
-                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False):
+                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane`, `labels`, `blocked_by` and `parent_id` are a mover's to change (`mover` says whether
@@ -1864,7 +2047,18 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     if not mine and not mover and actor != KEEPER:
         refuse(conn, actor, "identity", f"{task_id} is not yours to change")
-    if status is not None:
+    state_change = status is not None or type is not None or step is not None
+    if state_change:
+        _, _, effective = _task_state(conn, actor, row, status, type, step)
+        if status is not None or step is not None:
+            status = effective
+        # A move between steps with the same status changes only the pipeline label.
+        if step is not None and effective == row["status"]:
+            status = None
+    closing_step = status == "closed" and step is not None
+    if closing_step:
+        _task_close_allowed(conn, actor, row, note)
+    if status is not None and not closing_step:
         if status not in TASK_STATUSES:
             refuse(conn, actor, "kind", f"a status is {'|'.join(TASK_STATUSES)}, not {status}")
         if status == "closed":
@@ -1901,7 +2095,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         lane = _lane_for(conn, lane, row["owner"], actor)    # a task moves only onto company
     ts = now()
     sets, args = [], {}
-    for field, value in (("status", status), ("note", note), ("due", due), ("body", body), ("lane", lane)):
+    for field, value in (("note", note), ("due", due), ("body", body), ("lane", lane)):
         if value is None:
             continue
         severity = classify(str(value), actor=actor, conn=conn) if field == "body" and is_bot(actor) else "normal"
@@ -1957,11 +2151,16 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if row.get(field) is not None:
                 _task_event(conn, task_id, actor, field, row[field], None, note or "")
             sets.append(field + "=NULL")
-    if not sets:
+    if not sets and not state_change:
         return row
+    if closing_step:
+        task_close(conn, actor, task_id, note=note or "", quiet=quiet, type=type, step=step)
+    elif state_change:
+        _set_status(conn, actor, row, status, type, step, note or "")
     args["id"] = task_id
     args["updated"] = ts
-    conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
+    if sets:
+        conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
     event(conn, actor, "task.update", task_id, {"status": status, "note": note})
     after = task(conn, task_id)
     # A bot that asked for `tasks` is always told and never woken for it, so there is nothing to
@@ -2007,26 +2206,32 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     return after
 
 
-def task_close(conn, actor, task_id, note="", quiet=False):
+def _task_close_allowed(conn, actor, row, note):
+    delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
+                     (row["id"], actor, now()))
+    if actor != row["requester"] and not is_human(actor) and actor != KEEPER and not delegated:
+        refuse(conn, actor, "close", f"{actor_id(row['requester'])} asked for this; only they close it")
+    if (row["status"] not in ("done", "declined", "closed") and is_human(actor)
+            and is_human(row["owner"]) and is_bot(row["requester"])
+            and not str(note or "").strip()):
+        refuse(conn, actor, "lint", "Tell the requesting bot why you are closing this task in a note")
+
+
+def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=None):
     """Rule 5. The requester closes, or any human. The owner never does."""
     _writer(conn, actor)
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
-    delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
-                     (task_id, actor, now()))
-    if actor != row["requester"] and not is_human(actor) and actor != KEEPER and not delegated:
-        refuse(conn, actor, "close", f"{actor_id(row['requester'])} asked for this; only they close it")
+    _task_close_allowed(conn, actor, row, note)
     if row["status"] == "closed":
-        return row
-    if (row["status"] not in ("done", "declined") and is_human(actor)
-            and is_human(row["owner"]) and is_bot(row["requester"])
-            and not str(note or "").strip()):
-        refuse(conn, actor, "lint", "Tell the requesting bot why you are closing this task in a note")
+        if type is not None or step is not None:
+            _set_status(conn, actor, row, status="closed", type=type, step=step, note=note or "")
+        return task(conn, task_id)
     ts = now()
-    conn.execute("UPDATE tasks SET status='closed', closed_at=?, closed_by=?, updated=?, "
+    _set_status(conn, actor, row, status="closed", type=type, step=step, note=note or "")
+    conn.execute("UPDATE tasks SET closed_at=?, closed_by=?, updated=?, "
                  "note=COALESCE(NULLIF(?, ''), note) WHERE id=?", (ts, actor, ts, note or "", task_id))
-    _task_event(conn, task_id, actor, "status", row["status"], "closed", note or "")
     event(conn, actor, "task.close", task_id, {"note": note})
     after = task(conn, task_id)
     _unblock(conn, after)

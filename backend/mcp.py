@@ -220,4 +220,15 @@ def task_dry_run(c, auth, who, body):
                      (who.actor, target, title, *H.LIVE_STATUSES))
         if dup:
             problems.append(f"{dup['id']} already asks {H.actor_id(target)} for this")
+    typ = H.type_get(c, body.type or H.GENERAL_TYPE)
+    if not typ:
+        problems.append("No such task type")
+    elif body.step:
+        step = next((s for s in typ["steps"] if s["id"] == body.step or s["name"] == body.step), None)
+        if not step:
+            problems.append("No such step in this task type")
+        elif step["status"] == "ready" and H.is_bot(who.actor):
+            problems.append("Ready to ship is set when the pull request merges, not by the bot")
+        elif step["status"] == "waiting" and who.actor == target and H.is_bot(target):
+            problems.append("A self-requested task needs something to wait on first")
     return {"ok": not problems, "owner": target, "problems": problems}

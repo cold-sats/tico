@@ -166,3 +166,12 @@ def test_the_declared_answers_match_the_live_ones(api):
     call("setBotUsageLimit", "put", "/api/v2/usage/limits/ops", json={"daily_usd": 20})
     call("getUsage", "get", "/api/v2/usage", params={"bot": "ops", "from": "2026-01-01", "to": "2026-01-03"})
     call("getHealth", "get", "/api/v2/health")
+
+
+def test_pipeline_answers_match_the_public_contract(api):
+    typ = post(api, 'task-types', {'name': 'Marketing', 'steps': [{'name': 'Draft', 'status': 'open'}]})
+    root = openapi_v2.generate()
+    assert conforms(typ, openapi_v2.ref('TaskTypeResult'), root) is None
+    assert conforms(get(api, 'task-types'), openapi_v2.ref('TaskTypeList'), root) is None
+    task = post(api, 'tasks', {'owner': 'ops', 'title': 'Draft the plan', 'body': 'Please.', 'type': typ['type']['id']})
+    assert conforms({'task': task}, openapi_v2.ref('TaskResult'), root) is None

@@ -919,6 +919,9 @@ class Store:
                     # Hermes pairing (backend/agents.py): CREATE TABLE IF NOT EXISTS above installs
                     # agent_pairings; the marker makes the contract visible to release checks.
                     c.execute("INSERT INTO cloud_migrations VALUES(46,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=48").fetchone():
+                    H._apply(c, H.PIPELINES_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(48,?)", (H.now(),))
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,

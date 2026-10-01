@@ -251,3 +251,20 @@ def test_model_tool_forwards_harness_and_lists_current_settings(api):
     assert not err, changed
     err, listed = call(api, "hub_bot_model", {"bot": "ops"})
     assert not err and listed["harness"] == harness and "effort" in listed
+
+
+def test_pipeline_tools_and_cli_use_type_and_step_contracts(api):
+    err, types = call(api, 'hub_task_types')
+    assert not err and types['result'][0]['name'] == 'General'
+    err, created = call(api, 'hub_task_type_create', {'name': 'Marketing', 'steps': [
+        {'name': 'Draft', 'status': 'open'}, {'name': 'Copy review', 'status': 'review'}]})
+    assert not err
+    typ = created['type']
+    err, created = call(api, 'hub_task_create', {'owner': 'ops', 'title': 'Draft the launch copy',
+        'body': 'Please.', 'type': typ['id']})
+    assert not err
+    err, moved = call(api, 'hub_task_update', {'id': created['task']['id'], 'step': 'Copy review'})
+    assert not err and moved['task']['step']['name'] == 'Copy review' and moved['task']['status'] == 'review'
+    args = hubcli.parser().parse_args(['task', 'update', created['task']['id'], '--step', 'Draft', '--type', 'Marketing'])
+    assert args.step == 'Draft' and args.type == 'Marketing'
+    assert hubcli.parser().parse_args(['task', 'types']).fn == 'task types'

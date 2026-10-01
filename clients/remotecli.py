@@ -192,10 +192,35 @@ def run(args, who=None):
     if fn == "note delete":
         return post(f"notes/{args.id}/cancel", {})["note"]
     if cmd == "task":
+        if sub == "type":
+            if args.type_sub == "delete":
+                return post("task-types/" + args.id + "/delete", {})
+            body = {}
+            if args.name is not None:
+                body["name"] = args.name
+            if args.steps_file:
+                body["steps"] = json.loads(Path(args.steps_file).read_text())
+            return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
+        if sub == "types":
+            if args.delete:
+                if not args.id:
+                    raise ValueError("Choose a type to delete")
+                return post("task-types/" + args.id + "/delete", {})
+            if args.name is not None or args.steps_file:
+                body = {}
+                if args.name is not None:
+                    body["name"] = args.name
+                if args.steps_file:
+                    body["steps"] = json.loads(Path(args.steps_file).read_text())
+                return post("task-types" + ("/" + args.id if args.id else ""), body)
+            return client.get("task-types" + ("/" + args.id if args.id else ""))
         if sub == "create":
             body = Path(args.body_file).read_text() if args.body_file else args.body
             payload = {"owner": target(args.owner), "title": args.title, "body": body,
                        "due": args.due, "parent_id": args.parent, "goal_id": getattr(args, "goal", None) or None}
+            for field in ("type", "step"):
+                if getattr(args, field, None) is not None:
+                    payload[field] = getattr(args, field)
             if args.label:
                 payload["labels"] = [x.strip() for one in args.label for x in one.split(",") if x.strip()]
             if args.top:
@@ -249,6 +274,9 @@ def run(args, who=None):
             else:
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
+                for field in ("type", "step"):
+                    if getattr(args, field, None) is not None:
+                        body[field] = getattr(args, field)
                 if args.blocked_by is not None:
                     body["blocked_by"] = args.blocked_by
             return post("tasks/" + args.id, body)

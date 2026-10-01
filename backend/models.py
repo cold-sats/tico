@@ -106,6 +106,8 @@ class TaskCreate(Contract):
     # Wait for the owner's next run instead of starting one (a bot owner only).
     next_run: bool = False
     request_id: ID | None = None
+    type: ID | None = None
+    step: str | None = Field(default=None, max_length=200)
 
 
 class NoteCreate(Contract):
@@ -129,9 +131,28 @@ class TaskUpdate(Contract):
     blocked_by: str | None = Field(default=None, max_length=64)     # "" clears
     parent_id: str | None = Field(default=None, max_length=64)      # "" clears
     rank: float | None = None
+    type: ID | None = None
+    step: str | None = Field(default=None, max_length=200)   # "" clears the step
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
     # delegated_identity): checked as that person, never as BotOps.
     on_behalf_of: ID | None = None
+
+
+class TaskStepInput(Contract):
+    id: ID | None = None
+    name: ID
+    position: int | None = None
+    status: Literal["open", "doing", "waiting", "review", "ready", "done", "closed", "declined"]
+
+
+class TaskTypeCreate(Contract):
+    name: ID
+    steps: list[TaskStepInput] = Field(default_factory=list)
+
+
+class TaskTypeUpdate(Contract):
+    name: ID | None = None
+    steps: list[TaskStepInput] | None = None
 
 
 class TaskComment(Contract):
