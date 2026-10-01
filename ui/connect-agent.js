@@ -84,7 +84,7 @@
 .ca-logo .ca-initials{font:600 12px/1 var(--sans)}
 .ca-logo.sm{width:26px;height:26px}.ca-logo.sm svg{width:14px;height:14px}.ca-logo.sm .ca-initials{font-size:10.5px}
 .ca-section{display:flex;flex-direction:column;gap:6px}
-.ca-label{margin:0;font-size:12px;font-weight:500;color:var(--muted)}
+.ca-label{margin:0;font-size:12px;font-weight:600;color:var(--muted)}
 .ca-conns{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--radius)}
 .ca-conn{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 10px;font-size:13px}
 .ca-conn+.ca-conn{border-top:1px solid var(--line)}
@@ -112,7 +112,7 @@
 .ca-status button{padding:4px 10px;font-size:12.5px}
 .ca-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--idle)}
 .ca-status[data-state=waiting] .ca-dot{animation:ca-pulse 1.4s ease-in-out infinite}
-.ca-status[data-state=connected]{color:var(--ink);font-weight:500}
+.ca-status[data-state=connected]{color:var(--ink);font-weight:600}
 .ca-status[data-state=connected] .ca-dot{background:var(--ok);animation:none}
 @keyframes ca-pulse{50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.ca-status[data-state=waiting] .ca-dot{animation:none}}

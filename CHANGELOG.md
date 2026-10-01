@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Assistant** in the left rail opens your private chat as a page of its own (`#/assistant`), with the same thread,
+  composer and live reply as a bot's chat and suggestions while it is empty. Your own page's Assistant tab and "Ask the
+  Assistant…" in search open it too; the history is the same room.
+- **A calmer look.** Dark is the default, on one neutral gray ramp; Light is the same ramp reversed, and Settings has
+  Dark, Light and System for this browser. Text is 13px, page titles 16px at most, and names and labels 600 weight.
+  Icons are one weight lighter. The teal accent is a little brighter in dark.
+- **Chat reads as one column.** Bot chat, the Assistant, update replies and task comments sit in a centred column up to
+  800px wide in 13.5px type on roomier lines; your words are in a bubble, bot replies stay plain.
+
 ## [0.2.42] - 2026-10-01
 
 ### Fixed

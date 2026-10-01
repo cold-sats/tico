@@ -3,12 +3,12 @@
 /* updates feed: friendly, dense, fast; one column, like a feed */
 .upd-page{max-width:720px;margin:0 auto}
 .upd-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-.upd-head h1{font-size:22px;margin-right:4px}
+.upd-head h1{font-size:16px;margin-right:4px}
 .upd-seg{display:inline-flex;background:var(--surface2);border-radius:999px;padding:3px}
-.upd-seg button{border:0;background:none;border-radius:999px;padding:5px 14px;font-weight:500;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.upd-seg button{border:0;background:none;border-radius:999px;padding:5px 14px;font-weight:600;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .upd-seg .nav-icon,.upd-chip .nav-icon{display:none;font-size:20px;width:20px;height:20px;color:inherit}
 .upd-chip{display:inline-flex;align-items:center;gap:6px}
-.upd-seg button[aria-selected=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.upd-seg button[aria-selected=true]{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .upd-chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;cursor:pointer;color:var(--muted)}
 .upd-chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .upd-allread{font-size:13px}
@@ -22,15 +22,16 @@
 .upd-name{color:var(--ink);font-weight:600}
 .upd-pill{font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--run) 15%,transparent);color:var(--run)}
 .upd-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:2px}
-.upd-body{font-size:15px;line-height:1.45;color:var(--ink);cursor:pointer;margin-top:4px}
+.upd-body{font-size:13.5px;line-height:1.55;color:var(--ink);cursor:pointer;margin-top:4px}
 .upd-body p{margin:0 0 6px}.upd-body ul{margin:0;padding-left:18px}.upd-body li{margin:2px 0}.upd-body h1,.upd-body h2,.upd-body h3{font-size:14px;margin:6px 0 2px}
 .upd-actions{display:flex;gap:4px;margin:6px 0 0 -8px}
 .upd-act{display:inline-flex;align-items:center;gap:5px;border:0;background:none;border-radius:999px;padding:5px 10px;color:var(--muted);font-size:13px;cursor:pointer}
 .upd-act:hover{background:var(--surface2);color:var(--ink)}
 .upd-act .nav-icon{font-size:17px;width:17px;height:17px}
 .upd-thread{border-top:1px solid var(--line);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:6px}
-.upd-msg{font-size:13.5px;padding:6px 10px;border-radius:10px;background:var(--surface2)}
-.upd-msg.bot{background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+/* a reply thread reads like the chat column: your words in a bubble, the bot's on the card */
+.upd-msg{font-size:var(--read-size);line-height:var(--read-leading);padding:6px 12px;border-radius:12px;background:var(--bubble)}
+.upd-msg.bot{background:none;padding:2px 0}
 .upd-msg.pending{opacity:.6}
 .upd-msg .md p{margin:2px 0}
 .upd-msg .muted{font-size:11.5px;margin-left:4px}
@@ -55,7 +56,7 @@
 .bot-history-item{padding:10px 0;border-top:1px solid var(--line)}.bot-history-item:first-child{border-top:0;padding-top:0}
 .bot-history-item .upd-meta{font-size:12.5px}
 @media (prefers-reduced-motion:reduce){.upd-skel{animation:none}}
-@media (max-width:760px){.upd-card{padding:12px;gap:10px;border-radius:12px}.upd-head h1{font-size:20px}.upd-allread{display:none}
+@media (max-width:760px){.upd-card{padding:12px;gap:10px;border-radius:12px}.upd-head h1{font-size:16px}.upd-allread{display:none}
   /* Day, week, unread and my bots are icons on a phone */
   .upd-seg .nav-icon,.upd-chip .nav-icon{display:inline-flex}.upd-lbl{display:none}
   .upd-seg button{padding:6px 12px}.upd-chip{padding:6px 10px}}

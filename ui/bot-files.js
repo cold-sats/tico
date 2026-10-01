@@ -15,7 +15,7 @@
 .bot-files .bf-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
 .bot-files .bf-row:first-of-type{border-top:0}
 .bot-files .bf-icon{font-size:20px;width:20px;height:20px;color:var(--muted)}
-.bot-files .bf-name{min-width:0;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.bot-files .bf-name{min-width:0;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .bot-files a.bf-name:hover{text-decoration:underline}
 .bot-files .bf-foot{display:flex;gap:10px;align-items:center;padding-top:8px;border-top:1px solid var(--line)}
 .bot-files .bf-err{color:var(--fail);font-size:12.5px}`;

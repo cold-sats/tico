@@ -266,7 +266,7 @@ An existing repository is checked and updated for the requested work, rather tha
 
 Every team gets all four, and none is a choice: their cards are `required: true` in the wizard, so the wizard
 builds them whatever else is ticked, and they become active once a computer is enrolled ([Activating](#activating)).
-The assistant is every human's private [Assistant](assistant.md) (a tab on their own page); it also works in the
+The assistant is every human's private [Assistant](assistant.md) (its own page, **Assistant** in the left rail); it also works in the
 background: it routes Slack messages to the bot that owns them, takes meetings and tasks nobody was named for, reviews
 BotOps' refused writes, and runs its own routines.
 
@@ -285,7 +285,7 @@ and a computer is enrolled). Its routines start paused: the server arms the dail
 weekly goals review stays paused until the Goal Manager arms it after the owner has read the first one.
 
 A team that set the assistant aside before it was built in (v0.2.1 to v0.2.9 let the wizard skip it) keeps it archived
-on update: nothing restores it automatically. Its owner sees "The Assistant is off" on the Assistant tab and at the top of
+on update: nothing restores it automatically. Its owner sees "The Assistant is off" on the Assistant page and at the top of
 Settings > Bots, and one click on **Turn on Assistant** brings the same bot back with its history (or adds it from its
 template if it is missing), places it on BotOps' computer and activates it. From then on it cannot be archived again.
 While an assistant is off, or paused, what used to fall back to it goes to BotOps or to a human:

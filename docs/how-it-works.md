@@ -83,8 +83,8 @@ action items), **Docs**,
 and, for the owner and admins, **SQL**. Tasks has List, Board and Done; Routines are in **Settings → Routines**.
 Credentials are in **Tools → Credentials**. See [Navigation](navigation.md). A bot's page has **Chat**,
 **Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian and the Goal Manager are built in and cannot be archived or deleted (`409 system_bot`); the assistant
-and the Librarian work in the background and are not listed for humans. Each human has one private **Assistant** chat, the first tab on their own page
-and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that human, and
+and the Librarian work in the background and are not listed for humans. Each human has one private **Assistant** chat, its own page from the left rail
+(also the first tab on their own page, and "Ask the Assistant…" in search): it looks things up at once, does low-risk things as that human, and
 proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared
 Tico chat page and no Tico Live; humans can also act across Tico through their own external agent over Tico's
 MCP ([Connect an external agent](connect-an-agent.md)).

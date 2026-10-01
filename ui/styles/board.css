@@ -4,7 +4,7 @@
 .board-tools{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s3)}
 .board-tools .spacer{flex:1}
 .board-tools select{width:auto;min-width:150px;max-width:220px}
-.tasks-head h1{font-size:20px;font-weight:600;margin:0 6px 0 0}
+.tasks-head h1{font-size:16px;font-weight:600;margin:0 6px 0 0}
 .board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s3);align-items:start}
 .board.work{grid-template-columns:repeat(4,minmax(0,1fr))}
 .bcol{display:flex;flex-direction:column;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
@@ -27,7 +27,7 @@
 .company-need-actor{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:11px;align-items:center;padding:13px 16px;border-top:1px solid var(--line);color:var(--ink);text-decoration:none}
 .company-need-actor:hover{background:var(--surface2);text-decoration:none}
 .company-need-copy{min-width:0}.company-need-name{display:flex;align-items:baseline;gap:7px;font-weight:600}
-.company-need-name .cnt{font-size:11.5px;color:var(--wait);font-weight:500}
+.company-need-name .cnt{font-size:11.5px;color:var(--wait);font-weight:600}
 .company-need-titles{display:block;margin-top:3px;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .company-need-go.nav-icon{width:24px;height:24px;font-size:24px}
 .company-need-actor:hover .company-need-go{color:var(--ink)}

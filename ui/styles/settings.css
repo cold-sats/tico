@@ -7,7 +7,7 @@
 .settings-tabs{margin-bottom:16px}
 .settings-pane[hidden]{display:none}
 .settings-table{width:100%;border-collapse:collapse;font-size:13px}
-.settings-table th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500;text-align:left;padding:9px 6px;border-bottom:1px solid var(--line)}
+.settings-table th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;text-align:left;padding:9px 6px;border-bottom:1px solid var(--line)}
 .settings-table th[title]{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 .settings-table td{padding:11px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
 .settings-table tr:last-child td{border-bottom:0}
@@ -16,7 +16,7 @@
 /* Settings > Humans: one choice for how people join, then one compact row per person, saved as it changes */
 .people-join{display:flex;flex-direction:column;gap:var(--s3)}
 .people-mode{display:flex;gap:2px;padding:3px;background:var(--surface2);border-radius:8px;align-self:flex-start}
-.people-mode button{border:0;background:transparent;color:var(--muted);font-weight:500;padding:6px 16px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.people-mode button{border:0;background:transparent;color:var(--muted);font-weight:600;padding:6px 16px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .people-mode button:hover{color:var(--ink)}
 .people-mode button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.06)}
 .people-add{display:flex;gap:var(--s2);max-width:640px}
@@ -33,14 +33,14 @@ input.people-switch:checked::before{transform:translateX(14px)}
 input.people-switch:disabled{opacity:.45;cursor:not-allowed}
 .people-list-card>header{align-items:center}
 .people-head,.people-row{display:grid;grid-template-columns:minmax(0,1fr) 120px 100px 36px;align-items:center;gap:var(--s3)}
-.people-head{padding:0 0 6px;border-bottom:1px solid var(--line);font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.people-head{padding:0 0 6px;border-bottom:1px solid var(--line);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .people-list{list-style:none;margin:0;padding:0}
 .people-row{padding:10px 0;border-bottom:1px solid var(--line)}
 .people-row:last-child{border-bottom:0}
 .people-who{display:flex;align-items:center;gap:10px;min-width:0}
 .people-id{min-width:0}
 .people-name,.people-email{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.people-name{font-weight:500}.people-email{color:var(--muted);font-size:12.5px}
+.people-name{font-weight:600}.people-email{color:var(--muted);font-size:12.5px}
 .people-cell-role select{width:auto;min-width:104px;padding:4px 8px;font-size:13px}
 .people-role{font-size:13px}.people-role[data-role=owner]{font-weight:600}
 .people-cell-signin{display:flex;align-items:center;gap:8px}
@@ -173,7 +173,7 @@ p:empty{display:none}
 .settings-role-guide{margin-top:12px;font-size:12px;color:var(--muted)}
 .settings-role-guide summary{cursor:pointer;width:max-content}
 .settings-role-guide dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:8px 0 0}
-.settings-role-guide dt{color:var(--ink);font-weight:500}.settings-role-guide dd{margin:0}
+.settings-role-guide dt{color:var(--ink);font-weight:600}.settings-role-guide dd{margin:0}
 .settings-issues{margin-bottom:14px;border-color:color-mix(in srgb,var(--fail) 45%,var(--line))}
 .settings-issues>summary{display:flex;align-items:center;gap:7px;list-style:none;color:var(--ink);font-size:14px}
 .settings-issues>summary::-webkit-details-marker{display:none}.settings-issues>summary .sub{margin-left:auto;font-weight:400}
@@ -193,7 +193,7 @@ p:empty{display:none}
 .machine-harness-item .ghost{padding:1px 8px;font-size:11.5px}
 .model-login{width:min(520px,calc(100vw - 32px))}
 .model-login header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px 0}
-.model-login h2{margin:0;font-size:16px}
+.model-login h2{margin:0;font-size:14px}
 .model-login-body{padding:8px 16px}
 .model-login-steps{margin:8px 0;padding-left:20px;display:grid;gap:12px}
 .model-login-code{display:flex;align-items:center;gap:10px;margin-top:6px}
@@ -241,3 +241,8 @@ p:empty{display:none}
 .transition-body{padding:16px 18px 18px}.transition-progress{margin:12px 0;padding:10px;border-radius:7px;background:var(--bg)}
 .transition-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 @media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input,.tcontrols select,.tcontrols input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
+/* Settings header: Dark, Light or System for this browser (ui/theme.js) */
+.theme-seg{display:inline-flex;flex:none;background:var(--surface2);border-radius:999px;padding:3px}
+.theme-seg button{border:0;background:none;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
+.theme-seg button:hover{color:var(--ink)}
+.theme-seg button[aria-checked=true]{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.18)}

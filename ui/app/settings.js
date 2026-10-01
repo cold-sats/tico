@@ -24,7 +24,7 @@ function pageSettings() {
   // it would snap back to the default tab and drop whatever is half typed in a form.
   const built = $('#settings-tabs');
   if (built && built.dataset.role === (S.me?.role || '')) { settingsShow(SETTINGS_TAB); loadSettings(); return; }
-  $('#main').innerHTML = `<div class="meeting-head"><div><h1>Settings</h1></div></div>
+  $('#main').innerHTML = `<div class="meeting-head"><div><h1>Settings</h1></div>${settingsThemeHTML()}</div>
     <div id="settings-issues"></div>
     <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" role="tablist" aria-label="Settings">
       <button type="button" data-settings-tab="bots" role="tab">Bots</button>
@@ -63,12 +63,29 @@ function pageSettings() {
     <dialog class="bot-editor catalog-picker" id="catalog-picker" aria-labelledby="catalog-picker-title"></dialog>
     <dialog class="transition-dialog" id="transition-dialog" aria-labelledby="transition-title"></dialog>`;
   taskTypesSettingsMount();
+  pageSettingsThemeBind();
   $('#settings-tabs').onclick = event => {
     const button = event.target.closest('[data-settings-tab]');
     if (button) settingsShow(button.dataset.settingsTab);
   };
   settingsShow(SETTINGS_TAB);
   loadSettings();
+}
+// Theme: this browser's choice (ui/theme.js); dark when none is saved.
+const SETTINGS_THEMES = [['dark', 'Dark'], ['light', 'Light'], ['system', 'System']];
+function settingsThemeHTML() {
+  const cur = window.ticoTheme?.get() || 'dark';
+  return `<div class="theme-seg" id="settings-theme" role="radiogroup" aria-label="Theme">${SETTINGS_THEMES.map(([v, label]) =>
+    `<button type="button" role="radio" data-theme-choice="${v}" aria-checked="${v === cur}">${label}</button>`).join('')}</div>`;
+}
+function pageSettingsThemeBind() {
+  const seg = $('#settings-theme');
+  if (seg) seg.onclick = event => {
+    const button = event.target.closest('[data-theme-choice]');
+    if (!button) return;
+    window.ticoTheme?.set(button.dataset.themeChoice);
+    seg.querySelectorAll('[data-theme-choice]').forEach(b => b.setAttribute('aria-checked', String(b === button)));
+  };
 }
 function settingsShow(tab) {
   if (tab === 'credentials' || tab === 'cloud') { location.hash = INTEGRATIONS; return; }

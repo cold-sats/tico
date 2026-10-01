@@ -4,7 +4,8 @@
 
 // ----------------------------------------------------------------- human page (team tree)
 const PERSON_TABS = ['profile', 'slack'];
-// The Assistant tab is first, and only on your own page: your private chat with the assistant (ui/assistant.js).
+// The Assistant tab is first, and only on your own page: it opens your private chat with the assistant, the
+// Assistant page (ui/app/assistant-page.js). The old #/person/<you>/assistant link lands there too.
 const personTabs = p => S.me?.id === p.id ? ['assistant', ...PERSON_TABS] : PERSON_TABS;
 const PERSON_TAB_LABELS = {assistant: 'Assistant', profile: 'Profile', slack: 'Slack'};
 function personCanEdit(p) {
@@ -42,8 +43,9 @@ function bindFieldEditor(root, onSave) {
 function pagePerson(id, tab) {
   const p = (S.people || []).find(row => row.id === id && !row.hidden);
   if (!p) { $('#main').innerHTML = `<div class="empty">Unknown human.</div>`; return; }
-  orgHistoryVisit('p:' + p.id);
   const tabs = personTabs(p);
+  if (tab === 'assistant' && tabs.includes('assistant')) { location.replace(ASSISTANT); return; }
+  orgHistoryVisit('p:' + p.id);
   tab = tabs.includes(tab) ? tab : 'profile';
   const reports = (S.people || []).filter(row => row.reports_to === p.id && !row.hidden);
   const bots = (p.bots || []).map(slug => S.emps.find(e => e.name === slug)).filter(e => e && !isHiddenBot(e.name));    // not the Assistant or the Librarian (ui/app/sidebar.js)
@@ -51,7 +53,7 @@ function pagePerson(id, tab) {
   const boss = (S.people || []).find(row => row.id === p.reports_to);
   const edit = personCanEdit(p);
   const about = goalParts(p.about || '');
-  $('#main').innerHTML = `<div class="bothead">${personAvatar(p, 52)}
+  $('#main').innerHTML = `<div class="bothead">${personAvatar(p, 36)}
     <div class="botid"><h1>${esc(p.name || p.id)}</h1>
       <ul class="goal-lines head-goals" id="head-goals" aria-label="Goals"></ul>
       ${String(p.goals || '').trim() ? `<div class="role" id="head-standing">${esc(String(p.goals).trim())}</div>` : ''}
@@ -59,9 +61,6 @@ function pagePerson(id, tab) {
   <div class="tabs bottabs" id="ptabs" role="tablist">
     ${tabs.map(t => `<button data-pt="${t}" role="tab" class="${t === tab ? 'cur' : ''}">${PERSON_TAB_LABELS[t]}</button>`).join('')}
   </div>
-  ${tabs.includes('assistant') ? `<div id="pane-assistant" ${tab === 'assistant' ? '' : 'hidden'}>
-    <section class="card conv"><header><h2>Assistant</h2></header>
-      <div id="assistant-chat"></div></section></div>` : ''}
   <div id="pane-profile" ${tab === 'profile' ? '' : 'hidden'}>
     <section class="card"><header><h2>Contact</h2></header>
       <dl class="bot-setup">
@@ -98,7 +97,7 @@ function pagePerson(id, tab) {
   void headGoalsLoad('human:' + p.id);
   $('#ptabs').onclick = ev => {
     const b = ev.target.closest('[data-pt]'); if (!b) return;
-    location.hash = `#/person/${encodeURIComponent(p.id)}${b.dataset.pt === 'profile' ? '' : '/' + b.dataset.pt}`;
+    location.hash = b.dataset.pt === 'assistant' ? ASSISTANT : `#/person/${encodeURIComponent(p.id)}${b.dataset.pt === 'profile' ? '' : '/' + b.dataset.pt}`;
   };
   const more = $('#goal-more');
   if (more) more.onclick = () => {
@@ -160,8 +159,6 @@ function pagePerson(id, tab) {
   $('#person-task-add').onclick = () => personTaskModal(p);
   void personTasksLoad(p);
   if (tab === 'slack') personSlackLoad(p);
-  if (tab === 'assistant') window.assistantChat?.mount($('#assistant-chat'), {get, post, esc, toast, me: S.me});
-  else window.assistantChat?.stop();
 }
 // The human's tasks: what they own, active first, finished behind a toggle. The rows are
 // the same as a keeper bot's (v2TaskRow), so Done/Close and the chat button work unchanged;

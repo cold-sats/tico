@@ -12,7 +12,7 @@
 .p-icon svg{width:17px;height:17px;display:block}
 @keyframes askblink{50%{opacity:.3}}
 .p-go{position:relative;display:flex;flex:none}
-.p-go button{height:34px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:500;cursor:pointer}
+.p-go button{height:34px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
 .p-go .go{max-width:190px;padding:0 14px;border-radius:17px 0 0 17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .p-go .caret{padding:0 9px;border-radius:0 17px 17px 0;box-shadow:inset 1px 0 0 rgba(0,0,0,.16)}
 .p-go button:hover{filter:brightness(1.06)}
@@ -50,11 +50,11 @@
 
 /* notes page */
 .meeting-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:16px}
-.meeting-head h1{font-size:24px;line-height:1.2;margin:2px 0 3px}
+.meeting-head h1{font-size:16px;line-height:1.2;margin:2px 0 3px}
 /* notes page: one card, list on the left, the open note on the right; below 900px the two swap
    in and out like a phone mail app (the .detail class on .notes shows the open note) */
 .notes-head{display:grid;grid-template-columns:auto minmax(180px,1fr) auto;align-items:center;gap:12px;margin-bottom:14px}
-.notes-head h1{font-size:24px;line-height:1.2;margin:0 0 2px}
+.notes-head h1{font-size:16px;line-height:1.2;margin:0 0 2px}
 .notes-head .primary{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .notes-head input[type=search]{width:100%;min-width:0;max-width:440px;justify-self:end}
 .round-add.primary{flex:0 0 36px;width:36px;height:36px;min-width:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-size:25px;font-weight:400;line-height:1}
@@ -67,7 +67,7 @@
 .notes-rows{overflow:auto}
 .meet-sources{margin:0 0 14px}
 .meet-sources[hidden]{display:none}
-.meet-sources-label{margin:0 0 6px;font-size:12px;font-weight:500;color:var(--muted)}
+.meet-sources-label{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--muted)}
 .meet-tiles{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:thin}
 .meet-tile{flex:1 0 152px;display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;text-align:left;text-decoration:none;cursor:pointer}
 .meet-tile:hover:not(:disabled){border-color:var(--accent)}
@@ -81,7 +81,7 @@
 .meet-tile[data-state=delayed] .dot,.meet-tile[data-state=wait] .dot{background:var(--wait)}
 .meet-tile[data-state=error] .dot{background:var(--fail)}
 .meet-tile[data-state=error] .mt-status{color:var(--fail)}
-.meet-tile[data-state=off] .mt-status{color:var(--accent);font-weight:500}
+.meet-tile[data-state=off] .mt-status{color:var(--accent);font-weight:600}
 .meet-tiles.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(138px,1fr));overflow:visible}
 .meet-tile.big{flex-direction:column;justify-content:center;gap:10px;padding:18px 10px 16px;text-align:center}
 .meet-tile.big .mt-text{align-items:center}
@@ -91,7 +91,7 @@
 .msrc-logo.tint{border-color:transparent;background:color-mix(in srgb,hsl(var(--h) 60% 50%) 20%,var(--surface));color:color-mix(in srgb,hsl(var(--h) 65% 42%) 72%,var(--ink))}
 .msrc-logo .tool-initials{font-size:calc(var(--s,32px) * .36);font-weight:600}
 .meet-blank{display:flex;flex-direction:column;align-items:center;gap:14px;padding:36px 24px 40px;text-align:center}
-.meet-blank h2{margin:0;font-size:18px}
+.meet-blank h2{margin:0;font-size:14px}
 .meet-blank .meet-tiles{width:100%;max-width:840px}
 .meet-blank .primary{padding:9px 22px}
 .meet-or{font-size:12.5px;color:var(--muted)}
@@ -100,13 +100,13 @@
 .meet-row:last-child{border-bottom:0}
 .meet-row:hover{background:var(--surface2)}
 .meet-main{min-width:0}
-.note-title{display:block;max-width:100%;border:0;background:none;padding:0;color:var(--ink);font:inherit;font-weight:500;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note-title{display:block;max-width:100%;border:0;background:none;padding:0;color:var(--ink);font:inherit;font-weight:600;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .meet-row:hover .note-title{color:var(--accent)}
 .meet-meta{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;margin-top:2px;font-size:12.5px;color:var(--muted)}
 .meet-meta>*+*::before{content:'·';margin-right:6px}
 .meet-who{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .meet-side{display:flex;align-items:center;gap:8px}
-.meet-tasks{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent)}
+.meet-tasks{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent)}
 .meet-faces{display:flex;align-items:center}
 .meet-faces .av{flex:none;border:2px solid var(--surface);margin-left:-6px}
 .meet-faces .av:first-child{margin-left:0}
@@ -123,11 +123,11 @@
 .notes-back{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:0 0 10px;color:var(--accent);font:inherit;cursor:pointer}
 .note-head{display:flex;align-items:flex-start;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
 .note-head>div{flex:1;min-width:0}
-.note-head h2{display:flex;align-items:center;gap:8px;font-size:19px;line-height:1.25;min-width:0;overflow-wrap:anywhere}
+.note-head h2{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.25;min-width:0;overflow-wrap:anywhere}
 .note-head h2 .nk svg{width:17px;height:17px}
 .note-head .meta{color:var(--muted);font-size:12.5px;margin-top:3px}
 .note-head .pill{margin-top:5px}
-.note-head input{font-size:17px;font-weight:600;padding:6px 9px}
+.note-head input{font-size:15px;font-weight:600;padding:6px 9px}
 .note-content{margin-top:14px;line-height:1.55}
 .note-body{white-space:pre-wrap;max-height:340px;overflow:auto;overflow-wrap:anywhere}
 .note-body.aside{margin-top:12px;padding:8px 12px;border-left:2px solid var(--line);color:var(--ink)}
@@ -164,7 +164,7 @@
 .meet-done-cols .meet-sections{margin-top:0}
 .note-head h2[data-editable]{cursor:text;border-radius:6px;padding:2px 6px;margin-left:-6px}
 .note-head h2[data-editable]:hover{background:var(--bg)}
-.note-head input.meet-title{font-size:19px;font-weight:600;width:100%;padding:2px 6px;margin-left:-6px}
+.note-head input.meet-title{font-size:16px;font-weight:600;width:100%;padding:2px 6px;margin-left:-6px}
 .meta .note-sub{margin-left:8px}
 .meet-comments{border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:6px}
 .meet-comments h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0}
@@ -178,7 +178,7 @@
 .import-modal{width:min(640px,94vw);max-height:92vh;overflow:auto}
 .import-form{display:flex;flex-direction:column;gap:12px;padding:18px 20px}
 .import-form header{display:flex;align-items:center;justify-content:space-between}
-.import-form h2{margin:0;font-size:18px}
+.import-form h2{margin:0;font-size:14px}
 .import-form label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
 .import-form label input,.import-form label textarea,.import-form label select{color:var(--ink);font-size:14px}
 .import-people{border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}.import-people legend{font-size:13px;color:var(--muted);padding:0;margin-bottom:4px}.import-form .bot-editor-owners label{flex-direction:row;align-items:center;color:var(--ink)}
