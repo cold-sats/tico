@@ -28,7 +28,9 @@ html.demo #main.chat-layout{height:calc(100dvh - var(--demo-h))}
 :root{--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:22px;--s6:32px;--radius:9px;--mobile-nav-height:64px}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;font:14px/1.5 var(--sans);color:var(--ink);background:var(--bg);display:grid;grid-template-columns:328px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-height:100vh}
+/* The rails' widths; dragging an edge changes them (ui/app/rails.js, ui/styles/rails.css). */
+:root{--rail-left:236px;--rail-right:320px}
+body{margin:0;font:14px/1.5 var(--sans);color:var(--ink);background:var(--bg);display:grid;grid-template-columns:var(--rail-left) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-height:100vh}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}

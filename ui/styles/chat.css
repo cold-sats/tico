@@ -191,7 +191,7 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 #main.bot-chat-layout #pane-chat>.conv{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden;margin-bottom:0}
 /* desktop (#514): chat left, the bot's tasks right, each column scrolling on its own under the goal */
 #main.bot-split-layout{max-width:none}
-#main.bot-split-layout>#bot-work:not([hidden]){display:grid;grid-template-columns:minmax(0,1.3fr) minmax(320px,1fr);gap:var(--s4)}
+#main.bot-split-layout>#bot-work:not([hidden]){display:grid;grid-template-columns:minmax(0,1fr) var(--rail-right);gap:var(--s4)}
 #main.bot-split-layout #pane-tasks:not([hidden]){min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 #main.bot-split-layout #pane-tasks>.card:last-child{margin-bottom:0}
 #main.bot-split-layout #bot-chat-tasks{display:none!important}

@@ -30,6 +30,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   }
   await v2Refresh();
   void orgHistorySync();
+  void railsSync();
   window.gsBoot?.();
   window.hlBoot?.();
   // A team that has never been set up opens on its first run, not on an empty Chat.

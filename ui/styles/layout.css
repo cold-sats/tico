@@ -12,8 +12,6 @@
 #app-nudge .app-nudge-close{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px}
 body.native #app-nudge{display:none}
 .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-@media (max-width:1100px){body{grid-template-columns:300px 1fr}}
-@media (max-width:900px){body{grid-template-columns:270px 1fr}#side{width:270px}}
 /* phone: the frequent destinations live under the thumb; the full sidebar stays a drawer */
 #mobile-nav{display:none}
 #side-backdrop{display:none}

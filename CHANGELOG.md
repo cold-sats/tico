@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The sidebar is narrower (236px) and can be dragged wider or narrower; so can the tasks column on a bot page.
+  Your widths follow you between computers. Double-click an edge to reset it.
+
 ## [0.2.42] - 2026-10-01
 
 ### Fixed

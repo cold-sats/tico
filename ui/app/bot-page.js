@@ -289,6 +289,7 @@ async function pageBot(slug, tab) {
       <div id="t-assigned" class="tpane"></div></section>
     <details class="bot-done"><summary>Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane">Loading…</div></details>
   </div>
+  ${railEdgeHTML('right')}
   </div>
 
   ${limited ? '' : `<div id="pane-history" hidden>

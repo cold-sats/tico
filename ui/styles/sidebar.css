@@ -3,7 +3,7 @@
 /* sidebar */
 /* Fixed, not sticky: a page whose document scrolls (the org builder) would carry a sticky sidebar off with it, leaving empty space
    below its bottom bar. The grid's first column keeps the room it takes. */
-#side{grid-column:1;grid-row:1/-1;position:fixed;top:0;left:0;bottom:0;width:328px;min-height:0;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;padding:0 8px;z-index:20}
+#side{grid-column:1;grid-row:1/-1;position:fixed;top:0;left:0;bottom:0;width:var(--rail-left);min-height:0;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;padding:0 8px;z-index:20}
 .side-head{display:none;align-items:center;padding:8px 10px;flex:none}
 .side-close{display:none;margin-left:auto;background:none;border:0;border-radius:6px;color:var(--muted);font-size:22px;line-height:1;padding:4px 6px;cursor:pointer}
 .side-close:hover{color:var(--ink);background:var(--surface2)}
