@@ -51,13 +51,22 @@ function vaultPaint() {
     <td>${row.grants.length ? row.grants.map(grant => esc(vaultSubject(grant.subject))).join(', ') : '<span class="muted">Owners only</span>'}</td>
     <td><div class="row">${row.stored ? `<button class="ghost" data-vault-reveal="${esc(row.id)}" type="button">Reveal / copy</button>` : ''}
       ${VAULT.can_manage ? `<button class="ghost" data-vault-edit="${esc(row.id)}" type="button">Edit</button>` : ''}
+      ${VAULT.can_manage ? `<button class="ghost" data-vault-delete="${esc(row.id)}" type="button">Delete</button>` : ''}
       <button class="ghost" data-vault-share="${esc(row.id)}" type="button">${VAULT.can_manage ? 'Manage access' : 'Use with my bots'}</button></div></td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">No credentials match.</p>';
   host.onclick = event => {
     const button = event.target.closest('button'); if (!button) return;
     if (button.dataset.vaultReveal) vaultReveal(button.dataset.vaultReveal);
     if (button.dataset.vaultEdit) vaultEdit(VAULT.credentials.find(row => row.id === button.dataset.vaultEdit));
     if (button.dataset.vaultShare) vaultShare(button.dataset.vaultShare);
+    if (button.dataset.vaultDelete) vaultDelete(button.dataset.vaultDelete);
   };
+}
+async function vaultDelete(id) {
+  try {
+    await writeRequest('DELETE', `/v2/credentials/${encodeURIComponent(id)}`);
+    vaultClose();
+    await vaultLoad();
+  } catch(error) {toast(error.message);}
 }
 function vaultDialog(title,body) {
   vaultClose();

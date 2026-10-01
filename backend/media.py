@@ -507,6 +507,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         return await asyncio.to_thread(write, request, body, uploads,
                                        lambda c: deliver(c, auth, request.state.identity, rid, body, uploads))
 
+    @app.post("/api/v2/meetings/{rid}/delete")
     @app.post("/api/meetings/{rid}/delete")
     def delete(request: Request, rid: str, body: M.Empty):
         def work(c):

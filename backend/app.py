@@ -739,6 +739,17 @@ def create_app(settings=None):
 
     def send(c, who, body):
         in_assistant_room = False
+        if str(body.to).lower() == "assistant":
+            if who.role not in ("human", "owner") or who.via:
+                raise Problem("forbidden", "Only a human writes to their private Assistant", 403)
+            if body.conversation_id and not assistant_room(c, who, body.conversation_id):
+                raise Problem("forbidden", "Use your own Assistant room", 403)
+            assistant_bot = H.bot(c, settings.assistant_bot)
+            if not assistant_bot or assistant_bot["state"] != "active":
+                raise Problem("assistant_off", "The " + settings.assistant_name + " is off", 409)
+            from .assistant import ensure_room
+            body.to = settings.assistant_bot
+            body.conversation_id = ensure_room(c, who.actor, settings.assistant_bot)["id"]
         to = auth.target(c, who, body.to)
         if to.startswith("bot:"):
             docs = (who.role in ("human", "owner") and body.conversation_id and to == "bot:" + views.DOC_BOT
@@ -903,7 +914,7 @@ def create_app(settings=None):
     def access_person_add(request: Request, body: M.AccessPersonAdd):
         """Add a person to the roster and the sign-in allow list. An owner or admin may add anyone; a member only
         a coworker in the company's email domain (and only if `add_people` is on for them). BotOps adds a coworker in the
-        company's domain at once; anyone outside it answers with a Confirm card first: it needs the requester's own click."""
+        Team's domain at once; an owner or admin may also add someone outside it."""
         caller = request.state.identity
         auth.domain(caller)
 
@@ -915,13 +926,6 @@ def create_app(settings=None):
             roster = views.roster(c)
             domains_ = Access.company_domains(c, settings, auth.owner_email)
             Access.check_may_add(c, settings, P.person(H.actor_id(who.actor), roster), auth.company_role(who), email, domains_)
-            if risky(who) and Access.domain_of(email) not in domains_:
-                return propose_card(c, who, "POST", "/api/v2/access/people",
-                                    {"name": body.name, "email": email, "title": body.title, "team": body.team,
-                                     "reports_to": body.reports_to},
-                                    f"Add {body.name or email} ({email}) to the roster"
-                                    + "".join(f", team {t}" for t in (body.team,) if t)
-                                    + "".join(f", reporting to {r}" for r in (body.reports_to,) if r))
             _, row = Access.add_person(c, who.actor, roster, name=body.name, email=email, title=body.title,
                                        team=body.team, reports_to=body.reports_to)
             return {"person": row["id"], "email": email, "name": row["name"]}
@@ -1913,6 +1917,9 @@ def create_app(settings=None):
                     **task_message_page(c, row)}
 
     def task_create(c, who, body, lint=True):
+        request_id = body.request_id
+        if request_id:
+            who = delegated_identity(c, who, request_id)
         if body.parent_id:
             body.parent_id = auth.resolve_task(c, who, body.parent_id)
         owner = auth.target(c, who, body.owner, need="write")
@@ -1937,6 +1944,8 @@ def create_app(settings=None):
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
+        if request_id:
+            c.execute("UPDATE tasks SET request_id=? WHERE id=?", (request_id, row["id"]))
         for url in body.links:
             H.task_link(c, who.actor, row["id"], url)
         return {"task": task_view(H.task(c, row["id"]), c)}
@@ -2214,6 +2223,14 @@ def create_app(settings=None):
             if not turn:
                 raise Problem("on_behalf_of", "BotOps acts for a person only in a turn a person's chat message started", 403)
             message_id = turn["message_id"]
+            initial = H.message(c, message_id)
+            task_id = H.message_task_id(initial) if initial else None
+            task = H.task(c, task_id) if task_id else None
+            if task and task.get("request_id") and task["owner"] == who.actor:
+                origin = H.message(c, task["request_id"])
+                if origin and origin["from_actor"] == task["requester"]:
+                    message_id = task["request_id"]
+                    c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, origin["conversation_id"]))
         msg = H.message(c, message_id)
         started = (H.message(c, turn["message_id"]) or {}).get("from_actor", "") if turn else ""
         if explicit and str(started).startswith("human:") and msg and msg["from_actor"] != started:
@@ -2689,6 +2706,18 @@ def create_app(settings=None):
         who = request.state.identity
 
         def work(c):
+            if body.routines is not None:
+                settings_admin._manager(c, who, bot)
+                live = {r["id"]: r for r in routines.listing(c, bot)}
+                requested = {r.id for r in body.routines}
+                for expected in body.routines:
+                    row = live.get(expected.id)
+                    if not row or any((row.get(key) if key == "enabled" else row.get(key) or "") != value for key, value in (
+                            ("title", expected.title), ("cron", expected.cron), ("timezone", expected.timezone),
+                            ("enabled", int(expected.enabled)), ("event_name", expected.on))):
+                        raise Problem("routine_mismatch", "The live Routine does not match the requested schedule; verify it before activating", 409)
+                if any(r["enabled"] and rid not in requested for rid, r in live.items()):
+                    raise Problem("routine_mismatch", "An unrelated Routine is enabled; disable it before activating", 409)
             # An external agent (a Hermes profile) has a credential, not a computer.
             placed = ({"computer": None, "placed": False} if agents.external_harness(c, bot)
                       else place_now(c, who, bot, body.computer))
@@ -2707,7 +2736,7 @@ def create_app(settings=None):
                 send(c, who, M.MessageCreate(to="bot:" + bot, text="Let's set you up."))
                 setup = True
             # Going live turns its first routine on too: nobody approves it separately.
-            armed = onboarding.arm_first_routine(c, who, bot)
+            armed = onboarding.arm_first_routine(c, who, bot) if body.routines is None else None
             return {"bot": bot, "state": H.bot(c, bot)["state"], "computer": placed["computer"], "placed": placed["placed"],
                     "activated": activated, "setup_started": setup, "routine_armed": armed}
         return mutate(request, body, work)

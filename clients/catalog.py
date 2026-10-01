@@ -41,12 +41,11 @@ MAX_FILL = 1_000_000            # a file worth filling; anything larger is copie
 MAILBOX_RE = re.compile(r"^Mailbox:\s*(\S+@\S+)\s*$", re.M)
 # The onboarding answers, in the order `knowledge/company.md` says them. A missing answer is a
 # line the page does not have rather than an empty one.
-ANSWERS = (("what_we_do", "What the company does"),
+ANSWERS = (("what_we_do", "What the Team does"),
            ("customers", "Who its customers are"),
            ("team_size", "How big the team is"),
            ("work_arrives", "Where work arrives"),
-           ("repetitive_work", "What repeats often enough to hand to a bot"),
-           ("never_without_person", "What never happens without a person"))
+           ("repetitive_work", "What repeats often enough to hand to a bot"))
 
 
 # ----------------------------------------------------------------------------- reading the cards

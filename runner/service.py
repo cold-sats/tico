@@ -835,40 +835,83 @@ class Runner:
         return values
 
     def credential_environment(self, bot, config=None):
-        """Load the bot's credentials plus explicitly named keys from shared profiles."""
-        env = dict(os.environ)
+        """Process settings only. Credentials arrive through this bot's live vault grants."""
+        settings = {"HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "TERM", "COLORTERM",
+                    "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"}
+        return {k: v for k, v in os.environ.items() if k in settings or k.startswith("LC_")}
+
+    def migrate_credentials(self, assignments):
+        """Once per existing bot, preserve the legacy credentials it could read (its own file, `_shared.env`, declared
+        and runtime keys) as vault grants, so nothing it uses today breaks."""
+        from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
+        pending = set(self.client.get("runner-credential-migration")["bots"])
         secrets_dir = Path(self.config["projects_dir"]) / "secrets"
-        isolation.adopt(secrets_dir)     # a file written by `docker exec` as root is still the bots'
-        env.update({k: v for k, v in self._read_env(secrets_dir / TEAM_KEYS_FILE).items() if k not in LOGIN_ONLY})
-        for path in (secrets_dir / "_shared.env", secrets_dir / (bot + ".env")):
-            env.update(self._read_env(path))
-        for access in tools_of(config) or []:
-            if not isinstance(access, dict):
+        shared = {**self._read_env(secrets_dir / TEAM_KEYS_FILE), **os.environ,
+                  **self._read_env(secrets_dir / "_shared.env")}
+        for entry in assignments:
+            bot = entry["bot"]
+            if bot not in pending:
                 continue
-            profile, key = str(access.get("credential_profile") or ""), str(access.get("env") or "")
-            if not profile or not key or not PROFILE_RE.fullmatch(profile):
+            config = entry.get("config") or {}
+            manifest = manifest_path(self.local_path(bot))
+            try:
+                declared = yaml.safe_load(manifest.read_text()) if manifest.is_file() else config
+            except (OSError, yaml.YAMLError):
+                declared = config
+            if not isinstance(declared, dict):
+                declared = config
+            own = self._read_env(secrets_dir / (bot + ".env"))
+            values = dict(own)
+            for access in tools_of(declared) or []:
+                if not isinstance(access, dict):
+                    continue
+                key, profile = str(access.get("env") or ""), str(access.get("credential_profile") or "")
+                source = self._read_env(secrets_dir / (profile + ".env")) if profile and PROFILE_RE.fullmatch(profile) else shared
+                if key and key not in values and source.get(key):
+                    values[key] = source[key]
+            # Every existing bot could read the computer's `_shared.env` before grants, and its scripts may use a
+            # key without declaring it, so each one keeps them all. Only bots created from now on start with none.
+            for key, value in self._read_env(secrets_dir / "_shared.env").items():
+                if key not in values and value and key not in LOGIN_ONLY:
+                    values[key] = value
+            runtime_keys = {"claude": ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
+                            "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "cursor": ("CURSOR_API_KEY",),
+                            "pi": ("OPENROUTER_API_KEY",)}
+            runtimes = {config.get("runtime"), (configured_fallback(config) or {}).get("runtime")}
+            for runtime in runtimes:
+                for key in runtime_keys.get(runtime, ()):
+                    if key not in values and shared.get(key):
+                        values[key] = shared[key]
+            values = {k: v for k, v in values.items() if v and re.fullmatch(r"[A-Z_][A-Z0-9_]*", k)
+                      and k not in RESERVED_ENV and not k.startswith(RESERVED_PREFIXES)
+                      and k not in ("OP_SERVICE_ACCOUNT_TOKEN", "HUB_INGEST_TOKEN")}
+            credentials = []
+            for key, value in values.items():
+                path = Path(value)
+                file = value.startswith("/") and path.is_relative_to(secrets_dir) and path.is_file()
+                credentials.append({"env": key, "value": path.read_text() if file else value,
+                                    "kind": "file" if file else "api_key"})
+            self.client.post("runner-credential-migration", {"bot": bot, "credentials": credentials})
+        self.protect_credential_files()
+
+    def protect_credential_files(self):
+        """With isolation, legacy files belong to the supervisor; bot shells use vault grants."""
+        secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+        if not isolation.identity() or not secrets_dir.is_dir() or secrets_dir.is_symlink():
+            return
+        for path in (secrets_dir, *secrets_dir.rglob("*")):
+            if path.is_symlink():
                 continue
-            value = self._read_env(secrets_dir / (profile + ".env")).get(key)
-            if value is not None:
-                env[key] = value
-        return env
+            os.chown(path, os.geteuid(), os.getegid(), follow_symlinks=False)
+            os.chmod(path, 0o700 if path.is_dir() else 0o600)
 
     def granted_environment(self, attempt, env):
-        """`env` cut to the variables this bot was given: its own secrets file, `_shared.env`, a credential profile
-        it names and its vault grants. The runner's own process environment is not the bot's to use in an MCP header."""
+        """Only the variables granted to this bot may enter its MCP headers."""
         names = self.granted_names(attempt["bot"], attempt.get("config"), self.vault_names.get(attempt["id"], set()))
         return {k: v for k, v in env.items() if k in names}
 
     def granted_names(self, bot, config, vault=()):
-        secrets_dir = Path(self.config["projects_dir"]) / "secrets"
-        names = set(self._read_env(secrets_dir / "_shared.env")) | set(self._read_env(secrets_dir / (bot + ".env"))) | set(vault)
-        for access in tools_of(config) or []:
-            if not isinstance(access, dict):
-                continue
-            profile, key = str(access.get("credential_profile") or ""), str(access.get("env") or "")
-            if profile and key and PROFILE_RE.fullmatch(profile) and key in self._read_env(secrets_dir / (profile + ".env")):
-                names.add(key)
-        return names
+        return set(vault)
 
     MCP_REACH_TTL_S = 300
 
@@ -916,11 +959,10 @@ class Runner:
         return mcp_servers.supported(servers, runtime, harness)
 
     def environment(self, attempt):
-        # Existing credential declarations resolve locally; the machine credential is never included.
+        # Credentials come from live grants; the machine credential is never included.
         # --projects selects the operator's actual layout, which need not be the
         # parent of this checkout. Never fall back to another operator's secrets.
         env = self.credential_environment(attempt["bot"], attempt.get("config"))
-        op.resolve_op_refs(env)
         vault_keys = set()
         if attempt.get("credential_vault"):
             granted = Client(self.config["url"], attempt["token"], timeout=15, retries=1).get("credential-runtime")
@@ -949,6 +991,14 @@ class Runner:
                 else:
                     env[key] = item["value"]
                 vault_keys.add(key)
+        refs = {k: env[k] for k in vault_keys if str(env.get(k) or "").startswith(op.OP_REF)}
+        if refs:
+            secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+            refs["OP_SERVICE_ACCOUNT_TOKEN"] = (self._read_env(secrets_dir / "_shared.env").get("OP_SERVICE_ACCOUNT_TOKEN")
+                                                or os.environ.get("OP_SERVICE_ACCOUNT_TOKEN", ""))
+            op.resolve_op_refs(refs)
+            env.update({k: refs[k] for k in vault_keys if k in refs and k != "OP_SERVICE_ACCOUNT_TOKEN"})
+            self.vault_values[attempt["id"]].extend(env[k] for k in vault_keys if env.get(k))
         for key in op.SECRET_KEYS:
             if key not in vault_keys:
                 env.pop(key, None)
@@ -1110,7 +1160,8 @@ class Runner:
                     if access and time.monotonic() >= self._tools_after:
                         tools = declared_access.declared_tools(
                             access, self.credential_environment(bot, {**entry["config"], "access": access, "tools": access}),
-                            held=("GOOGLE_SA_KEY",) if mail_key.held_by_computer(self.config) else ())
+                            held=tuple(getattr(self, "bot_credential_names", {}).get(bot, ()))
+                            + (("GOOGLE_SA_KEY",) if mail_key.held_by_computer(self.config) else ()))
                     for row, declared_entry in zip(tools, [e for e in access if isinstance(e, dict) and str(e.get("service") or "").strip()]):
                         if row.get("mcp"):
                             row["mcp"]["status"] = self.mcp_reach(bot, entry["config"], row, declared_entry)
@@ -1174,7 +1225,7 @@ class Runner:
 
     def headless_secret(self, runtime):
         """(name, value) of the API key or token that signs `runtime` in without a browser, or ("", "").
-        The runner's own environment counts, and so does `secrets/_shared.env`, where bots get it."""
+        The runner's own environment and legacy `secrets/_shared.env` count for model sign-in, not run delivery."""
         secrets_dir = Path(self.config["projects_dir"]) / "secrets"
         env = {**self._read_env(secrets_dir / TEAM_KEYS_FILE), **os.environ, **self._read_env(secrets_dir / "_shared.env")}
         for name in HEADLESS_LOGIN.get(runtime, ()):
@@ -1341,7 +1392,7 @@ class Runner:
             relevant = [row for row in assignments
                         if row.get("config", {}).get("runtime") == "gemini"]
             cli = [row for row in relevant if uses_gemini_cli(row.get("config"))]
-            keyed = {row["bot"]: bool(self.credential_environment(row["bot"], row.get("config")).get("GEMINI_API_KEY"))
+            keyed = {row["bot"]: "GEMINI_API_KEY" in getattr(self, "bot_credential_names", {}).get(row["bot"], ())
                      for row in cli}
             missing = sorted(bot for bot, has in keyed.items() if not has)
             if not cli:
@@ -1367,12 +1418,11 @@ class Runner:
                 except OSError:
                     authenticated, detail = "failed", "Cursor sign-in could not be checked"
         elif runtime == "pi":
-            from .hosts.pi import openrouter_key
-            if openrouter_key(os.environ) or openrouter_key(
-                    {"HUB_WORKSPACE": str(self.config.get("projects_dir") or "")}):
-                authenticated, detail = "ready", "OpenRouter API key configured"
-            else:
-                authenticated, detail = "missing", "OPENROUTER_API_KEY required in secrets/_shared.env"
+            relevant = [row for row in assignments if row.get("config", {}).get("runtime") == "pi"]
+            missing = sorted(row["bot"] for row in relevant
+                             if "OPENROUTER_API_KEY" not in getattr(self, "bot_credential_names", {}).get(row["bot"], ()))
+            authenticated, detail = (("missing", "OpenRouter API key grant required (" + ", ".join(missing) + ")")
+                                     if missing else ("ready", "OpenRouter API key configured"))
         try:
             if executable:
                 result = isolation.run([executable, "--version"], capture_output=True, text=True, timeout=5, env=env)
@@ -1415,17 +1465,6 @@ class Runner:
             held = None
         if held == "exposed":
             document["mail_key"] = held
-        # Health warns when bots members created run beside keys every bot on this computer receives.
-        try:
-            shared = self._read_env(Path(self.config["projects_dir"]) / "secrets" / "_shared.env")
-        except OSError:
-            shared = {}
-        try:
-            team = self._read_env(Path(self.config["projects_dir"]) / "secrets" / TEAM_KEYS_FILE)
-        except OSError:
-            team = {}
-        if any(shared.values()) or any(v for k, v in team.items() if k not in LOGIN_ONLY):
-            document["shared_env"] = True
         if self.tools is not None and time.monotonic() >= self._harness_after:
             document["harnesses"] = self.tools.report(runtimes)
         if RECENT:
@@ -2035,6 +2074,8 @@ class Runner:
 
     def maintain(self):
         assignments = self.client.get("runners/assignments")
+        self.migrate_credentials(assignments)
+        self.bot_credential_names = self.client.get("runner-credential-grants")["bots"]
         self.assignments_seen = assignments
         eligible = self.client.get("runners/eligible")
         candidates = self.readiness_candidates(assignments, eligible)
@@ -2243,7 +2284,6 @@ class Runner:
             problem = "That is not a variable or bot this computer can read"
         else:
             secrets_dir = Path(self.config["projects_dir"]) / "secrets"
-            isolation.adopt(secrets_dir)
             value = self._read_env(secrets_dir / (bot + ".env")).get(key, "")
             if value.startswith(op.OP_REF):        # a 1Password reference: hand over what it resolves to, as a run would
                 env = {**self._read_env(secrets_dir / "_shared.env"), key: value}

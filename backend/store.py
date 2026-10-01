@@ -534,6 +534,7 @@ class Store:
                 # `onboarded`; NULL for every other bot (backend/onboarding.py).
                 H.add_column(c, "bot_config", "onboarding_state", "TEXT")
                 H.add_column(c, "settings_changes", "via", "TEXT")
+                H.add_column(c, "tasks", "request_id", "TEXT")
                 # When an archived bot's agent last used its still-valid credential (backend/agents.py).
                 H.add_column(c, "agents", "archived_seen", "TEXT")
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=1").fetchone():
@@ -957,6 +958,16 @@ class Store:
                 # so no migration number to collide with another branch's.
                 from . import groups as Groups
                 Groups.migrate(c, self.settings)
+                from .credentials import FILE_MIGRATION
+                if not c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (FILE_MIGRATION,)).fetchone():
+                    pending = [r[0] for r in c.execute("SELECT slug FROM bots")]
+                    c.execute("INSERT INTO registry_metadata VALUES(?,?)", (FILE_MIGRATION, encode(pending)))
+                record = c.execute("SELECT value_json FROM registry_metadata WHERE key='onboarding'").fetchone()
+                if record:
+                    choices = H._json(record[0], {})
+                    if isinstance(choices, dict) and isinstance(choices.get("answers"), dict) and "never_without_person" in choices["answers"]:
+                        choices["answers"].pop("never_without_person")
+                        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='onboarding'", (encode(choices),))
                 c.commit()
             except Exception:
                 c.rollback()

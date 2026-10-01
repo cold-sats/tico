@@ -4,10 +4,9 @@ A bot owns its tools and its skills. To give one a service such as Jira or Linea
 MCP server to anything we write: the vendor keeps it current, and Tico passes it to the bot's harness. Ask
 BotOps ("connect Linear to Atlas") and it does the steps below; this page says what they are.
 
-**A bot needs a long-lived API token.** OAuth access expires within hours and needs a person to sign in again, which a bot
-running on a schedule cannot do. So a vendor's MCP server is for a bot only when it takes an API token or key in a header. If it
-is OAuth only, use the vendor's REST API with an API token from a skill. Tico does not do OAuth flows for bots, and BotOps never
-sets a bot up on OAuth that needs re-signing.
+Tico does not currently manage OAuth renewal for bots. Prefer a vendor-supported API Credential or a connection with
+supported automatic refresh. Check whether that provider requires renewed human consent. If its MCP server only offers
+an OAuth flow Tico cannot renew, use a supported API Credential through the vendor's REST API in a skill.
 
 | Service | Vendor MCP server | API token or key in a header? | For a bot |
 |---|---|---|---|
@@ -60,9 +59,9 @@ The operator's own MCP servers never reach a bot through Tico. The bot's own `.m
 
 ### When the vendor's server needs OAuth
 
-An OAuth consent screen needs a person and a browser, and its tokens expire, so a bot on a schedule cannot keep one. Where a vendor
-offers an API token or key for its MCP server, use that (the table above). Where it does not, do not use the MCP server for a
-bot: call the vendor's REST API with an API token from a skill (Trello below is the example).
+An OAuth connection may renew automatically when the provider and client support refresh. Tico does not currently
+manage that renewal for bots. Use a supported API Credential, or a connection that manages automatic refresh, and check
+whether the provider requires renewed human consent. Trello's REST skill below is an example of the API Credential route.
 
 ## Jira and Confluence
 

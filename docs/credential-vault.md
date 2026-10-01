@@ -96,17 +96,23 @@ what it posts and logs. `hub message redact <id>` does the same for one message.
 
 ## Credential files on the computer
 
-`<workspace>/secrets/_shared.env` (every run on that computer inherits it) and
-`secrets/<slug>.env` (one bot; it wins), mode 600, never in git. The runner loads both at the
-start of a run. `credential_profile` on an `tools:` entry loads one named variable from
-`secrets/<profile>.env`, not the whole file.
+Bots receive only their granted Credentials. A run does not inherit the runner's process credentials, `_shared.env`,
+its old bot file, or a profile file. Revoking a grant takes the value out of the next run, even when an old file still has it.
+
+On upgrade, each existing bot automatically gets grants for everything it could read before: its own file's variables,
+every key in its computer's `_shared.env` (except the Codex sign-in key), the variables its Tools name, and the key used
+by its model runtime. The Computer encrypts those values into Credentials through its own signed-in
+channel. A bot created after the upgrade inherits no shared tool credentials. Migration is once per existing bot, and
+never restores a revoked grant. Legacy files stay available to operator tools, but are no longer a source for run environments.
+On isolated Computers, the supervisor owns these files. A Computer without process isolation still has the shared
+filesystem trust boundary described in [SECURITY.md](../SECURITY.md); environment filtering does not isolate its shell.
+Use Credentials or its chat card for new values; grant them to the bot that needs them.
 
 ## 1Password references
 
-A value in a credential file may be `op://vault/item/field` instead of the credential. The runner
+A stored Credential may be `op://vault/item/field` instead of the credential. The runner
 resolves it at run start with a read-only 1Password service account (`OP_SERVICE_ACCOUNT_TOKEN`
-in `secrets/_shared.env`, `runner/op.py`) and strips that token, `OPENROUTER_API_KEY` and
-`HUB_INGEST_TOKEN` from the run's environment. A reference that does not resolve becomes an
+on the Computer, `runner/op.py`). The service account token stays with the runner; only the resolved granted value reaches the bot. A reference that does not resolve becomes an
 empty value, so preflight shows it as missing instead of a run failing halfway. Rotating an item
 in 1Password reaches a reference on the next run.
 
@@ -123,10 +129,19 @@ breaks the `op://` form; reference it by its item id.
   draft fails lint for this reason. A bot that needs one opens a card in the chat; BotOps stores what a human
   pastes and removes it from the conversation.
 - A missing credential is not yours to work around: open the card (`hub credential request`), or for a task no human is in,
-  name the variable on the task and stop. `$HUB_DIR/scripts/preflight.sh <slug>` shows every declared credential as present or missing.
-- Saving a credential is not permission to use it. Only an `tools:` entry (and, for the Tico
-  vault, a grant) connects a bot to a credential. Changing `tools:` is a task for the owner.
+  name the variable on the task and stop. The bot's Tools row shows every declared Credential as present or missing.
+- Saving a credential is not permission to use it. Only a `tools:` entry and a grant connects a bot to a credential. Changing `tools:` is a task for the owner.
 - A granted value exists only for that run; do not copy it anywhere that outlives the run.
-- A shared read credential and a narrower write credential can carry the same variable name: the bot's own
-  file wins over `_shared.env`, and its `tools:` entry must say `write` before it may write.
-- The launchd job on a Mac does not see a shell export; a credential must be in a credential file.
+- Each bot can have only one active granted Credential for a variable. Revoke its previous grant before replacing it.
+- Store new values in Credentials and grant them to the bot; a shell export does not grant access.
+
+## Delete a Credential
+
+A Credential administrator can choose **Delete** in Credentials, use `hub credential delete <name>`, or call
+`DELETE /api/v2/credentials/<id>`. Deletion erases the encrypted value and all grants together. History records names and
+variable names only. Revocation removes access while keeping the stored value; deletion removes the Credential itself.
+
+**Every computer (signs models in)** is available only for stored model API keys and tokens, with the variable name set to
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or `CURSOR_API_KEY`. Naming a Credential after a variable alone
+does not set that field. This signs the model software in; tool Credentials still need a grant per bot.
+`hub_credential_grant` targets one bot; use Credentials to grant a model key to Every computer.

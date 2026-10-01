@@ -383,7 +383,7 @@ outbound_send: false           # no email, DM, post or invite leaves the team
 tools:
   - service: gmail
     identity: "desk@example.com"
-    can: [read, draft]         # send only with outbound_send: true and an approval
+    can: [read, draft]         # send only with outbound_send: true
     env: GOOGLE_SA_KEY
     note: "reads and drafts on its own mailbox; never files or sends"
   - service: warehouse-api
@@ -396,30 +396,26 @@ tools:
 - `service` and `identity` say what and as whom. `can:` is the verb list (`read`, `draft`, `post`,
   `act`, `use`, `send`): add the narrowest verb that does the job.
 - `env:` names the environment variable the credential arrives in. The name, never the value.
-- `credential_profile:` points at a shared profile when several bots use the same credential, so
-  you store it once.
-- `vault: hub` says the value is granted to this bot in Settings → Credentials rather than kept in
-  a credential file, so preflight does not look for it on disk.
+- `credential_profile:` is a legacy import hint. On upgrade, Tico migrates this bot's declared variable
+  from that profile into a grant. New access uses Credentials.
+- `vault: hub` documents vault delivery. All run Credentials now require a grant to this bot.
 - `mcp:` makes the tool a remote MCP server (`{url, transport: http|sse, headers}`): Tico's runner passes it to the bot's
-  harness next to the hub's own tools. The `headers` may use `${VAR}` for this entry's `env` variable, filled only from a
-  credential granted to this bot. See [connect-tools.md](connect-tools.md) for Jira, Confluence, Linear, PostHog, Sentry, Trello and GitHub (and why a bot needs an API token, not OAuth).
+  harness next to Tico's own tools. The `headers` may use `${VAR}` for this entry's `env` variable, filled only from a
+  credential granted to this bot. See [connect-tools.md](connect-tools.md) for Jira, Confluence, Linear, PostHog, Sentry, Trello and GitHub (and Tico's OAuth renewal limitation).
 - `note:` records who authorized it and what is excluded; human and bot readers rely on it. A
   browser-based access also names `sites:`, so the tool can refuse everything else.
 
-**Where the values live.** On the computer that runs the bot, under the environment's workspace:
+**Where the values live.** Store the value in Credentials or its chat card and grant it to the bot.
+Tico delivers it for one run as an environment variable or a mode-0600 temporary file removed afterwards.
+Never put a value in a task, chat, or repository.
 
-| File | Holds |
-|---|---|
-| `<workspace>/secrets/_shared.env` | Values every bot in the environment needs |
-| `<workspace>/secrets/<slug>.env` | That one bot's own credentials |
-| `<workspace>/secrets/<profile>.env` | A shared `credential_profile` used by several bots |
+Existing installs automatically migrate each existing bot's own file, every key in its computer's `_shared.env`
+(except the Codex sign-in key) and its declared profile Credentials into grants, so nothing it uses today breaks.
+Legacy files remain available for administrator import, but runs do not load them as a fallback. Revoking a
+grant removes delivery even when an old file still exists. See [credential-vault.md](credential-vault.md).
 
-Mode `600`, owned by the owner, never in git, never pasted into a task or a chat. A credential
-kept in the shared vault instead is delivered only for the duration of one run, as an environment
-variable or a mode-0600 temporary file that is removed afterwards.
-
-Declaring access does not provision anything. The owner puts the value on the computer, or grants
-the vault credential to the bot; preflight then reports whether every declared credential actually
+Declaring access does not provision anything. A Credential administrator grants the value to the bot;
+preflight then reports whether every declared Credential actually
 resolves. Two things need no entry: Tico itself (`hub` and the `hub_*` MCP tools come with
 every run) and the decision model behind `hub_decision_ask` (`skills/decisions/SKILL.md`), whose credential
 Tico holds. A bot that needs a service it has not declared stops and says so on the task; it never
@@ -589,3 +585,7 @@ Two consequences when you run more than one environment:
   environment.
 - **Credentials never travel.** Each environment's `secrets/` directory is its own, on its own
   computer, and a vault grant in one environment means nothing in another.
+
+Custom `can` verbs describe intent; they do not add enforcement. Standard verbs use each Tool's supported permission checks.
+Use `hub tool add <bot> <service> --can <verbs> --dry-run` to validate an entry without opening a BotOps task.
+`--title-prefix "<prefix>"` preserves the requested prefix on generated access tasks.

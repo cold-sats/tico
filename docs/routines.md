@@ -70,6 +70,11 @@ bot reads email — its mailboxes. Expand a row for the recent firings: the occu
 it ran, and a link to the task. `hub sql` reads the same rows: `schedules`,
 `schedule_config` (timezone, enabled) and `schedule_occurrences`.
 
+Before taking a bot live, BotOps reads its live Routines with the requester's rights, applies the requested schedule,
+and disables unrelated template Routines. `hub_bot_go_live` accepts `routines`, an expected list of `id`, `title`,
+`cron` (or `on`), `timezone` and `enabled`; the server checks it before activation. In the CLI, pass the JSON list
+with `hub bot go-live <bot> --routines-file <file>`. This also preserves disabled Routines during activation.
+
 ## Templates
 
 A template's `bot.yaml` may declare `routines:` (`id`, `title`, `cron` or `on`,

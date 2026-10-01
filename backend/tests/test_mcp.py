@@ -122,3 +122,56 @@ def test_tools_refuse_a_runner_credential_like_http_does(api):
     err, out = call(api, "hub_message_list", token=r["token"])
     assert err and out["error"] == "identity"
 
+
+def test_tool_usage_errors_and_local_tools_return_actionable_tool_errors(api):
+    err, out = call(api, "hub_bot_model", {"bot": "ops", "model": "qa-unknown-model"})
+    assert err and out["error"] == "usage" and "Models:" in out["detail"]
+    err, out = call(api, "hub_bot_copy", {"bot": "ops"})
+    assert err and out["error"] == "local_only" and "Computer" in out["detail"] and "BotOps" in out["detail"]
+    err, out = call(api, "hub_whoami")
+    assert not err and out["actor"] == "human:ana"
+
+
+def test_personal_token_api_bot_settings_and_archive_use_the_humans_rights(api):
+    token = post(api, "me/tokens", {"label": "QA agent"})["token"]
+    err, out = call(api, "hub_api", {"method": "GET", "path": "me"}, token=token)
+    assert not err and out["actor"] == "human:ana"
+    err, out = call(api, "hub_bot_update", {"slug": "ops", "description": "QA requested change"}, token=token)
+    assert not err and "needs_confirm" not in out
+    member = post(api, "me/tokens", {"label": "QA member"}, "cara-test")["token"]
+    err, out = call(api, "hub_api", {"method": "PUT", "path": "access/rules", "body": {"member_tokens": False}}, token=member)
+    assert err and out["error"] == "forbidden"
+    err, out = call(api, "hub_bot_archive", {"bot": "ops"}, token=token)
+    assert not err and out["status"] == "archived" and "needs_confirm" not in out
+
+
+def test_assistant_tools_and_alias_always_use_the_token_humans_private_room(api):
+    token = post(api, "me/tokens", {"label": "QA Assistant"})["token"]
+    err, own = call(api, "hub_assistant_read", token=token)
+    assert not err and own["room_id"]
+    other = get(api, "assistant", "ben-test")
+    err, sent = call(api, "hub_assistant_send", {"text": "Help"}, token=token)
+    assert not err and sent["message"]["conversation_id"] == own["room_id"]
+    err, sent = call(api, "hub_message_send", {"to": "assistant", "text": "Help"}, token=token)
+    assert not err and sent["message"]["conversation_id"] == own["room_id"]
+    post(api, "messages", {"to": "assistant", "text": "Help", "conversation_id": other["room_id"]}, token, expected=403)
+    assert get(api, "assistant", "ben-test")["messages"] == other["messages"]
+
+
+def test_personal_token_friendly_cleanup_archives_docs_files_and_deletes_meetings(api):
+    from backend.tests.test_docs import make
+    from backend.tests.test_files import publish
+    from backend.tests.test_media import import_meeting
+    token = post(api, "me/tokens", {"label": "QA cleanup"})["token"]
+    doc = make(api, title="QA cleanup report")
+    err, archived = call(api, "hub_doc_archive", {"ref": doc["path"]}, token=token)
+    assert not err and archived["doc"]["archived"] is True
+    _, _, attempt = setup_attempt(api)
+    file = publish(api, attempt, name="qa-report.md").json()["file"]
+    err, archived = call(api, "hub_file_archive", {"id": file["id"]}, token=token)
+    assert not err
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT archived FROM bot_files WHERE id=?", (file["id"],)).fetchone()[0] == 1
+    meeting = import_meeting(api, title="QA cleanup meeting")
+    err, deleted = call(api, "hub_meeting_delete", {"id": meeting["id"]}, token=token)
+    assert not err and deleted["ok"] and deleted["recoverable"]

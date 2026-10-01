@@ -51,12 +51,10 @@ separate_users() {
   for file in "$HOME"/runner.json "$HOME"/runner.json.*; do
     [ -f "$file" ] && [ ! -L "$file" ] && chown "$SUPERVISOR_UID:$SUPERVISOR_GID" "$file" && as_supervisor chmod 0600 "$file"
   done
-  # What a turn works in: the workspace, its secrets and the model logins are the bot user's.
+  # The workspace and model logins are shared; legacy secrets are the supervisor's.
   as_supervisor mkdir -p "$HOME/workspace/secrets"
   as_supervisor chmod 0770 "$HOME/workspace"
-  # The supervisor hands the secrets folder to the bot user before a turn (runner/isolation.py adopt), so after
-  # the first turn it is not ticorun's to chmod: give it to the bot user and set its mode as that user.
-  chown "$BOT_UID:$SUPERVISOR_GID" "$HOME/workspace/secrets" && as_bot chmod 0770 "$HOME/workspace/secrets"
+  chown "$SUPERVISOR_UID:$SUPERVISOR_GID" "$HOME/workspace/secrets" && as_supervisor chmod 0700 "$HOME/workspace/secrets"
   # The mail tool's folder, <workspace>/runtime/mail: a bot's first `mail.sh` builds its venv there, and the
   # supervisor's connectors job keeps mail.db there. The job made these folders as ticorun (0755) on a new
   # computer, so the bot user could not create the venv ("permission denied", run blocked). They are the bot

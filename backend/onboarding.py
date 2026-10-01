@@ -48,13 +48,12 @@ EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": "", "owner_
 # nothing reads them. `departments` are the org builder's chosen departments, in order, and `briefings` the one-line
 # answer given for each.
 EMPTY_ANSWERS = {"what_we_do": "", "customers": "", "team_size": "", "work_arrives": [],
-                 "repetitive_work": "", "never_without_person": [], "pains": [], "pains_text": "",
+                 "repetitive_work": "", "pains": [], "pains_text": "",
                  "tools": [], "software_product": "", "departments": [], "briefings": {}}
 ANSWER_LABELS = (("what_we_do", "What we do"), ("customers", "Customers"),
                  ("team_size", "Team size"), ("work_arrives", "Work arrives by"),
                  ("repetitive_work", "Repetitive work"),
                  ("software_product", "Software is the product"),
-                 ("never_without_person", "Never without a person"),
                  ("departments", "Departments"))
 
 
@@ -229,7 +228,7 @@ def load(c):
     row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (KEY,)).fetchone()
     stored = (_json(row[0], {}) if row else {}) or {}
     return {"names": {**EMPTY_NAMES, **(stored.get("names") or {})},
-            "answers": {**EMPTY_ANSWERS, **(stored.get("answers") or {})},
+            "answers": {**EMPTY_ANSWERS, **{k: v for k, v in (stored.get("answers") or {}).items() if k != "never_without_person"}},
             "selected": dict(stored.get("selected") or {}),
             "completed": stored.get("completed") or None,
             "assigned_to": stored.get("assigned_to") or None,

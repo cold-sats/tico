@@ -125,7 +125,7 @@ _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
     ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
     ("POST", r"/api/v2/(slack|github/app)/disconnect"),
 )]
-_SHAPE = re.compile(r"/api/v2/[A-Za-z0-9_.\-/]+")
+_SHAPE = re.compile(r"/api/v2/[A-Za-z0-9_.:\-/]+")
 
 
 def normalize_path(path):

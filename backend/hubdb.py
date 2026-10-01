@@ -1815,7 +1815,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
 
 
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
-                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None):
+                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane`, `labels`, `blocked_by` and `parent_id` are a mover's to change (`mover` says whether
@@ -1936,7 +1936,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     notify_requester = (status in ("done", "declined") and actor != row["requester"]
                         and (status == "declined" or tasks_only(conn, after["requester"])
                              or _owed_the_news(conn, after)))
-    if note is not None and not notify_requester:
+    if note is not None and not notify_requester and not quiet:
         _mirror_task_note(conn, actor, after, note)
     if status == "done":
         _unblock(conn, after)
@@ -1944,7 +1944,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if notify_requester:
         _wake(conn, after, after["requester"],
               f"{'Finished' if status == 'done' else 'Declined'}: {after['title']}"
-              + (f"\n{note}" if note else ""), quiet_bots=True)
+              + (f"\n{note}" if note and not quiet else ""), quiet_bots=True)
     if (status == "open" or owner is not None and owner != row["owner"]) and actor != after["owner"]:
         _wake(conn, after, after["owner"], f"Open: {after['title']}")
     _recount(conn, after["owner"])

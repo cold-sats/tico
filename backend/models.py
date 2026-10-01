@@ -105,6 +105,7 @@ class TaskCreate(Contract):
     links: list[str] = Field(default_factory=list, max_length=20)
     # Wait for the owner's next run instead of starting one (a bot owner only).
     next_run: bool = False
+    request_id: ID | None = None
 
 
 class NoteCreate(Contract):
@@ -117,6 +118,7 @@ class TaskUpdate(Contract):
     version: int = Field(ge=1)
     status: Literal["open", "doing", "waiting", "review", "ready", "done", "declined"] | None = None
     note: str | None = Field(default=None, max_length=200_000)
+    quiet: bool = False
     owner: ID | None = None
     due: str | None = None
     body: Text | None = None
@@ -509,6 +511,8 @@ class ToolRegister(Contract):
     mcp: dict[str, Any] | None = None
     env: str = Field(default="", max_length=100)
     note: str = Field(default="", max_length=500)
+    title_prefix: str = Field(default="", max_length=100)
+    dry_run: bool = False
 
 
 class ToolUpdate(Contract):
@@ -518,6 +522,7 @@ class ToolUpdate(Contract):
     scope: dict[str, Any] | None = Field(default=None, max_length=20)
     note: str | None = Field(default=None, max_length=500)
     mcp: dict[str, Any] | None = None       # url, transport, headers: what is sent replaces that key of the tool's `mcp:`
+    title_prefix: str = Field(default="", max_length=100)
 
 
 class BotReadiness(Contract):
@@ -1014,8 +1019,8 @@ class OnboardingAnswers(Contract):
     team_size: str = Field(default="", max_length=40)
     work_arrives: list[WorkArrival] = Field(default_factory=list, max_length=8)
     repetitive_work: str = Field(default="", max_length=2000)
-    never_without_person: list[Literal["send", "spend", "publish", "hire"]] = Field(
-        default_factory=list, max_length=4)
+    # Accepted from older clients, discarded rather than stored or enforced.
+    never_without_person: list[str] = Field(default_factory=list, exclude=True)
     # The wizard no longer asks `pains`, `pains_text` or `tools`; they are still accepted, kept as sent
     # and never read.
     pains: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=8)
@@ -1135,10 +1140,20 @@ class BotPlace(Contract):
     computer: str = Field(default="", max_length=200)
 
 
+class RoutineExpectation(Contract):
+    id: ID
+    title: str
+    cron: str = ""
+    timezone: str
+    enabled: bool = True
+    on: str = ""
+
+
 class BotGoLive(Contract):
     """Place it if it has no computer, activate it, and start its setup with the person."""
     computer: str = Field(default="", max_length=200)
     setup: bool = True
+    routines: list[RoutineExpectation] | None = None
 
 
 class Empty(Contract):

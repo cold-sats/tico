@@ -1,4 +1,5 @@
 from backend.tests.test_api import api, assign, claim, get, post, ready, runner, setup_attempt, expire
+from backend.tests.test_member_bots import botops, turn, finish
 
 
 def test_interrupted_steered_question_is_not_silently_completed(api):
@@ -30,3 +31,38 @@ def test_plain_message_from_another_conversation_does_not_interrupt_running_turn
     assert post(api, f"attempts/{active['id']}/inputs", {}, r["token"])["messages"] == []
     with api.app.state.store.read() as c:
         assert c.execute("SELECT state FROM jobs WHERE message_id=?", (update["id"],)).fetchone()[0] == "queued"
+
+
+def test_botops_queues_unrelated_requests_and_task_notices_but_accepts_an_explicit_reply(api, botops):
+    active = turn(api, botops, person="ana-test", text="Review ops")
+    post(api, f"attempts/{active['id']}/started", {"thread_id": "qa-thread"}, botops["token"])
+    with api.app.state.store.read() as c:
+        origin = dict(c.execute("SELECT m.* FROM messages m JOIN jobs j ON j.message_id=m.id JOIN attempts a ON a.job_id=j.id "
+                                "WHERE a.id=?", (active["id"],)).fetchone())
+    separate = post(api, "chat/botops", {"text": "Review finance independently"})
+    task = post(api, "tasks", {"owner": "botops", "title": "Review another bot", "body": "Review finance independently."})
+    assert post(api, f"attempts/{active['id']}/inputs", {}, botops["token"])["messages"] == []
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE message_id=?", (separate["id"],)).fetchone()[0] == "queued"
+    correction = post(api, "messages", {"to": "botops", "text": "For the ops review, include its Routines",
+                       "conversation_id": origin["conversation_id"], "in_reply_to": origin["id"]})
+    inputs = post(api, f"attempts/{active['id']}/inputs", {}, botops["token"])["messages"]
+    assert [m["id"] for m in inputs] == [correction["id"]]
+
+
+def test_botops_continuation_keeps_the_requester_and_quiet_progress_stays_on_the_task(api, botops):
+    from backend.tests.test_botops_parity import act
+    active = turn(api, botops, person="ana-test", text="Review ops and keep working until done")
+    with api.app.state.store.read() as c:
+        origin = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?", (active["id"],)).fetchone()[0]
+    task = post(api, "tasks", {"owner": "botops", "title": "Review ops", "body": "Finish the requested review",
+                              "request_id": origin}, active["token"])
+    assert task["requester"] == "human:ana" and task["request_id"] == origin
+    post(api, "tasks/" + task["id"], {"version": task["version"], "note": "QA detailed progress", "quiet": True}, active["token"])
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM messages WHERE body='QA detailed progress'").fetchone()
+        assert c.execute("SELECT note FROM tasks WHERE id=?", (task["id"],)).fetchone()[0] == "QA detailed progress"
+    finish(api, botops, active)
+    continuation = claim(api, botops, "botops")
+    changed = act(api, continuation, "GET", "bots/ops/access")
+    assert changed.status_code == 200, changed.text

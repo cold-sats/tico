@@ -769,6 +769,15 @@ class Execution:
                              "WHERE active_attempt.id=?) OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid LIMIT 10",
                              (attempt["bot"], aid)).fetchall():
+            if attempt["bot"] == H.FLEET_MAINTAINER:
+                refs = json.loads(row["refs_json"] or "{}")
+                origin = c.execute("SELECT j.message_id,m.from_actor FROM jobs j JOIN messages m ON m.id=j.message_id "
+                                   "WHERE j.id=?", (attempt["job_id"],)).fetchone()
+                related = (row["in_reply_to"] == origin["message_id"] or refs.get("turn_id") == aid
+                           or row["kind"] in ("answer", "steer") or refs.get("credential_saved"))
+                if (str(row["from_actor"]).startswith("human:") and (row["from_actor"] != origin["from_actor"] or not related)
+                        or row["kind"] == "notice"):
+                    continue
             c.execute("INSERT INTO attempt_inputs VALUES(?,?,NULL)", (aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))

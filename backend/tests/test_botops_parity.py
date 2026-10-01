@@ -20,6 +20,48 @@ def act(api, attempt, method, path, body=None, ref="turn"):
     return getattr(api, method.lower())("/api/v2/" + path, **kwargs)
 
 
+def test_routine_tools_delegate_canonical_ids_and_verify_schedules_before_activation(api, botops):
+    from backend.tests.test_mcp import call as mcp
+    attempt = turn(api, botops, person="ana-test", text="Set ops to a daily review")
+    err, schedule = mcp(api, "hub_routine_set", {"bot": "ops", "key": "qa-review", "title": "QA review",
+                       "cron": "0 7 * * *", "timezone": "UTC"}, attempt["token"])
+    assert not err and schedule["id"] == "ops:qa-review"
+    err, rows = mcp(api, "hub_routine_list", {"bot": "ops"}, attempt["token"])
+    assert not err and any(r["id"] == schedule["id"] for r in rows["result"])
+    err, changed = mcp(api, "hub_routine_update", {"id": schedule["id"], "cron": "0 8 * * *"}, attempt["token"])
+    assert not err and changed["cron"] == "0 8 * * *"
+    err, run = mcp(api, "hub_routine_run", {"id": schedule["id"]}, attempt["token"])
+    assert not err and run["task_id"]
+    revision = act(api, attempt, "GET", "bots/ops/access").json()["revision"]
+    assert act(api, attempt, "POST", "bots/ops/definition", {"expected_revision": revision, "status": "paused"}).status_code == 200
+    wrong = act(api, attempt, "POST", "bots/ops/go-live", {"setup": False, "routines": [{
+        "id": schedule["id"], "title": "QA review", "cron": "0 7 * * *", "timezone": "UTC"}]})
+    assert wrong.status_code == 409 and wrong.json()["error"]["code"] == "routine_mismatch"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM bots WHERE slug='ops'").fetchone()[0] == "paused"
+    correct = act(api, attempt, "POST", "bots/ops/go-live", {"setup": False, "routines": [{
+        "id": schedule["id"], "title": "QA review", "cron": "0 8 * * *", "timezone": "UTC"}]})
+    assert correct.status_code == 200 and correct.json()["state"] == "active"
+    err, gone = mcp(api, "hub_routine_delete", {"id": schedule["id"]}, attempt["token"])
+    assert not err and gone["deleted_at"]
+    for path in ("routines/ops:qa-review/../delete", "routines/ops%3Aqa-review", "routines//ops:qa-review"):
+        from backend.botops_act import normalize
+        assert normalize(path) is None
+
+
+def test_owner_rules_outside_domain_invites_and_archive_run_directly(api, botops):
+    attempt = turn(api, botops, person="ana-test", text="Change Team rules, invite a teammate and archive ops")
+    rules = act(api, attempt, "PUT", "access/rules", {"member_tokens": False})
+    assert rules.status_code == 200 and rules.json()["member_tokens"] is False and "needs_confirm" not in rules.json()
+    invited = act(api, attempt, "POST", "access/people", {"name": "Sam", "email": "sam@example.com"})
+    assert invited.status_code == 200 and "needs_confirm" not in invited.json()
+    archived = act(api, attempt, "POST", "bots/ops/archive", {"expected_revision": act(api, attempt, "GET", "bots/ops/access").json()["revision"]})
+    assert archived.status_code == 200 and archived.json()["status"] == "archived" and "needs_confirm" not in archived.json()
+    finish(api, botops, attempt)
+    member = turn(api, botops, person="cara-test", text="Change Team rules")
+    assert act(api, member, "PUT", "access/rules", {"member_tokens": True}).status_code == 403
+
+
 def open_computer(api, label="Team Mac"):
     """A computer an admin has opened to members' bots."""
     machine = runner(api, label=label)

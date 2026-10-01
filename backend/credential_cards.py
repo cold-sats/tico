@@ -344,11 +344,11 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
                                  {"credential_saved": rid}, None, None)
             return view(c, c.execute("SELECT * FROM credential_requests WHERE id=?", (rid,)).fetchone(), who)
 
-    def acting(c, who, ref):
+    def acting(c, who, ref, metadata_only=False):
         """The person: the caller, or the one BotOps works for."""
         if ref:
             return delegate(c, who, ref)
-        if who.role not in ("owner", "human") or who.via or who.via_token:
+        if who.role not in ("owner", "human") or who.via or (who.via_token and not metadata_only):
             raise Problem("forbidden", "A person stores a credential, or BotOps for the person who asked it", 403)
         return who
 
@@ -402,7 +402,7 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
         caller = request.state.identity
         with store.transaction() as c:
             validate_identity(c, caller)
-            person = acting(c, caller, body.on_behalf_of)
+            person = acting(c, caller, body.on_behalf_of, metadata_only=True)
             if not administrator(c, person, vault.admins):
                 raise Problem("forbidden", ask_admin_detail(c, vault.admins, "move a bot's secret into Credentials"), 403)
             manager(c, person, body.bot)
@@ -432,7 +432,7 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
         caller = request.state.identity
         with store.transaction() as c:
             validate_identity(c, caller)
-            person = acting(c, caller, on_behalf_of)
+            person = acting(c, caller, on_behalf_of, metadata_only=True)
             sweep_imports(c)
             row = c.execute("SELECT * FROM credential_imports WHERE id=?", (iid,)).fetchone()
             if not row or (row["requester"] != person.actor and not administrator(c, person, vault.admins)):

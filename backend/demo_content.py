@@ -8,8 +8,7 @@ Brightline ...) and every address is acme.example or another .example domain.
 COMPANY = "Acme"
 ANSWERS = {"what_we_do": "Acme sells project-tracking software to small studios that run a few client projects themselves.",
            "customers": "both", "team_size": "1-5", "work_arrives": ["email", "tickets"],
-           "repetitive_work": "Support replies, trial follow-ups and the weekly ops checklist.",
-           "never_without_person": ["send", "publish", "spend"]}
+           "repetitive_work": "Support replies, trial follow-ups and the weekly ops checklist."}
 
 PEOPLE = [
     {"id": "ana", "name": "Ana Rivera", "email": "ana@acme.example", "title": "Founder and owner",

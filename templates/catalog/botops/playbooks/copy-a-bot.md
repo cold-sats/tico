@@ -25,8 +25,8 @@ for a copy.
 - The original's files come from this computer's workspace, or, when the bot runs on another computer, from its GitHub repository
   (read-only, for a bot they may read). If the command says the original's repository isn't on this computer or GitHub, tell them its
   owner has to publish it, and stop; if it is some other failure, `hub support file "<what they asked, what the command said>"`.
-- The built-in bots (the Assistant, BotOps, the Librarian, the Goal Manager) are not copied; add one of the catalog's bots instead
-  (`playbooks/build-me-a-bot.md`).
+- The built-in bots (the Assistant, BotOps, the Librarian, the Goal Manager) are not copied. Explain that limit in one line and offer the nearest catalog role
+  (`playbooks/build-me-a-bot.md`). Do not create it or call it a copy unless they choose it.
 
 It answers the new bot's name, its model (the original's, where they may use it, else the team's default), what it did about
 credentials, and whether the repository is on GitHub yet (`published`; when it is not, it stays on this computer and is published once
@@ -49,7 +49,7 @@ address, a channel, a customer, a file path. List what you found in your report 
 mailbox is one person's, so never keep the original's. Then `hub bot check <copy>` and fix what it fails on, and commit in the copy's
 repository.
 
-If they asked you to take it live, `hub bot go-live <copy>` (`playbooks/build-me-a-bot.md`, step 5). Otherwise it stays planned and you
+If they asked you to take it live, `hub bot go-live <copy>` (`playbooks/build-me-a-bot.md`, step 6). Otherwise it stays planned and you
 say so.
 
 ## 4. "Update my copy from the original"

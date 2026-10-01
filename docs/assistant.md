@@ -78,6 +78,10 @@ records `assistant.action.confirmed` and the operation's own events via assistan
 (`403`; a confirm run carries a credential made at click time, bound to the stored method and path, valid for two minutes and then failed), a personal API token cannot either, another human sees `404`, and an unconfirmed proposal expires after
 24 hours.
 
+Use `hub_assistant_read` and `hub_assistant_send` (CLI: `hub assistant read|send`) with your personal token.
+`hub_message_send` also accepts `assistant`; it uses your own private room. Other humans' rooms remain private,
+and Confirm and Cancel still require your own click in Tico.
+
 ## API
 
 Stable v2 (`docs/openapi/v2.json`, tag **Assistant**). All signed-in humans; the confirm and cancel routes need your

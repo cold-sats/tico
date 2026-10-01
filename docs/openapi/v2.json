@@ -11997,6 +11997,19 @@
             "type": "boolean",
             "title": "Next Run",
             "default": false
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
           }
         },
         "additionalProperties": false,
@@ -12132,6 +12145,11 @@
               }
             ],
             "title": "Note"
+          },
+          "quiet": {
+            "type": "boolean",
+            "title": "Quiet",
+            "default": false
           },
           "owner": {
             "anyOf": [
@@ -12353,6 +12371,17 @@
             "maxLength": 500,
             "title": "Note",
             "default": ""
+          },
+          "title_prefix": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Title Prefix",
+            "default": ""
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -12418,6 +12447,12 @@
               }
             ],
             "title": "Mcp"
+          },
+          "title_prefix": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Title Prefix",
+            "default": ""
           }
         },
         "additionalProperties": false,

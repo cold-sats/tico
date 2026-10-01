@@ -306,6 +306,10 @@ type API key or token), open **Manage access** on it and choose **Every computer
 and BotOps asks for a Confirm click first. From then on, when a new computer joins or gets its first job and its model is not
 signed in, the runner (the software on the computer) asks the server for that key as itself, saves it in its own secrets folder
 and signs in the way it would with a key you had typed there. Nobody copies a key between computers, and the key is in no log.
+Set **Bot variable name** to `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or `CURSOR_API_KEY`.
+**Every computer (signs models in)** is offered only for a stored model API key or token with that field set. The Credential's
+name alone does not set its variable. Tool Credentials need a grant per bot; `hub_credential_grant` targets a bot.
+
 Only that model credential comes this way: a bot's own credentials stay with that bot, and a computer never receives them.
 
 A subscription login (a ChatGPT or Claude plan) cannot be copied. If that is how your team signs in, Settings > Health shows
@@ -397,7 +401,7 @@ one another ([SECURITY.md](../SECURITY.md#bots-on-one-computer-share-a-trust-bou
 changes its ownership to match (one time, a minute on a large workspace). If an update is rolled back, the previous
 image still starts on the migrated volume and reads its own files; the bots then run as the runner's user again until
 the next update. Use `docker exec -u bot` for what a bot should
-own (logins, credentials); the runner hands root-made files in `secrets/` to `bot` itself.
+own (model logins). Legacy secret files stay with the runner supervisor; bots receive granted Credentials.
 
 The image holds no model CLI. Once your team has enabled a provider (Settings > AI providers), the runner installs
 that provider's CLI into `/home/runner/tools` in the volume (a minute or two; Settings > Computers shows the progress),
@@ -410,22 +414,19 @@ docker exec -it -u bot tico-runner codex login --device-auth      # ChatGPT subs
 docker exec -it -u bot tico-runner claude setup-token             # Claude: prints a long-lived token
 ```
 
-API keys and other credentials go in the runner's shared file. Every bot on that computer can read it (bots share the `bot` user); the runner's own credential is not in it:
+Store API keys and other Credentials in **Settings > Credentials**, set their environment-variable name,
+and grant them to each bot that needs them. A bot run receives only its grants; it does not inherit
+`_shared.env` or the runner's process credentials. On upgrade, each existing bot is granted its own keys and every
+key in its computer's `_shared.env`, so its access continues. Bots created after the upgrade start with none. See [Credentials](credential-vault.md).
 
-```
-docker exec -u bot tico-runner sh -c 'umask 077; printf "%s\n" "CLAUDE_CODE_OAUTH_TOKEN=<token>" "GH_TOKEN=<fine-grained token>" >> /home/runner/workspace/secrets/_shared.env'
-```
+**Codex with an API key.** Model sign-in on a Computer may use a machine key or a team's model key shared
+with **Every computer (signs models in)**. The runner sends it to `codex login --with-api-key` on standard input,
+with no key in a command line or log. This signs models in; tool Credentials still need a grant per bot.
+A key Codex refuses is tried again after ten minutes or when the key changes.
+The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid, and its login files are
+readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
 
-**Codex with an API key.** Put `OPENAI_API_KEY` in that file and nothing else is needed: while a Codex bot is assigned to the computer
-and Codex is not signed in, the runner runs `codex login --with-api-key` as the `bot` user, with the key on standard input (it is in
-no command line and no log), and Settings > Computers shows *Signed in with an API key*. A key Codex refuses is tried again after ten
-minutes or when the key changes. The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid, and the login
-files are readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
-
-A computer that has no key of its own takes the team's model key instead, as above; a key in this file wins.
-
-`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `OPENROUTER_API_KEY` work the same way; `GH_TOKEN` is used by `git` and `gh`
-to push the bots' repositories. Check with **Settings > Bots**, or
+Check with **Settings > Bots**, or
 `docker exec tico-runner python -m runner --config /home/runner/runner.json doctor`.
 
 To write the compose setup by hand instead of using the installer, copy `docker/runner.compose.yaml` from the release
