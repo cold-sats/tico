@@ -62,7 +62,8 @@ def pull_request(c, payload):
         task = H.task(c, link["task_id"])
         if not task:
             continue
-        product = (task.get("lane") or "company") == "product"
+        # Custom types opt into PR moves now that new tasks use the company lane.
+        product = (task.get("lane") or "company") == "product" or task.get("type_id") not in (None, H.GENERAL_TYPE)
         active = task["status"] in H.ACTIVE_STATUSES
         if action in ("opened", "reopened", "ready_for_review") and not pr.get("draft"):
             c.execute("UPDATE task_links SET state='open' WHERE id=?", (link["id"],))

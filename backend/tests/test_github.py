@@ -112,8 +112,8 @@ def test_webhook_and_deploy_map_custom_steps_and_preserve_status_without_a_step(
         {'name': 'Merged', 'status': 'ready'}]})['type']
     task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build the release screen', 'body': 'Please.',
         'links': [PR], 'type': typ['id']})
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE tasks SET lane='product' WHERE id=?", (task['id'],))
+    general = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review an ordinary request', 'body': 'Please.', 'links': [PR]})
+    assert task['lane'] == general['lane'] == 'company'
     hook(api, 'pull_request', pr_event('opened'))
     assert get(api, 'tasks/' + task['id'])['task']['step']['name'] == 'Code review'
     hook(api, 'pull_request', pr_event('closed', merged=True, merge_commit_sha='abc123'))
@@ -123,3 +123,4 @@ def test_webhook_and_deploy_map_custom_steps_and_preserve_status_without_a_step(
         assert G.ship_deployed(c, api.app.state.store.settings) == [task['id']]
     after = get(api, 'tasks/' + task['id'])['task']
     assert after['status'] == 'done' and after['step'] is None and after['type_id'] == typ['id']
+    assert get(api, 'tasks/' + general['id'])['task']['status'] == 'open'
