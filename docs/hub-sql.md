@@ -231,3 +231,18 @@ WHERE tags.key = 'release-2026-10-02';
 ```
 
 Use these tables instead of the retained `tasks.labels_json` column.
+
+## Task pipelines
+
+`task_types(id, name, created, updated)` and
+`task_steps(id, type_id, name, position, status)` describe the team's pipelines. Every task carries
+`type_id` and `step_id`; `status` stays the contract. Both definition tables are readable by every
+SQL caller. Joining to `tasks` still returns only tasks that caller may read.
+
+```sql
+SELECT t.id, t.title, t.status, ty.name AS type, s.name AS step
+FROM tasks t
+JOIN task_types ty ON ty.id = t.type_id
+LEFT JOIN task_steps s ON s.id = t.step_id
+ORDER BY t.updated DESC
+```

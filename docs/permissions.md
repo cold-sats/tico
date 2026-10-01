@@ -301,3 +301,10 @@ and remove tags. Creating and editing a tag is for those movers or that tag's ow
 a bot owner. A teammate may create a tag they own. Owner rights on a tag do not grant mover
 rights on its tasks. Tags and templates are readable by signed-in teammates; their task lists
 show only tasks each caller may read. Every edit requires the current tag version.
+
+## Task types and steps
+
+The owner and humans on the leadership, product or engineering teams manage types and steps.
+Task participants use them with their existing task permissions: choosing a step checks the
+status it maps to, including the normal rules for Ready, completion notes and closing. Definitions
+are team-wide; selecting a type never grants access to additional tasks. See [Tasks](tasks.md).

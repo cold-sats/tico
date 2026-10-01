@@ -188,3 +188,11 @@ tell the teammate coordinating the release when it ships. Its tag-owner rights a
 edits; attaching tags still needs a task mover. Use `hub_tag_list`, `hub_tag_show`,
 `hub_tag_create` and `hub_tag_update` through MCP. Update calls include the current `version`;
 a stale version returns `409 version_conflict` without overwriting the checklist.
+
+## Task types and steps
+
+Tasks use **General** until you choose another type. Movers add types and named steps in
+**Settings → Types**. A custom task's **Step** control sets its status; General keeps the usual
+**Status** control. Select **Filter → Type** on the board to use that type's steps as columns.
+Bots and older runners keep using statuses. See [Task types and steps](tasks.md) for mapping rules,
+CLI, MCP and API examples.

@@ -229,3 +229,10 @@ def test_slack_queue_status_is_owner_only_and_hides_values(api, world):
         assert "prohibited" in error(api, "SELECT message_id FROM main.slack_posts", token)
         assert "prohibited" in error(api, "WITH slack_posts AS (SELECT * FROM main.slack_posts) "
                                     "SELECT * FROM slack_posts", token)
+
+
+def test_task_types_and_steps_are_queryable_without_exposing_task_rows(api):
+    assert query(api, 'SELECT count(*) FROM task_types')['rows'] == [[1]]
+    assert query(api, 'SELECT count(*) FROM main.task_steps')['rows'] == [[8]]
+    result = query(api, 'SELECT name,status FROM task_steps WHERE type_id=? ORDER BY position', params=['general'])
+    assert result['rows'][0] == ['Open', 'open']

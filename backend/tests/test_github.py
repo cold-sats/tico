@@ -104,3 +104,23 @@ def test_the_pull_request_moves_the_task_through_review_ready_and_shipped(api):
     after = get(api, "tasks/" + task["id"])
     assert after["task"]["status"] == "done" and "Shipped in release def456" in after["task"]["note"]
     assert after["task"]["links"][0]["state"] == "shipped"
+
+
+def test_webhook_and_deploy_map_custom_steps_and_preserve_status_without_a_step(api):
+    typ = post(api, 'task-types', {'name': 'Engineering', 'steps': [
+        {'name': 'Draft', 'status': 'open'}, {'name': 'Code review', 'status': 'review'},
+        {'name': 'Merged', 'status': 'ready'}]})['type']
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build the release screen', 'body': 'Please.',
+        'links': [PR], 'type': typ['id']})
+    general = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review an ordinary request', 'body': 'Please.', 'links': [PR]})
+    assert task['lane'] == general['lane'] == 'company'
+    hook(api, 'pull_request', pr_event('opened'))
+    assert get(api, 'tasks/' + task['id'])['task']['step']['name'] == 'Code review'
+    hook(api, 'pull_request', pr_event('closed', merged=True, merge_commit_sha='abc123'))
+    assert get(api, 'tasks/' + task['id'])['task']['step']['name'] == 'Merged'
+    api.app.state.store.settings.release_commit = 'abc123'
+    with api.app.state.store.transaction() as c:
+        assert G.ship_deployed(c, api.app.state.store.settings) == [task['id']]
+    after = get(api, 'tasks/' + task['id'])['task']
+    assert after['status'] == 'done' and after['step'] is None and after['type_id'] == typ['id']
+    assert get(api, 'tasks/' + general['id'])['task']['status'] == 'open'

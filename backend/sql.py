@@ -132,6 +132,7 @@ def guarded(c, auth, who, inner):
         "attempts": by_job, "job_recovery": by_job,
         "attempt_events": by_attempt, "attempt_inputs": by_attempt, "attempt_conversations": by_attempt,
         "bot_transition_checkpoints": "conversation_id IN (SELECT id FROM conversations)",
+        "task_types": "1", "task_steps": "1",
         "humans": "1",
         # Goals are the company's, except a bot's own: a caller reads those of bots they may read. Never a
         # bare "1" (the same reason as intake_items below).
@@ -245,7 +246,7 @@ def connect(path, c, auth, who):
             # These are visible in full (predicate 1). SQLite answers count(*) by reading
             # the base table with no view context; that read is the same rows as the view.
             if table in {"market_entities", "market_edges", "market_evidence", "market_citations",
-                         "market_insights", "market_events", "listen_runs"}:
+                         "market_insights", "market_events", "listen_runs", "task_types", "task_steps"}:
                 return sqlite3.SQLITE_OK
             # A base table is read only by its own inner view, whose name is this connection's secret.
             if table in tables and context == prefix + table:

@@ -1,0 +1,14 @@
+.task-type-row { padding:16px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.task-type-row strong { min-width:100px; }
+#set-types > button { margin:16px; }
+.task-type-editor label { display:block; margin-bottom:16px; }
+.task-type-editor [data-steps] { display:grid; gap:10px; margin-bottom:12px; }
+.task-step-edit { display:flex; gap:6px; align-items:center; }
+.task-step-edit input { width:100%; min-width:0; flex:1; }
+.task-step-edit select { max-width:120px; }
+.task-type-editor .row { margin-top:20px; }
+@media(max-width:600px) {
+  .task-step-edit { flex-wrap:wrap; }
+  .task-step-edit input { flex-basis:100%; }
+  .task-step-edit select { flex:1; max-width:none; }
+}

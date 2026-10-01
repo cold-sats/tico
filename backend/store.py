@@ -923,6 +923,10 @@ class Store:
                     # The hub migration backfills once; never replay legacy labels over newer tags.
                     H._apply(c, H.TAGS_TABLES_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(47,?)", (H.now(),))
+
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=48").fetchone():
+                    H._apply(c, H.PIPELINES_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(48,?)", (H.now(),))
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,

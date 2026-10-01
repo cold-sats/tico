@@ -122,3 +122,10 @@ metadata and notes. `GET /api/v2/tasks/labels` preserves `labels` and adds `tags
 `task_tags` is the source of truth; the old `labels_json` column is kept for one release but
 is no longer read or written. All tag changes are audited in `events`, and task tag changes
 keep the `labels` entry in `task_events`. See [Tags and release checklists](using-tico.md#tags-and-release-checklists).
+
+## Task pipelines
+
+`/api/v2/task-types` exposes task types and their ordered steps. Movers create and edit definitions;
+unused types can be deleted, and steps with tasks cannot be removed. Task creation and updates
+accept `type` and `step`. Answers add `type_id`, `step_id`, `type` and `step` while preserving the
+existing status contract. See [Task types and steps](tasks.md) for mapping and update examples.

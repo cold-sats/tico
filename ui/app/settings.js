@@ -62,6 +62,7 @@ function pageSettings() {
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
     <dialog class="bot-editor catalog-picker" id="catalog-picker" aria-labelledby="catalog-picker-title"></dialog>
     <dialog class="transition-dialog" id="transition-dialog" aria-labelledby="transition-title"></dialog>`;
+  taskTypesSettingsMount();
   $('#settings-tabs').onclick = event => {
     const button = event.target.closest('[data-settings-tab]');
     if (button) settingsShow(button.dataset.settingsTab);
@@ -71,13 +72,14 @@ function pageSettings() {
 }
 function settingsShow(tab) {
   if (tab === 'credentials' || tab === 'cloud') { location.hash = INTEGRATIONS; return; }
-  SETTINGS_TAB = tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : 'devices';
+  SETTINGS_TAB = tab === 'types' && S.me?.cloud ? 'types' : tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   document.querySelectorAll('[data-settings-tab]').forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
     button.classList.toggle('cur', selected); button.setAttribute('aria-selected', String(selected));
   });
   settingsTags();
+  taskTypesSettingsShow(SETTINGS_TAB);
   const devices = $('#settings-devices'), history = $('#settings-history'), bots = $('#settings-bots');
   if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
   // The owner's one click when the team has no Assistant (ui/assistant.js): restore it or add it.

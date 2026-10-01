@@ -596,7 +596,7 @@ def create_app(settings=None):
             raise Problem(refusal["code"], refusal["detail"], refusal["status"])
         return result
 
-    def task_view(row, c=None, parts=None):
+    def task_view(row, c=None, parts=None, pipelines=None):
         if c is not None:
             H.hydrate_task_tags(c, [row])
         value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
@@ -605,6 +605,15 @@ def create_app(settings=None):
         if c is not None and row.get("next_run"):
             value["next_run_waiting"] = H.next_run_waiting(c, row)
         value.pop("labels_json", None)
+        if pipelines is None:
+            if c is None:
+                with store.read() as pipeline_conn:
+                    pipelines = H.type_list(pipeline_conn)
+            else:
+                pipelines = H.type_list(c)
+        typ = next((t for t in pipelines if t["id"] == row.get("type_id")), None)
+        value["type"] = {"id": typ["id"], "name": typ["name"]} if typ else None
+        value["step"] = next((s for s in typ["steps"] if s["id"] == row.get("step_id")), None) if typ else None
         if c is not None:
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
@@ -691,9 +700,10 @@ def create_app(settings=None):
         legacy_owner = None
         if any(row.get("requester") == H.KEEPER and H.is_human(row.get("owner")) for row in rows):
             legacy_owner = H.human_actor(H.default_human(c))
+        pipelines = H.type_list(c)
         result = []
         for row in rows:
-            value = task_view(row)
+            value = task_view(row, pipelines=pipelines)
             value.update({
                 "parts": parts.get(row["id"], {"total": 0, "done": 0}),
                 "links": links[row["id"]],
@@ -1972,7 +1982,7 @@ def create_app(settings=None):
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, body.parent_id,
                             conversation_id=rooms.task_conversation_id(c, auth, owner, who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
-                            goal_id=body.goal_id, next_run=body.next_run)
+                            goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
         if request_id:
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (request_id, row["id"]))
@@ -2016,7 +2026,7 @@ def create_app(settings=None):
             if body.close:
                 if any(v is not None for v in (body.status, body.owner, body.due, body.body, body.lane,
                                                body.labels, body.blocked_by, body.parent_id, body.rank,
-                                               body.goal_id)):
+                                               body.goal_id, body.type, body.step)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 H.task_close(c, who.actor, task_id, note=body.note or "", quiet=body.quiet)
             else:
@@ -2028,7 +2038,7 @@ def create_app(settings=None):
                 H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None)
                 # A bot's own tasks sat 'done' for days because the reviewer is the
                 # same bot. A task its owner asked for itself closes when that owner marks it done.
-                if body.status == "done" and row["owner"] == row["requester"] == who.actor:
+                if (body.status == "done" or body.step is not None and H.task(c, task_id)["status"] == "done") and row["owner"] == row["requester"] == who.actor:
                     H.task_close(c, who.actor, task_id, note=body.note or "", quiet=body.quiet)
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
             return {"task": task_view(H.task(c, task_id), c)}
@@ -3288,6 +3298,8 @@ def create_app(settings=None):
     install_tags(app, store, auth, mutate, task_views)
 
     from .views import install_views
+    from .task_types import install_task_types
+    install_task_types(app, store, auth, mutate, mover)
     install_views(app, store, auth, mutate, task_view)
     turn_work.install(app, store, auth)
     from .documents import install_documents

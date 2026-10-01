@@ -340,6 +340,8 @@ def tag_update(api, args):
        "due": _s("ISO-8601 date-time with timezone"),
        "parent_id": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
        "request_id": _s("BotOps continuation: originating human chat message id"),
+       "type": _s("Task type id or name; defaults to General"),
+       "step": _s("Step id or name within the type; sets its status"),
        "labels": {"type": "array", "items": {"type": "string"},
                   "description": "Labels: a project name, a kind (bug, front-end). Lower-case words."},
        "top": {"type": "boolean", "default": False,
@@ -355,7 +357,7 @@ def task_create(api, args):
     body = {"owner": _target(api, args["owner"]), "title": args["title"], "body": args.get("body") or "",
             "due": args.get("due"), "parent_id": args.get("parent_id"),
             "goal_id": args.get("goal_id") or None}
-    for field in ("labels", "top", "links", "next_run", "request_id"):
+    for field in ("labels", "top", "links", "next_run", "request_id", "type", "step"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
     if args.get("dry_run"):
@@ -411,6 +413,8 @@ def task_ask(api, args):
       "Finish with `status: done` and a concise result note; the requester closes.",
       {"id": TASK_ID,
        "status": {"type": "string", "enum": ["open", "doing", "waiting", "review", "done", "declined"]},
+       "type": _s("Task type id or name"),
+       "step": _s("Step id or name within the task type; sets status. An empty string clears it"),
        "note": _s("What changed, or the result"),
        "quiet": {"type": "boolean", "description": "Keep detailed notes on the task; chat receives only its title and status"},
        "owner": _s("Hand the task to this bot or person"),
@@ -427,9 +431,44 @@ def task_update(api, args):
         body["quiet"] = True
     if args.get("labels") is not None:
         body["labels"] = args["labels"]
+    for field in ("type", "step"):
+        if args.get(field) is not None:
+            body[field] = args[field]
     if args.get("blocked_by") is not None:
         body["blocked_by"] = args["blocked_by"]
     return api.post("tasks/" + args["id"], body, key=_key(args))
+
+
+# Task types sit above the stable status contract; old bots can keep setting status.
+TASK_STEPS = {"type": "array", "items": {"type": "object", "properties": {
+    "id": _s("Keep this id when editing an existing step"), "name": _s("Step name"),
+    "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)}},
+    "required": ["name", "status"], "additionalProperties": False}}
+
+
+@tool("hub_task_types", "Task types and their steps, in order. Status remains the task contract.",
+      {"id": _s("One type id or name; omit for all types")})
+def task_types(api, args):
+    return api.get("task-types/" + args["id"])["type"] if args.get("id") else api.get("task-types")["types"]
+
+
+@tool("hub_task_type_create", "Create a task type and its steps (movers only).",
+      {"name": _s("Type name"), "steps": TASK_STEPS}, required=("name",), writes=True)
+def task_type_create(api, args):
+    return api.post("task-types", {"name": args["name"], "steps": args.get("steps") or []}, key=_key(args))
+
+
+@tool("hub_task_type_update", "Edit a task type (movers only). Steps replace the full list; keep retained ids. "
+      "A step with tasks cannot be removed.", {"id": _s("Type id or name"), "name": _s("Type name"),
+      "steps": TASK_STEPS}, required=("id",), writes=True)
+def task_type_update(api, args):
+    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps") if k in args}, key=_key(args))
+
+
+@tool("hub_task_type_delete", "Delete an unused task type (movers only). General stays built in.",
+      {"id": _s("Type id or name")}, required=("id",), writes=True)
+def task_type_delete(api, args):
+    return api.post("task-types/" + args["id"] + "/delete", {}, key=_key(args))
 
 
 @tool("hub_task_comment", "Leave a comment on a task: progress, a question for the people on it, "

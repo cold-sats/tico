@@ -102,9 +102,10 @@ function taskItems(state) {
       if (state.bot.startsWith('human:')) { if (it.actor !== state.bot) return false; }
       else if (it.slug !== state.bot) return false;
     }
+    if (!taskPipelineMatches(it.task, state)) return false;
     if (state.label && !it.labels.includes(state.label)) return false;
     if (state.q && !taskMatches(it, state.q)) return false;
-    return state.view === 'done' ? it.col === 'done' : it.col !== 'done';
+    return state.view === 'board' && pipelineSelectedType(state) ? true : state.view === 'done' ? it.col === 'done' : it.col !== 'done';
   });
 }
 const labelChips = (labels, tags) => tagChips(labels, tags, false, false);
@@ -136,7 +137,9 @@ function taskBuckets(items) {
   return out;
 }
 // Board: every open task in its column (the filters and the owner picker above still apply).
-function tasksBoardHTML(items) {
+function tasksBoardHTML(items, state) {
+  const pipeline = taskPipelineBoard(items, state);
+  if (pipeline !== null) return pipeline;
   const buckets = taskBuckets(items);
   const anyWork = COMPANY_COLS.some(([k]) => buckets[k].length);   // phones skip empty columns, unless every column is empty
   return `<div class="board work">${COMPANY_COLS.map(([k, label, hint]) => {
