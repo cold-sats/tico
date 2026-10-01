@@ -334,3 +334,7 @@ Tico counts active installs anonymously: a random ID, the version and two yes/no
 A team that runs Tico keeps its humans, bots, policies and connected accounts in its own
 registry directory (`TICO_REGISTRY_DIR`) and in bot repositories outside this one; this repository
 is the product. `templates/environment-registry/` shows the shape of the registry.
+
+Tasks support [tags with metadata, Markdown checklists and templates](docs/using-tico.md#tags-and-release-checklists).
+Open **Settings > Tags** or use `hub tag list|show|create|update`. Existing `--label` and
+`hub_task_label` calls keep using tag keys.

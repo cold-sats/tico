@@ -635,3 +635,10 @@ destination's repository readiness; if it is missing, transfer the repository or
 Go live reports a pending build instead of saying an unbuilt bot is working. Resume, Restore and activation in
 bot settings check the repository too. Built-in bots and starters being built by their computer keep their
 pending build; an External agent does not need a local repository.
+
+## Let a bot maintain a shared checklist
+
+Make a tag or a template instance with that bot as its `owner`. It can read the tag with
+`hub_tag_show`, then edit metadata or Markdown with `hub_tag_update` and the current `version`.
+Task movers attach its key to existing tasks; owning a tag does not change task permissions.
+See [Tags and release checklists](using-tico.md#tags-and-release-checklists).

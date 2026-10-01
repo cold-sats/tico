@@ -504,11 +504,36 @@ CREATE TABLE IF NOT EXISTS usage_alerts (
   PRIMARY KEY (bot, period, level));
 """
 
+TAGS_TABLES_SCHEMA = """
+ALTER TABLE tasks ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]';
+CREATE TABLE IF NOT EXISTS tags (
+  id TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}', markdown TEXT NOT NULL DEFAULT '',
+  is_template INTEGER NOT NULL DEFAULT 0, template_id TEXT REFERENCES tags(id),
+  owner TEXT, version INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL, updated TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS task_tags (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  tag_id TEXT NOT NULL REFERENCES tags(id), PRIMARY KEY(task_id, tag_id));
+CREATE INDEX IF NOT EXISTS task_tags_tag ON task_tags(tag_id, task_id);
+"""
+
+TAGS_BACKFILL = """
+INSERT OR IGNORE INTO tags(id,key,label,created,updated)
+  SELECT 'tag-'||lower(hex(randomblob(16))), value, value,
+         strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  FROM (SELECT DISTINCT value FROM tasks, json_each(tasks.labels_json) WHERE type='text' AND value<>'');
+INSERT OR IGNORE INTO task_tags(task_id,tag_id)
+  SELECT tasks.id,tags.id FROM tasks,json_each(tasks.labels_json) old
+  JOIN tags ON tags.key=old.value;
+"""
+
+TAGS_SCHEMA = TAGS_TABLES_SCHEMA + TAGS_BACKFILL
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
               REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA,
-              USAGE_LIMITS_SCHEMA]
+              USAGE_LIMITS_SCHEMA, TAGS_SCHEMA]
 
 
 class Refused(Exception):
@@ -1607,6 +1632,133 @@ def _labels(labels):
     return out[:20]
 
 
+# ----------------------------------------------------------------------------- tags
+def tag(conn, ident):
+    row = _one(conn, "SELECT * FROM tags WHERE id=? OR key=? ORDER BY id=? DESC LIMIT 1",
+               (ident, ident, ident))
+    return _tag_view(row) if row else None
+
+
+def tag_by_key(conn, key):
+    row = _one(conn, "SELECT * FROM tags WHERE key=?", (key,))
+    return _tag_view(row) if row else None
+
+
+def _tag_view(row):
+    value = dict(row)
+    value["metadata"] = _json(value.pop("metadata_json"), {}) or {}
+    value["is_template"] = bool(value["is_template"])
+    return value
+
+
+def tags(conn, is_template=None):
+    where = "" if is_template is None else " WHERE is_template=?"
+    args = () if is_template is None else (int(is_template),)
+    return [_tag_view(row) for row in conn.execute("SELECT * FROM tags" + where + " ORDER BY label,key", args)]
+
+
+def tag_can_edit(conn, actor, row, mover=None):
+    if mover is None:
+        mover = actor == KEEPER or can_move(conn, actor)
+    return bool(mover or row.get("owner") == actor)
+
+
+def tag_create(conn, actor, key, label=None, metadata=None, markdown=None, is_template=False,
+               template_id=None, owner=None, mover=None):
+    _writer(conn, actor)
+    keys = _labels([key])
+    if not keys:
+        refuse(conn, actor, "kind", "give the tag a key")
+    key = keys[0]
+    if tag_by_key(conn, key):
+        refuse(conn, actor, "duplicate", f"tag {key} already exists")
+    if not tag_can_edit(conn, actor, {"owner": owner}, mover):
+        refuse(conn, actor, "identity", "create a tag you own, or ask a task mover")
+    template = tag(conn, template_id) if template_id else None
+    if template_id and (not template or not template["is_template"]):
+        refuse(conn, actor, "kind", "make an instance from a template tag")
+    if template and is_template:
+        refuse(conn, actor, "kind", "a template instance is a task tag")
+    defaults = dict(template["metadata"]) if template else {}
+    defaults.update(metadata or {})
+    label = str(label if label is not None else template["label"] if template else key).strip()
+    if not label:
+        refuse(conn, actor, "kind", "give the tag a label")
+    ts, ident = now(), new_id()
+    conn.execute("INSERT INTO tags(id,key,label,metadata_json,markdown,is_template,template_id,owner,created,updated) "
+                 "VALUES(?,?,?,?,?,?,?,?,?,?)", (ident, key, label, _dump(defaults),
+                 markdown if markdown is not None else template["markdown"] if template else "",
+                 int(is_template), template["id"] if template else None, owner, ts, ts))
+    event(conn, actor, "tag.create", ident, {"key": key, "template_id": template["id"] if template else None})
+    return tag(conn, ident)
+
+
+def tag_update(conn, actor, ident, version, *, label=None, metadata=None, markdown=None,
+               owner=None, mover=None):
+    _writer(conn, actor)
+    row = tag(conn, ident)
+    if not row:
+        refuse(conn, actor, "not-found", "no such tag")
+    if not tag_can_edit(conn, actor, row, mover):
+        refuse(conn, actor, "identity", "this tag is edited by its owner or a task mover")
+    if row["version"] != version:
+        refuse(conn, actor, "version_conflict", "Tag changed; fetch it and retry your update")
+    fields = {k: v for k, v in (("label", label), ("metadata_json", _dump(metadata) if metadata is not None else None),
+                                ("markdown", markdown), ("owner", owner)) if v is not None}
+    if label is not None and not label.strip():
+        refuse(conn, actor, "kind", "give the tag a label")
+    if not fields:
+        return row
+    if "owner" in fields:
+        fields["owner"] = fields["owner"] or None
+    sets = ",".join(f"{name}=?" for name in fields)
+    changed = conn.execute(f"UPDATE tags SET {sets},updated=?,version=version+1 WHERE id=? AND version=?",
+                           (*fields.values(), now(), row["id"], version)).rowcount
+    if not changed:
+        refuse(conn, actor, "version_conflict", "Tag changed; fetch it and retry your update")
+    event(conn, actor, "tag.update", row["id"], {"fields": list(fields), "version": version + 1})
+    return tag(conn, row["id"])
+
+
+def hydrate_task_tags(conn, rows):
+    """Read tag display data for a page in one query, including rows from older readers."""
+    by_id = {row["id"]: row for row in rows}
+    for row in rows:
+        row["tags"] = []
+    if by_id:
+        marks = ",".join("?" * len(by_id))
+        for row in conn.execute("SELECT tags.*,task_tags.task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
+                                f"WHERE task_tags.task_id IN ({marks}) ORDER BY task_tags.rowid", tuple(by_id)):
+            value = _tag_view(row)
+            by_id[value.pop("task_id")]["tags"].append(value)
+
+
+def _set_task_tags(conn, actor, task_id, labels, note=""):
+    keys, resolved = _labels(labels), []
+    for key in keys:
+        row = tag_by_key(conn, key)
+        if row and row["is_template"]:
+            refuse(conn, actor, "kind", f"{key} is a template; make an instance to put on a task")
+        resolved.append((key, row))
+    old = task_labels(task(conn, task_id))
+    old_ids = {r[0] for r in conn.execute("SELECT tag_id FROM task_tags WHERE task_id=?", (task_id,))}
+    wanted, ordered = set(), []
+    for key, row in resolved:
+        # Unknown legacy label keys still create plain tags for every existing task writer.
+        row = row or tag_create(conn, actor, key, owner=actor, mover=True)
+        wanted.add(row["id"])
+        ordered.append(row["id"])
+    conn.execute("DELETE FROM task_tags WHERE task_id=?", (task_id,))
+    for ident in ordered:
+        conn.execute("INSERT INTO task_tags(task_id,tag_id) VALUES(?,?)", (task_id, ident))
+        if ident not in old_ids:
+            event(conn, actor, "tag.attach", ident, {"task_id": task_id})
+    for ident in old_ids - wanted:
+        event(conn, actor, "tag.detach", ident, {"task_id": task_id})
+    if old != keys:
+        _task_event(conn, task_id, actor, "labels", _dump(old), _dump(keys), note)
+
+
 def _lane_for(conn, lane, owner, actor):
     """The pipeline a new task follows: always company (the product lane is retired). A lane
     is still accepted for compatibility and checked, but not stored."""
@@ -1801,13 +1953,14 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
            "status": "open", "due": due, "parent_id": parent_id, "conversation_id": conv["id"],
            "created": ts, "updated": ts, "done_at": None, "closed_at": None, "closed_by": None,
            "note": "", "lane": lane, "rank": _queue_end(conn, target, top),
-           "labels_json": _dump(labels), "goal_id": goal_id or None, "next_run": 1 if next_run else 0}
+           "goal_id": goal_id or None, "next_run": 1 if next_run else 0}
     conn.execute("INSERT INTO tasks (id, title, body, requester, owner, status, due, parent_id, "
                  "conversation_id, created, updated, done_at, closed_at, closed_by, note, lane, rank, "
-                 "labels_json, goal_id, next_run) VALUES "
+                 "goal_id, next_run) VALUES "
                  "(:id, :title, :body, :requester, :owner, :status, :due, :parent_id, "
                  ":conversation_id, :created, :updated, :done_at, :closed_at, :closed_by, :note, "
-                 ":lane, :rank, :labels_json, :goal_id, :next_run)", row)
+                 ":lane, :rank, :goal_id, :next_run)", row)
+    _set_task_tags(conn, actor, row["id"], labels)
     if dedicated:
         conn.execute("UPDATE conversations SET task_id=? WHERE id=?", (row["id"], conv["id"]))
     _task_event(conn, row["id"], actor, "status", None, "open", "")
@@ -1908,10 +2061,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         args[field] = value
         _task_event(conn, task_id, actor, field, row.get(field), value, note or "")
     if labels is not None:
-        tags = _labels(labels)
-        sets.append("labels_json=:labels_json")
-        args["labels_json"] = _dump(tags)
-        _task_event(conn, task_id, actor, "labels", row.get("labels_json"), _dump(tags), note or "")
+        _set_task_tags(conn, actor, task_id, labels, note or "")
+        sets.append("updated=:updated")
     if blocked_by is not None:
         blocker = str(blocked_by or "").strip() or None
         if blocker:
@@ -2988,11 +3139,14 @@ def notices(conn, actor, at=None):
 
 
 def task(conn, task_id):
-    return _one(conn, "SELECT * FROM tasks WHERE id=?", (task_id,))
+    row = _one(conn, "SELECT * FROM tasks WHERE id=?", (task_id,))
+    if row:
+        hydrate_task_tags(conn, [row])
+    return row
 
 
 def task_labels(row):
-    return _json((row or {}).get("labels_json"), []) or []
+    return [tag["key"] for tag in (row or {}).get("tags", [])]
 
 
 def labels_in_use(conn, visible="1"):
@@ -3000,8 +3154,10 @@ def labels_in_use(conn, visible="1"):
     the tasks the caller may read (`Auth.task_sql`)."""
     marks = ",".join("?" * len(ACTIVE_STATUSES))
     return [r[0] for r in conn.execute(
-        f"SELECT value, COUNT(*) n FROM tasks, json_each(tasks.labels_json) "
-        f"WHERE status IN ({marks}) AND ({visible}) GROUP BY value ORDER BY n DESC, value", ACTIVE_STATUSES)]
+        f"SELECT tags.key, COUNT(*) n FROM (SELECT id FROM tasks WHERE status IN ({marks}) "
+        f"AND ({visible})) visible_tasks JOIN task_tags ON task_tags.task_id=visible_tasks.id "
+        "JOIN tags ON tags.id=task_tags.tag_id "
+        "GROUP BY tags.key ORDER BY n DESC, tags.key", ACTIVE_STATUSES)]
 
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
@@ -3021,7 +3177,8 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
         where.append("lane=?")
         args.append(lane)
     if label:
-        where.append("EXISTS (SELECT 1 FROM json_each(tasks.labels_json) WHERE value=?)")
+        where.append("EXISTS (SELECT 1 FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
+                     "WHERE task_tags.task_id=tasks.id AND tags.key=?)")
         args.append(str(label).strip().lower())
     if status:
         wanted = [status] if isinstance(status, str) else list(status)
@@ -3042,8 +3199,10 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
         ordering = "COALESCE(done_at,closed_at,updated,created) DESC, id DESC"   # most recently done first
     else:
         raise ValueError("task order is queue or finished")
-    return _rows(conn.execute(sql + f" ORDER BY {ordering} LIMIT ? OFFSET ?",
+    rows = _rows(conn.execute(sql + f" ORDER BY {ordering} LIMIT ? OFFSET ?",
                               (*args, max(1, int(limit)), max(0, int(offset)))))
+    hydrate_task_tags(conn, rows)
+    return rows
 
 
 def tasks_due_for_bots(conn, through):

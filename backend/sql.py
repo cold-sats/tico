@@ -116,6 +116,7 @@ def guarded(c, auth, who, inner):
         "conversations": conversations,
         "messages": "conversation_id IN (SELECT id FROM conversations)",
         "tasks": tasks,
+        "tags": "1", "task_tags": by_task,
         "task_events": by_task, "task_delegations": by_task,
         "task_reminders": by_task, "task_assets": by_task, "task_links": by_task,
         "message_assets": by_message,

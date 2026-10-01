@@ -33,7 +33,7 @@ function pageTasks(forced, openId = '') {
     <div id="task-filter-pop" popover aria-label="Task filters">
       <div class="task-filter-row"><span class="lbl">Show</span><div class="tfilters" id="task-filters" role="group" aria-label="Show tasks"></div></div>
       <div class="task-filter-row"><label for="board-bot">Owner</label><select id="board-bot" aria-label="Filter by owner"></select></div>
-      <div class="task-filter-row" id="task-label-row"><label for="board-label">Label</label><select id="board-label" aria-label="Filter by label"></select></div>
+      <div class="task-filter-row" id="task-label-row"><label for="board-label">Tag</label><select id="board-label" aria-label="Filter by tag"></select></div>
       <div class="task-filter-foot"><button type="button" id="task-filter-clear">Clear</button></div>
     </div>
     <div id="task-body"></div>`;
@@ -162,7 +162,7 @@ function openTaskCreate(owner = '', opts = {}) {
         <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" required aria-label="Title" placeholder="Email Dana the renewal brief"></div>
         <label>For <select name="owner" required aria-label="Who this task is for">${taskOwnerOptions(owner)}</select></label>
         <div class="r3">
-          <label>Labels <input type="text" name="labels" list="task-label-list-new" placeholder="bug, pricing-page" aria-label="Labels, comma separated" size="18"><datalist id="task-label-list-new">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
+          <label>Tags <input type="text" name="labels" list="task-label-list-new" placeholder="bug, pricing-page" aria-label="Tag keys, comma separated" size="18"><datalist id="task-label-list-new">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
           <label><input type="checkbox" name="top"> Top of their queue</label>
         </div>
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
@@ -223,6 +223,7 @@ async function tasksLoad(state) {
   state.tasks = mergeTaskRows(active?.tasks || [], finished);
   state.routines = rec?.routines || null;
   state.labels = lab?.labels || [];
+  state.tags = lab?.tags || [];
   state.loading = false;
   tasksTools(state); tasksRender(state);
 
@@ -318,7 +319,7 @@ function tasksTools(state) {
   };
   const lab = $('#board-label');
   const labels = [...new Set([...(state.labels || []), ...(state.label ? [state.label] : [])])];
-  lab.innerHTML = '<option value="">Any label</option>' + labels.map(l => `<option value="${esc(l)}"${l === state.label ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  lab.innerHTML = tagFilterOptions(state);
   $('#task-label-row').hidden = !labels.length;
   lab.onchange = () => {
     state.label = lab.value;

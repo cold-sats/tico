@@ -137,3 +137,121 @@ def test_task_labels_and_links_with_an_attachment(api):
     assert task["labels"] == ["release"]
     assert task["links"][0]["url"] == "https://example.com/release"
     assert task["attachments"][0]["name"] == "notes.md"
+
+
+# ----------------------------------------------------------------------------- tags
+@pytest.mark.parametrize("cloud", [False, True])
+def test_tag_migration_backfills_once_and_preserves_legacy_column(api, cloud):
+    task = post(api, "tasks", {"owner": "cmo", "title": "Review the migration", "body": "x"})
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET labels_json=? WHERE id=?", ('["release","bug","bug"]', task["id"]))
+        c.execute("DROP TABLE task_tags")
+        c.execute("DROP TABLE tags")
+        c.execute("PRAGMA user_version=13")
+        c.execute("DELETE FROM cloud_migrations WHERE version=47")
+    if cloud:
+        store.initialize(seed_market=False)
+    else:
+        c = H.connect(store.settings.db_path)
+        c.close()
+    with store.read() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert {tag["key"] for tag in H.tags(c)} == {"release", "bug"}
+        assert set(H.task_labels(H.task(c, task["id"]))) == {"release", "bug"}
+        assert c.execute("SELECT COUNT(*) FROM task_tags").fetchone()[0] == 2
+        if cloud:
+            assert c.execute("SELECT 1 FROM cloud_migrations WHERE version=47").fetchone()
+    changed = post(api, "tasks/" + task["id"], {"version": task["version"], "labels": ["bug"]})
+    assert changed["labels"] == ["bug"]
+    store.initialize(seed_market=False)
+    with store.read() as c:
+        assert H.task_labels(H.task(c, task["id"])) == ["bug"]
+        assert c.execute("SELECT labels_json FROM tasks WHERE id=?", (task["id"],)).fetchone()[0] == '["release","bug","bug"]'
+
+
+def test_legacy_label_keys_write_tags_and_filter_by_join(api):
+    task = post(api, "tasks", {"owner": "cmo", "title": "Fix the settings", "body": "x", "labels": ["Bug", "settings"]})
+    assert task["labels"] == ["bug", "settings"]
+    assert [(tag["key"], tag["label"], tag["metadata"]) for tag in task["tags"]] == [
+        ("bug", "bug", {}), ("settings", "settings", {})]
+    with api.app.state.store.transaction() as c:
+        assert c.execute("SELECT labels_json FROM tasks WHERE id=?", (task["id"],)).fetchone()[0] == "[]"
+        c.execute("UPDATE tasks SET labels_json='[\"obsolete\"]' WHERE id=?", (task["id"],))
+    assert get(api, "tasks?label=bug")["tasks"][0]["id"] == task["id"]
+    assert get(api, "tasks?label=obsolete")["tasks"] == []
+    assert get(api, "tasks/labels")["labels"] == ["bug", "settings"]
+    updated = post(api, "tasks/" + task["id"], {"version": task["version"], "labels": ["settings", "new-key"]})
+    assert updated["labels"] == ["settings", "new-key"]
+    data = get(api, "tasks/" + task["id"])
+    assert data["task"]["labels"] == updated["labels"]
+    assert any(event["field"] == "labels" and event["new"] == '["settings", "new-key"]' for event in data["events"])
+    with api.app.state.store.read() as c:
+        assert {row[0] for row in c.execute("SELECT action FROM events WHERE action LIKE 'tag.%'")} >= {
+            "tag.create", "tag.attach", "tag.detach"}
+
+
+def test_template_instances_copy_defaults_and_cannot_attach_templates(api):
+    template = post(api, "tags", {"key": "release-checklist", "label": "release", "is_template": True,
+        "metadata": {"date": "2026-10-02", "channel": "stable"}, "markdown": "- [ ] Smoke checks"})["tag"]
+    instance = post(api, "tags/" + template["id"] + "/instances", {"key": "release-2026-10-02", "metadata": {"date": "2026-10-03"}})["tag"]
+    assert instance["template_id"] == template["id"] and not instance["is_template"]
+    assert instance["label"] == "release" and instance["markdown"] == template["markdown"]
+    assert instance["metadata"] == {"date": "2026-10-03", "channel": "stable"}
+    post(api, "tags/" + template["id"], {"version": 1, "markdown": "Changed", "metadata": {} })
+    assert get(api, "tags/" + instance["key"])["tag"]["markdown"] == "- [ ] Smoke checks"
+    assert get(api, "tags?is_template=true")["tags"][0]["id"] == template["id"]
+    task = post(api, "tasks", {"owner": "cmo", "title": "Ship the release", "body": "x", "labels": [instance["key"]]})
+    assert task["tags"][0]["metadata"] == instance["metadata"]
+    assert get(api, "tags/" + instance["key"])["tasks"][0]["id"] == task["id"]
+    post(api, "tasks/" + task["id"], {"version": task["version"], "labels": ["would-be-new", template["key"]]}, expected=422)
+    assert get(api, "tags/" + instance["key"])["tasks"][0]["id"] == task["id"]
+    assert not any(tag["key"] == "would-be-new" for tag in get(api, "tags")["tags"])
+    post(api, "tasks", {"owner": "cmo", "title": "Invalid template task", "body": "x", "labels": [template["key"]]}, expected=422)
+
+
+def test_tag_owner_movers_and_stale_versions(api):
+    tag = post(api, "tags", {"key": "release-day", "owner": "priya", "markdown": "- [ ] Smoke checks"})["tag"]
+    assert get(api, "tags/" + tag["id"], token="priya-test")["editable"] is True
+    changed = post(api, "tags/" + tag["id"], {"version": 1, "markdown": "- [x] Smoke checks"}, token="priya-test")["tag"]
+    assert changed["version"] == 2
+    post(api, "tags/" + tag["id"], {"version": 1, "metadata": {"date": "2026-10-02"}}, token="priya-test", expected=409)
+    assert get(api, "tags/" + tag["id"])["tag"]["metadata"] == {}
+    post(api, "tags/" + tag["id"], {"version": 2, "owner": "ana"}, token="ben-test")
+    post(api, "tags/" + tag["id"], {"version": 3, "markdown": "Clobber"}, token="priya-test", expected=403)
+    post(api, "tags", {"key": "not-mine", "owner": "ana"}, token="priya-test", expected=403)
+    mine = post(api, "tags", {"key": "my-checklist"}, token="priya-test")["tag"]
+    assert mine["owner"] == "human:priya"
+    task = post(api, "tasks", {"owner": "priya", "title": "Review the checklist", "body": "Read it."})
+    post(api, "tasks/" + task["id"], {"version": task["version"], "labels": [mine["key"]]}, token="priya-test", expected=403)
+
+
+def test_bot_tag_owner_edits_and_tag_tasks_respect_visibility(api):
+    token = bot_token(api, "ops")
+    tag = post(api, "tags", {"key": "release-bot", "markdown": "- [ ] Smoke checks"}, token=token)["tag"]
+    post(api, "tags/" + tag["id"], {"version": 1, "markdown": "- [x] Smoke checks"}, token=token)
+    mine = post(api, "tasks", {"owner": "ops", "title": "Run smoke checks", "body": "x", "labels": [tag["key"]]})
+    other = post(api, "tasks", {"owner": "cmo", "title": "Write release notes", "body": "x", "labels": [tag["key"]]})
+    assert [task["id"] for task in get(api, "tags/" + tag["id"], token=token)["tasks"]] == [mine["id"]]
+    assert {task["id"] for task in get(api, "tags/" + tag["id"])["tasks"]} == {mine["id"], other["id"]}
+    sql = post(api, "sql", {"sql": "SELECT task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id WHERE tags.key='release-bot'"}, token=token)
+    assert sql["rows"] == [[mine["id"]]]
+    assert get(api, "tasks/labels", token=token)["tags"][0]["key"] == tag["key"]
+
+
+def test_task_label_strings_resolve_only_by_key_even_if_one_is_a_tag_id(api):
+    tag = post(api, "tags", {"key": "release-checklist"})["tag"]
+    task = post(api, "tasks", {"owner": "cmo", "title": "Review a key collision", "body": "x", "labels": [tag["id"]]})
+    assert task["labels"] == [tag["id"]]
+    assert task["tags"][0]["key"] == tag["id"]
+    assert task["tags"][0]["id"] != tag["id"]
+    assert get(api, "tasks/labels")["tags"][0]["key"] == tag["id"]
+
+
+def test_needs_you_includes_tag_keys_and_metadata(api):
+    tag = post(api, "tags", {"key": "release-2026-10-02", "label": "release", "metadata": {"date": "2026-10-02"}})["tag"]
+    task = post(api, "tasks", {"owner": "ana", "title": "Review the release", "body": "Read the notes.", "labels": [tag["key"]]})
+    items = get(api, "needs-you")["items"]
+    mine = next(item for item in items if item["id"] == task["id"])
+    assert mine["labels"] == [tag["key"]]
+    assert mine["tags"][0]["metadata"] == {"date": "2026-10-02"}

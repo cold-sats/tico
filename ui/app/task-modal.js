@@ -214,7 +214,7 @@ const commentAuthor = (a, via) => {
   return `${slug ? avatar(slug, 16, stateOf(slug)) : ''}<span class="who">${esc(actorLabel(a))}</span>`;
 };
 const TASK_EVENT_WORDS = {status: s => `moved it to ${STATUS_WORD[s] || s}`, owner: v => `handed it to ${actorLabel(v)}`,
-  lane: v => `moved it to the ${v === 'company' ? 'team' : v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the labels: ${l.join(', ')}` : 'removed the labels'; } catch { return 'changed the labels'; } },
+  lane: v => `moved it to the ${v === 'company' ? 'team' : v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the tags: ${l.join(', ')}` : 'removed the tags'; } catch { return 'changed the tags'; } },
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
   lint: v => `noted: ${v}`, note: () => 'left a note'};
@@ -348,8 +348,8 @@ function hubModalHTML(t, it) {
       ${note && note.replace(/\s+/g, ' ').trim() !== waitText ? `<details class="task-orig"><summary>Progress</summary><div class="q md">${safeMd(note)}</div></details>` : ''}
       ${(t.acceptance_criteria || []).length ? `<div class="tsection"><div class="lbl">Done looks like</div><ul class="tcriteria">${t.acceptance_criteria.map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>` : ''}
       <div class="tsection trow2">
-        <div><div class="lbl">Labels</div><div class="tlabels">${(t.labels || []).map(l => `<span class="tlabel">${esc(l)}${mover ? `<button type="button" class="x" data-drop-label="${esc(l)}" aria-label="Remove ${esc(l)}">×</button>` : ''}</span>`).join('') || '<span class="muted">none</span>'}
-          ${mover ? `<form class="inline" data-modal-labels><input type="text" list="task-label-list" placeholder="add a label" aria-label="Add a label" size="12"><datalist id="task-label-list">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></form>` : ''}</div></div>
+        <div><div class="lbl">Tags</div><div class="tlabels">${tagChips(t.labels, t.tags, mover) || '<span class="muted">none</span>'}
+          ${mover ? `<form class="inline" data-modal-labels><input type="text" list="task-label-list" placeholder="add a tag" aria-label="Add a tag" size="12"><datalist id="task-label-list">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></form>` : ''}</div></div>
         <div><div class="lbl">Links &amp; files</div><div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}
           ${files.map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join('')}
           ${!links.length && !files.length ? '<span class="muted">none</span>' : ''}

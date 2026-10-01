@@ -434,3 +434,13 @@ redirect allowlist (open redirects refused), and the code exchange (single-use, 
 
 Ideas for the next step: answer questions and approvals from Needs you (`/messages/{id}/answer`, `/approvals/{id}`), create
 tasks, show updates, and attach files (`POST /api/v2/uploads/chat/{bot}`, `multipart/form-data`).
+
+## Tag display and checklists
+
+Task responses retain `labels` as keys and add `tags` with `id`, `key`, `label`, `metadata`,
+`markdown`, `is_template`, `template_id`, `owner` and `version`. Show the label and metadata
+on a chip, and use the key with existing label filters and task writes. Read a tag with
+`GET /api/v2/tags/{id}` for its notes, `editable` flag and visible tasks. Save notes with
+`POST /api/v2/tags/{id}` and its current version; preserve a draft when a `409 version_conflict`
+requires loading newer notes. Create an instance with `POST /api/v2/tags/{id}/instances`
+instead of attaching a template directly. [The tag API](api.md#tags) describes all fields.

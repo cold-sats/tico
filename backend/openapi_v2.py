@@ -599,6 +599,25 @@ SCHEMAS["GoalTree"]["properties"]["goals"] = items(_merge(SCHEMAS["Goal"], SCHEM
 SCHEMAS["KpiDetail"]["properties"]["links"] = items(_merge(SCHEMAS["KpiLink"], obj({
     "goal_title": "s", "goal_owner": "s", "goal_status": "n", "target_label": "s", "status": "s", "reason": "s",
     "expected": NUM_N}, required=["goal_title", "status"])))
+# Tags add rich display data beside the existing task label keys.
+TAGS["Tags"] = "Tags, metadata, markdown checklists and reusable templates."
+STABLE.extend([
+    ("/api/v2/tags", "get", "Tags", "listTags", "Tags and templates", "TagList"),
+    ("/api/v2/tags", "post", "Tags", "createTag", "Create a tag or template", "TagResult"),
+    ("/api/v2/tags/{tag_id}", "get", "Tags", "getTag", "A tag and its visible tasks", "TagDetail"),
+    ("/api/v2/tags/{tag_id}", "post", "Tags", "updateTag", "Edit a tag using its current version", "TagResult"),
+    ("/api/v2/tags/{tag_id}/instances", "post", "Tags", "createTagInstance", "Copy a template into a task tag", "TagResult"),
+])
+SCHEMAS.update({
+    "Tag": obj({"id": "s", "key": "s", "label": "s", "metadata": "o", "markdown": "s", "is_template": "b",
+                "template_id": "n", "owner": "n", "version": "i", "created": "s", "updated": "s"}),
+    "TagList": obj({"tags": items(ref("Tag"))}),
+    "TagResult": obj({"tag": ref("Tag")}),
+    "TagDetail": obj({"tag": ref("Tag"), "editable": "b", "tasks": items(ref("Task")),
+                      "next_offset": {"type": ["integer", "null"]}}),
+})
+SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
+
 ANSWERS = SCHEMAS
 
 # Documentation for the two sign-in routes whose bodies the handlers read by hand.

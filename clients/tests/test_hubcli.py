@@ -17,7 +17,7 @@ from threading import Thread
 from clients import hubcli
 
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
-SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "assistant", "task", "goal", "kpi",
+SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "assistant", "tag", "task", "goal", "kpi",
                "proposal", "market", "listening", "tool", "routine", "approval", "brief", "mcp", "needs-you", "run", "team", "health",
                "update", "grokbot", "calendar", "sql", "db", "classify", "decision", "template", "bot", "skill", "agent", "human", "group", "api", "computer",
                "credential", "slack", "support"]
@@ -451,3 +451,43 @@ class BotSetup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class Tags(unittest.TestCase):
+    def test_tag_commands_use_the_mcp_contract_and_keep_task_label_keys(self):
+        from unittest.mock import patch
+        from clients import hubtools, remotecli
+
+        class API:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, path, **query):
+                self.calls.append(("GET", path, query))
+                return {"tags": []}
+
+            def post(self, path, body, **kwargs):
+                self.calls.append(("POST", path, body))
+                return {"tag": body}
+
+        api = API()
+        with tempfile.TemporaryDirectory() as directory:
+            markdown = Path(directory) / "checklist.md"
+            markdown.write_text("- [ ] Smoke checks\n")
+            with patch.dict(os.environ, {"HUB_API_URL": "https://acme.example", "HUB_TOKEN": "test"}), patch.object(remotecli, "Client", return_value=api):
+                create = hubcli.parser().parse_args(["tag", "create", "release-2026-10-02", "--from-template", "release-checklist",
+                    "--metadata", '{"date":"2026-10-02"}', "--markdown-file", str(markdown)])
+                remotecli.run(create)
+                update = hubcli.parser().parse_args(["tag", "update", "release-2026-10-02", "--version", "2",
+                    "--markdown", "- [x] Smoke checks", "--metadata", "{}"])
+                remotecli.run(update)
+                remotecli.run(hubcli.parser().parse_args(["tag", "list", "--templates"]))
+        self.assertEqual(api.calls, [
+            ("POST", "tags/release-checklist/instances", {"key": "release-2026-10-02", "metadata": {"date": "2026-10-02"}, "markdown": "- [ ] Smoke checks\n"}),
+            ("POST", "tags/release-2026-10-02", {"version": 2, "metadata": {}, "markdown": "- [x] Smoke checks"}),
+            ("GET", "tags", {"is_template": "true"}),
+        ])
+        task = hubcli.parser().parse_args(["task", "label", "12345678", "--add", "release-2026-10-02"])
+        self.assertEqual(task.add, ["release-2026-10-02"])
+        for name in ("hub_tag_list", "hub_tag_show", "hub_tag_create", "hub_tag_update"):
+            self.assertIn(name, hubtools.BY_NAME)

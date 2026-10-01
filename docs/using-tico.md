@@ -146,3 +146,45 @@ A human: **Settings → Humans → Add manually** (an owner or admin), or sync t
 directory there; behind Cloudflare Access, also allow the address in its policy ([Humans](people.md)). A
 bot: **Settings > Bots > Add from template**, or ask BotOps to build it. Open the bot and press **Set up** to finish its
 first conversation. See [Creating bots](creating-bots.md) for custom Instructions and manual setup.
+
+## Tags and release checklists
+
+Tags give related tasks a shared label, metadata and a Markdown checklist. A chip can show
+`release · Oct 2`; its key, such as `release-2026-10-02`, identifies that particular release.
+Click a tag chip to open its notes and tasks. The task filter uses tags. Existing label strings,
+`hub task label` and `--label` continue to use the same keys. Unknown keys create plain tags.
+
+Open **Settings > Tags** to create tags or templates. A template holds a reusable checklist and
+metadata defaults. Open it and choose a key under **Make a tag** to copy those defaults into a new
+tag; later template edits leave existing instances alone. Put the instance on tasks. Templates
+cannot be attached directly.
+
+The team owner and humans on the leadership, product and engineering teams can attach and
+remove tags, just as they could change labels. A tag's owner (human or bot) can edit its notes,
+metadata and label, as can those task movers. Anyone signed in can create a tag they own; a mover
+can create one for another teammate. A tag page lists only tasks the viewer may read. Tick a
+checklist item to save it. If another teammate saved first, load the current notes and combine your changes. Your open notes draft stays in place.
+
+### Create a release template
+
+There is no automatic `release` template seed: that key may already be a plain task label.
+Create a separate template key once, in Settings or with these commands:
+
+```sh
+cat > release-checklist.md <<'CHECKLIST'
+- [ ] Migrations / scripts to run
+- [ ] Smoke checks after deploy
+- [ ] Tell the team
+CHECKLIST
+hub tag create release-checklist --label release --template --markdown-file release-checklist.md
+hub tag create release-2026-10-02 --from-template release-checklist --metadata '{"date":"2026-10-02"}'
+hub task label <task-id> --add release-2026-10-02
+hub tag show release-2026-10-02
+hub tag update release-2026-10-02 --version 1 --markdown-file release-checklist.md
+```
+
+The release bot can own an instance, gather the tasks going out, record checklist results and
+tell the teammate coordinating the release when it ships. Its tag-owner rights allow checklist
+edits; attaching tags still needs a task mover. Use `hub_tag_list`, `hub_tag_show`,
+`hub_tag_create` and `hub_tag_update` through MCP. Update calls include the current `version`;
+a stale version returns `409 version_conflict` without overwriting the checklist.

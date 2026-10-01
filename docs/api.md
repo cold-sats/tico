@@ -101,3 +101,24 @@ included:
 Tico does not rate-limit ordinary calls. What it does enforce: writes are limited to 2 MB (uploads and meeting
 imports 20 MB, `413 too_large`), a few actions have a daily budget (`429`), and each open live stream costs the
 server a small read every second. [custom-frontend.md](custom-frontend.md#rate-limits) has the guidance.
+
+## Tags
+
+`GET /api/v2/tags` lists tags and templates; `?is_template=true` selects templates and `false`
+selects task tags. `POST /api/v2/tags` accepts `key`, optional `label`, `metadata` (an object),
+`markdown`, `owner`, `is_template`, and `template_id`. Owner defaults to the caller.
+`GET /api/v2/tags/{id}` accepts an id or key and returns `tag`, `editable`, visible `tasks`, and
+`next_offset`; `limit` and `offset` page the tasks. `POST /api/v2/tags/{id}` accepts `version`
+and optional `label`, `metadata`, `markdown` and `owner` (empty to clear). Metadata updates
+replace the object. Keys and template status stay fixed after creation.
+
+`POST /api/v2/tags/{id}/instances` copies a template's label, Markdown and metadata into a tag
+with a caller-supplied key. Metadata supplied on creation overrides the template defaults.
+Templates cannot be attached to tasks. Create/edit permissions are task movers or the tag owner.
+Tag reads are team-wide; the task list keeps the caller's task visibility.
+
+Task `labels` remain a list of keys. Task responses also include `tags` with their display label,
+metadata and notes. `GET /api/v2/tasks/labels` preserves `labels` and adds `tags` for those keys.
+`task_tags` is the source of truth; the old `labels_json` column is kept for one release but
+is no longer read or written. All tag changes are audited in `events`, and task tag changes
+keep the `labels` entry in `task_events`. See [Tags and release checklists](using-tico.md#tags-and-release-checklists).
