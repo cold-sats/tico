@@ -9,7 +9,7 @@ files the run changed in the repository, and holds back a push whose commits con
 
 Four words, used the same way everywhere:
 
-- A **human** signs in. The owner and the admins are the **credential administrators**: they store credentials and decide who has them
+- A **human** signs in. The owner and the admins are the **credential administrators**: they store, delete and grant credentials
   (`TICO_CREDENTIAL_ADMINS` names a different list; a member is never one).
 - A **bot** is a worker. It has the credentials it was given and nothing else. **A bot never uses a credential that was not
   granted to it**, and never another bot's: having one in its own file on its computer does not make it anyone else's.
@@ -33,8 +33,10 @@ and kept in `credential.key` (mode 0600, the server's user) in the data volume n
 Docker install). The database holds only encrypted values and a fingerprint of the key, so a copy of the database alone cannot read them.
 The key is never logged or returned by any route.
 
-**Back `credential.key` up** with the database, to a different place than the database backup (a password manager, a private bucket):
-Litestream copies the database, not this file. A database restored without its key file cannot decrypt any credential: Credentials
+**Automatic backups include `credential.key`** in the same destination as the database: the backup loop copies the file
+that Litestream does not copy. Anyone who can read both can decrypt vault credentials, so protect the complete backup as a secret.
+See [The local credential key and backups](#the-local-credential-key-and-backups). An additional copy in a password manager can help
+recovery; separate key storage requires your own backup and restore process. A database restored without its key file cannot decrypt any credential: Credentials
 says the key file is missing, and Tico never makes a new key over an existing vault, so nothing is lost by putting the file back.
 Re-enter the credentials only if the key is truly gone.
 
@@ -45,8 +47,8 @@ again is refused rather than starting a second key.
 
 ## Give a bot a credential another bot has
 
-Say it in the chat with BotOps: "Give Engineering Monitor the Jira access Jira Manager has." BotOps acts as you, so you must be a credential
-administrator; anyone else is told who to ask. It runs at once, with no Confirm card, and then tries the connection as the bot:
+Say it in the chat with BotOps: "Give Engineering Monitor the Jira access Jira Manager has." BotOps acts as you. A credential administrator may grant it; a holder may delegate a stored credential to a bot they own or run.
+Importing from another bot's file still needs a credential administrator. It runs at once, with no Confirm card, and then tries the connection as the bot:
 
 1. If the credential is only in the first bot's own file (`secrets/<bot>.env` on its computer), BotOps moves it into Credentials first
    (`hub credential import JIRA_BASIC_AUTH --from-bot jira-manager`). The computer that runs that bot reads the variable from
@@ -96,9 +98,9 @@ what it posts and logs. `hub message redact <id>` does the same for one message.
 
 ## Credential files on the computer
 
-`<workspace>/secrets/_shared.env` (every run on that computer inherits it) and
-`secrets/<slug>.env` (one bot; it wins), mode 600, never in git. The runner loads both at the
-start of a run. `credential_profile` on an `tools:` entry loads one named variable from
+`<workspace>/secrets/_shared.env` (shared source) and `secrets/<slug>.env` (one bot; it wins), mode 600, never in git.
+A bot gets only the credentials granted to it, not the whole computer environment or shared file. On upgrade,
+Tico automatically grants each bot the shared credentials it already uses, so existing bots keep working. `credential_profile` on an `tools:` entry loads one named variable from
 `secrets/<profile>.env`, not the whole file.
 
 ## 1Password references
@@ -124,9 +126,9 @@ breaks the `op://` form; reference it by its item id.
   pastes and removes it from the conversation.
 - A missing credential is not yours to work around: open the card (`hub credential request`), or for a task no human is in,
   name the variable on the task and stop. `$HUB_DIR/scripts/preflight.sh <slug>` shows every declared credential as present or missing.
-- Saving a credential is not permission to use it. Only an `tools:` entry (and, for the Tico
-  vault, a grant) connects a bot to a credential. Changing `tools:` is a task for the owner.
+- Saving a credential is not permission to use it. A credential must be granted to that bot and declared in its `tools:` entry. Changing `tools:` is a task for the owner.
 - A granted value exists only for that run; do not copy it anywhere that outlives the run.
 - A shared read credential and a narrower write credential can carry the same variable name: the bot's own
-  file wins over `_shared.env`, and its `tools:` entry must say `write` before it may write.
+  file wins over `_shared.env`. Its `tools:` entry declares the intended operations; restrict the vendor key or endpoint
+  to enforce read-only access. Tico does not filter a vendor's MCP tools by `can`.
 - The launchd job on a Mac does not see a shell export; a credential must be in a credential file.

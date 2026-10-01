@@ -21,8 +21,7 @@ speaker passages with timestamps when the source provides them. Follow `next_off
 for additional results. Transcript reads accept `--offset` and `--limit` in characters
 (default 20,000, maximum 50,000); follow `next_offset` until it is null.
 
-Document reads preserve the document library's existing visibility: owners see all
-documents and other identities see external documents. Market knowledge follows the
+Every teammate (owner, human or bot) can list and read internal and linked team Docs ([Docs](docs.md)). Market knowledge follows the
 existing market access rules. Bots may read explicitly non-private team meetings;
 they do not inherit their owner's access to private meetings or personal notes.
 Human access follows the existing owner/attendee rules. Deleted meetings are excluded.

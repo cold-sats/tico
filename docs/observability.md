@@ -9,8 +9,8 @@ one PostHog project between several apps by filtering on the `app` property (Tic
 
 1. Create a PostHog project (and, optionally, a Sentry project for Tico). Preserve the pinned SDK
    and privacy filters described below.
-2. Set the following in the Tico API service's secret/environment configuration, using
-   `.env.example` as a names-only reference. Do not commit populated values.
+2. Set the variables below in the API service's environment. In Docker, add them to the install's private `.env` and explicitly
+   forward them with the [compose override](#docker-configuration) below; `.env` alone does not pass them into the container. Do not commit populated values.
 
 | Variable | Purpose |
 | --- | --- |
@@ -132,20 +132,40 @@ contained so analytics failures cannot fail an application operation.
 ## Deployment notes
 
 The UI's `SERVICE_NAMES.posthog` entry names a bot tool; it is not application
-analytics. `TICO_RELEASE` is reused as the release label. The EC2 installer accepts the six
-documented observability settings in its JSON configuration and writes `/etc/tico/api.env` with
-mode 0600. For the identity secret, use 32-256 URL-safe letters, digits, underscores or hyphens
-(64 hexadecimal characters works well). Keep the same secret in that configuration across
-releases; the installer neither generates nor rotates it. It rewrites the service environment from
-the supplied configuration, so omitting settings disables them. Never pass secrets in command
-arguments or logs.
+analytics. `TICO_RELEASE` is reused as the release label. Cloud installs use the same Docker configuration below. Native checkout
+installs put these variables in the environment's `server.env`, then use `scripts/tico -e <slug> server restart`. For the identity
+secret, use 32-256 URL-safe letters, digits, underscores or hyphens. Keep it stable across releases and out of command arguments and logs.
 
-Run `npm run test:observability`, `npm run check:observability`, and
-`npm run test:observability:browser` (installed Google Chrome required). The browser test uses
-real pinned SDKs with every request intercepted; it never contacts a telemetry project.
-The browser regression includes successful retry controls and failed requests both queued before
-and completed after reset, logout, disable, account switch and partial disable. Its synthetic
-clock crosses retry deadlines; all network traffic remains intercepted.
+### Docker configuration
+
+Add this `compose.override.yaml` beside the install's `compose.yaml`:
+
+```yaml
+services:
+  server:
+    environment:
+      TICO_OBSERVABILITY_ENVIRONMENT: ${TICO_OBSERVABILITY_ENVIRONMENT:-}
+      TICO_OBSERVABILITY_ID_SECRET: ${TICO_OBSERVABILITY_ID_SECRET:-}
+      TICO_POSTHOG_KEY: ${TICO_POSTHOG_KEY:-}
+      TICO_POSTHOG_HOST: ${TICO_POSTHOG_HOST:-}
+      TICO_SENTRY_DSN: ${TICO_SENTRY_DSN:-}
+      TICO_SENTRY_SERVER_DSN: ${TICO_SENTRY_SERVER_DSN:-}
+      TICO_RELEASE: ${TICO_RELEASE:-}
+```
+
+Store the selected values in the private `.env` (mode 0600). Recreate the API service to apply the new mapping:
+
+```bash
+docker compose up -d server
+# Check presence only; never print the values or an expanded compose config.
+docker compose exec server python -c 'import os; names = ("TICO_OBSERVABILITY_ENVIRONMENT", "TICO_OBSERVABILITY_ID_SECRET", "TICO_POSTHOG_KEY", "TICO_POSTHOG_HOST", "TICO_SENTRY_DSN", "TICO_SENTRY_SERVER_DSN"); print({n: bool(os.getenv(n)) for n in names})'
+```
+
+While signed in as a human, inspect `GET /api/v2/observability` in the browser: it returns validated public configuration,
+never the identity secret. Configuration can be present but rejected if it does not meet the requirements above.
+
+Run `npm run check:observability` for the browser source syntax checks. Backend reporting and privacy contracts are covered by
+`python -m pytest -q backend/tests/test_observability.py`. The checkout does not ship a separate browser observability test command.
 Release validation: `docker/smoke.sh` boots the server image with an
 isolated database and telemetry disabled. It checks both browser scripts are served and Sentry
 is never imported; arbitrary JavaScript assets remain excluded and all three observability

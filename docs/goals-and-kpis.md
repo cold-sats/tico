@@ -8,7 +8,7 @@ This page is the model, the colours, the override rule, the Goal Manager, the au
 
 ## The model
 
-**Goal.** A title, an owner (`company`, `human:x` or `bot:x`; the owner decides the level), an optional goal it supports, a
+**Goal.** A title, an owner (Team, a human or a bot; payload values are `company`, `human:x` or `bot:x`), an optional goal it supports, a
 colour and a note. Team goals are visible to everyone; a bot's own goals are visible to whoever may Read the bot
 ([permissions](permissions.md)).
 
@@ -20,7 +20,7 @@ colour and a note. Team goals are visible to everyone; a bot's own goals are vis
 | `unit` | `%`, `$`, `demos` and so on |
 | `direction` | `up`, `down` or `range`: which way is good |
 | `cadence` | `daily`, `weekly` or `monthly`: how often a reading is due |
-| `owner` | the one accountable: `company`, a human or a bot |
+| `owner` | the one accountable: Team (`company` in the API), a human or a bot |
 | `source_note` | where the number comes from |
 | `definition_version` | starts at 1 and goes up whenever the definition, unit, direction, cadence or source note changes; a rename or a new owner does not change it |
 
@@ -65,8 +65,11 @@ A KPI's colour comes from its target on the goal it is shown under (or its range
 | red | further behind | outside the range |
 | gray | stale or missing data, or only partial data | stale or missing data |
 
-The pace is where the straight line from the baseline to the target is at the time of the reading. `Activation 52% vs 58%
-needed on pace` is red: the line says 58 today, and the reading is 52. A word unit is said once and a count is a whole
+The pace is where the straight line from the baseline to the target is at the time of the reading. For an `up` improvement
+from a baseline of 40% on September 1 to a target of 70% on October 1, a fresh, measured reading of 52% on September 19
+is **red**: 18 of 30 days puts the expected value at 58%; the shortfall is 6 percentage points and the yellow tolerance is
+`max(10% × 18, 2% × 30) = 1.8` points. This uses the reading period end, not its collection time, and assumes the current
+definition version and no human override. A word unit is said once and a count is a whole
 number (`Paying studios 148 vs 135 studios needed on pace`); percentages, money and time (`months`, `days`, `min`) keep one
 decimal. A KPI with no target and fresh data has a number and no colour.
 

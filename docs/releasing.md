@@ -79,3 +79,18 @@ The updater contract is `POST {TICO_UPDATER_URL}/update` with `{"version": "X.Y.
 `idle`, `pulling`, `restarting`, `healthy`, `rolled_back` or `failed`. Both carry
 `Authorization: Bearer <TICO_UPDATER_TOKEN>`. Without an updater, "Update now" shows the command to
 run on the server: `docker compose pull && docker compose up -d`.
+
+## Publish the release docs
+
+The tagged repository is the source for that release's manual. Run `python -m backend.openapi_v2` and
+`python scripts/build_api_docs.py` after changing API descriptions; check the spec and API guide together.
+
+Publish the public site's docs from the same tag, including the docs landing page's three reader paths and its **Use Tico** and
+**Glossary** links. The website source and publishing process live outside this repository. Check that its install and demo pages
+use the latest-release installer and `latest` demo image by default, with version pinning shown separately, and mention Docker Desktop
+on Mac. Keep the local install command visible on the home page and continue through model sign-in and a first bot result.
+
+Validate the published copy against this release: server Decision calls and HQ suggestion disclosures, 25 active member bots by default,
+Inbox Manager's single disabled weekday 07:30 Routine and assigned-mailbox access, and the complete KPI colour example in
+[Goals and KPIs](goals-and-kpis.md#the-colours). Run `npm run screenshots` when local dependencies and browsers are available and publish
+images from the same release as the UI. Preserve inbound links when moving pages; the transcript and old docs-sync pages link to their successors.

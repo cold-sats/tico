@@ -1,6 +1,6 @@
 # Using Tico
 
-Short answers to common questions. Sign in at [hub.acme.example](https://hub.acme.example) with your Acme email.
+Short answers to common questions. Sign in at your team's Tico address with the email on its Humans roster. Ask your owner for the address.
 How the pieces fit is in [How Tico works](how-it-works.md). Words are defined in the [Glossary](glossary.md).
 
 ![Tasks in the demo team](images/tasks-desktop-light.png)
@@ -28,7 +28,7 @@ Every run is under your email → **Runs**, and on the bot's **More** tab with i
 human must act — a question, an approval, a blocked or declined item. *Done*: finished, awaiting close.
 
 **My Mac is asleep. What happens?**
-hub.acme.example keeps running: everything is saved and other humans' bots keep answering. Bots on your
+Your team's Tico server keeps running: everything is saved and other humans' bots keep answering. Bots on your
 Mac show *offline* and new requests show *Saved — waiting for <your Mac>*; they run when it wakes.
 A run cut off mid-way is settled by Tico when that is safe (its task was already done, or it
 had not used any tool yet) and otherwise opens in front of you as *needs you* the next time you
@@ -42,7 +42,9 @@ Sending outside the team, spending, publishing, credentials or unusual productio
 irreversible deletion: a bot files an approval with the exact action attached and it appears in
 **Needs you** with **Approve** / **Decline**. A bot may improve and merge its own repository after
 checks pass. Authorized maintainers may merge tested Tico changes without a separate approval.
-Product and public documentation repositories keep their stated review rules. Full rules:
+BotOps handles requested bot and repository deletion, adding humans outside the domain (for owners and admins), and Tico updates
+directly with your rights. Its outbound sending switch still needs you to turn it on. Product and public documentation repositories
+keep their stated review rules. Full rules:
 `policies/approvals.md`.
 
 ![The team chart with goals](images/org-chart-desktop-light.png)
@@ -64,7 +66,7 @@ commit and push; it is read at the start of the bot's next run once the Mac's ch
 Model, effort, computer, owners and status are changed in **Settings → Bots**. One-off requests are tasks, not edits.
 
 **Where do files go?**
-Files you attach to a task or a chat are stored privately by hub.acme.example and the bot downloads them
+Files you attach to a task or a chat are stored privately by your team's Tico server and the bot downloads them
 for that conversation (up to ten files of 10 MB). A file a bot produces for you is attached to the
 task the same way (`hub task attach`) and linked from its note; open it from the task or the link
 while signed in. Other files a bot publishes are listed on its page under Files ([Files](files.md)); a bot's own
@@ -80,4 +82,5 @@ channel history is owner-only in this view.
 **How do I add a human or a bot?**
 A human: **Settings → Humans → Add manually** (an owner or admin), or sync them from the team's
 directory there; behind Cloudflare Access, also allow the address in its policy ([Humans](people.md)). A
-bot: **Settings → Bots → Add bot**, then create its repository from `templates/employee-repo/` on the Mac that will run it.
+bot: **Settings > Bots > Add from template**, or ask BotOps to build it. Open the bot and press **Set up** to finish its
+first conversation. See [Creating bots](creating-bots.md) for custom Instructions and manual setup.

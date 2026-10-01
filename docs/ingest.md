@@ -1,5 +1,6 @@
 # Handing a transcript to a bot
 
-Put the transcript on **Meetings**, then **Send as task** to the bot that should learn from it
-(or to **Auto** and the COO routes it). Attach the file on the task if you already have one.
-How the current system fits together: [How Tico works](how-it-works.md).
+This guide has moved to [Meetings](meetings.md).
+
+Import the transcript on **Meetings**, then choose **Send to bot**. **Auto** selects your own bot, or the default bot if you
+have none. Review the selected bot and the resulting task. Attach the transcript to an existing task when that is where it belongs.

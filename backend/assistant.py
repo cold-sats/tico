@@ -532,7 +532,7 @@ async def search_all(api, arg, bots, limit=4):
     return hint, terms, results
 
 
-GROUP = {"tasks": "Tasks", "docs": "Docs", "meetings": "Meetings", "files": "Files", "people": "People", "bots": "Bots"}
+GROUP = {"tasks": "Tasks", "docs": "Docs", "meetings": "Meetings", "files": "Files", "people": "Humans", "bots": "Bots"}
 
 
 def _rows(results):

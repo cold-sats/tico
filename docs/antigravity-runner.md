@@ -1,10 +1,7 @@
-# Tico's Antigravity runner
+# Antigravity harness
 
-Tico (`coo`) uses `runtime: gemini`, `harness: antigravity`, model
-`gemini-3.8-flash`, and low effort. Its fallback is the Gemini CLI on the same
-model, set in Settings and visible as `gemini`. Other Gemini bots keep their
-existing CLI unless their configuration explicitly selects this harness.
-OpenRouter is not a bot harness.
+Choose `runtime: gemini` and `harness: antigravity` for a bot on its assigned computer. Select its model and effort in Settings;
+other Gemini bots keep their configured harness. See [Harnesses](harnesses.md) for general provider setup.
 
 Install and authenticate Google's `agy` CLI on the assigned computer.
 The current computer uses Antigravity's existing Google account sign-in. Its
@@ -29,19 +26,12 @@ The child process never receives the computer registration credential. Its
 `HUB_TOKEN` is a `tico-file:` reference to a mode-600 local lease file. The Tico
 Python client reads that file on every request; it is rotated to the current
 run credential and cleared when the run ends. Bots must use the Tico client
-or `dispatcher/hubcli.py`, rather than treating `$HUB_TOKEN` as a literal bearer
+or `clients/hubcli.py`, rather than treating `$HUB_TOKEN` as a literal bearer
 token. The server continues to enforce the current run's permissions.
 Changed environment credentials discard the warm process. External service
 credentials granted to a bot remain in that process until it expires or stops.
 
-Runner readiness probes run separately from the 250 ms claim loop. Tico flushes
-streaming output every 150 ms. Voice playback consumes bounded PCM chunks from
-`/api/v2/voice/speech/stream`; stop cancels both playback and generation. Completed
-sentences may endpoint after 500 ms of silence, while other speech retains the
-800 ms window. The microphone noise calibration is retained between runs.
-Telemetry distinguishes endpoint delay, model completion, provider first audio,
-and browser playback start. Browser playback timing measures the AudioContext
-clock, not the physical speaker. Speech still begins after the final model reply.
+Runner readiness probes run separately from the 250 ms claim loop. Tico flushes streaming output every 150 ms.
 
 Run the backend and Chromium/WebKit streaming checks before deploying
 merged main changes. A runner upgrade must wait for active work to finish before

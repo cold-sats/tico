@@ -48,7 +48,7 @@
     },
     {
       "name": "Docs",
-      "description": "The company's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both."
+      "description": "The team's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both."
     },
     {
       "name": "Assistant",
@@ -605,7 +605,7 @@
     },
     "/api/v2/bots/{bot}": {
       "get": {
-        "summary": "One bot: its profile for anyone who can see it; status, machine, queue and goals too for anyone who can read it",
+        "summary": "One bot: its profile for anyone who can see it; status, computer, queue and goals too for anyone who can read it",
         "operationId": "getBot",
         "parameters": [
           {
@@ -1472,7 +1472,7 @@
     },
     "/api/v2/config": {
       "get": {
-        "summary": "Company and app names, version, setup state",
+        "summary": "Team and app names, version, setup state",
         "operationId": "getConfig",
         "responses": {
           "200": {
@@ -1551,7 +1551,7 @@
     },
     "/api/v2/context/search": {
       "get": {
-        "summary": "Search company documents",
+        "summary": "Search team documents",
         "operationId": "searchDocs",
         "parameters": [
           {
@@ -2151,7 +2151,7 @@
     },
     "/api/v2/docs/ask": {
       "post": {
-        "summary": "Ask the Librarian a question about the company's docs. It goes to the caller's own private docs conversation; `results` is the instant search (same shape as docs/search) and the answer streams on GET /api/v2/conversations/{cid}/watch",
+        "summary": "Ask the Librarian a question about the team's docs. It goes to the caller's own private docs conversation; `results` is the instant search (same shape as docs/search) and the answer streams on GET /api/v2/conversations/{cid}/watch",
         "operationId": "askDocs",
         "requestBody": {
           "content": {
@@ -3127,7 +3127,7 @@
         ]
       },
       "post": {
-        "summary": "Set a goal for yourself, under a goal you own, or for someone below you; the company owner sets company goals",
+        "summary": "Set a goal for yourself, under a goal you own, or for someone below you; the Team owner sets team goals",
         "operationId": "createGoal",
         "requestBody": {
           "required": true,
@@ -5453,7 +5453,7 @@
     },
     "/api/v2/org": {
       "get": {
-        "summary": "People, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to",
+        "summary": "Humans, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to",
         "operationId": "getOrg",
         "parameters": [
           {
@@ -6583,7 +6583,7 @@
     },
     "/api/v2/usage/limits": {
       "get": {
-        "summary": "The company default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may see usage for",
+        "summary": "The team default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may see usage for",
         "operationId": "getUsageLimits",
         "responses": {
           "200": {
@@ -6659,7 +6659,7 @@
     },
     "/api/v2/usage/limits/{bot}": {
       "put": {
-        "summary": "A bot's own daily and monthly limit in estimated USD; empty follows the company default. Owner and administrators, or the person who runs the bot within the company default. A bot over a limit takes no new job until the period turns over or the limit is raised",
+        "summary": "A bot's own daily and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns over or the limit is raised",
         "operationId": "setBotUsageLimit",
         "parameters": [
           {
@@ -11147,7 +11147,7 @@
           },
           "body_raw": {
             "type": "string",
-            "description": "A notice the hub wrote, as stored (with actor ids); `body` shows names to people"
+            "description": "A notice Tico wrote, as stored (with actor ids); `body` shows names to people"
           },
           "run": {
             "type": "object",

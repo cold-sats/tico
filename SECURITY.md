@@ -67,8 +67,9 @@ computer in **Settings > Computers**.
 ### Bots on one computer share a trust boundary, on purpose
 
 Tico does not isolate bots from each other on the same computer. By default they run as the same OS user,
-in the same workspace, with the same model sign-ins and the same shared credentials. One bot can read another's
-files and credentials on that computer. This is a design choice, not a bug: it keeps setup simple and lets
+in the same workspace, with the same model sign-ins. The runner delivers only credentials granted to that bot,
+not the whole environment or `_shared.env`; upgrades automatically grant each bot the shared credentials it already uses.
+This delivery filter is not OS isolation: bot code can still read another bot's files and credentials on that computer. This is a design choice, not a bug: it keeps setup simple and lets
 bots on a team cooperate.
 
 What is separated: the computer's own credential. The runner's registration (`runner.json`) can claim the
@@ -136,17 +137,19 @@ the Librarian and the Goal Manager are the owner's alone), humans and computers;
 the shared credential vault belongs to the owner and the Admins, or to the owner and `TICO_CREDENTIAL_ADMINS` when the server names them, and
 the owner can turn "Admins store credentials" off. Because bots on one computer are not isolated from
 each other (above), a bot a member created goes only on its member's own computer or one an admin has opened to members' bots (never
-another member's), setup never places one elsewhere, Health warns when such a bot shares a computer with `secrets/_shared.env`
-credentials, and an admin's placement of one on any other computer through BotOps needs their own click. SQL shows a member the
+another member's), and setup never places one elsewhere. Credential delivery follows each bot's grants; an admin's placement
+of a member's bot on a closed computer through BotOps still needs their own click. SQL shows a member the
 `events` that are their own or concern what they may read, no roster or sign-in records, and no goals of bots they may not read.
 
 BotOps builds bots for humans by acting as the human whose own chat message started its run: checked with their rights,
 recorded "via BotOps", and never for a message a bot or the Assistant wrote, a message routed from Slack, words inside a task or
 document, or a message over a week old, since any of those can carry injected instructions. A message cited by id must be the
 requester's own, in their own room with BotOps, within a day. BotOps holds no authority of its own over other bots: routines and
-quarantine follow the requester's management of the bot too. What widens who can get in or what a bot can hold (adding a human,
-making an admin, granting add_people, changing a human's email or group, giving a bot a stored credential, a closed computer) is
-proposed as a Confirm card, showing every field it carries, and runs only when that human clicks, as them.
+quarantine follow the requester's management of the bot too. Adding humans (outside the domain needs an owner or admin), deleting
+bots and their repositories, updating Tico, and the owner's changes to Team rules run directly when asked. Credential administrators
+and holders delegating to bots they own or run grant credentials directly. Making an admin, granting add_people, changing a human's
+email or group, and placing a member's bot on a closed computer still produce Confirm cards. A bot drafts outbound messages until
+sending to outsiders is turned on for it. [Permissions](docs/permissions.md) lists the remaining cards and the requester's required rights.
 
 ### GitHub tokens
 
@@ -162,15 +165,18 @@ default. See [docs/github-app.md](docs/github-app.md).
 The optional one-click updater container mounts the Docker socket so it can pull a new image and
 restart the server. Access to the Docker socket is equivalent to root on that host. The tradeoff is
 convenience against exposure: the updater only listens for an owner-initiated request authenticated by
-a token, and you can omit it and update by hand (`docker compose pull && docker compose up -d`). Leave
+a token, and you can omit it and update by hand ([release installer](docs/updates.md#manual-server-update)). Leave
 it out if the server host runs anything else you care about.
 
 ### Backups
 
 Litestream replicates the SQLite database continuously to a bucket you choose, and the data volume can
 be snapshotted. A backup contains everything the server holds, including the encrypted credential store
-and sign-in credentials, so give the bucket a private policy, encrypt it, restrict who can read it, and keep
-the credential key (`/data/credential.key`, or your KMS key) separate from the backup, and back that file up too: a restore without it cannot decrypt the credentials (docs/credential-vault.md). Bot repositories and computer workspaces are not part of the
+and sign-in credentials, so give the bucket a private policy, encrypt it and restrict who can read it.
+In local-key mode, protect the copied key too: automatic backups include `credential-key/credential.key` in the same
+destination as the database. Anyone who reads both can decrypt vault credentials. A restore without the key cannot decrypt them.
+Separate key storage requires a custom backup/restore process; with `TICO_CREDENTIAL_KMS_KEY`, protect access to the KMS key instead
+([Shared credentials](docs/credential-vault.md)). Bot repositories and computer workspaces are not part of the
 server backup; they live in Git and on the computers.
 
 Never put a credential in git, in a task, or in bot instructions.

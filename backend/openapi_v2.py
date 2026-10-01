@@ -1,4 +1,4 @@
-"""The stable v2 contract for a company's own frontend: `GET /api/v2/openapi.json`.
+"""The stable v2 contract for a team's own frontend: `GET /api/v2/openapi.json`.
 
 FastAPI would describe every route, runner and bot endpoint included. A frontend team needs the
 resources a person's app is built from, so this module keeps only those (STABLE below), names
@@ -29,7 +29,7 @@ TAGS = {
     "Needs you": "What is waiting on the signed-in person: questions, tasks, approvals.",
     "Meetings": "Recorded meetings.",
     "Files": "What a bot creates, revises or delivers, listed on its page (docs/files.md).",
-    "Docs": "The company's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both.",
+    "Docs": "The team's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both.",
     "Assistant": "The signed-in person's own private Assistant chat (docs/assistant.md): ask, and confirm what it proposes.",
     "Goals": "What every person and bot is for (docs/goals-and-kpis.md): goals with a colour the Goal Manager works out from their KPIs, "
              "unless a person set one; check-ins in the owner's words; proposals the owner confirms.",
@@ -51,9 +51,9 @@ STABLE = [
      "Mint a personal API token for server-to-server use (any person unless the owner limits it to admins; cookie sessions only)", None),
     ("/api/v2/me/tokens/{token_id}/revoke", "post", "Session", "revokeMyToken", "Revoke a personal API token", None),
     ("/api/v2/openapi.json", "get", "Session", "getOpenApi", "This document", None),
-    ("/api/v2/config", "get", "Team", "getConfig", "Company and app names, version, setup state", "Config"),
+    ("/api/v2/config", "get", "Team", "getConfig", "Team and app names, version, setup state", "Config"),
     ("/api/v2/org", "get", "Team chart", "getOrg",
-     "People, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to", "Org"),
+     "Humans, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to", "Org"),
     ("/api/v2/humans/{pid}", "post", "Team chart", "updatePerson", "Edit a person's profile or reports_to", None),
     ("/api/v2/groups", "get", "Team chart", "listGroups",
      "The groups, nested by `parent`, each with its humans and the bots the caller can see", "GroupList"),
@@ -67,7 +67,7 @@ STABLE = [
      "Bots the caller can see, each with the caller's own access; ?can=read|write keeps the ones they can read or write to",
      "BotList"),
     ("/api/v2/bots/{bot}", "get", "Bots", "getBot",
-     "One bot: its profile for anyone who can see it; status, machine, queue and goals too for anyone who can read it",
+     "One bot: its profile for anyone who can see it; status, computer, queue and goals too for anyone who can read it",
      "BotDetail"),
     ("/api/v2/bots/{bot}/routines", "get", "Bots", "listBotRoutines",
      "A bot's routines, its recurring work (Read on the bot; add include_deleted=true for removed ones)", "RoutineList"),
@@ -172,10 +172,10 @@ STABLE = [
      "Link a doc by its address; the kind is detected and the title defaults to the host and path. Anyone may add one", "LinkedDocResult"),
     ("/api/v2/linked-docs/{link_id}", "patch", "Docs", "updateLinkedDoc",
      "Change or remove (archived) a linked doc: whoever added it, owners and bot administrators", "LinkedDocResult"),
-    ("/api/v2/context/search", "get", "Docs", "searchDocs", "Search company documents", "DocSearch"),
+    ("/api/v2/context/search", "get", "Docs", "searchDocs", "Search team documents", "DocSearch"),
     ("/api/v2/context/document", "get", "Docs", "getDocument", "One document", None),
     ("/api/v2/docs/ask", "post", "Docs", "askDocs",
-     "Ask the Librarian a question about the company's docs. It goes to the caller's own private docs conversation; "
+     "Ask the Librarian a question about the team's docs. It goes to the caller's own private docs conversation; "
      "`results` is the instant search (same shape as docs/search) and the answer streams on "
      "GET /api/v2/conversations/{cid}/watch", "DocsAsked"),
     ("/api/v2/librarian", "get", "Docs", "getLibrarian", "Whether the Librarian is on, and whether the caller can turn it on",
@@ -204,7 +204,7 @@ STABLE = [
      "The caller's own goals, the chain above them and their reports' goals; ?all=true is every goal the caller may read "
      "(?status=red,gray filters); ?owner= names someone else", "GoalList"),
     ("/api/v2/goals", "post", "Goals", "createGoal",
-     "Set a goal for yourself, under a goal you own, or for someone below you; the company owner sets company goals", "GoalResult"),
+     "Set a goal for yourself, under a goal you own, or for someone below you; the Team owner sets team goals", "GoalResult"),
     ("/api/v2/goals/tree", "get", "Goals", "getGoalTree",
      "Every goal with its owner, its KPIs (each with its target and colour), the KPIs no goal uses and the pending proposals: "
      "what the Goals page draws", "GoalTree"),
@@ -256,14 +256,14 @@ STABLE = [
      "optionally for one department. The owner and bot administrators see every bot; anyone else sees the bots they run "
      "or own. ?bot=<slug> is that bot's daily series and top routines instead", "Usage"),
     ("/api/v2/usage/limits", "get", "Usage", "getUsageLimits",
-     "The company default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may "
+     "The team default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may "
      "see usage for", "UsageLimits"),
     ("/api/v2/usage/limits", "put", "Usage", "setUsageDefault",
      "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs "
      "count toward it (owner and bot administrators)", "UsageDefault"),
     ("/api/v2/usage/limits/{bot}", "put", "Usage", "setBotUsageLimit",
-     "A bot's own daily and monthly limit in estimated USD; empty follows the company default. Owner and administrators, or "
-     "the person who runs the bot within the company default. A bot over a limit takes no new job until the period turns "
+     "A bot's own daily and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or "
+     "the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns "
      "over or the limit is raised", "BotUsageLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (people only)", "Health"),
@@ -299,7 +299,7 @@ SCHEMAS = {
                     "created": "s", "in_reply_to": "n", "refs": "o"}, required=["id", "conversation_id", "from_actor", "to_actor", "kind", "body", "created", "in_reply_to", "refs"],
                    from_name={"type": "string", "description": "Display name of from_actor, when it is a person or a bot"},
                    to_name={"type": "string", "description": "Display name of to_actor"},
-                   body_raw={"type": "string", "description": "A notice the hub wrote, as stored (with actor ids); `body` shows names to people"},
+                   body_raw={"type": "string", "description": "A notice Tico wrote, as stored (with actor ids); `body` shows names to people"},
                    run={"type": "object", "description": "The run that handled this message, once one has: on a person's message "
                         "`{job_id, attempt_id, state}` where `state` is `started_run` (it started the run) or `added_to_run` "
                         "(it was folded into a run already working); on a bot's reply `{job_id, attempt_id}` (the run that "

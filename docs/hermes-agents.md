@@ -84,7 +84,7 @@ What it installs, all inside the profile:
   it is and any quiet notes Tico holds for it, reads its waiting messages and its open tasks, answers every
   person's message in that conversation with `hub_message_send` and marks it read, moves the tasks it owns
   forward with `hub_task_update` (done with a short result note, or waiting with the reason), and stops. It keeps
-  answers short and never pastes a secret. Once a week it runs the connector's `update`.
+  answers short and never pastes a secret. Once a week it runs the `update` command in `hermes_agent.py`.
 - **A pre-check script**, `scripts/tico-sync-check.py`. Hermes runs it before each job. It asks the saved
   heartbeat reply what is waiting, and when nothing is (and no update is due) it ends with
   `{"wakeAgent": false}`, so Hermes starts no agent and spends no model call. An empty run is one short
@@ -115,7 +115,7 @@ sees, for trying it by hand.
 
 ## Keep it working
 
-These commands run from the copy the connector installed, `~/.config/tico/agents/hermes_agent.py`; the
+These commands run from the installed copy of `hermes_agent.py`, `~/.config/tico/agents/hermes_agent.py`; the
 downloaded `hermes_agent.py` in your current folder works the same while it is there.
 
 - **Update.** `python3 hermes_agent.py update --profile <name>` fetches the current script from Tico,
@@ -137,7 +137,7 @@ downloaded `hermes_agent.py` in your current folder works the same while it is t
   replaces the credential at once; pair again, or install the new one. Revoking stops it for
   good. Revoke if the computer is lost. When you remove (archive) a Hermes bot in Settings → Bots, the
   dialog has a **Revoke its credential** box, on by default.
-- **Remove the connector.** `python3 hermes_agent.py uninstall --profile <name>` removes the timer, the
+- **Remove the Tool.** `python3 hermes_agent.py uninstall --profile <name>` removes the timer, the
   `tico-sync` job, the skill and its pre-check script, the `.env` lines, the `mcp_servers.tico` entry and the
   credential file. It does not revoke the credential in Tico.
 - **Renamed tools (0.2.21).** The `hub_*` tools were renamed: `hub_inbox` is now
@@ -149,7 +149,7 @@ downloaded `hermes_agent.py` in your current folder works the same while it is t
 
 | You see | What it means | Do this |
 |---|---|---|
-| Heartbeat or tool says **409**, "bot is archived" | The bot was archived. The agent stops and retries only once an hour. | Restore the bot (**Settings → Bots → Archived → Restore**, `hub bot restore <slug>`, or ask BotOps). The connector tries again within the hour and reconnects by itself. |
+| Heartbeat or tool says **409**, "bot is archived" | The bot was archived. The agent stops and retries only once an hour. | Restore the bot (**Settings → Bots → Archived → Restore**, `hub bot restore <slug>`, or ask BotOps). `hermes_agent.py` tries again within the hour and reconnects by itself. |
 | **401** | The credential was revoked or replaced (archiving with the revoke box on does this). | Restore the bot if it is archived, then pair again (`pair`) and approve it. |
 | A login page instead of JSON, or `curl` gets HTML | You used the public address behind Cloudflare Access. | Use `runner.<domain>` ([connect-an-agent.md](connect-an-agent.md)). |
 | Two heartbeats a minute, or double answers | A duplicate heartbeat job from an older install. | Run `update`. It removes older jobs. `doctor` lists what it found. |

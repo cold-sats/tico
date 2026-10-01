@@ -22,13 +22,14 @@ once. The same tokens are under **Settings > Computers > API tokens**.
 
 | | |
 |---|---|
-| URL | `https://<runner hostname>/api/v2/mcp`: `TICO_RUNNER_URL`, or `TICO_PUBLIC_URL` when that is unset. The dialog shows the right one |
+| URL | `https://<your team hostname>/api/v2/mcp`: `TICO_RUNNER_URL`, or `TICO_PUBLIC_URL` when that is unset. The dialog shows the right one |
 | Transport | Streamable HTTP, JSON replies, stateless (no session id; `GET` answers 405) |
 | Auth | `Authorization: Bearer <token>`. No OAuth |
 | Tools | The `hub` command set (`clients/hubtools.py`): tasks, goals and KPIs, docs, bots, messages, approvals, updates, SQL. Each call runs as the token's human through the same routes the web app uses |
 | Instructions | The server's `initialize` reply carries the "who needs me" skill (`skills/who-needs-me/SKILL.md`), so nothing else needs pasting |
 
-The token cannot make or revoke tokens.
+The token cannot make or revoke tokens. It has `hub_api` and `hub_bot_update` with the token human's own rights.
+For a complete Needs you walkthrough, see [Needs you batches](needs-you-batches.md).
 
 ## Each agent
 

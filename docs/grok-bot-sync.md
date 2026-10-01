@@ -32,9 +32,12 @@ Only the owner and bot administrators may sync.
 
 ## Connect it (once per human)
 
-1. In Tico, **Settings → API tokens**: create a token labelled "Grok Bot sync".
+1. In Tico, **Settings → Computers → API tokens**: create a token labelled "Grok Bot sync", or use
+   [Connect an external agent](connect-an-agent.md) beside your email.
 2. In Grok, tell one of your Bots (for Ana: Groky) to add a custom MCP server:
-   URL `https://runner.acme.example/api/v2/mcp`, header `Authorization: Bearer <that token>`.
+   Use the **MCP server URL** from Tico's dialog (normally `https://tico.example.com/api/v2/mcp`),
+   header `Authorization: Bearer <that token>`. A separate hostname is needed only when an external sign-in proxy blocks agent access;
+   [proxy setup](connect-an-agent.md#behind-cloudflare-access-or-another-sign-in-proxy) explains the options.
    Grok adds it to the whole account, so every Bot can use the Tico tools. Type the token
    yourself.
 3. Paste the routine below into that Bot and ask it to run it once now, then daily.

@@ -2,6 +2,7 @@
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -86,3 +87,8 @@ def test_no_dead_internal_links_in_the_docs():
                 dead.append(f"{md.relative_to(ROOT)}: {target} (no such heading)")
     assert not dead, "\n".join(dead)
 
+
+
+def test_api_guide_operation_groups_match_the_spec():
+    r = subprocess.run([sys.executable, "scripts/build_api_docs.py", "--check"], capture_output=True, text=True, cwd=ROOT)
+    assert r.returncode == 0, r.stdout + r.stderr

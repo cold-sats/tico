@@ -65,7 +65,8 @@ matching bot under **Message bots**. Shared mailboxes such as `shared@acme.examp
 `hidden: true`, so they do not appear in the tree.
 
 Every Acme address is `<firstname>@acme.example`. Personal message bots come from the `inbox`
-template and read that human plus their reports (`org_read`). Each mailbox has its
+template and read only the assigned mailbox by default. The template seeds one weekday 07:30 Routine in America/Los_Angeles, initially disabled.
+Extra passes and reading reports' mail (`org_read: true`) are optional owner choices. Each mailbox has its
 own rules in `registry/mail-rules.yaml`. Photos prefer a Google Workspace Directory thumbnail
 when domain-wide delegation includes `admin.directory.user.readonly`; otherwise the Slack
 profile image stored on the roster.
@@ -101,19 +102,16 @@ bot to someone without giving them the whole group, put that bot's slug in their
 
 ## Where notes go
 
-A human's `bot` is where Tico sends the notes and meetings they Send in **Auto** mode. Routing is a COO function Tico performs itself, with no run behind it: it matches the verified `Sender:` email against this roster first, then falls
-back to one cheap model call over the active bots, then to the human's group root, then to the
-COO (BotOps in a team whose assistant is off; see [Finish setup](onboarding.md#the-assistant-botops-the-librarian-and-the-goal-manager-are-built-in)).
-
-`bot: null` does not mean nobody. It means route by what the note actually says — the right default
-for the root human, who talks to every bot, and for anyone whose group is not set yet. See
-[`docs/meetings.md`](meetings.md) for how a meeting becomes a task,
-the routing rules in your operations bot's knowledge, and `dispatcher/route.py` for the code.
+A human's `bot` is where Tico sends a meeting when they choose **Send to bot > Auto**. If they have no bot, Auto uses the
+default bot (Assistant when active, otherwise BotOps). There is no separate routing model call. Choose a named bot in the dialog
+when the work belongs elsewhere. See [Meetings](meetings.md) for the resulting task and `backend/media.py` for the API.
 
 ## Adding a human
 
-1. Add them to `registry/people.yaml` with an `id`, `name`, `email`, `title`, `team`, `primary_for`,
-   `bot`, and `reports_to`. Set `hidden: true` to keep them off the team tree.
-2. Add their email to `registry/hub-access.yaml` if they need to sign in to Tico. The two files
-   are separate on purpose: this one says who a human is, that one says who may sign in.
-3. A Tico deploy reloads the roster from that file.
+Open **Settings > Humans > Add manually** and enter their name and email. Owners and admins can add humans outside the team's domain;
+members with **Can add humans** can add coworkers in the domain. See [Humans](people.md) for sign-in and directory sync.
+
+### First-boot seed files
+
+`registry/people.yaml` and `registry/hub-access.yaml` seed a new team only. Editing them and redeploying does not add a human
+or change sign-in rights on an initialized team. Use Settings or the Humans API for later changes.

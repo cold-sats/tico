@@ -11,7 +11,7 @@ A small pilot is what has been measured ([sizing](docs/sizing.md)).
   question to the decision provider you configured (TypeSafe, or OpenAI, Anthropic, Gemini, xAI or OpenRouter with a key stored on the server).
 - **Computers run the bots.** A Mac (the native runner) or any Linux or cloud computer (the
   `tico-runner` image) joins with a one-time code, claims work over HTTPS, and runs each bot's run
-  in that bot's own git repository. Model and bot credentials stay on the computer.
+  in that bot's own git repository. Model sign-ins stay on the computer; granted bot credentials can also come from Tico's encrypted vault.
 - **Harnesses are installed per computer, on demand.** Codex, Claude Code, Gemini CLI, Grok, or a
   multi-provider catch-all; each bot picks one. Humans sign in with built-in Google or Microsoft
   sign-in, and GitHub access comes from a per-team GitHub App scoped to each bot's own repository.
@@ -24,16 +24,26 @@ On your own computer (a Mac with Docker Desktop, or Linux), with no domain and n
 curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh | sh -s -- --local --owner-email you@example.com
 ```
 
-Docker Desktop must be open and running on a Mac. It takes about two minutes. Tico runs at `http://127.0.0.1:8765` and the
-installer prints a link that signs you in: open it in your browser. The app opens on **Finish setup**: name the team, pick
-groups, and use **Add computer** to join this computer, which places the bots. You can do all of it before you choose an AI
-provider; the bots wait with "Add an AI provider" until you do (Settings > AI providers). Add a domain and sign-in later
-([docs/install.md](docs/install.md#add-a-domain-and-sign-in-later)).
+Docker Desktop must be open and running on a Mac. Tico runs at `http://127.0.0.1:8765`; open the sign-in link the
+installer prints. Then get one bot working:
+
+1. In **Finish setup**, choose an AI provider, name your team and pick one starter, such as Docs Writer.
+   Assistant, BotOps, Librarian and Goal Manager are the four built-in bots.
+2. Use **Add computer** to join this computer, run the command shown, then **Create my team**.
+3. Open **Settings > Computers** and **Sign in** beside Codex or Claude Code; finish the provider's browser flow.
+   Other harnesses and API credentials are covered in [Harnesses](docs/harnesses.md). Choose the bot's model in **Settings > Bots**.
+4. Open the starter and press **Set up**. Answer its questions and review its first draft.
+5. On **Tasks > New task**, assign it a small task: “Write a one-page welcome guide from these notes: our team builds an
+   example app; we meet Mondays; ask Sam for help.” Read its result on the task, then close it.
+
+You can choose providers later in **Settings > AI providers**; bots wait with “Add an AI provider” until you do.
+If the bot waits or sign-in fails, open **Settings > Health** and follow [first-result recovery](docs/install.md#first-result-recovery).
+Add a domain and sign-in later ([Install](docs/install.md#add-a-domain-and-sign-in-later)).
 
 For a team, on a Linux server (about 2 GB, with a domain pointed at it), run the installer with no flags:
 
 ```bash
-curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh
+curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh | sh
 ```
 
 It installs Docker if needed, downloads that release's compose bundle (checksum verified) and walks you through `tico setup`:
@@ -47,6 +57,8 @@ team on localhost with no setup ([docs/demo.md](docs/demo.md)).
 ![Tico's Updates page in the demo](docs/images/updates-desktop-light.png)
 
 ## Documentation
+
+[Start here](docs/README.md) · [Use Tico](docs/using-tico.md) · [Developer and computer operator](docs/README.md#developer-or-computer-operator) · [Glossary](docs/glossary.md)
 
 | Read | For |
 |---|---|
@@ -82,109 +94,17 @@ team on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | Docker | Any Linux server, HTTPS by Caddy or Cloudflare Tunnel, built-in Google or Microsoft sign-in | the one-line installer; [docs/install.md](docs/install.md) |
 | Local only | The same Mac as the runner, bound to `127.0.0.1` | For trying Tico out; `scripts/tico env create --local` (below) |
 
-The server never invokes a model, and a runner never holds team-wide authority: it works one
+The server runs no bots or model CLIs and may call your configured Decision provider, and a runner never holds team-wide authority: it works one
 leased run at a time. A bot is one git repository plus one row on the server. One environment
 is one team; several can run side by side on one Mac.
 
-## Local-only trial on one Mac
+## Local trial from a Mac checkout
 
-This runs the server and the runner on the same Mac, for evaluation or development. For a real
-team, install the server with Docker and add the Mac as a computer.
-
-Prerequisites: macOS 13 or later, `python3.12` on `PATH`, `git`, and `node` with `npm`. A model CLI
-you already have on `PATH` is used as it is; the runner installs the ones it is missing for the providers
-you enable, and keeps them current ([docs/harnesses.md](docs/harnesses.md)). Tico assumes no vendor: you choose
-the providers you use (`openai` with `codex`, `anthropic` with `claude`, `google` with `gemini`, `xai` with
-`grok`, `cursor` with `cursor-agent`, and `deepseek`, `moonshot`, `meta`, `mistral` or `openrouter` with `pi`) when you create the
-environment, and can change them later in Settings. Sign a CLI in from Settings > Computers or in its own terminal.
-Rust and the Tauri CLI (`cargo install tauri-cli`) are needed only for the desktop app.
-
-1. **Clone this repository and create the Python environment the scripts expect.** Everything below
-   runs from the checkout root. `scripts/setup-runner.sh` builds exactly this venv; these are the
-   manual equivalents, and `scripts/tico` finds the interpreter on its own.
-
-   ```bash
-   git clone https://github.com/ticoteam/tico && cd tico
-   python3.12 -m venv runtime/runner-venv
-   runtime/runner-venv/bin/python -m pip install -r backend/requirements.txt
-   ```
-
-2. **Create the environment.** This writes `~/.config/tico/environments/acme/`, picks a free
-   loopback port, mints the owner token, copies in the seed roster with your names substituted, and
-   seeds the database. The id it prints is permanent; the names are not.
-
-   ```bash
-   scripts/tico env create acme --company Acme --app Atlas --assistant Morgan \
-     --local --owner-email you@example.com --owner-name "Your Name" \
-     --providers anthropic,openai --default-model claude-opus-5
-   ```
-
-   `--providers` is required (a non-interactive create without it fails and lists the choices);
-   `--default-runtime` and `--default-model` pick what bots without their own model run on, and
-   default to the first provider's recommended model. The choice is seeded into the server
-   (`TICO_ENABLED_PROVIDERS`, `TICO_DEFAULT_RUNTIME`, `TICO_DEFAULT_MODEL`) on first boot, after
-   which the database holds it and **Settings > AI providers** edits it. A Docker install seeds it
-   the same way from the server's `.env` (`TICO_ENABLED_PROVIDERS=...`). A bot
-   resolves its runtime and model from its own setting, then the team default, then the first
-   enabled provider's recommended model; with none of those it refuses to start and says so.
-
-3. **Install and start the server.** The launchd job reads the environment's own `server.env`, so a
-   hand-run `uvicorn` and the service see identical configuration.
-
-   ```bash
-   scripts/tico -e acme server install
-   scripts/tico -e acme server status
-   ```
-
-4. **Open the app.** A loopback server has no identity proxy in front of it, so this hands the
-   owner token to `/api/v2/local-signin` once and the server sets a session cookie. The owner
-   lands on **Finish setup**; **Finish setup** in the sidebar returns to it at any time.
-
-   ```bash
-   scripts/tico -e acme open
-   ```
-
-5. **Name things and answer the questions.** A team that has not chosen its AI providers (a
-   hosted install, or `env create` run without seeding) first sees "Which AI providers do you
-   use?" with a default model. The next two screens set the team, app and
-   assistant names, which override what `env create` recorded, then ask what the team does, who
-   it sells to, whether software is its product, how big the team is, and what must never happen
-   without a human. Every **Next** saves a draft, and every bot is created with those answers in
-   its `knowledge/company.md`.
-
-6. **Pick your bots.** The templates in `templates/catalog/` are shown as cards: what each bot owns,
-   what it will never do, what it runs on, and the `AGENT.md` it would be created with, which you
-   can edit before taking it. The assistant and BotOps are required; the rest you pick group by group on your team chart, from
-   suggestions for what you said each group does.
-
-7. **Add this Mac as a computer.** **Add computer** downloads a private 15 minute setup file, and the screen
-   prints the three commands to run in this checkout. `enroll` creates the workspace (mode 700,
-   with `secrets/` inside it), a profile is a directory holding one provider sign-in, and `bot` is
-   the job that claims and runs work.
-
-   ```bash
-   scripts/tico -e acme enroll --code-file "$HOME/Downloads/<setup-file>.json" --label "Studio Mac"
-   scripts/tico -e acme profile add default && scripts/tico -e acme profile login default <runtime>
-   scripts/tico -e acme install bot
-   ```
-
-8. **Review and finish.** **Finish setup** creates every chosen bot as `planned` and files one task
-   for BotOps per bot it has to build. The progress screen that follows shows each bot, a link to
-   its setup task, and an **Activate** button as soon as its repository exists.
-
-9. **The assistant and BotOps.** Every team has both, and neither can be archived. Once the Mac is enrolled and
-   running, it materializes those two repositories from their templates by itself, and finishing setup activates them.
-   BotOps then sets up every other bot you chose and finishes each task with the
-   one thing to read before activating it. `scripts/tico -e acme doctor` inspects repositories,
-   runtime installation and profile sign-in, and makes no model call.
-
-10. **File the first task** in the interface, addressed to any active bot, and watch it run with
-    `scripts/tico -e acme logs bot -f`. The bot reports back in the task conversation.
-
-The whole flow, the answer fields and what each step writes are in
-[`docs/onboarding.md`](docs/onboarding.md). Offline, `python -m backend.manage enrollment <db>
---owner <human-id> --out <file>` mints the same 15 minute enrollment code that **Add computer**
-downloads, and `enroll` reads either file.
+For the shortest trial, use Docker above. For a native development setup, follow [Environments](docs/environments.md)
+and [register a Mac computer](docs/install.md#mac). Open the app, complete **Finish setup**, join the
+computer and sign in to your model provider. All four built-in repositories are created automatically. Starters are parked
+in **Needs setup** until you open one and press **Set up**; review its first draft, then assign a small task and read its result.
+See [Setup reference](docs/onboarding.md) for the wizard's saved fields and [Creating bots](docs/creating-bots.md) for custom bots.
 
 ## Running two teams on one Mac
 
@@ -231,15 +151,10 @@ repository holds `AGENT.md`, playbooks, knowledge and memory; the server holds r
 effort, assignment, tasks and approvals. The runner looks for the checkout at
 `<workspace>/bot-<slug>` (an older `emp-<slug>` folder keeps working) unless the registration's `repos` map says otherwise.
 
-A new bot starts from a template, `templates/catalog/<template>/`: a card saying what the bot is
-for, and the repository it is created from. **Settings → Bots → Add from template** creates the bot
-`planned` and files the same BotOps task **Finish setup** does, and BotOps is the one that
-materializes the repository, writes the instructions and reports what to read before activating it.
-By hand, `scripts/tico -e acme bot create sales --template sales --name "Sales"` materializes a
-repository from the same template, and **Settings → Bots** records it. Finish setup is
-[`docs/onboarding.md`](docs/onboarding.md). How to write a bot that works, what preflight enforces,
-routines, access and a first week are in
-[`docs/creating-bots.md`](docs/creating-bots.md). One rule belongs here: **the bot's repository
+A new bot starts from a template, `templates/catalog/<template>/`. Use **Settings > Bots > Add from template**, or ask
+BotOps to build a bot from your brief. A starter is created parked in **Needs setup**; its computer materializes the repository,
+and **Set up** starts its first conversation. For other templates, BotOps builds the repository and reports when it is ready.
+Read [Creating bots](docs/creating-bots.md) for Instructions, Tools, Routines and the first week. One rule belongs here: **the bot's repository
 link is stored on the bot in Settings**, not in a configuration file. It may be a bare name, an
 `owner/name` pair, or an https URL; a bare name is completed by the environment's GitHub owner.
 GitHub is optional, and a plain repository in the workspace is enough to run. To give each bot
@@ -298,7 +213,7 @@ named team must also carry a permanent id, or the process refuses to start.
 | `TICO_PROCESSING_OPERATORS` | Humans whose computers may run the Close transcript importer and tool publishers | `dana` |
 | `TICO_SCHEDULER` | `1` runs the routine scheduler in this process | `1` |
 | `TICO_CREDENTIAL_KMS_KEY` | Optional AWS KMS key for the credential vault. Unset (the default), the vault works with a key in `/data/credential.key`: back that file up with the database ([docs/credential-vault.md](docs/credential-vault.md)) | `alias/tico-acme` |
-| `TICO_TYPESAFE_SECRET_ARN` or `TYPESAFE_API_KEY` | Optional key for the decisions provider (TypeSafe's Jev) behind `hub_decision_ask` / `POST /api/v2/decisions` and the Slack gateway (`skills/decisions/SKILL.md`, `questions/README.md`), which is also what checks a message bot's mail for spam and injection. Without it the server asks the company's own model provider, using `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` or `OPENROUTER_API_KEY` from `.env` (`compose.yaml` hands these to the server); with none of them the route answers 503. The `judge.call` audit events and `TYPESAFE_*` names are unchanged | |
+| `TICO_TYPESAFE_SECRET_ARN` or `TYPESAFE_API_KEY` | Optional key for the decisions provider (TypeSafe's Jev) behind `hub_decision_ask` / `POST /api/v2/decisions` and the Slack gateway (`skills/decisions/SKILL.md`, `questions/README.md`), which is also what checks a message bot's mail for spam and injection. Without it the server asks the team's own model provider, using `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` or `OPENROUTER_API_KEY` from `.env` (`compose.yaml` hands these to the server); with none of them the route answers 503. The `judge.call` audit events and `TYPESAFE_*` names are unchanged | |
 | `TICO_UPDATE_CHECK`, `TICO_RELEASES_URL`, `TICO_VERSION`, `TICO_UPDATER_URL`, `TICO_UPDATER_TOKEN` | The "New version" notice and owner-only "Update now"; `TICO_UPDATE_CHECK=off` disables it. See [docs/releasing.md](docs/releasing.md) | |
 | `TICO_TELEMETRY`, `DO_NOT_TRACK`, `TICO_TELEMETRY_DEBUG`, `TICO_HQ_URL` | The anonymous usage count: `TICO_TELEMETRY=off` or `DO_NOT_TRACK=1` (or Settings > Privacy) turns it off, `TICO_TELEMETRY_DEBUG=1` prints what would be sent and sends nothing. See [PRIVACY.md](PRIVACY.md) | |
 | `TICO_RELEASE`, `TICO_OBSERVABILITY_*`, `TICO_POSTHOG_*`, `TICO_SENTRY_*` | Optional release id and telemetry. Empty disables all of it | |

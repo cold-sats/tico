@@ -2,9 +2,23 @@
 
 A Tico installation is a server plus the computers that run its bots (a Mac, a Linux computer with the
 `tico-runner` container, or a Linux computer running from a Tico checkout). The server updates from Settings ("Update now", see [install.md](install.md#one-click-updates))
-or with `docker compose pull && docker compose up -d`. **Computers follow the server**: each one asks its server
+or by running the target release's installer again (below). Pulling the same pinned tag does not upgrade Tico. **Computers follow the server**: each one asks its server
 which release it runs and moves to that release. GitHub is not consulted by a computer, so a server you have not
 updated never drags its computers ahead of it.
+
+## Manual server update
+
+From the install directory, run the installer for the release you want:
+
+```bash
+curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh -o install.sh
+sh install.sh --version vX.Y.Z --dir "$PWD"
+```
+
+Replace `vX.Y.Z` with the target release. It verifies and refreshes the release bundle and changes `TICO_TAG`, keeping your other
+`.env` settings. For a local install, add `--local --owner-email you@example.com`. Raw `docker compose pull` refreshes the configured
+tag only; a raw-compose upgrade also requires changing that tag and refreshing the bundle first. Use **Update now** for the
+health check and automatic rollback described below.
 
 ## How they relate
 
@@ -60,7 +74,7 @@ scripts/tico install            # the runner, connectors, close-calls and import
 ```
 
 It writes four systemd **user** units under `~/.config/systemd/user` (`tico-bot.service`, `tico-connectors.service`,
-`tico-close-calls.service`, `tico-importers.service`; `tico-<env>-...` for a company environment), each with
+`tico-close-calls.service`, `tico-importers.service`; `tico-<env>-...` for a team environment), each with
 `Restart=always`, and starts them. Nothing needs root. The units set `TICO_SUPERVISED=1` and `TICO_SYSTEMD_UNIT`, which is how
 the runner knows something will start it again and how the update restarts it through `systemctl --user restart`. The update
 process itself runs as a transient `tico-update-<pid>` unit so the restart does not kill it. Linger is checked at install

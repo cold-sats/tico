@@ -11,7 +11,7 @@
 # On a Mac, --local and --runner work the same and install into ~/tico and ~/tico-runner (Docker Desktop must be
 # running; nothing needs sudo). The team install is Linux only.
 #
-# --local runs Tico on this machine only (http://127.0.0.1:8765, the owner signs in with a token): no domain, no DNS, no
+# --local runs Tico on this computer only (http://127.0.0.1:8765, the owner signs in with a token): no domain, no DNS, no
 # OIDC client. The domain and sign-in are added later in .env (docs/install.md, "Add a domain and sign-in later").
 #
 # --runner sets up a computer that runs bots for a Tico server instead: Docker, that release's runner.compose.yaml (the
@@ -21,7 +21,7 @@
 # with its own compose project, container, home volume and updater, and leaves the default runner alone.
 #
 # Everything after `--` goes to `tico setup` (python3 -m setup), so automation can answer its questions with flags
-# and environment variables (secrets only ever by environment). Exit codes: 0 done, 2 usage, 3 this machine does not
+# and environment variables (secrets only ever by environment). Exit codes: 0 done, 2 usage, 3 this computer does not
 # qualify, 4 download or checksum failed, 5 Docker or Python setup failed, 6 the wizard or the health check failed.
 set -eu
 
@@ -36,7 +36,7 @@ MEMINFO=${TICO_INSTALL_MEMINFO:-/proc/meminfo}
 HEALTH_URL=${TICO_INSTALL_HEALTH_URL:-http://127.0.0.1:8765/healthz}
 HEALTH_TRIES=${TICO_INSTALL_HEALTH_TRIES:-60}
 
-MIN_MEM_KB=900000   # a 1 GB machine reports a little under 1,000,000 kB
+MIN_MEM_KB=900000   # a 1 GB computer reports a little under 1,000,000 kB
 MIN_DISK_KB=1000000
 VERSION_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
 
@@ -74,9 +74,9 @@ Usage: install.sh [options] [-- tico-setup flags]
   --version vX.Y.Z   install this release (default: the release this script came from)
   --dir PATH         install directory (default /opt/tico; ~/tico on a Mac)
   --yes, -y          do not ask for confirmation
-  --local            quick start on this machine only: no domain and no sign-in setup (add them later in .env)
+  --local            quick start on this computer only: no domain and no sign-in setup (add them later in .env)
   --owner-email E    with --local: the owner's email (asked when omitted)
-  --company NAME     with --local: the company name (default: My Company)
+  --company NAME     with --local: the team name (default: My Team)
   --tunnel           Cloudflare Tunnel: no public ports needed, so ports 80 and 443 are not checked
   --docker-only      only make sure Docker and Compose are installed (used for runner boxes)
   --runner           set up a computer that runs bots for a Tico server (Docker Compose, with the updater sidecar)
@@ -85,7 +85,7 @@ Usage: install.sh [options] [-- tico-setup flags]
   --label NAME       with --runner: the computer's name in Tico (default: this host's name)
   --name NAME        with --runner: add another computer on this host (for a message bot). It gets its own directory
                      (/opt/tico-runner-<name>), containers, volume and updater; the label defaults to NAME
-  --server-network N with --runner on the server's own machine: join its Docker network N (usually tico_default) and
+  --server-network N with --runner on the server's own computer: join its Docker network N (usually tico_default) and
                      use --url http://server:8765, so the runner never goes through Cloudflare Access
   --help, -h         this text
 
@@ -159,7 +159,7 @@ printf '%s' "$DIR" | grep -Eq '^/[A-Za-z0-9._/-]+$' || die 2 "--dir must be an a
 # ---------------------------------------------------------------------------------------------- preflight
 
 preflight() {
-  step "Checking this machine"
+  step "Checking this computer"
   if [ -n "$MAC" ]; then
     [ -n "$LOCAL$RUNNER" ] || die 3 "The team install is for Linux servers. On this Mac, run it again with --local (Tico on this Mac only), or with --runner to join a server's computer."
   else
@@ -186,7 +186,7 @@ preflight() {
   else
     mem_kb=$(awk '/^MemTotal:/ {print $2}' "$MEMINFO" 2>/dev/null || true)
     [ -n "${mem_kb:-}" ] || die 3 "Could not read the memory size from $MEMINFO."
-    [ "$mem_kb" -ge "$MIN_MEM_KB" ] || die 3 "Needs at least 1 GB of memory (this machine has $((mem_kb / 1024)) MB); 2 GB is comfortable."
+    [ "$mem_kb" -ge "$MIN_MEM_KB" ] || die 3 "Needs at least 1 GB of memory (this computer has $((mem_kb / 1024)) MB); 2 GB is comfortable."
   fi
   probe=$DIR
   while [ ! -d "$probe" ]; do probe=$(dirname "$probe"); done
@@ -377,7 +377,7 @@ start_stack() {
 }
 
 run_wizard() {
-  step "Setting up your company"
+  step "Setting up your team"
   ensure_python
   extra=
   [ -n "$TUNNEL" ] && extra="--front-door cloudflared"
@@ -413,20 +413,20 @@ run_wizard() {
   fi
 }
 
-# The quick start: a server on this machine only. The server sees no domain and no TICO_AUTH_PROXY, so it serves
+# The quick start: a server on this computer only. The server sees no domain and no TICO_AUTH_PROXY, so it serves
 # 127.0.0.1 and the owner signs in with a token from the data volume.
 run_local() {
-  step "Setting up Tico on this machine"
+  step "Setting up Tico on this computer"
   if [ -z "$OWNER_EMAIL" ]; then
     if ( : </dev/tty ) 2>/dev/null; then printf 'Your email address (you are the owner): '; read -r OWNER_EMAIL </dev/tty
     else die 2 "--local needs --owner-email (there is no terminal to ask on)."; fi
   fi
   printf '%s' "$OWNER_EMAIL" | grep -Eq '^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$' || die 2 "--owner-email must be a plain email address."
-  [ -n "$COMPANY" ] || COMPANY="My Company"
+  [ -n "$COMPANY" ] || COMPANY="My Team"
   printf '%s' "$COMPANY" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--company is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
   env_tmp=$(mktemp)
   ( umask 077
-    { printf '# Tico on this machine only. To add a domain and sign-in later, see docs/install.md.\n'
+    { printf '# Tico on this computer only. To add a domain and sign-in later, see docs/install.md.\n'
       printf 'TICO_COMPANY_NAME="%s"\nTICO_OWNER_EMAIL=%s\n' "$COMPANY" "$OWNER_EMAIL"
       printf 'COMPOSE_PROFILES=updater\nTICO_UPDATER_URL=http://updater:8080\nTICO_TAG=%s\n' "$VERSION"
     } > "$env_tmp" )
@@ -435,7 +435,7 @@ run_local() {
   start_stack
   token=$(cd "$DIR" && as_root docker compose exec -T server cat /data/local-owner.token 2>/dev/null) || token=
   say ""
-  say "Tico is running on this machine only."
+  say "Tico is running on this computer only."
   if [ -n "$token" ]; then say "Open this once to sign in as $OWNER_EMAIL: http://127.0.0.1:8765/api/v2/local-signin?token=$token"
   else say "Sign in as $OWNER_EMAIL with the token from: cd $DIR && docker compose exec server cat /data/local-owner.token"; fi
   say "In the app, follow Finish setup: name the team, pick its groups, and use Add computer to join this computer."
@@ -532,7 +532,7 @@ run_runner() {
   fi
   if [ -n "$SERVER_NETWORK" ]; then
     printf '%s' "$SERVER_NETWORK" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$' || die 2 "--server-network is a Docker network name."
-    as_root docker network inspect "$SERVER_NETWORK" >/dev/null 2>&1 || die 2 "No Docker network $SERVER_NETWORK on this machine (the server's is usually tico_default)."
+    as_root docker network inspect "$SERVER_NETWORK" >/dev/null 2>&1 || die 2 "No Docker network $SERVER_NETWORK on this computer (the server's is usually tico_default)."
   fi
   if [ -n "$RUNNER_SLUG" ]; then
     write_named_override

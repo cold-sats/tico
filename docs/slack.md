@@ -28,9 +28,9 @@ list in Tico's database, not a file:
 - **In the app.** Settings > Tools > Slack channels (an owner or an admin): the channel (`#customer_success` or its id),
   the bots that read it, whether bots may post (on unless you turn it off), and a note. A channel listed by name gets
   its id from Slack once Tico is in it.
-- **With `hub`.** `hub slack channel add '#customer_success' --reader onboarding`, `hub slack channel list`,
+- **With `hub`.** `hub slack channel add '#customer_success' --reader support`, `hub slack channel list`,
   `hub slack channel remove '#customer_success' [--reader BOT]`.
-- **By asking BotOps.** "Let the onboarding bot read #customer_success": BotOps adds it as the person who asked,
+- **By asking BotOps.** "Let the support bot read #customer_success": BotOps adds it as the person who asked,
   so a member is told who to ask. The MCP tools are `hub_slack_channel_add`, `_list`, `_remove` and `_import`.
 
 A reader gets what is new in the channel about once an hour, as a message in its own conversation
@@ -58,7 +58,7 @@ file is ignored. A public install has no such file and needs none.
 | Socket Mode did not connect | The app-level token is wrong or lacks `connections:write`, or Socket Mode is off (the manifest turns it on). |
 | Missing scopes in `docker compose logs slack` | Paste the current manifest over the app's, then reinstall it. |
 | No reply in a channel | Tico must be invited to it, and the sender must be on the roster. |
-| A bot is refused a channel ("not on the company's Slack channel list") | Add the channel and the bot as a reader under Settings > Tools > Slack channels, or ask BotOps. |
+| A bot is refused a channel ("not on the team's Slack channel list") | Add the channel and the bot as a reader under Settings > Tools > Slack channels, or ask BotOps. |
 | Replies show as "Tico", not the bot | The `chat:write.customize` scope is missing; update the manifest and reinstall. |
 
 Kill switch: remove `slack` from `COMPOSE_PROFILES` and run `docker compose up -d --remove-orphans`.

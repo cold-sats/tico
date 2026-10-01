@@ -2,7 +2,7 @@
 
 An [OpenClaw](https://openclaw.ai/) profile can be a bot in Tico, the same way a
 [Hermes profile](hermes-agents.md) can: Tico knows it is there, shows whether it is alive, and gives it a
-credential to use when it chooses. Tico never starts a run for it. It uses the same connector file,
+credential to use when it chooses. Tico never starts a run for it. It uses the same `hermes_agent.py` Tool,
 with `--harness openclaw`.
 
 ## Connect an OpenClaw profile in 2 minutes
@@ -34,7 +34,7 @@ the credential.
 
 - **No MCP client.** OpenClaw 2026.3 cannot connect to an MCP server, so nothing is added to its config. The
   credential is in `tico.env` in the profile's state folder (mode 600) and in
-  `~/.config/tico/agents/openclaw-<name>.json`. The skill calls every `hub_*` tool through the connector:
+  `~/.config/tico/agents/openclaw-<name>.json`. The skill calls every `hub_*` tool through `hermes_agent.py`:
   `python3 ~/.config/tico/agents/hermes_agent.py call --harness openclaw --profile <name> hub_message_list`
   (one HTTPS call to Tico's MCP endpoint with the bot's token; the agent never sees the token).
 - **Profiles.** `--profile <name>` is OpenClaw's own `--profile`: state in `~/.openclaw-<name>`. Leave it out
@@ -53,7 +53,7 @@ quotes, or `off`. It is the agent's own schedule, and Tico never starts it.
   This replaces the one `tico-sync` job and leaves your other jobs alone.
 - **What each run does:** the same skill as Hermes ([what it does](hermes-agents.md#keep-it-in-sync)): read
   what is waiting, answer each person in their conversation, move its tasks, stop. Once a week it runs the
-  connector's `update`.
+  `update` command in `hermes_agent.py`.
 - **Check it:** `python3 hermes_agent.py doctor --harness openclaw --profile <name>` says whether the job
   exists, when it last ran, and whether the Gateway is up. `openclaw [--profile <name>] cron list` is OpenClaw's
   own view.

@@ -17,10 +17,10 @@ hub db atlas find orders '{"status": "paid"}' --limit 20        # MongoDB: see "
 ## Where it runs, and why
 
 `hub db` runs on the computer that runs the bot, inside the run, not on the Tico server. The
-connection string is a credential that lives on that computer (or is delivered to it for one run from the
-credential vault); the server never sees it, so the server cannot leak it and a compromised server
-cannot query your database. The server still does two jobs: it authenticates the caller, and it
-keeps the audit trail and serves the named queries. It cannot run the query for you, and
+connection string can stay in a bot's local credential file, or be stored in Tico's credential vault and delivered for one run.
+The local-file path does not send the value to the server. In vault mode the server stores, decrypts and delivers it, so a
+compromised server could expose it. Actual database access depends on network reachability and the database role.
+The server authenticates the caller, keeps the audit trail and serves named queries; `hub db` executes on the computer, and
 there is no `hub_db` tool on the server's MCP endpoint for that reason.
 
 Layers, in order of strength (MongoDB has its own list under [MongoDB Atlas](#mongodb-atlas)):
@@ -83,9 +83,9 @@ The name is `DB_<NAME>_URL` for a database you will call `<name>` (`warehouse` g
 `DB_WAREHOUSE_URL`; a `-` becomes `_`). In the runner's credentials folder, mode 600, never in git:
 
 ```
-# <workspace>/secrets/_shared.env  (every bot on this computer can receive it; the grant in step 3 decides who may use it)
+# <workspace>/secrets/<bot>.env  (only the bot granted this credential)
 DB_WAREHOUSE_URL=postgresql://tico_readonly:PASSWORD@replica.internal:5432/app?sslmode=require
-# <workspace>/secrets/<bot>.env   (only that bot)
+# Shared credentials are delivered only to bots granted them; see Shared credentials.
 # DB_WAREHOUSE_URL=op://Team Bots/Warehouse read only/url          (a 1Password reference works too)
 ```
 
@@ -387,8 +387,9 @@ process, so restart the server after a change.
   ```
   A bind mount (`./company-registry:/data/registry`) in a `compose.override.yaml` also works and
   lets `git pull` be the deploy.
-- Linux VM install: `rsync -a company-config/registry/ /var/lib/tico/registry/` (the directory
-  `TICO_REGISTRY_DIR` names), then `sudo systemctl restart tico-server`.
+- Native Linux checkout: copy the files into the environment's `registry/` directory (`TICO_REGISTRY_DIR`), then run
+  `scripts/tico -e <slug> server restart` as the service user. The systemd user unit is `tico-<slug>-api.service`
+  (`tico-api.service` without a named environment). A cloud Docker installation uses the Docker steps above.
 - Local environment on a Mac: the environment's `registry/` folder
   ([environments.md](environments.md)), then `scripts/tico -e <slug> server restart`.
 

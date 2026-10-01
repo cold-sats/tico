@@ -35,7 +35,7 @@ The words Tico uses, and what each replaces.
 
 - **Task**: work with a requester and an owner.
 - **Routine**: a task that repeats on a schedule.
-- **Needs you**: only when it needs the viewer. Otherwise **Needs <Name>**, as in "Needs Thomaz".
+- **Needs you**: only when it needs the viewer. Otherwise **Needs <Name>**, as in "Needs Sam".
 - **Approval**: a yes or no on one exact action.
 - **Proposal**: a suggested change to a goal or KPI, for its owner to confirm.
 - **Run**: one time a bot works.

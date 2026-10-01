@@ -19,21 +19,31 @@ software: a web frontend your team builds, a script, another service. This page 
 
 ## What the spec covers
 
-Eleven groups of operations, each a tag in the spec:
+The operation groups below are generated from the committed spec's tags. After regenerating the spec, run
+`python scripts/build_api_docs.py`; `--check` verifies the guide matches it.
 
-| Tag | What a frontend builds with it |
+<!-- api-tags:start -->
+| Tag | What it covers |
 |---|---|
-| Session | who is signed in, sign-in for a separate frontend, personal API tokens |
-| Company | names, version, setup state |
-| Org chart | humans, bots, who reports to whom |
-| Bots | the bots you can see and their live status, models |
-| Conversations | chat with a bot: send, list, snapshot, live stream |
-| Tasks | list, create, update, comment |
-| Updates | the daily and weekly updates bots post |
-| Needs you | what needs the signed-in human: questions, tasks, approvals |
-| Meetings | search and read recorded meetings |
-| Docs | internal docs with history and locks, linked docs, import, and search across both ([docs.md](docs.md)) |
-| Health | liveness and the health checks |
+| Session | Who is calling, and how a frontend signs in ([guide](custom-frontend.md)). |
+| Team | This installation's names and settings. |
+| Team chart | Humans and bots, and who reports to whom. |
+| Bots | The bots a person can see, and their live status. |
+| Conversations | Chats with bots: send, list, and stream replies. |
+| Tasks | Work assigned to people and bots. |
+| Updates | Daily and weekly updates bots post to people. |
+| Needs you | What is waiting on the signed-in person: questions, tasks, approvals. |
+| Meetings | Recorded meetings. |
+| Files | What a bot creates, revises or delivers, listed on its page ([guide](files.md)). |
+| Docs | The team's docs ([guide](docs.md)): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both. |
+| Assistant | The signed-in person's own private Assistant chat ([guide](assistant.md)): ask, and confirm what it proposes. |
+| Goals | What every person and bot is for ([guide](goals-and-kpis.md)): goals with a colour the Goal Manager works out from their KPIs, unless a person set one; check-ins in the owner's words; proposals the owner confirms. |
+| KPIs | Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, evidence and a quality, never edited; a correction supersedes the old one. |
+| Usage | Estimated model spend per bot ([guide](usage.md)): tokens counted by each run's computer, priced at list price. |
+| Health | Whether the installation is working. |
+<!-- api-tags:end -->
+
+Internal developer tutorials: [Listening](listening.md#save-decide-and-resolve) and [Needs you batches](needs-you-batches.md).
 
 ## Stable and internal
 

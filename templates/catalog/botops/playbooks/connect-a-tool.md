@@ -6,8 +6,9 @@ unless they pasted it themselves.
 
 ## 0. Choose the route: the vendor's MCP server first
 
-Bots own their tools and skills, and we prefer the vendor's own MCP server to anything we build. **A bot needs a long-lived API
-token**: OAuth expires within hours and needs a person to sign in again, so never set a bot up on OAuth that needs re-signing. In order:
+Bots own their tools and skills, and we prefer the vendor's own MCP server to anything we build. **Tico does not currently manage OAuth renewal
+for bots.** Prefer a vendor-supported API credential or a connection with supported automatic refresh. Check the provider's
+documentation: some require renewed human consent. In order:
 
 1. **The vendor's official MCP server, if it accepts an API token or key in a header.** Find it: search "<vendor> MCP server", open
    the vendor's own docs (not a blog or a third-party wrapper) and read the address, the transport (`http` = streamable HTTP, or

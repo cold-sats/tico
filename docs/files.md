@@ -85,7 +85,7 @@ A file inherits the visibility of where it came from:
   to its participants and to the team owner, who can open direct chats. Personal Assistant rooms are the exception:
   only their human sees them, the owner included. In a shared bot room, only its members do. Anyone else does not learn a file name, a count, a version or an
   activity entry from it, on the bot's page or anywhere else;
-- **bot-wide**: anyone who can see the bot.
+- **bot-wide**: anyone with **Read** permission on the bot ([See, Read and Write](permissions.md)). **See** alone lets them reach the bot's page, not read its files.
 
 The check applies to every list row, the total, metadata, activity, versions and every download.
 

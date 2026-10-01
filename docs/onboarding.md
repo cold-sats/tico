@@ -17,7 +17,7 @@ The implementation is `backend/onboarding.py` (the record, creating the team), `
 (the team builder's templates and suggestions), `ui/org-builder.js` (the team chart screen), `ui/first-run.js` (who reports to whom, the review
 and the screen after Create), `hq/recruit.py` (Tico HQ's suggestions), `clients/catalog.py` (turning a template into a repository),
 `runner/service.py` (the bots the computer sets up itself) and `templates/catalog/` (the templates). The quick start in the
-[README](../README.md) is the same flow with the commands in it.
+[README](../README.md) follows the same flow through a first bot result.
 
 ## The screens
 
@@ -26,8 +26,8 @@ Every **Next** saves the whole draft with `PUT /api/v2/setup`, so a closed tab l
 | Screen | What it asks | What it stores |
 |---|---|---|
 | AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use. Optional: leave none ticked and Next moves on | The team's providers, as Settings > Providers saves them |
-| Names | Team/Company name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add coworkers at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
-| About the team | What you do, who you sell to, whether software is your product, team size and what must never happen without a human | `answers`. Whether software is the product decides which groups start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
+| Names | Team name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add coworkers at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
+| About the team | What you do, who you sell to, whether software is your product, and team size | `answers`. Whether software is the product decides which groups start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your team chart | The groups, then one question per group and the bots to recruit into it, with the chart growing beside it, and the message bot switch under the finished chart ([The team builder](#the-team-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a human `human:<id>` or a bot slug). Nothing is created yet |
 | Add the computer that runs your bots | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/setup` every ten seconds and reports the enrolled computer |
 | Connect an external agent | Optional: **Connect an external agent** makes a personal token and the MCP setup to paste into Grok, Dots, Muse or any MCP agent ([Connect an external agent](connect-an-agent.md)) | Nothing in the record; the token is the owner's own (`POST /api/v2/me/tokens`) |
@@ -44,7 +44,6 @@ Every **Next** saves the whole draft with `PUT /api/v2/setup`, so a closed tab l
 | `team_size` | Free text, a choice from the wizard's list. Shown to a human; nothing reads it |
 | `departments` | The team builder's groups, in order: any of `sales`, `marketing`, `support`, `finance`, `operations`, `legal`, `hr`, `product`, `engineering`. A skipped one is left out |
 | `briefings` | The one-line answer for each group, at most 500 characters, keyed by group. BotOps's setup tasks carry them as "`<department>` today: …" |
-| `never_without_person` | Any of `send`, `spend`, `publish`, `hire`. All four start ticked |
 | `work_arrives`, `repetitive_work`, `pains`, `pains_text`, `tools` | Earlier questions. The wizard no longer asks them: "What hurts, and what you use" is gone, so there are no pain chips, no "in your own words" box and no tool checkboxes. An older record keeps them and a custom client may still send them; Tico accepts them and reads none |
 
 <a id="the-org-builder"></a>
@@ -68,7 +67,7 @@ chart: there is no fixed team any more.
    the blob avatar it will have, with its template's icon. A group not yet reached is dashed; a skipped one says so. A bot animates
    in once, when it is first checked. Built-in bots and the message bot are not on the chart.
 4. **Finish.** The finished chart, "5 groups · 11 bots". Click a bot to rename it, point it at another human or bot, or remove it;
-   click a group to go back to it. Below it, **Built-in** has one switch per message bot card, off by default;
+   click a group to go back to it. Below it, the message bot controls have one switch per card, off by default;
    switched on, it asks whose mailbox the bot reads. **Next** continues to the computer.
 
 Each group head reports to the owner, and every other bot to its group's head while the head is on the chart (to the owner
@@ -94,7 +93,7 @@ The browser only ever talks to its own server:
 
 Both are for the owner and bot administrators, and neither is part of the stable v2 contract (like the rest of the wizard's routes).
 
-The group card carries a toggle, **Suggestions from Tico HQ (sends this answer)**, on by default and off (and disabled, with the
+The group card carries a toggle, **Suggestions from Tico HQ** (sends this answer and your team description), on by default and off (and disabled, with the
 reason) when the install may not ask HQ. The server asks Tico HQ (`POST <TICO_HQ_URL>/v1/recruit`, [Tico HQ](tico-hq.md)) only when the
 toggle is on **and** none of these is true: demo mode, `TICO_TELEMETRY=off`, `DO_NOT_TRACK` set, or the anonymous usage count switched off
 in Settings (`hq.off_by` says which). It sends the group, the answer, three facts from "About the team" (`what`, at most 500
@@ -334,8 +333,7 @@ Tico ships 94 templates, by group, each with a card; [Starter bots](starter-bots
 - `{{company_name}}`, `{{app_name}}`, `{{assistant_name}}` and `{{bot_name}}` are filled in every
   text file before the first commit, and in the card's own words wherever a human reads it.
 - `required: true` means the wizard always includes it. `bootstrap: true` means the computer
-  materializes it itself and no BotOps task is filed for it. Both are true for the assistant and
-  BotOps only.
+  materializes it itself and no BotOps task is filed for it. Both are true for the four built-in bots: Assistant, BotOps, Librarian and Goal Manager.
 - `recommend_when` says who a card is for. The team builder reads only `sells_to_businesses` and `sells_to_consumers` (a business-only card is suggested last to a team that sells only to consumers); the rest
   (`publishes_content`, `has_pipeline`, `uses_github`, ...) are descriptive and harmless. The `inbox` card (the message bot) needs a
   human's mailbox chosen whenever it is switched on.

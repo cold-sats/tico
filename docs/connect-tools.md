@@ -4,10 +4,10 @@ A bot owns its tools and its skills. To give one a service such as Jira or Linea
 MCP server to anything we write: the vendor keeps it current, and Tico passes it to the bot's harness. Ask
 BotOps ("connect Linear to Atlas") and it does the steps below; this page says what they are.
 
-**A bot needs a long-lived API token.** OAuth access expires within hours and needs a person to sign in again, which a bot
-running on a schedule cannot do. So a vendor's MCP server is for a bot only when it takes an API token or key in a header. If it
-is OAuth only, use the vendor's REST API with an API token from a skill. Tico does not do OAuth flows for bots, and BotOps never
-sets a bot up on OAuth that needs re-signing.
+**Tico does not currently manage OAuth renewal for bots.** Prefer a vendor-supported API credential or a connection with
+supported automatic refresh. Some providers require renewed human consent; check their documentation. Initial OAuth consent
+may need a person, but access-token expiry does not always require another sign-in: [Trello's refresh flow](https://developer.atlassian.com/cloud/trello/guides/rest-api/oauth-2-confidential-client-usage/)
+is one example. When Tico cannot maintain the MCP connection, a REST skill with a supported API credential is an option.
 
 | Service | Vendor MCP server | API token or key in a header? | For a bot |
 |---|---|---|---|
@@ -25,10 +25,10 @@ sets a bot up on OAuth that needs re-signing.
    ```yaml
    tools:
      - service: linear
-       mcp: {url: "https://mcp.linear.app/mcp", transport: http, headers: {Authorization: "Bearer ${LINEAR_API_KEY}"}}
-       can: [read, write]
+       mcp: {url: "https://mcp.linear.app/mcp/readonly", transport: http, headers: {Authorization: "Bearer ${LINEAR_API_KEY}"}}
+       can: [read]
        env: LINEAR_API_KEY
-       note: "triage and comments; no deletes"
+       note: "read issues and comments"
    ```
 
    - `url` is https (plain http only for localhost). `transport` is `http` (streamable HTTP, the default) or `sse`.
@@ -60,15 +60,15 @@ The operator's own MCP servers never reach a bot through Tico. The bot's own `.m
 
 ### When the vendor's server needs OAuth
 
-An OAuth consent screen needs a person and a browser, and its tokens expire, so a bot on a schedule cannot keep one. Where a vendor
-offers an API token or key for its MCP server, use that (the table above). Where it does not, do not use the MCP server for a
-bot: call the vendor's REST API with an API token from a skill (Trello below is the example).
+Tico does not run initial OAuth consent or manage renewal for scheduled bots today. Use a supported API credential when
+available, or an external connection that manages refresh. Check the provider's renewal rules; some require fresh human consent.
+A REST skill with a vendor-supported API credential is the fallback when no maintained MCP connection is available.
 
 ## Jira and Confluence
 
 Atlassian's remote MCP server (Jira, Confluence, Bitbucket Cloud and more) is `https://mcp.atlassian.com/v2/mcp`, over
-HTTP. The older `/v1/sse` address still exists; Atlassian says v1 will expose the v2 tools from 1 March 2027. Its main
-sign-in is OAuth 2.1, which a bot cannot keep. An **API token works instead, if an organization admin has turned it on**, with no
+HTTP. Use v2 for new connections; see [Atlassian's migration guidance](https://atlassian.github.io/atlassian-mcp-server/#how-it-works).
+Tico does not manage its OAuth renewal. An **API token works instead, if an organization admin has turned it on**, with no
 consent screen:
 
 ```yaml
@@ -92,6 +92,18 @@ Ask BotOps: "Connect Jira to `<bot>` with a service account key." / "Give `<bot>
 Linear's official MCP server is `https://mcp.linear.app/mcp` (streamable HTTP; SSE is its older fallback). It signs in with OAuth
 or, for a script, takes an API key as `Authorization: Bearer <key>`: use the key, which does not expire on its own. Make a personal API key in Linear under
 Settings, Security & access. `https://mcp.linear.app/mcp/readonly` is a read-only endpoint; use it for a `can: [read]` bot.
+
+```yaml
+- service: linear
+  mcp: {url: "https://mcp.linear.app/mcp/readonly", transport: http, headers: {Authorization: "Bearer ${LINEAR_API_KEY}"}}
+  can: [read]
+  env: LINEAR_API_KEY
+```
+
+`can` declares intended operations; Tico does not filter the vendor's MCP tool list by it. The endpoint or credential scopes
+must enforce read-only access. [Linear's official guide](https://linear.app/docs/mcp) describes both options.
+
+If you want writes, choose the write endpoint and declare that intent separately:
 
 ```yaml
 - service: linear

@@ -226,8 +226,8 @@ $HUB_DIR/scripts/mail.sh schedule --thread 18f2... --slot 2026-09-08T13:00:00-07
 ```
 
 `calendar add` is audited and deterministic: the same exact request retrieves the existing event
-instead of making a duplicate. It accepts only roster attendees. External invitations
-stay in the guarded `schedule` flow.
+instead of making a duplicate. It accepts any attendee address by default. Set `TICO_BLOCK_EXTERNAL_INVITES=1` to allow only roster attendees;
+this opt-in rule also applies to the `schedule` flow.
 
 `slots` reads **every** calendar the mailbox can see, treats all of them as busy, keeps a
 30-minute buffer both sides, and only offers weekdays 09:00-17:00 America/Los_Angeles. It prints
@@ -372,7 +372,7 @@ identity of its `gmail` entry in `bot.yaml`, which BotOps fills from the `Mailbo
 (`{{mailbox}}` in the template). Only when a bot declares none does the sync use its person's email from the roster. A person
 who left, and an archived bot, are skipped.
 
-This is what lets a company sign in on one domain and keep its Google Workspace on another. If the owner signs in as
+This is what lets a team sign in on one domain and keep its Google Workspace on another. If the owner signs in as
 `ana@acme-signin.example` but the Workspace, and so the service account's delegation, is for `acme.example`, the message bot declares
 `ana@acme.example` and that is the mailbox that is synced and read. The calendar sync and the bot's token use the same address.
 
@@ -419,13 +419,13 @@ the job (and show a sign-in problem in Settings until the key is there).
 | Setting | Default (Mac) | Linux runner |
 | --- | --- | --- |
 | `TICO_PROJECTS_DIR` bot repos, `secrets/` | folder above the checkout | `<home>/workspace` |
-| `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` for the connectors job; a bot's run is given `TICO_PROJECTS_DIR`, so its first `mail.sh` builds `<home>/workspace/runtime/mail/venv` (the bot user can write it) |
+| `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` for the `connectors` job; a bot's run is given `TICO_PROJECTS_DIR`, so its first `mail.sh` builds `<home>/workspace/runtime/mail/venv` (the bot user can write it) |
 | `TICO_MAIL_RUNTIME_DIR` mail.db, audit log | `<projects>/runtime/mail` | same, under `workspace/runtime/mail` |
 | `GOOGLE_SA_KEY` | `<projects>/secrets/google-sa.json` | the runner's state directory (`~/state-<id>/google-sa.json`) |
 | `TICO_REGISTRY_DIR` | `<checkout>/registry` | unset: the sync needs no registry; per-bot mailbox rules do. There is no `mail-policy.yaml` either, so the mail policy is the built-in one (below) |
 | `TICO_INTERNAL_DOMAINS` | the domains the policy file lists | optional, comma separated: the team's own mail domains when there is no policy file. Without it they come from the bot's mailbox and the team roster |
 
-Nothing in the connectors job is Mac-only: the key is a file on both (no Keychain), and there is no browser automation
+Nothing in the `connectors` job is Mac-only: the key is a file on both (no Keychain), and there is no browser automation
 in it. What stays Mac-only is launchd (`scripts/tico install`; Linux uses the runner's own supervisor) and
 `connectors/browser.py`, the signed-in browser tool bots use, which needs a desktop browser.
 
@@ -448,7 +448,7 @@ caps (20 sends a day, one outside recipient, no outside Cc, no attachments), no 
 `questions/mail-triage.json`, so the decision questions are in the bot's own repository wherever it runs.
 
 **The decision model.** `mail.sh inbox --decisions` and the spam and injection check (`hub classify`) ask the
-server's decision model. Put `TYPESAFE_API_KEY` in the server's `.env`, or one of the company's model keys
+server's decision model. Put `TYPESAFE_API_KEY` in the server's `.env`, or one of the team's model keys
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`); `compose.yaml` hands them to
 the server, and without any of them the check answers "unchecked" and the bot works the mail as it always did.
 

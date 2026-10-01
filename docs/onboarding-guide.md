@@ -13,11 +13,12 @@ Start from what your team does, not from what a bot could do.
    today?"). Tico recruits bots for that group: its head is checked, the usual ones are checked or shown, and the rest are under
    **More**. Check what you want and watch the chart grow. Skip a group you do not need; Product and Engineering are suggested only
    if software is your product. A big chart is safe: a bot you have not set up yet is parked, does nothing on its own and costs nothing.
-   The suggestions come from Tico HQ while the toggle on the card is on (it sends that one answer, and nothing is kept:
-   [PRIVACY.md](../PRIVACY.md)), otherwise from Tico itself.
+   The suggestions come from Tico HQ while the toggle on the card is on by default: it sends this answer and your team description,
+   customer type, software answer, group, catalog version and, when enabled, install id. See [PRIVACY.md](../PRIVACY.md) for the payload
+   and retention. Switch it off to use local suggestions.
 3. **Edit before you create.** On the finished chart, click a bot to rename it, choose who it reports to (each group's bots report
    to its head, and the heads to you), or remove it. To have one human's mail sorted and replies drafted, switch on the message bot
-   under **Built-in** and choose whose mailbox it reads. Nothing exists until **Create my team**.
+   and choose whose mailbox it reads. The four **Built-in** bots are Assistant, BotOps, Librarian and Goal Manager; Inbox Manager is a helper. Nothing exists until **Create my team**.
 4. **Connect tools when a bot asks.** Finish setup does not ask which tools you use and no bot is held back for a missing one. When you press
    **Set up** on a bot, it tells you what it needs (a mailbox, tickets, a repository, a CRM) and where to connect it.
 
@@ -49,9 +50,10 @@ If a bot gets it wrong twice, change its instructions, not your message: ask Bot
 
 ## Approval gates
 
-Every starter drafts and a human confirms anything that would send, post, pay, change a record or delete. Some of that is the platform,
-not the prompt: a mail send becomes a draft until it is approved, a Slack post needs the channel to allow posting, a bot may invite only
-humans on the roster to a calendar event, and the QA Engineer cannot comment or label on GitHub unless you turn that on. The list per template
+A bot drafts outbound messages until its owner turns on sending to outsiders for that bot. Template instructions may ask a human
+to review particular drafts. A mail send becomes a draft until approved, a Slack post needs the channel to allow posting, and the
+QA Engineer cannot comment or label on GitHub unless you turn that on. Calendar events may invite any address by default;
+`TICO_BLOCK_EXTERNAL_INVITES=1` opts into roster-only invitations. The list per template
 is in [Starter bots](starter-bots.md#what-stops-a-starter-sending-things-outside-the-team).
 
 When a bot asks for approval it shows the exact action. Read it as if you were sending it yourself. An approval is spent once: it covers

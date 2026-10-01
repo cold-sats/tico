@@ -40,4 +40,4 @@ Default limit). The owner of a bot may set its limit, no higher than the team de
 `GET /api/v2/usage?from=&to=&department=&group=bot|day|routine` (UTC dates, default the last 7 days, at most 366) returns `rows` and
 `totals` with `runs`, `input_tokens`, `cached_tokens`, `output_tokens`, `est_cost_usd` (null when every API-billed run used an unpriced
 model), `subscription_equiv_usd`, and on each row its `share` of the total. `?bot=<slug>` returns that bot's `daily` series and top
-`routines`. See `docs/openapi/v2.json`.
+`routines`. The legacy `department` query parameter filters by group; `group` selects how rows are aggregated. See `docs/openapi/v2.json`.

@@ -39,7 +39,30 @@ It prints a link that signs you in once. Open it in your browser: the app opens 
 2. **Name the team**, say what it does, and pick its groups. A few bots are suggested for each group.
 3. **Add computer**: choose *A Linux or cloud server (Docker)*, press **Add computer**, and run the line it shows on this computer.
    It joins the server's own Docker network, so it needs no domain, and the computer shows online in a few seconds.
-4. **Create my team.** The bots are placed on the computer and set up there.
+4. **Create my team.** The four built-in bots are created automatically. Your selected starters are placed on the computer,
+   with **Needs setup** until you talk to them.
+5. **Sign in to a model.** In **Settings > Computers**, wait for the selected harness to be installed, then press **Sign in**
+   beside Codex or Claude Code. Open the provider link and enter its device code, or paste the returned code into Tico when asked.
+   Wait for the computer's model sign-in to show **ready**. Other harnesses use their own terminal sign-in; API credentials and
+   profiles are explained in [Harnesses](harnesses.md). Pick a provider in **Settings > AI providers** if you skipped it,
+   then choose the starter's model in **Settings > Bots**.
+6. **Set up one starter.** Select just one, such as Docs Writer, open its page and press **Set up**. Tell it who its work is for
+   and give it a few notes. If it needs a Tool or Credential, use the connection or credential card it opens. Answer its questions
+   and review its first draft in the same chat. Outbound sending stays off until you turn it on for that bot.
+7. **Finish one task.** On **Tasks > New task**, assign the starter a small job, such as “Write a one-page welcome guide from
+   these notes: our team builds an example app; we meet Mondays; ask Sam for help.” Open the task to read its result, then close it.
+   Success is a reviewed draft and a completed task, with the computer online and no blocking Health issue.
+
+### First-result recovery
+
+- **Add an AI provider**: choose one in **Settings > AI providers**, then select the bot's model in **Settings > Bots**.
+- **Offline** or **Missing bot repository or AGENT.md**: check **Settings > Computers** and keep the joined computer running;
+  [Setup troubleshooting](onboarding.md#troubleshooting) explains repository and placement failures.
+- **Sign-in rejected**: use **Sign in** again on the computer and finish the provider flow; check [Harnesses](harnesses.md).
+- **Needs setup**: open the bot's chat and press **Set up**; tasks and routines wait until that conversation is finished.
+- **A missing Tool or Credential**: use the bot's card or [Connect tools](connect-tools.md) and grant the credential to that bot.
+
+[Set up your first bots](onboarding-guide.md) covers how to review and improve the result.
 
 On a Windows PC, run the installer inside WSL 2 with Docker Desktop's WSL integration on, which is the Linux path.
 By hand, on any computer with Docker (the same thing the installer does): download the release's compose bundle, copy `.env.example`
@@ -60,9 +83,9 @@ sign-in refuses to start. A public address always needs sign-in.
 
 ### Add a domain and sign-in later
 
-To let your people in from anywhere, edit `.env` in the install directory and run `docker compose up -d` there:
+To let your humans in from anywhere, edit `.env` in the install directory and run `docker compose up -d` there:
 
-1. Point a domain at this machine and pick the front door: set `COMPOSE_PROFILES=caddy,updater` and `TICO_DOMAIN=tico.yourcompany.com`
+1. Point a domain at this computer and pick the front door: set `COMPOSE_PROFILES=caddy,updater` and `TICO_DOMAIN=tico.example.com`
    (or the Cloudflare tunnel; see below).
 2. Choose the sign-in: `TICO_AUTH_PROXY=oidc` with its issuer, client ID and secret, or `cloudflare` (see [Sign-in](#sign-in)).
 3. Add the others to the Humans list in the app; they sign in with the same account.
@@ -158,7 +181,7 @@ half way, running the command again resumes it.
 3. **Sign-in.** Google or Microsoft (OIDC), or Cloudflare Access. It opens the right console page, prints the redirect
    URI to paste (`https://<domain>/auth/callback`, character for character), and asks for the client ID and secret
    (hidden). Optionally limit sign-in to one email domain.
-4. **Team/Company name.** Name, owner email (it must be the account you will sign in with), and an optional model key for the
+4. **Team name.** Name, owner email (it must be the account you will sign in with), and an optional model key for the
    server's own decision model.
 5. **Backups.** A bucket (an S3 or R2 bucket it can create, one `setup backup-storage` created from your laptop, or one you already have) or local only, with the warning
    that local copies do not survive losing the server. See [Backups and restore](#backups-and-restore).
@@ -181,7 +204,7 @@ Tico at https://tico.example.com: one server running the Tico server in Docker. 
   3. Wait until public resolvers (8.8.8.8, 1.1.1.1, 9.9.9.9) answer with those records, before anything asks for a certificate
   4. Sign-in: Google OIDC; OAuth client redirect URI must be exactly https://tico.example.com/auth/callback
   5. Backups: local only
-  6. Company 'Acme', owner you@example.com
+  6. Team 'Acme', owner you@example.com
   7. Verify: HTTPS certificate, /healthz, sign-in redirect, server container up
 ```
 
@@ -220,7 +243,7 @@ value is an error that names the flag. Flags after `--` go to `tico setup`; cred
 they never appear in a process list:
 
 ```
-TICO_OIDC_CLIENT_SECRET=... sh install.sh --yes --version v0.2.3 -- --domain tico.example.com --front-door caddy \
+TICO_OIDC_CLIENT_SECRET=... sh install.sh --yes --version vX.Y.Z -- --domain tico.example.com --front-door caddy \
   --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --company Acme \
   --owner-email you@example.com --backup local
 ```
@@ -430,7 +453,7 @@ to push the bots' repositories. Check with **Settings > Bots**, or
 
 To write the compose setup by hand instead of using the installer, copy `docker/runner.compose.yaml` from the release
 to the computer, write a `.env` next to it with `TICO_URL=https://tico.example.com`, `TICO_CODE=<code>`,
-`TICO_RUNNER_LABEL=<name>`, and `TICO_TAG` and `TICO_UPDATER_TAG` set to the server's release (`v0.2.3`, not `latest`), and run
+`TICO_RUNNER_LABEL=<name>`, and `TICO_TAG` and `TICO_UPDATER_TAG` set to the server's release (`vX.Y.Z`, not `latest`), and run
 `docker compose -f runner.compose.yaml up -d`.
 
 **Meeting importers and Close calls run here too, with nothing extra to start.** The runner container also runs the
@@ -511,10 +534,9 @@ Add `slack` to `COMPOSE_PROFILES` to run the Slack service, then paste the app's
 
 ## Update
 
-Server: `docker compose pull && docker compose up -d`, or run the newer release's `install.sh` again (it upgrades in place and
-keeps your `.env`). Pin a release with `TICO_TAG=v1.2.3` in `.env` (default
-`latest`); images are tagged `vX.Y.Z` and `latest`, and `edge` follows `main`. Data lives in named volumes and
-survives updates. Runners: see above.
+Use **Update now**, or run the target release's installer again to update both the pinned image tag and compose bundle, preserving `.env`.
+Pulling an unchanged pinned tag does not upgrade Tico. See [Updates](updates.md) for manual updates, self-update and rollback.
+Data lives in named volumes and survives updates. Computers follow the server's release.
 
 ### One-click updates
 
@@ -531,9 +553,10 @@ With `updater` in `COMPOSE_PROFILES` and `TICO_UPDATER_URL=http://updater:8080` 
 
 Tradeoff: the updater mounts the Docker socket, which is root on the host. The server runs no bots, so nothing
 untrusted shares that host, and the updater runs nothing but `docker compose` for the `server` service. To turn it
-off, delete `updater` from `COMPOSE_PROFILES` and `TICO_UPDATER_URL` from `.env`. It does not update itself (see [updates.md](updates.md#the-servers-own-updater));
-`docker compose pull && docker compose up -d` does. Computers follow the server's release by themselves; see
-[updates.md](updates.md).
+off, delete `updater` from `COMPOSE_PROFILES` and `TICO_UPDATER_URL` from `.env`. Self-update is on by default: a helper
+recreates the updater, and restores the previous updater if the replacement fails. A failed server health check rolls the server
+image, bundle and database back. See [Updates](updates.md#the-servers-own-updater) for self-update and recovery.
+Computers follow the server's release by themselves.
 
 ## Backups and restore
 

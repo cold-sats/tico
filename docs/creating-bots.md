@@ -4,7 +4,7 @@ How to set up a bot that works, and how to write the instructions it reads every
 
 Two readers: the owner standing up the first bots in a new environment, and the human (or bot)
 writing a bot's `AGENT.md`. Installation of the server, the runner and the model CLIs is in the
-README; this page starts where you can open **Settings → Bots** and press **Add bot**. See also
+[Install](install.md); this page starts where you can open **Settings > Bots > Add from template**. See also
 [How it works](how-it-works.md), [Using Tico](using-tico.md), [Routines](routines.md) and
 [Shared credentials](credential-vault.md).
 
@@ -17,10 +17,11 @@ Very little of this has to be done by hand. `templates/catalog/<template>/` hold
 this product ships: a card saying what the bot owns and what it never does, and the repository the
 bot is created from, with your team's names filled in and the setup answers written into
 `knowledge/company.md`. **Settings → Bots → Add from template** is how a bot is added after
-Finish setup, and the Finish setup wizard uses the same templates. Either way the bot is created `planned`
-and a task goes to **BotOps**, the bot engineer every environment has (built in, like the assistant: it cannot be archived or deleted, only paused or renamed): it materializes the
-repository, puts the reviewed instructions in, runs the readiness check, and finishes the task with
-the one thing to read before you activate the bot. Activation stays a human's decision.
+Finish setup, and the wizard uses the same templates. A starter is created parked in **Needs setup**; its assigned computer
+materializes the repository, and **Set up** opens its first conversation. Answer its questions and review its first draft.
+For another template, a task goes to BotOps to build the repository, apply the reviewed Instructions and check readiness.
+You can also ask BotOps for a custom bot in chat; it takes the bot through placement and setup as you.
+Assistant, BotOps, Librarian and Goal Manager are the four built-in bots; they cannot be archived or deleted.
 
 The 94 templates, in nine groups with a Leadership extra and one message bot, are described in
 [Starter bots](starter-bots.md), with the card fields and the quality bar this page's advice is
@@ -178,7 +179,7 @@ Then, in this order:
    the bot does, that it must not.
 2. `## Owns`, the artifacts the bot is responsible for, by path where possible. Required. Naming
    files here is what stops a bot from creating a parallel set next to them.
-3. `## Never without approval`, the role-specific additions to the shared approval rules.
+3. `## Outbound sending`, who the bot may contact. It drafts until its owner turns on sending to outsiders for that bot.
 4. `## Starting a run` and `## Ending a run`, short numbered lists, then `## Working style`, the
    handful of habits that make the output good.
 
@@ -257,7 +258,7 @@ contact suppliers.**                <- the "you do not" sentence is the scope ed
   the task note instead.
 - `software/pull-counts.py`: the export reader. Keep it working.
 
-## Never without approval        <- the shared rules, plus what is specific here
+## Outbound sending              <- drafts until sending to outsiders is turned on
 See the shared approvals policy. In addition:
 - Never place, change or cancel an order. Never message a supplier.
 - Never invent a number. A figure you did not read in a dated source stays out.
@@ -401,7 +402,7 @@ tools:
 - `vault: hub` says the value is granted to this bot in Settings → Credentials rather than kept in
   a credential file, so preflight does not look for it on disk.
 - `mcp:` makes the tool a remote MCP server (`{url, transport: http|sse, headers}`): Tico's runner passes it to the bot's
-  harness next to the hub's own tools. The `headers` may use `${VAR}` for this entry's `env` variable, filled only from a
+  harness next to Tico's own tools. The `headers` may use `${VAR}` for this entry's `env` variable, filled only from a
   credential granted to this bot. See [connect-tools.md](connect-tools.md) for Jira, Confluence, Linear, PostHog, Sentry, Trello and GitHub (and why a bot needs an API token, not OAuth).
 - `note:` records who authorized it and what is excluded; human and bot readers rely on it. A
   browser-based access also names `sites:`, so the tool can refuse everything else.
@@ -410,7 +411,7 @@ tools:
 
 | File | Holds |
 |---|---|
-| `<workspace>/secrets/_shared.env` | Values every bot in the environment needs |
+| `<workspace>/secrets/_shared.env` | Shared source values, delivered only to bots granted them |
 | `<workspace>/secrets/<slug>.env` | That one bot's own credentials |
 | `<workspace>/secrets/<profile>.env` | A shared `credential_profile` used by several bots |
 
