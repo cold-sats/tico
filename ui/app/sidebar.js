@@ -21,7 +21,7 @@ document.querySelectorAll('[data-section-toggle]').forEach(button => button.oncl
 });
 renderNavSections();
 // The built-ins stay out of the team chart. The Assistant and BotOps have their own rows in the main rail (each
-// person's private Assistant is a tab on their own page, ui/assistant.js); the Goal Manager is on Goals and the
+// person's private Assistant is its own page, ui/app/assistant-page.js); the Goal Manager is on Goals and the
 // Librarian on Docs and Market. Search, bot pickers and a person's page do not list the Assistant or the Librarian;
 // Settings > Bots manages all four, and #/bot/<slug> opens each.
 const isHiddenBot = slug => slug === assistantBot() || slug === 'librarian';
@@ -129,7 +129,7 @@ function renderInboxNav() {
 }
 function renderLibrarians() {
   for (const [id, slug, href] of [
-    ['nav-assistant', assistantBot(), mePerson() ? `#/person/${encodeURIComponent(mePerson().id)}/assistant` : `#/bot/${encodeURIComponent(assistantBot())}`],
+    ['nav-assistant', assistantBot(), mePerson() ? ASSISTANT : `#/bot/${encodeURIComponent(assistantBot())}`],
     ['nav-botops', 'botops', '#/bot/botops'],
   ]) {
     const el = document.getElementById(id);

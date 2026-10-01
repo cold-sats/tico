@@ -36,13 +36,20 @@ function v2ChatRoom(conversations, slug, mode = v2ChatMode(slug)) {
     && String(c.scope || 'direct') === mode
     && (!me || (c.participants || []).includes(me))) || null;
 }
-async function v2ChatLoad(slug) {
+// `room` is a chat the caller already holds (the Assistant page: GET /v2/assistant gives its room and messages), so
+// nothing is looked up; `empty` is what an empty thread shows instead of the default line.
+async function v2ChatLoad(slug, room = null) {
   v2ChatStop();
   const mode = v2ChatMode(slug);
   const state = V2C = {slug, mode, conv: null, messages: [], mine: [], live: null, es: null, poll: 0, rendered: false, followLatest: true,
-                       loaded: false, failed: false};
+                       loaded: false, failed: false, empty: room?.empty || ''};
   const seen = CHAT_CACHE.get(slug);
-  if (seen && seen.mode === mode) {
+  if (room) {
+    const x = room.execution;
+    Object.assign(state, {conv: room.conv, messages: room.messages || [], nextBefore: room.nextBefore, execution: x,
+                          live: S.me?.cloud && x && x.state !== 'completed' ? {text: x.text || ''} : null, listed: true, loaded: true});
+    v2ChatRender(state);
+  } else if (seen && seen.mode === mode) {
     Object.assign(state, {conv: seen.conv, messages: seen.messages, nextBefore: seen.nextBefore, execution: seen.execution,
                           live: seen.live, listed: true, loaded: true});
     v2ChatRender(state);                               // what it showed last time, at once
@@ -368,7 +375,7 @@ function v2ChatRender(state) {
         <div class="md" id="v2-live">${safeMd(state.live.text, {shortLinks: true})}</div></div></div>`
     : pending ? `<div class="conv-run chat">${pending}</div>` : '';
   thread.innerHTML = (groups + live) || (state.failed ? '<div class="empty">Could not load the conversation yet; trying again…</div>'
-    : !state.loaded ? '<div class="empty">Loading the thread…</div>' : '<div class="empty">Nothing yet. Say something below.</div>');
+    : !state.loaded ? '<div class="empty">Loading the thread…</div>' : state.empty || '<div class="empty">Nothing yet. Say something below.</div>');
   if (thread.querySelector('[data-action-host]')) void window.assistantChat?.cards(thread, {get, post, esc, toast,
     reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
   if (thread.querySelector('[data-credential-host]')) void window.credentialCards?.mount(thread, {get, post, esc, toast,

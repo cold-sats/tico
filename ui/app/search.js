@@ -29,10 +29,10 @@ function searchRank(entry, q) {
   return -1;
 }
 // "Ask the Assistant..." closes every list: the words typed go to your private Assistant chat, prefilled
-// (ui/assistant.js), so anything the names above do not answer is one Enter away.
+// (ui/app/assistant-page.js), so anything the names above do not answer is one Enter away.
 function searchAsk(q) {
   return S.me?.id ? [{kind: 'assistant', label: 'Ask the Assistant…', alias: 'assistant', ask: q.trim(), icon: 'auto_awesome',
-    href: `#/person/${encodeURIComponent(S.me.id)}/assistant`}] : [];
+    href: ASSISTANT}] : [];
 }
 function searchResults(q) {
   const raw = q;
@@ -57,7 +57,7 @@ function searchGo(href, ask) {
   if (!href) return;
   $('#search-modal').close();
   setDrawer(false);
-  if (ask !== undefined) window.assistantChat?.prefill(ask);
+  if (ask !== undefined) assistantPrefill(ask);
   location.hash = href;
 }
 function searchOpen() {

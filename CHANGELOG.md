@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Assistant** in the left rail opens your private chat as a page of its own (`#/assistant`), with the same thread,
+  composer and live reply as a bot's chat and suggestions while it is empty. Your own page's Assistant tab and "Ask the
+  Assistant…" in search open it too; the history is the same room.
+
 ## [0.2.40] - 2026-10-01
 
 ### Fixed
