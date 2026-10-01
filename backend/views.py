@@ -420,11 +420,12 @@ def snapshot_mark(c, cid):
     """What changes when a conversation's snapshot does, in one cheap read: its newest message and
     count, and its latest job with that job's attempt (state, lease, steps written)."""
     return tuple(c.execute(
-        "SELECT (SELECT max(rowid) FROM messages WHERE conversation_id=?),"
+        "SELECT (SELECT coalesce(updated_at,'')||status FROM chat_goals WHERE conversation_id=?),"
+        " (SELECT max(rowid) FROM messages WHERE conversation_id=?),"
         " (SELECT count(*) FROM messages WHERE conversation_id=?),"
         " (SELECT j.id||'|'||j.state||'|'||coalesce(a.state,'')||'|'||coalesce(a.last_seq,0)||'|'||coalesce(a.lease_until,'')"
         "  FROM jobs j JOIN messages m ON m.id=j.message_id LEFT JOIN attempts a ON a.id=j.attempt_id"
-        "  WHERE m.conversation_id=? ORDER BY m.rowid DESC LIMIT 1)", (cid, cid, cid)).fetchone())
+        "  WHERE m.conversation_id=? ORDER BY m.rowid DESC LIMIT 1)", (cid, cid, cid, cid)).fetchone())
 
 
 def conversation_snapshot(c, cid):
@@ -481,7 +482,8 @@ def conversation_snapshot(c, cid):
                      "text": "\n\n".join(p["text"] for p in parts if p["kind"] != "tool"), "parts": parts, **location}
         if readiness_reason:
             execution["readiness_reason"] = readiness_reason
-    return {**page, "execution": execution}
+    from .chat_goals import current
+    return {**page, "execution": execution, "goal": current(c, cid)}
 
 
 # What needs a person, in the order they work it. Bot requests rank above inbox items from mail, since helping the bots matters more. A request
@@ -800,6 +802,8 @@ def install_views(app, store, auth, mutate, task_view):
             return str(config.get("template") or "") in helpers
         for bot in H.bots(c):
             slug = bot["slug"]
+            from .chat_goals import readable_active
+            bot["goal_active"] = readable_active(c, auth, who, slug)
             level = access.get(slug, auth.FULL)
             if bot.get("state") == "archived" or not level["see"]:
                 continue
@@ -852,6 +856,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "operator": registry["operator"] if registry else None,
                          "revision": registry["revision"] if registry else None,
                          "goals": (registry["goals"] if registry else "") or "",
+                         "goal_active": bot["goal_active"],
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                          "icon": icon_of(config), "helper": helper(config),
@@ -1295,7 +1300,9 @@ def install_views(app, store, auth, mutate, task_view):
         initial = await asyncio.to_thread(read_snapshot)
         async def generate():
             previous, mark = initial, await asyncio.to_thread(read_mark)
+            previous_goal = json.loads(initial).get("goal")
             yield f"event: snapshot\ndata: {initial}\n\n"
+            yield f"event: goal\ndata: {encode({'type': 'goal', 'goal': previous_goal})}\n\n"
             for tick in range(55):
                 await asyncio.sleep(1)
                 if await request.is_disconnected():
@@ -1315,6 +1322,10 @@ def install_views(app, store, auth, mutate, task_view):
                     return
                 if current != previous:
                     yield f"event: snapshot\ndata: {current}\n\n"
+                    goal = json.loads(current).get("goal")
+                    if goal != previous_goal:
+                        yield f"event: goal\ndata: {encode({'type': 'goal', 'goal': goal})}\n\n"
+                        previous_goal = goal
                     previous = current
                 else:
                     yield ': keepalive\n\n'

@@ -30,3 +30,6 @@ into the same room. How the pieces fit: [How Tico works](how-it-works.md).
 For a bot that allows [branches](creating-bots.md#branches), opening a chat with the original uses your active branch.
 Each branch has personal chats on its person's computer. The branch picker reaches other branches with the usual access checks.
 Turning branches off routes new chats to the original again; existing messages and task threads stay intact.
+
+A native [chat goal](chat-goals.md) pins an outcome to this conversation. The same document
+covers slash commands, CLI and MCP controls, and live goal events.

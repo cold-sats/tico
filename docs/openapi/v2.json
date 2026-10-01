@@ -2008,6 +2008,127 @@
         ]
       }
     },
+    "/api/v2/conversations/{cid}/goal": {
+      "get": {
+        "summary": "Read the pinned goal and commands",
+        "operationId": "getChatGoal",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Conversations"
+        ]
+      },
+      "post": {
+        "summary": "Set, edit, pause, resume or clear a native goal",
+        "operationId": "setChatGoal",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Conversations"
+        ]
+      }
+    },
     "/api/v2/conversations/{cid}/messages": {
       "get": {
         "summary": "The newest messages (up to 200); before=<message id> pages back, since=<timestamp> only newer",
@@ -9670,6 +9791,11 @@
       },
       "ChatCreate": {
         "properties": {
+          "command": {
+            "type": "boolean",
+            "title": "Command",
+            "default": false
+          },
           "text": {
             "type": "string",
             "maxLength": 200000,
@@ -9688,6 +9814,85 @@
           "text"
         ],
         "title": "ChatCreate"
+      },
+      "ChatGoal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string"
+          },
+          "bot": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "set_by": {
+            "type": "string"
+          },
+          "set_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bot",
+          "conversation_id",
+          "ended_at",
+          "id",
+          "note",
+          "objective",
+          "set_at",
+          "set_by",
+          "status",
+          "updated_at"
+        ],
+        "additionalProperties": true
+      },
+      "ChatGoalResult": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatGoal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "goal"
+        ],
+        "additionalProperties": true
       },
       "ChatResult": {
         "type": "object",
@@ -10570,6 +10775,40 @@
           "updated"
         ],
         "additionalProperties": true
+      },
+      "GoalAction": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "set",
+              "edit",
+              "pause",
+              "resume",
+              "clear"
+            ],
+            "title": "Action"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "GoalAction"
       },
       "GoalCheckin": {
         "properties": {
@@ -13434,6 +13673,11 @@
       },
       "MessageCreate": {
         "properties": {
+          "command": {
+            "type": "boolean",
+            "title": "Command",
+            "default": false
+          },
           "to": {
             "type": "string",
             "maxLength": 200,

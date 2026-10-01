@@ -38,6 +38,7 @@ class ConversationCreate(Contract):
 
 
 class MessageCreate(Contract):
+    command: bool = False
     to: ID
     text: Text
     conversation_id: ID | None = None
@@ -48,6 +49,7 @@ class MessageCreate(Contract):
 
 
 class ChatCreate(Contract):
+    command: bool = False
     text: Text
     refs: dict = Field(default_factory=dict)
 
@@ -451,7 +453,28 @@ class Enrollment(Contract):
     platform: str = Field(default="", max_length=100)
 
 
-class ProfileReadiness(Contract):
+class SlashCommand(Contract):
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,39}$")
+    args: str = Field(default="", max_length=100)
+    help: str = Field(default="", max_length=300)
+    kind: Literal["tico", "harness"] = "harness"
+    sub: list[str] | None = None
+
+
+class GoalReadiness(Contract):
+    goals: bool = False
+    commands: list[SlashCommand] = Field(default_factory=list, max_length=30)
+
+    @model_serializer(mode="wrap")
+    def _reported_capabilities(self, handler):
+        data = handler(self)
+        for key in ("goals", "commands"):
+            if key not in self.model_fields_set:
+                data.pop(key, None)
+        return data
+
+
+class ProfileReadiness(GoalReadiness):
     """One subscription profile on the runner: the provider login its bots share."""
     runtime: str = Field(default="", max_length=100)
     installed: bool = False
@@ -462,7 +485,7 @@ class ProfileReadiness(Contract):
     detail: str = Field(default="", max_length=500)
 
 
-class HarnessReadiness(Contract):
+class HarnessReadiness(GoalReadiness):
     """One model CLI on the runner (runner/harnesses/*.toml): what is installed and whether it can
     be kept current from Settings."""
     name: str = Field(default="", max_length=100)
@@ -482,7 +505,7 @@ class HarnessReadiness(Contract):
     detail: str = Field(default="", max_length=500)
 
 
-class RuntimeReadiness(Contract):
+class RuntimeReadiness(GoalReadiness):
     installed: bool
     # "rejected": the provider refused the key or sign-in on a real turn (rejected_at, rejected_reason).
     authenticated: Literal["ready", "missing", "failed", "unknown", "rejected"] = "unknown"
@@ -550,7 +573,7 @@ class ToolUpdate(Contract):
     title_prefix: str = Field(default="", max_length=100)
 
 
-class BotReadiness(Contract):
+class BotReadiness(GoalReadiness):
     ready: bool
     runtime: str = Field(default="", max_length=100)
     model: str = Field(default="", max_length=200)
@@ -1117,7 +1140,7 @@ class Started(Contract):
 
 class Event(Contract):
     seq: int = Field(ge=1)
-    kind: Literal["delta", "message", "tokens", "status", "error", "tool", "diagnostic"]
+    kind: Literal["delta", "message", "tokens", "status", "error", "tool", "diagnostic", "goal"]
     payload: dict
 
 

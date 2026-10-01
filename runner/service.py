@@ -20,6 +20,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
+from . import goals
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -1575,7 +1576,7 @@ class Runner:
                   list(CURSOR_MODELS) if runtime == "cursor" else [])
         return {"installed": bool(executable), "authenticated": authenticated, "version": version,
                 "models": models, "controls": ["interrupt", "new-session"] if executable else [],
-                "detail": detail}
+                "detail": detail, **goals.capabilities(runtime, executable, version)}
 
     def readiness(self, assignments, checks=None, runtimes=None):
         runtimes = runtimes or self.runtime_report(assignments)
@@ -1591,6 +1592,8 @@ class Runner:
                 "configuration_valid", "problems") if k in row}
             if time.monotonic() < self.__dict__.get("_repository_after", 0):
                 bots[row["bot"]].pop("repository", None)
+            capability = runtimes.get(row.get("runtime"), {})
+            bots[row["bot"]].update({key: capability[key] for key in ("goals", "commands") if key in capability})
             if row.get("published") is not None:
                 bots[row["bot"]]["published"] = row["published"]
             if row.get("tools"):
@@ -1692,6 +1695,9 @@ class Runner:
         raise RuntimeError(NO_RUNTIME if not runtime else f"Unsupported local runtime: {runtime}")
 
     def prompt(self, attempt, after=None, *, resumed=False):
+        message = attempt.get("message") or {}
+        if (message.get("refs") or {}).get("command"):
+            return message.get("body") or ""
         conversation = attempt.get("conversation") or {}
         names = self.names()
         app = names["app_name"]
@@ -1918,6 +1924,8 @@ class Runner:
         reply, outcome, tokens, limited, retryable, fallback = "", "interrupted", {}, False, False, None
         unavailable, base_env, execution_path, drive = False, None, None, None
         auth_rejected = {}
+        goal_controlled = [False]
+        goal_failure = [None]
         redactor, started_at, tree = None, "", {}
         meter, ran = [usage.Meter()], [config.get("model") or "", config.get("runtime") or ""]
         try:
@@ -1957,15 +1965,27 @@ class Runner:
                     """Drain the host until the turn ends: (outcome, reply, tokens, limited, retryable)."""
                     reply, tokens, outcome, limited, retryable = "", {}, "interrupted", False, False
                     acted, last_flush, complete = False, 0, False
+                    goal = attempt.get("chat_goal")
+                    goal_running = bool(goal and goal["status"] == "active")
+                    revision = goal["updated_at"] if goal else None
                     meter[0] = usage.Meter()           # a fallback harness counts its own turn
                     while not complete:
                         if self.stop.is_set() or lost.is_set() or time.monotonic() >= limit:
+                            goal_failure[0] = ("Run time limit reached" if time.monotonic() >= limit else
+                                               "The computer stopped" if self.stop.is_set() else "The execution lease expired")
                             host.interrupt(thread, turn)
                             raise RuntimeError("Execution interrupted after stop, run-time limit, or loss of ownership")
                         for event in host.drain():
-                            if event.get("turn_id") and event["turn_id"] != turn:
+                            if event.get("thread_id") and event["thread_id"] != thread:
+                                continue
+                            if goal_running and event["kind"] == "status" and event.get("turn_id"):
+                                turn = event["turn_id"]
+                            if event.get("turn_id") and event["turn_id"] != turn and not goal_running:
                                 continue
                             kind = event["kind"]
+                            if kind == "goal" and goal:
+                                self.state.append(aid, "goal", {**redact(event), "goal_id": goal["id"], "revision": revision})
+                                goal_running = event.get("status") == "active"
                             if kind in ("message", "tool"):
                                 # Proof the turn reached the model and may have changed something
                                 # outside this Mac. A retry is only safe before this is true.
@@ -1980,9 +2000,10 @@ class Runner:
                                     meter[0].add(event)
                             if kind == "turn_completed":
                                 outcome = "interrupted" if event.get("status") == "interrupted" else "completed"
-                                complete = True
+                                complete = not (goal_running and runtime == "codex" and outcome == "completed")
                             elif kind == "turn_failed" or kind == "error" and event.get("host_restart"):
                                 outcome = "failed"
+                                goal_failure[0] = redact(event.get("error") or "The harness stopped")
                                 limited = bool(event.get("limit"))
                                 # A sign-in the runtime could not renew refuses the turn before
                                 # it starts, so nothing happened and the job can simply go back
@@ -1996,13 +2017,23 @@ class Runner:
                                 complete = True
                         if time.monotonic() - last_flush >= 1:
                             try:
+                                host.poll_goal(thread)
                                 self.flush(aid)
+                                if goal_running:
+                                    latest = self.client.get(f"attempts/{aid}/goal").get("goal")
+                                    if not latest or latest["id"] != goal["id"] or latest["updated_at"] != revision:
+                                        goal_controlled[0] = True
+                                        host.interrupt(thread, turn)
+                                        # An explicit goal control settles this run so its queued successor can claim.
+                                        goal_running, complete, outcome = False, True, "completed"
                                 if not complete and host.supports_steer:
                                     self.receive_inputs(aid, host, thread, turn)
                             except APIError as exc:
                                 if not exc.retryable:
                                     raise
                             last_flush = time.monotonic()
+                        if not goal_running and outcome == "completed":
+                            complete = True
                         if not host.alive() and not complete:
                             raise RuntimeError("Local runtime exited unexpectedly")
                         done.wait(0.1)
@@ -2035,27 +2066,46 @@ class Runner:
                 self.state.phase(aid, "running")
                 prompt = self.prompt(attempt, after=self.state.cursor(thread) if resumed else None,
                                       resumed=resumed)
+                refs = (attempt.get("message") or {}).get("refs") or {}
+                def start_turn():
+                    if refs.get("goal_action"):
+                        latest = self.client.get(f"attempts/{aid}/goal").get("goal")
+                        if not latest or latest["id"] != refs["goal_id"] or latest["updated_at"] != refs["goal_revision"]:
+                            # A control superseded after leasing settles without touching the native objective.
+                            attempt["chat_goal"] = None
+                            goal_controlled[0] = True
+                            turn_id = "goal-control-" + aid
+                            host.emit("turn_completed", thread, turn_id, status="completed")
+                            return turn_id
+                        return host.start_goal(thread, refs["goal_action"], refs["goal_objective"],
+                                               effort=config.get("reasoning_effort"))
+                    if refs.get("command"):
+                        return host.start_command(thread, prompt, effort=config.get("reasoning_effort"))
+                    return host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
                 cold = runtime == "claude" and self.claude_token_cold(bot)
                 if cold:
                     # Held only until the sign-in this turn triggers has landed, not for the
                     # length of the turn: the others follow a few seconds behind, warm.
                     with self.claude_cold_start:
-                        turn = host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
+                        turn = start_turn()
                         warm_by = time.monotonic() + CLAUDE_COLD_START_HOLD_S
                         while time.monotonic() < warm_by and self.claude_token_cold(bot):
                             if self.stop.is_set() or lost.is_set():
                                 break
                             time.sleep(0.5)
                 else:
-                    turn = host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
+                    turn = start_turn()
                 outcome, reply, tokens, limited, retryable = drive(host, thread, turn)
+                self.state.save_session(bot, conv, runtime, host.session_id(thread))
                 # A runtime that cannot sign itself in is as unavailable as one out of quota:
                 # if the bot has a fallback harness, run the turn there instead of losing it.
                 unavailable = limited or retryable
             except Exception as exc:
                 self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted; inspect local runner"})
                 unavailable = not own_interrupt(exc)
-            hop = configured_fallback(config) if unavailable else None
+            native_control = bool(((attempt.get("message") or {}).get("refs") or {}).get("command") or
+                                  (attempt.get("chat_goal") or {}).get("status") == "active")
+            hop = configured_fallback(config) if unavailable and not native_control else None
             if hop and drive and base_env is not None:
                 if conv and runtime and thread:
                     self.state.forget_session(bot, conv, runtime, thread)
@@ -2109,7 +2159,7 @@ class Runner:
                         host.stop()
             except Exception:
                 pass
-            if outcome != "completed" and runtime == "codex" and conv and thread:
+            if outcome != "completed" and runtime == "codex" and conv and thread and not goal_controlled[0]:
                 # The Codex app-server loads an interrupted thread and then aborts its next turn
                 # at once, so a retry there must start fresh. Every other runtime resumes an
                 # interrupted session as it is; the session is the bot's, not the runner's.
@@ -2130,6 +2180,10 @@ class Runner:
                 if scrubbed != reply:
                     log(f"Tico runner: {bot}: took local file links or other repositories' paths out of the reply")
                     reply = scrubbed
+            goal = attempt.get("chat_goal")
+            if goal and goal["status"] == "active" and outcome != "completed" and not limited and not retryable:
+                self.state.append(aid, "goal", {"goal_id": goal["id"], "revision": goal["updated_at"],
+                                              "status": "stopped", "note": goal_failure[0] or "The harness run " + outcome})
             spent = meter[0].report(ran[0], ran[1], self.billing(bot, ran[1]))
             completion = self.state.finish(aid, {"outcome": outcome, "text": reply,
                                                 "tokens_in": tokens.get("input"), "tokens_out": tokens.get("output"),
@@ -2310,6 +2364,13 @@ class Runner:
         for field, until in list(unsupported.items()):
             if time.monotonic() < until:
                 readiness.pop(field, None)
+        def drop_goal_fields():
+            for section in ("runtimes", "bots", "harnesses"):
+                for row in readiness.get(section, {}).values():
+                    row.pop("goals", None)
+                    row.pop("commands", None)
+        if time.monotonic() < self.__dict__.get("_goal_readiness_after", 0):
+            drop_goal_fields()
         while True:
             try:
                 return self.client.post("runners/heartbeat", body)
@@ -2318,6 +2379,12 @@ class Runner:
                     raise
                 detail = str(exc.detail or "Heartbeat validation failed")
                 log("Tico runner: heartbeat rejected: " + detail[:1000])
+                if ("goals" in detail or "commands" in detail) and "Extra inputs" in detail and any(
+                        "goals" in row or "commands" in row for section in ("runtimes", "bots", "harnesses")
+                        for row in readiness.get(section, {}).values()):
+                    drop_goal_fields()
+                    self._goal_readiness_after = time.monotonic() + 600
+                    continue
                 # A validation path names the affected bot; preserve every other bot's tools.
                 bad = re.findall(r"readiness\.(?:StructuredReadiness\.)?bots\.([^. :;]+)\.tools(?:\.(\d+))?", detail)
                 affected = {bot for bot, _ in bad if bot in readiness.get("bots", {})

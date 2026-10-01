@@ -809,6 +809,8 @@ def create_app(settings=None):
                 raise Problem("reference", "Reply belongs to a different conversation", 422)
         check_refs(c, who, body.refs)
         refs = dict(body.refs or {})
+        if body.command:
+            refs["command"] = True
         if in_assistant_room:
             refs["assistant"] = True           # the server's mark: this turn acts for the person
         conversation_id = body.conversation_id
@@ -816,6 +818,12 @@ def create_app(settings=None):
             conversation_id = rooms.chat_room(c, auth, who, H.actor_id(to))["id"]
         message = H.say(c, who.actor, to, body.text, conversation_id=conversation_id,
                         kind=body.kind, refs=refs, in_reply_to=body.in_reply_to, wait_s=body.wait_s)
+        from .chat_goals import current as current_chat_goal
+        goal = current_chat_goal(c, message["conversation_id"])
+        if goal and goal["status"] == "active":
+            refs["goal_context"] = {"id": goal["id"], "updated_at": goal["updated_at"]}
+            c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), message["id"]))
+            message = H.message(c, message["id"])
         if who.role == "bot":
             conv = H.conversation(c, message["conversation_id"])
             if who.attempt_id and all(p.startswith("bot:") for p in conv["participants"]):
@@ -1305,7 +1313,9 @@ def create_app(settings=None):
                     continue
                 if bot.get("state") == "archived" and not with_archived:
                     continue
-                result.append(bot_view(c, bot, level, access, registry_roster, registry_entries))
+                from .chat_goals import readable_active
+                result.append({**bot_view(c, bot, level, access, registry_roster, registry_entries),
+                               "goal_active": readable_active(c, auth, who, bot["slug"])})
             return result
 
     @app.get("/api/v2/bots/{bot}")
@@ -1586,7 +1596,7 @@ def create_app(settings=None):
     def chat(request: Request, bot: str, body: M.ChatCreate):
         def work(c):
             who = request.state.identity
-            message = send(c, who, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs))
+            message = send(c, who, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs, command=body.command))
             onboarding.start_setup(c, who, bot)
             return {"conversation": H.conversation(c, message["conversation_id"]), "message": message}
         return mutate(request, body, work)
@@ -1835,7 +1845,7 @@ def create_app(settings=None):
             target = target or next((p for p in conv["participants"] if p != who.actor), None)
             if not target:
                 raise Problem("recipient", "This conversation has no other recipient", 422)
-            return {"message": send(c, who, M.MessageCreate(to=target, text=body.text, conversation_id=cid, refs=body.refs))}
+            return {"message": send(c, who, M.MessageCreate(to=target, text=body.text, conversation_id=cid, refs=body.refs, command=body.command))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/messages/{mid}/answer")
@@ -3344,6 +3354,16 @@ def create_app(settings=None):
     from .task_types import install_task_types
     install_task_types(app, store, auth, mutate, mover)
     install_views(app, store, auth, mutate, task_view)
+    @app.get("/api/v2/attempts/{aid}/goal")
+    def attempt_goal(request: Request, aid: str):
+        with store.read() as c:
+            attempt = execution.attempt(c, request.state.identity, aid)
+            msg = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
+            from .chat_goals import current
+            return {"goal": current(c, msg["conversation_id"])}
+
+    from .chat_goals import install as install_chat_goals
+    install_chat_goals(app, store, auth, mutate, send)
     turn_work.install(app, store, auth)
     from .documents import install_documents
     install_documents(app, store, auth, mutate)
