@@ -14,7 +14,7 @@ def test_structured_runner_readiness_is_stored_and_drives_claims(api):
                                   "version": "codex 1", "models": ["gpt-6-astra"],
                                   "controls": ["interrupt", "new-session"], "detail": "Signed in"}},
         "bots": {"ops": {"ready": True, "runtime": "codex", "model": "gpt-6-astra",
-                           "repository_present": True, "repository_revision": "abc123",
+                           "repository": "/projects/emp-ops", "repository_present": True, "repository_revision": "abc123",
                            "configuration_valid": True, "problems": [], "warnings": []}},
     }
     post(api, "runners/heartbeat", {"version": "0.2.0", "platform": "darwin",
