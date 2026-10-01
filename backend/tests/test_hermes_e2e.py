@@ -148,7 +148,7 @@ def test_a_hermes_bot_pairs_works_is_archived_restored_and_pairs_again(api, boto
     started = time.monotonic()
     code, out, err = connector.pair(approve_as_botops)
     assert code == 0, err
-    assert "Tell BotOps" in out and "Approved for bot 'scout'" in out and "the hub sees it: 0 message(s)" in out
+    assert "Tell BotOps" in out and "Approved for bot 'scout'" in out and "Tico sees it: 0 message(s)" in out
     token = connector.token()
     assert token.startswith("tico-agent-")
     # The profile is wired: config entry, .env and credential file (the last two private), and a timer.

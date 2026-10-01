@@ -606,7 +606,7 @@
    "lead": false,
    "name": "IT Support Specialist",
    "suggest": "common",
-   "summary": "Works every IT help request to a fix, sorted by impact, and prepares each access change for its approver.",
+   "summary": "Works every IT help request to a fix, sorted by impact, and prepares each access change for its owner.",
    "tags": [
     "it",
     "helpdesk",
@@ -698,7 +698,7 @@
    "lead": false,
    "name": "Logistics Coordinator",
    "suggest": "niche",
-   "summary": "Watches every shipment to delivery and works each carrier exception, with the customer update ready for approval.",
+   "summary": "Watches every shipment to delivery and works each carrier exception, with the customer update ready to use.",
    "tags": [
     "shipping",
     "ecommerce",
@@ -790,7 +790,7 @@
    "lead": false,
    "name": "Office Manager",
    "suggest": "niche",
-   "summary": "Runs the office: logs every facilities request to a fix, keeps supplies above their reorder level with orders ready for approval, and prepares for visitors and…",
+   "summary": "Runs the office: logs every facilities request to a fix, keeps supplies above their reorder level with orders ready to use, and prepares for visitors and offic…",
    "tags": [
     "office",
     "facilities",
@@ -942,7 +942,7 @@
    "lead": true,
    "name": "Head of People",
    "suggest": "default",
-   "summary": "Runs the people side of the team: a weekly summary of hires against plan, starters, leavers and deadlines, the people calendar, and policies written for a huma…",
+   "summary": "Runs the people side of the team: a weekly summary of hires against plan, starters, leavers and deadlines, the people calendar, and policies written for the ow…",
    "tags": [
     "hiring",
     "headcount",
@@ -979,7 +979,7 @@
    "lead": false,
    "name": "PR Manager",
    "suggest": "niche",
-   "summary": "Keeps the team's media list and coverage log, finds the story in each announcement, and prepares press releases and short targeted pitches for approval.",
+   "summary": "Keeps the team's media list and coverage log, finds the story in each announcement, and prepares press releases and short targeted pitches for review.",
    "tags": [
     "pr",
     "media-relations",
@@ -1054,7 +1054,7 @@
    "lead": false,
    "name": "Procurement Manager",
    "suggest": "common",
-   "summary": "Takes each purchase request from ask to a signed-off choice: compares three to five vendors on weighted criteria and total cost, and gets quotes and answers th…",
+   "summary": "Compares three to five vendors for each purchase request using weighted criteria and total cost.",
    "tags": [
     "purchasing",
     "vendors",
@@ -1273,7 +1273,7 @@
    "lead": false,
    "name": "Returns and Refunds Specialist",
    "suggest": "niche",
-   "summary": "Decides every return and refund request against your written policy and the order record, and prepares the reply and the refund for a human's approval.",
+   "summary": "Decides every return and refund request against your written policy and the order record, and prepares the reply and the refund for review.",
    "tags": [
     "ecommerce",
     "retail",
@@ -1505,7 +1505,7 @@
    "lead": false,
    "name": "Sourcer",
    "suggest": "common",
-   "summary": "Finds people who have not applied for each open role, from public professional profiles, referrals and past applicants, and runs personal outreach that goes ou…",
+   "summary": "Finds interested people for each open role from public professional profiles and referrals, and writes personal outreach.",
    "tags": [
     "hiring",
     "sourcing",
@@ -1658,7 +1658,7 @@
    "lead": false,
    "name": "Travel Coordinator",
    "suggest": "niche",
-   "summary": "Plans each business trip within the travel policy: compares flight, rail and hotel options, prepares the booking for approval, writes the itinerary and checks…",
+   "summary": "Plans each business trip within the travel policy: compares flight, rail and hotel options, prepares the booking for review, writes the itinerary and checks do…",
    "tags": [
     "travel",
     "trips",
@@ -1808,5 +1808,5 @@
    "software_only": true
   }
  ],
- "version": "59e2127b753b"
+ "version": "4ff009e43970"
 }

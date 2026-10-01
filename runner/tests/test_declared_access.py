@@ -57,6 +57,7 @@ class DeclaredAccess(unittest.TestCase):
         self.runner = Runner.__new__(Runner)
         self.runner.config = {"url": "https://acme.test", "token": "t", "runner_id": "r1", "projects_dir": str(self.projects)}
         self.runner._names = None
+        self.runner.bot_credential_names = {"atlas": ["POSTHOG_KEY", "DB_WAREHOUSE_URL"]}
         self.entries = [{"bot": "atlas", "runner_id": "r1", "state": "active", "config": {"runtime": "codex", "model": "gpt-6-sol"}}]
 
     def report(self):

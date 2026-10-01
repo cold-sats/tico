@@ -515,6 +515,21 @@ def install_credentials(app,store,delegate=None,propose=None):
                     values.append({'id':row['id'],'name':row['name'],'env':row['env'],'kind':row['kind'],**vault.reveal(c,who,row['id'])})
             return {'credentials':values}
 
+    @app.get('/api/v2/runner-watcher-credentials')
+    def watcher_credentials(request:Request,bot:str):
+        who=request.state.identity
+        with store.transaction() as c:
+            migration_runner(c,who)
+            if not c.execute('SELECT 1 FROM assignments a JOIN bots b ON b.slug=a.bot '
+                             'WHERE a.runner_id=? AND a.bot=? AND b.state=\'active\'',(who.runner_id,bot)).fetchone():
+                raise Problem('forbidden','That active bot is not on this Computer',403)
+            values=[]
+            for row in c.execute('SELECT * FROM credentials ORDER BY id'):
+                if row['ciphertext'] is not None and row['env'] and effective_grant(c,row['id'],'bot:'+bot):
+                    values.append({'id':row['id'],'env':row['env'],'kind':row['kind'],'value':vault.cipher.decrypt(c,row)})
+                    H.event(c,who.actor,'credential.sent_to_computer',row['id'],{'bot':bot,'runner':who.runner_id,'use':'watcher'})
+            return {'credentials':values}
+
     @app.get('/api/v2/runner-model-credentials')
     def model_credentials(request:Request,runtime:str):
         """The model key or token the company gave every computer, for a runner whose model CLI is not signed in.

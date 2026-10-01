@@ -89,14 +89,14 @@ rm -f $S/ss.out
 grep -q '^TICO_OWNER_EMAIL=ana@acme.example$' $L/.env && ok local-env-owner || bad local-env-owner "$(cat $L/.env)"
 grep -q -e TICO_DOMAIN -e TICO_AUTH_PROXY $L/.env && bad local-env-has-no-domain "$(cat $L/.env)" || ok local-env-has-no-domain
 [ "$(stat -c %a $L/.env)" = 600 ] && ok local-env-private || bad local-env-private "$(stat -c %a $L/.env)"
-has local-says-local "this machine only" "$out"
+has local-says-local "this computer only" "$out"
 out=$(inst --dir /work/local2 --local 2>&1); code_is local-needs-email 2 $? "$out"
 out=$(inst --dir /work/local3 --local --tunnel --owner-email a@b.example 2>&1); code_is local-not-with-tunnel 2 $? "$out"
 
 # --- a Mac (Docker Desktop): --local and --runner only, no sudo, no Docker install --------------------------------
 out=$(STUB_OS=Darwin inst --dir /work/mac --yes 2>&1); code_is mac-team-install-refused 3 $? "$out"; has mac-team-install-says-local "--local" "$out"
 out=$(STUB_OS=Darwin STUB_UID=501 inst --dir /work/mac-local --local --owner-email ana@acme.example 2>&1); code_is mac-local-exit 0 $? "$out"
-has mac-local-says-macos "macOS" "$out"; has mac-local-says-local "this machine only" "$out"
+has mac-local-says-macos "macOS" "$out"; has mac-local-says-local "this computer only" "$out"
 grep -q '^TICO_OWNER_EMAIL=ana@acme.example$' /work/mac-local/.env && ok mac-local-env-owner || bad mac-local-env-owner "no .env"
 out=$(STUB_OS=Darwin STUB_UID=501 inst --dir /work/mac-runner --runner --url http://server:8765 --code abc123 --label "This computer" 2>&1); code_is mac-runner-exit 0 $? "$out"
 grep -q '^TICO_URL=http://server:8765$' /work/mac-runner/.env && ok mac-runner-env || bad mac-runner-env "no .env"

@@ -97,7 +97,7 @@ def test_a_member_cannot_change_a_bot_that_is_not_hers_even_through_botops(api, 
         assert c.execute("SELECT via FROM settings_changes WHERE bot='jira-manager' AND field='access'").fetchone()[0] == "botops"
 
 
-def test_botops_adds_a_coworker_at_once_and_anyone_outside_the_domain_is_a_confirm_card(api, botops):
+def test_botops_adds_teammates_inside_and_outside_the_domain_directly(api, botops):
     attempt = turn(api, botops, text="Add sean@acme.example please")
     added = call(api, "post", "access/people", attempt["token"],
                  {"email": "sean@acme.example", "name": "Sean", "on_behalf_of": "turn"})
@@ -109,23 +109,18 @@ def test_botops_adds_a_coworker_at_once_and_anyone_outside_the_domain_is_a_confi
         assert row["actor"] == "human:cara" and '"via": "botops"' in row["detail_json"]
         assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
     finish(api, botops, attempt)
-    # Someone outside the team's domain is the requester's own click, and nobody else's confirms it or BotOps.
-    ana = turn(api, botops, person="ana-test", text="Add eve@partner.example please")
-    asked = call(api, "post", "access/people", ana["token"], {"email": "eve@partner.example", "name": "Eve", "on_behalf_of": "turn"})
-    assert asked.status_code == 200, asked.text
-    card = asked.json()
-    assert card["needs_confirm"] and card["action"]["status"] == "pending" and card["action"]["owner"] == "human:ana"
+    # An owner's request adds an outside teammate directly, with the owner's rights and audit actor.
+    ana = turn(api, botops, person="ana-test", text="Add sam@example.com please")
+    added = call(api, "post", "access/people", ana["token"],
+                 {"email": "sam@example.com", "name": "Sam", "on_behalf_of": "turn"})
+    assert added.status_code == 200 and added.json()["person"] == "sam", added.text
+    assert "needs_confirm" not in added.json()
     with api.app.state.store.read() as c:
-        assert H.human(c, "eve") is None                          # nothing yet
-        message = c.execute("SELECT from_actor,to_actor,refs_json FROM messages WHERE id=?", (card["message_id"],)).fetchone()
-        assert (message["from_actor"], message["to_actor"]) == ("bot:botops", "human:ana") and card["action"]["id"] in message["refs_json"]
-    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "ben-test").status_code == 404
-    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", ana["token"]).status_code == 403
-    done = call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "ana-test")
-    assert done.status_code == 200 and done.json()["action"]["status"] == "done", done.text
-    with api.app.state.store.read() as c:
-        assert H.human(c, "eve")["email"] == "eve@partner.example"
-    assert {p["id"] for p in get(api, "org", "cara-test")["people"]} >= {"sean", "eve"}
+        assert H.human(c, "sam")["email"] == "sam@example.com"
+        row = c.execute("SELECT actor,detail_json FROM events WHERE action='person.added' AND target='sam'").fetchone()
+        assert row["actor"] == "human:ana" and '\"via\": \"botops\"' in row["detail_json"]
+        assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
+    assert {p["id"] for p in get(api, "org", "cara-test")["people"]} >= {"sean", "sam"}
 
 
 def test_a_member_may_not_add_someone_outside_the_company_domain(api, botops):

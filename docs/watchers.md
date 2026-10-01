@@ -26,12 +26,13 @@ mistake is logged by the runner and the watcher is skipped.
 For each active bot hosted on this computer, at most every `every` (measured start to start), never while the last run is still
 going:
 
-- runs the program **as the bot's user** (on a Docker runner that is the unprivileged `bot` user), in the bot's repository, with the
-  bot's credentials as environment variables and **no Tico token**, so it can do nothing in Tico except print the events below;
+- runs the program **as the bot's user** (on a Docker runner that is the unprivileged `bot` user), in the bot's repository, with
+  only its live Credential grants as environment variables and **no Tico token**, so it can do nothing in Tico except print the
+  events below. Store and grant credentials through Credentials; legacy secrets files are migrated on upgrade;
 - gives it a state directory, `<repository>/.state/<name>/`, in `TICO_WATCHER_STATE`. Add `.state/` to the bot's `.gitignore`. The
   program keeps its cursor there;
 - kills it after `timeout` (its whole process group);
-- reads up to 256 KB of output, removes every value that came from a secrets file, and posts events and a short log to Tico;
+- reads up to 256 KB of output, removes granted credential values, and posts events and a short log to Tico;
 - if Tico did not take the report, puts the state directory back as it was before the run, so the next run sees the same
   things again and no event is lost.
 

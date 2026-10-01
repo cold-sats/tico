@@ -160,15 +160,15 @@ class HeadlessLogin(unittest.TestCase):
         self.assertEqual(asks, [])
         self.assertFalse((self.root / "secrets" / "_team_model.env").exists())
 
-    def test_claude_takes_the_team_token_and_its_turns_get_it(self):
+    def test_claude_takes_the_team_token_but_turns_need_their_own_grant(self):
         self.stub("claude", CLAUDE)
         self.runner.client = type("S", (), {"get": lambda self, path, **q: {"credentials": [
             {"env": "ANTHROPIC_API_KEY", "value": "sk-ant-team"}, {"env": "OPENAI_API_KEY", "value": "sk-not-asked"}]}})()
         row = self.readiness("claude")
         self.assertEqual((row["authenticated"], row["detail"]), ("ready", "Signed in with ANTHROPIC_API_KEY"))
         self.assertEqual((self.root / "secrets" / "_team_model.env").read_text(), "ANTHROPIC_API_KEY=sk-ant-team\n")
-        self.assertEqual(self.runner.credential_environment("ana")["ANTHROPIC_API_KEY"], "sk-ant-team")
-        self.assertTrue(self.runner.readiness([])["shared_env"])
+        self.assertNotIn("ANTHROPIC_API_KEY", self.runner.credential_environment("ana"))
+        self.assertNotIn("shared_env", self.runner.readiness([]))
 
     def test_a_turn_is_told_where_the_projects_are_so_the_mail_tool_builds_its_venv_in_the_volume(self):
         env = self.runner.environment({"bot": "ana", "token": "t", "config": {}})

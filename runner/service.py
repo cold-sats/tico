@@ -958,14 +958,15 @@ class Runner:
                 note(line)
         return mcp_servers.supported(servers, runtime, harness)
 
-    def environment(self, attempt):
+    def environment(self, attempt, granted=None):
         # Credentials come from live grants; the machine credential is never included.
         # --projects selects the operator's actual layout, which need not be the
         # parent of this checkout. Never fall back to another operator's secrets.
         env = self.credential_environment(attempt["bot"], attempt.get("config"))
         vault_keys = set()
-        if attempt.get("credential_vault"):
-            granted = Client(self.config["url"], attempt["token"], timeout=15, retries=1).get("credential-runtime")
+        if attempt.get("credential_vault") or granted is not None:
+            if granted is None:
+                granted = Client(self.config["url"], attempt["token"], timeout=15, retries=1).get("credential-runtime")
             self.vault_values[attempt["id"]] = [item["value"] for item in granted["credentials"]]
             self.vault_names[attempt["id"]] = {item.get("env", "") for item in granted["credentials"] if item.get("env")}
             reserved = {"HOME", "PATH", "SHELL", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "LD_PRELOAD",

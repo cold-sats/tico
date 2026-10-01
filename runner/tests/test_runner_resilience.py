@@ -354,9 +354,11 @@ class Fallback(unittest.TestCase):
     def test_a_limited_turn_runs_on_the_configured_fallback(self):
         client = FakeClient()
         with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "test-key-1234567890"}), \
-                mock.patch("runner.service.log") as log:
+                mock.patch("runner.service.log") as log, mock.patch("runner.service.Client") as vault:
+            vault.return_value.get.return_value = {"credentials": [{"id": "gemini", "env": "GEMINI_API_KEY",
+                "kind": "api_key", "value": "granted-key-1234567890"}]}
             runner = self.runner(client)
-            runner.execute(with_fallback())
+            runner.execute({**with_fallback(), "credential_vault": True})
         completion = client.completion()
         self.assertEqual(completion["outcome"], "completed")
         self.assertEqual(completion["text"], "Answered on the fallback")
@@ -369,7 +371,7 @@ class Fallback(unittest.TestCase):
         settings = next(iter(self.hosts["gemini"].threads.values()))["settings"]
         self.assertEqual((settings["model"], settings["effort"], settings["cwd"]),
                          ("gemini-3.8-flash", "low", str(Path(self.tmp.name) / "emp-coo")))
-        self.assertEqual(settings["env"]["GEMINI_API_KEY"], "test-key-1234567890")
+        self.assertEqual(settings["env"]["GEMINI_API_KEY"], "granted-key-1234567890")
         self.assertIn("hello", self.hosts["gemini"].prompts[0][1])
         self.assertEqual(runner.warm.entries, {})
         self.assertFalse(self.hosts["antigravity"].alive())

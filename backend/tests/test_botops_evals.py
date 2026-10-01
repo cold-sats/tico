@@ -97,6 +97,11 @@ def replay(api, botops_machine, scenario):
             args = dict(step.get("args") or {})
             if args.get("model") == "$other_model":
                 args["model"] = next(m["id"] for m in captured["models"]["models"] if m["id"] != captured["models"]["current"])
+            if step["tool"] == "hub_bot_go_live":
+                # Local repository construction is outside the remote tool script; report its result.
+                post(api, f"bots/{args['bot']}/place", {"computer": computer["runner_id"]}, person)
+                post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {"bots": {
+                    args["bot"]: {"ready": True, "repository_present": True}}}}, computer["token"])
             fn = hubtools.BY_NAME[step["tool"]]["fn"]
             try:
                 result = fn(ToolApi(api, attempt["token"]), args)

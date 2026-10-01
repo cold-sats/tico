@@ -103,7 +103,7 @@ class Substitution(unittest.TestCase):
             root = Path(tmp)
             secrets = root / "secrets"
             secrets.mkdir()
-            (secrets / "_shared.env").write_text("JIRA_API_TOKEN=op://fixture/jira/token\nUNUSED_KEY=unused-fixture\nOPENROUTER_API_KEY=model-fixture\n")
+            (secrets / "_shared.env").write_text("JIRA_API_TOKEN=op://fixture/jira/token\nUNUSED_KEY=unused-fixture\nOPENAI_API_KEY=login-only-fixture\nOPENROUTER_API_KEY=model-fixture\n")
             (secrets / "atlas.env").write_text("OWN_KEY=own-fixture\nFILE_KEY=" + str(secrets / "fixture.json") + "\n")
             (secrets / "fixture.json").write_text('{"fixture":true}')
             service = Runner.__new__(Runner)
@@ -116,7 +116,7 @@ class Substitution(unittest.TestCase):
                 service.migrate_credentials([entry, {"bot": "new-bot", "config": entry["config"]}])
                 body = service.client.post.call_args.args[1]
                 values = {item["env"]: item for item in body["credentials"]}
-                self.assertEqual(set(values), {"OWN_KEY", "FILE_KEY", "JIRA_API_TOKEN", "OPENROUTER_API_KEY"})
+                self.assertEqual(set(values), {"OWN_KEY", "FILE_KEY", "JIRA_API_TOKEN", "OPENROUTER_API_KEY", "UNUSED_KEY"})
                 self.assertEqual(values["FILE_KEY"]["kind"], "file")
                 self.assertEqual(values["FILE_KEY"]["value"], '{"fixture":true}')
                 self.assertEqual(values["JIRA_API_TOKEN"]["value"], "op://fixture/jira/token")

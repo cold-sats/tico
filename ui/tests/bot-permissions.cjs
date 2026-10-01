@@ -90,7 +90,7 @@ async function access(browser) {
   const openEditor = async slug => { await page.locator(`tr[data-settings-bot=${slug}] [data-edit-bot]`).click(); await editor.locator(`[data-edit-access=${slug}]`).waitFor(); };
   await openEditor('legal');
   assert.equal(await editor.locator('[data-access-summary]').innerText(), 'See: Everyone · Read: Legal · Write: Everyone');
-  assert.match(await editor.locator('.sb-row').nth(1).innerText(), /Works for/);
+  assert.match(await editor.locator('.sb-row').filter({has: page.locator('[data-edit-owners]')}).innerText(), /Works for/);
 
   const dialog = page.locator('#access-editor');
   const preset = () => dialog.locator('[name=preset]:checked').getAttribute('value');

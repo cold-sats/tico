@@ -42,7 +42,8 @@ def test_the_cli_and_the_tools_declare_ask_and_fetch_and_the_server_never_offers
     assert "hub_doc_fetch" in {t["name"] for t in hubtools.listing(local=True)}            # this computer's
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": "hub_doc_fetch", "arguments": {"url": "http://169.254.169.254/"}}}
-    assert "Unknown tool" in hubtools.Protocol(None).handle(call)["error"]["message"]
+    unknown = hubtools.Protocol(None).handle(call)["result"]
+    assert unknown["isError"] is True and unknown["structuredContent"]["error"] == "local_only"
     refused = hubtools.Protocol(None, local=True).handle(call)["result"]
     assert refused["isError"] is False and refused["structuredContent"]["error"] == "private_address"
 

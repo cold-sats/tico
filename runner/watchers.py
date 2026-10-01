@@ -29,7 +29,7 @@ import yaml
 
 from clients import watchers as declared
 from clients.manifest import manifest_path
-from . import isolation, op
+from . import isolation
 from .outage import describe, log
 
 SCAN_EVERY = 30              # seconds between reading the bots' bot.yaml files
@@ -170,6 +170,11 @@ class Watchers:
         except Exception as exc:                       # a watcher never stops the runner
             self.problem(key, f"failed to run ({describe(exc)})")
         finally:
+            aid = "watcher:" + ":".join(key)
+            self.runner.vault_values.pop(aid, None)
+            self.runner.vault_names.pop(aid, None)
+            for filename in self.runner.vault_files.pop(aid, []):
+                Path(filename).unlink(missing_ok=True)
             with self.lock:
                 self.running.discard(key)
 
@@ -178,9 +183,9 @@ class Watchers:
             self.noted[key] = text
             log(f"Tico runner: watcher {key[0]}/{key[1]} {text}")
 
-    def environment(self, bot, entry):
-        env = self.runner.credential_environment(bot, entry.get("config"))
-        op.resolve_op_refs(env)
+    def environment(self, bot, entry, aid):
+        granted = self.runner.client.get("runner-watcher-credentials", bot=bot)
+        env = self.runner.environment({"id": aid, "bot": bot, "config": entry.get("config"), "token": ""}, granted=granted)
         env.pop("HUB_TOKEN", None)
         return env
 
@@ -192,8 +197,9 @@ class Watchers:
         state = Path(path) / ".state" / spec["name"]
         isolation.mkdir(state)
         saved = snapshot(state)
-        env = self.environment(bot, entry)
-        secrets = secret_values(env)        # before the runner's own, non-secret variables (the bot's name, paths)
+        aid = "watcher:" + ":".join(key)
+        env = self.environment(bot, entry, aid)
+        secrets = sorted(set(secret_values(env)) | set(self.runner.vault_values.get(aid, [])), key=len, reverse=True)
         env.update({"TICO_WATCHER": spec["name"], "TICO_WATCHER_STATE": str(state), "HUB_BOT": bot, "HUB_EMPLOYEE": bot,
                     "HUB_API_URL": self.runner.config["url"], "HUB_WORKSPACE": str(self.runner.config["projects_dir"]),
                     "PATH": os.pathsep.join([str(Path(sys.executable).parent), env.get("PATH", os.defpath)])})

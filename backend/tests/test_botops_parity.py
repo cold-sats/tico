@@ -39,6 +39,9 @@ def test_routine_tools_delegate_canonical_ids_and_verify_schedules_before_activa
     assert wrong.status_code == 409 and wrong.json()["error"]["code"] == "routine_mismatch"
     with api.app.state.store.read() as c:
         assert c.execute("SELECT state FROM bots WHERE slug='ops'").fetchone()[0] == "paused"
+    assign(api, botops, "ops")
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {"bots": {"ops": {"ready": True, "repository_present": True},
+         "botops": {"ready": True, "repository_present": True}}}}, botops["token"])
     correct = act(api, attempt, "POST", "bots/ops/go-live", {"setup": False, "routines": [{
         "id": schedule["id"], "title": "QA review", "cron": "0 8 * * *", "timezone": "UTC"}]})
     assert correct.status_code == 200 and correct.json()["state"] == "active"

@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from clients import watchers as declared
 from runner import watchers as W
@@ -31,6 +32,11 @@ if mode == "fail":
 class Client:
     def __init__(self):
         self.posts, self.down = [], False
+        self.credentials = [{"id": "staff", "env": "HQ_STAFF_KEY", "kind": "api_key", "value": "staff-key-value-123456"}]
+
+    def get(self, path, **query):
+        assert (path, query) == ("runner-watcher-credentials", {"bot": "support"})
+        return {"credentials": self.credentials}
 
     def post(self, path, body):
         if self.down:
@@ -57,6 +63,8 @@ class Rig(unittest.TestCase):
         runner.config = {"url": "https://acme.test", "token": "t", "runner_id": "r1", "projects_dir": str(self.projects)}
         runner._names, runner.client, runner.restart_due = None, self.client, None
         runner.assignments_seen = [{"bot": "support", "runner_id": "r1", "state": "active", "config": {"runtime": "codex"}}]
+        runner.vault_values, runner.vault_names, runner.vault_files = {}, {}, {}
+        runner.state = SimpleNamespace(directory=self.projects)
         self.runner = runner
         self.declare("software/hq-tickets event")
         self.watchers = W.Watchers(runner, clock=lambda: self.now[0])
@@ -81,6 +89,30 @@ class Rig(unittest.TestCase):
 
 
 class Watchers(Rig):
+    def test_revoked_grants_and_legacy_files_do_not_reach_the_next_watcher(self):
+        self.client.credentials = []
+        self.declare("software/hq-tickets quiet")
+        self.tick(0)
+        self.settle()
+        body = self.client.posts[0][1]
+        self.assertEqual(body["exit"], 0)
+        self.assertIn("key None hub-token None", body["output"])
+        self.assertNotIn("staff-key-value", json.dumps(body))
+        self.assertEqual(self.runner.vault_values, {})
+
+    def test_granted_files_are_private_redacted_and_removed_after_the_watcher(self):
+        self.client.credentials = [{"id": "file", "env": "FILE_KEY", "kind": "file", "value": "file-fixture-secret"}]
+        script = self.repo / "software" / "file.py"
+        script.write_text('import os, pathlib, stat\np = pathlib.Path(os.environ["FILE_KEY"])\n'
+                          'assert stat.S_IMODE(p.stat().st_mode) == 0o600\nprint(p.read_text())\n')
+        self.declare("software/file.py")
+        self.tick(0)
+        self.settle()
+        body = self.client.posts[0][1]
+        self.assertEqual((body["exit"], body["output"]), (0, "[redacted]"))
+        self.assertEqual(list(self.projects.glob("tico-credential-*")), [])
+        self.assertEqual(self.runner.vault_files, {})
+
     def test_it_runs_as_declared_and_posts_the_events_and_the_run(self):
         self.tick(0)
         self.settle()

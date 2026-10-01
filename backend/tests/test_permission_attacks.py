@@ -102,7 +102,7 @@ def test_botops_changes_routines_and_quarantines_only_as_a_person_who_manages_th
     assert call(api, "post", clear, attempt["token"], cited).status_code == 403       # Cara does not manage ops
     finish(api, botops, attempt)
     # A turn no person's chat started (a task during setup) builds a planned bot from its template, and nothing else.
-    call(api, "post", "bots/register", "ana-test", {"slug": "built", "template": "starter"})
+    call(api, "post", "bots/register", "ana-test", {"slug": "built", "template": "issue-triage"})
     with api.app.state.store.transaction() as c:
         H.task_create(c, "human:ana", "Build the bot", "Please.", "bot:botops")
     setup = claim(api, botops, "botops")
@@ -128,7 +128,7 @@ def test_a_members_bot_runs_on_their_own_or_an_admin_opened_computer_and_stays_t
 
 
 def test_setup_places_a_members_bot_only_on_a_computer_that_takes_it(api, botops):
-    made = register(api, turn(api, botops), "memberbot", template="starter")
+    made = register(api, turn(api, botops), "memberbot", template="issue-triage")
     assert made.status_code == 200
     machine = runner(api, label="Owner Mac")                              # a new computer takes members' bots
     onboarding = api.app.state.execution.runner_enrolled.__self__

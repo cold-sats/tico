@@ -25,6 +25,10 @@ class Client:
             return {"enabled_providers": self.providers}
         if path == "runner-harness-actions":
             return {"actions": self.actions}
+        if path == "runner-credential-migration":
+            return {"bots": []}
+        if path == "runner-credential-grants":
+            return {"bots": {}}
         return {}
 
     def post(self, path, body=None, key=None):

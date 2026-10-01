@@ -33,6 +33,30 @@ def jira(api, **kwargs):
     return post(api, "credentials", {"name": "Jira", "env": "JIRA_BASIC_AUTH", "secret": JIRA, **kwargs})
 
 
+def test_watchers_receive_only_live_grants_for_active_bots_on_their_computer(api):
+    local(api)
+    computer, other = runner(api), runner(api)
+    assign(api, computer, "ops")
+    row = jira(api)
+    grant = post(api, f"credentials/{row['id']}/grants", {"subject": "bot:ops"})
+    path = "runner-watcher-credentials?bot=ops"
+    values = get(api, path, computer["token"])["credentials"]
+    assert values == [{"id": row["id"], "env": "JIRA_BASIC_AUTH", "kind": "api_key", "value": JIRA}]
+    assert get(api, path, other["token"], expected=403)["error"]["code"] == "forbidden"
+    assert get(api, path, "ana-test", expected=403)["error"]["code"] == "forbidden"
+    with api.app.state.store.read() as c:
+        event = c.execute("SELECT actor,detail_json FROM events WHERE action='credential.sent_to_computer'").fetchone()
+        assert event["actor"] == "runner:" + computer["runner_id"] and '"use": "watcher"' in event["detail_json"]
+        assert JIRA not in event["detail_json"]
+    post(api, f"credentials/{row['id']}/grants/{grant['id']}/revoke", {})
+    assert get(api, path, computer["token"])["credentials"] == []
+    post(api, f"credentials/{row['id']}/grants", {"subject": "bot:finance"})
+    assert get(api, path, computer["token"])["credentials"] == []
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='quarantined' WHERE slug='ops'")
+    assert get(api, path, computer["token"], expected=403)["error"]["code"] == "forbidden"
+
+
 # ------------------------------------------------------------------ a vault with no KMS key
 def test_the_vault_works_with_a_local_key_and_reads_it_back_after_a_restart(api):
     path = local(api)

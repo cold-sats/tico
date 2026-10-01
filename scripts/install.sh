@@ -166,7 +166,7 @@ if [ -n "$PORT" ]; then
   case "$PORT" in *[!0-9]*|'') die 2 "--port needs a number from 1 to 65535." ;; esac
   [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die 2 "--port needs a number from 1 to 65535."
   [ -z "$RUNNER$DOCKER_ONLY" ] || die 2 "--port goes with a server install."
-  export TICO_PORT=$PORT
+  export TICO_PORT="$PORT"
 fi
 [ -n "$RUNNER$LOCAL" ] || [ -z "$RUNNER_URL" ] || die 2 "--url goes with --local or --runner."
 if [ -n "$OWNER_NAME" ]; then
