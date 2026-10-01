@@ -28,6 +28,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
   try {
     const page = await browser.newPage({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
     const errors = [], posted = [];
+    let gmQueued = false;   // the question waits on a missing AI provider
     page.on('pageerror', e => errors.push(e.message));
     const activation = kpi('k-act', 'Activation', {reason: 'Activation 52% vs 58% needed on pace'});
     const nps = kpi('k-nps', 'NPS', {freshness: 'stale', status: 'gray', reason: 'NPS is stale', target_label: 'range 40–60', link: {goal_id: 'g-cmo', kind: 'maintain', min: 40, max: 60}});
@@ -67,10 +68,12 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (p === '/api/v2/status') return json({bots: [{bot: 'goal-manager', state: 'idle', last_turn_at: '2026-10-01T09:00:00Z', last_result: 'Updated KPI readings.'}]});
       if (p === '/api/v2/bots/goal-manager/routines') return json({routines: [{id: 'gm-review', title: 'Checks goals', cron: '0 9 * * *', active: true, enabled: true, timezone: 'UTC', next: '2026-10-02T09:00:00Z'}]});
       if (p === '/api/v2/routines/gm-review/occurrences') return json({occurrences: [{started: '2026-10-01T09:00:00Z', title: 'Checks goals', exit: 'completed'}]});
-      if (p === '/api/v2/conversations' && posted.some(r => r.path === '/api/v2/chat/goal-manager')) return json({conversations: [{id: 'gm-chat', kind: 'chat', scope: 'direct', participants: ['human:ana', 'bot:goal-manager']}]});
+      if (p === '/api/v2/conversations' && posted.some(r => r.path === '/api/v2/chat/goal-manager')) return json({conversations: [{id: 'gm-chat', kind: 'chat', scope: 'personal', owner_actor: 'human:ana', room_key: 'goal-manager', participants: ['human:ana', 'bot:goal-manager']}]});
       if (p === '/api/v2/goal-manager/turn-on' && post) { bots.find(b => b.name === 'goal-manager').status = 'active'; return json({state: 'active'}); }
       if (p === '/api/v2/chat/goal-manager' && post) return json({conversation: {id: 'gm-chat'}, message: {id: 'gm-q', from_actor: 'human:ana', body: body.text}});
-      if (p === '/api/v2/conversations/gm-chat/snapshot') return json({messages: [{id: 'gm-q', from_actor: 'human:ana', body: 'Change the revenue goal'}, {id: 'gm-a', from_actor: 'bot:goal-manager', body: 'Updated the goal.'}]});
+      if (p === '/api/v2/conversations/gm-chat/snapshot') return json(gmQueued
+        ? {messages: [{id: 'gm-q', from_actor: 'human:ana', body: 'Change the revenue goal'}], execution: {message_id: 'gm-q', state: 'queued', readiness_reason: 'missing_provider', label: 'Saved — no AI provider is chosen'}}
+        : {messages: [{id: 'gm-q', from_actor: 'human:ana', body: 'Change the revenue goal'}, {id: 'gm-a', from_actor: 'bot:goal-manager', body: 'Updated the goal.'}]});
       if (p === '/api/v2/goals/tree') return json({goals, owners: {}, other_kpis: other, proposals: []});
       if (p === '/api/v2/goals/needs-you') return json({actor: 'human:ana', items: needs});
       if (p === '/api/v2/goals' && post) {
@@ -123,6 +126,18 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert.equal(last().path, '/api/v2/chat/goal-manager');
     assert.deepEqual(last().body, {text: 'Change the revenue goal', refs: {}});
     assert.equal(await page.locator('.gm-history').getAttribute('open'), null);
+    // A reload shows the same room the bot page uses (the viewer's personal room), with its latest exchange.
+    await page.reload();
+    await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
+    // With no AI provider the question waits: the panel says so and links to Settings > AI providers.
+    gmQueued = true;
+    await page.reload();
+    await page.locator('[data-gm-provider]').waitFor();
+    assert.equal(await page.locator('[data-gm-provider] a').getAttribute('data-gs-tab'), 'providers');
+    if (screenshotDir) await page.screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-gm-no-provider-test.png')});
+    gmQueued = false;
+    await page.reload();
+    await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
 
     assert.match(await row('human:ben').innerText(), /Keep the board honest\./, 'a profile goal shows');
     // One line each, about 36px, the goals lined up in one column.

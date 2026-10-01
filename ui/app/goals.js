@@ -283,7 +283,7 @@ async function goalsRefresh() {
 }
 
 // The Goal Manager at the top of Goals (docs/goals-and-kpis.md): what it does, its routines from the server (when
-// each next runs), its last run, and the viewer's own direct chat with it, the one its bot page shows. A reply
+// each next runs), its last run, and the viewer's chat with it: the room its bot page shows, loaded with the page. A reply
 // redraws the tree, since the Goal Manager may have just edited a goal. Leaving the page stops its stream.
 let GOAL_MANAGER_STOP = null;
 const GM = 'goal-manager';
@@ -294,7 +294,7 @@ async function goalManagerMount(pageState) {
   if (!host) return;
   const bot = (S.emps || []).find(e => e.name === GM);
   const active = !!bot && !GM_STATE[bot.status];
-  let stopped = false, es = null, poll = null, conversation = null, messages = [], sending = false, lastReply;
+  let stopped = false, es = null, poll = null, conversation = null, messages = [], execution = null, sending = false, lastReply;
   const current = () => !stopped && GOALS_ST === pageState && host.isConnected;
   const stopStream = () => { try { es?.close(); } catch { /* closed */ } es = null; clearInterval(poll); poll = null; };
   GOAL_MANAGER_STOP = () => { stopped = true; stopStream(); };
@@ -331,13 +331,17 @@ async function goalManagerMount(pageState) {
     const form = chat.querySelector('form'), box = form.querySelector('textarea'), error = chat.querySelector('[data-gm-error]');
     const fail = text => { if (!current()) return; error.textContent = text || ''; error.hidden = !text; };
     const isReply = m => m.from_actor === 'bot:' + GM;
+    // With no AI provider nothing can run: say so rather than wait.
+    const noProvider = () => execution?.state === 'queued' && execution.readiness_reason === 'missing_provider';
     const draw = () => {
       if (!current()) return;
       const shown = messages.at(-1) && !isReply(messages.at(-1)) ? messages.at(-1) : messages.filter(isReply).at(-1);
       const latest = chat.querySelector('[data-gm-latest]');
       latest.hidden = !shown;
       latest.innerHTML = !shown ? '' : isReply(shown) ? `<div class="md">${safeMd(shown.body || '')}</div>`
-        : `<p class="gm-you">${esc(shown.body || '')}</p><p class="muted">Sent. The reply shows here.</p>`;
+        : `<p class="gm-you">${esc(shown.body || '')}</p>${noProvider()
+          ? '<p class="muted" data-gm-provider>The Goal Manager needs an AI provider. <a href="#/settings" data-gs-tab="providers">Settings &gt; AI providers</a></p>'
+          : '<p class="muted">Sent. The reply shows here.</p>'}`;
       const earlier = messages.filter(m => m !== shown).slice(-40);
       chat.querySelector('[data-gm-history]').innerHTML = earlier.map(m => `<div class="gm-message"><b>${isReply(m) ? 'Goal Manager' : 'You'}</b><div class="md">${safeMd(m.body || '')}</div></div>`).join('');
       chat.querySelector('.gm-history').hidden = !earlier.length;
@@ -345,6 +349,7 @@ async function goalManagerMount(pageState) {
     const apply = async data => {
       if (!current()) return;
       messages = data.messages || [];
+      execution = data.execution || null;
       draw();
       const reply = messages.filter(isReply).at(-1)?.id;
       // A new reply after the first look may come with an edited goal: draw the tree again.
@@ -390,9 +395,7 @@ async function goalManagerMount(pageState) {
       try {
         const list = await get('/v2/conversations?chat_with=' + GM);
         if (!current() || conversation) return;
-        const me = myActor();
-        conversation = (list.conversations || []).find(c => c.kind === 'chat' && !c.task_id && !c.closed_at && String(c.scope || 'direct') === 'direct'
-          && (c.participants || []).includes(me) && (c.participants || []).includes('bot:' + GM)) || null;
+        conversation = v2ChatRoom(list.conversations, GM);
         if (conversation) { await snapshot(); watch(); }
       } catch (e) { fail(e.message); }
     })();
