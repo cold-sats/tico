@@ -32,6 +32,13 @@ html.demo .dask{top:var(--demo-h)}
 .dask-close .nav-icon{font-size:20px;color:inherit}
 .dask-close:focus-visible,.dask-new:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .dask-close:hover{background:var(--surface2);color:var(--ink)}
+.dask-history{flex:none;border-bottom:1px solid var(--line);padding:8px 16px;font-size:12px}
+.dask-history summary{cursor:pointer;color:var(--muted)}
+.dask-history-list{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;margin-top:8px}
+.dask-history-list button{display:flex;gap:8px;align-items:center;text-align:left;width:100%;font-size:12px}
+.dask-history-list button span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dask-history-list time{flex:none;color:var(--muted);font-size:11px}
+.dask-history-list p{margin:0;color:var(--muted)}
 .dask-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
 .dask-empty{color:var(--muted);font-size:13.5px}
 .dask-empty a{white-space:nowrap}
@@ -111,7 +118,75 @@ html.demo .dask{top:var(--demo-h)}
   const PLACEHOLDER = {docs: 'Ask about your docs…', market: 'Ask about the market…'};
   const TURN_LIMIT = 50;
   let ctx = where(), panel = null, opener = null, es = null, poll = null, busy = false;
+  let conversations = [], nextOffset = null, historyRequest = 0, reopenRequest = 0, openingConversation = false;
   const session = () => sessions[ctx];
+
+  function drawHistory() {
+    const history = panel?.querySelector('.dask-history');
+    if (!history) return;
+    history.hidden = ctx !== 'docs';
+    if (history.hidden) return;
+    const previous = conversations.filter(room => room.id !== sessions.docs.conversationId);
+    history.querySelector('.dask-history-list').innerHTML = previous.map(room => {
+      const date = new Date(room.last_message_at || room.created);
+      const stamp = Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+      return `<button type="button" class="ghost" data-docs-conversation="${esc(room.id)}"${busy || openingConversation ? ' disabled' : ''}><span>${esc(room.title || 'Docs')}</span><time>${esc(stamp)}</time></button>`;
+    }).join('') + (nextOffset != null ? '<button type="button" class="ghost" data-conversations-more>More</button>' : '')
+      || '<p>No previous conversations</p>';
+    history.querySelectorAll('[data-docs-conversation]').forEach(button => {
+      button.onclick = () => reopenConversation(button.dataset.docsConversation);
+    });
+    const more = history.querySelector('[data-conversations-more]');
+    if (more) more.onclick = () => { more.disabled = true; void loadHistory(nextOffset); };
+  }
+
+  async function loadHistory(offset = 0) {
+    if (!panel || ctx !== 'docs') return;
+    const at = panel, request = ++historyRequest;
+    try {
+      const result = await get('/v2/librarian/conversations?offset=' + offset);
+      if (panel !== at || ctx !== 'docs' || request !== historyRequest) return;
+      conversations = offset ? [...conversations, ...(result.conversations || [])] : result.conversations || [];
+      nextOffset = result.next_offset ?? null;
+      drawHistory();
+    } catch (error) {
+      if (panel !== at || ctx !== 'docs' || request !== historyRequest) return;
+      const list = panel.querySelector('.dask-history-list');
+      list.innerHTML = `<p role="alert">${esc(error.message)}</p><button type="button" class="ghost">Retry</button>`;
+      list.querySelector('button').onclick = () => loadHistory(offset);
+    }
+  }
+
+  async function reopenConversation(id) {
+    if (busy || openingConversation || !panel || ctx !== 'docs') return;
+    const at = panel, s = sessions.docs, request = ++reopenRequest;
+    const current = () => panel === at && ctx === 'docs' && sessions.docs === s && request === reopenRequest;
+    openingConversation = true; draw();
+    try {
+      const snapshot = await get('/v2/conversations/' + encodeURIComponent(id) + '/snapshot');
+      if (!current()) return;
+      await post('/v2/librarian/conversations/' + encodeURIComponent(id) + '/reopen', {});
+      if (!current()) return;
+      stop();
+      s.conversationId = id;
+      const messages = snapshot.messages || [];
+      s.turns = messages.filter(m => m.from_actor === 'human:' + S.me.id).slice(-TURN_LIMIT).map(message => {
+        const reply = messages.find(m => m.from_actor === 'bot:librarian' && m.in_reply_to === message.id);
+        const execution = snapshot.execution;
+        const pending = execution?.message_id === message.id && ['queued', 'leased', 'running'].includes(execution.state);
+        const error = !reply && !pending
+          ? (execution?.message_id === message.id ? execution.label : '') || 'No reply saved' : '';
+        return {question: message.body, ctx: 'docs', answer: reply ? reply.body || '' : null, error,
+          conversationId: id, messageId: message.id};
+      });
+      openingConversation = false;
+      resume();
+      panel.querySelector('.dask-history').open = false;
+      panel.querySelector('textarea').focus();
+      void loadHistory();
+    } catch (error) { if (current()) toast?.(error.message); }
+    finally { if (current()) { openingConversation = false; draw(); } }
+  }
 
   const docHref = id => '#/docs/' + encodeURIComponent(id);
   const KINDS = {website: 'Website', google_drive: 'Google Drive', google_doc: 'Google Doc', notion: 'Notion', github: 'GitHub', other: 'Link'};
@@ -201,8 +276,10 @@ html.demo .dask{top:var(--demo-h)}
     });
     if (atEnd || busy) body.scrollTop = body.scrollHeight;
     const button = panel.querySelector('.dask-form button');
-    if (button) button.disabled = busy;
+    if (button) button.disabled = busy || openingConversation;
+    panel.querySelector('[data-new-chat]').disabled = busy || openingConversation;
     panel.querySelector('textarea').placeholder = PLACEHOLDER[ctx];
+    drawHistory();
   }
 
   function stop() {
@@ -257,7 +334,7 @@ html.demo .dask{top:var(--demo-h)}
 
   async function ask(question) {
     question = String(question || '').trim();
-    if (!question || busy || !panel) return;
+    if (!question || busy || openingConversation || !panel) return;
     busy = true;
     const s = session();
     const turn = {question, ctx, results: null, answer: null, live: '', error: '', conversationId: s.conversationId, messageId: ''};
@@ -274,6 +351,7 @@ html.demo .dask{top:var(--demo-h)}
       turn.messageId = sent.message_id;
       turn.results = sent.results || [];
       draw();
+      void loadHistory();
       stop();
       if (panel && ctx === 'docs') follow(turn);
     } catch (e) {
@@ -336,6 +414,9 @@ html.demo .dask{top:var(--demo-h)}
     if (!panel) return;
     stop();
     busy = false;
+    openingConversation = false;
+    historyRequest++;
+    reopenRequest++;
     document.removeEventListener('keydown', onKey, true);
     document.querySelector('.dask-backdrop')?.remove();
     $('#main')?.classList.remove('librarian-open');
@@ -361,6 +442,7 @@ html.demo .dask{top:var(--demo-h)}
           <h2 id="dask-title">Ask the Librarian</h2><span class="spacer"></span>
           <button class="ghost dask-new" type="button" data-new-chat>New chat</button>
           <button class="dask-close" type="button"></button></header>
+        <details class="dask-history"><summary>Previous conversations</summary><div class="dask-history-list"></div></details>
         <div class="dask-body"></div>
         <form class="dask-form"><textarea rows="2" maxlength="4000" aria-label="Your question" required></textarea>
         <button class="primary" type="submit">Ask</button></form>`;
@@ -369,18 +451,19 @@ html.demo .dask{top:var(--demo-h)}
       if (asRail()) rememberHidden(false);
       panel.querySelector('.dask-close').onclick = () => close(true, asRail());
       panel.querySelector('[data-new-chat]').onclick = () => {
-        if (busy) return;
-        stop(); sessions[ctx] = ctx === 'docs' ? {conversationId: '', turns: []} : {turns: []}; draw(); panel.querySelector('textarea').focus();
+        if (busy || openingConversation) return;
+        stop(); sessions[ctx] = ctx === 'docs' ? {conversationId: '', turns: []} : {turns: []}; draw(); void loadHistory(); panel.querySelector('textarea').focus();
       };
       const box = panel.querySelector('textarea');
       box.onkeydown = ev => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); panel.querySelector('form').requestSubmit(); } };
       panel.querySelector('form').onsubmit = ev => {
         ev.preventDefault();
         const text = box.value;
-        if (text.trim() && !busy) { box.value = ''; ask(text); }
+        if (text.trim() && !busy && !openingConversation) { box.value = ''; ask(text); }
       };
       document.addEventListener('keydown', onKey, true);
       resume();
+      void loadHistory();
     }
     if (focus) panel.querySelector('textarea').focus();
     if (question && question.trim()) ask(question);
@@ -404,7 +487,7 @@ html.demo .dask{top:var(--demo-h)}
     const button = openButton();
     if (!button) { if (settled === true) close(false); return; }
     button.onclick = () => open();
-    if (panel && ctx !== where()) { stop(); ctx = where(); resume(); }
+    if (panel && ctx !== where()) { stop(); openingConversation = false; historyRequest++; reopenRequest++; ctx = where(); resume(); void loadHistory(); }
     if (desktop()) {
       if (panel) setMode();
       else if (!railHidden()) open(undefined, false);

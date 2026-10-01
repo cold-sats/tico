@@ -73,6 +73,38 @@ def install(app, store, auth, mutate, onboarding):
             raise Problem("forbidden", "Only the owner turns the " + NAME + " on", 403)
         return mutate(request, body, lambda c: onboarding.turn_on_librarian(c, who))
 
+    @app.get("/api/v2/librarian/conversations")
+    def conversations(request: Request, limit: int = 20, offset: int = 0):
+        who = person(request)
+        auth.domain(who)
+        limit, offset = max(1, min(limit, 100)), max(0, offset)
+        with store.read() as c:
+            rows = c.execute(
+                "SELECT v.id,v.created,v.last_message_at,v.closed_at,"
+                "COALESCE((SELECT substr(m.body,1,160) FROM messages m WHERE m.conversation_id=v.id "
+                "AND m.from_actor=v.owner_actor ORDER BY m.rowid LIMIT 1),v.subject,'Docs') AS title "
+                "FROM conversations v WHERE v.scope='personal' AND v.owner_actor=? AND v.room_key=? "
+                "ORDER BY COALESCE(v.last_message_at,v.created) DESC,v.id DESC LIMIT ? OFFSET ?",
+                (who.actor, rooms.DOCS_ROOM, limit + 1, offset)).fetchall()
+            return {"conversations": [dict(row) for row in rows[:limit]],
+                    "next_offset": offset + limit if len(rows) > limit else None}
+
+    @app.post("/api/v2/librarian/conversations/{cid}/reopen")
+    def reopen(request: Request, cid: str, body: M.Empty):
+        who = person(request)
+        def work(c):
+            room = auth.conversation(c, who, cid)
+            if (room.get("scope") != rooms.PERSONAL or room.get("room_key") != rooms.DOCS_ROOM
+                    or room.get("owner_actor") != who.actor):
+                raise Problem("conversation", "That is not your docs conversation", 422)
+            if room.get("closed_at"):
+                # Keep one current Docs room and the same busy guard as New chat.
+                rooms.archive_personal_room(c, who.actor, rooms.DOCS_ROOM)
+                c.execute("UPDATE conversations SET closed_at=NULL WHERE id=?", (cid,))
+                H.event(c, who.actor, "conversation.reopen", cid, {"scope": rooms.PERSONAL})
+            return {"conversation_id": cid}
+        return mutate(request, body, work)
+
     def send(request, body, who, results):
         def work(c):
             if not availability(c, who)["available"]:

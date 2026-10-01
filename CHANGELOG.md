@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Settings > Tags offers a one-click Release checklist starter, opening the existing tag when its key is already used.
+
+### Fixed
+- The Docs panel lets you reopen previous private conversations with their questions and answers.
+
 ## [0.2.42] - 2026-10-01
 
 ### Fixed

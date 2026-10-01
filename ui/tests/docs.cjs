@@ -55,6 +55,17 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     const titleOf = raw => { const u = new URL(/^https?:\/\//.test(raw) ? raw : 'https://' + raw); return u.hostname.replace(/^www\./, '') + u.pathname.replace(/\/$/, ''); };
     let started = {empty: {docs: false}, cards: []};
     let librarianQueued = false;   // the Librarian's run waits on a missing AI provider
+    let chatSequence = 0, reopenBlocked = false;
+    const chats = [
+      {id: 'docs-earlier', title: 'Who owns onboarding?', created: ago(90), closed_at: ago(60)},
+      {id: 'docs-archived', title: 'How do refunds work?', created: ago(300), closed_at: ago(200)},
+    ];
+    const answer = 'See [Internal doc · Refund policy](doc:doc-000000000001).';
+    const chatMessages = new Map([
+      ['docs-earlier', [{id: 'earlier-question', from_actor: 'human:ana', body: 'Who owns onboarding?'}]],
+      ['docs-archived', [{id: 'old-question', from_actor: 'human:ana', body: 'How do refunds work?'},
+        {id: 'old-answer', in_reply_to: 'old-question', from_actor: 'bot:librarian', body: 'Refunds take 30 days. ' + answer + '<script>window.docsUnsafe = true</script>'}]],
+    ]);
     const outside = (id, body, actor = 'human:ben') => {       // someone else saves while this person is editing
       const doc = docs.get(id); doc.version += 1; doc.body = body; doc.updated_by = actor; doc.updated = ago(0); stamp(doc, actor, 'Their edit', 0);
     };
@@ -76,13 +87,37 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
       if (p === '/api/v2/updates/unread') return json({unread: 0});
       if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, next_before: null, today: {}});
       if (p === '/api/v2/tasks') return json({tasks: []});
+      if (p === '/api/v2/librarian/conversations') {
+        const offset = Number(url.searchParams.get('offset') || 0);
+        return json({conversations: chats.slice(offset, offset + 1), next_offset: offset + 1 < chats.length ? offset + 1 : null});
+      }
+      const reopen = /^\/api\/v2\/librarian\/conversations\/([^/]+)\/reopen$/.exec(p);
+      if (reopen) {
+        requests.push({api: 'librarian/reopen', id: reopen[1]});
+        if (reopenBlocked) return problem('busy', 'Wait for this conversation’s current turn to finish', 409);
+        chats.forEach(chat => { chat.closed_at = chat.id === reopen[1] ? null : chat.closed_at || ago(0); });
+        return json({conversation_id: reopen[1]});
+      }
       if (p === '/api/v2/docs/ask') {
         const body = req.postDataJSON(); requests.push({api: 'docs/ask', body});
-        return json({conversation_id: 'librarian-chat', message_id: 'ask-docs', results: [{id: 'doc-000000000001', title: 'Refund policy', type: 'internal'}]});
+        const id = body.conversation_id || 'librarian-chat-' + (++chatSequence);
+        if (body.new_conversation) {
+          chats.forEach(chat => { chat.closed_at ||= ago(0); });
+          chats.unshift({id, title: body.question, created: ago(0), closed_at: null});
+        }
+        const messageId = 'ask-docs-' + requests.length;
+        chatMessages.set(id, [...(chatMessages.get(id) || []), {id: messageId, from_actor: 'human:ana', body: body.question},
+          ...(!librarianQueued ? [{id: 'answer-' + messageId, in_reply_to: messageId, from_actor: 'bot:librarian', body: answer}] : [])]);
+        return json({conversation_id: id, message_id: messageId, results: [{id: 'doc-000000000001', title: 'Refund policy', type: 'internal'}]});
       }
-      if (p === '/api/v2/conversations/librarian-chat/watch' && librarianQueued) return route.fulfill({contentType: 'text/event-stream', body: 'event: snapshot\ndata: ' + JSON.stringify({messages: [],
-        execution: {message_id: 'ask-docs', state: 'queued', readiness_reason: 'missing_provider', label: 'Saved — no AI provider is chosen'}}) + '\n\n'});
-      if (p === '/api/v2/conversations/librarian-chat/watch') return route.fulfill({contentType: 'text/event-stream', body: 'event: snapshot\ndata: ' + JSON.stringify({messages: [{id: 'answer-docs', in_reply_to: 'ask-docs', from_actor: 'bot:librarian', body: 'See [Internal doc · Refund policy](doc:doc-000000000001).'}]}) + '\n\n'});
+      const chatRead = /^\/api\/v2\/conversations\/([^/]+)\/(watch|snapshot)$/.exec(p);
+      if (chatRead && chatMessages.has(chatRead[1])) {
+        const messages = chatMessages.get(chatRead[1]);
+        const snapshot = {messages, execution: librarianQueued ? {message_id: messages.at(-1).id, state: 'queued',
+          readiness_reason: 'missing_provider', label: 'Saved — no AI provider is chosen'} : null};
+        if (chatRead[2] === 'snapshot') return json(snapshot);
+        return route.fulfill({contentType: 'text/event-stream', body: 'event: snapshot\ndata: ' + JSON.stringify(snapshot) + '\n\n'});
+      }
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       // A one-row market, so the Market page draws and Ask the Librarian answers from its graph.
       if (p === '/api/v2/market/entities') return json({entities: [{id: 'company/rival', type: 'company', name: 'Rival', status: 'active'}]});
@@ -200,6 +235,46 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.equal(await page.locator('.dask-cite').getAttribute('href'), '#/docs/doc-000000000001');
     assert.equal(await page.locator('.dask-results a').textContent(), 'Refund policy');
     await shot(page, 'rail-desktop');
+    // Archived personal conversations survive reload, restore sanitized answers and keep follow-ups in the same room.
+    await page.reload();
+    await page.locator('.docs-heading').waitFor();
+    await page.locator('.dask-history summary').click();
+    const oldChat = page.locator('[data-docs-conversation="docs-archived"]');
+    const findOldChat = async () => {
+      while (!await oldChat.count()) {
+        const shown = await page.locator('[data-docs-conversation]').count();
+        await page.locator('[data-conversations-more]').click();
+        await page.waitForFunction(count => document.querySelectorAll('[data-docs-conversation]').length > count, shown);
+      }
+    };
+    await findOldChat();
+    reopenBlocked = true;
+    await oldChat.click();
+    await page.locator('.toast', {hasText: 'Wait for this conversation'}).waitFor();
+    assert.equal(await page.locator('[data-docs-ask] [data-turn]').count(), 0, 'a busy response preserves the thread on screen');
+    reopenBlocked = false;
+    await oldChat.click();
+    await page.locator('[data-docs-ask] [data-answer]', {hasText: 'Refunds take 30 days'}).waitFor();
+    assert.equal(await page.locator('.dask-q').innerText(), 'How do refunds work?');
+    assert.equal(await page.locator('.dask-cite').getAttribute('href'), '#/docs/doc-000000000001');
+    assert.equal(await page.evaluate(() => window.docsUnsafe), undefined);
+    assert.equal(await page.locator('.dask-form button').isDisabled(), false);
+    await page.locator('.dask-form textarea').fill('And gift cards?');
+    await page.locator('.dask-form button').click();
+    await page.locator('[data-docs-ask] [data-turn]').nth(1).locator('[data-answer]').waitFor();
+    assert.deepEqual(requests.findLast(r => r.api === 'docs/ask').body, {question: 'And gift cards?', conversation_id: 'docs-archived'});
+    await page.locator('[data-new-chat]').click();
+    await page.locator('.dask-form textarea').fill('Who owns release checks?');
+    await page.locator('.dask-form button').click();
+    await page.locator('.dask-results a').waitFor();
+    assert.equal(requests.findLast(r => r.api === 'docs/ask').body.new_conversation, true);
+    await page.locator('.dask-history summary').click();
+    await findOldChat();
+    await shot(page, 'previous-conversations');
+    await page.locator('[data-docs-conversation="docs-earlier"]').click();
+    await page.locator('[data-docs-ask] .dask-err', {hasText: 'No reply saved'}).waitFor();
+    assert.equal(await page.locator('.dask-form button').isDisabled(), false, 'an unanswered archived question does not block the composer');
+    assert.equal(await page.locator('[data-docs-ask] [data-thinking]').count(), 0);
     // The rail is part of the page: Escape elsewhere leaves it open.
     await page.locator('#docs-search').focus();
     await page.keyboard.press('Escape');
@@ -228,6 +303,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await page.locator('#market-shell [data-librarian-open]').waitFor({state: 'attached'});
     await page.locator('[data-docs-ask]').waitFor();
     assert.equal(await page.locator('.dask-form textarea').getAttribute('placeholder'), 'Ask about the market…');
+    assert.equal(await page.locator('.dask-history').isVisible(), false, 'Docs history stays out of Market');
     assert.equal(await page.locator('[data-docs-ask] [data-turn]').count(), 0, 'Market has its own thread');
     await page.locator('.dask-form textarea').fill('Who competes with us?');
     await page.locator('.dask-form button').click();

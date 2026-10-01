@@ -217,10 +217,30 @@ async function renderTags(host) {
     if (!host.isConnected) return;
     const list = template => data.tags.filter(tag => tag.is_template === template).map(tag =>
       `<a class="tag-task" href="#/tag/${encodeURIComponent(tag.key)}">${esc(tagSummary(tag))}</a>`).join('') || '<div class="empty">None yet</div>';
-    host.innerHTML = `<section class="card"><header><h2>Templates</h2></header>${list(true)}</section>
+    host.innerHTML = `<section class="card"><header><h2>Templates</h2><button type="button" class="ghost" data-release-starter>Release checklist</button></header>${list(true)}</section>
       <section class="card"><header><h2>Tags</h2></header>${list(false)}</section>
       <section class="card"><header><h2>New tag</h2></header>${tagCreateForm()}</section>`;
     bindTagCreate(host);
+    $('[data-release-starter]', host).onclick = async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        let tag = data.tags.find(tag => tag.key === 'release-checklist');
+        if (!tag) {
+          try {
+            const result = await post('/v2/tags', {key: 'release-checklist', label: 'release', is_template: true,
+              markdown: '- [ ] Run release scripts and migrations\n- [ ] Deploy\n- [ ] Run smoke checks\n- [ ] Tell the team'});
+            tag = result.tag;
+          } catch (error) {
+            // Another person can create the starter between listing and clicking it.
+            if (error.body?.error?.code !== 'duplicate') throw error;
+            tag = (await get('/v2/tags/release-checklist')).tag;
+          }
+        }
+        if (host.isConnected) location.hash = '#/tag/' + encodeURIComponent(tag.key);
+      } catch (error) { if (host.isConnected) toast(error.message); }
+      finally { button.disabled = false; }
+    };
   } catch (error) { if (host.isConnected) host.innerHTML = `<div class="empty" role="alert">${esc(error.message)}</div>`; }
 }
 function pageTags() {

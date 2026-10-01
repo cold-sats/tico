@@ -38,7 +38,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       {id: 'tag-template', key: 'release-checklist', label: 'release', metadata: {channel: 'stable'},
         markdown: '- [ ] Migrations / scripts to run', is_template: true, template_id: null, owner: 'human:reviewer', version: 1},
     ];
-    let staleTag = false;
+    let staleTag = false, raceStarter = false;
     let tasks = [
       task('Draft the newsletter', {rank: 2, labels: ['newsletter'], tags: [tags[0]], body: 'Review [packet](http://tico-ui.test/api/v2/files/doc).',
         attachments: [{id: 'doc', name: 'review-packet.md'}, {id: 'clip', name: 'first-cut.mp4'}, {id: 'archive', name: 'source.zip'}]}),
@@ -74,6 +74,17 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       if (p === '/api/humans') return json({people});
       if (p === '/api/v2/tasks/labels') return json({labels: ['newsletter', 'copy', 'bug', 'finance'], tags: [tags[0]]});
       if (p === '/api/v2/tags' && req.method() === 'GET') return json({tags});
+      if (p === '/api/v2/tags' && req.method() === 'POST') {
+        const body = req.postDataJSON(); posted.push({path: p, body});
+        const tag = {...body, id: 'tag-starter', metadata: {}, owner: 'human:reviewer', version: 1};
+        tags.push(tag);
+        if (raceStarter) {
+          Object.assign(tag, {is_template: false, label: 'Existing release', markdown: '- [x] Keep our notes'});
+          raceStarter = false;
+          return json({error: {code: 'duplicate', detail: 'Tag already exists'}}, 422);
+        }
+        return json({tag});
+      }
       const tagRoute = p.match(/^\/api\/v2\/tags\/([^/]+)(\/instances)?$/);
       if (tagRoute) {
         const tag = tags.find(tag => tag.id === decodeURIComponent(tagRoute[1]) || tag.key === decodeURIComponent(tagRoute[1]));
@@ -454,8 +465,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     me = {...me, mover: true};
     await page.goto('http://tico-ui.test/#/settings');
     await page.locator('[data-settings-tab="tags"]').click();
-    await page.locator('#settings-tags a[href="#/tag/release-checklist"]').click();
+    const beforeStarter = posted.length;
+    await page.locator('#settings-tags [data-release-starter]').click();
     await page.locator('.page-tags [data-tag-create]').waitFor();
+    assert.equal(posted.length, beforeStarter, 'the starter opens the existing key without overwriting it');
     await page.locator('[data-tag-create] input[name="key"]').fill('release-2026-10-02');
     await page.locator('[data-tag-create] textarea[name="metadata"]').fill('{"date":"2026-10-02"}');
     assert.equal(await page.locator('[data-tag-create]').evaluate(form => typeof form.onsubmit === 'function' && form.checkValidity()), true);
@@ -465,6 +478,34 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.deepEqual(posted.at(-1), {path: '/api/v2/tags/tag-template/instances',
       body: {key: 'release-2026-10-02', metadata: {date: '2026-10-02'}}});
     assert.deepEqual(tags.at(-1).metadata, {channel: 'stable', date: '2026-10-02'});
+
+    // The starter creates only on click and handles a key another person creates while the list is open.
+    tags.splice(tags.findIndex(tag => tag.key === 'release-checklist'), 1);
+    const settingsTags = async () => {
+      await page.goto('http://tico-ui.test/#/settings');
+      await page.locator('[data-settings-tab="tags"]').click();
+      await page.locator('#settings-tags [data-release-starter]').waitFor();
+    };
+    await settingsTags();
+    assert.equal(tags.some(tag => tag.key === 'release-checklist'), false, 'opening Tags does not seed the starter');
+    await page.locator('#settings-tags [data-release-starter]').click();
+    await page.locator('[data-tag-notes] input').nth(3).waitFor();
+    const starter = tags.find(tag => tag.key === 'release-checklist');
+    assert.equal(starter.label, 'release');
+    assert.equal(starter.is_template, true);
+    assert.match(starter.markdown, /scripts and migrations[\s\S]*Deploy[\s\S]*smoke checks[\s\S]*Tell the team/);
+    tags.splice(tags.indexOf(starter), 1);
+    await settingsTags();
+    raceStarter = true;
+    await page.locator('#settings-tags [data-release-starter]').click();
+    await page.locator('[data-tag-notes] input:checked').waitFor();
+    assert.equal(await page.locator('[data-tag-heading]').innerText(), 'Existing release');
+    assert.equal(await page.locator('.page-tags [data-tag-create]').count(), 0, 'an existing non-template key is opened as it is');
+    await settingsTags();
+    const afterRace = posted.length;
+    await page.locator('#settings-tags [data-release-starter]').click();
+    await page.locator('[data-tag-notes] input:checked').waitFor();
+    assert.equal(posted.length, afterRace);
     assert.deepEqual(errors, []);
     console.log('PASS: task board, filters, comments, mobile, rich tags, checklist versions, permissions and templates.');
   } finally { await browser.close(); }

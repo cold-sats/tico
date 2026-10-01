@@ -54,6 +54,10 @@ conversation_id?, new_conversation?}` returns `{conversation_id, message_id, res
 `GET /api/v2/conversations/{id}/watch`. Each human has one private docs conversation with the Librarian
 (`scope: personal`, `room_key: docs`), like the [Assistant](assistant.md)'s room: only they can read it, and the owner and
 administrators cannot. **New chat** starts a fresh conversation, so the Librarian remembers only what is on screen.
+**Previous conversations** lists your saved Docs chats. Pick one to reopen it and continue where you left off;
+your current chat stays in the list. Only you can list or reopen them, including when an owner or administrator asks.
+`GET /api/v2/librarian/conversations` lists them (`limit`, `offset`, `next_offset`), and
+`POST /api/v2/librarian/conversations/{id}/reopen {}` makes one current. Reopening waits until the current turn finishes.
 
 On Market, a question is answered from the market graph as it is at that moment (`POST /api/v2/market/ask {question}`,
 the same answer the Market page has always given, which needs no computer): the answer, then the organizations, people and
