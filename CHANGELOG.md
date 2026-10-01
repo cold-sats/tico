@@ -7,6 +7,39 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.32] - 2026-10-01
+
+Fixes from the v0.2.30 re-test (71 new findings and the items it left open).
+
+### Fixed
+- BotOps finishes the setup and tool-change tasks the server makes for it, with the requester's rights, so you no longer
+  finish template builds or tool changes by hand. Starter templates build directly on the computer over MCP too.
+- A new bot never brings back an archived bot with the same name. Removing a bot keeps its history, and BotOps can delete
+  a bot's repository through the GitHub App when the owner asks.
+- A correction sent to BotOps reaches the run it is about (`in_reply_to`); withdrawn tool requests close their tasks; a
+  quiet close stays quiet; BotOps status follows the current task.
+- Task questions stay with their own task, and a bot can ask its next question once a reply answers the last one.
+  Routine "Run now" no longer disappears into other work. KPIs take freshness from the reading that gives the value.
+- Docker passes the documented server settings (`TICO_BLOCK_EXTERNAL_INVITES`, `TICO_CREDENTIAL_ADMINS`,
+  `TICO_CREDENTIAL_KMS_KEY` and the rest); Health says whether calendar lockdown and KMS wrapping are active.
+  `TICO_TEAM_NAME` works beside the older `TICO_COMPANY_NAME`.
+- Health shows the same checks in the app and over MCP, names computers with an unknown or newer version, and warns when
+  a computer's disk is nearly full; an update that failed for disk space retries when space frees.
+- A one-time runner step (such as 0.2.31's `HUB_` grants) is only used up by a computer new enough to do it.
+- MCP: `hub_api` deletes without a body, non-JSON files can be read, malformed requests get a clear error, and
+  `hub_bot_model` can choose a harness.
+- Librarian: Ask AI includes the Tico manual and keeps long questions whole, plain questions find linked docs, a named team
+  doc ranks first, and an answer can be collected after a timeout. docs-eval catches contradictory facts.
+- The demo accepts browser writes on any port. OpenClaw profiles respect their own home. Undo on a finished task works,
+  the Tools table fits a phone, and setup says exactly what suggestions send to Tico HQ.
+- Named model keys such as `OPENAI_API_KEY` offer "Every computer" without an extra field.
+
+### Docs
+- Every guide and starter template stores tool secrets as Credentials granted to the bot; menu paths, the architecture and
+  harness pages, and screenshots match the app. The first-bot guide uses a starter that needs only Tico.
+
+Upgrade the server before its computers.
+
 ## [0.2.31] - 2026-10-01
 
 ### Fixed
@@ -1360,7 +1393,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.31...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.32...HEAD
+[0.2.32]: https://github.com/ticoteam/tico/compare/v0.2.31...v0.2.32
 [0.2.31]: https://github.com/ticoteam/tico/compare/v0.2.30...v0.2.31
 [0.2.30]: https://github.com/ticoteam/tico/compare/v0.2.29...v0.2.30
 [0.2.20]: https://github.com/ticoteam/tico/compare/v0.2.19...v0.2.20
