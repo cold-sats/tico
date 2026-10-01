@@ -18,6 +18,10 @@ All notable changes to Tico are recorded here. The format follows
 - `GET /api/v2/tasks?updated_since=<time>` returns only the tasks changed after that time, for a client that polls, and
   `brief=true` leaves out their bodies and acceptance criteria.
 
+### Changed
+- Tickets on a numbered type stay out of their owner's Needs you, and the desktop count, unless one carries a question
+  for that person; a declined ticket stays out of its requester's. General tasks and other types are listed as before.
+
 ### Fixed
 - A task's `updated` time moves when a file is attached to it or archived, a link is removed, a linked pull request
   changes state, or a question on it is asked or answered, as it already did for its fields, comments and new links.

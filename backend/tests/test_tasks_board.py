@@ -447,6 +447,29 @@ def test_a_numbered_type_numbers_its_tasks_once_and_keeps_an_imported_number(api
     assert [t['id'] for t in get(api, 'tasks?number=18945')['tasks']] == [imported['id']]
 
 
+
+def test_tickets_on_a_numbered_type_stay_out_of_needs_you_unless_they_ask_the_person(api):
+    tickets = post(api, 'task-types', {'name': 'Dev ticket', 'numbered': True, 'steps': [
+        {'name': 'Backlog', 'status': 'open'}, {'name': "Can't replicate", 'status': 'declined'}]})['type']
+    actions = post(api, 'task-types', {'name': 'Client action', 'steps': [{'name': 'To do', 'status': 'open'}]})['type']
+    mine = [post(api, 'tasks', {'owner': 'priya', 'title': title, 'body': 'Please.', **extra}) for title, extra in (
+        ('Approve the launch copy', {}), ('Call the client', {'type': actions['id']}),
+        ('Fix the account page', {'type': tickets['id']}))]
+    needs = lambda: {item['id']: item for item in get(api, 'needs-you', token='priya-test')['items']}  # noqa: E731
+    assert set(needs()) == {mine[0]['id'], mine[1]['id']}
+    assert get(api, 'needs-you?count=true', token='priya-test')['count'] == 2
+    # A ticket comes in once it asks her something: the bot she filed it for asks back (hub task ask).
+    asked = post(api, 'tasks', {'owner': 'ops', 'title': 'Fix the signup page', 'body': 'Please.',
+                                'type': tickets['id']}, token='priya-test')
+    post(api, 'tasks/' + asked['id'] + '/ask', {'text': 'Which browser was it?'}, token=bot_token(api, 'ops'))
+    assert needs()[asked['id']]['kind'] == 'question'
+    # A declined ticket is not hers to deal with today; a declined General task still is.
+    declined = [post(api, 'tasks', {'owner': 'cmo', 'title': title, 'body': 'Please.', **extra}, token='priya-test')
+                for title, extra in (('Fix the pricing page', {'type': tickets['id']}), ('Draft the newsletter', {}))]
+    edit_pipeline_task(api, declined[0], step="Can't replicate")
+    edit_pipeline_task(api, declined[1], status='declined')
+    assert declined[1]['id'] in needs() and declined[0]['id'] not in needs()
+
 def test_a_task_has_a_place_in_its_step_and_a_board_lists_in_that_order(api):
     typ = post(api, 'task-types', {'name': 'Dev ticket', 'steps': [
         {'name': 'Backlog', 'status': 'open'}, {'name': 'On deck', 'status': 'open'}]})['type']

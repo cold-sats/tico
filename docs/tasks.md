@@ -35,8 +35,10 @@ keep their existing behavior.
 
 ## Numbers and the order within a step
 
-A mover can make a custom type **numbered**. Each task created on a numbered type, or moved onto
-one, gets the team's next number: one sequence for the whole team, like one board's ticket numbers,
+A mover can make a custom type **numbered**: a board of tickets, worked through on the board. Its
+tickets stay out of their owner's **Needs you** unless one asks that person something, and a declined
+one stays out of its requester's. Each task created on a numbered type, or moved onto one, gets the
+team's next number: one sequence for the whole team, like one board's ticket numbers,
 the highest number yet plus one, starting at 1. A number never changes, even if the task later
 moves to another type. Turning numbering on does not number the tasks already on the type. To keep
 an imported ticket's number, a mover passes `number` when creating it, or gives it once to a task

@@ -3494,10 +3494,11 @@ STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
           offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
-          updated_since=None):
+          updated_since=None, tickets=True):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
     `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
-    a board's: by step, then each task's place in it. `updated_since` is a stored timestamp."""
+    a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
+    `tickets=False` leaves out the tasks on a numbered type."""
     sql, args, where = "SELECT * FROM tasks", [], []
     if visible and visible != "1":
         where.append("(" + visible + ")")
@@ -3522,6 +3523,8 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     if updated_since:
         where.append("updated>?")
         args.append(updated_since)
+    if not tickets:
+        where.append("NOT EXISTS (SELECT 1 FROM task_types WHERE task_types.id=tasks.type_id AND task_types.numbered=1)")
     if label:
         where.append("EXISTS (SELECT 1 FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
                      "WHERE task_tags.task_id=tasks.id AND tags.key=?)")
@@ -3601,7 +3604,11 @@ def tasks_asked_of(conn, actor):
 
 
 def needs_you(conn, who):
-    """The "Needs you" list: my open tasks, unanswered asks to me, approvals, declined-to-me."""
+    """The "Needs you" list: my open tasks, unanswered asks to me, approvals, declined-to-me.
+
+    A task on a numbered type is a ticket on that type's board, worked through there: it is on
+    the list only while it carries a question for the person, and a declined one stays off its
+    requester's list."""
     actor = who if actor_kind(who) else human_actor(who)
     pending = _rows(conn.execute("SELECT * FROM approvals WHERE decision IS NULL ORDER BY created"))
     for row in pending:
@@ -3609,13 +3616,15 @@ def needs_you(conn, who):
     # The person's queue: asks first (each blocks a bot), then their own tasks in rank order.
     # Product-lane work is a backlog a developer works through on the Product board, not a
     # decision owed today: it counts here only when it carries a question for the person.
-    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES) if (t.get("lane") or "company") != "product"]
+    # The same goes for a numbered type's tickets, a board of its own.
+    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES, tickets=False)
+             if (t.get("lane") or "company") != "product"]
     seen = {t["id"] for t in owned}
     asked = [t for t in tasks_asked_of(conn, actor) if t["id"] not in seen]
     return {"actor": actor,
             "tasks": asked + owned,
             "approvals": pending,
-            "declined": tasks(conn, requester=actor, status="declined")}
+            "declined": tasks(conn, requester=actor, status="declined", tickets=False)}
 
 
 def approval(conn, approval_id):
