@@ -41,6 +41,7 @@ The operation groups below are generated from the committed spec's tags. After r
 | KPIs | Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, evidence and a quality, never edited; a correction supersedes the old one. |
 | Usage | Estimated model spend per bot ([guide](usage.md)): tokens counted by each run's computer, priced at list price. |
 | Health | Whether the installation is working. |
+| Tags | Tags, metadata, markdown checklists and reusable templates. |
 <!-- api-tags:end -->
 
 Internal developer tutorials: [Listening](listening.md#save-decide-and-resolve) and [Needs you batches](needs-you-batches.md).
