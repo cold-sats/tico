@@ -969,14 +969,13 @@ class Runner:
                 granted = Client(self.config["url"], attempt["token"], timeout=15, retries=1).get("credential-runtime")
             self.vault_values[attempt["id"]] = [item["value"] for item in granted["credentials"]]
             self.vault_names[attempt["id"]] = {item.get("env", "") for item in granted["credentials"] if item.get("env")}
-            reserved = {"HOME", "PATH", "SHELL", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "LD_PRELOAD",
-                        "DYLD_INSERT_LIBRARIES", "CODEX_HOME", "HUB_DB", "HUB_HUMAN_OVERRIDE"}
+            from clients.access_entry import RESERVED_ENV as reserved, RESERVED_PREFIXES as reserved_prefixes
             for item in granted["credentials"]:
                 key = item.get("env", "")
                 if not key:
                     continue
                 if (not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or key in reserved
-                        or key.startswith(("TICO_", "HUB_", "DYLD_", "LD_"))):
+                        or key.startswith(reserved_prefixes)):
                     raise RuntimeError("A granted credential has a reserved environment name")
                 if any(other.get("env") == key for other in granted["credentials"] if other["id"] != item["id"]):
                     raise RuntimeError("Multiple granted credentials use the same environment name")

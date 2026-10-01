@@ -139,3 +139,18 @@ def test_upgrade_migration_is_assigned_once_and_never_resurrects_revoked_grants(
         c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(json.dumps(['ops']),FILE_MIGRATION))
     post(api,'runner-credential-migration',values,machine['token'])
     assert get(api,'runner-credential-grants',machine['token'])['bots']=={'ops':[]}
+
+
+def test_the_hub_pass_adds_only_a_teams_own_hub_keys_to_bots_that_already_migrated(api):
+    setup(api)
+    from backend.credentials import FILE_MIGRATION, HUB_MIGRATION
+    machine=runner(api);assign(api,machine,'ops');ready(api,machine,['ops'])
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(json.dumps([]),FILE_MIGRATION))
+        c.execute('INSERT OR REPLACE INTO registry_metadata VALUES(?,?)',(HUB_MIGRATION,json.dumps(['ops'])))
+    assert get(api,'runner-credential-migration',machine['token'])['bots']==['ops']
+    post(api,'runner-credential-migration',{'bot':'ops','credentials':[{'env':'HUB_TOKEN','value':'x'}]},machine['token'],expected=422)
+    post(api,'runner-credential-migration',{'bot':'ops','credentials':[
+        {'env':'HUB_BUCKET','value':'fixture-bucket'},{'env':'QA_OTHER_KEY','value':'fixture-other'}]},machine['token'])
+    assert get(api,'runner-credential-migration',machine['token'])['bots']==[]
+    assert get(api,'runner-credential-grants',machine['token'])['bots']=={'ops':['HUB_BUCKET']}

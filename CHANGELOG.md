@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.31] - 2026-10-01
+
+### Fixed
+- A team's own `HUB_` variables (such as `HUB_BUCKET`) reach bots again. 0.2.30 treated every `HUB_` name as Tico's own,
+  so the upgrade left them out of the bots' grants and a grant under that name failed the run. Only the names the runner
+  sets (`HUB_TOKEN`, `HUB_API_URL`, `HUB_BOT` and the rest) stay reserved. On upgrade, bots that already migrated get the
+  `HUB_` keys their old files had (never one with a grant or a revoked grant).
+- The updater removes older release images after a healthy update, keeping the new one and the one to roll back to.
+  Every release used to stay on disk until the host filled up and an update failed with "no space left on device".
+
 ## [0.2.30] - 2026-10-01
 
 A release built from a full QA pass (nine testers, 166 findings).
@@ -1350,7 +1360,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.30...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.31...HEAD
+[0.2.31]: https://github.com/ticoteam/tico/compare/v0.2.30...v0.2.31
 [0.2.30]: https://github.com/ticoteam/tico/compare/v0.2.29...v0.2.30
 [0.2.20]: https://github.com/ticoteam/tico/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/ticoteam/tico/compare/v0.2.18...v0.2.19

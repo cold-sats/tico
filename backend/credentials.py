@@ -22,6 +22,8 @@ CONTEXT = {'application': 'tico-credentials'}
 # (runner/service.py `team_model_keys`). Never a bot's: a bot still gets only what is granted to it.
 COMPUTERS = 'computers'
 FILE_MIGRATION = 'credential-file-migration-v1'
+# 0.2.30 reserved every HUB_ name, so a team's own HUB_ keys (HUB_BUCKET) were left out of v1. v2 adds only those.
+HUB_MIGRATION = 'credential-file-migration-v2-hub'
 
 
 def administrator(c, who, admins):
@@ -356,7 +358,9 @@ def install_credentials(app,store,delegate=None,propose=None):
         who=request.state.identity
         with store.read() as c:
             migration_runner(c,who)
-            pending=json.loads(c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(FILE_MIGRATION,)).fetchone()[0])
+            pending=set(json.loads(c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(FILE_MIGRATION,)).fetchone()[0]))
+            row=c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(HUB_MIGRATION,)).fetchone()
+            pending|=set(json.loads(row[0])) if row else set()
             return {'bots':[r[0] for r in c.execute('SELECT bot FROM assignments WHERE runner_id=?',(who.runner_id,)) if r[0] in pending]}
 
     @app.get('/api/v2/runner-credential-grants')
@@ -379,10 +383,15 @@ def install_credentials(app,store,delegate=None,propose=None):
             if not c.execute('SELECT 1 FROM assignments WHERE runner_id=? AND bot=?',(who.runner_id,body.bot)).fetchone():
                 raise Problem('forbidden','That bot is not on this Computer',403)
             pending=json.loads(c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(FILE_MIGRATION,)).fetchone()[0])
-            if body.bot not in pending:
+            row=c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(HUB_MIGRATION,)).fetchone()
+            hub_pending=json.loads(row[0]) if row else []
+            if body.bot not in pending and body.bot not in hub_pending:
                 return {'migrated':True}
+            first=body.bot in pending
             subject='bot:'+body.bot
             for item in body.credentials:
+                if not first and not item.env.startswith('HUB_'):
+                    continue                # the bot migrated before: only the HUB_ keys 0.2.30 could not take
                 if item.env in RESERVED_ENV or item.env.startswith(RESERVED_PREFIXES):
                     raise Problem('env','A Computer setting cannot be granted as a Credential',422)
                 # Even a revoked grant wins over an old file: migration never resurrects access.
@@ -397,8 +406,12 @@ def install_credentials(app,store,delegate=None,propose=None):
                 c.execute('INSERT INTO credential_grants(id,credential_id,subject,granted_by,created) VALUES(?,?,?,?,?)',
                           (gid,cid,subject,who.actor,now))
                 H.event(c,who.actor,'credential.migrated',cid,{'env':item.env,'bot':body.bot,'grant':gid})
-            pending.remove(body.bot)
-            c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(encode(pending),FILE_MIGRATION))
+            if first:
+                pending.remove(body.bot)
+                c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(encode(pending),FILE_MIGRATION))
+            if body.bot in hub_pending:
+                hub_pending.remove(body.bot)
+                c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(encode(hub_pending),HUB_MIGRATION))
             return {'migrated':True}
 
     def acting(request, body, message_id=None):

@@ -160,3 +160,21 @@ def test_diagnostics_report_containers_versions_and_the_last_failures_and_nothin
     assert report["docker"] == "27.1.2" and report["compose"] == "2.29.1" and report["version"] == "v0.2.18"
     assert len(report["errors"]) == 1 and "Not updated: pull failed." in report["errors"][0]
     assert not any("logs" in a or "exec" in a for a in calls)             # it never reads what runs inside a container
+
+
+def test_after_a_healthy_update_older_release_images_are_removed_but_the_rollback_one_stays(monkeypatch, tmp_path):
+    updater = load(monkeypatch, "", tmp_path)
+    removed = []
+
+    def run(argv, **kw):
+        if argv[:3] == ["docker", "image", "ls"]:
+            out = "v0.2.30\nv0.2.29\nv0.2.28\nv0.2.17\nlatest\n<none>\n"
+        else:
+            out = ""
+            if argv[:2] == ["docker", "rmi"]:
+                removed.append(argv[2])
+        return type("R", (), {"returncode": 0, "stdout": out, "stderr": ""})()
+    monkeypatch.setattr(updater.subprocess, "run", run)
+    updater.prune_images(keep={"v0.2.30", "v0.2.29"})
+    assert removed == [updater.IMAGE + ":v0.2.28", updater.IMAGE + ":v0.2.17",
+                       updater.IMAGE + "-updater:v0.2.28", updater.IMAGE + "-updater:v0.2.17"]

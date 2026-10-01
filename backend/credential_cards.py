@@ -48,9 +48,9 @@ CREATE TABLE IF NOT EXISTS credential_imports(
 CREATE INDEX IF NOT EXISTS credential_imports_state ON credential_imports(state, bot);
 """
 # A variable the run never takes from the vault, or takes from the computer itself (runner/service.py `environment`).
-RESERVED_ENV_PREFIXES = ("TICO_", "HUB_", "DYLD_", "LD_")
+from clients.access_entry import RESERVED_PREFIXES as RESERVED_ENV_PREFIXES, RUNNER_HUB_ENV  # noqa: E402
 RESERVED_ENV = {"HOME", "PATH", "SHELL", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "CODEX_HOME",
-                "OPENROUTER_API_KEY", "OP_SERVICE_ACCOUNT_TOKEN"}
+                "OPENROUTER_API_KEY", "OP_SERVICE_ACCOUNT_TOKEN"} | RUNNER_HUB_ENV
 IMPORT_EXPIRES_S = 600
 ONLINE_S = 120
 

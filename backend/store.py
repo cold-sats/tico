@@ -958,10 +958,17 @@ class Store:
                 # so no migration number to collide with another branch's.
                 from . import groups as Groups
                 Groups.migrate(c, self.settings)
-                from .credentials import FILE_MIGRATION
+                from .credentials import FILE_MIGRATION, HUB_MIGRATION
                 if not c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (FILE_MIGRATION,)).fetchone():
                     pending = [r[0] for r in c.execute("SELECT slug FROM bots")]
                     c.execute("INSERT INTO registry_metadata VALUES(?,?)", (FILE_MIGRATION, encode(pending)))
+                    c.execute("INSERT OR IGNORE INTO registry_metadata VALUES(?,?)", (HUB_MIGRATION, encode([])))
+                elif not c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (HUB_MIGRATION,)).fetchone():
+                    # Installs that ran 0.2.30's migration: every bot it already covered gets the HUB_ pass.
+                    done = set(json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key=?",
+                                                    (FILE_MIGRATION,)).fetchone()[0]))
+                    again = [r[0] for r in c.execute("SELECT slug FROM bots") if r[0] not in done]
+                    c.execute("INSERT INTO registry_metadata VALUES(?,?)", (HUB_MIGRATION, encode(again)))
                 record = c.execute("SELECT value_json FROM registry_metadata WHERE key='onboarding'").fetchone()
                 if record:
                     choices = H._json(record[0], {})

@@ -32,9 +32,13 @@ SERVICE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,59}$")
 VERB_RE = re.compile(r"^[a-z][a-z_-]{0,39}$")
 ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,99}$")
 # The names a bot's turn owns; a credential may not arrive under one (runner/service.py `environment`).
+# The HUB_ names the runner and the `hub` command set themselves. Other HUB_ names (a team's own HUB_BUCKET) are ordinary
+# variables a bot may be granted.
+RUNNER_HUB_ENV = {"HUB_TOKEN", "HUB_API_URL", "HUB_WORKSPACE", "HUB_EMPLOYEE", "HUB_OPERATION_ID", "HUB_BOT", "HUB_DIR",
+                  "HUB_DB", "HUB_HUMAN_OVERRIDE", "HUB_INGEST_TOKEN", "HUB_RUNNER_CONFIG"}
 RESERVED_ENV = {"HOME", "PATH", "SHELL", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "LD_PRELOAD",
-                "DYLD_INSERT_LIBRARIES", "CODEX_HOME", "HUB_DB", "HUB_HUMAN_OVERRIDE"}
-RESERVED_PREFIXES = ("TICO_", "HUB_", "DYLD_", "LD_")
+                "DYLD_INSERT_LIBRARIES", "CODEX_HOME"} | RUNNER_HUB_ENV
+RESERVED_PREFIXES = ("TICO_", "DYLD_", "LD_")
 
 # Key shapes seen in the wild, and a URL with a password in it.
 SECRET_SHAPES = re.compile(

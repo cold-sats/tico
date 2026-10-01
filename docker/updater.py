@@ -537,6 +537,23 @@ def replace_self():
     return 1
 
 
+def prune_images(keep):
+    """After a healthy update, drop this service's and the updater's older release images (the new one and the one to
+    roll back to stay). Without this every release stays on disk until the host fills and an update fails. An image a
+    container still uses is refused by Docker and kept."""
+    keep = {str(k) for k in keep if k} | {"latest"}
+    for repo in (IMAGE, IMAGE.replace("tico-runner", "tico-updater") if MODE == "runner" else IMAGE + "-updater"):
+        try:
+            listed = subprocess.run(["docker", "image", "ls", repo, "--format", "{{.Tag}}"], capture_output=True, text=True,
+                                    timeout=60).stdout.split()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for tag in listed:
+            if tag in keep or tag == "<none>" or not re.fullmatch(r"v?\d+\.\d+\.\d+", tag):
+                continue
+            subprocess.run(["docker", "rmi", repo + ":" + tag], capture_output=True, check=False, timeout=120)
+
+
 def update(version, running=""):
     """`running` is the release the server reported it was running when the update was asked for: what "from" says.
     The image tag only says what to put back if this fails, and can be `latest`."""
@@ -598,6 +615,7 @@ def update(version, running=""):
                        message=str(exc) + (". Went back to " + previous + "." if back else ". The old version did not start either.") + restored)
             return
         remember(version)
+        prune_images(keep={version, previous, release_name(version), release_name(previous)})
         message = ""
         if bundled and MODE == "server":
             # Slack, the front door and anything new follow the new compose file; the updater itself stays put.
