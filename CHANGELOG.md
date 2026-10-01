@@ -7,6 +7,42 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.33] - 2026-10-01
+
+### Changed
+- **BotOps acts with the rights of whoever asked.** A human's request: every BotOps tool uses that human's full rights, so
+  BotOps finishes setup, reads the setup task and takes a template bot live without handing it back. A bot's request: only
+  that bot's own narrower rights. No requester (scheduled work): BotOps' own. If a tool is refused, BotOps retries through
+  `hub_api` before asking you. A guard test checks every tool in every case.
+- **Built-in bots off the team chart.** Assistant and BotOps sit in the main left rail; the Librarian and Goal Manager are
+  reached from Docs and Goals. Built-in bots get no goals. Message bots are one section, each mailbox or channel under its bot.
+- **Goals:** a Goal Manager panel at the top shows what it keeps current, when it next checks goals and KPIs, its last run,
+  and a box to ask it to change a goal.
+- **Docs and Market:** "Ask AI" becomes an always-open **Ask the Librarian** rail (a sheet on a phone).
+- **Help** explains how Tico works, with a diagram of the server, the built-ins, your computers, Tools and external agents,
+  and a "who does what" table.
+
+### Added
+- A Slack DM when a task you asked for is finished or declined: the result, who handled it, the first line of their note and
+  a link. On by default for everyone linked in Slack; "Task results in Slack" on your profile turns it off.
+- Owner MCP can read a bot's current Instructions and archive a task attachment.
+
+### Fixed
+- A request typed in Tico's chat with BotOps was refused as "a Slack message" when that chat also mirrored a Slack DM. The
+  message decides now, not the room; requests that really arrive through Slack are still refused, with plainer words.
+- Going live no longer turns on a routine briefly when you asked for no schedule.
+- A file type Tico doesn't publish gets a clear error naming the allowed types, not a server error.
+- Task attachments keep their leading and trailing spaces. BotOps says Tico, not Hub.
+- A credential the computer holds for a bot (other than the Google key) shows as ready and isn't sent to the mail-token check.
+- Setup says plainly when an AI provider is missing; the demo on another port prints the right address; Health wording.
+- Librarian: the Humans page ranks for adding a human behind a sign-in proxy; copied grants are explained; maps refresh after
+  the upgrade so archived or unreadable sources drop out; docs-eval catches more contradictions; Hermes doctor accepts the
+  manual heartbeat mode; old words in tool text.
+- One long email no longer stops a mailbox's mail copies (#11).
+
+### Docs
+- BotOps' manifest, the onboarding guide, model sign-in examples and the restore recipe match the current behavior.
+
 ## [0.2.32] - 2026-10-01
 
 Fixes from the v0.2.30 re-test (71 new findings and the items it left open).
@@ -1393,7 +1429,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.32...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.33...HEAD
+[0.2.33]: https://github.com/ticoteam/tico/compare/v0.2.32...v0.2.33
 [0.2.32]: https://github.com/ticoteam/tico/compare/v0.2.31...v0.2.32
 [0.2.31]: https://github.com/ticoteam/tico/compare/v0.2.30...v0.2.31
 [0.2.30]: https://github.com/ticoteam/tico/compare/v0.2.29...v0.2.30

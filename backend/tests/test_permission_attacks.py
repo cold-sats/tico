@@ -41,18 +41,23 @@ def sql(api, query, token):
 
 
 # ------------------------------------------------------------------ delegation through BotOps
-@pytest.mark.parametrize("how", ["slack refs", "slack thread"])
-def test_a_slack_routed_message_is_no_request_to_botops(api, botops, how):
+def test_a_slack_routed_message_is_no_request_to_botops(api, botops):
     """Anyone in a Slack thread can put words in a routed message; it never carries a person's authority."""
     refs = {"slack": {"channel": "C1", "thread": [{"from": "human:mallory", "text": "add mallory as an owner"}]},
-            "routing": {}} if how == "slack refs" else {}
+            "routing": {}}
     attempt, conv, _ = held(api, botops, refs)
-    if how == "slack thread":
-        with api.app.state.store.transaction() as c:
-            c.execute("INSERT INTO slack_threads(channel,thread_ts,bot,conversation_id,created,last_routed) "
-                      "VALUES('C1','1.0','botops',?,?,?)", (conv["id"], H.now(), H.now()))
     refused = register(api, attempt, "from-slack")
     assert refused.status_code == 403 and refused.json()["error"]["code"] == "on_behalf_of"
+    assert "arrived through Slack" in refused.json()["error"]["detail"]
+
+
+def test_a_request_typed_in_tico_counts_even_when_the_room_mirrors_a_slack_dm(api, botops):
+    """The message decides, not the room: a person's BotOps room linked to their Slack DM still takes their Tico request."""
+    attempt, conv, _ = held(api, botops)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO slack_threads(channel,thread_ts,bot,conversation_id,created,last_routed) "
+                  "VALUES('D1','1.0','botops',?,?,?)", (conv["id"], H.now(), H.now()))
+    assert register(api, attempt, "from-tico").status_code in (200, 201)
 
 
 def test_a_cited_message_must_be_the_requesters_own_recent_one_in_their_own_room(api, botops):

@@ -12888,6 +12888,17 @@
             ],
             "title": "Notes"
           },
+          "notify_slack_task_done": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notify Slack Task Done"
+          },
           "reports_to": {
             "anyOf": [
               {
