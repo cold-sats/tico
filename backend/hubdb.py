@@ -1957,7 +1957,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     return after
 
 
-def task_close(conn, actor, task_id, note=""):
+def task_close(conn, actor, task_id, note="", quiet=False):
     """Rule 5. The requester closes, or any human. The owner never does."""
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -1990,7 +1990,7 @@ def task_close(conn, actor, task_id, note=""):
     accepted = row["status"] in ("done", "declined") and (actor == KEEPER or not str(note or "").strip())
     # A next-run task closed before any run carried it is a cancel: the bot never saw it, so
     # there is nothing to tell it and no run to spend telling it.
-    accepted = accepted or next_run_waiting(conn, row)
+    accepted = quiet or accepted or next_run_waiting(conn, row)
     told = [who for who in dict.fromkeys([after["owner"], after["requester"]]) if who != actor]
     for who in told:   # everyone but whoever tapped
         _wake(conn, after, who, said, quiet_bots=True, quiet=accepted)

@@ -43,7 +43,7 @@ if they do not match, decline the code with `hub agent pair decline <code>` and 
     hub agent pair approve <code> --bot <slug>
 
 Say "Paired profile <name> on <host>; waiting for its heartbeat." Approving replaces the credential and activates a
-planned bot. The connector can retrieve the credential again if its download is interrupted, until its first heartbeat.
+planned bot. The connection Tool can retrieve the credential again if its download is interrupted, until its first heartbeat.
 The code lasts ten minutes: "not valid or expired" means they run `pair` again and read you the new one.
 Only the bot's owner or an admin may approve; say who can if their rights refuse it.
 

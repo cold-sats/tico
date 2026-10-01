@@ -80,7 +80,7 @@ class Facts:
         return rows if isinstance(rows, list) else []
 
     def bot(self, slug):
-        return next((b for b in self.bots() if b.get("slug") == slug), {})
+        return next((b for b in self.bots() if b.get("slug") == slug), None) or self.get("bots/" + slug)
 
     def slug(self, given):
         return given or self.bound.get("bot", "")

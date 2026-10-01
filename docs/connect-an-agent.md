@@ -32,6 +32,14 @@ A personal token can use `hub_api` on v2 routes and `hub_bot_update` with the hu
 `on_behalf_of`; BotOps alone uses that to act for the human who asked it. Friendly tools also archive bots, docs and files,
 delete meetings, and run Routines now.
 
+`hub_api` supports bodyless writes, including DELETE. A file read returns its content type and
+either `text` or `base64`, with `bytes` and `truncated`; at most 1 MiB is returned. A human may close
+any task they can edit with `hub_task_close`; `quiet: true` closes without waking a bot. BotOps uses
+the requester's rights for that tool. `hub_bot_model` accepts a `harness` from the model's list.
+For a correction to your active BotOps request, send `hub_message_send` with `in_reply_to` set to
+the original message id, or `steer: true` in the same conversation. The message stays queued until
+the Computer delivers it into the active run; conversation status shows when the follow-up is added.
+
 The token cannot create or revoke tokens or click Confirm cards. Those cards require the human's own click in Tico.
 Ask BotOps to collect Credential values through your chat card. The API pass-through retains the
 human's existing Credential permissions, including storing or revealing values when authorized. A Credential administrator can import a bot's existing Credential with

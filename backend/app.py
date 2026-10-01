@@ -1200,6 +1200,7 @@ def create_app(settings=None):
             repo = config["repo"] or ("emp-" + bot["slug"])
             declared = json.loads(config["config_json"]) if config["config_json"] else {}
             row.update({"description": config["description"] or "",
+                        "harness": resolve_harness(declared, bot.get("runtime")),
                         "reports_to": config["reports_to"], "repo": repo,
                         "repo_url": repo_url(repo, settings.github_owner),
                         "bot_contact": declared.get("bot_contact") or "open",
@@ -1987,7 +1988,7 @@ def create_app(settings=None):
                                                body.labels, body.blocked_by, body.parent_id, body.rank,
                                                body.goal_id)):
                     raise Problem("close", "Close and edit are separate operations", 422)
-                H.task_close(c, who.actor, task_id, note=body.note or "")
+                H.task_close(c, who.actor, task_id, note=body.note or "", quiet=body.quiet)
             else:
                 fields = body.model_dump(exclude={"version", "close", "on_behalf_of"})
                 for name in ("blocked_by", "parent_id"):
@@ -1998,7 +1999,7 @@ def create_app(settings=None):
                 # A bot's own tasks sat 'done' for days because the reviewer is the
                 # same bot. A task its owner asked for itself closes when that owner marks it done.
                 if body.status == "done" and row["owner"] == row["requester"] == who.actor:
-                    H.task_close(c, who.actor, task_id, note=body.note or "")
+                    H.task_close(c, who.actor, task_id, note=body.note or "", quiet=body.quiet)
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
             return {"task": task_view(H.task(c, task_id), c)}
         return mutate(request, body, work)
@@ -2225,6 +2226,14 @@ def create_app(settings=None):
             initial = H.message(c, message_id)
             task_id = H.message_task_id(initial) if initial else None
             task = H.task(c, task_id) if task_id else None
+            if task and task["owner"] == who.actor and not task.get("request_id"):
+                origin = c.execute("SELECT actor FROM events WHERE action='botops.task_requested' AND target=? "
+                                   "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
+                if origin and str(origin["actor"]).startswith("human:"):
+                    auth.conversation(c, who, task["conversation_id"])
+                    person = auth.identity_for_actor(c, origin["actor"])
+                    H.VIA.set("botops")
+                    return replace(person, via="botops")
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 if origin and origin["from_actor"] == task["requester"]:
@@ -2939,12 +2948,11 @@ def create_app(settings=None):
                 raise Problem("forbidden", "Only people register bots", 403)
             created = settings_admin.register(c, who, body)
             if body.build and body.template:
-                if not H.bot(c, "botops"):
-                    raise Problem("not_found", "Add BotOps from Templates to build this bot", 409)
                 current = onboarding._declared(c, body.slug)
                 if not created["created"] and current.get("template") != body.template:
                     raise Problem("template", "Change the bot's template in its definition before building it", 409)
-                created.update(onboarding.attach_template(c, who, body.slug, body.template, "", queue_build=True))
+                created.update(onboarding.attach_template(c, who, body.slug, body.template, body.instructions,
+                                                          queue_build=True, title_prefix=body.title_prefix))
             return created
         return mutate(request, body, work)
 

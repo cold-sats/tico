@@ -139,6 +139,14 @@ def test_upgrade_migration_is_assigned_once_and_never_resurrects_revoked_grants(
         c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(json.dumps(['ops']),FILE_MIGRATION))
     post(api,'runner-credential-migration',values,machine['token'])
     assert get(api,'runner-credential-grants',machine['token'])['bots']=={'ops':[]}
+    # The first pass on an unreported runner preserves a later HUB_ pass for the upgraded runner.
+    from backend.credentials import HUB_MIGRATION
+    with api.app.state.store.read() as c:
+        assert 'ops' in json.loads(c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(HUB_MIGRATION,)).fetchone()[0])
+    post(api,'runners/heartbeat',{'version':'test','platform':'test','release':'0.2.32'},machine['token'])
+    assert get(api,'runner-credential-migration',machine['token'])['bots']==['ops']
+    post(api,'runner-credential-migration',{'bot':'ops','credentials':[]},machine['token'])
+    assert get(api,'runner-credential-migration',machine['token'])['bots']==[]
 
 
 def test_the_hub_pass_adds_only_a_teams_own_hub_keys_to_bots_that_already_migrated(api):
@@ -148,6 +156,14 @@ def test_the_hub_pass_adds_only_a_teams_own_hub_keys_to_bots_that_already_migrat
     with api.app.state.store.transaction() as c:
         c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(json.dumps([]),FILE_MIGRATION))
         c.execute('INSERT OR REPLACE INTO registry_metadata VALUES(?,?)',(HUB_MIGRATION,json.dumps(['ops'])))
+    # An old or unreported runner cannot consume the HUB_ pass, even with an empty POST.
+    for release in ('','0.2.23','0.2.30'):
+        post(api,'runners/heartbeat',{'version':'test','platform':'test','release':release},machine['token'])
+        assert get(api,'runner-credential-migration',machine['token'])['bots']==[]
+        assert not post(api,'runner-credential-migration',{'bot':'ops','credentials':[]},machine['token'])['migrated']
+        with api.app.state.store.read() as c:
+            assert json.loads(c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(HUB_MIGRATION,)).fetchone()[0])==['ops']
+    post(api,'runners/heartbeat',{'version':'test','platform':'test','release':'0.2.31'},machine['token'])
     assert get(api,'runner-credential-migration',machine['token'])['bots']==['ops']
     post(api,'runner-credential-migration',{'bot':'ops','credentials':[{'env':'HUB_TOKEN','value':'x'}]},machine['token'],expected=422)
     post(api,'runner-credential-migration',{'bot':'ops','credentials':[

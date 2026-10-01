@@ -681,6 +681,8 @@ class BotRegister(Contract):
     description: str = Field(default="", max_length=2000)
     reports_to: ID | None = None
     template: str = Field(default="", max_length=80)
+    instructions: str = Field(default="", max_length=50000)
+    title_prefix: str = Field(default="", max_length=100)
     model: ID | None = None
     build: bool = False
     on_behalf_of: ID | None = None

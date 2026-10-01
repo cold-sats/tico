@@ -28,6 +28,11 @@ The Credential's variable-name field becomes an environment variable only for a 
 
 ## The key: nothing to set up
 
+During a server-first upgrade, the one-time import of legacy team `HUB_` variables waits for
+the Computer to report runner 0.2.31 or newer. An older or unreported runner cannot consume that
+step; existing grants keep working. The first import can finish on an older runner while this
+later step remains pending.
+
 The vault works as soon as Tico starts. The AES-256 data key is 32 random bytes made once, the first time a credential is stored,
 and kept in `credential.key` (mode 0600, the server's user) in the data volume next to the database (`/data/credential.key` in the
 Docker install). The database holds only encrypted values and a fingerprint of the key, so a copy of the database alone cannot read them.

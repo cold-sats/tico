@@ -235,6 +235,27 @@ class GitHubApp:
                 c.execute("UPDATE github_app SET administration=? WHERE id='app'", (int(allowed),))
         return allowed
 
+    def delete_repo(self, repository):
+        row = self.row()
+        if not row:
+            raise Problem("github_not_connected", "Connect the GitHub App first", 409)
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository) or any(
+                part in (".", "..") for part in repository.split("/")):
+            raise Problem("github_repo", "Use an owner/name repository", 422)
+        if repository.split("/")[0].lower() != row["org"].lower():
+            raise Problem("github_repo", f"The repository must be in the connected organization ({row['org']})", 422)
+        if not self.can_create_repos(refresh=True):
+            raise Problem("github_app_permissions", "Deleting repositories needs Administration (write) on the GitHub App. "
+                          "Enable it in GitHub and accept the updated installation permissions", 403)
+        token, _ = self.mint([repository], {"administration": "write", "metadata": "read"})
+        response = self._call("DELETE", f"/repos/{repository}", headers={"Authorization": "Bearer " + token})
+        if response.status_code != 204:
+            raise Problem("github_repo_delete", f"GitHub did not delete {repository} (HTTP {response.status_code}). "
+                          "Check the App's repository access and Administration permission", 409)
+        with self.lock:
+            self.cache = {key: value for key, value in self.cache.items() if repository not in key[0]}
+        return {"repository": repository, "deleted": True}
+
     def mint(self, repos, permissions):
         """A token for the repositories (`owner/name` each), or the whole installation when there are none.
         Cached until shortly before it expires."""
@@ -597,4 +618,14 @@ def install_github_app(app, settings, store):
         with store.transaction() as c:
             H.event(c, who.actor, "github.repo_created", result["repository"],
                     {"empty": True} if body.empty else {"template": template})
+        return result
+
+    @app.delete("/api/v2/github/repos/{org}/{repo}")
+    def delete_repo(request: Request, org: str, repo: str):
+        who = request.state.identity
+        if who.role != "owner":
+            raise Problem("forbidden", "Only the owner deletes a GitHub repository", 403)
+        result = service.delete_repo(org + "/" + repo)
+        with store.transaction() as c:
+            H.event(c, who.actor, "github.repo_deleted", result["repository"], {})
         return result

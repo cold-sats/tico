@@ -18,6 +18,20 @@ Reads are delegated the same way, so BotOps sees what the person sees, no more.
 import json
 import re
 
+
+def request_task(c, auth, who, title, body):
+    """A server-generated BotOps job carries the rights of the human who requested it.
+
+    The origin is written here, never taken from task text or caller-supplied references.
+    """
+    from . import rooms
+    from .store import H
+    task = H.task_create(c, who.actor, title, body, H.bot_actor(H.FLEET_MAINTAINER), allow_planned=True,
+                         conversation_id=rooms.task_conversation_id(c, auth, H.bot_actor(H.FLEET_MAINTAINER), who.actor))
+    if who.role in ("owner", "human") and who.via != "assistant":
+        H.event(c, who.actor, "botops.task_requested", task["id"], {})
+    return task
+
 HEADER = "x-tico-on-behalf-of"
 API = "/api/v2/"
 _S = r"[^/]+"
@@ -44,7 +58,7 @@ DO = _routes(
     ("POST", rf"bots/{_S}/(archive|restore)"), ("POST", rf"bots/{_S}/agent-credential"), ("POST", rf"bots/{_S}/agent-credential/revoke"),
     ("POST", r"agents/pairings/(approve|decline)"),
     ("POST", rf"bots/{_S}/access"), ("PUT", rf"bots/{_S}/access"),
-    ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"),
+    ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
     ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),
     ("POST", rf"settings/history/{_S}/undo"),
     ("POST", rf"settings/transitions/{_S}/(apply-without-checkpoint|cancel)"),

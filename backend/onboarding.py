@@ -319,7 +319,7 @@ def _answer_lines(answers):
 
 def setup_body(slug, choice, answers):
     """What BotOps needs to build one bot without asking: the names, the reviewed
-    instructions verbatim, and what the company said about itself."""
+    instructions verbatim, and what the team said about itself."""
     return "\n".join([
         "Create bot-" + slug + " from the " + choice["template"] + " template and bring "
         + choice["display_name"] + " up.",
@@ -327,6 +327,8 @@ def setup_body(slug, choice, answers):
         "- slug: " + slug,
         "- template: " + choice["template"],
         "- display name: " + choice["display_name"],
+        "- requested description and limits: " + (choice.get("description") or "not specified"),
+        "Use this request's scope. Do not inherit a previous bot's tools, repository or Routines.",
         "",
         "Instructions the owner reviewed, for AGENT.md:",
         "",
@@ -542,26 +544,26 @@ class Onboarding:
         H.event(c, who.actor, "bot.onboarded", slug, {})
         return {"bot": slug, "onboarding_state": ONBOARDED, "changed": True}
 
-    def attach_template(self, c, who, slug, template, instructions, *, queue_build=False):
-        """Settings' "add from catalog": the same record and the same BotOps task as the wizard."""
+    def attach_template(self, c, who, slug, template, instructions, *, queue_build=False, title_prefix=""):
+        """Starters are built by their Computer; custom bots get a BotOps task."""
         record = load(c)
         display = (H.bot(c, slug) or {}).get("display_name") or slug
         card = render(self._template(template), display_names(self.settings, record), display)
         declared = self._declared(c, slug)
         choice = {"template": template, "display_name": display,
-                  "instructions": instructions or card["instructions"]}
+                  "instructions": instructions or card["instructions"],
+                  "description": self.admin.definition(c, slug).get("description") or "",
+                  "title_prefix": title_prefix}
+        if choice["description"]:
+            choice["instructions"] += "\n\n## Requested scope\n" + choice["description"] + "\n"
         declared.update(template=template, instructions=choice["instructions"])
         self._write_config(c, slug, declared)
         if card.get("starter") and not card.get("bootstrap"):
             self._make_starter(c, who, slug, template)
             MessageBots.link(c, who.actor, slug, who.actor)
-            if queue_build:
-                declared = self._declared(c, slug)
-                declared["materialize"] = False
-                self._write_config(c, slug, declared)
-                return {"template": template, "onboarding_state": NEEDS_SETUP,
-                        "setup_task_id": self._setup_task(c, who, slug, choice, card, record["answers"])}
             return {"template": template, "setup_task_id": None, "onboarding_state": NEEDS_SETUP}
+        if queue_build and not card.get("bootstrap") and not H.bot(c, BOTOPS):
+            raise Problem("not_found", "Add BotOps from Templates to build this bot", 409)
         declared["template_version"] = releases.version()
         self._write_config(c, slug, declared)
         MessageBots.link(c, who.actor, slug, who.actor)          # a message bot is its person's from the start
@@ -925,10 +927,10 @@ class Onboarding:
             return declared["setup_task_id"]          # completing twice never reopens the work
         title = ("Set up " + choice["display_name"] + " from the " + choice["template"]
                  + " template")
-        task = H.task_create(c, who.actor, title, setup_body(slug, choice, answers),
-                             "bot:" + BOTOPS, allow_planned=True,
-                             conversation_id=rooms.task_conversation_id(
-                                 c, self.auth, "bot:" + BOTOPS, who.actor))
+        if choice.get("title_prefix"):
+            title = choice["title_prefix"].strip() + " " + title
+        from .botops_act import request_task
+        task = request_task(c, self.auth, who, title, setup_body(slug, choice, answers))
         declared["setup_task_id"] = task["id"]
         self._write_config(c, slug, declared)
         return task["id"]

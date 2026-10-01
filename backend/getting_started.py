@@ -193,6 +193,9 @@ def view(c, who, settings, auth, github=None):
 # ------------------------------------------------------------------ actions
 def _task(c, auth, who, owner, title, body):
     from . import rooms
+    if owner == BOTOPS:
+        from .botops_act import request_task
+        return request_task(c, auth, who, title, body)
     return H.task_create(c, who.actor, title, body, "bot:" + owner, allow_planned=True,
                          conversation_id=rooms.task_conversation_id(c, auth, "bot:" + owner, who.actor))
 

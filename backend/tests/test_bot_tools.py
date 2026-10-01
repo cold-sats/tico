@@ -220,6 +220,8 @@ def test_removing_a_tool_is_a_botops_task_and_a_pending_request_can_be_withdrawn
     answer = api.post(f"/api/v2/bots/ops/tools/{pending}/delete", json={}, headers=headers())
     assert answer.status_code == 200 and answer.json()["cancelled"] is True
     assert not any(t["id"] == pending for t in tools_of(api)["tools"])
+    cancelled = get(api, "tasks/" + answer.json()["task_id"])["task"]
+    assert cancelled["status"] == "closed" and "withdrawn" in cancelled["note"]
 
 
 def test_changing_a_tool_is_one_task_and_nothing_is_removed(api):

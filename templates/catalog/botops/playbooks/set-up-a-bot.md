@@ -129,8 +129,9 @@ The requester closes the task. Unless a human asked you in chat to take it live,
 
 ## When it goes sideways
 
-- **The slug already exists.** Stop. Do not overwrite a repository. Say so on the task and ask
-  whether this is a rename, a second bot, or a mistake.
+- **The slug already exists, including archived bots.** Do not overwrite a repository or restore
+  the old bot for a new-bot request. Offer a fresh slug. Restore only when explicitly requested,
+  and use the current request's scope rather than an older bot's Tools, repository or Routines.
 - **The template does not fit the job the answers describe.** Set it up from the closest template
   anyway, say plainly in the note which parts of the instructions you had to write from nothing, and
   suggest what a better template would contain.

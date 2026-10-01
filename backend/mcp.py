@@ -9,8 +9,11 @@ Stateless on purpose: no session id, no server-initiated stream (GET answers 405
 notification such as `notifications/initialized` is accepted with 202 and no body.
 """
 import asyncio
+import base64
 import json
 import time
+from email.message import Message
+from pathlib import PurePosixPath
 
 import httpx
 from fastapi import Request
@@ -21,6 +24,23 @@ from .store import Problem
 
 PATH = "/api/v2/mcp"
 INTERNAL_TIMEOUT_S = 60
+MAX_CONTENT_BYTES = 1024 * 1024
+
+
+def response_content(response):
+    data = response.content[:MAX_CONTENT_BYTES]
+    content_type = response.headers.get("content-type", "application/octet-stream")
+    disposition = Message()
+    disposition["content-disposition"] = response.headers.get("content-disposition", "")
+    if content_type == "application/octet-stream" and (filename := disposition.get_filename()):
+        from clients.bot_files import TYPES
+        content_type = TYPES.get(PurePosixPath(filename).suffix.lower(), content_type)
+    is_text = content_type.startswith("text/") or content_type.split(";", 1)[0] in (
+        "application/json", "application/xml", "application/javascript")
+    return {"content_type": content_type, "bytes": len(data),
+            "truncated": len(response.content) > MAX_CONTENT_BYTES,
+            **({"text": data.decode(response.encoding or "utf-8", errors="replace")} if is_text else
+               {"base64": base64.b64encode(data).decode("ascii")})}
 
 
 class ApiProblem(Exception):
@@ -51,15 +71,18 @@ class InProcessApi:
                 headers = dict(self.headers)
                 if delegate:
                     headers["X-Tico-On-Behalf-Of"] = delegate if isinstance(delegate, str) else "turn"
-                if body is not None:
+                if method.upper() in ("POST", "PUT", "PATCH", "DELETE"):
                     headers["Idempotency-Key"] = key or hubtools_key()
                 return await client.request(method, "/api/v2/" + path, json=body, headers=headers,
                                             params=query or None)
         response = asyncio.run_coroutine_threadsafe(go(), self.loop).result(INTERNAL_TIMEOUT_S + 5)
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
+        if response.headers.get("content-disposition"):
+            payload = response_content(response)
+        else:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = response_content(response)
         if response.status_code >= 400:
             error = payload.get("error", {}) if isinstance(payload, dict) else {}
             if not isinstance(error, dict):

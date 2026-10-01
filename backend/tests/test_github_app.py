@@ -31,6 +31,7 @@ class FakeGitHub:
         self.calls, self.installations = [], [{"id": 77, "account": {"login": "Acme"}}]
         self.ttl = 3600
         self.generate_status = 201
+        self.delete_status = 204
         self.refuse = None                       # (status, message) for every token request
         self.permissions = None                  # the installation's live permissions; None leaves them out
         self.missing, self.selection, self.forbidden = set(), "all", False   # repositories GitHub answers 404 for
@@ -50,6 +51,8 @@ class FakeGitHub:
                 info["permissions"] = self.permissions
             return httpx.Response(200, json=info)
         if path.startswith("/repos/") and path.count("/") == 3:
+            if request.method == "DELETE":
+                return httpx.Response(self.delete_status)
             return httpx.Response(404 if path.split("/")[3] in self.missing else 200, json={})
         if path.endswith("/access_tokens"):
             if self.refuse:
@@ -132,6 +135,44 @@ def test_manifest_contents_and_owner_only(api):
     plain = api.get("/api/v2/github/app/manifest", params={"org": "Acme"}, headers=auth("nobody"))
     assert plain.status_code == 401
     assert api.get("/api/v2/github/app/manifest", params={"org": "bad org!"}, headers=auth()).status_code == 422
+
+
+def test_repository_delete_is_owner_only_scoped_audited_and_never_treats_404_as_success(api, gh):
+    botops_turn(api)
+    connect(api, administration="true")
+    path = "/api/v2/github/repos/Acme/bot-qa-delete"
+    head = {**auth(), "Idempotency-Key": str(uuid.uuid4())}
+    assert api.delete(path, headers={**head, **auth("person-test")}).status_code == 403
+    assert api.delete(path, headers={**head, **auth("botops-test")}).status_code == 403
+    assert api.delete("/api/v2/github/repos/elsewhere/bot-qa-delete", headers=head).status_code == 422
+    assert not any(c[0] == "DELETE" for c in gh.calls)
+    response = api.delete(path, headers=head)
+    assert response.status_code == 200 and response.json() == {"repository": "Acme/bot-qa-delete", "deleted": True}
+    token = gh.of("/access_tokens")[-1][2]
+    assert token == {"repositories": ["bot-qa-delete"], "permissions": {"administration": "write", "metadata": "read"}}
+    with api.app.state.store.read() as c:
+        event = c.execute("SELECT actor,target FROM events WHERE action='github.repo_deleted'").fetchone()
+        assert tuple(event) == ("human:ana", "Acme/bot-qa-delete")
+    from backend import rooms
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('owner',?)", (encode({"email": "ana@acme.example"}),))
+        conversation = rooms.personal_room(c, "human:ana", "botops")
+        c.execute("UPDATE messages SET conversation_id=?,kind='say',body='Delete the QA repository' WHERE id='m-botops'",
+                  (conversation["id"],))
+        c.execute("INSERT INTO attempt_conversations VALUES('a2',?)", (conversation["id"],))
+    delegated = api.delete("/api/v2/github/repos/Acme/bot-qa-delegated", headers={**auth("botops-test"),
+                           "X-Tico-On-Behalf-Of": "turn", "Idempotency-Key": str(uuid.uuid4())})
+    assert delegated.status_code == 200 and delegated.json()["deleted"] and "needs_confirm" not in delegated.json(), delegated.text
+    with api.app.state.store.read() as c:
+        event = c.execute("SELECT actor,detail_json FROM events WHERE action='github.repo_deleted' "
+                          "AND target='Acme/bot-qa-delegated'").fetchone()
+        assert event["actor"] == "human:ana" and '"via": "botops"' in event["detail_json"]
+    gh.delete_status = 404
+    response = api.delete(path, headers={**auth(), "Idempotency-Key": str(uuid.uuid4())})
+    assert response.status_code == 409 and "did not delete" in response.json()["error"]["detail"]
+    gh.permissions = {"administration": "read"}
+    response = api.delete(path, headers={**auth(), "Idempotency-Key": str(uuid.uuid4())})
+    assert response.status_code == 403 and "Administration" in response.json()["error"]["detail"]
 
 
 def test_state_is_single_use_and_bound_to_session(api, gh):

@@ -123,7 +123,7 @@ def test_every_scenario_is_done_by_its_script(api, botops, scenario):
 
 def test_the_scenarios_name_only_checks_that_exist_and_say_what_they_cost():
     everything = live.scenarios()
-    assert len(everything) == 6 and all(s.get("prompt") and s.get("done") and "limits" in s for s in everything)
+    assert len(everything) == 7 and all(s.get("prompt") and s.get("done") and "limits" in s for s in everything)
     facts = score.Facts(Server(None), "x")
     for s in everything:
         for predicate in s["done"]:
