@@ -34,7 +34,7 @@ the credential.
 
 - **No MCP client.** OpenClaw 2026.3 cannot connect to an MCP server, so nothing is added to its config. The
   credential is in `tico.env` in the profile's state folder (mode 600) and in
-  `~/.config/tico/agents/openclaw-<name>.json`. The skill calls every `hub_*` tool through the connector:
+  `~/.config/tico/agents/openclaw-<name>.json`. The skill calls the Tico tools this bot may use through the connector:
   `python3 ~/.config/tico/agents/hermes_agent.py call --harness openclaw --profile <name> hub_message_list`
   (one HTTPS call to Tico's MCP endpoint with the bot's token; the agent never sees the token).
 - **Profiles.** `--profile <name>` is OpenClaw's own `--profile`: state in `~/.openclaw-<name>`. Leave it out

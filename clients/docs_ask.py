@@ -45,6 +45,15 @@ def result(text):
     return {"answer": text, "citations": parse_citations(text), "covered": covered(text)}
 
 
+def final_reply(snapshot, message_id):
+    replies = [message for message in snapshot.get("messages") or []
+               if message.get("in_reply_to") == message_id and message.get("from_actor") == "bot:" + LIBRARIAN]
+    execution = snapshot.get("execution") or {}
+    if execution.get("state") in ("queued", "leased", "running", "input", "uncertain"):
+        return None
+    return max(enumerate(replies), key=lambda pair: (pair[1].get("created", ""), pair[0]))[1] if replies else None
+
+
 def ask(api, question, wait_s=120, key=None, sleep=time.sleep, clock=time.monotonic):
     wait = max(0, min(int(wait_s or 0), WAIT_MAX))
     deadline = clock() + wait
@@ -53,9 +62,8 @@ def ask(api, question, wait_s=120, key=None, sleep=time.sleep, clock=time.monoto
         msg = api.post("messages", {"to": LIBRARIAN, "text": question, "kind": "ask", "wait_s": wait},
                        key=suffix(":ask"))
         while True:
-            answers = api.get("answers", ids=msg["id"])
-            if msg["id"] in answers:
-                answer = answers[msg["id"]]
+            snapshot = api.get(f"conversations/{msg['conversation_id']}/snapshot")
+            if answer := final_reply(snapshot, msg["id"]):
                 api.post(f"messages/{answer['id']}/ack", {}, key=suffix(":ack"))
                 return result(answer["body"])
             if clock() >= deadline:
@@ -64,9 +72,8 @@ def ask(api, question, wait_s=120, key=None, sleep=time.sleep, clock=time.monoto
     sent = api.post("docs/ask", {"question": question}, key=suffix(":ask"))
     while True:
         snapshot = api.get(f"conversations/{sent['conversation_id']}/snapshot")
-        for message in snapshot.get("messages") or []:
-            if message.get("in_reply_to") == sent["message_id"] and message.get("from_actor") == "bot:" + LIBRARIAN:
-                return result(message["body"])
+        if message := final_reply(snapshot, sent["message_id"]):
+            return result(message["body"])
         if clock() >= deadline:
             return {"timeout": True}
         sleep(2)

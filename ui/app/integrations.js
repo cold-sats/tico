@@ -6,7 +6,7 @@
 // One page per outside system (integrations/*.md, served by GET /api/v2/tools): what it
 // is, how a bot uses it, the rules, the query list, and the learnings bots and humans add.
 // Everyone signed in reads; anyone adds a learning; the owner deletes one.
-const INTEGRATION_KIND = {api: 'API', sql: 'SQL', browser: 'Browser', mail: 'Email', cli: 'CLI'};
+const INTEGRATION_KIND = {api: 'API', sql: 'SQL', browser: 'Browser', mail: 'Email', cli: 'CLI', mcp: 'MCP'};
 let INT_LOAD = 0, INT_ROWS = [], INT_CRED_SERVICE = '';
 const credEnvs = texts => {
   const out = [];
@@ -93,7 +93,7 @@ async function pageIntegrations() {
   if (!service) {
     $('#main').innerHTML = `<div class="int-page"><div class="meeting-head"><div><h1>Tools</h1></div>
       ${S.me?.credential_access ? '<a class="ghost" href="#int-vault" data-int-vault-link>Credentials</a>' : ''}</div>
-      <section class="card"><input id="int-filter" class="int-search" type="search" autocomplete="off" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter tools">
+      <section class="card"><header><h2>Available tools</h2></header><input id="int-filter" class="int-search" type="search" autocomplete="off" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter tools">
       <div id="int-list"><div class="empty">Loading…</div></div></section>
       ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
       ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
@@ -111,10 +111,11 @@ async function pageIntegrations() {
       if (!list) return;
       const q = ($('#int-filter')?.value || '').toLowerCase().trim();
       const shown = INT_ROWS.filter(r => !q || [r.service, r.title, r.kind, r.summary, r.access, ...(r.credentials || []), ...(r.aliases || [])].join(' ').toLowerCase().includes(q));
-      list.innerHTML = shown.length ? `<table class="int-list"><thead><tr><th>Tool</th><th>Description</th><th>Credentials</th><th></th></tr></thead><tbody>${shown.map(r =>
+      list.innerHTML = shown.length ? `<table class="int-list"><thead><tr><th>Tool</th><th>Status</th><th>Bots</th><th>Credentials</th><th></th></tr></thead><tbody>${shown.map(r =>
         `<tr><td><a href="${INTEGRATIONS}/${esc(r.service)}" title="hub tool show ${esc(r.service)}">${esc(r.title)}</a>
           <div class="muted">${esc(INTEGRATION_KIND[r.kind] || r.kind)} · ${esc(r.writes)}</div></td>
-          <td>${esc(r.summary)}</td>
+          <td>${esc(({ready: 'Ready', problem: 'Needs attention', pending: 'Pending', unknown: 'Not checked', not_configured: 'Not configured'})[r.status] || 'Not checked')}</td>
+          <td>${(r.bots || []).map(bot => `<a href="#/bot/${encodeURIComponent(bot)}">${esc(bot)}</a>`).join(', ') || '—'}</td>
           <td class="int-creds">${credSummary(r.credentials)}</td>
           <td><button class="int-key" type="button" data-int-cred="${esc(r.service)}" title="Credentials for ${esc(r.title)}" aria-label="Credentials for ${esc(r.title)}">key_vertical</button></td></tr>`).join('')}</tbody></table>`
         : `<div class="empty">${INT_ROWS.length ? 'No tool matches.' : 'No tools.'}</div>`;

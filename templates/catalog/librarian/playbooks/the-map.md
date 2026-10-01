@@ -5,6 +5,10 @@ them and so a fresh session starts from what was learned, not from nothing. It i
 hundredth question cheaper than the first. You are the only one who writes it; anyone may read it. It is
 a cache: when it disagrees with a doc, the doc wins and the map is fixed.
 
+Use team wording in titles: "Team glossary", "Docs index" and "Where things live". Keep `_librarian/` paths unchanged.
+An empty glossary says "No team terms are defined yet"; do not invent terms to fill it. Use `docs/glossary.md` for Tico's
+product words and its "Instead of" mappings.
+
 Write each with `hub doc write <path> --title "<title>" --body-file <file> --note "<what changed>"`.
 That creates or updates; a version conflict is re-read and retried once. Read one with `hub doc read`.
 

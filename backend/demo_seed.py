@@ -79,8 +79,9 @@ def write_registry(settings):
                           "description": card.get("summary", "")})
     (registry / "employees.yaml").write_text(yaml.safe_dump(
         {"defaults": {"reasoning_effort": "high", "max_run_minutes": 60}, "employees": employees}, sort_keys=False))
+    people = [dict(person, **({"inbox_bot": "inbox"} if person["id"] == "ben" else {})) for person in D.PEOPLE]
     (registry / "people.yaml").write_text(yaml.safe_dump(
-        {"default_user": "ana", "teams": {"leadership": {"root": "coo"}}, "people": D.PEOPLE}, sort_keys=False))
+        {"default_user": "ana", "teams": {"leadership": {"root": "coo"}}, "people": people}, sort_keys=False))
     (registry / "hub-access.yaml").write_text(yaml.safe_dump(
         {"owner": D.PEOPLE[0]["email"], "allowed_domains": ["acme.example"],
          "allowed": [p["email"] for p in D.PEOPLE], "bot_admins": []}))
@@ -137,6 +138,8 @@ class Builder:
             self.meetings()
             self.updates()
             self.history()
+            self.messaging()
+            self.files()
             self.finish()
 
     def write(self, work):
@@ -195,9 +198,9 @@ class Builder:
                 json={"version": RUNNER_VERSION, "platform": platform, "capacity": 4, "readiness": readiness,
                       "checkout": {"head": SEED_SHA, "running": SEED_SHA, "ahead": 0, "behind": 0,
                                    "checked_at": self.ago(hours=1).strftime("%Y-%m-%dT%H:%M:%SZ")}}).raise_for_status()
-        # The Mac hosts most bots; the Linux box hosts Inbox and Market Analyst.
+        # The Linux box hosts Inbox alone; the Mac hosts the other bots.
         for slug, _, _ in D.BOTS:
-            target = self.linux if slug in ("inbox", "market-analyst") else self.mac
+            target = self.linux if slug == "inbox" else self.mac
             with self.store.read() as c:
                 have = c.execute("SELECT runner_id,generation FROM assignments WHERE bot=?", (slug,)).fetchone()
             if have and have["runner_id"] == target["runner_id"]:
@@ -400,11 +403,12 @@ class Builder:
         def work(c):
             for bot, hours, trigger, summary, tokens_in, tokens_out in D.TURNS:
                 self.at(hours=hours)
-                turn = hubdb.turn_start(c, hubdb.KEEPER, bot, trigger=trigger)
+                request = hubdb.say(c, "human:ana", "bot:" + bot, "Demo run: " + summary)
+                turn = hubdb.turn_start(c, hubdb.KEEPER, bot, trigger=trigger, message_id=request["id"])
                 self.clock.at += timedelta(minutes=4)
                 model, provider, billing = D.USAGE[bot]
                 cached = tokens_in * 2 // 3
-                hubdb.turn_finish(c, hubdb.KEEPER, turn["id"], "ok", tokens_in, tokens_out,
+                hubdb.turn_finish(c, hubdb.KEEPER, turn["id"], "completed", tokens_in, tokens_out,
                                   round((tokens_in * 5 + tokens_out * 25) / 1_000_000, 2), summary,
                                   usage={"input_tokens": tokens_in - cached, "cached_tokens": cached,
                                          "output_tokens": tokens_out, "model": model, "provider": provider,
@@ -415,6 +419,64 @@ class Builder:
             for bot, focus in D.FOCUS.items():
                 hubdb.status_set(c, hubdb.KEEPER, bot, state="idle", focus=focus)
         self.write(work)
+
+    def messaging(self):
+        self.at(hours=2)
+        address = "ben@acme.example"
+        messages = []
+        for index, (subject, body, labels, sender) in enumerate([
+            ("Help with CSV exports", "Can you help us export this month's project list?", ["INBOX", "hub/needs-owner"], "sam@example.com"),
+            ("Re: Help with CSV exports", "Draft: Open Projects, choose Export, then CSV. Tell us if you need help.", ["DRAFT", "hub/drafted"], address),
+            ("Trial follow-up", "Thanks for the walkthrough. We are ready to try the Team plan.", ["INBOX"], "ana@example.com"),
+        ]):
+            at = self.ago(hours=2 - index / 4)
+            messages.append({"msg_id": f"demo-mail-{index}", "thread_id": "demo-export" if index < 2 else "demo-trial",
+                             "epoch": int(at.timestamp()), "date": at.isoformat(), "from_addr": sender,
+                             "from_header": sender, "to": ["sam@example.com" if index == 1 else address],
+                             "subject": subject, "snippet": body[:120], "body": body, "labels": labels})
+        self.call("POST", "connectors/mail/messages", {"mailbox": address, "messages": messages, "synced_at": H.now()},
+                  token=self.linux["token"])
+        self.call("POST", "slack/channels", {"channel": "CDEMOTEAM1", "name": "support", "readers": ["support"],
+                                              "post": False, "note": "Demo support channel"})
+
+        def work(c):
+            c.execute("INSERT INTO mail_agent_instructions VALUES(?,?,?,?)",
+                      ("inbox", "# Instructions\n\nTriage mail and draft replies for review.", self.linux["runner_id"], H.now()))
+            timestamp = str(int(self.ago(hours=1).timestamp())) + ".000001"
+            for index, text in enumerate(["A customer needs the CSV export steps.", "Draft reply: Open Projects > Export > CSV."]):
+                ts = str(int(self.ago(hours=1 - index / 4).timestamp())) + ".000001"
+                c.execute("INSERT INTO slack_events(event_id,team_id,channel,channel_kind,thread_ts,ts,user_id,event_type,text,received,state,author,author_name,updated) "
+                          "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (f"demo-slack-{index}", "TDEMOTEAM1", "CDEMOTEAM1", "channel", timestamp, ts,
+                           "UDEMOTEAM1", "message", text, H.now(), "stored", "human" if index == 0 else "bot", "Sam" if index == 0 else "Support", H.now()))
+            conv = H.open_conversation(c, H.KEEPER, [H.KEEPER, "bot:support"], kind="chat", subject="Slack support", scope="direct")
+            message = H.feed(c, "bot:support", "Review the support channel's CSV export thread.", conv)
+            c.execute("INSERT INTO slack_threads VALUES(?,?,?,?,?,?)", ("CDEMOTEAM1", timestamp, "support", conv["id"], H.now(), H.now()))
+            c.execute("INSERT INTO slack_posts(message_id,channel,thread_ts,bot,text,state,created,updated) VALUES(?,?,?,?,?,?,?,?)",
+                      (message["id"], "CDEMOTEAM1", timestamp, "support", "Draft: Open Projects > Export > CSV.", "ready", H.now(), H.now()))
+            c.execute("INSERT INTO slack_reads VALUES(?,?,?,?,?)", ("CDEMOTEAM1", "support", timestamp, H.now(), 1))
+        self.write(work)
+
+    def files(self):
+        from .blobs import register
+        files, blobs = self.api.app.state.files, self.api.app.state.blobs
+        examples = [
+            ("support", "exports/ticket-summary.csv", "text/csv", "topic,tickets\nCSV exports,12\nBilling,8\n"),
+            ("content", "reports/launch.md", "text/markdown", "# Launch report\n\nFirst draft: the Team plan walkthrough is ready.\n"),
+            ("content", "reports/launch.md", "text/markdown", "# Launch report\n\nReviewed draft: added the CSV export steps and customer feedback.\n"),
+        ]
+        for index, (bot, path, mime, text) in enumerate(examples):
+            self.at(hours=6 - index)
+            data = text.encode()
+            digest = blobs.put(data)
+            def work(c):
+                item = register(c, Identity("bot:" + bot, "bot"), digest, len(data), path.rsplit("/", 1)[-1], mime)
+                files.add_version(c, bot=bot, actor="bot:" + bot, scope="bot", task=None, conversation=None, attempt="",
+                                  identity="repo:" + path, title=path, name=item["name"], mime=mime, blob_id=item["id"],
+                                  digest=digest, size=len(data), repo_path=path)
+            self.write(work)
+        self.call("POST", "files/links", {"bot": "sales", "url": "https://docs.example.com/demo-renewal-brief",
+                                         "title": "Demo renewal brief (sample link)"})
 
     def finish(self):
         """Nothing is left waiting for a bot: every message reads as delivered and no job is queued."""

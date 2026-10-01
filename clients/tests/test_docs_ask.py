@@ -23,7 +23,9 @@ class Api:
 
 
 def test_a_bot_asks_with_an_ask_message_and_gets_the_answer():
-    api = Api("bot", [{}, {"m1": {"id": "a1", "body": ANSWER}}])
+    api = Api("bot", [{"messages": [], "execution": {"state": "running"}},
+                      {"messages": [{"id": "a1", "in_reply_to": "m1", "from_actor": "bot:librarian", "body": ANSWER}],
+                       "execution": {"state": "completed"}}])
     out = D.ask(api, "How long do refunds take?", 30, sleep=lambda s: None)
     assert out["covered"] and len(out["citations"]) == 2 and out["answer"].startswith("Refunds")
     sent = next(c for c in api.calls if c[:2] == ("POST", "messages"))
@@ -43,3 +45,11 @@ def test_the_cli_and_the_tools_declare_ask_and_fetch_and_the_server_never_offers
     assert "Unknown tool" in hubtools.Protocol(None).handle(call)["error"]["message"]
     refused = hubtools.Protocol(None, local=True).handle(call)["result"]
     assert refused["isError"] is False and refused["structuredContent"]["error"] == "private_address"
+
+
+def test_a_person_waits_for_the_completed_run_and_gets_the_latest_correction():
+    partial = {"in_reply_to": "m1", "from_actor": "bot:librarian", "body": "Pair the profile: .", "created": "1"}
+    final = {**partial, "body": "Run `python3 hermes_agent.py pair`, then `/reload-mcp`.", "created": "2"}
+    api = Api("human", [{"messages": [partial], "execution": {"state": "running"}},
+                        {"messages": [partial, final], "execution": {"state": "completed"}}])
+    assert D.ask(api, "Connect Hermes", 30, sleep=lambda s: None)["answer"] == final["body"]

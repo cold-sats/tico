@@ -119,8 +119,8 @@ def _repo_tool(settings, bot, repo, report):
         return None
     name = (url.split("github.com/", 1)[-1] if "github.com/" in url else url).removesuffix(".git")
     tool = {"id": "repo", "service": "github", "name": "GitHub", "logo_key": "github", "identity": name,
-            "can": [], "scope": {"repo": name}, "note": "", "url": url,
-            "status": "unknown", "detail": "The repository that holds this bot's instructions and memory."}
+            "can": ["read", "write", "issues", "pull_requests"], "scope": {"repo": name}, "note": "", "url": url,
+            "status": "unknown", "detail": "Own repository: instructions and memory. Token capabilities are separate from declared tool policy."}
     if report.get("repository_present") is True:
         tool["status"] = "ready"
     elif report.get("repository_present") is False:
@@ -207,6 +207,21 @@ def granted(c, bot, raw):
             for e in raw]
 
 
+def agent_report(c, bot, tools):
+    raw = []
+    for tool in tools:
+        try:
+            entry = access_entry.clean(tool.model_dump())
+        except access_entry.EntryError as exc:
+            raise Problem(exc.code, str(exc), 422) from None
+        raw.append({key: entry[key] for key in ("service", "identity", "can", "env", "note", "mcp") if key in entry}
+                   | {"scope": access_entry.scope_of(entry), "credential": "not-declared"})
+    c.execute("INSERT INTO registry_metadata(key,value_json) VALUES(?,?) "
+              "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+              ("agent-tools:" + bot, encode({"tools": raw, "reported_at": H.now()})))
+    reconcile(c, {bot: raw}, complete=True)
+
+
 def _state(c, settings, bot):
     row = c.execute("SELECT config_json,repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
     config = H._json(row["config_json"], {}) if row else {}
@@ -217,9 +232,15 @@ def _state(c, settings, bot):
     report = (readiness.get("bots") or {}).get(bot)
     report = report if isinstance(report, dict) else {}
     label = (runner["label"] if runner else "") or "its computer"
+    external = resolve_harness(config) in EXTERNAL_HARNESSES
+    agent = c.execute("SELECT profile,last_seen,revoked_at FROM agents WHERE bot=?", (bot,)).fetchone() if external else None
+    if external:
+        stored = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", ("agent-tools:" + bot,)).fetchone()
+        report = H._json(stored[0], {}) if stored else {}
+        label = (agent["profile"] if agent else "") or "its external profile"
     used = {"model", "repo"}
     raw = granted(c, bot, [entry for entry in report.get("tools") or [] if isinstance(entry, dict)])
-    return {"row": row, "config": config, "runner": runner, "readiness": readiness, "report": report, "label": label,
+    return {"row": row, "config": config, "runner": runner, "agent": agent, "readiness": readiness, "report": report, "label": label,
             "raw": raw, "declared": [_declared_tool(entry, used, label) for entry in raw]}
 
 
@@ -246,12 +267,20 @@ def listing(c, settings, bot):
     online = bool(runner and not runner["revoked_at"] and runner["last_seen"]
                   and runner["last_seen"] > H.shift(H.now(), seconds=-ONLINE_WITHIN_S))
     declared = state["declared"]
+    external = resolve_harness(state["config"]) in EXTERNAL_HARNESSES
+    if external:
+        for tool in declared:
+            if tool["status"] == "unknown":
+                tool["detail"] = "Declared by the external profile; Tico has not checked its connection or credential"
     requests = _requests(c, bot)
     for request in requests:
         if request["kind"] in ("remove", "update"):
             for tool, entry in zip(declared, state["raw"]):
                 if _same(entry, request["entry"]):
                     tool["pending"], tool["task_id"] = request["kind"], request["task_id"]
+                    if external:
+                        tool["detail"] = "Waiting for this external profile to report the changed tool list"
+                        continue
                     tool["detail"] = ("Removal requested; waiting for BotOps to take it out of bot.yaml"
                                       if request["kind"] == "remove" else
                                       "A change is requested; waiting for BotOps to update it in bot.yaml")
@@ -266,14 +295,35 @@ def listing(c, settings, bot):
                     '{"inbox_bot": "' + bot + '", "mailbox": "<address>"}'))
     adding = [_pending_tool(r) for r in requests if r["kind"] == "add"
               and not any(_same(entry, r["entry"]) for entry in state["raw"])]
+    if external:
+        for tool in adding:
+            tool["detail"] = "Waiting for this external profile to configure and report the tool"
     tools = [_model_tool(c, settings, bot, state["config"], state["readiness"], label)]
-    # A declared GitHub access names the repository itself; a second GitHub icon would say nothing new.
-    repo = None if any(tool["service"].lower() in ("github", "github-app") for tool in declared) \
-        else _repo_tool(settings, bot, state["row"] and state["row"]["repo"], report)
+    repo = _repo_tool(settings, bot, state["row"] and state["row"]["repo"], report)
     if repo:
-        tools.append(repo)
+        matching = next((tool for tool in declared if tool["service"].lower() in ("github", "github-app")
+                         and str(tool["scope"].get("repo") or tool["identity"]).lower() == repo["identity"].lower()), None)
+        if matching:
+            matching["detail"] += "; own repository: instructions and memory"
+        else:
+            tools.append(repo)
+    from .github_app import extra_repos
+    extras = extra_repos(c, bot)
+    represented = {str(tool.get("scope", {}).get("repo") or tool.get("identity") or "").lower()
+                   for tool in tools + declared if tool["service"].lower() in ("github", "github-app")}
+    for index, name in enumerate(extras):
+        if name.lower() in represented:
+            continue
+        tools.append({"id": f"github-extra-{index}", "service": "github", "name": "GitHub", "logo_key": "github",
+                      "identity": name, "can": ["read", "write", "issues", "pull_requests"], "scope": {"repo": name},
+                      "note": "", "url": "https://github.com/" + name, "status": "unknown",
+                      "detail": "Granted repository. Token capabilities are separate from declared tool policy."})
+    agent = state["agent"]
+    if agent:
+        online = bool(not agent["revoked_at"] and agent["last_seen"] and
+                      agent["last_seen"] > H.shift(H.now(), seconds=-180))
     return {"bot": bot, "tools": tools + declared + adding, "computer": label if runner else None, "online": online,
-            "reported_at": runner["last_seen"] if runner else None}
+            "reported_at": runner["last_seen"] if runner else report.get("reported_at")}
 
 
 # ----------------------------------------------------------------------------- registering
@@ -307,10 +357,20 @@ def _task_text(verb, bot, name, entry, computer, repo=None):
 
 def _request_task(c, auth, who, verb, bot, name, entry, computer, taken, repo=None):
     from . import getting_started as G
-    G._botops(c)
+    external = resolve_harness(H._json(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()[0], {})) in EXTERNAL_HARNESSES
+    if not external:
+        G._botops(c)
     title = f"{VERBS[verb][0]} {name} access {VERBS[verb][1]} {bot}"
     if taken:
         title += f" ({taken + 1})"        # the hub refuses a second live task with the same title
+    if external:
+        text = (f"{VERBS[verb][0]} {name} in your external profile. Use the entry below as the tool's scope. "
+                "For Hermes, configure the tool or MCP server in this profile's config.yaml; for OpenClaw, "
+                "configure the profile's tool or skill. Keep credential values in the profile's credential store, never on this task.\n\n"
+                + access_entry.to_yaml(entry) + "\nAfter checking the tool, report the full current list with "
+                "hub_tool_report (or python3 hermes_agent.py call --profile <name> hub_tool_report '{\"tools\": [...]}'). "
+                "Use an empty list when the last tool was removed. Then finish this task.")
+        return G._task(c, auth, who, bot, title, text)
     return G._task(c, auth, who, G.BOTOPS, title, _task_text(verb, bot, name, entry, computer, repo))
 
 
@@ -338,6 +398,8 @@ def register(c, auth, settings_admin, settings, who, bot, body):
                                             task["id"], who.actor, H.now()))
     H.event(c, who.actor, "bot.tool_requested", bot, {"service": entry["service"], "task": task["id"]})
     tool = _pending_tool(dict(id=rid, entry=entry, service=entry["service"], task_id=task["id"]))
+    if resolve_harness(state["config"]) in EXTERNAL_HARNESSES:
+        tool["detail"] = "Waiting for this external profile to configure and report the tool"
     return {"tool": tool, "task_id": task["id"], "yaml": access_entry.to_yaml(entry), "credentials": CREDENTIALS_NOTE}
 
 
@@ -454,7 +516,7 @@ def update(c, auth, settings_admin, settings, who, bot, tool_id, body):
             "credentials": CREDENTIALS_NOTE}
 
 
-def reconcile(c, reported):
+def reconcile(c, reported, complete=False):
     """Close the requests a heartbeat's report has caught up with. `reported` is {bot: the report's tools}.
     A listed entry closes its request to add it; an entry that is gone closes its request to remove it,
     once the report lists something (a runner from before the report lists nothing at all) or the
@@ -469,7 +531,7 @@ def reconcile(c, reported):
                 settled = any(_same(entry, request["entry"]) and _changed(request["entry"], entry) for entry in raw)
             else:
                 settled = listed if request["kind"] == "add" else (not listed and (
-                    raw or request["created"] < H.shift(H.now(), seconds=-600)))
+                    complete or raw or request["created"] < H.shift(H.now(), seconds=-600)))
             if settled:
                 c.execute("UPDATE bot_tool_requests SET state='done' WHERE id=?", (request["id"],))
 

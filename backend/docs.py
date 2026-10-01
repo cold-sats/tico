@@ -1,4 +1,4 @@
-"""Docs: the company's written knowledge (docs/docs.md).
+"""Docs: the team's written knowledge (docs/docs.md).
 
 Two kinds of thing live here. **Internal docs** are Markdown written, pasted or imported in Tico:
 every change is a version, any version can be restored, and an owner or bot administrator can lock
@@ -538,8 +538,8 @@ class Docs:
             return {"results": self.find(c, q, limit)}
 
     def find(self, c, q, limit=20):
-        """Internal docs (FTS5 bm25, else LIKE) and linked docs, best first, each with its `type`."""
-        tokens = re.findall(r"\w+", str(q).casefold())[:12]
+        """Internal sections and linked docs, best first, each with its `type`."""
+        tokens = manual.query_words(q)
         if not tokens:
             raise Problem("query", "Search needs at least one word", 422)
         results = self.find_internal(c, tokens, limit) + self.find_linked(c, tokens)
@@ -547,29 +547,24 @@ class Docs:
         return results[:limit]
 
     def find_internal(self, c, tokens, limit):
-        if has_fts(c):
-            for expr in self.expressions(tokens):
-                try:
-                    rows = c.execute(
-                        "SELECT d.id,d.path,d.title,d.body,snippet(docs_fts,2,'','','…',28) AS hit,"
-                        "bm25(docs_fts,8.0,4.0,1.0) AS rank FROM docs_fts JOIN docs d ON d.rowid=docs_fts.rowid "
-                        "WHERE docs_fts MATCH ? AND d.archived=0 ORDER BY rank LIMIT ?", (expr, limit)).fetchall()
-                except sqlite3.OperationalError:
-                    rows = []
-                if rows:
-                    return [{"type": "internal", "id": r["id"], "path": r["path"], "title": r["title"],
-                             "excerpt": " ".join((r["hit"] if r["hit"] and "…" != r["hit"] else r["body"][:220]).split()),
-                             "score": round(INTERNAL_BONUS - r["rank"], 3)} for r in rows]
-            return []
         out = []
-        for r in c.execute("SELECT id,path,title,body FROM docs WHERE archived=0"):
-            low = (r["title"] + " " + r["path"]).casefold(), r["body"].casefold()
-            if all(t in low[0] or t in low[1] for t in tokens):
-                score = sum(5 * (t in low[0]) + min(low[1].count(t), 5) for t in tokens)
-                at = min((low[1].find(t) for t in tokens if t in low[1]), default=0)
-                out.append({"type": "internal", "id": r["id"], "path": r["path"], "title": r["title"],
-                            "excerpt": " ".join(r["body"][max(0, at - 60):at + 160].split()),
-                            "score": INTERNAL_BONUS + score})
+        weights = manual.query_weights(tokens)
+        sql, params = "SELECT id,path,title,body FROM docs WHERE archived=0", ()
+        if has_fts(c):
+            expression = " OR ".join('"' + manual._stem(token) + '"*' for token in tokens)
+            sql += " AND rowid IN (SELECT rowid FROM docs_fts WHERE docs_fts MATCH ?)"
+            params = (expression,)
+        for row in c.execute(sql, params):
+            page = manual.page_text(row["path"], row["body"], row["title"])
+            best = manual.best_section(page, tokens, weights)
+            if not best:
+                continue
+            score, section = best
+            if row["path"].startswith("_librarian/"):
+                score *= 0.2
+            out.append({"type": "internal", "id": row["id"], "path": row["path"], "title": row["title"],
+                        "section": section["heading"], "anchor": section["anchor"],
+                        "excerpt": manual._excerpt(section["body"], tokens), "score": round(score, 3)})
         return sorted(out, key=lambda r: -r["score"])[:limit]
 
     @staticmethod
@@ -658,8 +653,8 @@ def install_docs(app, store, auth, mutate):
     def search_docs(request: Request, q: str = Query(min_length=1, max_length=500),
                     limit: int = Query(default=20, ge=1, le=50),
                     collection: str = Query(default="company", pattern="^(company|manual|all)$")):
-        """`company` (the default) is the company's docs; `manual` is the read-only Tico manual (backend/manual.py);
-        `all` is the company's first, then the manual's, each result labelled with its collection."""
+        """`company` (the default) is the team's docs; `manual` is the read-only Tico manual (backend/manual.py);
+        `all` ranks team and manual sections together, each labelled with its collection."""
         who = request.state.identity
         docs.reader(who)
         if collection == "manual":
@@ -667,6 +662,8 @@ def install_docs(app, store, auth, mutate):
         found = docs.search(who, q, limit)["results"]
         if collection == "all":
             found = [{**r, "collection": "company"} for r in found] + manual.search(q, limit)
+            found.sort(key=lambda row: (-row["score"], row["type"] == "linked", row["title"].casefold()))
+            found = found[:limit]
         return {"results": found}
 
     @app.get("/api/v2/docs/manual")

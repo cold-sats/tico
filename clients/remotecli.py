@@ -40,13 +40,15 @@ def run(args, who=None):
         return integrations(client, args)
     if fn in ("bot copy", "bot update-from-original", "bot suggest-to-original", "skill copy"):
         return via_tool(client, args)              # they work in this computer's workspace (clients/botcopy.py)
+    if fn == "tool report":
+        return via_tool(client, args, tools=json.loads(args.tools))
     if args.cmd == "template" or (args.cmd == "bot" and args.sub not in ("status", "recent", "repo-create")):
         return bots(client, args)
     if fn in ("bot repo-create", "human add", "human list", "group list", "group update", "tool list", "tool learn", "tool add", "tool update", "tool remove",
               "update create", "update list", "update show", "update mark-read", "update reply", "update settings",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
               "brief", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "run list",
-              "message list", "message mark-read", "bot recent", "agent pair approve", "agent pair decline",
+              "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import"):
         if fn == "routine update":                  # --enable / --disable are the tool's `enabled`; a key or an id names it
             more = {"text": Path(args.text_file).read_text()} if args.text_file else {}

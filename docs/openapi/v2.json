@@ -48,7 +48,7 @@
     },
     {
       "name": "Docs",
-      "description": "The company's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both."
+      "description": "The team's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both."
     },
     {
       "name": "Assistant",
@@ -107,7 +107,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -167,7 +174,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -201,7 +215,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -245,7 +266,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -301,7 +329,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -365,7 +400,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -419,7 +461,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -463,7 +512,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -516,7 +572,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -595,7 +658,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -640,7 +710,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -679,7 +756,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BotAccess"
+                  "$ref": "#/components/schemas/BotAccessView"
                 }
               }
             }
@@ -695,7 +772,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -732,7 +816,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BotAccess"
+                  "$ref": "#/components/schemas/BotAccessView"
                 }
               }
             }
@@ -748,7 +832,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -813,7 +904,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -858,7 +956,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -922,7 +1027,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -977,7 +1089,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1022,7 +1141,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1084,7 +1210,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1147,7 +1280,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1220,7 +1360,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1293,7 +1440,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1336,7 +1490,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1400,7 +1561,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1462,7 +1630,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1472,7 +1647,7 @@
     },
     "/api/v2/config": {
       "get": {
-        "summary": "Company and app names, version, setup state",
+        "summary": "Team and app names, version, setup state",
         "operationId": "getConfig",
         "responses": {
           "200": {
@@ -1496,7 +1671,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1541,7 +1723,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1551,7 +1740,7 @@
     },
     "/api/v2/context/search": {
       "get": {
-        "summary": "Search company documents",
+        "summary": "Search team documents",
         "operationId": "searchDocs",
         "parameters": [
           {
@@ -1615,7 +1804,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1683,7 +1879,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1723,7 +1926,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1811,7 +2021,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1873,7 +2090,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1918,7 +2142,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -1973,7 +2204,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2018,7 +2256,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2088,7 +2333,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2130,7 +2382,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2151,7 +2410,7 @@
     },
     "/api/v2/docs/ask": {
       "post": {
-        "summary": "Ask the Librarian a question about the company's docs. It goes to the caller's own private docs conversation; `results` is the instant search (same shape as docs/search) and the answer streams on GET /api/v2/conversations/{cid}/watch",
+        "summary": "Ask the Librarian a question about the team's docs. It goes to the caller's own private docs conversation; `results` is the instant search (same shape as docs/search) and the answer streams on GET /api/v2/conversations/{cid}/watch",
         "operationId": "askDocs",
         "requestBody": {
           "content": {
@@ -2185,7 +2444,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2258,7 +2524,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2279,7 +2552,7 @@
     },
     "/api/v2/docs/search": {
       "get": {
-        "summary": "Search internal docs (ranked with bm25, with an excerpt) and linked docs (title, note, address) together; each result has a type",
+        "summary": "Search team and manual sections by relevance, with excerpts, and linked docs by title, note and address; each result has a type",
         "operationId": "searchInternalAndLinkedDocs",
         "parameters": [
           {
@@ -2339,7 +2612,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2384,7 +2664,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2446,7 +2733,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2510,7 +2804,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2555,7 +2856,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2609,7 +2917,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2682,7 +2997,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2737,7 +3059,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2821,7 +3150,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2896,7 +3232,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2941,7 +3284,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2986,7 +3336,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3041,7 +3398,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3119,7 +3483,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3127,7 +3498,7 @@
         ]
       },
       "post": {
-        "summary": "Set a goal for yourself, under a goal you own, or for someone below you; the company owner sets company goals",
+        "summary": "Set a goal for yourself, under a goal you own, or for someone below you; the team owner sets team goals",
         "operationId": "createGoal",
         "requestBody": {
           "required": true,
@@ -3161,7 +3532,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3206,7 +3584,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3234,7 +3619,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GoalRefresh"
+                  "$ref": "#/components/schemas/GoalRefreshView"
                 }
               }
             }
@@ -3250,7 +3635,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3295,7 +3687,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3340,7 +3739,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3402,7 +3808,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3447,7 +3860,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3509,7 +3929,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3573,7 +4000,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3646,7 +4080,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3719,7 +4160,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3783,7 +4231,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3847,7 +4302,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3881,7 +4343,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3923,7 +4392,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3998,7 +4474,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4048,7 +4531,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4082,7 +4572,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4144,7 +4641,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4238,7 +4742,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4280,7 +4791,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4336,7 +4854,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4398,7 +4923,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4453,7 +4985,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4515,7 +5054,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4549,7 +5095,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4591,7 +5144,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4636,7 +5196,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4678,7 +5245,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4753,7 +5327,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4787,7 +5368,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4843,7 +5431,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4875,7 +5470,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4915,7 +5517,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -4988,7 +5597,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5103,7 +5719,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5171,7 +5794,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5215,7 +5845,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5271,7 +5908,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5333,7 +5977,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5365,7 +6016,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5411,7 +6069,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5443,7 +6108,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5527,7 +6199,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5605,7 +6284,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5620,7 +6306,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GoalProposal"
+                "$ref": "#/components/schemas/GoalProposalCreate"
               }
             }
           }
@@ -5647,7 +6333,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5722,7 +6415,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5868,7 +6568,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5910,7 +6617,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5963,7 +6677,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6006,7 +6727,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6051,7 +6779,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6113,7 +6848,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6177,7 +6919,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6291,7 +7040,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6333,7 +7089,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6390,7 +7153,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6433,7 +7203,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6495,7 +7272,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6573,7 +7357,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6583,7 +7374,7 @@
     },
     "/api/v2/usage/limits": {
       "get": {
-        "summary": "The company default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may see usage for",
+        "summary": "The team default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may see usage for",
         "operationId": "getUsageLimits",
         "responses": {
           "200": {
@@ -6607,7 +7398,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6633,7 +7431,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UsageDefault"
+                  "$ref": "#/components/schemas/UsageDefaultView"
                 }
               }
             }
@@ -6649,7 +7447,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6659,7 +7464,7 @@
     },
     "/api/v2/usage/limits/{bot}": {
       "put": {
-        "summary": "A bot's own daily and monthly limit in estimated USD; empty follows the company default. Owner and administrators, or the person who runs the bot within the company default. A bot over a limit takes no new job until the period turns over or the limit is raised",
+        "summary": "A bot's own daily and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns over or the limit is raised",
         "operationId": "setBotUsageLimit",
         "parameters": [
           {
@@ -6704,7 +7509,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -6847,7 +7659,14 @@
             }
           },
           "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -7167,6 +7986,39 @@
         ],
         "additionalProperties": true
       },
+      "Audience": {
+        "type": "object",
+        "properties": {
+          "everyone": {
+            "type": "boolean"
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "bots",
+          "everyone",
+          "people",
+          "teams"
+        ],
+        "additionalProperties": true
+      },
       "Bot": {
         "type": "object",
         "properties": {
@@ -7270,6 +8122,43 @@
           "revision"
         ],
         "title": "BotAccess"
+      },
+      "BotAccessView": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "see": {
+            "$ref": "#/components/schemas/Audience"
+          },
+          "read": {
+            "$ref": "#/components/schemas/Audience"
+          },
+          "write": {
+            "$ref": "#/components/schemas/Audience"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "you": {
+            "$ref": "#/components/schemas/Access"
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "bot",
+          "read",
+          "revision",
+          "see",
+          "write"
+        ],
+        "additionalProperties": true
       },
       "BotDetail": {
         "type": "object",
@@ -7786,7 +8675,7 @@
             "type": "string"
           },
           "limit": {
-            "$ref": "#/components/schemas/UsageLimit"
+            "$ref": "#/components/schemas/UsageLimitView"
           }
         },
         "required": [
@@ -8241,6 +9130,15 @@
                     },
                     "score": {
                       "type": "number"
+                    },
+                    "section": {
+                      "type": "string"
+                    },
+                    "anchor": {
+                      "type": "string"
+                    },
+                    "collection": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -8284,6 +9182,53 @@
                     "description",
                     "id",
                     "kind",
+                    "score",
+                    "title",
+                    "type",
+                    "url"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "manual"
+                      ]
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "excerpt": {
+                      "type": "string"
+                    },
+                    "score": {
+                      "type": "number"
+                    },
+                    "section": {
+                      "type": "string"
+                    },
+                    "anchor": {
+                      "type": "string"
+                    },
+                    "collection": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "excerpt",
+                    "id",
+                    "path",
                     "score",
                     "title",
                     "type",
@@ -8637,11 +9582,68 @@
         "type": "object",
         "properties": {
           "checkin": {
-            "$ref": "#/components/schemas/GoalCheckin"
+            "$ref": "#/components/schemas/GoalCheckinView"
           }
         },
         "required": [
           "checkin"
+        ],
+        "additionalProperties": true
+      },
+      "GoalCheckinView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "goal_id": {
+            "type": "string"
+          },
+          "kpi_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ts": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "source_actor": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "on_track",
+              "at_risk",
+              "off_track",
+              null
+            ]
+          },
+          "author_name": {
+            "type": "string"
+          },
+          "source_actor_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "author",
+          "body",
+          "goal_id",
+          "id",
+          "signal",
+          "source_actor",
+          "ts"
         ],
         "additionalProperties": true
       },
@@ -8654,7 +9656,7 @@
           "checkins": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/GoalCheckin"
+              "$ref": "#/components/schemas/GoalCheckinView"
             }
           }
         },
@@ -8919,7 +9921,7 @@
         ],
         "additionalProperties": true
       },
-      "GoalProposal": {
+      "GoalProposalCreate": {
         "properties": {
           "kind": {
             "type": "string",
@@ -8973,7 +9975,7 @@
         "required": [
           "kind"
         ],
-        "title": "GoalProposal"
+        "title": "GoalProposalCreate"
       },
       "GoalProposalDecision": {
         "properties": {
@@ -9005,7 +10007,7 @@
           "proposals": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/GoalProposal"
+              "$ref": "#/components/schemas/GoalProposalView"
             }
           }
         },
@@ -9018,11 +10020,108 @@
         "type": "object",
         "properties": {
           "proposal": {
-            "$ref": "#/components/schemas/GoalProposal"
+            "$ref": "#/components/schemas/GoalProposalView"
           }
         },
         "required": [
           "proposal"
+        ],
+        "additionalProperties": true
+      },
+      "GoalProposalView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "goal_wording",
+              "goal_kpi",
+              "kpi_definition",
+              "kpi_target",
+              "flag"
+            ]
+          },
+          "goal_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kpi_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payload": {
+            "type": "object"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "proposed_by": {
+            "type": "string"
+          },
+          "proposed_at": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "rejected"
+            ]
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_note": {
+            "type": "string"
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "goal_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kpi_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "may_decide": {
+            "type": "boolean",
+            "description": "Whether the caller may confirm or reject it"
+          }
+        },
+        "required": [
+          "goal_id",
+          "id",
+          "kind",
+          "kpi_id",
+          "payload",
+          "proposed_at",
+          "proposed_by",
+          "reason",
+          "status"
         ],
         "additionalProperties": true
       },
@@ -9049,6 +10148,26 @@
         "additionalProperties": false,
         "type": "object",
         "title": "GoalRefresh"
+      },
+      "GoalRefreshView": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "array"
+          },
+          "suggested": {
+            "type": "array"
+          },
+          "checked": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changed",
+          "checked",
+          "suggested"
+        ],
+        "additionalProperties": true
       },
       "GoalResult": {
         "type": "object",
@@ -9176,13 +10295,13 @@
               "checkins": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/GoalCheckin"
+                  "$ref": "#/components/schemas/GoalCheckinView"
                 }
               },
               "proposals": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/GoalProposal"
+                  "$ref": "#/components/schemas/GoalProposalView"
                 }
               }
             },
@@ -9351,7 +10470,7 @@
                 "checkin": {
                   "oneOf": [
                     {
-                      "$ref": "#/components/schemas/GoalCheckin"
+                      "$ref": "#/components/schemas/GoalCheckinView"
                     },
                     {
                       "type": "null"
@@ -9398,7 +10517,7 @@
           "proposals": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/GoalProposal"
+              "$ref": "#/components/schemas/GoalProposalView"
             }
           }
         },
@@ -10028,7 +11147,7 @@
           "latest": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/KpiReading"
+                "$ref": "#/components/schemas/KpiReadingView"
               },
               {
                 "type": "null"
@@ -10359,7 +11478,7 @@
           "readings": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/KpiReading"
+              "$ref": "#/components/schemas/KpiReadingView"
             }
           },
           "definitions": {
@@ -10372,13 +11491,13 @@
           "checkins": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/GoalCheckin"
+              "$ref": "#/components/schemas/GoalCheckinView"
             }
           },
           "proposals": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/GoalProposal"
+              "$ref": "#/components/schemas/GoalProposalView"
             }
           },
           "may_edit": {
@@ -10599,11 +11718,86 @@
         "type": "object",
         "properties": {
           "reading": {
-            "$ref": "#/components/schemas/KpiReading"
+            "$ref": "#/components/schemas/KpiReadingView"
           }
         },
         "required": [
           "reading"
+        ],
+        "additionalProperties": true
+      },
+      "KpiReadingView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "period_start": {
+            "type": "string"
+          },
+          "period_end": {
+            "type": "string"
+          },
+          "collected_at": {
+            "type": "string"
+          },
+          "quality": {
+            "enum": [
+              "measured",
+              "estimate",
+              "partial"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "definition_version": {
+            "type": "integer"
+          },
+          "supersedes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kpi_id": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string"
+          },
+          "superseded_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The reading that corrected this one, if any"
+          },
+          "actor_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_version",
+          "id",
+          "period_end",
+          "quality",
+          "value"
         ],
         "additionalProperties": true
       },
@@ -10617,7 +11811,7 @@
           "readings": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/KpiReading"
+              "$ref": "#/components/schemas/KpiReadingView"
             }
           }
         },
@@ -12608,6 +13802,41 @@
         "type": "object",
         "title": "UsageDefault"
       },
+      "UsageDefaultView": {
+        "type": "object",
+        "properties": {
+          "default": {
+            "type": "object",
+            "properties": {
+              "daily_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "monthly_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "count_subscription": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count_subscription",
+              "daily_usd",
+              "monthly_usd"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "default"
+        ],
+        "additionalProperties": true
+      },
       "UsageFigures": {
         "type": "object",
         "properties": {
@@ -12681,6 +13910,79 @@
         "type": "object",
         "title": "UsageLimit"
       },
+      "UsageLimitView": {
+        "type": "object",
+        "properties": {
+          "daily_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "monthly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "description": "Where each cap comes from: bot, company or null"
+          },
+          "day_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "month_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": "integer",
+            "description": "The highest share of a limit reached"
+          },
+          "blocked": {
+            "enum": [
+              "daily",
+              "monthly",
+              null
+            ],
+            "description": "Set while a limit is met: the bot takes no new job"
+          },
+          "own_daily_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "own_monthly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "may_edit": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "blocked",
+          "daily_usd",
+          "day_spent",
+          "may_edit",
+          "month_spent",
+          "monthly_usd",
+          "own_daily_usd",
+          "own_monthly_usd",
+          "percent",
+          "source"
+        ],
+        "additionalProperties": true
+      },
       "UsageLimits": {
         "type": "object",
         "properties": {
@@ -12716,7 +14018,7 @@
           "bots": {
             "type": "object",
             "additionalProperties": {
-              "$ref": "#/components/schemas/UsageLimit"
+              "$ref": "#/components/schemas/UsageLimitView"
             }
           }
         },

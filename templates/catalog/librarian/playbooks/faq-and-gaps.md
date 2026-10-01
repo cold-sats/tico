@@ -4,6 +4,8 @@ Three docs record what people ask and what the docs could not say. You write the
 sent, never before. Each is written with `hub doc write <path> --title "<title>" --body-file <file>
 --note "<what>"`. Read the current one first; add to it; never rewrite what is there.
 
+Title the docs "Question log", "Docs gaps" and "FAQ". Use team wording in their headings.
+
 Keep names, emails and any personal detail out of all three. Paraphrase a question to its general form
 ("how long do refunds take") rather than quoting a human's wording with their details in it.
 

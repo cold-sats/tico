@@ -28,7 +28,7 @@ def approve(api, code, bot="scout", token="ana-test"):
 
 
 def test_the_pairing_lifecycle_hands_the_credential_over_once(api):
-    hermes_bot(api)
+    hermes_bot(api, status="planned")
     made = pair(api)
     assert made.status_code == 201, made.text
     pairing = made.json()
@@ -54,7 +54,9 @@ def test_the_pairing_lifecycle_hands_the_credential_over_once(api):
     assert first["state"] == "approved" and first["bot"] == "scout" and first["token"].startswith("tico-agent-")
     assert first["url"] == api.app.state.store.settings.runner_url
     assert get(api, "me", token=first["token"])["actor"] == "bot:scout"
+    assert poll(api, pairing).json()["token"] == first["token"]  # installation can retry before a heartbeat
     assert beat(api, first["token"])["bot"] == "scout"
+    assert next(bot for bot in get(api, "bots") if bot["slug"] == "scout")["state"] == "active"
     # The token is returned exactly once, and is gone from the row.
     assert poll(api, pairing).json() == {"state": "claimed"}
     with api.app.state.store.read() as c:
@@ -315,3 +317,14 @@ def test_the_sync_skill_is_served_without_a_sign_in_and_is_the_file_in_the_repos
     assert plain.status_code == 200
     assert plain.text == (Path(hubtools.__file__).resolve().parents[1] / "skills" / "tico-sync" / "SKILL.md").read_text()
     assert plain.text.startswith("---\nname: tico-sync\n")
+
+
+def test_pairing_preview_does_not_rotate_a_working_credential(api):
+    hermes_bot(api)
+    token = credential(api)["token"]
+    made = pair(api).json()
+    shown = get(api, "agents/pairing-preview?code=" + made["code"])
+    assert shown["profile"] == "scout" and shown["host"] == "mac-mini" and shown["harness"] == "hermes"
+    assert "token" not in shown
+    assert get(api, "me", token=token)["actor"] == "bot:scout"
+    assert poll(api, made).json()["state"] == "pending"

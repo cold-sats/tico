@@ -251,12 +251,15 @@ class KpiReading(Contract):
     at: str | None = Field(default=None, max_length=40)              # the old name of period_end
 
 
-class GoalProposal(Contract):
+class GoalProposalCreate(Contract):
     kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag"]
     goal_id: str | None = Field(default=None, max_length=200)
     kpi_id: str | None = Field(default=None, max_length=200)
     payload: dict = Field(default_factory=dict)
     reason: str = Field(default="", max_length=1000)
+
+
+GoalProposal = GoalProposalCreate
 
 
 class GoalProposalDecision(Contract):
@@ -641,6 +644,7 @@ class AgentHeartbeat(Contract):
     provider: str = Field(default="", max_length=100)
     profile: str = Field(default="", max_length=100)
     detail: str = Field(default="", max_length=500)
+    tools: list[ToolRegister] | None = None
 
 
 class BotOwners(Contract):

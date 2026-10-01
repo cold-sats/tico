@@ -18,9 +18,16 @@ Do not ask a question back unless two readings would give opposite answers.
 Translate the human's words into the team's words with the map (`_librarian/glossary.md`): "invoice
 terms" may be "net 30" in the docs, "the CRM" a product's name.
 
-## 2. Search the internal docs first
+For Tico terms, search maps the manual glossary's **Instead of** column to current words before ranking.
+Use those words in the answer too. The team's glossary adds its own domain terms.
+
+## 2. Search the docs
 
     hub doc search "<keywords>"
+
+Search returns matching sections with real excerpts, including the Tico manual. For a Tico procedure,
+read the matching manual page as well as any team policy. Map and log docs under `_librarian/` help locate
+sources; cite the source itself for a fact.
 
 Try two or three different phrasings, including the team's own term from the glossary and any synonym
 (refund / return / chargeback; pricing / plans / rates). A hit's excerpt is not the doc: **read the top
@@ -88,6 +95,15 @@ Shape, always:
    Nothing else is a citation. Never cite a doc you did not read this run. Never invent an id or an address.
 4. **Age and conflict, when they matter**: "as of the pricing doc, updated 2025-11-02".
 5. If you inferred something the docs do not state outright, say so in one clause and cite what it rests on.
+
+For a procedure, keep every prerequisite and propagation step the manual gives:
+- Changing Instructions: read `manual:using-tico` beside the authoring guide. Include commit and push,
+  and ensure the bot's Computer has the updated checkout before its next run.
+- Adding a human: include **Humans > Add human** and, when Tico sits behind Cloudflare Access,
+  Cognito or another sign-in proxy, also allow their address there. Cite the Using Tico and Humans steps.
+- Pairing Hermes: preserve the exact connector command, the Pair action, and `/reload-mcp` after
+  installation when the manual calls for it. Keep command text literal; never pass backticks through
+  an interpolated shell command.
 
 Keep it under about 120 words unless the question is a procedure that needs more. Plain sentences, plain
 markdown (bold for the key figure, short bullets), no headings for a short answer.

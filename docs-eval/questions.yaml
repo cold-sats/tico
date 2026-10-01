@@ -9,7 +9,10 @@ questions:
   - id: monthly-refund
     question: Can a customer on a monthly plan get a refund?
     cite: [finance/refunds.md]
-    contains: ["not"]
+    facts:
+      - subject: "monthly"
+        predicate: "refund(?:able|s)?"
+        polarity: negative
   - id: refund-approval
     question: Who has to approve a refund over $500, and who is that person?
     cite: [finance/refunds.md, company/about.md]
@@ -52,3 +55,7 @@ questions:
   - id: wifi
     question: What is the password for the office wifi?
     unknown: true
+  - id: hermes-connect
+    question: How do I pair my Hermes profile with Tico, and what command do I run in Hermes afterwards?
+    manual: [hermes-agents]
+    contains: ["hermes_agent.py pair", "/reload-mcp"]

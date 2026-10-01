@@ -19,11 +19,10 @@ address of your Tico: the hostname in **Settings → Computers → Add computer*
 
    It prints a code like `K7QM-4F2P` and waits up to 10 minutes. No token to copy.
 2. In Tico, tell BotOps: **"Connect my Hermes profile `<name>`, code K7QM-4F2P."** BotOps adds
-   the bot if it does not exist yet, then approves the code as you. You can also approve it
+   the bot if it does not exist yet, checks the profile and host, then approves the code as you. Pairing activates a planned bot. You can also approve it
    yourself: in **Settings → Bots**, press **Pair** in the bot's Computer column (also on the bot's page, More → Setup),
    and type the code. Only a bot's owner or an admin can approve.
-3. In the profile's chat, run `/reload-mcp` (or restart its gateway). The profile now has every
-   `hub_*` tool.
+3. In the profile's chat, run `/reload-mcp` (or restart its gateway). The profile now has the Tico tools its bot credential is allowed to use.
 4. Test it: message the bot in Tico, then ask the profile to check its inbox. It should answer
    in the same chat.
 
@@ -57,8 +56,7 @@ Nothing pushes work to a Hermes bot. It reads its messages when its own schedule
 talking to it, makes it look. `pair` and `install` set that schedule up for you: one Hermes cron job,
 `tico-sync`, that runs the Tico sync skill. You do not write a prompt or a job. Next section.
 
-What the profile can do is the same tool list every bot has (`clients/hubtools.py`): messages,
-tasks, questions, approvals, status, SQL and the rest. With a Tico checkout on the computer the
+The profile uses the shared tool list (`clients/hubtools.py`); its bot credential controls which tools and records it can access. With a Tico checkout on the computer the
 `hub` CLI works too, with `HUB_API_URL` and `HUB_TOKEN`.
 
 ## Keep it in sync
@@ -106,7 +104,7 @@ python3 ~/.config/tico/agents/hermes_agent.py reinstall --profile <name> --sync 
 ```
 
 `--sync off` removes the job. Without `--sync`, `reinstall` (and `update`) keep the saved interval.
-A profile connected before 0.3.0 has no sync job until you run `reinstall --sync 1h`. A faster schedule means
+A profile connected before sync jobs were added has no sync job until you run `reinstall --sync 1h`. A faster schedule means
 faster answers and more model use, so only when something waits.
 
 `doctor` says whether the job exists, its schedule, and when it last ran (from Hermes's own job record).
@@ -223,3 +221,14 @@ write it.
 - **The heartbeat is not an agent run.** A timer and one HTTP call prove the computer and profile
   are there. Whether the model works shows in what the bot does.
 - **A message never queues a job for a Hermes bot.** The chat line says it waits for the agent.
+
+## Tools on an external profile
+
+A Tools request goes to the external bot as a task. Configure the service in that Hermes profile's `config.yaml`,
+or the OpenClaw profile's tool or skill, then report its complete current declarations with `hub_tool_report`
+(`hub tool report '<JSON array>'` from the CLI). Each entry names the service, capabilities and scope; never include
+credential values. An empty list reports that all declarations were removed. Tico shows these declarations and the
+profile's heartbeat separately; a declaration alone does not prove that the service works.
+
+`hub agent pair show <code>` previews a pending pairing without replacing any credential. The Pair dialog shows the
+same profile and host as you enter the code. It says paired until the first heartbeat establishes a connection.

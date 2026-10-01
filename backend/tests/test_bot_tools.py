@@ -393,3 +393,46 @@ def test_the_mcp_add_and_update_tools_take_the_url_transport_and_headers(api):
     assert "Bearer ${LINEAR_API_KEY}" in added["yaml"]
     err, refused = mcp_call(api, "hub_tool_add", {"bot": "ops", "service": "wiki", "can": "read", "mcp_url": "http://wiki.example/mcp"})
     assert err and refused["error"] == "entry" and "https" in json.dumps(refused)
+
+
+def test_external_tool_request_goes_to_the_profile_and_its_report_completes_it(api):
+    from backend.tests.test_agents import hermes_bot, credential
+    hermes_bot(api)
+    token = credential(api)["token"]
+    entry = {"service": "sqlite", "can": ["read"], "scope": {"database": "example"}}
+    added = post(api, "bots/scout/tools", entry)
+    with api.app.state.store.read() as c:
+        task = H.task(c, added["task_id"])
+    assert task["owner"] == "bot:scout" and "hub_tool_report" in task["body"]
+    assert "preflight" not in task["body"]
+    failed, out = mcp_call(api, "hub_tool_report", {"tools": [entry]}, token=token)
+    assert not failed
+    page = tools_of(api, "scout")
+    assert any(tool["service"] == "sqlite" and tool["status"] != "pending" for tool in page["tools"])
+    assert page["computer"] is None and page["reported_at"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM bot_tool_requests WHERE bot='scout'").fetchone()[0] == "done"
+    post(api, "bots/scout/tools/sqlite/delete", {})
+    assert not mcp_call(api, "hub_tool_report", {"tools": []}, token=token)[0]
+    assert not any(tool["service"] == "sqlite" for tool in tools_of(api, "scout")["tools"])
+
+
+def test_tools_show_extra_repository_capabilities_and_custom_team_connections(api):
+    from backend.github_app import save_extra_repos
+    configure(api)
+    with api.app.state.store.transaction() as c:
+        save_extra_repos(c, "ops", ["example/product"])
+    page = tools_of(api)
+    assert any(tool["scope"].get("repo") == "example/product" and "read" in tool["can"] for tool in page["tools"])
+    machine = runner(api)
+    assign(api, machine, "ops")
+    assert report(api, machine, "ops", [{"service": "example-tool", "can": ["read"], "credential": "not-declared",
+                                      "mcp": {"url": "https://example.com/mcp", "transport": "http", "status": "reachable"}}]).status_code == 200
+    catalog = get(api, "tools")
+    custom = next(item for item in catalog["integrations"] if item["service"] == "example-tool")
+    assert catalog["label"] == "Available tools" and custom["bots"] == ["ops"]
+    assert custom["connections"][0]["mcp"]["host"] == "example.com"
+    assert custom["kind"] == "mcp" and custom["writes"] == "never"
+    assert get(api, "tools/example-tool")["service"] == "example-tool"
+    post(api, "tools/example-tool/learnings", {"text": "Use the read query."})
+    assert get(api, "tools/example-tool")["learnings"]

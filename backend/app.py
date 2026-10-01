@@ -14,7 +14,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
-from fastapi.exception_handlers import request_validation_exception_handler
 
 from clients.agent_skill import WHO_NEEDS_ME
 
@@ -181,10 +180,10 @@ def create_app(settings=None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
-        if request.url.path.startswith(('/api/v2/credential', '/api/v2/runner-credential')):
-            # Default validation responses echo invalid input, which may contain a password.
-            return JSONResponse({'error': {'code': 'validation', 'detail': 'Invalid credential input'}}, status_code=422)
-        return await request_validation_exception_handler(request, exc)
+        # Field names and reasons are useful; invalid input can hold credentials and is never echoed.
+        detail = "; ".join(".".join(str(part) for part in error["loc"]) + ": " + error["msg"]
+                           for error in exc.errors())
+        return JSONResponse({"error": {"code": "validation", "detail": detail, "retryable": False}}, status_code=422)
 
     app.state.observability = telemetry
     app.state.census = census
@@ -2762,7 +2761,7 @@ def create_app(settings=None):
     def grokbot_sync(request: Request, body: grokbot.GrokSync):
         # Images are fetched before the write, never while holding it.
         grokbot.allowed(auth, request.state.identity)
-        images = grokbot.prefetch_images(store, app.state.blobs, body)
+        images = grokbot.prefetch_images(store, app.state.blobs, body, person=H.actor_id(request.state.identity.actor))
         return mutate(request, body, lambda c: grokbot.sync(c, auth, settings_admin,
                                                             request.state.identity, body, images))
 
@@ -2799,6 +2798,11 @@ def create_app(settings=None):
         with store.transaction() as c:
             result = agents.poll_pairing(c, pairing_id, request.headers.get("x-pairing-secret", ""))
         return {**result, "url": settings.runner_url} if result["state"] == "approved" else result
+
+    @app.get("/api/v2/agents/pairing-preview")
+    def agent_pairing_show(request: Request, code: str):
+        with store.read() as c:
+            return agents.show_pairing(c, request.state.identity, code)
 
     @app.post("/api/v2/agents/pairings/approve")
     def agent_pairing_approve(request: Request, body: M.AgentPairingApprove):

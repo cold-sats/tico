@@ -12,7 +12,7 @@ docs do not say, and keeps a map of the docs so the next question is cheaper. It
   them with `hub doc fetch <url>`, on its own computer.
 
 - **The Tico manual**: this release's own docs, read-only and separate from the team's (docs/docs.md). `hub doc search`
-  returns its pages after the team's, labelled "Tico manual", and `hub doc read manual:<name>` reads one. It answers
+  ranks matching manual and team sections together, labelled "Tico manual", and `hub doc read manual:<name>` reads one. It answers
   "how do I ... in Tico" and is cited `[Tico manual · Title](https://...)` with the result's link; it never answers what the
   team decided.
 
@@ -107,13 +107,18 @@ steps, `POST /api/v2/librarian/turn-on`), as the Assistant has **Turn on Assista
 ## Trying it: the eval
 
 `scripts/docs-eval.sh` measures answer quality on demand. It loads `docs-eval/fixture/` (seven short docs about the demo
-team) into a live Tico with `hub doc write`, asks each of the questions in `docs-eval/questions.yaml` (eleven answerable
-ones with the docs each answer must cite, and two the docs do not answer) through `POST /api/v2/docs/ask`, waits for the
+team) into a live Tico through the docs API, asks each question in `docs-eval/questions.yaml` (team facts, a Hermes
+connection procedure and two questions the docs do not answer) through `POST /api/v2/docs/ask`, waits for the
 answers, and reports the **citation hit rate** (every expected doc cited, and an answer given), the rate at which the
-unanswerable ones were **said unknown**, and a fact spot-check.
+unanswerable ones were **said unknown**, and the **fact rate**. `--fail-under` gates all three rates. Whole values and
+claim polarity are checked, so $299 cannot pass for $29 or a refundable monthly plan for a non-refundable one.
 
     TICO_URL=https://tico.example.com TICO_TOKEN=<personal API token> scripts/docs-eval.sh [--only ID] [--keep] [--json out.json]
 
 Run it against a Tico of your own with a running Librarian and a computer, never a team's real one: the Librarian logs what it
-is asked into `_librarian/faq-log.md`. The fixture docs are written under `eval-fixture/` and archived afterwards unless you
-pass `--keep`. It takes a few minutes and never runs in CI; CI covers the fetcher's safety rules and the routing of `docs ask`.
+is asked into `_librarian/faq-log.md`. Each run writes its fixture docs under a unique `eval-fixture/` folder and archives them afterwards, including after
+a partial import failure, unless you pass `--keep`. Retained IDs are printed. Unknown `--only` IDs fail before connecting. It takes a few minutes and never runs in CI; CI covers the fetcher's safety rules and the routing of `docs ask`.
+
+Search returns section names, anchors and excerpts from the matching text, including manual pages. It uses all meaningful
+query words and maps old terms through the manual glossary's "Instead of" column. `_librarian/` maps and logs rank below
+the source docs. `hub doc ask` waits for the completed run and returns its latest reply, including corrections.

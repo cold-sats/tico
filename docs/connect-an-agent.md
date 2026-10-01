@@ -30,6 +30,19 @@ once. The same tokens are under **Settings > Computers > API tokens**.
 
 The token cannot make or revoke tokens.
 
+## Sign in to the model first
+
+Codex and Claude Code must already be signed in to their own model provider (or configured with its API key).
+The Tico personal token authorizes Tico tools; it does not sign the CLI in to OpenAI or Anthropic.
+Check with `codex login status` or `claude auth status`, and sign in with `codex login` or `claude auth login`.
+See [Codex authentication](https://learn.chatgpt.com/docs/auth) and [Claude Code authentication](https://code.claude.com/docs/en/authentication).
+
+For an isolated test, use a separate Codex configuration directory, for example
+`CODEX_HOME=/tmp/tico-codex-test codex -c 'cli_auth_credentials_store="file"' login`, and use that same directory and `-c 'cli_auth_credentials_store="file"'` setting for every test command, including
+`codex mcp add` and `codex`.
+Sign in there separately and remove the test directory when finished. Alternatively, use a separate OS account for either CLI.
+Your regular CLI configuration stays in its own directory.
+
 ## Each agent
 
 **Grok** (xAI)
@@ -120,3 +133,9 @@ async def main(url, token):
 ```
 
 The token's **Last used** in the dialog moves on the first call.
+
+## Tool naming
+
+Most MCP tools use `hub_<thing>_<action>`. Four established helpers keep their short names for compatibility:
+`hub_whoami` (identity), `hub_sql` (read-only query), `hub_classify` (Decision questions) and `hub_brief` (build a brief).
+The `hub` prefix is a command identifier; the product is Tico.

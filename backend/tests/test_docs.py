@@ -119,7 +119,7 @@ def test_search_ranks_internal_docs_and_lists_linked_docs_beside_them(api):
     assert {h["type"] for h in hits} == {"internal", "linked"}
     assert hits[0]["type"] == "internal" and hits[0]["title"] == "Pricing and plans"      # title match outranks a body mention
     internal = next(h for h in hits if h["type"] == "internal")
-    assert set(internal) == {"type", "id", "path", "title", "excerpt", "score"}
+    assert set(internal) == {"type", "id", "path", "title", "section", "anchor", "excerpt", "score"}
     linked = next(h for h in hits if h["type"] == "linked")
     assert set(linked) == {"type", "id", "title", "url", "kind", "description", "score"} and linked["kind"] == "website"
     assert [h["title"] for h in hits if h["type"] == "internal"] == ["Pricing and plans", "Refund policy"]
@@ -132,6 +132,10 @@ def test_search_ranks_internal_docs_and_lists_linked_docs_beside_them(api):
     fast = call(api, "GET", "context/search", params={"q": "pricing", "source": "docs"})["results"]
     assert {r["kind"] for r in fast} == {"document", "linked_doc"}
     assert call(api, "GET", "context/document", params={"id": "sales/pricing.md"})["content"].startswith("Starter")
+    # A pasted heading does not erase the document's searchable title.
+    make(api, "Export guide", "# Steps\n\nChoose CSV.", path="notes/a.md")
+    export = call(api, "GET", "docs/search", params={"q": "export"})["results"][0]
+    assert export["title"] == "Export guide" and export["section"] == "Steps" and "CSV" in export["excerpt"]
 
 
 def test_linked_docs_are_links_anyone_adds_and_their_adder_or_an_admin_edits(api):

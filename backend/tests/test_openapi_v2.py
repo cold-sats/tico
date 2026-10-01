@@ -24,6 +24,8 @@ def conforms(value, schema, root, where="$"):
     if kinds and actual not in kinds and not (actual == "integer" and "number" in kinds):
         return "%s: %s is not %s" % (where, actual, kinds)
     if isinstance(value, dict):
+        if schema.get("additionalProperties") is False and set(value) - set(schema.get("properties", {})):
+            return where + ": unexpected fields " + str(set(value) - set(schema.get("properties", {})))
         for key in schema.get("required", []):
             if key not in value:
                 return "%s: missing %s" % (where, key)
