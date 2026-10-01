@@ -270,6 +270,7 @@ async function pageBot(slug, tab) {
 
   <div class="bot-work" id="bot-work">
   <div id="pane-chat" hidden>
+    <section class="chat-goal" id="chat-goal" aria-label="Goal" hidden></section>
     <section class="bot-chat-tasks" id="bot-chat-tasks" aria-label="What needs you" hidden></section>
     <section class="card conv" id="conv"><div class="conv-top"><span class="sub" id="conv-state">Loading…</span><span class="spacer" style="flex:1"></span><span class="sub" id="conv-access"></span></div>
       <div class="conv-older" id="conv-older"></div>

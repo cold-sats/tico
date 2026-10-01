@@ -58,6 +58,7 @@ async function v2ChatLoad(slug, room = null) {
   if (V2C !== state) return;
   v2ChatRender(state);
   if (S.me?.cloud && state.conv) v2ChatStream(state);
+  void chatGoalLoad(state);
   v2BotsLoad(state);
   state.poll = setInterval(async () => {
     if (document.hidden || state.live || V2C !== state) return;
@@ -67,6 +68,7 @@ async function v2ChatLoad(slug, room = null) {
       if (V2C !== state) return;
       v2ChatRender(state);
       if (state.loaded && S.me?.cloud && state.conv) v2ChatStream(state);
+      void chatGoalLoad(state);
       return;
     }
     // A chat that was empty is looked up again: someone may have started it (another tab, a bot page's Start setup).
@@ -74,12 +76,13 @@ async function v2ChatLoad(slug, room = null) {
       state.listed = false;
       await v2ChatFind(state);
       if (V2C !== state) return;
-      if (state.conv) { v2ChatRender(state); if (S.me?.cloud) v2ChatStream(state); } else state.failed = false;
+      if (state.conv) { v2ChatRender(state); if (S.me?.cloud) v2ChatStream(state); void chatGoalLoad(state); } else state.failed = false;
       return;
     }
     // The live stream already pushes every change; the poll is the fallback when it is down.
     if (S.me?.cloud && state.es && state.es.readyState === 1) return;
     v2ChatMessages(state).then(() => v2ChatRender(state));
+    void chatGoalLoad(state);
   }, 15000);
 }
 // Find my chat with this bot and its messages, trying again quietly when a request fails (a
@@ -367,7 +370,10 @@ function v2ChatRender(state) {
   }
   const atEnd = !state.rendered || state.followLatest;
   const wasTop = thread.scrollTop, wasHeight = thread.scrollHeight;
-  const groups = state.messages.filter(m => m.refs?.maintenance !== 'checkpoint').map(v2MessageHTML).join('');
+  const shown = state.messages.filter(m => m.refs?.maintenance !== 'checkpoint'), rows = shown.map(v2MessageHTML);
+  const goalLine = chatGoalLine(state, shown);
+  if (goalLine) rows.splice(goalLine.at, 0, goalLine.html);
+  const groups = rows.join('');
   const pending = state.live && !state.live.text ? v2PendingHTML(state) : '';
   if (!pending) clearTimeout(state.waitTimer);
   const live = state.live?.text
@@ -404,6 +410,7 @@ function v2ChatRender(state) {
   const st = $('#conv-state');
   if (st) st.innerHTML = state.live ? (t => `<span class="pill in-progress" title="${esc(t.tip)}">${esc(t.word || 'Working')}</span>`)(v2PendingText(state)) : v2StatePill(state.slug);
   pausedRender();
+  chatGoalRender(state);
   const access = $('#conv-access');
   if (access) {
     if (state.mode === 'shared') {
@@ -421,7 +428,9 @@ function v2ChatRender(state) {
 function v2ChatAdopt(slug, j) {
   const state = V2C;
   if (!state || state.slug !== slug) { CHAT_CACHE.delete(slug); return; }
+  const fresh = j.conversation && j.conversation.id !== state.conv?.id;
   if (j.conversation) { state.conv = j.conversation; state.listed = true; state.loaded = true; state.failed = false; }
+  if (fresh) void chatGoalLoad(state);
   if (j.message) { state.messages.push(j.message); state.mine.push(j.message); }
   state.live = {text: ''};
   state.execution = null; state.sentAt = Date.now();
@@ -429,7 +438,8 @@ function v2ChatAdopt(slug, j) {
   v2ChatRender(state);
   v2ChatStream(state);
 }
-async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}) {
+// `extra` adds fields to the message itself: {command: true} hands the text to the harness as its own slash command.
+async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}, extra = {}) {
   if (P.sending) return false;
   P.sending = true;
   const files = P.files.slice();
@@ -437,14 +447,14 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}) {
   if (btn) { btn.disabled = true; pillBtnSay(btn, 'Sending…'); }
   try {
     let refs = {...extraRefs};
-    const j = await cloudCompose(`/v2/chat/${encodeURIComponent(slug)}`, {text: text || 'Attached files.', refs}, files);
+    const j = await cloudCompose(`/v2/chat/${encodeURIComponent(slug)}`, {text: text || 'Attached files.', refs, ...extra}, files);
     pillAcknowledge(P, text, files);
     if (j.message?.refs?.action_result) toast(j.message.refs.action_result.decision === 'approved' ? 'Approved' : 'Declined');
     v2ChatAdopt(slug, j);
     P.retryTries = 0;
     return true;
   } catch (e) {
-    if (e.unconfirmed) chatRetryLater(P, text, slug, extraRefs); else toast(e.message, true);
+    if (e.unconfirmed) chatRetryLater(P, text, slug, extraRefs, extra); else toast(e.message, true);
     return false;
   }
   finally { P.sending = false; if (btn) { btn.disabled = false; pillBtnSay(btn, label); } pillLabel(P); pillButtons(P); }
@@ -453,7 +463,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}) {
 // message that never reached the hub (the network dropped) sends itself when the connection is
 // back, or on a backoff up to a minute. It uses the same request id, so the hub never records it
 // twice. Editing or clearing the box hands it back to the person.
-function chatRetryLater(P, text, slug, extraRefs) {
+function chatRetryLater(P, text, slug, extraRefs, extra) {
   clearTimeout(P.retryTimer);
   const tries = P.retryTries = (P.retryTries || 0) + 1;
   if (tries > 8) { P.retryTries = 0; toast('Still no connection. Your message is still here, so send it again once you are back online.', true); return; }
@@ -462,7 +472,7 @@ function chatRetryLater(P, text, slug, extraRefs) {
     window.removeEventListener('online', again); clearTimeout(P.retryTimer);
     if (P.sending) return;
     if ((pq(P, '.p-text')?.value || '').trim() !== (text || '').trim()) { P.retryTries = 0; return; }
-    void v2ChatSend(P, text, slug, extraRefs);
+    void v2ChatSend(P, text, slug, extraRefs, extra);
   };
   window.addEventListener('online', again);
   P.retryTimer = setTimeout(again, Math.min(60000, 5000 * 2 ** (tries - 1)));
@@ -489,12 +499,19 @@ function v2ChatStream(state) {
         state.execution = d.execution;
         state.live = d.execution && d.execution.state !== 'completed' ? {text: d.execution.text} : null;
       }
+      if (d.goal !== undefined) chatGoalApply(state, d.goal, {quiet: true});
       v2ChatRender(state);
       // A finished turn may have closed or created tasks: show them now, not at the next poll.
       if (wasRunning && !state.live && BOT?.slug === state.slug) {
         if (BOT.loaded.has('tasks')) void loadBotTasksV2(BOT.slug);
         void loadBotChatTasks(BOT.slug);
       }
+    });
+    // A goal set, paused, met or stopped: {type: "goal", goal}.
+    es.addEventListener('goal', ev => {
+      if (V2C !== state) return es.close();
+      let d; try {d = JSON.parse(ev.data);} catch {return;}
+      chatGoalApply(state, d.goal || null);
     });
     es.addEventListener('expired', () => {es.close(); toast('Sign in again to continue receiving updates.', true);});
     es.addEventListener('error', () => {
@@ -515,6 +532,11 @@ function v2ChatStream(state) {
       box.innerHTML = safeMd(state.live.text, {shortLinks: true});
       const thread = $('#conv-thread'); if (thread) thread.scrollTop = thread.scrollHeight;
     } else v2ChatRender(state);
+  });
+  es.addEventListener('goal', ev => {
+    if (V2C !== state) return stop();
+    let d = {}; try { d = JSON.parse(ev.data); } catch {}
+    chatGoalApply(state, d.goal || null);
   });
   es.addEventListener('message', ev => {
     stop();

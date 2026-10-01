@@ -13,6 +13,14 @@ All notable changes to Tico are recorded here. The format follows
   "Latest update" banner and the separate history button are gone.
 - A bot's Tools show as up to three small icons next to its name, then "+N"; the full list is under More.
 
+### Added
+- Chat goals: the target next to attach pins a goal to a Codex or Claude Code bot's chat, and the bot keeps working
+  toward it. The goal sits above the chat (three lines, two on a phone; tap for all of it, Edit, Pause and Clear),
+  shows Working, Paused, Met or Stopped, and a met or stopped goal becomes one line in the chat. The bot's row in the
+  sidebar shows a target while it has one.
+- Type `/` in a bot's chat for its commands: `/goal`, `/new`, `/task`, `/branch`, `/help` and the ones its harness
+  takes, such as `/compact`. A `/word` that isn't a command now goes to the bot as ordinary text.
+
 ### Fixed
 - docs-eval ignores Markdown emphasis around a price, treats "about ($29)" as approximate, and accepts "no price
   variation" for an exact price.
