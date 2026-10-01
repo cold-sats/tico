@@ -119,6 +119,7 @@ def whoami(api, args):
                "description": "An fyi: it expects no reply, and takes no conversation or references"},
        "conversation_id": _s("Continue this conversation instead of opening a pair conversation"),
        "in_reply_to": _s("The message this corrects or answers"),
+       "command": {"type": "boolean", "description": "Send the text verbatim as a harness command"},
        "steer": {"type": "boolean", "description": "Apply a correction to your active request"},
        "refs": {"type": "array", "items": {"type": "string"},
                 "description": "References like `task:<id>` or `approval:<id>`"}},
@@ -132,7 +133,29 @@ def message_send(api, args):
     return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "steer" if args.get("steer") else "say",
                                  "conversation_id": args.get("conversation_id"),
                                  "in_reply_to": args.get("in_reply_to"),
-                                 "refs": _refs(args.get("refs"))}, key=_key(args))
+                                 "refs": _refs(args.get("refs")),
+                                 **({"command": True} if args.get("command") else {})}, key=_key(args))
+
+
+@tool("hub_chat_goal", "Read or change the native goal pinned to a bot conversation. Read also returns its supported commands.",
+      {"conversation_id": _s("The bot conversation"),
+       "action": {"type": "string", "enum": ["get", "set", "edit", "pause", "resume", "clear"], "default": "get"},
+       "objective": _s("The goal, 1–4,000 characters for set or edit")}, required=("conversation_id",), writes=True)
+def chat_goal(api, args):
+    path = "conversations/" + quote(args["conversation_id"], safe="") + "/goal"
+    action = args.get("action") or "get"
+    if action == "get":
+        return api.get(path)
+    return api.post(path, {"action": action, **({"objective": args["objective"]} if "objective" in args else {})},
+                    key=_key(args))
+
+
+@tool("hub_chat_send", "Send a message or a headless slash command to a bot.",
+      {"to": _s("The bot"), "text": _s("The message or command"),
+       "conversation_id": _s("Continue this conversation"),
+       "command": {"type": "boolean", "default": False}}, required=("to", "text"), writes=True)
+def chat_send(api, args):
+    return message_send(api, args)
 
 
 @tool("hub_assistant_read", "Read your private Assistant chat and its pending Decisions. Uses only your own room.", {})

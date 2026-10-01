@@ -68,6 +68,8 @@ def run(args, who=None):
                 more["enabled"] = bool(args.enable)
             return via_tool(client, args, **more)
         return via_tool(client, args)
+    if args.cmd == "chat":
+        return via_tool(client, args)
     if args.cmd in ("api", "computer", "credential", "support", "health") or fn == "message redact":
         return botops_tools(client, args)
     if args.cmd == "classify":

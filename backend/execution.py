@@ -623,7 +623,8 @@ class Execution:
         people = roster(c)
         inbox = P.inbox_person(row["bot"], people)
         parked = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
-        return {"attempt": {"routine": routine, "id": aid,
+        from .chat_goals import current
+        return {"attempt": {"chat_goal": current(c, conv["id"]), "routine": routine, "id": aid,
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
                             # The mailboxes an inbox bot's turn may ask its runner for mail access to: the one it declares
@@ -779,7 +780,8 @@ class Execution:
         origin = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
         origin_task = H.message_task_id(origin, H.conversation(c, origin["conversation_id"]))
         for row in c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
-                             "WHERE j.bot=? AND j.state='queued' AND (m.conversation_id=("
+                             "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
+                             "AND (m.conversation_id=("
                              "SELECT active_message.conversation_id FROM attempts active_attempt "
                              "JOIN jobs active_job ON active_job.id=active_attempt.job_id "
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
@@ -837,6 +839,9 @@ class Execution:
                 raise Problem("terminal", "Cannot append new output to a completed attempt", 409)
             c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES(?,?,?,?,?)",
                       (aid, event.seq, event.kind, payload, H.now()))
+            if event.kind == "goal" and row["lease_until"] > H.now() and row["state"] != "expired":
+                from .chat_goals import report
+                report(c, row, event.payload)
             seq = event.seq
         c.execute("UPDATE attempts SET last_seq=? WHERE id=?", (seq, aid))
         return {"ack_seq": seq, "historical": row["lease_until"] <= H.now() or row["state"] == "expired"}

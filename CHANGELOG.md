@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Bot conversations support native Claude Code and Codex goals, live goal status, and headless slash commands,
+  with matching chat goal controls in the API, MCP and CLI.
+
 ### Changed
 - The bot page's right rail runs full height in a denser style: Active first, then Updates (just "Updates · 10h
   ago"), Files (names only, a small "+N"), Recurring, with "Assigned to others" and Done folded at the bottom. The

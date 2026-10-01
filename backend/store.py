@@ -927,6 +927,9 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=48").fetchone():
                     H._apply(c, H.PIPELINES_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(48,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=49").fetchone():
+                    H._apply(c, H.CHAT_GOALS_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(49,?)", (H.now(),))
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,
