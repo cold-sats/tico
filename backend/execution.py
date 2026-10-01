@@ -761,6 +761,8 @@ class Execution:
         attempt = self.attempt(c, who, aid)
         if attempt["state"] != "running":
             return {"messages": []}
+        origin = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
+        origin_task = H.message_task_id(origin, H.conversation(c, origin["conversation_id"]))
         for row in c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "WHERE j.bot=? AND j.state='queued' AND (m.conversation_id=("
                              "SELECT active_message.conversation_id FROM attempts active_attempt "
@@ -769,6 +771,9 @@ class Execution:
                              "WHERE active_attempt.id=?) OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid LIMIT 10",
                              (attempt["bot"], aid)).fetchall():
+            incoming_task = H.message_task_id(H.message(c, row["id"]), H.conversation(c, row["conversation_id"]))
+            if incoming_task and incoming_task != origin_task and row["kind"] == "notice":
+                continue                    # a new task gets its own run, even in the same bot room
             if attempt["bot"] == H.FLEET_MAINTAINER:
                 refs = json.loads(row["refs_json"] or "{}")
                 origin = c.execute("SELECT j.message_id,m.from_actor FROM jobs j JOIN messages m ON m.id=j.message_id "
@@ -898,12 +903,23 @@ class Execution:
         requeue = limited or retryable or silent or rejected
         c.execute("UPDATE jobs SET state=? WHERE id=?",
                   ("completed" if body.outcome == "completed" else "queued" if requeue else "uncertain", row["job_id"]))
+        turn_task = H.message_task_id(msg, conv)
         for incoming in c.execute("SELECT i.message_id,m.kind FROM attempt_inputs i "
                                   "JOIN messages m ON m.id=i.message_id WHERE i.attempt_id=?", (aid,)).fetchall():
             answered = incoming["kind"] != "ask" or bool(H.answers_to(c, [incoming["message_id"]]))
-            c.execute("UPDATE jobs SET state=? WHERE message_id=?",
-                      ("completed" if body.outcome == "completed" and answered else
-                       "queued" if requeue else "uncertain", incoming["message_id"]))
+            message = H.message(c, incoming["message_id"])
+            task_id = H.message_task_id(message, H.conversation(c, message["conversation_id"]))
+            deferred = False
+            if task_id and task_id != turn_task:
+                task = H.task(c, task_id)
+                outcome = c.execute("SELECT 1 FROM task_events WHERE task_id=? AND actor=? AND ts>=? "
+                                    "AND (field='note' OR (field='status' AND new IN ('done','closed','declined'))) LIMIT 1",
+                                    (task_id, actor, row["started"] or row["created"])).fetchone()
+                deferred = bool(task and task["status"] in H.ACTIVE_STATUSES and not outcome)
+            state = ("queued" if deferred else "completed" if body.outcome == "completed" and answered else
+                     "queued" if requeue else "uncertain")
+            c.execute("UPDATE jobs SET state=?,attempt_id=CASE WHEN ? THEN NULL ELSE attempt_id END WHERE message_id=?",
+                      (state, deferred, incoming["message_id"]))
         if body.outcome == "completed":
             # Notices that queued in this turn's conversation before it was claimed were in the
             # room page it was given, so the turn has read them. Leaving their jobs queued costs

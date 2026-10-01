@@ -329,6 +329,33 @@ class APersonsReplyAnswersWhatWasAsked(HubCase):
     anything else. Writing back to the bot is the answer now, however many were open.
     (Ben, 2026-09-21.)"""
 
+    def test_task_reply_allows_the_next_question_without_answering_another_task(self):
+        room = H.say(self.conn, ANA, CMO, "Please write two drafts")["conversation_id"]
+        first = H.task_create(self.conn, ANA, "Draft the report", "Write a report", CMO, conversation_id=room)
+        second = H.task_create(self.conn, ANA, "Draft the update", "Write an update", CMO, conversation_id=room)
+        question = H.task_ask(self.conn, CMO, first["id"], "Which format?")
+        other = H.task_ask(self.conn, CMO, second["id"], "Which audience?")
+        self.assertEqual(first["conversation_id"], second["conversation_id"])
+        self.assertEqual(H.unanswered_ask(self.conn, first)["id"], question["id"])
+        self.assertEqual(H.unanswered_ask(self.conn, second)["id"], other["id"])
+        reply = H.task_comment(self.conn, ANA, first["id"], "Markdown")
+        self.assertEqual(H.answers_to(self.conn, [question["id"]])[question["id"]]["id"], reply["id"])
+        self.assertIsNone(H.unanswered_ask(self.conn, first))
+        self.assertIsNone(H.waiting_on(self.conn, first))
+        self.assertEqual(H.waiting_on(self.conn, second), "an unanswered question")
+        self.assertEqual([row["id"] for row in H.tasks_asked_of(self.conn, ANA)], [second["id"]])
+        self.assertTrue(H.task_ask(self.conn, CMO, first["id"], "Which date?"))
+        self.refused("one-question", H.task_ask, self.conn, CMO, second["id"], "Another question?")
+
+    def test_older_untagged_questions_still_belong_to_their_dedicated_task(self):
+        task = H.task_create(self.conn, ANA, "Draft a report", "Write it", CMO)
+        ask = H.task_ask(self.conn, CMO, task["id"], "Which format?")
+        self.conn.execute("UPDATE messages SET refs_json='{}' WHERE id=?", (ask["id"],))
+        self.assertEqual(H.unanswered_ask(self.conn, task)["id"], ask["id"])
+        H.task_comment(self.conn, ANA, task["id"], "Markdown")
+        self.assertIsNone(H.unanswered_ask(self.conn, task))
+        self.assertTrue(H.task_ask(self.conn, CMO, task["id"], "Which date?"))
+
     def test_writing_back_closes_every_question_that_bot_had_open(self):
         a = H.say(self.conn, CMO, ANA, "ship now or wait for the split?", kind="ask")
         b = H.say(self.conn, CMO, ANA, "is 7% the right warning level?", kind="ask")

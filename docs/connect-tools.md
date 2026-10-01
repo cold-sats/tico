@@ -200,3 +200,6 @@ none, or it is OAuth-only, write a skill like Trello's that calls its REST API w
 
 *Facts on this page were read from the vendors' own documentation on 2026-09-30; vendors change these, so when a tool shows "auth failed" or
 "unreachable", check the vendor's current page first.*
+
+When a custom tool's last declaration is removed, its saved learnings remain in Tools as a read-only page.
+The Owner can still delete a learning there.

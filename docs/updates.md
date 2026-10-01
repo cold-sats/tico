@@ -39,6 +39,18 @@ health check and automatic rollback described below.
 - A server that is a development build (no release) has nothing to compare, so computers keep following `main` as
   before and Settings > Health shows no version line. A computer talking to a server from before this existed does the same.
 
+Health names computers that did not report a version and shows a newer computer's actual release separately.
+Computers lists team service status once, alongside the computer reports. Archived bots are left out of readiness.
+The MCP `hub_health_check` includes the same checks and fixes as Settings > Health, including watchers and queued work.
+
+## Disk space
+
+Health warns when a computer reports that its disk is over 85% full. Free space on that computer; for a Docker install,
+`docker image prune -a` removes unused images. This can remove a cached rollback image, so the previous release may
+need to be pulled again if you later roll back. Disk-space update failures say what ran out and retry when free space
+increases, including while the server and computers are on different releases. Older computers that do not report disk
+space keep working; they show the warning after their runner updates.
+
 ## A Mac (or Linux checkout)
 
 The runner is a git checkout. When the server's release is newer, the runner:
@@ -52,7 +64,7 @@ The runner is a git checkout. When the server's release is newer, the runner:
    the runner's systemd unit, which has `Restart=always`) and waits up to three minutes for the new process to report in;
 5. if it does not, checks the old commit out again, restores the old dependencies, restarts and reports
    `rolled_back` (or `failed` if the old code does not start either). It does not retry that release for six hours,
-   or until the server's release changes.
+   or until the server's release changes. A disk-space failure retries as soon as free space increases.
 6. once the runner is healthy on the new release, restarts the background jobs that are installed on this Mac
    (`connectors`, `close-calls`, `importers`; the same `launchctl kickstart -k` or `systemctl --user restart` as
    `scripts/tico restart`), so none keeps the old release in memory. A job that is not installed is left alone. Each job also checks the checkout's
@@ -122,7 +134,7 @@ updater (`docker/updater.py`) in runner mode (`TICO_UPDATER_MODE=runner`). When 
 asks it for the release its server names; it pulls `ghcr.io/ticoteam/tico-runner:vX.Y.Z`, replaces `runner.compose.yaml` with the release's copy (same checksum check, rolled back with the image), recreates the runner
 container, waits up to three minutes for the container's health check, and puts the old image back if it does not
 turn healthy. The runner then reports the outcome (`rolled_back`, `failed`) from the sidecar's `/status`, and does not
-ask for that release again. The sign-in and the bots' repositories are in the `runner-home` volume and are kept.
+ask for that release again unless the failure was disk space and space has since freed. The sign-in and the bots' repositories are in the `runner-home` volume and are kept.
 
 The Docker socket is mounted into the `updater` service only, never into the runner. The two share a `runner-control`
 volume that holds a token the updater writes and the runner reads; the sidecar answers on the compose network and

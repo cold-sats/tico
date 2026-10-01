@@ -1446,10 +1446,15 @@ def _close_open_asks(conn, actor, target, kind, msg):
     """
     if kind not in ("say", "answer") or not is_human(actor) or not is_bot(target):
         return
+    task_id = message_task_id({"refs": _json(msg.get("refs_json"), {}) or msg.get("refs") or {}},
+                              conversation(conn, msg["conversation_id"]))
     open_asks = [r["id"] for r in _rows(conn.execute(
-        "SELECT id FROM messages WHERE to_actor=? AND from_actor=? AND kind='ask' "
-        "AND answered_by IS NULL AND id NOT IN (SELECT in_reply_to FROM messages "
-        "WHERE kind='answer' AND in_reply_to IS NOT NULL)", (actor, target)))]
+        "SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+        "WHERE m.to_actor=? AND m.from_actor=? AND m.kind='ask' "
+        "AND m.answered_by IS NULL AND m.id NOT IN (SELECT in_reply_to FROM messages "
+        "WHERE kind='answer' AND in_reply_to IS NOT NULL) "
+        f"AND (? IS NULL OR {MESSAGE_TASK_SQL}=?)",
+        (actor, target, task_id, task_id)))]
     if not open_asks:
         return
     conn.executemany("UPDATE messages SET answered_by=? WHERE id=?",
@@ -2015,9 +2020,9 @@ def waiting_on(conn, row):
     """
     live = "('done','closed','declined')"
     asks = [r["id"] for r in _rows(conn.execute(
-        "SELECT id FROM messages WHERE from_actor=? AND kind='ask' AND (conversation_id=? "
-        "OR coalesce(json_extract(refs_json,'$.task'),json_extract(refs_json,'$.task_id'))=?)",
-        (row["owner"], row["conversation_id"], row["id"])))]
+        "SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+        f"WHERE m.from_actor=? AND m.kind='ask' AND {MESSAGE_TASK_SQL}=?",
+        (row["owner"], row["id"])))]
     if asks and len(answers_to(conn, asks)) < len(asks):
         return "an unanswered question"
     if _one(conn, f"SELECT 1 FROM tasks WHERE parent_id=? AND status NOT IN {live} LIMIT 1", (row["id"],)):
@@ -2072,13 +2077,7 @@ def task_ask(conn, actor, task_id, body):
     if actor != row["owner"]:
         refuse(conn, actor, "identity", "only the task owner can ask its requester")
     if actor == row["owner"]:
-        unanswered = conn.execute(
-            "SELECT 1 FROM messages ask WHERE ask.conversation_id=? AND ask.kind='ask' "
-            "AND ask.from_actor=? AND coalesce(json_extract(ask.refs_json,'$.task'),"
-            "json_extract(ask.refs_json,'$.task_id'))=? AND NOT EXISTS "
-            "(SELECT 1 FROM messages answer WHERE answer.kind='answer' AND answer.to_actor=? "
-            "AND answer.conversation_id=ask.conversation_id AND answer.in_reply_to=ask.id) LIMIT 1",
-            (row["conversation_id"], actor, task_id, actor)).fetchone()
+        unanswered = unanswered_ask(conn, row)
         if unanswered:
             refuse(conn, actor, "one-question",
                    "you already asked about this task; wait for the answer")
@@ -3028,22 +3027,27 @@ def unanswered_ask(conn, task_row):
     conv = (task_row or {}).get("conversation_id")
     if not conv:
         return None
-    ask = _one(conn, "SELECT * FROM messages WHERE conversation_id=? AND kind='ask' "
-                     "ORDER BY created DESC LIMIT 1", (conv,))
-    if not ask or answers_to(conn, [ask["id"]]):
-        return None
-    ask["refs"] = _json(ask.get("refs_json"), {}) or {}
-    return ask
+    asks = _rows(conn.execute(
+        "SELECT m.* FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+        f"WHERE m.conversation_id=? AND m.kind='ask' AND {MESSAGE_TASK_SQL}=? "
+        "ORDER BY m.rowid DESC", (conv, task_row["id"])))
+    answered = answers_to(conn, [ask["id"] for ask in asks])
+    for ask in asks:
+        if ask["id"] not in answered:
+            ask["refs"] = _json(ask.get("refs_json"), {}) or {}
+            return ask
+    return None
 
 
 def tasks_asked_of(conn, actor):
     """Live tasks with an unanswered ask addressed to this actor, even if they do not own them."""
     rows = _rows(conn.execute(
-        "SELECT t.* FROM tasks t JOIN messages m ON m.conversation_id=t.conversation_id "
+        "SELECT t.* FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
+        f"JOIN messages m ON m.conversation_id=t.conversation_id AND {MESSAGE_TASK_SQL}=t.id "
         f"WHERE t.status IN ({','.join(repr(x) for x in ACTIVE_STATUSES)}) AND m.kind='ask' AND m.to_actor=? "
         "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer') "
         "GROUP BY t.id ORDER BY t.created", (actor,)))
-    return [row for row in rows if unanswered_ask(conn, row)]
+    return [row for row in rows if (ask := unanswered_ask(conn, row)) and ask["to_actor"] == actor]
 
 
 def needs_you(conn, who):

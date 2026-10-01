@@ -13,13 +13,13 @@
 // The Product lane (its board, columns and lane switch) is retired; the page
 // shows team tasks only.
 const COMPANY_COLS = [
-  ['needs',   'Needs you', 'Waiting on a human, blocked, or declined back'],
+  ['needs',   'Needs a human', 'Waiting on a human, blocked, or declined back'],
   ['waiting', 'Waiting', 'Waiting on the dependency shown in the task'],
   ['doing',   'Doing',     'Starting or being worked on now'],
   ['scheduled', 'Scheduled', 'One-off tasks scheduled to start in the future'],
 ];
-const STATUS_WORD = {open: 'open', doing: 'doing', waiting: 'waiting', review: 'in review', ready: 'ready to ship',
-                     done: 'done', closed: 'closed', declined: 'declined'};
+const STATUS_WORD = {open: 'Open', doing: 'Doing', waiting: 'Waiting', review: 'In review', ready: 'Ready to ship',
+                     done: 'Done', closed: 'Closed', declined: 'Declined'};
 const BOARD_COLS = [...COMPANY_COLS, ['done', 'Done', 'Finished in the last 7 days']];   // legacy name, kept for the routine rows
 // "I like my 'for you' view of tasks, but IMO it should be a person icon to the
 // left of the list view. and we still want list and kanban views in the tasks menu bar." For you

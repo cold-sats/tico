@@ -181,7 +181,7 @@ class Builder:
                 self.linux = runner
             bots = {slug: {"ready": True, "runtime": "claude", "model": "claude-opus-5", "repository_present": True,
                            "repository_revision": SEED_SHA[:7], "configuration_valid": True, "problems": []}
-                    for slug, _, _ in D.BOTS}
+                    for slug in [*(slug for slug, _, _ in D.BOTS), "librarian", "goal-manager"]}
             readiness = {"schema_version": 1, "bots": bots,
                          "runtimes": {name: {"installed": True, "authenticated": "ready",
                                              "version": "2.4.1" if name == "claude" else "0.9.3",
@@ -199,7 +199,7 @@ class Builder:
                       "checkout": {"head": SEED_SHA, "running": SEED_SHA, "ahead": 0, "behind": 0,
                                    "checked_at": self.ago(hours=1).strftime("%Y-%m-%dT%H:%M:%SZ")}}).raise_for_status()
         # The Linux box hosts Inbox alone; the Mac hosts the other bots.
-        for slug, _, _ in D.BOTS:
+        for slug in [*(slug for slug, _, _ in D.BOTS), "librarian", "goal-manager"]:
             target = self.linux if slug == "inbox" else self.mac
             with self.store.read() as c:
                 have = c.execute("SELECT runner_id,generation FROM assignments WHERE bot=?", (slug,)).fetchone()
@@ -403,7 +403,12 @@ class Builder:
         def work(c):
             for bot, hours, trigger, summary, tokens_in, tokens_out in D.TURNS:
                 self.at(hours=hours)
-                request = hubdb.say(c, "human:ana", "bot:" + bot, "Demo run: " + summary)
+                task = None
+                routine = c.execute("SELECT id,title FROM schedules WHERE bot=? ORDER BY id LIMIT 1", (bot,)).fetchone() if trigger == "routine" else None
+                if routine:
+                    task = hubdb.task_create(c, hubdb.KEEPER, routine["title"], summary, "bot:" + bot, deduplicate=False)
+                request = hubdb.say(c, "human:ana", "bot:" + bot, "Demo run: " + summary,
+                                   refs={"task": task["id"]} if task else {})
                 turn = hubdb.turn_start(c, hubdb.KEEPER, bot, trigger=trigger, message_id=request["id"])
                 self.clock.at += timedelta(minutes=4)
                 model, provider, billing = D.USAGE[bot]
@@ -414,6 +419,12 @@ class Builder:
                                          "output_tokens": tokens_out, "model": model, "provider": provider,
                                          "est_cost_usd": providers.estimate_cost(model, tokens_in - cached, cached, tokens_out),
                                          "billing": billing})
+                if task:
+                    hubdb.task_update(c, "bot:" + bot, task["id"], status="done", note=summary)
+                    c.execute("INSERT INTO schedule_occurrences VALUES(?,?,?,'completed')",
+                              (routine["id"], turn["started"], task["id"]))
+                    c.execute("UPDATE schedules SET last_fired=max(coalesce(last_fired,''),?) WHERE id=?",
+                              (turn["started"], routine["id"]))
                 hubdb.status_result(c, hubdb.KEEPER, bot, last_result=summary, last_turn_at=H.now())
             self.at(hours=1)
             for bot, focus in D.FOCUS.items():

@@ -104,10 +104,12 @@ def install(app):
     check, snapshot = _find(routes, V2 + "/fleet/check", "GET"), _find(routes, V2 + "/tico/fleet", "GET")
     if check and snapshot:
         def health_issues(request: Request):
-            """What is wrong, most urgent first: for the Assistant the live snapshot of the team, for a person (or
-            BotOps acting for one) the checks over the bots they may see, each with its one fix."""
+            """Health checks and fixes over the bots the caller may see, plus the team snapshot for the Assistant."""
             who = request.state.identity
-            return (snapshot if getattr(who, "via", None) == "assistant" else check).endpoint(request)
+            checked = check.endpoint(request)
+            if getattr(who, "via", None) == "assistant":
+                return {**snapshot.endpoint(request), **{key: checked[key] for key in ("checks", "issues", "services", "counts")}}
+            return checked
         _put_before(routes, check, APIRoute(V2 + "/health/issues", health_issues, methods=["GET"]))
         check.deprecated = snapshot.deprecated = True
 

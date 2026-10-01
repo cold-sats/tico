@@ -112,3 +112,17 @@ def test_bot_instructions_show_the_published_file_and_do_not_substitute_descript
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO bot_agent_instructions VALUES(?,?,?,?)", ("ops", text, "computer-1", H.now()))
     assert api.get(path, headers=headers()).json()["AGENT.md"] == text
+
+
+def test_computers_omit_archived_bots_and_show_team_services_once(api):
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='archived' WHERE slug='ops'")
+        c.execute("INSERT INTO service_health VALUES('sample-service',?,NULL,'{}')", (H.now(),))
+    result = get(api, "computers")
+    computer = next(row for row in result["computers"] if row["id"] == r["runner_id"])
+    assert "ops" not in computer["readiness"]["bots"]
+    assert computer["services"] == []
+    assert any(row["service"] == "sample-service" and row["scope"] == "team" for row in result["services"])

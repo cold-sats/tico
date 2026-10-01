@@ -207,6 +207,11 @@
     async function load() {
       try {
         const page = await get(`/v2/bots/${encodeURIComponent(slug)}/tools`);
+        let error = host.querySelector('[data-tool-report-error]');
+        if (page.report_error) {
+          if (!error) { error = document.createElement('p'); error.dataset.toolReportError = ''; error.className = 'err'; host.append(error); }
+          error.textContent = page.report_error;
+        } else error?.remove();
         if (!host.isConnected) return;
         state.tools = Array.isArray(page.tools) ? page.tools : [];
       } catch (e) { if (!host.isConnected) return; state.tools = state.tools || []; }

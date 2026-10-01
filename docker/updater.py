@@ -78,6 +78,15 @@ errors = collections.deque(maxlen=50)     # the last failures, in memory, for GE
 
 
 def set_status(**fields):
+    message = str(fields.get("message") or "")
+    if any(word in message.lower() for word in ("no space left", "not enough space", "disk full", "enospc")):
+        fields["message"] = "Not enough disk space to update. Free space on this computer (Docker: `docker image prune -a`); the update retries when space frees."
+        try:
+            fields["disk_free"] = shutil.disk_usage("/").free
+        except OSError:
+            pass
+    elif fields.get("state") == "pulling":
+        fields["disk_free"] = -1
     with lock:
         status.update(fields)
         if fields.get("state") in ("failed", "rolled_back") or (status["state"] == "failed" and fields.get("message")):
@@ -431,7 +440,7 @@ def load_status():
         return
     if isinstance(saved, dict) and saved.get("state") in ("healthy", "rolled_back", "failed"):
         with lock:
-            status.update({k: v for k, v in saved.items() if isinstance(v, (str, bool))})
+            status.update({k: v for k, v in saved.items() if isinstance(v, (str, bool, int))})
 
 
 def inspect(ref):

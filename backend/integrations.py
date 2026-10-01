@@ -292,6 +292,11 @@ def install_integrations(app, store, auth, mutate):
         row = c.execute("SELECT name FROM humans WHERE id=?", (auth.owner_id(c),)).fetchone() if auth.owner_id(c) else None
         return page | {"owner": (row and row["name"]) or store.settings.owner_email or "owner"}
 
+    def retained(service):
+        return {**custom_page({"service": service, "title": service, "connections": [], "bots": []}),
+                "summary": "Tool removed", "status": "removed", "read_only": True,
+                "body": "This tool is no longer declared. Its learnings are kept here."}
+
     def resolve(service, who):
         try:
             return catalog.resolve(service)
@@ -300,6 +305,9 @@ def install_integrations(app, store, auth, mutate):
                 raise
             with store.read() as c:
                 item = inventory(c, store.settings, auth, who).get(service)
+                if not item and c.execute("SELECT 1 FROM learnings WHERE integration=? AND deleted_at IS NULL LIMIT 1",
+                                          (service,)).fetchone():
+                    return retained(service)
             if item:
                 return custom_page(item)
             raise
@@ -325,6 +333,8 @@ def install_integrations(app, store, auth, mutate):
                      for item in catalog.listing()]
             known = {item["service"] for item in items}
             items += [named(c, custom_page(item)) for service, item in connected.items() if service not in known]
+            present = {item["service"] for item in items}
+            items += [named(c, retained(service)) for service in counts if service not in present]
         return {"label": "Available tools", "integrations": [item | {"learning_count": counts.get(item["service"], 0)} for item in items]}
 
     @app.get("/api/v2/integrations/{service}")
@@ -354,6 +364,8 @@ def install_integrations(app, store, auth, mutate):
         page = resolve(service, request.state.identity)
 
         def work(c):
+            if page.get("read_only"):
+                raise Problem("removed", "This tool was removed; its existing learnings are still available", 409)
             return add_learning(c, who, page["service"], body.text)
         return mutate(request, body, work)
 
@@ -362,12 +374,16 @@ def install_integrations(app, store, auth, mutate):
         who = request.state.identity
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner deletes a learning", 403)
-        page = resolve(service, request.state.identity)
+        try:
+            service = catalog.resolve(service)["service"]
+        except Problem as exc:
+            if exc.code != "not_found":
+                raise
         with store.transaction() as c:
             row = c.execute("SELECT id FROM learnings WHERE id=? AND integration=? AND deleted_at IS NULL",
-                            (lid, page["service"])).fetchone()
+                            (lid, service)).fetchone()
             if not row:
                 raise Problem("not_found", "Learning not found", 404)
             c.execute("UPDATE learnings SET deleted_at=? WHERE id=?", (H.now(), lid))
-            H.event(c, who.actor, "learning.delete", page["service"], {"id": lid})
+            H.event(c, who.actor, "learning.delete", service, {"id": lid})
         return {"ok": True}

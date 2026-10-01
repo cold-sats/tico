@@ -124,3 +124,38 @@ def test_a_local_credential_key_that_is_not_backed_up_is_a_warning_or_a_note():
     assert quiet["status"] == "info" and "credential key" in quiet["summary"] and quiet["fixes"][0]["href"].endswith("#backups-and-restore")
     assert check({**only, "credential_key": {**held, "copied_at": None, "current": False}}, local)["status"] == "warn"
     assert "credential key" in check({"mode": "off", "credential_key": held})["summary"]
+
+
+def test_health_warns_about_disk_space_and_shares_checks_with_the_tool(environment):
+    import json
+    api = environment()
+    rid = enrolled(api)
+    heartbeat(api, rid, runtimes=SIGNED_IN)
+    with api.app.state.store.transaction() as c:
+        row = c.execute("SELECT readiness_json FROM runners WHERE id=?", (rid,)).fetchone()
+        doc = json.loads(row[0])
+        doc["disk"] = {"total_bytes": 1000, "free_bytes": 140}
+        c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(doc), rid))
+    health = health_of(api)[1]
+    disk = health["disk:" + rid]
+    assert disk["status"] == "warn" and "docker image prune -a" in disk["summary"]
+    tool = api.get("/api/v2/health/issues", headers=signed_in()).json()
+    assert {check["id"]: check for check in tool["checks"]} == health
+    assert any(issue["kind"] == "disk:" + rid for issue in tool["issues"])
+
+
+def test_health_tool_includes_watcher_and_queue_failures(environment):
+    api = environment()
+    rid = enrolled(api)
+    add_bot(api, "helper")
+    heartbeat(api, rid, runtimes=SIGNED_IN)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('helper',?,1,?,'test')", (rid, H.now()))
+        queue(c, "helper", 20, "stuck-work")
+        c.execute("INSERT INTO watcher_runs(bot,name,runner_id,started,finished,exit_code,every) VALUES('helper','sample-watcher',?,?,?,1,60)", (rid, H.now(), H.now()))
+    settings_checks = health_of(api)[1]
+    tool = api.get("/api/v2/health/issues", headers=signed_in()).json()
+    checks = {check["id"]: check for check in tool["checks"]}
+    assert checks["watchers"] == settings_checks["watchers"]
+    assert checks["queue"] == settings_checks["queue"]
+    assert {"watchers", "queue"} <= {issue["kind"] for issue in tool["issues"]}

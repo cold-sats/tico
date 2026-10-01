@@ -25,6 +25,16 @@ def _json(value, fallback=None):
     except (TypeError, ValueError):
         return fallback
 
+def repository_present(c, bot):
+    from .agents import external_harness
+    if external_harness(c, bot):
+        return True
+    row = c.execute("SELECT r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
+                    "WHERE a.bot=?", (bot,)).fetchone()
+    report = bot_readiness(row["readiness_json"], bot) if row else {}
+    return bool(report.get("repository_present"))
+
+
 class SettingsAdmin:
     def __init__(self, store, auth, execution, models, reset_sessions):
         self.store, self.auth, self.execution = store, auth, execution
@@ -389,6 +399,17 @@ class SettingsAdmin:
             result["agent"] = {"harness": external_harness(c, bot), "credential": bool(record and not record["revoked_at"])}
         return result
 
+    def ensure_activation(self, c, who, bot):
+        declared = _json(self._config(c, bot)["config_json"], {}) or {}
+        previous = H.bot(c, bot)["state"]
+        c.execute("UPDATE bots SET state='active' WHERE slug=?", (bot,))
+        try:
+            placement.auto_place(c, self.execution, bot, who.actor)
+        finally:
+            c.execute("UPDATE bots SET state=? WHERE slug=?", (previous, bot))
+        if not repository_present(c, bot) and not declared.get("materialize"):
+            raise Problem("repository_missing", "Its repository is not built yet. Ask BotOps to build it", 409)
+
     def update_bot(self, c, who, bot, body):
         self._manager(c, who, bot)
         if "template" in body.model_fields_set:
@@ -416,6 +437,8 @@ class SettingsAdmin:
                 "SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (bot,)).fetchone():
             raise Problem("busy", "Wait for the current bot turn before changing its room type", 409)
         declared = _json(config["config_json"], {}) or {}
+        if values["status"] == "active" and before.get("status") != "active":
+            self.ensure_activation(c, who, bot)
         if "template" in body.model_fields_set:
             declared["template"] = body.template or ""
         declared.update({"name": bot, "display_name": values["display_name"],
@@ -434,8 +457,6 @@ class SettingsAdmin:
         roster = self._roster(c)
         for slug in entries:
             c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, roster), slug))
-        if values["status"] == "active" and before.get("status") != "active":
-            placement.auto_place(c, self.execution, bot, who.actor)     # never active and silent
         after = self.definition(c, bot)
         self.record(c, who.actor, bot, "definition", before, after)
         H.event(c, who.actor, "bot.definition_changed", bot,

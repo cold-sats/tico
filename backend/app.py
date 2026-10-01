@@ -41,7 +41,7 @@ from . import releases, runner_versions, ui_bundle
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
-from .settings_admin import SettingsAdmin
+from .settings_admin import SettingsAdmin, repository_present
 from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
 from .credential_cards import install_credential_cards, scrub_attempt
@@ -2362,6 +2362,7 @@ def create_app(settings=None):
                 raise Problem("forbidden", "Only a person who manages this bot can clear quarantine", 403)
             if (H.bot(c, bot) or {}).get("state") != "quarantined":
                 raise Problem("quarantined", "This bot is not quarantined", 409)
+            settings_admin.ensure_activation(c, who, bot)
             # Stopped runs settle on their own (execution.auto_reconcile); they no longer hold a resume.
             return {"status": H.status_set(c, who.actor, bot, state="active", focus="",
                                             reason=(body.note or "").strip() or "Resumed")}
@@ -2676,6 +2677,22 @@ def create_app(settings=None):
         with store.read() as c:
             result = fleet_check_module.check(c, who, auth, settings)
             result["computers"] = computer_rows(c, who)
+            result["services"] = views.team_services(c, who, auth)
+            from . import health
+            from .onboarding import config_view
+            checks = health.view(c, who, settings, auth, getattr(app.state, "github_app", None), config_view(c, settings, who))["checks"]
+            result["checks"] = checks
+            for check in checks:
+                if check["status"] not in ("warn", "bad", "unknown"):
+                    continue
+                result["issues"].append({"bot": "", "name": check["label"], "kind": check["id"],
+                                         "severity": "high" if check["status"] == "bad" else "medium",
+                                         "text": check["summary"], "fixes": check["fixes"],
+                                         "fix": "; ".join(f["label"] + (": " + f["href"] if f["href"] else "")
+                                                          for f in check["fixes"])})
+            result["issues"].sort(key=lambda i: (fleet_check_module.ORDER[i["severity"]], i["name"].lower(), i["kind"]))
+            result["counts"] = {level: sum(i["severity"] == level for i in result["issues"])
+                                for level in fleet_check_module.ORDER}
             return result
 
     def computer_rows(c, who):
@@ -2702,7 +2719,8 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            return {"computers": computer_rows(c, who)}
+            return {"computers": computer_rows(c, who), "services": views.team_services(c, who, auth),
+                    "services_scope": "team"}
 
     @app.post("/api/v2/bots/{bot}/place")
     def place_bot(request: Request, bot: str, body: M.BotPlace):
@@ -2738,10 +2756,7 @@ def create_app(settings=None):
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
             building = False
             if not agents.external_harness(c, bot):
-                assignment = c.execute("SELECT r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
-                                       "WHERE a.bot=?", (bot,)).fetchone()
-                report = bot_readiness(assignment["readiness_json"], bot) if assignment else {}
-                if not report.get("repository_present"):
+                if not repository_present(c, bot):
                     declared = onboarding._declared(c, bot)
                     if declared.get("materialize"):
                         building = True
@@ -3106,6 +3121,8 @@ def create_app(settings=None):
                 raise Problem("version_conflict", "Bot configuration changed; refresh before controlling it", 409)
             if H.bot(c, bot)["state"] == "quarantined" and body.action != "drain":
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
+            if body.action == "resume":
+                settings_admin.ensure_activation(c, who, bot)
             c.execute("INSERT INTO bot_control VALUES(?,?) ON CONFLICT(bot) DO UPDATE SET draining=excluded.draining",
                       (bot, int(body.action in ("drain", "pause"))))
             if body.action != "drain":
@@ -3116,8 +3133,6 @@ def create_app(settings=None):
                 H.status_set(c, H.KEEPER, bot, state="paused" if body.action == "pause" else "idle")
             c.execute("UPDATE bot_config SET revision=revision+1 WHERE bot=?", (bot,))
             H.event(c, who.actor, "bot." + body.action, bot)
-            if body.action == "resume":
-                placing.auto_place(c, execution, bot, who.actor)
             return {"bot": bot, "action": body.action, "revision": config["revision"] + 1}
         return mutate(request, body, work)
 

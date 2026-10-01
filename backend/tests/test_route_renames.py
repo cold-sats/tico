@@ -50,6 +50,8 @@ def test_health_issues_is_the_snapshot_for_the_assistant_and_the_checks_for_ever
     api.app.state.store.settings.test_identities["ana-assistant"] = Identity(
         "human:ana", "owner", "ana@acme.example", via="assistant")
     seen = api.get("/api/v2/health/issues", headers=headers("ana-assistant"))
-    assert seen.status_code == 200 and "issues" not in seen.json()
-    assert set(seen.json()) == set(api.get("/api/v2/tico/fleet", headers=headers("ana-assistant")).json())
+    assert seen.status_code == 200 and "issues" in seen.json() and "checks" in seen.json()
+    snapshot = api.get("/api/v2/tico/fleet", headers=headers("ana-assistant")).json()
+    assert set(snapshot) <= set(seen.json())
+    assert seen.json()["checks"] == get(api, "health")["checks"]
     assert "issues" in api.get("/api/v2/health/issues", headers=headers()).json()

@@ -91,17 +91,23 @@ def computer_details(c, row, who, auth):
     readiness = readiness_document(value.get("readiness_json"))
     access = auth.bot_accesses(c, who)
     elsewhere = {r[0] for r in c.execute("SELECT bot FROM assignments WHERE runner_id<>?", (row["id"],))}
+    archived = {r[0] for r in c.execute("SELECT slug FROM bots WHERE state='archived'")}
     readiness["bots"] = {bot: {k: v for k, v in report.items() if k != "tools"}
                          for bot, report in readiness.get("bots", {}).items()
-                         if bot not in elsewhere and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
+                         if bot not in elsewhere | archived and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
     update = runner_versions.view(runner_versions.load(c).get(row["id"]))
     update["wanted_release"] = runner_versions.desired()["version"]
     return {"version": value.get("version") or "", "last_seen": value.get("last_seen"),
             "readiness": readiness, "update": update, "fix": "Open Settings > Computers to retry the update" if update.get("error") else "Open Settings > Computers",
-            "services": [{**dict(r), "text": f"{r['service']}: {r['last_error'] or 'No reported error'}",
-                          "fix": "Open Health for " + r["service"]} for r in c.execute(
-                              "SELECT service,last_success,last_error FROM service_health")]
-            if who.role == "owner" or auth.bot_admin(who) else []}
+            "services": [], "services_scope": "team"}
+
+
+def team_services(c, who, auth):
+    if who.role != "owner" and not auth.bot_admin(who):
+        return []
+    return [{**dict(r), "scope": "team", "text": f"{r['service']}: {r['last_error'] or 'No reported error'}",
+             "fix": "Open Health for " + r["service"]} for r in c.execute(
+                 "SELECT service,last_success,last_error FROM service_health ORDER BY service")]
 
 
 def roster(c):

@@ -3,7 +3,8 @@
 A routine is a row in Tico: a bot, a time (or a Tico event), a title, and the text the bot is
 told. The server runs the clock. When a routine is due it opens a task for the bot with that
 text; a Mac claims the task after it wakes and passes readiness, and the bot takes it from there
-like any other task. Nothing else defines a routine — not a file in the bot's repository, not a
+like any other task. Run now during another task queues a separate run for the routine's task; reading its
+notification during the other run does not count as doing that work. Nothing else defines a routine — not a file in the bot's repository, not a
 Git branch. Tico organizes the bots' work; what a bot does with a session, a context window or
 a compaction is the bot's runtime's business.
 

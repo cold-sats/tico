@@ -2,6 +2,8 @@
 API, the scheduler turns each due occurrence into a task, and the listing and occurrence views
 read the same rows."""
 import json
+
+import pytest
 from datetime import datetime, timezone
 
 from backend.routines import emit, occurrences
@@ -140,3 +142,26 @@ def test_routine_errors_name_the_field_and_routine():
         validate_schedules([entry])
     with pytest.raises(ValueError, match="Weekly review: QA/Invalid is not a time zone"):
         validate_schedules([{**entry, "cron": "0 9 * * 1-5", "timezone": "QA/Invalid"}])
+
+
+@pytest.mark.parametrize("absorbed_before_update", [False, True])
+def test_run_now_during_another_task_stays_queued_for_its_own_run(api, absorbed_before_update):
+    r = setup(api)
+    task = post(api, "tasks", {"title": "Write a report", "body": "Write the report", "owner": "ops"})
+    attempt = claim(api, r)
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "report"}, r["token"])
+    fired = post(api, "routines/ops:audit/run", {})
+    tid = fired["task_id"]
+    assert tid != task["id"]
+    assert post(api, f"attempts/{attempt['id']}/inputs", {}, r["token"])["messages"] == []
+    if absorbed_before_update:
+        with api.app.state.store.transaction() as c:
+            message = c.execute("SELECT m.id FROM jobs j JOIN messages m ON m.id=j.message_id "
+                                "WHERE j.bot='ops' AND json_extract(m.refs_json,'$.task')=? AND j.state='queued'", (tid,)).fetchone()[0]
+            c.execute("INSERT INTO attempt_inputs VALUES(?,?,?)", (attempt["id"], message, H.now()))
+            c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (attempt["id"], message))
+    post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "last_seq": 0, "text": "Report finished"}, r["token"])
+    next_attempt = claim(api, r)
+    assert next_attempt["task"]["id"] == tid
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE id=?", (next_attempt["job_id"],)).fetchone()[0] == "leased"

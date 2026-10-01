@@ -50,7 +50,9 @@ A link with no target is context only: it shows the number and does not colour t
 
 **Freshness.** Given the cadence, a KPI is *fresh* (a reading covers the latest period, allowing a quarter period for the
 collector to run), *stale* (one period missed) or *missing* (never read, or two or more periods missed). Missing is never
-zero: a KPI with no fresh data has no value and is gray.
+zero: a KPI with no fresh data has no value and is gray. Freshness comes from the complete reading used to judge
+its value; a newer partial reading cannot make an older complete value fresh. The assessment's `reading_id` names
+that reading.
 
 ## The colours
 

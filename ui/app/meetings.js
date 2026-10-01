@@ -586,7 +586,7 @@ function meetNotesOpen(state) {
 const MEET_SECTIONS = [
   {key: 'doc', title: 'Doc updates', fields: [['document', 'Document, e.g. docs/pricing.md'], ['change', 'What it should say now'], ['why', 'Why']]},
   {key: 'task', title: 'Tasks', fields: [['owner', 'Owner — human:<id> or bot:<slug>'], ['due', 'Due — 2026-09-18T17:00:00-07:00'], ['priority', 'Priority — p0 to p3']]},
-  {key: 'feature', title: 'Feature requests', fields: [['side', 'Side — B, F or B/F'], ['app', 'App — CA or PA'], ['area', 'Area — a board label']]},
+  {key: 'feature', title: 'Feature requests', fields: [['side', 'Product area (optional)'], ['app', 'App (optional)'], ['area', 'Label (optional)']]},
 ];
 const meetAuthor = a => a === 'brain' ? 'Tico' : actorLabel(a);
 // One line under the text: who owns a task and when, which document, which side of a feature.
@@ -594,7 +594,7 @@ const meetItemLine = it => {
   const d = it.detail || {};
   if (it.section === 'task') return [d.owner ? actorLabel(d.owner) : 'No owner yet', d.due ? 'due ' + String(d.due).slice(0, 10) : '', d.priority || ''].filter(Boolean).join(' · ');
   if (it.section === 'doc') return [d.document || 'No document named', d.change].filter(Boolean).join(' — ');
-  if (it.section === 'feature') return [d.side || 'B/F', d.app, d.area, d.bug ? 'bug' : ''].filter(Boolean).join(' · ');
+  if (it.section === 'feature') return [({B: 'Backend', F: 'Frontend', 'B/F': 'Backend and frontend'})[d.side] || d.side, ({CA: 'Client app', PA: 'Pro app'})[d.app] || d.app, d.area, d.bug ? 'bug' : ''].filter(Boolean).join(' · ');
   return '';
 };
 // Where a pushed item ended up: the task it became, or a link.

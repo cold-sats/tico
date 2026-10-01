@@ -7,6 +7,9 @@ and recent occurrences. The right side is a list of example messages and actions
 Slack thread viewers open the original message context, and Slack messages link back to Slack.
 The source chips can widen or narrow the examples to the bot's other mailboxes and channels.
 
+Last run includes recorded runs as well as routine and digest activity. Routine history shows each completed
+occurrence and its task, including the sample runs in the demo.
+
 Bot pause/resume and routine pause/resume use the same APIs and authorization as the bot and
 Routines pages. **Run now** opens one manual occurrence of an active timed routine. It refuses
 when the routine or bot is paused or that routine still has unfinished work. The resulting task

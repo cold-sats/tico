@@ -108,7 +108,7 @@ def whoami(api, args):
 
 
 @tool("hub_message_send", "Send a message to a bot or a human. Bot-to-human messages are linted "
-      "(first line is the ask, under 120 words) and capped at 10 unsolicited a day. `fyi` sends an fyi that "
+      "(nonempty first line, under 120 words; put the ask first) and capped at 10 unsolicited a day. `fyi` sends an fyi that "
       "expects no reply.",
       {"to": _s("Recipient: a bot slug, `bot:<slug>`, or a human id"),
        "text": _s("The message"),
@@ -358,7 +358,7 @@ def task_list(api, args):
                    lane=args.get("lane") or None, label=args.get("label") or None)["tasks"]
 
 
-@tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One per task.",
+@tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One open question at a time; wait for its answer before asking another.",
       {"id": TASK_ID, "text": _s("The question, and only the question")},
       required=("id", "text"), writes=True)
 def task_ask(api, args):
@@ -1074,7 +1074,7 @@ def docs_links(api, args):
     return api.get("linked-docs")
 
 
-@tool("hub_task_close", "Close a task you requested. Never close a task you did not request.",
+@tool("hub_task_close", "Close a task. A human may close work they can edit; a bot closes work it requested or was delegated to close.",
       {"id": TASK_ID, "note": _s("Why it is closed")}, required=("id",), writes=True)
 def task_close(api, args):
     current = api.get("tasks/" + args["id"])["task"]
@@ -1630,11 +1630,11 @@ def computers(api, args):
 
 
 @tool("hub_health_check", "What is wrong, most urgent first: bots with no computer, computers offline, failing runs, a "
-      "credential a bot needs, setup that never finished, paused or stopped bots. Each issue has a plain sentence and "
-      "the one command that fixes it. Fix what you may, then report. The Assistant gets the live snapshot of the team's "
-      "bots instead.", {})
+      "credential a bot needs, setup that never finished, paused or stopped bots, failing watchers or queued work, "
+      "and computers low on disk space. Includes the same checks as Health and their fixes. Fix what you may, then report. "
+      "The Assistant also gets the live snapshot of the team's bots.", {})
 def health_check(api, args):
-    return _as_person(api).get("health/issues")     # the Assistant: the live snapshot; anyone else: what is wrong
+    return _as_person(api).get("health/issues")
 
 
 @tool("hub_slack_channel_list", "The Slack channels bots may read and post in: each one's name and id, which bots read it, "

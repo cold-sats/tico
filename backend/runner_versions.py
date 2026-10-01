@@ -105,12 +105,23 @@ def health_check(computers, server=None):
     failed = [x for x in online if x["update"]["error"]]
     fixes = [{"label": "Open Computers", "href": "#/settings", "tab": "devices", "click": ""}]
     names = lambda rows: ", ".join(x["label"] for x in rows[:5])   # noqa: E731
+    unknown = [x for x in online if x["update"]["state"] == "unknown"]
+    newer = [x for x in online if releases.parse(x["update"].get("release"))
+             and releases.parse(x["update"]["release"]) > releases.parse(server)]
+    notes = []
+    if unknown:
+        notes.append(f"Version not reported: {names(unknown)}.")
+    if newer:
+        notes.append("Newer than this server: " + ", ".join(
+            f"{x['label']} ({x['update']['release']})" for x in newer[:5]) + ".")
+    extra = " " + " ".join(notes) if notes else ""
     if bad:
         return {"id": "runners", "label": "Runner versions", "status": "bad", "fixes": fixes,
-                "summary": f"{names(bad)} cannot work with {server} and its bots are paused until it updates."}
+                "summary": f"{names(bad)} cannot work with {server} and its bots are paused until it updates." + extra}
     if behind or failed:
         note = f" Last update error: {failed[0]['update']['error']}" if failed else ""
         return {"id": "runners", "label": "Runner versions", "status": "warn", "fixes": fixes,
-                "summary": f"{names(behind or failed)} {'is' if len(behind or failed) == 1 else 'are'} not on {server} yet." + note}
-    return {"id": "runners", "label": "Runner versions", "status": "ok", "fixes": [],
-            "summary": f"Every online computer is on {server}." if online else "No computer is online to compare."}
+                "summary": f"{names(behind or failed)} {'is' if len(behind or failed) == 1 else 'are'} not on {server} yet." + note + extra}
+    return {"id": "runners", "label": "Runner versions", "status": "unknown" if unknown else "info" if newer else "ok",
+            "fixes": fixes if unknown else [], "summary": " ".join(notes) if notes else
+            f"Every online computer is on {server}." if online else "No computer is online to compare."}

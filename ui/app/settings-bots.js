@@ -133,7 +133,7 @@ function settingsMachineSelect(e) {
 function settingsBotProblem(e) {
   if (e.status !== 'active') return '';
   if (e.agent) return !e.agent.credential ? 'no credential' : e.online ? '' : 'not reporting';
-  return !e.machine ? 'no computer' : e.online && e.ready ? '' : e.online ? 'Needs setup' : 'offline';
+  return !e.machine ? 'no computer' : e.online && e.ready ? '' : e.online ? (e.readiness?.problems?.[0] || 'Computer not ready') : 'offline';
 }
 // Settings → Bots filters and bulk model change ("filter by computer, filter
 // by model, select in bulk, and change model in bulk"). Filters are remembered per browser; the
