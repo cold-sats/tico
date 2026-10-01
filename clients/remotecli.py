@@ -70,6 +70,10 @@ def run(args, who=None):
         if fn == "meeting import":
             return hubtools.meetings_import_file(client, fields)
         return hubtools.BY_NAME[tool_name(fn)]["fn"](client, fields)
+    if fn == "doc ask-status":
+        from clients import docs_ask
+        return docs_ask.status(client, args.conversation_id, args.message_id, args.wait,
+                               key=os.environ.get("HUB_OPERATION_ID"))
     if fn == "doc ask":                 # `doc fetch` never gets here: it runs locally (clients/hubcli.py)
         from clients import docs_ask
         return docs_ask.ask(client, args.question, args.wait, key=os.environ.get("HUB_OPERATION_ID"))

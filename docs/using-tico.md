@@ -69,8 +69,9 @@ title, a cron (five fields, America/Los_Angeles by default) or a Tico event, and
 is told each time. A bot can set up its own with `hub routine set`. Details: `docs/routines.md`.
 
 **How do I change what a bot does?**
-Edit `AGENT.md` in its `bot-<slug>` repository (playbooks and `knowledge/` for methods and facts),
-commit and push; it is read at the start of the bot's next run once the Mac's checkout has it.
+Open **Bot → More → Instructions → Edit**, then **Ask BotOps** to apply the change to the bot's Computer.
+For repository edits, edit `AGENT.md` in `bot-<slug>` (playbooks and `knowledge/` for methods and facts),
+commit, push, then update the existing checkout on the bot's Computer before its next run.
 Model, effort, computer, owners and status are changed in **Settings → Bots**. One-off requests are tasks, not edits.
 
 **Where do files go?**

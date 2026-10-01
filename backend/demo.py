@@ -1,10 +1,10 @@
 """Demo mode: `python -m backend.demo` (or `docker run ... ghcr.io/ticoteam/tico demo`).
 
-A whole fictional company, Acme, in a throwaway database, so someone can click through Tico in a
+A whole fictional team, Acme, in a throwaway database, so someone can click through Tico in a
 minute with no domain, DNS, sign-in or model account. It cannot be mistaken for an install:
 
 - the page carries a "Demo - sample data" banner that cannot be closed;
-- nothing leaves the machine: the update check is off, no telemetry is configured, and this process
+- nothing leaves the computer: the update check is off, no telemetry is configured, and this process
   refuses every connection to a non-loopback address (`block_network`);
 - bots never run: there is no scheduler, "run now" explains itself, and a message to a bot gets a
   one-line answer that says so;
@@ -38,7 +38,7 @@ log = logging.getLogger("tico.demo")
 DEFAULT_PORT = 8765
 OWNER_EMAIL = "ana@acme.example"
 BANNER = "Demo — sample data"
-EXPLAIN = ("This is a demo with sample data: bots do not run here and nothing leaves this machine. "
+EXPLAIN = ("This is a demo with sample data: bots do not run here and nothing leaves this computer. "
            "On a real install, this starts the bot on a connected computer.")
 BOT_REPLY = ("This is a demo, so I do not run here. On a real install this message would reach me on a "
              "connected computer and I would answer it there.")
@@ -72,7 +72,7 @@ def check_bind(host, public_demo=False, in_container=False):
         return
     raise SystemExit(
         f"tico demo: refusing to listen on {host or 'all interfaces'}. The demo signs everyone in as its "
-        "owner, so it stays on this machine (127.0.0.1). To put it on a network on purpose, add "
+        "owner, so it stays on this computer (127.0.0.1). To put it on a network on purpose, add "
         "--public-demo; it is then read-only. In Docker, publish the port on loopback: "
         "-p 127.0.0.1:8765:8765")
 
@@ -87,7 +87,7 @@ def _remote(address):
 
 @contextlib.contextmanager
 def network_blocked():
-    """Refuse every connection and name lookup that is not this machine. Process-wide while open."""
+    """Refuse every connection and name lookup that is not this computer. Process-wide while open."""
     connect, connect_ex = socket.socket.connect, socket.socket.connect_ex
     getaddrinfo, gethostbyname = socket.getaddrinfo, socket.gethostbyname
 
@@ -261,7 +261,7 @@ def main(argv=None):
         if args.port != DEFAULT_PORT and not args.public_demo and not args.url:
             settings.public_url = settings.runner_url = f"http://127.0.0.1:{args.port}"
         print(f"\nTico demo is ready: open http://localhost:{args.port}\n"
-              "It is fictional sample data (acme.example); bots do not run and nothing leaves this machine.\n"
+              "It is fictional sample data (acme.example); bots do not run and nothing leaves this computer.\n"
               "Press Ctrl+C to stop; everything is discarded.\n", flush=True)
         uvicorn.run(create_app(settings), host=host, port=args.port, log_level="warning",
                     timeout_graceful_shutdown=2)

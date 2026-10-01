@@ -23,7 +23,9 @@ One line per internal doc, grouped by folder, in path order:
 - The summary says **what the doc answers**, not what it is called, in one sentence, from its text.
 - Include the version and the updated date from `hub doc list`, so a refresh can tell which docs
   changed since it last read them: a line whose version matches the list needs no reread.
-- Skip `_librarian/` itself and `FAQ.md`.
+- Skip `_librarian/` itself and `FAQ.md`. The server removes an archived source
+  from the index immediately; verify availability before following any older cached entry.
+- At the top, record `Last refreshed: <UTC date and time>`.
 - Add a `## Linked docs` section listing each linked doc: title, address, and its one-line description.
 
 ## `_librarian/glossary.md`: the team's words
@@ -57,6 +59,7 @@ question can go straight to the right page:
     - Known: the page "/billing/refunds" is the one to read for refunds. Old /faq is out of date.
 
 Say plainly what a source is not for. Say when it was last walked and what could not be read.
+Every unreadable source also belongs in `missing.md` under **Sources I could not read**, in the same pass.
 
 ## `_librarian/missing.md` and `_librarian/faq-log.md`
 

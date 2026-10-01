@@ -22,6 +22,11 @@ this is a first build: every doc counts as new, oldest folder first.
 
 Compare with the `## Linked docs` section: new links, changed descriptions, removed links.
 
+Reconcile every recorded linked-source failure into **Sources I could not read** in `missing.md`
+before deciding nothing changed; a failure in the map with "None" in the gaps doc is inconsistent.
+On an existing install, rename old map/log titles to the titles in `the-map.md` and `faq-and-gaps.md`,
+keeping paths and source facts. Translate old product words in generated headings and summaries.
+
 If nothing changed and every linked source was walked in the last 30 days, finish with one line
 ("map is current") and change nothing. Do not rewrite a doc to touch its date.
 
@@ -46,8 +51,10 @@ up to about five a day. For each:
    directories and where the docs are.
 3. Follow one or two links deep where the structure is not obvious. Not a crawl: the map records where
    to go, and the answering run reads the page itself.
-4. A source that cannot be read (not public, moved, an error) gets a line saying so and the date. If it
-   fails three days in a row, put it in `missing.md` as a broken source and open one task for a human
+4. A source that cannot be read (not public, moved, an error) gets its title, URL, error and date in
+   both the map and `missing.md` under **Sources I could not read** in this same pass, on the first
+   failure. Replace "None" with that entry. Remove it after a successful fetch. If it fails three days
+   in a row, open one task for a human
    (`hub task create --owner <person> --title "Fix the link to <title>"`) after checking there is not
    one already.
 

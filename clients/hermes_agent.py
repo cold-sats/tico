@@ -143,10 +143,14 @@ def flags(harness, profile):
 
 
 def openclaw_dir(profile):
-    """OpenClaw's state directory: ~/.openclaw, or ~/.openclaw-<name> for `--profile <name>`."""
-    if profile in ("", "default"):
-        return Path(os.environ.get("OPENCLAW_STATE_DIR") or Path.home() / ".openclaw").expanduser()
-    return Path.home() / (".openclaw-" + profile)
+    """An explicit state directory wins over profile defaults, which use OpenClaw's home."""
+    state = os.environ.get("OPENCLAW_STATE_DIR", "").strip()
+    if state:
+        return Path(state).expanduser().resolve()
+    home = os.environ.get("OPENCLAW_HOME", "").strip()
+    root = Path(home).expanduser() if home and home not in ("undefined", "null") else Path.home()
+    suffix = "" if profile in ("", "default") else "-" + profile
+    return (root / (".openclaw" + suffix)).resolve()
 
 
 def agent_dir(harness, profile):
@@ -201,7 +205,7 @@ def read_openclaw_config(directory):
 
 
 def read_openclaw_model(directory):
-    """`agents.defaults.model` of openclaw.json, as (model, provider): `anthropic/claude-opus-4-6` is provider `anthropic`."""
+    """`agents.defaults.model` of openclaw.json, as (model, provider): `provider/model-name` is provider `provider`."""
     defaults = (read_openclaw_config(directory).get("agents") or {}).get("defaults") or {}
     model = defaults.get("model") if isinstance(defaults, dict) else ""
     if isinstance(model, dict):
@@ -553,9 +557,12 @@ def tool_command(harness, profile):
     return [exe, "-p" if harness == "hermes" else "--profile", profile]
 
 
-def run_tool(command, what):
+def run_tool(command, what, directory=None):
     try:
-        done = subprocess.run(command, capture_output=True, text=True, timeout=90)
+        env = None
+        if directory is not None:
+            env = dict(os.environ, OPENCLAW_STATE_DIR=str(directory))
+        done = subprocess.run(command, capture_output=True, text=True, timeout=90, **({"env": env} if env else {}))
     except (OSError, subprocess.SubprocessError) as exc:
         raise Failure(f"{what}: {exc}")
     if done.returncode != 0:
@@ -598,7 +605,7 @@ def sync_jobs(harness, profile, directory):
         return [{"id": str(j.get("id")), "schedule": str(j.get("schedule_display") or ""), "enabled": j.get("enabled", True),
                  "last_run": str(j.get("last_run_at") or ""), "status": str(j.get("last_status") or "")}
                 for j in jobs or [] if isinstance(j, dict) and j.get("name") == JOB_NAME]
-    data = json_in(run_tool(tool_command(harness, profile) + ["cron", "list", "--all", "--json"], "openclaw cron list"))
+    data = json_in(run_tool(tool_command(harness, profile) + ["cron", "list", "--all", "--json"], "openclaw cron list", directory))
     out = []
     for job in (data or {}).get("jobs", []) if isinstance(data, dict) else []:
         if isinstance(job, dict) and job.get("name") == JOB_NAME:
@@ -664,7 +671,7 @@ def create_job(harness, profile, directory, parsed, prompt):
     else:
         command += ["cron", "add", "--name", JOB_NAME, "--every" if kind == "every" else "--cron", value,
                     "--session", "isolated", "--message", prompt, "--no-deliver", "--timeout-seconds", "600", "--json"]
-    run_tool(command, f"{harness} cron create")
+    run_tool(command, f"{harness} cron create", directory if harness == "openclaw" else None)
 
 
 def remove_jobs(harness, profile, directory):
@@ -672,7 +679,7 @@ def remove_jobs(harness, profile, directory):
     jobs = sync_jobs(harness, profile, directory)
     for job in jobs:
         run_tool(tool_command(harness, profile) + ["cron", "remove" if harness == "hermes" else "rm", job["id"]],
-                 f"{harness} cron remove")
+                 f"{harness} cron remove", directory if harness == "openclaw" else None)
     return len(jobs)
 
 
@@ -772,7 +779,12 @@ def perform_install(harness, profile, directory, url, bot, token, no_timer=False
     synced = apply_sync(harness, profile, directory, config, wanted) if wanted else []
     save_config(key, config)
     removed = remove_old_timers(key)
-    print(f"Registered {harness_name(harness)} profile {profile!r} as bot {bot!r} at {url}")
+    label = "Paired, finish connecting tools:" if mcp == "manual" else "Registered"
+    print(f"{label} {harness_name(harness)} profile {profile!r} as bot {bot!r} at {url}")
+    if mcp == "manual":
+        command = shlex.join([python, "-m", "pip", "install", "PyYAML"]) + " && " + shlex.join(
+            [python, str(installed_copy()), "reinstall", *flags(harness, profile)])
+        print("  finish connecting tools: " + command)
     if harness == "hermes":
         print(f"  MCP server `{MCP_SERVER_NAME}` in {directory / 'config.yaml'}: {mcp}; token in {directory / '.env'}")
     else:
@@ -785,7 +797,7 @@ def perform_install(harness, profile, directory, url, bot, token, no_timer=False
         print("  " + line)
     waiting = reply.get("waiting", {})
     print(f"  Tico sees it: {waiting.get('messages', 0)} message(s) and {waiting.get('tasks', 0)} task(s) waiting")
-    if mcp == "written":
+    if mcp in ("written", "appended"):
         print("  restart the profile's gateway or chat so it loads the new MCP server (`/reload-mcp` in a chat)")
     if harness == "openclaw" and synced and not any(line.startswith("WARNING") for line in synced):
         print("  new skills load when the next OpenClaw session starts")
@@ -794,6 +806,8 @@ def perform_install(harness, profile, directory, url, bot, token, no_timer=False
 
 def profile_directory(harness, profile, given=None):
     directory = Path(given).expanduser() if given else agent_dir(harness, profile)
+    if harness == "openclaw":
+        directory = directory.resolve()
     if not directory.is_dir():
         if harness == "openclaw":
             raise Failure(f"No OpenClaw state directory at {directory}; set the profile up first "

@@ -38,6 +38,8 @@ class InProcessApi:
     Runs on a worker thread; each call is a coroutine handed to the server's event loop.
     """
 
+    docs_wait_max = 20     # Return recoverable ids well before the HTTP proxy times out.
+
     def __init__(self, app, loop, authorization, base_url):
         self.app, self.loop, self.base_url = app, loop, base_url
         self.headers = {"Authorization": authorization, "Accept": "application/json",

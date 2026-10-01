@@ -35,6 +35,10 @@ Keep names, emails and any personal detail out of all three. Paraphrase a questi
     ## Out of date
     - [Internal doc · Onboarding](doc:b2) names a tool the pricing doc says was retired.
 
+- Record every failed linked fetch under **Sources I could not read** immediately, with title, URL,
+  error and date, even when another source answered the question. Reconcile errors recorded in the map
+  during daily refresh; "None" is valid only when there are no current failures. A later successful
+  fetch removes the entry.
 - Add a gap the first time you say "Not in the docs", with the count and the date after that; a gap is
   its most useful when it says how often it is asked.
 - When a question is now answered (someone wrote the doc), remove its line and say so in the `--note`.

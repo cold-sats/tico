@@ -16,6 +16,15 @@ gone. (Use a version tag instead of `latest` to pin one.) Docker is the simplest
 already holds everything; there is nothing to configure, so no compose file is needed. Without Docker,
 from a checkout with `pip install -r backend/requirements.txt`: `python3 -m backend.demo`.
 
+To publish it on another port, pass the browser address with `demo --url`:
+
+```bash
+docker run --rm -p 127.0.0.1:18765:8765 ghcr.io/ticoteam/tico:latest demo --url http://localhost:18765
+```
+
+Open <http://localhost:18765>. Private demos accept browser writes from loopback addresses on any
+published port. Ordinary local installs still check their configured port.
+
 ![Updates](images/updates-desktop-light.png)
 
 ## It cannot be mistaken for a real install

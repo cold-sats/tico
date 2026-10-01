@@ -74,3 +74,9 @@ An OpenClaw bot is an external bot like a Hermes one: model **OpenClaw/its own m
 minute (offline after 180 s), and no runs or usage, because nothing is dispatched. A message to it waits until
 the agent reads it. Everything else, including the troubleshooting table and the credential rules, is as in
 [Hermes agents](hermes-agents.md).
+
+Profile paths follow OpenClaw's environment: `OPENCLAW_STATE_DIR` wins even for a named profile;
+otherwise `OPENCLAW_HOME` supplies the home used for `.openclaw` or `.openclaw-<profile>`. An explicit
+`--profile-dir` wins over those defaults. Tico saves the resolved path and passes it to every OpenClaw
+cron command, including listing, replacing and removing the sync job, so files and jobs use the same
+profile after an update or reinstall.

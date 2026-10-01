@@ -77,7 +77,8 @@ def test_a_local_demo_uses_its_explicit_address_and_accepts_its_browser_origin(t
     settings = demo.prepare(tmp_path, url="http://localhost:8877")
     assert settings.public_url == settings.runner_url == "http://localhost:8877"
     assert settings.allows_origin("http://127.0.0.1:8877")
-    assert not settings.allows_origin("http://localhost:8765")
+    assert settings.allows_origin("http://localhost:8765")
+    assert not settings.allows_origin("http://example.com:8877")
 
     import uvicorn
     import backend.app as app_module
@@ -106,3 +107,15 @@ def test_demo_runs_message_sources_and_deliverables_are_browsable(built):
         assert csv["mime"] == "text/csv"
         link = api.get("/api/v2/bots/sales/files").json()["files"][0]
         assert link["locator"] == "remote_link"
+
+
+def test_private_demo_browser_writes_on_a_different_published_port(built):
+    with signed_in(built[1]) as api:
+        api.headers["Origin"] = "http://localhost:18765"
+        api.headers["Host"] = "localhost:18765"
+        r = api.post("/api/v2/preferences/demo-port-test", json={"value": "saved"},
+                     headers={"Idempotency-Key": "demo-port-test"})
+        assert r.status_code == 200, r.text
+    from dataclasses import replace
+    local = replace(built[1], demo=False)
+    assert not local.allows_origin("http://localhost:18765")

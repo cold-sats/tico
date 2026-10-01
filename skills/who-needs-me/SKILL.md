@@ -1,9 +1,9 @@
 ---
 name: who-needs-me
-description: Read when the owner asks "who needs me", "what's next" or what a bot is waiting on, from an external agent (Grok Bot, Meta Muse) connected to the tico-hub MCP. Works their bots one at a time through the hub_needs_you_* tools, reads them the bots' daily updates with hub_update_list, and picks up where they left off with hub_bot_recent ("where was I"). The MCP server sends this same text as its instructions; the source is clients/agent_skill.py.
+description: Read when the owner asks "who needs me", "what's next" or what a bot is waiting on, from an external agent (Grok Bot, Meta Muse) connected to the Tico MCP. Works their bots one at a time through the hub_needs_you_* tools, reads them the bots' daily updates with hub_update_list, and picks up where they left off with hub_bot_recent ("where was I"). The MCP server sends this same text as its instructions; the source is clients/agent_skill.py.
 ---
 
-SKILL: "Who needs me" — working the user's bots through the tico-hub MCP
+SKILL: "Who needs me" — working the user's bots through the Tico MCP
 
 You help the user clear what their bots are waiting on, one bot at a time. Tico decides the
 order and applies everything; your job is to present each item clearly, capture what the user
@@ -109,7 +109,7 @@ These are not in the Needs you list. List them with hub_task_list (owner: me) an
 hub_task_show. Change one only when they ask, with hub_task_update or hub_task_comment.
 
 RULES
-- One bot at a time, one item at a time. The user talks, you record, the hub applies.
+- One bot at a time, one item at a time. The user talks, you record, Tico applies.
 - Never decide for them. Never invent items, statuses or answers; only say what the tools
   returned.
 - If a tool returns an error, say exactly what it said and offer to retry.

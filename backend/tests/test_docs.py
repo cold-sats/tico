@@ -190,3 +190,38 @@ def test_a_bots_docs_tools_read_write_and_survive_a_concurrent_edit(api):
     edit(api, call(api, "GET", "docs/" + made["doc"]["id"])["doc"], who=ANA, locked=True)
     err, refused = tool(api, "hub_doc_write", {"path": "ops/runbook.md", "body": "no"}, token=token)
     assert err and refused["error"] == "locked"
+
+
+def test_named_map_docs_and_linked_topics_survive_whole_questions(api):
+    glossary = make(api, "Team glossary", "Setup means preparing a bot. Computer means where it runs.",
+                    path="_librarian/glossary.md")
+    idx = make(api, "Docs index", "Source docs and their versions.", path="_librarian/index.md")
+    for question, expected in [("According to the Team glossary, what does Setup mean?", glossary),
+                               ("What is in _librarian/index.md?", idx)]:
+        hits = call(api, "GET", "docs/search", params={"q": question, "collection": "all"})["results"]
+        assert hits[0]["id"] == expected["id"]
+    for collection in ("team", "company"):
+        hits = call(api, "GET", "docs/search", params={"q": "glossary", "collection": collection})["results"]
+        assert hits[0]["id"] == glossary["id"] and all(r["type"] != "manual" for r in hits)
+    link = call(api, "POST", "linked-docs", {"url": "https://help.example.com/refunds", "title": "Refund policy",
+                                           "description": "Refunds and cancellation terms"})["linked"]
+    for q in ("refund policy", "Where can I read our refund policy?", "refunds cancellation"):
+        hits = call(api, "GET", "docs/search", params={"q": q})["results"]
+        assert any(r["id"] == link["id"] for r in hits)
+
+
+def test_archive_removes_cached_index_source_and_preserves_history(api):
+    source = make(api, "Refund policy", path="finance/refunds.md")
+    body = "# Docs index\n- `finance/refunds.md` (v1): Refunds.\n- `finance/refunds.md.backup`: Separate doc.\n- `sales/pricing.md`: Prices.\n"
+    idx = make(api, "Docs index", body, path="_librarian/index.md")
+    edit(api, source, archived=True)
+    fresh = call(api, "GET", "docs/" + idx["id"])["doc"]
+    assert fresh["version"] == 2 and "`finance/refunds.md`" not in fresh["body"]
+    assert "refunds.md.backup" in fresh["body"] and "sales/pricing.md" in fresh["body"]
+    assert call(api, "GET", "docs/%s/versions/1" % idx["id"])["version"]["body"] == idx["body"]
+
+
+def test_add_a_human_or_bot_question_prioritizes_the_procedure(api):
+    for question in ("add a human or bot", "How do I add a human or bot to the team?"):
+        hits = call(api, "GET", "docs/search", params={"q": question, "collection": "all", "limit": 3})["results"]
+        assert hits[0]["id"] in ("manual:org-chart", "manual:creating-bots", "manual:people")

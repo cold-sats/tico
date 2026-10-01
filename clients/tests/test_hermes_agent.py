@@ -260,6 +260,18 @@ class Base(unittest.TestCase):
 
 
 class Pair(Base):
+    def test_missing_yaml_reports_incomplete_tools_and_preserves_other_servers(self):
+        config = self.profile / "config.yaml"
+        config.write_text("mcp_servers:\n  other:\n    url: https://example.com/mcp\n")
+        with mock.patch.dict("sys.modules", {"yaml": None}):
+            out = self.install("--no-timer", "--sync", "off")
+        self.assertIn("Paired, finish connecting tools:", out)
+        self.assertIn("-m pip install PyYAML", out)
+        self.assertIn("reinstall --profile scout", out)
+        self.assertNotIn("Registered Hermes", out)
+        self.assertEqual(config.read_text(), "mcp_servers:\n  other:\n    url: https://example.com/mcp\n")
+        self.assertTrue((self.config_dir / "scout.json").exists())
+
     def test_happy_path_installs_everything_and_never_prints_the_token(self):
         self.hub.pair_states = [{"state": "pending"}, {"state": "pending"},
                                 {"state": "approved", "bot": "scout", "token": TOKEN}]
@@ -962,3 +974,26 @@ def test_openclaw_error_keeps_gateway_cause_and_target_without_credentials():
     assert "gateway closed (1006)" in detail and "127.0.0.1:18789" in detail and "Source: local loopback" in detail
     assert "start this profile's Gateway" in detail and "reinstall" in detail
     assert "test-secret" not in detail and "private" not in detail
+
+
+def test_openclaw_state_override_and_home_apply_to_named_profiles_and_every_cron_call(tmp_path, monkeypatch):
+    root = tmp_path / "home"
+    monkeypatch.setenv("OPENCLAW_HOME", str(root))
+    monkeypatch.delenv("OPENCLAW_STATE_DIR", raising=False)
+    assert H.openclaw_dir("scout") == root / ".openclaw-scout"
+    assert H.openclaw_dir("default") == root / ".openclaw"
+    directory = tmp_path / "explicit"
+    monkeypatch.setenv("OPENCLAW_STATE_DIR", str(directory))
+    assert H.openclaw_dir("scout") == directory
+    assert H.openclaw_dir("default") == directory
+    seen = []
+    monkeypatch.setattr(H.shutil, "which", lambda name: name)
+    def run(command, **kwargs):
+        seen.append((command, kwargs["env"]["OPENCLAW_STATE_DIR"]))
+        jobs = '{"jobs": [{"id": "j1", "name": "tico-sync", "enabled": true}]}'
+        return subprocess.CompletedProcess(command, 0, stdout=jobs, stderr="")
+    monkeypatch.setattr(H.subprocess, "run", run)
+    H.sync_jobs("openclaw", "scout", directory)
+    H.create_job("openclaw", "scout", directory, ("every", "1h"), "sync")
+    H.remove_jobs("openclaw", "scout", directory)
+    assert len(seen) == 4 and all(state == str(directory) for _, state in seen)

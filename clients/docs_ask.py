@@ -6,11 +6,14 @@ Docs page uses, `POST /api/v2/docs/ask`, which puts the question in their own pr
 then waits for the reply there. Either way the result is the same:
 
     {"answer": "...", "citations": [{"type": "internal", "title": "...", "url_or_id": "<doc id>"},
-                                    {"type": "linked", "title": "...", "url_or_id": "https://..."}],
+                                    {"type": "linked", "title": "...", "url_or_id": "https://..."},
+                                    {"type": "manual", "title": "...", "url_or_id": "https://.../v0.2.32/docs/people.md"}],
      "covered": true}
 
 `covered` is false when the Librarian said the docs do not cover the question (its answer then starts
-"Not in the docs"). A wait that runs out is `{"timeout": true}`.
+"Not in the docs"). A wait that runs out returns `timeout`, `message_id` and `conversation_id`;
+`hub doc ask-status <conversation_id> <message_id>` collects the same answer without sending again.
+The server MCP uses short waits so proxies can return these ids before their request timeout.
 """
 
 import re
@@ -54,26 +57,28 @@ def final_reply(snapshot, message_id):
     return max(enumerate(replies), key=lambda pair: (pair[1].get("created", ""), pair[0]))[1] if replies else None
 
 
-def ask(api, question, wait_s=120, key=None, sleep=time.sleep, clock=time.monotonic):
-    wait = max(0, min(int(wait_s or 0), WAIT_MAX))
+def status(api, conversation_id, message_id, wait_s=0, key=None, sleep=time.sleep, clock=time.monotonic):
+    wait = max(0, min(int(wait_s or 0), getattr(api, "docs_wait_max", WAIT_MAX)))
     deadline = clock() + wait
-    suffix = (lambda s: key + s) if key else (lambda s: None)
-    if api.get("me").get("role") == "bot":
-        msg = api.post("messages", {"to": LIBRARIAN, "text": question, "kind": "ask", "wait_s": wait},
-                       key=suffix(":ask"))
-        while True:
-            snapshot = api.get(f"conversations/{msg['conversation_id']}/snapshot")
-            if answer := final_reply(snapshot, msg["id"]):
-                api.post(f"messages/{answer['id']}/ack", {}, key=suffix(":ack"))
-                return result(answer["body"])
-            if clock() >= deadline:
-                return {"timeout": True}
-            sleep(1)
-    sent = api.post("docs/ask", {"question": question}, key=suffix(":ask"))
+    ids = {"conversation_id": conversation_id, "message_id": message_id}
     while True:
-        snapshot = api.get(f"conversations/{sent['conversation_id']}/snapshot")
-        if message := final_reply(snapshot, sent["message_id"]):
-            return result(message["body"])
+        snapshot = api.get(f"conversations/{conversation_id}/snapshot")
+        if answer := final_reply(snapshot, message_id):
+            if api.get("me").get("role") == "bot":
+                api.post(f"messages/{answer['id']}/ack", {}, key=key + ":ack" if key else None)
+            return {**result(answer["body"]), **ids}
         if clock() >= deadline:
-            return {"timeout": True}
-        sleep(2)
+            return {"timeout": True, **ids}
+        sleep(min(2, max(0, deadline - clock())))
+
+
+def ask(api, question, wait_s=120, key=None, sleep=time.sleep, clock=time.monotonic):
+    wait = max(0, min(int(wait_s or 0), getattr(api, "docs_wait_max", WAIT_MAX)))
+    ask_key = key + ":ask" if key else None
+    if api.get("me").get("role") == "bot":
+        sent = api.post("messages", {"to": LIBRARIAN, "text": question, "kind": "ask", "wait_s": wait}, key=ask_key)
+        message_id = sent["id"]
+    else:
+        sent = api.post("docs/ask", {"question": question}, key=ask_key)
+        message_id = sent["message_id"]
+    return status(api, sent["conversation_id"], message_id, wait, key, sleep, clock)

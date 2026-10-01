@@ -10,8 +10,8 @@ from croniter import croniter
 DEFAULT_ZONE = 'America/Los_Angeles'
 MAX_CONTENT = 100_000
 MAX_SNAPSHOT = 1_000_000
-# An event a routine may run `on:` instead of a cron. The hub emits these (docs/routines.md).
-# `recording.ready` is the old name of `meeting.ready`; the hub still emits both.
+# An event a routine may run `on:` instead of a cron. Tico emits these (docs/routines.md).
+# `recording.ready` is the old name of `meeting.ready`; Tico still emits both.
 EVENTS = ('meeting.ready', 'recording.ready', 'market.insight.urgent')
 
 
@@ -44,7 +44,7 @@ def validate_schedules(entries, read_file=None):
             raise ValueError(f'Routine {index} needs exactly one of cron (a time) or on (an event)')
         if on is not None:
             if on not in EVENTS:
-                raise ValueError(f'Routine {index} has an unknown event; the hub emits {", ".join(EVENTS)}')
+                raise ValueError(f'Routine {index} has an unknown event; Tico emits {", ".join(EVENTS)}')
             cron = ''
         elif not isinstance(cron, str) or len(cron) > 100 or len(cron.split()) != 5 or not croniter.is_valid(cron):
             raise ValueError(f'Routine {title}: cron must use five fields, for example 0 9 * * 1-5')

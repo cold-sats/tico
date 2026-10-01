@@ -97,6 +97,8 @@
     return `<ul class="dask-results" data-results>${results.map(r => r.type === 'linked'
       ? `<li data-type="linked"><div class="dask-line"><span class="dask-badge linked">Linked · ${esc(KINDS[r.kind] || 'Link')}</span><a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title || host(r.url))}</a></div>${
           r.description ? `<p>${esc(r.description)}</p>` : `<p>${esc(host(r.url))}</p>`}</li>`
+      : r.type === 'manual'
+      ? `<li data-type="manual"><div class="dask-line"><span class="dask-badge">Tico manual</span><a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a></div>${r.excerpt ? `<p>${esc(clean(r.excerpt))}</p>` : ''}</li>`
       : `<li data-type="internal"><div class="dask-line"><span class="dask-badge internal">Internal doc</span><a href="${esc(docHref(r.id))}" data-close>${esc(r.title || r.path)}</a></div>${
           r.excerpt ? `<p>${esc(clean(r.excerpt))}</p>` : ''}</li>`).join('')}</ul>`;
   }
@@ -105,7 +107,7 @@
     const state = t.error ? `<p class="dask-err" role="alert">${esc(t.error)}</p>`
       : t.answer != null ? '' : `<p class="dask-think" data-thinking role="status">The Librarian is reading the docs<i></i><i></i><i></i></p>`;
     return `<section data-turn="${i}"><div class="dask-q">${esc(t.question)}</div>
-      ${t.results ? `<h3 class="dask-label">Matching docs</h3>${resultsHtml(t.results)}` : ''}
+      ${t.results ? `<label class="dask-label">Matching docs <select data-collection="${i}" aria-label="Search collection">${[["all", "All docs"], ["team", "Team docs"], ["manual", "Tico manual"]].map(([value, label]) => `<option value="${value}"${(t.collection || "all") === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>${resultsHtml(t.results)}` : ''}
       ${(t.answer ?? t.live) ? `<h3 class="dask-label">Librarian</h3><div class="dask-a md" data-answer aria-live="polite">${answerHtml(t.answer ?? t.live)}</div>` : ''}
       ${state}</section>`;
   }
@@ -120,6 +122,16 @@
     decorate(body);
     body.querySelectorAll('a[data-close]').forEach(a => a.addEventListener('click', () => close(false)));
     body.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => ask(b.dataset.hint); });
+    body.querySelectorAll('[data-collection]').forEach(select => {
+      select.onchange = async () => {
+        const turn = session.turns[Number(select.dataset.collection)], collection = select.value;
+        turn.collection = collection;
+        try {
+          const found = await get('/v2/docs/search?limit=8&collection=' + collection + '&q=' + encodeURIComponent(turn.question));
+          if (turn.collection === collection) { turn.results = found.results || []; draw(); }
+        } catch (e) { toast?.(e.message || 'Search failed'); }
+      };
+    });
     if (atEnd || busy) body.scrollTop = body.scrollHeight;
     const button = panel.querySelector('.dask-form button');
     if (button) button.disabled = busy;

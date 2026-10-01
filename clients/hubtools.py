@@ -1021,7 +1021,7 @@ def docs_read(api, args):
       "\"Tico manual\", each with its file and a link). Start here for any question about the team or about how "
       "to do something in Tico. `market` adds the market's notes, entities and evidence as a `market` list.",
       {"q": _s("Words to search for"), "limit": {"type": "integer", "minimum": 1, "maximum": 50},
-       "collection": _s("all (default), company, or manual (only the Tico manual)", enum=["all", "company", "manual"]),
+       "collection": _s("all (default), team (team docs; company is an alias), or manual", enum=["all", "team", "company", "manual"]),
        "market": {"type": "boolean", "default": False,
                   "description": "Also search the market: notes, entities and evidence, each with a source link"}},
       required=("q",))
@@ -2043,7 +2043,7 @@ def sql(api, args):
 @tool("hub_calendar_list", "Read upcoming appointments on a team calendar. Every bot may "
       "use this tool. The default is the team owner's calendar; pass `calendar` for your "
       "operator's. "
-      "Results are the Hub's provider-normalized snapshot and include its freshness.",
+      "Results are Tico's provider-normalized snapshot and include its freshness.",
       {"calendar": _s("Roster email whose calendar to read; default the team owner's",
                        default="")})
 def calendar_upcoming(api, args):
@@ -2051,8 +2051,8 @@ def calendar_upcoming(api, args):
 
 
 @tool("hub_calendar_schedule", "Schedule an appointment on a team calendar. Every bot may use "
-      "this tool without a separate permission grant. The Hub queues one idempotent provider "
-      "action; attendees receive the invitation when the connector completes it. Use "
+      "this tool without a separate permission grant. Tico queues one idempotent provider "
+      "action; attendees receive the invitation when the calendar tool completes it. Use "
       "hub_calendar_status before claiming success.",
       {"calendar": _s("Roster email whose calendar owns the event; default the team owner's",
                        default=""),
@@ -2305,8 +2305,10 @@ def batch_abandon(api, args):
 
 # ----------------------------------------------------------------------------- the Librarian (docs/librarian.md)
 @tool("hub_doc_ask", "Ask the Librarian a question about the team's docs and wait for its answer. Returns "
-      "`answer` (short, answer first), `citations` ([{type: internal|linked, title, url_or_id}]) and `covered` "
-      "(false when the docs do not say). Use it before you tell anyone the team has no answer.",
+      "`answer` (short, answer first), `citations` ([{type: internal|linked|manual, title, url_or_id}]) and `covered` "
+      "(false when the docs do not say). A pending answer returns timeout, message_id and conversation_id; "
+      "collect it with hub_doc_ask_status without sending again. Server requests wait up to 20 seconds. "
+      "Use it before you tell anyone the team has no answer.",
       {"question": _s("The question, in a full sentence"),
        "wait_s": {"type": "integer", "minimum": 0, "maximum": ASK_WAIT_MAX, "default": 120,
                   "description": "How long to wait for the answer, in seconds"}},
@@ -2314,6 +2316,17 @@ def batch_abandon(api, args):
 def docs_ask(api, args):
     from clients import docs_ask as D
     return D.ask(api, args["question"], args.get("wait_s", 120), key=_key(args))
+
+
+@tool("hub_doc_ask_status", "Collect a Librarian answer using the conversation_id and message_id returned by "
+      "hub_doc_ask. Sends no new question. Returns answer, citations and covered when finished, or timeout "
+      "and the same ids while pending. Server requests wait up to 20 seconds.",
+      {"conversation_id": _s("The docs conversation id"), "message_id": _s("The original question message id"),
+       "wait_s": {"type": "integer", "minimum": 0, "maximum": ASK_WAIT_MAX, "default": 0}},
+      required=("conversation_id", "message_id"))
+def docs_ask_status(api, args):
+    from clients import docs_ask as D
+    return D.status(api, args["conversation_id"], args["message_id"], args.get("wait_s", 0), key=_key(args))
 
 
 @tool("hub_doc_fetch", "Read one public web page, Google Doc, public Drive folder, GitHub repository or sitemap "

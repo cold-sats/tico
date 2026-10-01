@@ -49,7 +49,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            create or replace a doc; every write is a version
     hub doc history <id|path>              its versions: who changed it, when and why
     hub doc link-list                      where the company's other docs live (links, never copies)
-    hub doc ask "<question>" [--wait 120]  ask the Librarian about the company's docs: {answer, citations, covered}
+    hub doc ask "<question>" [--wait 120]  ask the Librarian about the team's docs: {answer, citations, covered}
     hub doc fetch <url> [--max-chars N]    read one public link (web page, Google Doc, Drive folder, GitHub repo,
                                            sitemap) as text; runs on this computer, public addresses only
     hub meeting search ["<words>"] [--person P] [--since D] [--until D]
@@ -489,7 +489,7 @@ def parser():
     s.add_argument("--title")
     s.add_argument("--task")
     s.set_defaults(fn="file import")
-    docs = sub.add_parser("doc", help="the company's docs: read, search and write internal docs, list linked ones, ask the Librarian").add_subparsers(dest="sub")
+    docs = sub.add_parser("doc", help="the team's docs: read, search and write internal docs, list linked ones, ask the Librarian").add_subparsers(dest="sub")
     s = docs.add_parser("archive", help="archive an internal Doc with your rights")
     s.add_argument("ref")
     s.set_defaults(fn="doc archive")
@@ -505,6 +505,8 @@ def parser():
     s.add_argument("--limit", type=int)
     s.add_argument("--manual", dest="collection", action="store_const", const="manual",
                    help="only the read-only Tico manual (how to do something in Tico)")
+    s.add_argument("--team", dest="collection", action="store_const", const="team",
+                   help="only team docs")
     s.add_argument("--market", action="store_true", default=None,
                    help="also the market's notes, entities and evidence")
     s.set_defaults(fn="doc search")
@@ -1068,10 +1070,15 @@ def parser():
 
     # A new bot: BotOps builds the chosen template in the workspace (`hub bot create`) or only registers it (--record-only).
     # The Librarian (docs/librarian.md): ask a question, and read a linked doc on this computer.
-    s = docs.add_parser("ask", help="ask the Librarian about the company's docs and wait for the answer")
+    s = docs.add_parser("ask", help="ask the Librarian about the team's docs and wait for the answer")
     s.add_argument("question")
     s.add_argument("--wait", type=float, default=120, help="seconds to wait for the answer (default 120)")
     s.set_defaults(fn="doc ask")
+    s = docs.add_parser("ask-status", help="collect the same Librarian answer without sending another question")
+    s.add_argument("conversation_id")
+    s.add_argument("message_id")
+    s.add_argument("--wait", type=float, default=0)
+    s.set_defaults(fn="doc ask-status")
     s = docs.add_parser("fetch", help="read a public link as text; runs on this computer, never on the server")
     s.add_argument("url")
     s.add_argument("--max-chars", dest="max_chars", type=int, default=30000)

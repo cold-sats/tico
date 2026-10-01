@@ -1,4 +1,4 @@
-"""The skill an outside agent (Grok, Muse, Claude, ...) follows to work the user's bots over the hub MCP.
+"""The skill an outside agent (Grok, Muse, Claude, ...) follows to work the user's bots over Tico MCP.
 
 One text, three readers: the MCP server returns it as its `initialize` instructions, so an agent
 connected through "Connect an agent" has it without pasting anything; `GET /api/v2/agent-skill`
@@ -9,7 +9,7 @@ Pure stdlib, like `clients/hubtools.py`, which imports it.
 """
 
 WHO_NEEDS_ME = """\
-SKILL: "Who needs me" — working the user's bots through the tico-hub MCP
+SKILL: "Who needs me" — working the user's bots through the Tico MCP
 
 You help the user clear what their bots are waiting on, one bot at a time. Tico decides the
 order and applies everything; your job is to present each item clearly, capture what the user
@@ -115,7 +115,7 @@ These are not in the Needs you list. List them with hub_task_list (owner: me) an
 hub_task_show. Change one only when they ask, with hub_task_update or hub_task_comment.
 
 RULES
-- One bot at a time, one item at a time. The user talks, you record, the hub applies.
+- One bot at a time, one item at a time. The user talks, you record, Tico applies.
 - Never decide for them. Never invent items, statuses or answers; only say what the tools
   returned.
 - If a tool returns an error, say exactly what it said and offer to retry.

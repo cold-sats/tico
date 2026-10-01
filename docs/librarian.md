@@ -45,8 +45,9 @@ something is treated as text, not an instruction, and it fetches only public lin
 
 ## Asking
 
-**Humans.** Docs > **Ask AI** opens a drawer (a full-screen sheet on a phone). Matching internal and linked docs appear at once
-from search; the Librarian's answer then streams in with clickable citations. `POST /api/v2/docs/ask {question,
+**Humans.** Docs > **Ask AI** opens a drawer (a full-screen sheet on a phone). Matching internal, linked and manual docs appear at once
+from search; choose **All docs**, **Team docs** or **Tico manual** to narrow the matches.
+The Librarian's answer then streams in with clickable citations. `POST /api/v2/docs/ask {question,
 conversation_id?, new_conversation?}` returns `{conversation_id, message_id, results}` and the answer arrives on
 `GET /api/v2/conversations/{id}/watch`. Each human has one private docs conversation with the Librarian
 (`scope: personal`, `room_key: docs`), like the [Assistant](assistant.md)'s room: only they can read it, and the owner and
@@ -55,6 +56,12 @@ administrators cannot. **New chat** starts a fresh conversation, so the Libraria
 **Bots and the Assistant.** `hub doc ask "question" [--wait 120]`, or the MCP tool `hub_doc_ask`, returns
 `{answer, citations: [{type, title, url_or_id}], covered}`. A bot's question is an `ask` message to the Librarian, the ordinary
 ask and answer path: the Librarian's final message is the answer. `covered` is false when the answer starts "Not in the docs".
+Citations have `type: internal|linked|manual`. Manual citations link to the release's page, such as
+`https://github.com/ticoteam/tico/blob/v0.2.32/docs/people.md`.
+The server MCP returns after at most 20 seconds: if pending, it returns
+`{timeout: true, conversation_id, message_id}`. Use `hub_doc_ask_status` with those ids (or
+`hub doc ask-status <conversation_id> <message_id> [--wait 20]`) to collect the same answer. Polling
+uses short requests and sends no new question. Local CLI asks can wait for the full requested duration.
 The Assistant asking for a human puts the question in that human's own docs conversation.
 
 The Librarian acts as itself, not as the human who asked. It only reads docs and public links, so it needs no human's
@@ -108,10 +115,13 @@ steps, `POST /api/v2/librarian/turn-on`), as the Assistant has **Turn on Assista
 
 `scripts/docs-eval.sh` measures answer quality on demand. It loads `docs-eval/fixture/` (seven short docs about the demo
 team) into a live Tico through the docs API, asks each question in `docs-eval/questions.yaml` (team facts, a Hermes
-connection procedure and two questions the docs do not answer) through `POST /api/v2/docs/ask`, waits for the
+connection procedure, Instructions changes, adding humans, copying grants, reopening tasks and two questions the docs do not answer) through `POST /api/v2/docs/ask`, waits for the
 answers, and reports the **citation hit rate** (every expected doc cited, and an answer given), the rate at which the
 unanswerable ones were **said unknown**, and the **fact rate**. `--fail-under` gates all three rates. Whole values and
-claim polarity are checked, so $299 cannot pass for $29 or a refundable monthly plan for a non-refundable one.
+values tied to a subject and predicate, and claim polarity are checked. A negated $29 followed by a $99
+claim, a contradictory claim, or a double negative fails. `contains` is only for literal procedure labels;
+use `facts` with `subject`, `predicate`, and `value` or `polarity` for claims. These remain limited
+spot checks, not a semantic correctness grade.
 
     TICO_URL=https://tico.example.com TICO_TOKEN=<personal API token> scripts/docs-eval.sh [--only ID] [--keep] [--json out.json]
 
@@ -121,4 +131,9 @@ a partial import failure, unless you pass `--keep`. Retained IDs are printed. Un
 
 Search returns section names, anchors and excerpts from the matching text, including manual pages. It uses all meaningful
 query words and maps old terms through the manual glossary's "Instead of" column. `_librarian/` maps and logs rank below
-the source docs. `hub doc ask` waits for the completed run and returns its latest reply, including corrections.
+the source docs unless the question names their title or path. `hub doc search --team` restricts the search
+to team docs (`collection=team`; `company` remains an API alias). Archiving an internal source removes
+its entry from `_librarian/index.md` immediately, preserving version history. The map records its refresh
+time; every failed linked fetch is recorded in **Sources I could not read** in the same pass and
+reconciled at daily refresh. Older generated titles are renamed during refresh, keeping their paths.
+`hub doc ask` waits for the completed run and returns its latest reply, including corrections.
