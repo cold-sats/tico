@@ -164,7 +164,7 @@ fi
 [ -n "$LOCAL" ] || [ -z "$OWNER_EMAIL$OWNER_NAME$COMPANY" ] || die 2 "--owner-email, --owner-name and --team-name go with --local."
 if [ -n "$PORT" ]; then
   case "$PORT" in *[!0-9]*|'') die 2 "--port needs a number from 1 to 65535." ;; esac
-  [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die 2 "--port needs a number from 1 to 65535."
+  if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then die 2 "--port needs a number from 1 to 65535."; fi
   [ -z "$RUNNER$DOCKER_ONLY" ] || die 2 "--port goes with a server install."
   export TICO_PORT="$PORT"
 fi
