@@ -10,6 +10,8 @@ All notable changes to Tico are recorded here. The format follows
 ### Fixed
 - docs-eval ignores Markdown emphasis around a price, treats "about ($29)" as approximate, and accepts "no price
   variation" for an exact price.
+- A request you DM to BotOps in Slack counts as yours, like your Tico chat. Channel and thread messages still change
+  nothing for you.
 - The Librarian closes a fenced code block only on a line of the same fence character, so code with a mixed line stays
   literal.
 

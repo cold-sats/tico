@@ -2336,12 +2336,17 @@ def create_app(settings=None):
         conversation = H.conversation(c, msg["conversation_id"]) or {}
         if conversation.get("task_id") or conversation.get("scope") == "task" or refs.get("task"):
             raise Problem("on_behalf_of", "A person's words inside a task are not a request to BotOps; ask in chat", 403)
-        if refs.get("slack") or refs.get("routing"):
-            # Anyone in a Slack thread can put words in a routed message; only a person's own message in Tico counts.
-            # The message decides, not the room: a person's room with BotOps may also mirror a Slack DM, and what they
-            # type in Tico there is still their own request (every Slack-routed message carries `slack` refs).
-            raise Problem("on_behalf_of", "This request arrived through Slack, so BotOps can't act on it for the person. "
-                          "They can send it in their Tico chat with BotOps", 403)
+        slack = refs.get("slack") if isinstance(refs.get("slack"), dict) else {}
+        own_dm = (slack.get("kind") == "im" and not slack.get("recorded_only")
+                  and set(conversation.get("participants") or []) == {msg["from_actor"], "bot:" + BOTOPS})
+        if (refs.get("slack") or refs.get("routing")) and not own_dm:
+            # Anyone in a Slack channel or thread can put words in a routed message, so those never lend a person's
+            # rights. A 1:1 Slack DM is different: the gateway verified the sender (workspace member, not a guest,
+            # admitted, a Tico person) and nobody else writes in it, so it counts like their Tico chat (owner
+            # decision, 2026-10-01). The message decides, not the room: what they type in Tico is always their own request.
+            raise Problem("on_behalf_of", "This request arrived through a Slack channel, so BotOps can't act on it for "
+                          "the person. They can DM it to the Tico app in Slack or send it in their Tico chat with BotOps",
+                          403)
         if explicit:
             # A message cited by id: the person's own, in their own room with BotOps (not a room another person
             # spoke in), and recent.
