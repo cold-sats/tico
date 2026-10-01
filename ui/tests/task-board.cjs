@@ -31,8 +31,16 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const task = (id, over) => ({id, title: id, body: 'Details.', owner: 'bot:cmo', requester: 'human:reviewer', status: 'open',
       lane: 'company', rank: 1, labels: [], links: [], parts: {total: 0, done: 0}, version: 3, created: now, updated: now, ...over});
     let me = {id: 'reviewer', name: 'Test Reviewer', email: 'reviewer@example.test', role: 'owner', mover: true, cloud: true};
+    const tags = [
+      {id: 'tag-newsletter', key: 'newsletter', label: 'release', metadata: {date: '2026-10-02'},
+        markdown: '# Release\n\n- [ ] Smoke checks\n- [x] Tell the team\n\n```md\n- [ ] Literal example\n```\n\n<script>window.tagUnsafe = true</script>',
+        is_template: false, template_id: null, owner: 'human:reviewer', version: 1},
+      {id: 'tag-template', key: 'release-checklist', label: 'release', metadata: {channel: 'stable'},
+        markdown: '- [ ] Migrations / scripts to run', is_template: true, template_id: null, owner: 'human:reviewer', version: 1},
+    ];
+    let staleTag = false;
     let tasks = [
-      task('Draft the newsletter', {rank: 2, labels: ['newsletter'], body: 'Review [packet](http://tico-ui.test/api/v2/files/doc).',
+      task('Draft the newsletter', {rank: 2, labels: ['newsletter'], tags: [tags[0]], body: 'Review [packet](http://tico-ui.test/api/v2/files/doc).',
         attachments: [{id: 'doc', name: 'review-packet.md'}, {id: 'clip', name: 'first-cut.mp4'}, {id: 'archive', name: 'source.zip'}]}),
       task('Approve the budget', {owner: 'human:reviewer', requester: 'bot:coo', rank: 1, labels: ['finance'], note: 'Waiting on finance approval'}),
       task('Write the copy', {rank: 1, labels: ['newsletter', 'copy']}),
@@ -53,6 +61,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
       const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (ui) { const file = uiFile(ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
+      if (p === '/vendor/marked.min.js') return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(uiFile('vendor/marked.min.js'), 'utf8')});
       if (p === '/api/employees') return json(bots);
       if (p === '/api/issues') return json([]);
       if (p === '/api/me') return json(me);
@@ -63,7 +72,26 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         {id: 'release-review', title: 'Review release readiness', employee: 'cpo', cron: '0 9 * * 1', active: true, enabled: true, next: now},
         {id: 'build-review', title: 'Review build health', employee: 'cto', cron: '0 9 * * 1', active: true, enabled: true, next: now}]});
       if (p === '/api/humans') return json({people});
-      if (p === '/api/v2/tasks/labels') return json({labels: ['newsletter', 'copy', 'bug', 'finance']});
+      if (p === '/api/v2/tasks/labels') return json({labels: ['newsletter', 'copy', 'bug', 'finance'], tags: [tags[0]]});
+      if (p === '/api/v2/tags' && req.method() === 'GET') return json({tags});
+      const tagRoute = p.match(/^\/api\/v2\/tags\/([^/]+)(\/instances)?$/);
+      if (tagRoute) {
+        const tag = tags.find(tag => tag.id === decodeURIComponent(tagRoute[1]) || tag.key === decodeURIComponent(tagRoute[1]));
+        if (!tag) return json({error: {detail: 'Tag not found'}}, 404);
+        if (req.method() === 'GET') return json({tag, editable: me.mover,
+          tasks: tasks.filter(task => task.labels.includes(tag.key)), next_offset: null});
+        const body = req.postDataJSON(); posted.push({path: p, body});
+        if (tagRoute[2]) {
+          const instance = {...tag, ...body, id: 'tag-instance', metadata: {...tag.metadata, ...body.metadata},
+            is_template: false, template_id: tag.id, version: 1};
+          tags.push(instance); return json({tag: instance});
+        }
+        if (staleTag || body.version !== tag.version) {
+          if (staleTag) tag.version += 1;
+          staleTag = false; return json({error: {code: 'version_conflict', detail: 'Tag changed; fetch it and retry your update'}}, 409);
+        }
+        Object.assign(tag, body, {version: tag.version + 1}); return json({tag});
+      }
       if (p.startsWith('/api/v2/files/')) {
         const id = p.split('/').at(-1);
         const file = {doc: {name: 'review-packet.md', body: '# Script one\n\nApprove the storyboard. <script>window.previewUnsafe = true</script>'},
@@ -114,6 +142,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       if (p.endsWith('/messages')) return json({messages: []});
       return json({});
     });
+    if (!process.env.TICO_TAG_TEST_ONLY) {
     await page.goto('http://tico-ui.test/#/tasks');
     await page.getByText('Loading tasks…', {exact: true}).waitFor();
     await page.waitForFunction(() => S.me?.id === 'reviewer' && TASKS_ST && TASKS_ST.tasks.length === 3);
@@ -358,7 +387,85 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await rt('cto').count(), 0, 'no harness, no mark');
     const mark = await rt('cpo').boundingBox();
     assert(mark.width >= 12 && mark.width <= 14, 'about 13px: ' + mark.width);
+    }
+    // Rich tag chips keep their keys while opening a shared checklist.
+    page.setDefaultTimeout(5000);
+    me = {...me, role: 'owner', mover: true};
+    await page.goto('http://tico-ui.test/#/tasks');
+    await page.locator('#task-view [data-view="list"]').click();
+    await page.locator('#task-filter').click();
+    assert.equal(await page.locator('#board-label option[value="newsletter"]').innerText(), 'release · Oct 2');
+    assert.equal(await page.locator('#board-label').getAttribute('aria-label'), 'Filter by tag');
+    await page.selectOption('#board-label', '');
+    await page.keyboard.press('Escape');
+    const richRow = page.locator('#task-body [data-open-task="tDraft the newsletter"]');
+    assert.equal(await richRow.locator('.tlabel').first().innerText(), 'release · Oct 2');
+    assert.equal(await richRow.locator('[data-tag-key]').count(), 0, 'button rows have no nested links');
+    await richRow.click();
+    const richChip = page.locator('#task-modal [data-tag-key="newsletter"]');
+    await richChip.waitFor();
+    assert.equal(await richChip.innerText(), 'release · Oct 2');
+    assert(!(await page.locator('#task-modal .tlabels').innerText()).includes('||'), 'empty-tag fallback is rendered');
+    await richChip.click();
+    await page.locator('[data-tag-notes] input').first().waitFor();
+    assert.equal(new URL(page.url()).hash, '#/tag/newsletter');
+    assert.equal(await page.locator('#task-modal[open]').count(), 0, 'a chip opens its tag, not its task');
+    assert.equal(await page.locator('[data-tag-notes] input').count(), 2, 'code examples are never tickable');
+    assert.equal(await page.evaluate(() => window.tagUnsafe), undefined, 'tag Markdown is sanitized');
+    assert.equal(await page.locator('[data-tag-tasks] a').count(), 2);
+    await page.locator('[data-tag-notes] input').first().check();
+    await page.waitForFunction(() => document.activeElement?.dataset.tagCheck === '0' && document.querySelector('[data-tag-notes] input')?.checked);
+    const tick = posted.find(post => post.path === '/api/v2/tags/tag-newsletter');
+    assert.equal(tick.body.version, 1);
+    assert(tick.body.markdown.includes('- [x] Smoke checks'));
+    assert(tick.body.markdown.includes('```md\n- [ ] Literal example\n```'));
+    staleTag = true;
+    await page.locator('[data-tag-notes] input').nth(1).click();
+    await page.locator('[data-tag-reload]').waitFor();
+    assert(tags[0].markdown.includes('- [x] Tell the team'), 'stale edits never overwrite saved notes');
+    await page.locator('[data-tag-reload]').click();
+    await page.locator('[data-tag-notes] input').first().waitFor();
+    // The notes editor keeps the version it opened with, even after a checkbox saves.
+    await page.locator('[data-tag-edit]').click();
+    const editor = page.locator('[data-tag-editor]');
+    await editor.locator('textarea[name="markdown"]').fill('Draft notes to keep');
+    const editVersion = tags[0].version;
+    await page.locator('[data-tag-notes] input').first().click();
+    await page.waitForFunction(() => document.activeElement?.dataset.tagCheck === '0' && !document.querySelector('[data-tag-notes] input')?.disabled);
+    staleTag = true;
+    await page.locator('[data-tag-notes] input').nth(1).click();
+    await page.locator('[data-tag-reload]').waitFor();
+    await page.locator('[data-tag-reload]').click();
+    await page.locator('[data-tag-notes] input').first().waitFor();
+    assert.equal(await editor.locator('textarea[name="markdown"]').inputValue(), 'Draft notes to keep', 'checkbox conflict reload preserves an open draft');
+    await editor.locator('button[type="submit"]').click();
+    await editor.locator('[data-tag-refresh]').waitFor();
+    assert.equal(posted.at(-1).body.version, editVersion, 'the editor uses its original version');
+    assert.equal(await editor.locator('textarea[name="markdown"]').inputValue(), 'Draft notes to keep');
+    await editor.locator('[data-tag-refresh]').click();
+    await page.waitForFunction(() => document.querySelector('[data-tag-error]')?.textContent.includes('Current notes loaded'));
+    assert.equal(await editor.locator('textarea[name="markdown"]').inputValue(), 'Draft notes to keep', 'loading current notes preserves the draft');
+    await editor.locator('[data-tag-cancel]').click();
+    me = {...me, mover: false};
+    await page.reload();
+    await page.locator('[data-tag-notes] input').first().waitFor();
+    assert.equal(await page.locator('[data-tag-notes] input').first().isDisabled(), true);
+    assert.equal(await page.locator('[data-tag-edit]').count(), 0);
+    me = {...me, mover: true};
+    await page.goto('http://tico-ui.test/#/settings');
+    await page.locator('[data-settings-tab="tags"]').click();
+    await page.locator('#settings-tags a[href="#/tag/release-checklist"]').click();
+    await page.locator('.page-tags [data-tag-create]').waitFor();
+    await page.locator('[data-tag-create] input[name="key"]').fill('release-2026-10-02');
+    await page.locator('[data-tag-create] textarea[name="metadata"]').fill('{"date":"2026-10-02"}');
+    assert.equal(await page.locator('[data-tag-create]').evaluate(form => typeof form.onsubmit === 'function' && form.checkValidity()), true);
+    await page.locator('[data-tag-create] button[type="submit"]').click();
+    await page.waitForURL('**/#/tag/release-2026-10-02').catch(async error => { console.error('Create error:', await page.locator('[data-tag-error]').innerText(), 'last post:', posted.at(-1), 'page errors:', errors); throw error; });
+    await page.locator('[data-tag-notes] input').first().waitFor();
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/tags/tag-template/instances',
+      body: {key: 'release-2026-10-02', metadata: {date: '2026-10-02'}}});
+    assert.deepEqual(tags.at(-1).metadata, {channel: 'stable', date: '2026-10-02'});
     assert.deepEqual(errors, []);
-    console.log('PASS: toolbar layout, search, filter menu, persistence, recurring search, company only, labels, comments, mobile.');
+    console.log('PASS: task board, filters, comments, mobile, rich tags, checklist versions, permissions and templates.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

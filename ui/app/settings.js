@@ -33,6 +33,7 @@ function pageSettings() {
       ${settingsIsAdmin() ? '<button type="button" data-settings-tab="people" role="tab">Humans</button>' : ''}
       <button type="button" data-settings-tab="providers" role="tab">AI providers</button>
       <button type="button" data-settings-tab="recurring" role="tab">Routines</button>
+      <button type="button" data-settings-tab="tags" role="tab">Tags</button>
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button>' : ''}
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
     </div>
@@ -53,6 +54,7 @@ function pageSettings() {
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
       <section class="card"><header><h2>Routines</h2></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
     </div>
+    <div class="settings-pane" id="settings-tags" role="tabpanel" hidden></div>
     <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
     ${S.me?.role === 'owner' ? '<div class="settings-pane" id="settings-privacy" role="tabpanel" hidden><section class="card"><header><h2>Privacy</h2></header><div id="set-privacy"><div class="empty">Loading…</div></div></section></div>' : ''}
     <dialog class="tmodal" id="people-dialog" aria-label="Humans"></dialog>
@@ -69,12 +71,13 @@ function pageSettings() {
 }
 function settingsShow(tab) {
   if (tab === 'credentials' || tab === 'cloud') { location.hash = INTEGRATIONS; return; }
-  SETTINGS_TAB = tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : 'devices';
+  SETTINGS_TAB = tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   document.querySelectorAll('[data-settings-tab]').forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
     button.classList.toggle('cur', selected); button.setAttribute('aria-selected', String(selected));
   });
+  settingsTags();
   const devices = $('#settings-devices'), history = $('#settings-history'), bots = $('#settings-bots');
   if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
   // The owner's one click when the team has no Assistant (ui/assistant.js): restore it or add it.

@@ -107,7 +107,7 @@ function taskItems(state) {
     return state.view === 'done' ? it.col === 'done' : it.col !== 'done';
   });
 }
-const labelChips = labels => (labels || []).map(l => `<span class="tlabel">${esc(l)}</span>`).join('');
+const labelChips = (labels, tags) => tagChips(labels, tags, false, false);
 const linkChips = t => (t.links || []).filter(l => l.kind === 'pr').map(l =>
   `<span class="tlink pr ${esc(l.state || '')}" title="${esc(l.url)}">${esc(l.title || 'PR')}${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}</span>`).join('');
 const partsChip = t => t.parts?.total ? `<span class="tparts" title="Parts of this task">${t.parts.done}/${t.parts.total}</span>` : '';
@@ -121,7 +121,7 @@ function taskWaitingReason(it) {
 function taskCard(it) {
   const who = it.slug ? avatar(it.slug, 16, stateOf(it.slug)) : personCircle(actorLabel(it.actor), 16);
   const from = it.task ? taskSourceLine(it.task) : '';
-  const extras = it.task ? labelChips(it.labels) + linkChips(it.task) + partsChip(it.task) : '';
+  const extras = it.task ? labelChips(it.labels, it.task.tags) + linkChips(it.task) + partsChip(it.task) : '';
   return `<button class="bcard" type="button" data-open-task="${esc(it.key)}">
     <div class="bcard-top">${who}<span class="who">${esc(it.slug ? empName(it.slug) : actorLabel(it.actor))}</span><span class="spacer"></span>${it.tag && it.tag !== 'starting' ? `<span class="tag">${esc(it.tag)}</span>` : ''}</div>
     <div class="bcard-title">${esc(it.title)}${taskWaitingReason(it)}</div>
@@ -166,7 +166,7 @@ function taskRow(it) {
   const when = it.col === 'done' ? (it.closed || it.updated) : it.updated;
   const who = it.kind === 'issue' ? `${avatar(it.slug, 18, stateOf(it.slug))}` : (it.slug ? avatar(it.slug, 18, stateOf(it.slug)) : personCircle(actorLabel(it.actor), 18));
   const from = it.task ? `<span class="from"> · ${esc(taskSourceLine(it.task))}</span>` : '';
-  const extras = it.task ? labelChips(it.labels) + linkChips(it.task) + partsChip(it.task) : '';
+  const extras = it.task ? labelChips(it.labels, it.task.tags) + linkChips(it.task) + partsChip(it.task) : '';
   return `<button class="trow-btn" type="button" data-open-task="${esc(it.key)}">
       <span class="trow-who">${who}</span>
       <span class="ttl">${esc(it.title)}${from}${it.tag && it.tag !== 'starting' ? ` <span class="tag">${esc(it.tag)}</span>` : ''}${extras ? `<span class="trow-extras">${extras}</span>` : ''}${taskWaitingReason(it)}</span>

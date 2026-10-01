@@ -27,3 +27,10 @@ Inbox Manager and other repeating message work appear under **Message bots**.
 An older app may show Instructions under the bot's Docs tab; the action is still **Edit Instructions**.
 Removing a Computer revokes its registration and leaves its local files and bots in place.
 See [Using Tico](using-tico.md), [Credentials](credential-vault.md) and [Updates](updates.md).
+
+## Tags
+
+**Settings > Tags** lists templates and task tags and creates new ones. Task chips show the
+label and metadata; open a chip in task details to see its checklist and related tasks. A
+**Tag** filter narrows the task board by key. Templates have **Make a tag** to create a separate
+checklist with its own metadata. Tag owners and task movers can tick and edit its notes.

@@ -1642,6 +1642,11 @@ def tag(conn, ident):
     return _tag_view(row) if row else None
 
 
+def tag_by_key(conn, key):
+    row = _one(conn, "SELECT * FROM tags WHERE key=?", (key,))
+    return _tag_view(row) if row else None
+
+
 def _tag_view(row):
     value = dict(row)
     value["metadata"] = _json(value.pop("metadata_json"), {}) or {}
@@ -1668,7 +1673,7 @@ def tag_create(conn, actor, key, label=None, metadata=None, markdown=None, is_te
     if not keys:
         refuse(conn, actor, "kind", "give the tag a key")
     key = keys[0]
-    if tag(conn, key):
+    if tag_by_key(conn, key):
         refuse(conn, actor, "duplicate", f"tag {key} already exists")
     if not tag_can_edit(conn, actor, {"owner": owner}, mover):
         refuse(conn, actor, "identity", "create a tag you own, or ask a task mover")
@@ -1734,7 +1739,7 @@ def hydrate_task_tags(conn, rows):
 def _set_task_tags(conn, actor, task_id, labels, note=""):
     keys, resolved = _labels(labels), []
     for key in keys:
-        row = tag(conn, key)
+        row = tag_by_key(conn, key)
         if row and row["is_template"]:
             refuse(conn, actor, "kind", f"{key} is a template; make an instance to put on a task")
         resolved.append((key, row))

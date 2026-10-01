@@ -237,3 +237,21 @@ def test_bot_tag_owner_edits_and_tag_tasks_respect_visibility(api):
     sql = post(api, "sql", {"sql": "SELECT task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id WHERE tags.key='release-bot'"}, token=token)
     assert sql["rows"] == [[mine["id"]]]
     assert get(api, "tasks/labels", token=token)["tags"][0]["key"] == tag["key"]
+
+
+def test_task_label_strings_resolve_only_by_key_even_if_one_is_a_tag_id(api):
+    tag = post(api, "tags", {"key": "release-checklist"})["tag"]
+    task = post(api, "tasks", {"owner": "cmo", "title": "Review a key collision", "body": "x", "labels": [tag["id"]]})
+    assert task["labels"] == [tag["id"]]
+    assert task["tags"][0]["key"] == tag["id"]
+    assert task["tags"][0]["id"] != tag["id"]
+    assert get(api, "tasks/labels")["tags"][0]["key"] == tag["id"]
+
+
+def test_needs_you_includes_tag_keys_and_metadata(api):
+    tag = post(api, "tags", {"key": "release-2026-10-02", "label": "release", "metadata": {"date": "2026-10-02"}})["tag"]
+    task = post(api, "tasks", {"owner": "ana", "title": "Review the release", "body": "Read the notes.", "labels": [tag["key"]]})
+    items = get(api, "needs-you")["items"]
+    mine = next(item for item in items if item["id"] == task["id"])
+    assert mine["labels"] == [tag["key"]]
+    assert mine["tags"][0]["metadata"] == {"date": "2026-10-02"}

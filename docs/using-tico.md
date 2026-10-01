@@ -163,7 +163,7 @@ The team owner and humans on the leadership, product and engineering teams can a
 remove tags, just as they could change labels. A tag's owner (human or bot) can edit its notes,
 metadata and label, as can those task movers. Anyone signed in can create a tag they own; a mover
 can create one for another teammate. A tag page lists only tasks the viewer may read. Tick a
-checklist item to save it. If another teammate saved first, reload the tag and apply your change.
+checklist item to save it. If another teammate saved first, load the current notes and combine your changes. Your open notes draft stays in place.
 
 ### Create a release template
 

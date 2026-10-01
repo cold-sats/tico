@@ -612,6 +612,7 @@ def recent_bots(c, auth, who, since, limit, needs):
 
 def needs_items(c, auth, who, task_view):
     raw = H.needs_you(c, who.actor)
+    H.hydrate_task_tags(c, raw["tasks"] + raw["declined"])
     items = []
     for kind in ("tasks", "declined"):
         for row in raw[kind]:
