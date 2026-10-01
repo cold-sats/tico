@@ -156,6 +156,8 @@ def test_how_to_wording_preserves_installation_software_and_source_literals():
     for literal in ('`runner --help`', '[runner](https://example.com/runner)',
                     '"standing instructions"', 'runner/service.py'):
         assert literal in result
+    kept = "Our company fixes the washing machine; two machines a day."
+    assert H.librarian_text(kept) == kept
 
 
 def test_librarian_doc_writes_normalize_generated_instructions_and_computers(desk):

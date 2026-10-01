@@ -1481,8 +1481,6 @@ def librarian_text(body):
             text = re.sub(old, new, text, flags=re.I)
         text = re.sub(r"\b(the) runner (?=(?:pulls?|updates?|syncs?|reads?)\b)",
                       lambda m: m[1] + " Computer ", text, flags=re.I)
-        for old, new in (("company", "team"), ("machine", "Computer"), ("machines", "Computers")):
-            text = re.sub(r"(?<![\w.-])" + old + r"(?![\w.-])", new, text, flags=re.I)
         parts[i] = text
     return "".join(parts)
 

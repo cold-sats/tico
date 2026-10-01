@@ -52,6 +52,15 @@ def exact_fact(text, expected):
     return bool(re.search(r"(?<!\w)" + pattern + suffix, text, re.I))
 
 
+# Sentence openers and common words that are capitalized without naming another plan or person.
+ARTICLES = {"the", "its", "it", "this", "that", "a", "an", "in", "actually", "however", "instead", "reality", "you",
+            "your", "yes", "no", "per", "each", "every", "so", "but", "and", "which", "price", "cost", "plan", "monthly",
+            "month", "about", "roughly", "approximately", "note", "also", "only", "now", "today", "then", "to", "be",
+            "clear", "practice", "fact", "honestly", "basically", "overall", "well", "ok", "just", "still", "really",
+            "usually", "typically", "currently", "normally", "generally", "after", "before", "with", "without", "for",
+            "on", "at", "if", "when", "we", "i", "they", "customers", "users", "everyone", "anyone", "there", "here"}
+
+
 def fact_matches(text, fact):
     subject, predicate = fact["subject"], fact["predicate"]
     claims, related = [], False
@@ -92,11 +101,24 @@ def fact_matches(text, fact):
             value = r"(?<!\d)\$?" + re.escape(number.group(1)) + r"(?!\d)"
             separator = r"\s*(?:[-–—]|to|through)\s*"
             approximate += r"|[~≈]\s*\$?\d|" + value + separator + r"\$?\d|\d[\d.,]*" + separator + value
-        return all(negations(claim) == 0
+        if not all(negations(claim) == 0
                    and not re.search(approximate, claim, re.I)
                    and exact_fact(claim, expected)
                    and all(exact_fact(value, expected) for value in re.findall(pattern, claim, re.I))
-                   for claim in claims)
+                   for claim in claims):
+            return False
+        # Anywhere in the answer, another value of the same kind contradicts it unless its sentence plainly names
+        # something else (another capitalized plan or name that is not the subject): "Its price is $99", "In reality
+        # you pay $99" and "The price is $99" fail; "The Team plan is $99" does not.
+        about = True                    # a sentence naming nothing refers back to the last thing named
+        for sentence in re.split(r"(?<!\d)\.|\.(?!\d)|[;!?\n]|\b(?:and|but|while|whereas)\b", text, flags=re.I):
+            names = [w for w in re.findall(r"\b[A-Z][a-zA-Z]+\b", sentence)
+                     if not re.fullmatch(subject, w, re.I) and w.lower() not in ARTICLES]
+            about = bool(re.search(subject, sentence, re.I)) or (about and not names)
+            others = [v for v in re.findall(pattern, sentence, re.I) if not exact_fact(v, expected)]
+            if others and about:
+                return False
+        return True
     return all(negations(claim) == (1 if fact["polarity"] == "negative" else 0) for claim in claims)
 
 

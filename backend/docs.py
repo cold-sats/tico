@@ -261,8 +261,32 @@ def refresh_generated_wording(c):
     c.execute("INSERT INTO registry_metadata VALUES(?,?)", (marker, encode({"at": H.now()})))
 
 
+def redo_generated_wording(c):
+    """Redo the 0.2.35 wording repair from the text before it: that repair also changed every "company" and
+    "machine", so a washing machine became a washing Computer."""
+    marker = "librarian_wording36"
+    if c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (marker,)).fetchone():
+        return
+    docs = Docs(None, None, None, None)
+    rows = c.execute("SELECT d.rowid AS rid,d.*,p.body AS before FROM docs d "
+                     "JOIN doc_versions v ON v.doc_id=d.id AND v.version=d.version AND v.note='Updated generated Tico wording' "
+                     "JOIN doc_versions p ON p.doc_id=d.id AND p.version=d.version-1 WHERE d.archived=0").fetchall()
+    for row in rows:
+        text = H.librarian_text(row["before"])
+        if text == row["body"]:
+            continue
+        c.execute("UPDATE docs SET body=?,version=version+1,updated_by='keeper',updated=? WHERE id=?",
+                  (text, H.now(), row["id"]))
+        fresh = docs.get_row(c, row["id"])
+        docs.snapshot(c, fresh, H.KEEPER, "Redid generated Tico wording")
+        index(c, row["rid"], row["title"], row["path"], text)
+        H.event(c, H.KEEPER, "docs.updated", row["id"], {"path": row["path"], "version": fresh["version"]})
+    c.execute("INSERT INTO registry_metadata VALUES(?,?)", (marker, encode({"at": H.now()})))
+
+
 def refresh_generated_docs(c):
     """Repair older Librarian caches once, then queue source reconciliation on its next run."""
+    redo_generated_wording(c)
     refresh_generated_wording(c)
     marker = "librarian_fix33"
     if c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (marker,)).fetchone():

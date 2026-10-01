@@ -103,11 +103,15 @@ def computer_details(c, row, who, auth):
             "services": [], "services_scope": "team"}
 
 
+SERVICE_NAMES = {"connector:calendar": "Calendar Tool", "connector:mail": "Mail Tool"}
+
+
 def team_services(c, who, auth):
     if who.role != "owner" and not auth.bot_admin(who):
         return []
-    return [{**dict(r), "scope": "team", "text": f"{r['service']}: {r['last_error'] or 'No reported error'}",
-             "fix": "Open Health for " + r["service"]} for r in c.execute(
+    return [{**dict(r), "scope": "team", "name": SERVICE_NAMES.get(r["service"], r["service"]),
+             "text": f"{SERVICE_NAMES.get(r['service'], r['service'])}: {r['last_error'] or 'No reported error'}",
+             "fix": "Open Health for " + SERVICE_NAMES.get(r["service"], r["service"])} for r in c.execute(
                  "SELECT service,last_success,last_error FROM service_health ORDER BY service")]
 
 
@@ -384,8 +388,8 @@ def operation_issues(c, who, auth):
                 last = H.parse_ts(row["last_success"]) if row and row["last_success"] else None
                 if last and not row["last_error"] and last < H.parse_ts(H.shift(H.now(), minutes=-limit)):
                     minutes = int((H.parse_ts(H.now()) - last).total_seconds() // 60)
-                    add("service", service + " needs attention",
-                        f"{label} last refreshed {minutes} minutes ago although a Mac is online; check its connector log.",
+                    add("service", SERVICE_NAMES[service] + " needs attention",
+                        f"{label} last refreshed {minutes} minutes ago although a Mac is online; check its Tool log.",
                         needs_person=False)
         # A backup that stops running never writes an error, so age is checked here with
         # the same limits as the CloudWatch alarms; the hub is the notification channel.
@@ -965,7 +969,8 @@ def install_views(app, store, auth, mutate, task_view):
                                  "harness_actions": recent(c, row["id"]) if who.role == "owner" else []})
             health = [dict(r) for r in c.execute("SELECT service,last_success,last_error FROM service_health")]
             from .agents import listing as agent_listing
-            return {"cloud": True, "machines": machines, "agents": agent_listing(c, who, auth), "services": health,
+            # `machines` is the older name of `computers`, kept for older clients.
+            return {"cloud": True, "computers": machines, "machines": machines, "agents": agent_listing(c, who, auth), "services": health,
                     "issues": operation_issues(c, who, auth),
                     "server_time": H.now(), "scheduler_enabled": store.settings.scheduler_enabled}
 

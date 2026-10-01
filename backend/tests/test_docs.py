@@ -286,3 +286,20 @@ def test_wording_upgrade_repairs_previously_migrated_faq_once_and_preserves_huma
     with api.app.state.store.transaction() as c:
         docs.refresh_generated_wording(c)
     assert call(api, "GET", "docs/" + faq["id"])["doc"]["version"] == fresh["version"]
+
+
+def test_wording_redo_restores_ordinary_words_the_old_repair_changed_once(api):
+    from backend import docs
+    faq = make(api, "FAQ", "Change standing instructions. We fix the washing machine for the company.", path="FAQ.md")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE docs SET created_by='bot:librarian' WHERE id=?", (faq["id"],))
+        c.execute("DELETE FROM registry_metadata WHERE key='librarian_wording36'")
+        bad = "Change Instructions. We fix the washing Computer for the team."
+        c.execute("UPDATE docs SET body=?,version=version+1,updated_by='keeper' WHERE id=?", (bad, faq["id"]))
+        docs.Docs(None, None, None, None).snapshot(c, docs.Docs(None, None, None, None).get_row(c, faq["id"]),
+                                                   "keeper", "Updated generated Tico wording")
+        docs.redo_generated_wording(c)
+        docs.redo_generated_wording(c)
+    fresh = call(api, "GET", "docs/" + faq["id"])["doc"]
+    assert fresh["body"] == "Change Instructions. We fix the washing machine for the company."
+    assert fresh["version"] == faq["version"] + 2

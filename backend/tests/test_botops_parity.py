@@ -540,3 +540,16 @@ def test_a_human_requested_botops_run_starts_with_its_own_credentials_and_acts_a
     with api.app.state.store.read() as c:
         row = c.execute("SELECT actor FROM events WHERE action='bot.model_changed' AND target='ops'").fetchone()
         assert row["actor"] == "human:ana"
+
+
+def test_a_note_on_botops_own_task_is_botops_words_not_the_requesters(api, botops):
+    """0.2.35: BotOps' progress note on its own build task was mirrored to chat as the person who asked."""
+    ana = turn(api, botops, person="ana-test", text="Build a bot for me")
+    task = post(api, "tasks", {"owner": "botops", "title": "Build the QA bot", "body": "Build it."})
+    noted = act(api, ana, "POST", f"tasks/{task['id']}", {"version": task["version"], "note": "Building it now."})
+    assert noted.status_code == 200, noted.text
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT actor FROM events WHERE action='task.update' AND target=? ORDER BY rowid DESC LIMIT 1",
+                        (task["id"],)).fetchone()
+        assert row["actor"] == "bot:botops"
+

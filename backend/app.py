@@ -348,6 +348,10 @@ def create_app(settings=None):
                 # credential fetch as the person was refused, and every human-requested turn failed to start.
                 if not on_behalf and botops_act.default_delegable(request.method, request.url.path, body):
                     on_behalf = "default"
+            if (on_behalf and getattr(request.state, "identity", None) is not None
+                    and request.state.identity.actor == "bot:" + BOTOPS
+                    and botops_owns_task(request.url.path, botops_act.parse_body(getattr(request, "_body", b"")))):
+                on_behalf = None                    # BotOps' own task: its own words, with its own rights
             if on_behalf and getattr(request.state, "identity", None) is not None:
                 # BotOps doing what the person who asked it could do in the app (backend/botops_act.py).
                 early, acted = await asyncio.get_running_loop().run_in_executor(
@@ -2324,6 +2328,19 @@ def create_app(settings=None):
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
         return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
+
+    def botops_owns_task(path, body=None):
+        """A note, comment or status on a task BotOps owns is BotOps' own work: it needs no one's rights and is BotOps'
+        words, so it is never recorded as the person who asked (their rights still apply to everyone else's tasks).
+        Closing is the exception: only the requester or a human closes, so a close keeps the person's rights."""
+        found = re.fullmatch(r"/api/v2/tasks/([^/]+)(?:/(?:comments|ask|links))?", path)
+        if not found or (isinstance(body, dict) and body.get("close")):
+            return False
+        with store.read() as c:
+            ref = found.group(1)
+            row = c.execute("SELECT owner FROM tasks WHERE id=? OR (length(?)>=8 AND id LIKE ? || '%') LIMIT 1",
+                            (ref, ref, ref)).fetchone()
+        return bool(row and row["owner"] == "bot:" + BOTOPS)
 
     def act_for_requester(request, ref):
         """Apply the requester's identity before the route checks its normal permissions."""

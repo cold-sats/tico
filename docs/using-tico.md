@@ -80,7 +80,7 @@ bot reads it at its next run once its computer's checkout has the update. An old
 the Instructions card under **Docs**. See [Creating bots](creating-bots.md#edit-instructions).
 
 For a manual edit, change `AGENT.md` in `bot-<slug>` (playbooks and `knowledge/` for methods and
-facts), commit and push. The runner pulls before the next run; if you maintain its checkout by
+facts), commit and push. The computer pulls before the next run; if you maintain its checkout by
 hand, pull the update there too. Model, effort, computer, owners and status are changed in
 **Settings → Bots**. One-off requests are tasks, not edits.
 

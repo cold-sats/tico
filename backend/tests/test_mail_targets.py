@@ -248,6 +248,10 @@ def test_the_health_issue_names_the_mailbox_and_the_domain(api):
     with api.app.state.store.read() as c:
         error = c.execute("SELECT last_error FROM service_health WHERE service='connector:mail'").fetchone()[0]
     assert "ana@acme-signin.example" in error and "domain acme-signin.example" in error and "delegation" in error
+    mail = [s for s in get(api, "computers")["services"] if s["service"] == "connector:mail"][0]
+    assert mail["name"] == "Mail Tool" and mail["text"].startswith("Mail Tool: ") and mail["fix"] == "Open Health for Mail Tool"
+    ops = get(api, "operations")
+    assert ops["computers"] == ops["machines"] and ops["computers"]
 
 
 def named(api, person, body, token="ana-test", expected=200):

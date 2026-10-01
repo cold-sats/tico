@@ -64,7 +64,7 @@ is open.
 `{answer, citations: [{type, title, url_or_id}], covered}`. A bot's question is an `ask` message to the Librarian, the ordinary
 ask and answer path: the Librarian's final message is the answer. `covered` is false when the answer starts "Not in the docs".
 Citations have `type: internal|linked|manual`. Manual citations link to the release's page, such as
-`https://github.com/ticoteam/tico/blob/v0.2.35/docs/people.md`.
+`https://github.com/ticoteam/tico/blob/v0.2.36/docs/people.md`.
 The server MCP returns after at most 20 seconds: if pending, it returns
 `{timeout: true, conversation_id, message_id}`. Use `hub_doc_ask_status` with those ids (or
 `hub doc ask-status <conversation_id> <message_id> [--wait 20]`) to collect the same answer. Polling

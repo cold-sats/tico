@@ -7,6 +7,19 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.36] - 2026-10-01
+
+### Fixed
+- BotOps' notes and progress on its own tasks are written as BotOps, not as the person who asked. Closing a task still
+  needs the person's rights.
+- docs-eval fails an answer when any later sentence gives the subject a different value ("The price is $99", "In
+  reality, it costs $99", "To be clear..."), while a value for another plan stays fine.
+- The Librarian's wording repair no longer changes every "company" and "machine" in its docs; docs the 0.2.35 repair
+  changed are redone once from their earlier version.
+- Health names the Calendar Tool and Mail Tool instead of `connector:` services, and operations returns `computers`
+  (`machines` stays for older clients).
+- The update guide says the computer pulls before the next run.
+
 ## [0.2.35] - 2026-10-01
 
 ### Fixed
