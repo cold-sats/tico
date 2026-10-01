@@ -67,7 +67,7 @@ chart: there is no fixed team any more.
    the blob avatar it will have, with its template's icon. A group not yet reached is dashed; a skipped one says so. A bot animates
    in once, when it is first checked. Built-in bots and the message bot are not on the chart.
 4. **Finish.** The finished chart, "5 groups · 11 bots". Click a bot to rename it, point it at another human or bot, or remove it;
-   click a group to go back to it. Below it, **Built-in** has one switch per message bot card, off by default;
+   click a group to go back to it. Below it, **Message bots** has one switch per message bot card, off by default;
    switched on, it asks whose mailbox the bot reads. **Next** continues to the computer.
 
 Each group head reports to the owner, and every other bot to its group's head while the head is on the chart (to the owner

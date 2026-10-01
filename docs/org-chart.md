@@ -5,7 +5,8 @@ bot. This page is who is in which group, which bots each group holds, and who ea
 
 The chart in the app is the **Team** sidebar: each group is a section that opens and closes, holding its humans and bots,
 with the groups inside it below them. A human or bot with no group sits at the top. The built-in bots (the Assistant, BotOps, the
-Librarian and the Goal Manager) stay outside every group, in their own **Built-in** section.
+Librarian and the Goal Manager) stay outside every group, in their own **Built-in** section. Message bots such as Inbox Manager
+follow in a separate **Message bots** section. Goals uses the same two sections.
 Bots read the same chart through `hub team show` / the `hub_team_show` MCP tool (`GET /api/v2/org`): the humans, and every bot the caller
 may see (see [permissions.md](permissions.md)) with its `reports_to`, its `team` (its group's id), its `department` (its group's name)
 and its `template`. `hub team show --team <group>` is that group and the groups in it. `hub human list` is the humans alone.

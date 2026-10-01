@@ -398,14 +398,13 @@ async function kpiAddBind(form, goal, done) {
 // ---------------------------------------------------------------- the page: one tree
 // The team, then every human and every bot that is not archived, nested the way the team chart nests them,
 // whether or not they have a goal. One line each: the owner, their first goal (cut short, the whole of it in the
-// tooltip) and its KPIs as small chips; more goals follow on lines of their own. The built-in bots and the Inbox Manager
-// are helpers: they sit apart, below. Tapping any line opens that owner's panel.
+// tooltip) and its KPIs as small chips; more goals follow on lines of their own. Built-in and message bots
+// sit in separate groups below. Tapping any line opens that owner's panel.
 function goalTreeShape() {
   const people = (S.people || []).filter(p => !p.hidden);
-  const inboxBots = new Set((S.people || []).map(p => p.inbox_bot).filter(Boolean));
   const bots = (S.emps || []).filter(e => !['archived', 'retired'].includes(e.status));
-  // The sidebar's own rule (isHelperBot: a built-in, or a bot from a `kind: helper` card), plus a person's inbox bot.
-  const helper = e => isHelperBot(e) || inboxBots.has(e.name);
+  // The sidebar's own rule: built-in and message bots stay outside the chart.
+  const helper = isHelperBot;
   const placed = bots.filter(e => !helper(e));
   const helpers = bots.filter(helper).sort((a, b) => helperRank(a) - helperRank(b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name)));
   const keys = new Set([...(S.orgGroups || []).map(g => 'g:' + g.id), ...people.map(p => 'p:' + p.id), ...placed.map(e => 'b:' + e.name)]);
@@ -414,7 +413,7 @@ function goalTreeShape() {
   for (const g of (S.orgGroups || [])) put(g.parent ? 'g:' + g.parent : '', {kind: 'group', id: g.id, name: g.name, order: g.order || 0});
   for (const p of people) put(orgHang('p:' + p.id, orgBossKey({kind: 'person', person: p}), groupOf), {kind: 'person', id: p.id, person: p});
   for (const e of placed) {
-    // A bot under a helper (or under a bot that is gone) hangs from the next one up, else its owner.
+    // A bot under a built-in or message bot (or a bot that is gone) hangs from the next one up, else its owner.
     let parent = orgBossKey({kind: 'bot', ...e});
     for (let hops = 0; parent.startsWith('b:') && !keys.has(parent) && hops < 5; hops++)
       parent = orgBossKey({kind: 'bot', ...(S.emps.find(x => x.name === parent.slice(2)) || {})});
@@ -481,11 +480,14 @@ function goalsRender(state) {
     return rows(n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name, depth, n.kind === 'person' ? n.person.goals : '') + below;
   }).join('');
   const tree = goalTreeRows(GOAL_COMPANY, 0, owned[GOAL_COMPANY] || [], loose[GOAL_COMPANY] || []) + walk('', 0, new Set());
-  const help = helpers.map(e => rows('bot:' + e.name, 0)).join('');
+  const help = [
+    ['Built-in', helpers.filter(e => isBuiltInBot(e.name))],
+    ['Message bots', helpers.filter(e => !isBuiltInBot(e.name))],
+  ].map(([name, members]) => members.length ? `<li class="gt-sep">${name}</li>` + members.map(e => rows('bot:' + e.name, 0)).join('') : '').join('');
   // Anyone else with goals (someone gone from the roster) still shows, at the end.
   const rest = Object.keys(owned).filter(a => !seen.has(a)).map(a => rows(a, 0)).join('');
   body.innerHTML = goalNeedsHtml(state.needs) + `<ul class="gt" id="goal-tree" aria-label="Goals">${tree}${rest}`
-    + (help ? `<li class="gt-sep">Helpers</li>${help}` : '') + '</ul>';
+    + help + '</ul>';
   for (const li of body.querySelectorAll('.gt-row')) {
     const open = () => goalPanelOpen(state, li.dataset.owner, {tapped: li.dataset.goal || ''});
     li.onclick = open;

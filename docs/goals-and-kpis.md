@@ -166,6 +166,7 @@ under whoever they report to, whether or not they have a goal. Each is one line:
 colour dot and its title (cut short; the whole title is in the tooltip) and its KPIs as small chips, a dot and the latest
 value each (a count when there is no room). More goals follow on lines of their own under the first. The built-in bots (the
 Assistant, BotOps, the Librarian and the Goal Manager) are not roles, so they sit apart under **Built-in**.
+Message bots such as Inbox Manager follow separately under **Message bots**.
 
 Tapping any line opens that owner's panel (a sheet at the bottom on a phone). It lists their goals: tap one to edit its
 words, what it supports and its colour (or **Let Goal Manager set it**). Under each goal are its KPIs, its latest

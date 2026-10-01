@@ -10,9 +10,8 @@ The words Tico uses, and what each replaces.
 - **Teammate**: a human or a bot on the team.
 - **Human**: a human teammate. The **Humans** page lists them.
 - **Bot**: an AI teammate.
-- **Helpers**: the sidebar and Goals group for Built-in bots and helpers such as Inbox Manager.
-- **Built-in**: a bot that comes with Tico, serves everyone and belongs to no group: Assistant, BotOps, Librarian, Goal Manager.
-- **Message bot**: a bot that works a human's email or a Slack channel.
+- **Built-in**: a bot that comes with Tico, serves everyone and belongs to no group: Assistant, BotOps, Librarian, Goal Manager. These four appear under **Built-in** in the sidebar and Goals.
+- **Message bot**: a bot that works a human's email or a Slack channel, such as Inbox Manager. These appear separately under **Message bots** in the sidebar, Goals and setup.
 - **External agent**: an agent outside the team connected to Tico (Codex, Claude, Grok), run by a human or a bot.
 - **Owner**: the humans responsible for a bot, a goal or a computer.
 

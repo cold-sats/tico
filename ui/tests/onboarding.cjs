@@ -80,7 +80,7 @@ const CATALOG = [
    owns: ['the project check-in'], never: ['messages anyone outside the company'],
    runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['uses_meetings'],
    instructions: '# Project Coordinator\n\nFollow up every meeting.\n'},
-  // A helper: it serves one person, so it is in no department and is offered on its own, off by default.
+  // A message bot: it serves one person, so it is in no department and is offered on its own, off by default.
   {template: 'inbox', slug: 'inbox', name: 'Inbox Manager', kind: 'helper', required: false, bootstrap: false, starter: true,
    icon: 'inbox', pains: ['too much email'], prerequisites: [{tool: 'mail', why: 'A mailbox to read.', required: true}],
    first_routine: {title: 'Morning mail brief', cadence: 'Weekdays at 07:30'},
@@ -330,7 +330,7 @@ function recruitFor({department, briefing, share}) {
     const tilesOn = () => page.locator('[data-ob-tile][aria-pressed=true]').evaluateAll(els => els.map(el => el.dataset.obTile));
     assert.deepEqual(await tilesOn(), ['sales', 'marketing', 'support', 'finance', 'operations', 'product', 'engineering']);
     assert.equal(await page.locator('[data-ob-tile]').count(), 9);
-    // The chart is there from the start: the owner on top and each chosen department waiting. Helpers are not on it.
+    // The chart is there from the start: the owner on top and each chosen department waiting. Built-in and message bots are not on it.
     assert.match(await page.locator('#ob-chart [data-oc-ceo]').textContent(), /Ana M\. Rivera\s*CEO/);
     assert.doesNotMatch(await page.locator('#ob-chart').textContent(), /Ace|BotOps|Inbox Manager/);
     assert.equal(await page.locator('#ob-chart .oc-dept.oc-pending').count(), 7);
@@ -463,7 +463,7 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#ob-brief').press('Enter');
     await page.locator('#ob-suggested').waitFor();
     await page.locator('[data-ob-bot=meeting-notes]').click();
-    assert.equal(await page.locator('[data-ob-bot=inbox]').count(), 0);        // a helper is in no department
+    assert.equal(await page.locator('[data-ob-bot=inbox]').count(), 0);        // a message bot is in no group
     await page.locator('#ob-next').click();
 
     // Engineering, the last one, leads to the finished chart.
@@ -481,8 +481,8 @@ function recruitFor({department, briefing, share}) {
     assert.deepEqual(await page.locator('#ob-chart-big [data-oc-dept]').evaluateAll(els => els.map(el => el.dataset.ocDept)),
       ['sales', 'marketing', 'support', 'operations', 'engineering']);
     assert.equal(await page.locator('#ob-side').isVisible(), false);
-    // Helpers sit apart from the chart: the Inbox Manager is one switch, off until someone turns it on.
-    assert.equal(await page.locator('#ob-helpers h3').textContent(), 'Helpers');
+    // Message bots sit apart from the chart: the Inbox Manager is one switch, off until someone turns it on.
+    assert.equal(await page.locator('#ob-helpers h3').textContent(), 'Message bots');
     assert.equal(await page.locator('[data-ob-helper=inbox]').isChecked(), false);
     assert.doesNotMatch(await page.locator('#ob-chart-big').textContent(), /Inbox Manager/);
     await page.locator('[data-ob-helper=inbox]').check();
@@ -494,7 +494,7 @@ function recruitFor({department, briefing, share}) {
     assert.match(await page.locator('#team-problem').textContent(), /Choose whose mailbox Inbox Manager reads/);
     assert.equal(puts.length, 8);                                           // one draft per department answered or skipped
     await page.locator('[data-ob-helper-row=inbox] [data-cat-mailbox=inbox]').selectOption('ana');
-    // Click a bot on the chart: rename it or point it at someone else. A helper is never offered as a manager.
+    // Click a bot on the chart: rename it or point it at someone else. A message bot is never offered as a manager.
     await page.locator('#ob-chart-big [data-oc-edit=support]').click();
     assert.equal(await page.locator('[data-oc-reports=support]').inputValue(), 'support-lead');     // a worker reports to its head
     assert.equal(await page.locator('[data-oc-reports=support] option[value=inbox], [data-oc-reports=support] option[value=botops]').count(), 0);
@@ -512,7 +512,7 @@ function recruitFor({department, briefing, share}) {
     await page.locator('[data-oc-done]').click();
     await page.locator('#onb-next').click();
     await page.locator('#onb-enroll').waitFor();
-    // The team goes to the server in the order to set it up: the built-ins, each department's head and its team, then helpers.
+    // The team goes to the server in the order to set it up: the built-ins, each department's head and its team, then message bots.
     const team = puts.at(-1);
     assert.deepEqual(Object.keys(team.selected), ['coo', 'botops', 'sales-lead', 'sdr-research', 'partnerships', 'marketing-lead', 'content',
       'support-lead', 'support', 'ops-manager', 'meeting-notes', 'engineering-lead', 'issue-triage', 'inbox']);
@@ -611,7 +611,11 @@ function recruitFor({department, briefing, share}) {
     assert.doesNotMatch(review, /Never without a human|Send anything|Spend money|Publish anything/);
     assert.match(review, /Computers\s*Ana's Mac, Cloud box online/);
     assert.equal(await page.locator('[data-review-departments]').textContent(), 'Sales, Marketing, Customer Support, Operations, Engineering');
-    assert.equal(await page.locator('[data-review-helpers]').textContent(), 'Ace, BotOps, Inbox Manager');
+    assert.equal(await page.locator('[data-review-helpers]').textContent(), 'Ace, BotOps');
+    assert.equal(await page.locator('[data-review-message-bots]').textContent(), 'Inbox Manager');
+    assert.match(review, /Built-in\s*Ace, BotOps/);
+    assert.match(review, /Message bots\s*Inbox Manager/);
+    assert.doesNotMatch(review, /Helpers/);
     assert.match(await page.locator('[data-review-team]').textContent(), /Sales Manager\s*→ Ana Rivera/);
     assert.match(await page.locator('[data-review-team]').textContent(), /Sales Development Representative\s*→ Sales Manager/);
     assert.match(await page.locator('[data-review-team]').textContent(), /Project Coordinator\s*→ Operations Manager/);

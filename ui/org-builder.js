@@ -2,9 +2,9 @@
    bots into it, and watch the chart grow beside the conversation. The server has the departments and cards
    (GET /api/v2/setup/groups) and the suggestions (POST /api/v2/setup/recruit, from Tico HQ or its local
    recommender); this page shows them and keeps what is checked in the wizard's catalog state (`state.catalog.picked`),
-   from which ui/first-run.js builds `selected`. Nothing exists until "Create my team". Helpers (the built-ins and any
-   `kind: helper` card, the Inbox Manager) are not on the chart: the built-ins are always created, and a helper card is
-   one switch under Helpers on the finished chart, off until someone turns it on. */
+   from which ui/first-run.js builds `selected`. Nothing exists until "Create my team". Built-in and message bots
+   are not on the chart: the built-ins are always created, and a `kind: helper` card is
+   one switch under Message bots on the finished chart, off until someone turns it on. */
 const OB_ICONS = {goal: 'flag', go: 'arrow_forward', why: 'auto_awesome', edit: 'edit', chart: 'account_tree',
                   bot: 'smart_toy', expand: 'expand_more'};
 // One hue per department; a department this page does not know gets one from its id.
@@ -138,7 +138,7 @@ function obCols(state, count) {
   const most = Math.max(1, Math.min(count || 1, 4, Math.floor((width - 40) / 220)));
   return Math.ceil((count || 1) / Math.ceil((count || 1) / most));
 }
-// The human at the top and each group hanging off one line with its bots below; helpers are not on it.
+// The human at the top and each group hanging off one line with its bots below; built-in and message bots are not on it.
 // Beside the conversation it is one column; the finished chart spreads the departments into rows.
 function obChartHTML(state, big) {
   const org = state.org, me = S.me || {};
@@ -249,11 +249,11 @@ function obDeptHTML(state) {
         <button class="ghost" type="button" id="ob-skip">Skip group</button><span class="spacer"></span>${forward}</div>
     </article>`;
 }
-// Helpers sit apart from the chart: one switch each, off by default, and the Inbox Manager asks whose mailbox here.
+// Message bots sit apart from the chart: one switch each, off by default, and the Inbox Manager asks whose mailbox here.
 function obHelpersHTML(state) {
   const cat = state.catalog, cards = obHelpers(state);
   if (!cards.length) return '';
-  return `<section class="ob-helpers" id="ob-helpers" aria-labelledby="ob-helpers-h"><h3 id="ob-helpers-h">Helpers</h3>${cards.map(card => {
+  return `<section class="ob-helpers" id="ob-helpers" aria-labelledby="ob-helpers-h"><h3 id="ob-helpers-h">Message bots</h3>${cards.map(card => {
     const on = cat.picked.has(card.slug);
     return `<div class="ob-helper${on ? ' on' : ''}" data-ob-helper-row="${esc(card.slug)}"><label class="ob-helper-toggle">${obAvatar(card.slug, card, 28)}
         <span class="ob-helper-name">${esc(catalogName(cat, card))}</span><input type="checkbox" role="switch" data-ob-helper="${esc(card.slug)}" ${on ? 'checked' : ''}></label>

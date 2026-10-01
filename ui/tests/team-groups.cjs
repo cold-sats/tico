@@ -14,7 +14,7 @@ async function open(browser, me) {
   const page = await browser.newPage({viewport: {width: 1300, height: 900}, serviceWorkers: 'block'});
   const errors = [], calls = [];
   const people = [
-    {id: 'ana', name: 'Ana Rivera', org_parent: '', team: ''},
+    {id: 'ana', name: 'Ana Rivera', org_parent: '', team: '', inbox_bot: 'inbox'},
     {id: 'ben', name: 'Ben Cole', org_parent: 'p:ana', team: 'marketing', reports_to: 'ana'},
     {id: 'cara', name: 'Cara Mendes', org_parent: 'p:ana', team: '', reports_to: 'ana'},
   ];
@@ -26,7 +26,9 @@ async function open(browser, me) {
     bot('cmo', 'CMO', 'marketing', 'p:ben', {reports_to: 'human:ben'}),
     bot('writer', 'Writer', 'seo', 'b:cmo', {reports_to: 'cmo'}),
     bot('scout', 'Scout', '', 'p:ana', {reports_to: 'human:ana'}),
-    bot('botops', 'BotOps', '', 'p:ana', {reports_to: 'human:ana'}),
+    bot('botops', 'BotOps', '', 'p:ana', {reports_to: 'human:ana', helper: true}),
+    bot('inbox', 'Inbox Manager', '', 'p:ana'),
+    bot('channel', 'Channel Inbox', 'marketing', 'b:botops', {helper: true}),
   ];
   const groupRows = () => groups.map((g, i) => ({...g, org_parent: g.parent ? 'g:' + g.parent : '', order: i}));
   const apply = (id, body) => {
@@ -100,13 +102,27 @@ async function owner(browser) {
   const {page, errors, calls} = await open(browser, {id: 'ana', role: 'owner', name: 'Ana', email: 'ana@example.test', cloud: true});
   // Groups nest and hold humans and bots; a member hangs under its manager inside the group; Built-in is outside.
   assert.deepEqual(await shape(page), [
-    {Ana: ['Cara', 'Scout']}, {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}, {Sales: []}, {'Helpers': ['BotOps']}]);
+    {Ana: ['Cara', 'Scout']}, {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}, {Sales: []}, {'Built-in': ['BotOps']}, {'Message bots': ['Inbox Manager', 'Channel Inbox']}]);
   // A group collapses.
   await page.locator('#tree .dept-label', {hasText: /^Marketing$/}).click();
   assert.equal(await page.locator('#tree a.node[href="#/bot/writer"]').isVisible(), false);
   await page.locator('#tree .dept-label', {hasText: /^Marketing$/}).click();
   assert.equal(await page.locator('#tree a.node[href="#/bot/writer"]').isVisible(), true);
   assert.equal(await node(page, 'b:botops').getAttribute('draggable'), null, 'a built-in bot is not moved');
+  assert.equal(await node(page, 'b:channel').getAttribute('draggable'), null, 'a message bot is not moved');
+  for (const name of ['Built-in', 'Message bots']) {
+    assert.equal(await row(page, name).getAttribute('draggable'), null);
+    assert.equal(await row(page, name).locator('[data-group-add], [data-group-rename]').count(), 0);
+  }
+  // The two sections collapse independently.
+  await row(page, 'Built-in').locator('.dept-label').click();
+  assert.equal(await node(page, 'b:botops').isVisible(), false);
+  assert.equal(await node(page, 'b:inbox').isVisible(), true);
+  await row(page, 'Message bots').locator('.dept-label').click();
+  await row(page, 'Built-in').locator('.dept-label').click();
+  assert.equal(await node(page, 'b:botops').isVisible(), true);
+  assert.equal(await node(page, 'b:inbox').isVisible(), false);
+  await row(page, 'Message bots').locator('.dept-label').click();
 
   // Add a group: the plus beside Team, a field, Enter.
   await page.locator('#org-add-group').click();
@@ -151,7 +167,7 @@ async function owner(browser) {
   assert.deepEqual(calls.shift(), ['PATCH', 'legal', {parent: 'sales'}]);
   assert.deepEqual(await shape(page), [
     'Ana', {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]},
-    {Revenue: ['Cara', 'Scout', {Legal: []}, {EMEA: []}]}, {'Helpers': ['BotOps']}]);
+    {Revenue: ['Cara', 'Scout', {Legal: []}, {EMEA: []}]}, {'Built-in': ['BotOps']}, {'Message bots': ['Inbox Manager', 'Channel Inbox']}]);
 
   // Out of a group: onto "No group", which shows while dragging.
   assert.equal(await page.locator('#tree .org-no-group').isVisible(), false);
@@ -162,7 +178,7 @@ async function owner(browser) {
   await page.waitForFunction(() => [...document.querySelectorAll('#tree > li.org-group > .noderow .dept-label')].some(l => l.textContent === 'SEO'));
   assert.deepEqual(calls.shift(), ['PATCH', 'seo', {parent: ''}]);
   assert.deepEqual(await shape(page), [
-    {Ana: ['Cara']}, {Marketing: [{Ben: ['CMO']}]}, {SEO: ['Writer']}, {Revenue: ['Scout', {Legal: []}, {EMEA: []}]}, {'Helpers': ['BotOps']}]);
+    {Ana: ['Cara']}, {Marketing: [{Ben: ['CMO']}]}, {SEO: ['Writer']}, {Revenue: ['Scout', {Legal: []}, {EMEA: []}]}, {'Built-in': ['BotOps']}, {'Message bots': ['Inbox Manager', 'Channel Inbox']}]);
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -171,7 +187,7 @@ async function member(browser) {
   const {page, errors} = await open(browser, {id: 'ben', role: 'viewer', name: 'Ben', email: 'ben@example.test', cloud: true, company_role: 'member'});
   // A member reads the chart: no plus, no rename, nothing to drag, and a group nobody is in is not shown.
   assert.deepEqual(await shape(page), [
-    {Ana: ['Cara', 'Scout']}, {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}, {'Helpers': ['BotOps']}]);
+    {Ana: ['Cara', 'Scout']}, {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}, {'Built-in': ['BotOps']}, {'Message bots': ['Inbox Manager', 'Channel Inbox']}]);
   assert.equal(await page.locator('#org-add-group').isVisible(), false);
   assert.equal(await page.locator('[data-group-rename], [data-group-add], #tree .org-no-group').count(), 0);
   assert.equal(await page.locator('#tree .noderow[data-org^="g:"][draggable="true"]').count(), 0);

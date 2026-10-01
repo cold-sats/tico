@@ -1,5 +1,5 @@
 // The Goals page (ui/goals-kpis.js): one tree of every person and bot, nested as the org chart nests them, a line each
-// with the goal to the right (cut short, whole in its tooltip) and KPI chips; the helpers apart; tapping a line opens
+// with the goal to the right (cut short, whole in its tooltip) and KPI chips; built-in and message bots apart; tapping a line opens
 // that owner's panel, where goals and KPIs are added and edited. Fixtures only, no network.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -14,7 +14,8 @@ const bots = [
   bot('cmo', 'AI CMO', 'p:ana'), bot('seo', 'SEO', 'b:cmo'), bot('sales', 'Sales', 'p:ana'),
   bot('support', 'Support', 'p:ana', {status: 'paused', onboarding_state: 'needs_setup'}),
   bot('old', 'Old bot', 'p:ana', {status: 'archived'}),
-  bot('coo', 'Assistant', ''), bot('librarian', 'Librarian', ''), bot('botops', 'BotOps', ''), bot('goal-manager', 'Goal Manager', ''), bot('inbox', 'Inbox Manager', 'b:botops', {template: 'inbox', helper: true}),
+  bot('coo', 'Assistant', ''), bot('librarian', 'Librarian', ''), bot('botops', 'BotOps', ''), bot('goal-manager', 'Goal Manager', ''), bot('inbox', 'Inbox Manager', 'b:botops', {template: 'inbox'}),
+  bot('channel', 'Channel Inbox', 'b:botops', {helper: true}),
 ];
 const day = Date.now() - 2 * 86400000;
 const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence: 'weekly', owner: 'bot:cmo', definition: 'Signed-up accounts that finish setup',
@@ -42,7 +43,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     const needs = [{kind: 'kpi_red', goal_id: 'g-cmo', goal_title: 'Double organic signups', kpi_id: 'k-act', kpi_name: 'Activation', reason: 'Activation 52% vs 58% needed on pace'},
       {kind: 'proposal', proposal: {id: 'p1', kind: 'kpi_target', goal_id: 'g-cmo', kpi_id: 'k-act', payload: {kind: 'improve', target: 60, deadline: '2027-12-31'},
        reason: 'The deadline cannot be met at this pace', proposed_by: 'bot:goal-manager'}, kpi_name: 'Activation', goal_title: 'Double organic signups'}];
-    const people = [{id: 'ana', name: 'Ana Silva', org_parent: ''}, {id: 'ben', name: 'Ben Park', org_parent: 'p:ana', goals: 'Keep the board honest.'}];
+    const people = [{id: 'ana', name: 'Ana Silva', org_parent: '', inbox_bot: 'inbox'}, {id: 'ben', name: 'Ben Park', org_parent: 'p:ana', goals: 'Keep the board honest.'}];
     const detail = {kpi: activation, links: [{...activation.link, goal_title: 'Double organic signups', goal_owner: 'bot:cmo', target_label: activation.target_label, status: 'yellow', reason: activation.reason}],
       readings: [47, 50, 52].map((v, i) => ({id: 'r' + i, value: v, period_end: new Date(day - (2 - i) * 7 * 86400000).toISOString(), quality: 'measured', evidence: i === 2 ? 'https://analytics.example/q/12' : '', actor: 'bot:goal-manager', superseded_by: null})),
       definitions: [], checkins: [], proposals: [], may_edit: true, may_log: true};
@@ -93,16 +94,17 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     // Two requests draw the page: the tree and Needs you.
     assert.deepEqual(requests.filter(r => /goals|kpis/.test(r)).sort(), ['GET /api/v2/goals/needs-you', 'GET /api/v2/goals/tree']);
 
-    // Every person and every bot that is not archived, goal or not, nested as the org chart nests them; the helpers apart.
-    const lines = await page.locator('#goal-tree > li').evaluateAll(els => els.map(el => el.classList.contains('gt-sep') ? '|' : el.classList.contains('gt-cont') ? '+' + el.dataset.goal : `${el.dataset.owner}@${el.style.getPropertyValue('--d')}`));
+    // Every person and every bot that is not archived, goal or not, nested as the org chart nests them; built-in and message bots apart.
+    const lines = await page.locator('#goal-tree > li').evaluateAll(els => els.map(el => el.classList.contains('gt-sep') ? el.textContent : el.classList.contains('gt-cont') ? '+' + el.dataset.goal : `${el.dataset.owner}@${el.style.getPropertyValue('--d')}`));
     assert.deepEqual(lines, ['company@0', 'human:ana@0', 'human:ben@1', 'bot:cmo@1', '+g-cmo2', 'bot:seo@2', 'bot:sales@1', 'bot:support@1',
-      '|', 'bot:coo@0', 'bot:botops@0', 'bot:librarian@0', 'bot:goal-manager@0', 'bot:inbox@0']);
-    // The sidebar's Helpers group lists the same bots in the same order, the Assistant and the Librarian among them.
+      'Built-in', 'bot:coo@0', 'bot:botops@0', 'bot:librarian@0', 'bot:goal-manager@0', 'Message bots', 'bot:inbox@0', 'bot:channel@0']);
+    // The sidebar separates the same built-in and message bots, in the same order.
     assert.deepEqual(await page.locator('#tree a.node[data-helper]').evaluateAll(els => els.map(el => el.dataset.org)),
-      ['b:coo', 'b:botops', 'b:librarian', 'b:goal-manager', 'b:inbox']);
+      ['b:coo', 'b:botops', 'b:librarian', 'b:goal-manager', 'b:inbox', 'b:channel']);
+    assert.deepEqual(await page.locator('#tree .noderow[data-helper] .dept-label').allTextContents(), ['Built-in', 'Message bots']);
     const row = owner => page.locator(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont)`);
     assert.equal(await row('bot:sales').locator('.gt-goal').count(), 0, 'no goal: nothing written');
-    assert.match(await row('bot:goal-manager').innerText(), /Every KPI read on time/, 'a helper shows its goal');
+    assert.match(await row('bot:goal-manager').innerText(), /Every KPI read on time/, 'a built-in bot shows its goal');
     assert.match(await row('human:ben').innerText(), /Keep the board honest\./, 'a profile goal shows');
     // One line each, about 36px, the goals lined up in one column.
     for (const owner of ['company', 'bot:cmo', 'bot:seo', 'bot:sales']) {
@@ -220,6 +222,6 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert(Math.abs(sheet.y + sheet.height - 844) <= 2 && sheet.width >= 388, 'a sheet at the bottom');
     await page.keyboard.press('Escape');
     assert.deepEqual(errors, []);
-    console.log('PASS: goals tree, helpers, panel adds and edits goals and KPIs, truncation, phone.');
+    console.log('PASS: goals tree, built-in and message bots, panel adds and edits goals and KPIs, truncation, phone.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

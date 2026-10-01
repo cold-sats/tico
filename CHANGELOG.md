@@ -7,6 +7,55 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.30] - 2026-10-01
+
+A release built from a full QA pass (nine testers, 166 findings).
+
+### Changed
+- **No more "never without a human".** The setup step and its four limits are gone, and so are the Confirm steps for
+  archiving or deleting bots, adding humans from outside the team's domain and updating Tico. The one switch that stays:
+  a bot drafts messages to outsiders until sending is turned on for it. Starter bots act on requested work with their
+  Tools instead of waiting for approvals; they keep their privacy, credential and evidence rules.
+- **Bots get only the credentials granted to them.** A run no longer inherits the computer's environment or
+  `_shared.env`. On upgrade, every existing bot is granted what it could read before (its own file, every `_shared.env`
+  key except the Codex sign-in key, declared and runtime keys), so nothing it uses breaks. Upgrade the server before its
+  computers.
+- **Personal tokens can do what their human can:** `hub_api`, `hub_bot_update`, and new tools to archive bots, docs and
+  files, delete meetings and run a routine now. A token's human can also reach their own Assistant over MCP.
+- BotOps changes the owner's Team rules directly, changes routines by their real ids (`<bot>:<key>`, which failed
+  before), reads routines with the requester's rights, keeps separate requests separate, and answers in one short reply.
+- Credential administrators can delete a Credential (UI, API, MCP, CLI): grants and the stored value are erased, an
+  audit line stays. Credential import works from an admin's personal token.
+- "Built-in" means only the four system bots. Message bots such as the Inbox Manager are listed as Message bots.
+
+### Added
+- `TICO_PORT` (and `install.sh --port`): run Tico on another local port; public, runner and MCP addresses follow it.
+  `--owner-name` and `--team-name` prefill Finish setup.
+- Remove computer in Settings > Computers, Add bot and Add from template under Settings > Bots, an Edit Instructions path,
+  Reopen and Undo for tasks, Undo and Restore for archived docs, New routine in Settings > Routines.
+- Hermes and OpenClaw pairing previews the profile and host before it approves, activates a planned bot, and can recover.
+- Template bots work: an empty model uses the team default, and creating one over MCP queues the BotOps build.
+  `hub_template_list` shows each template's setup questions and first routine.
+- Computers and Health show each computer's release and update state over MCP; Runs show failed and expired attempts.
+- Owner SQL reads the current Docs and Files tables. Listening and Needs you batches have their own guides.
+
+### Fixed
+- Editing an event routine kept changing its trigger to `meeting.ready`.
+- A task with labels and an attachment could not be created; reopening a task left it counted as done; a second
+  clarifying question slipped through after the first answer.
+- `hub_run_list since=24h` returned nothing (Health suggests it).
+- An unknown model or other tool mistake crashed the MCP call with HTTP 500; validation errors now name the field.
+- The generated Add computer command assumed the default Docker project; rehearsal mode could still call the decision
+  model; Grok sync dropped distinct messages and could not clear metadata; proposal responses broke the OpenAPI schema.
+- The Librarian's answer tool returned an unfinished first reply; search now keeps more than twelve words, returns
+  sections with excerpts, maps old words to new ones and ranks the manual beside team docs.
+- docs-eval passes only when facts are right, rejects unknown question ids and cleans up after a failed import. The demo
+  shows runs, message bots and files.
+
+### Docs
+- Privacy, backup, credential, database and calendar pages now describe what the code does. Quick start continues to a
+  first bot result; the docs have owner, member and operator paths with the glossary linked; old words replaced.
+
 ## [0.2.29] - 2026-09-30
 
 ### Fixed
@@ -1301,7 +1350,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.20...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.30...HEAD
+[0.2.30]: https://github.com/ticoteam/tico/compare/v0.2.29...v0.2.30
 [0.2.20]: https://github.com/ticoteam/tico/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/ticoteam/tico/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/ticoteam/tico/compare/v0.2.17...v0.2.18

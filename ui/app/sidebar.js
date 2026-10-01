@@ -22,7 +22,7 @@ document.querySelectorAll('[data-section-toggle]').forEach(button => button.oncl
 renderNavSections();
 // The assistant and the Librarian work in the background and nobody chats with them as a bot
 // (each person's private Assistant is a tab on their own page, ui/assistant.js), so search, bot pickers and a
-// person's page do not list them. The org panel does, in its Helpers group, and so does Settings → Bots;
+// person's page do not list them. The org panel does, in its Built-in group, and so does Settings → Bots;
 // #/bot/<slug> opens, and the Librarian stays one click away from the Docs nav row (renderLibrarians).
 const isHiddenBot = slug => slug === assistantBot() || slug === 'librarian';
 const shownEmps = () => (S.emps || []).filter(e => !isHiddenBot(e.name));
@@ -52,15 +52,12 @@ function orgGroupOf(people, bots) {
 }
 function orgTreeByParent() {
   const byParent = {}, groups = orgGroupIds();
-  const inboxBots = new Set((S.people || []).map(p => p.inbox_bot).filter(Boolean));
   const people = (S.people || []).filter(p => !p.hidden);
   // "Only bots I can read or write": a bot the caller may merely see leaves the chart, and the
   // bots under it hang from the next thing that is left.
-  // The built-in helpers are listed here too (the Helpers group), the same bots the Goals page lists as helpers; a
-  // bot that reports to one hangs where the helper would have (orgTreeWithHelpers).
-  const kept = (S.emps || []).filter(orgMineKeep);
-  const empIds = new Set(kept.filter(e => !inboxBots.has(e.name)).map(e => e.name));
-  const bots = kept.filter(e => !inboxBots.has(e.name));
+  // Built-in and message bots sit apart, as on Goals; a bot that reports to one hangs where it would have.
+  const bots = (S.emps || []).filter(orgMineKeep);
+  const empIds = new Set(bots.map(e => e.name));
   const groupOf = orgGroupOf(people, bots);
   for (const g of (S.orgGroups || [])) {
     (byParent[g.parent && groups.has(g.parent) ? 'g:' + g.parent : ''] ||= []).push({kind: 'group', id: g.id, name: g.name, order: g.order || 0});
@@ -253,7 +250,7 @@ function orgDragWire(tree) {
   tree.addEventListener('dragover', ev => {
     const target = ev.target.closest('[data-org]'); if (!target || !dragging || target.dataset.org === dragging) return;
     const to = target.dataset.org;
-    if (target.hasAttribute('data-helper') || to === 'g:' + HELPERS_GROUP) return;       // helpers are not on the chart
+    if (target.hasAttribute('data-helper')) return;       // built-in and message bots are not on the chart
     if (to.startsWith('g:') ? !orgCanGroups() : dragging.startsWith('g:') || !orgMayMove(dragging)) return;
     if (dragging.startsWith('p:') && !to.startsWith('p:') && !to.startsWith('g:')) return;   // a person reports to a person
     ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
@@ -381,12 +378,12 @@ $('#org-history').onclick = () => {
   }
   renderTree();
 };
-// Helpers (the built-ins, and bots made from a `kind: helper` card such as the Inbox Manager) serve people rather than
-// hold a place on the org chart, so the sidebar lists them in a Helpers group of their own after it. Only the grouping
-// changes: `reports_to` is untouched, and a bot that reports to a helper hangs where the helper would have.
+// Built-in and message bots sit in separate groups after the team chart. `reports_to` is untouched,
+// and a bot that reports to one hangs where it would have.
 const HELPERS_GROUP = '__helpers';
-const isHelperBot = e => isBuiltInBot(e.name) || !!e.helper;
-// The order helpers are listed in, here and on the Goals page: the Assistant, then the other built-ins, then the rest.
+const MESSAGE_BOTS_GROUP = '__message_bots';
+const isHelperBot = e => isBuiltInBot(e.name) || !!e.helper || (S.people || []).some(p => p.inbox_bot === e.name);
+// The order here and on Goals: the Assistant, then the other built-ins, then message bots.
 const HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'inbox'];
 const helperRank = e => e.name === assistantBot() ? -1 : HELPER_ORDER.includes(e.name) ? HELPER_ORDER.indexOf(e.name) : 99;
 function orgTreeWithHelpers(byParent) {
@@ -400,9 +397,13 @@ function orgTreeWithHelpers(byParent) {
     if (n.kind === 'bot' && isHelperBot(n)) helpers.push(n);
     else (out[lift(parent)] ||= []).push(n);
   }
-  if (helpers.length) {
-    (out[''] ||= []).push({kind: 'group', id: HELPERS_GROUP, name: 'Helpers', helpers: true});
-    out['g:' + HELPERS_GROUP] = helpers;
+  for (const [id, name, members, order] of [
+    [HELPERS_GROUP, 'Built-in', helpers.filter(e => isBuiltInBot(e.name)), 0],
+    [MESSAGE_BOTS_GROUP, 'Message bots', helpers.filter(e => !isBuiltInBot(e.name)), 1],
+  ]) {
+    if (!members.length) continue;
+    (out[''] ||= []).push({kind: 'group', id, name, order, helpers: true});
+    out['g:' + id] = members;
   }
   return out;
 }
@@ -420,7 +421,7 @@ function renderTree() {
   const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : (n.display_name || '').replace(TEMP_RE, '');
   const rec = (parent, depth) => (byParent[parent] || []).slice()
     .sort((a, b) => {
-      if (!!a.helpers !== !!b.helpers) return a.helpers ? 1 : -1;        // the Helpers group comes last
+      if (!!a.helpers !== !!b.helpers) return a.helpers ? 1 : -1;        // built-in and message groups come last
       // A group's own humans and bots come first, then the groups nested in it.
       if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
       if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
