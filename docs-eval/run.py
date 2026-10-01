@@ -97,8 +97,11 @@ def fact_matches(text, fact):
                 pattern = r"\d+(?:\.\d+)?\s+" + re.escape(unit)
         number = re.match(r"^\$?(\d+(?:[.,]\d+)*)", expected)
         approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s+(?:USD\s*|US\s*)?\$?\d"
-        approximate += r"|\b(?:variation|varies|vary|variable|estimated?|ballpark)\b"
-        approximate += (r"|\d[\d.,]*\s*[,(]?\s*(?:or so|or thereabouts|give or take|more or less|approximately|roughly|"
+        # Uncertainty words count unless negated: "with some variation" fails, "with no variation" does not.
+        approximate += (r"|(?<!\bno )(?<!\bnot )(?<!n't )(?<!\bnever )(?<!\bwithout )(?<!\bwithout any )"
+                        r"\b(?:(?:some|slight|minor|small|price)\s+)?(?:variation|varies|vary|variable|estimated?|ballpark)\b")
+        approximate += r"|\(\s*(?:approx\w*\.?|about|roughly|around|circa|estimated?)\s*\)"
+        approximate += (r"|\d[\d.,]*\s*(?:USD|US dollars|dollars)?\s*[,(]?\s*(?:or so|or thereabouts|give or take|more or less|approximately|roughly|"
                         r"about|or less|or more|tops|at most|at least|-?ish)\b")
         if number:
             value = r"(?<!\d)\$?" + re.escape(number.group(1)) + r"(?!\d)"

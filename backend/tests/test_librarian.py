@@ -165,6 +165,10 @@ def test_how_to_wording_preserves_installation_software_and_source_literals():
         assert H.librarian_text(kept) == kept
     assert H.librarian_text("Hub docs: standing instructions.") == "Tico docs: Instructions."
     assert H.librarian_text("HUB DOCS; don't skip standing instructions.") == "TICO DOCS; don't skip Instructions."
+    assert H.librarian_text("THE RUNNER PULLS UPDATES. Read Hub Docs.") == "THE COMPUTER PULLS UPDATES. Read Tico Docs."
+    for kept in ('He wrote "Hub docs and\nstanding instructions".', "~~~text\nHub docs and standing instructions\n~~~",
+                 "``a `Hub docs` b``", "[Hub docs][source]"):
+        assert H.librarian_text(kept) == kept
 
 
 def test_librarian_doc_writes_normalize_generated_instructions_and_computers(desk):

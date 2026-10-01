@@ -1529,23 +1529,43 @@ def _close_open_asks(conn, actor, target, kind, msg):
           {"asks": open_asks, "bot": target})
 
 
+LIBRARIAN_LITERAL = re.compile(
+    r"(?P<fence>```|~~~)[\s\S]*?(?P=fence)"          # fenced code, backticks or tildes
+    r"|(?P<ticks>`+)[\s\S]*?(?P=ticks)"               # inline code of any length
+    r"|\[[^\]\n]*\](?:\([^)]*\)|\[[^\]]*\])?"       # link labels, inline or reference
+    r"|https?://\S+|[\w.-]+/[\w/.-]+"                  # URLs and paths
+    r'|"[^"]*"|“[^”]*”|‘[^’]*’|(?<!\w)\'[^\'\n]+\'(?!\w)'  # quotes, straight ones across lines too
+    r"|^[ \t]*>[^\n]*", re.M)                          # blockquotes
+
+
+def _keep_case(found, new):
+    """`new` in the case of the words it replaces: ALL CAPS, Title Case, Sentence case or lower."""
+    if found.isupper():
+        return new.upper()
+    if found.istitle() and " " in found.strip():
+        return new.title()
+    return new[0].upper() + new[1:] if found[0].isupper() else new
+
+
+def _librarian_prose(text):
+    # Only Tico's own jargon: the team's prose about its business (its company, coworkers, machines, a race
+    # runner) is a source fact and stays as written. Instructions keep the rest of the wording.
+    text = text.replace(r"\n", "\n")
+    for old, new in ((r"\bthrough the runner\b", "through Tico"), (r"\bstanding instructions\b", "Instructions"),
+                     (r"\bHub docs\b", "Tico docs"),
+                     (r"\bthe runner(?=\s+(?:pulls?|syncs?)\b[^.!?\n]*?(?:\b(?:updates?|releases?|changes|instructions|"
+                      r"repository|repo|next run|Tico)\b|AGENT\.md))", "the Computer")):
+        text = re.sub(old, lambda m, new=new: _keep_case(m[0], new), text, flags=re.I)
+    return text
+
+
 def librarian_text(body):
-    """Repair generated prose while preserving commands, links and quoted source text."""
-    parts = re.split(r'(```.*?```|`[^`]*`|\[[^\]]*\]\([^)]*\)|https?://\S+|[\w.-]+/[\w/.-]+|"[^"\n]*"|“[^”\n]*”'
-                     r"|‘[^’\n]*’|(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*)", str(body or ""), flags=re.S | re.M)
-    for i in range(0, len(parts), 2):
-        text = parts[i].replace(r"\n", "\n")
-        # Only Tico's own jargon: the team's prose about its business (its company, coworkers, machines, a race
-        # runner) is a source fact and stays as written. Instructions keep the rest of the wording.
-        for old, new in ((r"\bthrough the runner\b", "through Tico"),
-                         (r"\bstanding instructions\b", "Instructions"),
-                         (r"\bHub docs\b", "Tico docs")):
-            text = re.sub(old, lambda m, new=new: new.upper() if m[0].isupper() else
-                          new[0].upper() + new[1:] if m[0][0].isupper() else new, text, flags=re.I)
-        text = re.sub(r"\b(the) runner (?=(?:pulls?|syncs?)\b[^.!?\n]*?(?:\b(?:updates?|releases?|changes|instructions|repository|repo|next run|Tico)\b|AGENT\.md))",
-                      lambda m: m[1] + " Computer ", text, flags=re.I)
-        parts[i] = text
-    return "".join(parts)
+    """Repair generated prose while preserving code, links, quotes and blockquotes."""
+    body, out, at = str(body or ""), [], 0
+    for literal in LIBRARIAN_LITERAL.finditer(body):
+        out += [_librarian_prose(body[at:literal.start()]), literal[0]]
+        at = literal.end()
+    return "".join(out + [_librarian_prose(body[at:])])
 
 
 def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s,

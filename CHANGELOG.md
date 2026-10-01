@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.41] - 2026-10-01
+
+### Fixed
+- The Librarian keeps every Markdown literal as written (tilde fences, any-length code spans, reference links, quotes
+  across lines) and keeps the case of what it replaces (ALL CAPS, Title Case).
+- docs-eval accepts "with no variation" for an exact price and treats "(approximately) $29" and "$29 USD
+  approximately" as approximate.
+
 ## [0.2.40] - 2026-10-01
 
 ### Fixed
