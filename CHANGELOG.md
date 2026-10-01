@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The bot page's right rail runs full height in a denser style: Active first, then Updates (just "Updates · 10h
+  ago"), Files (names only, a small "+N"), Recurring, with "Assigned to others" and Done folded at the bottom. The
+  "Latest update" banner and the separate history button are gone.
+- A bot's Tools show as up to three small icons next to its name, then "+N"; the full list is under More.
+
 ### Fixed
 - docs-eval ignores Markdown emphasis around a price, treats "about ($29)" as approximate, and accepts "no price
   variation" for an exact price.

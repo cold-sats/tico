@@ -158,15 +158,18 @@ function botTasksRender(slug, owned, asked) {
   const needsPerson = t => actorPerson(t.owner) ? 0 : 1;
   const outward = theirs.filter(t => V2_ACTIVE.includes(String(t.status))).sort((a, b) => needsPerson(a) - needsPerson(b) || latest(a, b));
   $('#t-open').innerHTML = active.length ? `<div class="bot-task-list">${active.map(t => v2TaskRow(t, slug)).join('')}</div>`
-    : '<div class="empty">No active tasks.</div>';
+    : '<div class="rail-empty">None</div>';
+  // Folded at the foot of the rail; it opens by itself while something in it waits on a person.
   const assigned = $('#bot-assigned');
   if (assigned) {
     assigned.hidden = !outward.length;
+    $('#cnt-assigned').textContent = outward.length || '';
     $('#t-assigned').innerHTML = `<div class="bot-task-list">${outward.map(t => v2TaskRow(t, slug)).join('')}</div>`;
+    if (!assigned.dataset.seen && outward.length) { assigned.dataset.seen = '1'; assigned.open = outward.some(t => actorPerson(t.owner)); }
   }
   $('#t-done').innerHTML = finished.length
     ? `<div class="bot-task-list">${finished.map(t => v2TaskRow(t, slug)).join('')}</div>`
-    : '<div class="empty">Nothing finished yet.</div>';
+    : '<div class="rail-empty">None</div>';
 }
 
 // the pill's "Send as task" on a keeper bot: a hub task, not an Issue
