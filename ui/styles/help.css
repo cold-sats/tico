@@ -1,31 +1,62 @@
 /* ui/styles/help.css — Help page.
    The cascade runs in the order index.html links these files; keep rules in order. */
-/* Help: the short company-level mental model, not a product manual. */
-.help-page{max-width:960px;margin:0 auto;padding:12px 0 40px}
-.help-hero{padding:30px 34px;border:1px solid var(--line);border-radius:14px;background:var(--surface);position:relative;overflow:hidden}
+/* Help: how the pieces fit, who does what, and the function index. Not a product manual. */
+.help-page{max-width:980px;margin:0 auto;padding:12px 0 40px;container-type:inline-size}
+.help-hero{padding:28px 32px;border:1px solid var(--line);border-radius:14px;background:var(--surface);position:relative;overflow:hidden}
 .help-hero::after{content:"";position:absolute;width:260px;height:260px;right:-120px;top:-150px;border-radius:50%;background:color-mix(in srgb,var(--accent) 10%,transparent);pointer-events:none}
-.help-eyebrow{margin-bottom:8px;color:var(--accent);font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
-.help-hero h1{max-width:760px;font-size:34px;line-height:1.12;letter-spacing:-.6px}
-.help-lede{max-width:740px;margin:14px 0 0;color:var(--muted);font-size:17px;line-height:1.6}
-.help-boundary{max-width:740px;margin-top:22px;padding:12px 14px;border-left:3px solid var(--accent);border-radius:0 7px 7px 0;background:color-mix(in srgb,var(--accent) 7%,var(--surface));font-size:13.5px;line-height:1.55}
-.help-flow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1.15fr) auto minmax(0,1fr);align-items:stretch;gap:10px;margin:18px 0}
-.help-flow-node{display:flex;flex-direction:column;justify-content:center;min-height:112px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
-.help-flow-node.tico{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
-.help-flow-node span{margin-bottom:5px;color:var(--muted);font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
-.help-flow-node strong{font-size:15px;line-height:1.35}
-.help-flow-node small{margin-top:5px;color:var(--muted);font-size:12px;line-height:1.4}
-.help-flow-arrow{display:flex;align-items:center;color:var(--accent);font-size:20px}
-.help-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:18px;counter-reset:help-step}
-.help-step{counter-increment:help-step;min-height:190px;padding:20px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
-.help-step::before{content:"0" counter(help-step);display:block;margin-bottom:20px;color:var(--accent);font:500 12px/1 var(--mono)}
-.help-step h2{font-size:18px;margin-bottom:7px}
-.help-step p{margin:0;color:var(--muted);font-size:14px;line-height:1.65}
-.help-step p+p{margin-top:9px}
-.help-split{display:grid;grid-template-columns:1fr 1fr;gap:1px;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:var(--line)}
-.help-split section{padding:20px;background:var(--surface)}
-.help-split h2{font-size:15px;margin-bottom:10px}
-.help-split ul{margin:0;padding-left:18px;color:var(--muted);font-size:13.5px;line-height:1.65}
-.help-split li+li{margin-top:4px}
+.help-hero h1{font-size:32px;line-height:1.12;letter-spacing:-.6px}
+.help-lede{max-width:740px;margin:10px 0 0;color:var(--muted);font-size:17px;line-height:1.55}
+/* The map: two drawings, wide and tall; the page's own width picks one. Colours come from the theme tokens. */
+.help-map{margin:16px 0 0;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--bg)}
+.help-map-svg{display:block;width:100%;height:auto;overflow:visible;font-family:var(--sans)}
+.help-map-svg.tall{display:none;max-width:420px;margin:0 auto}
+.hm-box{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.hm-server{fill:color-mix(in srgb,var(--accent) 7%,var(--surface));stroke:color-mix(in srgb,var(--accent) 60%,var(--line));stroke-width:1.5}
+.hm-band{fill:none;stroke:color-mix(in srgb,var(--accent) 45%,var(--line));stroke-width:1.2;stroke-dasharray:5 4}
+.hm-chip{fill:var(--surface2);stroke:none}
+.hm-cred{fill:color-mix(in srgb,var(--accent) 16%,var(--surface))}
+.hm-card{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.hm-builtin{stroke:color-mix(in srgb,var(--accent) 55%,var(--line))}
+.hm-t{fill:var(--ink);font-size:17px;font-weight:650}
+.hm-card-t{fill:var(--ink);font-size:14px;font-weight:600}
+.hm-chip-t{fill:var(--ink);font-size:13px}
+.hm-s{fill:var(--muted);font-size:12.5px}
+.hm-k{fill:var(--muted);font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+.hm-l{fill:var(--muted);font-size:11.5px}
+.hm-k.accent,.hm-l.accent{fill:var(--accent)}
+.hm-line{fill:none;stroke:var(--muted);stroke-width:1.5}
+.hm-line.granted{stroke:var(--accent);stroke-dasharray:4 3}
+.hm-head{fill:var(--muted)}.hm-head.granted{fill:var(--accent)}
+.hm-tie{stroke:color-mix(in srgb,var(--accent) 45%,var(--line));stroke-width:1.2;stroke-dasharray:3 3}
+/* Who does what */
+.help-page h2{margin:30px 2px 12px;font-size:19px}
+.help-who table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden;font-size:13.5px;line-height:1.45}
+.help-who th,.help-who td{padding:11px 14px;border:0;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+.help-who thead th{border-top:0;color:var(--muted);font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;background:var(--surface2)}
+.help-who tbody th{width:150px;color:var(--ink);font-size:14px;font-weight:600;letter-spacing:0;text-transform:none;white-space:nowrap}
+.help-who tbody tr.built-in+tr:not(.built-in) > *{border-top:2px solid var(--line)}
+.help-who td{color:var(--muted)}
+.help-who td.help-ask{color:var(--ink);font-style:italic}
+.help-tag{display:block;width:max-content;margin-top:4px;padding:1px 6px;border-radius:8px;background:color-mix(in srgb,var(--accent) 13%,var(--surface));color:var(--accent);font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+/* The pieces */
+.help-piece-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.help-piece{padding:16px 18px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.help-piece h3{margin-bottom:6px;font-size:14.5px}
+.help-piece p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.55}
+@container (max-width:780px){
+  .help-map{padding:16px}
+  .help-map-svg.wide{display:none}.help-map-svg.tall{display:block}
+  .help-piece-grid{grid-template-columns:1fr 1fr}
+  .help-who table,.help-who tbody,.help-who tr,.help-who th,.help-who td{display:block}
+  .help-who thead{display:none}
+  .help-who tbody tr{padding:12px 14px;border-top:1px solid var(--line)}.help-who tbody tr:first-child{border-top:0}
+  .help-who tbody tr.built-in+tr:not(.built-in){border-top:2px solid var(--line)}
+  .help-who tbody th,.help-who td{width:auto;padding:0;border:0 !important}
+  .help-who tbody th{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:14.5px}.help-tag{margin:0}
+  .help-who td{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px;padding:2px 0}
+  .help-who td::before{content:attr(data-label);font-style:normal;color:var(--muted);font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;line-height:1.9}
+}
+@container (max-width:520px){.help-piece-grid{grid-template-columns:1fr}}
 .help-foot{margin:16px 2px 0;color:var(--muted);font-size:12.5px;text-align:center}
 .help-tools{margin-top:18px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
 .help-tools>summary{display:flex;align-items:baseline;gap:10px;padding:16px 18px;cursor:pointer;list-style:none}
@@ -47,9 +78,7 @@
 .help-tool-row code:last-child{color:var(--muted)}
 .help-cli-only{display:inline-block;margin-left:5px;padding:1px 5px;border-radius:8px;background:var(--idle-bg);color:var(--muted);font-size:9px;letter-spacing:.03em;text-transform:uppercase;vertical-align:1px}
 @media(max-width:720px){
-  .help-page{padding-top:0}.help-hero{padding:23px 20px}.help-hero h1{font-size:28px}.help-lede{font-size:15px}
-  .help-flow{grid-template-columns:1fr}.help-flow-arrow{justify-content:center;transform:rotate(90deg);height:12px}
-  .help-flow-node{min-height:auto}.help-steps,.help-split{grid-template-columns:1fr}.help-step{min-height:auto}.help-split{gap:1px}
+  .help-page{padding-top:0}.help-hero{padding:22px 20px}.help-hero h1{font-size:27px}.help-lede{font-size:15px}
   .help-tools>summary{align-items:flex-start;flex-wrap:wrap}.help-tools>summary small{width:100%;margin-left:30px}
   .help-tool-groups{grid-template-columns:1fr}.help-tool-head,.help-tool-row{grid-template-columns:minmax(0,1fr)}.help-tool-head span:last-child{display:none}
   .help-tool-row code:last-child{padding-left:10px;font-size:10.5px}
