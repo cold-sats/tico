@@ -463,3 +463,18 @@ def test_a_task_has_a_place_in_its_step_and_a_board_lists_in_that_order(api):
     assert [t['id'] for t in get(api, 'tasks?type=' + typ['id'] + '&step=On deck&sort=step')['tasks']] == [a['id'], b['id']]
     post(api, 'tasks/' + a['id'], {'version': a['version'], 'step_rank': 0}, token='priya-test', expected=403)
 
+
+def test_a_board_polls_only_what_changed_since_it_last_looked(api):
+    old = post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the brief', 'body': 'x'})
+    changed = post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the plan', 'body': 'x'})
+    since = get(api, 'tasks/' + changed['id'])['task']['updated']
+    post(api, 'tasks/' + changed['id'] + '/comments', {'text': 'Shorter, please.'})
+    assert [t['id'] for t in get(api, 'tasks?updated_since=' + since.replace('Z', '%2B00:00'))['tasks']] == [changed['id']]
+    get(api, 'tasks?updated_since=2026-01-01T00:00:00', expected=422)
+    assert old['id'] in {t['id'] for t in get(api, 'tasks?updated_since=2000-01-01T00:00:00Z')['tasks']}
+
+
+def test_a_brief_list_leaves_out_what_a_board_does_not_show(api):
+    post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the brief', 'body': 'A long body.', 'acceptance_criteria': ['Short']})
+    task = get(api, 'tasks?brief=true')['tasks'][0]
+    assert task['title'] == 'Write the brief' and not {'body', 'acceptance_criteria', 'acceptance_json'} & set(task)

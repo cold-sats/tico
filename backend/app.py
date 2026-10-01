@@ -1847,7 +1847,7 @@ def create_app(settings=None):
     def tasks(request: Request, owner: str | None = None, requester: str | None = None, status: str | None = None,
               lane: str | None = None, label: str | None = None, limit: int = 500,
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
-              number: int | None = None):
+              number: int | None = None, updated_since: str | None = None, brief: bool = False):
         with store.read() as c:
             owner = H.resolve_actor(c, owner) if owner else None
             requester = H.resolve_actor(c, requester) if requester else None
@@ -1871,10 +1871,18 @@ def create_app(settings=None):
                     raise Problem("step", "No step " + step + (" in " + typ["name"] if typ else ""), 422)
             if number is not None and not 1 <= number <= 999_999_999:
                 raise Problem("number", "number is a task number, from 1", 422)
+            since = H.parse_ts(updated_since) if updated_since else None
+            if updated_since and (not since or since.tzinfo is None):
+                raise Problem("date", "updated_since must be an ISO-8601 date/time with a timezone", 422)
             rows, next_offset = visible_tasks(c, request.state.identity, owner, requester,
                 status.split(",") if status and status != "all" else None, lane=lane, label=label,
                 limit=limit, offset=offset, order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids,
-                number=number)
+                number=number, updated_since=views.since_time(updated_since) if since else None)
+            if brief:
+                # A board polling hundreds of tasks needs neither their text nor their criteria.
+                for row in rows:
+                    for field in ("body", "acceptance_criteria", "acceptance_json"):
+                        row.pop(field, None)
             return {"tasks": rows, "next_offset": next_offset}
 
     # ------------------------------------------------------------------ quiet notes

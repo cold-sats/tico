@@ -15,6 +15,8 @@ All notable changes to Tico are recorded here. The format follows
 - A task has a place within its step, `step_rank`: a task that enters a step joins its end (its top with `top`), and
   the people on it and movers can move it. `GET /api/v2/tasks` takes `type` and `step` filters and `sort=step`, the
   board filtered to a type orders its columns that way, and `hub task list` and `hub_task_list` take the same.
+- `GET /api/v2/tasks?updated_since=<time>` returns only the tasks changed after that time, for a client that polls, and
+  `brief=true` leaves out their bodies and acceptance criteria.
 
 ## [0.3.0] - 2026-10-01
 

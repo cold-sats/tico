@@ -3488,10 +3488,11 @@ STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step
 
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
-          offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None):
+          offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
+          updated_since=None):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
     `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
-    a board's: by step, then each task's place in it."""
+    a board's: by step, then each task's place in it. `updated_since` is a stored timestamp."""
     sql, args, where = "SELECT * FROM tasks", [], []
     if visible and visible != "1":
         where.append("(" + visible + ")")
@@ -3513,6 +3514,9 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     if number is not None:
         where.append("number=?")
         args.append(number)
+    if updated_since:
+        where.append("updated>?")
+        args.append(updated_since)
     if label:
         where.append("EXISTS (SELECT 1 FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
                      "WHERE task_tags.task_id=tasks.id AND tags.key=?)")

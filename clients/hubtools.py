@@ -392,6 +392,8 @@ def task_run(api, args):
        "step": _s("Only tasks in this step (id or name; with `type`, that type's step)"),
        "sort": {"type": "string", "enum": ["queue", "finished", "step"],
                 "description": "queue (default), finished (most recently done first) or step (a board's columns in order)"},
+       "updated_since": _s("Only tasks changed after this ISO-8601 time with a timezone"),
+       "brief": {"type": "boolean", "description": "Leave out each task's body and acceptance criteria"},
        "all": {"type": "boolean", "default": False,
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
        "stuck": {"type": "boolean", "default": False,
@@ -402,7 +404,9 @@ def task_list(api, args):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
     if args.get("all"):
         return {"tasks": api.get("tasks")["tasks"], "bots": api.get("bots")}
-    more = {name: args[name] for name in ("type", "step", "sort") if args.get(name)}
+    more = {name: args[name] for name in ("type", "step", "sort", "updated_since") if args.get(name)}
+    if args.get("brief"):
+        more["brief"] = "true"
     return api.get("tasks", owner=_target(api, args.get("owner")) if args.get("owner") else None,
                    requester=_target(api, args.get("requester")) if args.get("requester") else None,
                    status=",".join(args["status"]) if args.get("status") else None,

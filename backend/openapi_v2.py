@@ -122,7 +122,8 @@ STABLE = [
     ("/api/v2/task-types/{type_id}", "delete", "Tasks", "deleteTaskType", "Delete an unused task type (movers only)", "TaskTypeResult"),
     ("/api/v2/task-types/{type_id}/delete", "post", "Tasks", "deleteTaskTypePost", "Delete an unused type for clients using POST", "TaskTypeResult"),
     ("/api/v2/tasks", "get", "Tasks", "listTasks",
-     "Tasks the caller can see; type, step and number filter, sort=step orders a board's columns", "TaskList"),
+     "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, "
+     "brief=true leaves out bodies", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
     ("/api/v2/tasks/dry-run", "post", "Tasks", "checkTask", "The checks a create would fail; writes nothing", None),
     ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use", None),
@@ -347,6 +348,8 @@ SCHEMAS = {
                 type_id={"type": ["string", "null"]}, step_id={"type": ["string", "null"]},
                 type={"oneOf": [obj({"id": "s", "name": "s"}), {"type": "null"}]},
                 step={"oneOf": [ref("TaskStep"), {"type": "null"}]},
+                body={"type": "string", "description": "Left out of a list asked for with brief=true, "
+                      "as is acceptance_criteria"},
                 number={"type": ["integer", "null"], "description": "The task's number, unique across the team "
                         "(#18945); given once on a numbered type and never changed"},
                 step_rank={"type": ["number", "null"], "description": "Its place within its step, lower first"}),

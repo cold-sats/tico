@@ -7385,7 +7385,7 @@
     },
     "/api/v2/tasks": {
       "get": {
-        "summary": "Tasks the caller can see; type, step and number filter, sort=step orders a board's columns",
+        "summary": "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, brief=true leaves out bodies",
         "operationId": "listTasks",
         "parameters": [
           {
@@ -7544,6 +7544,32 @@
                 }
               ],
               "title": "Number"
+            }
+          },
+          {
+            "name": "updated_since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          },
+          {
+            "name": "brief",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Brief"
             }
           }
         ],
@@ -14364,7 +14390,8 @@
             "type": "string"
           },
           "body": {
-            "type": "string"
+            "type": "string",
+            "description": "Left out of a list asked for with brief=true, as is acceptance_criteria"
           },
           "requester": {
             "type": "string"
