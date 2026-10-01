@@ -1530,12 +1530,19 @@ def _close_open_asks(conn, actor, target, kind, msg):
 
 
 LIBRARIAN_LITERAL = re.compile(
-    r"(?P<fence>```|~~~)[\s\S]*?(?P=fence)"          # fenced code, backticks or tildes
-    r"|(?P<ticks>`+)[\s\S]*?(?P=ticks)"               # inline code of any length
-    r"|\[[^\]\n]*\](?:\([^)]*\)|\[[^\]]*\])?"       # link labels, inline or reference
-    r"|https?://\S+|[\w.-]+/[\w/.-]+"                  # URLs and paths
-    r'|"[^"]*"|“[^”]*”|‘[^’]*’|(?<!\w)\'[^\'\n]+\'(?!\w)'  # quotes, straight ones across lines too
-    r"|^[ \t]*>[^\n]*", re.M)                          # blockquotes
+    r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]{0,3}(?P=fence)[`~]*[ \t]*$|\Z)"  # fenced code
+    r"|^(?:(?: {4}|\t)[^\n]*(?:\n|\Z))+"                      # indented code
+    r"|(?<!`)(?P<ticks>`+)(?!`)[\s\S]*?(?<!`)(?P=ticks)(?!`)"   # code spans: equal-length backtick runs
+    r"|\[[^\]\n]*\](?:\([^)]*\)|\[[^\]]*\])?"                # link labels, inline or reference
+    r"|https?://\S+|[\w.-]+/[\w/.-]+"                           # URLs and paths
+    r'|"[^"]*"|“[^”]*”|‘[^’]*’|(?<!\w)\'[^\']+\'(?!\w)'       # quotes, also across lines
+    r"|^[ \t]*>[^\n]*", re.M)                                   # blockquotes
+JARGON = ((r"\bthrough the runner\b", "through Tico"), (r"\bstanding instructions\b", "Instructions"),
+          (r"\bHub docs\b", "Tico docs"))
+# "the runner pulls/syncs" is the Computer only when Tico context follows in the same sentence, even inside code
+# or a link ("syncs `AGENT.md`"); an athlete who pulls a hamstring stays one.
+RUNNER = re.compile(r"\bthe runner(?=\s+(?:pulls?|syncs?)\b[^.!?\n]*?(?:\b(?:updates?|releases?|changes|instructions|"
+                    r"repository|repo|next run|Tico)\b|AGENT\.md))", re.I)
 
 
 def _keep_case(found, new):
@@ -1547,25 +1554,24 @@ def _keep_case(found, new):
     return new[0].upper() + new[1:] if found[0].isupper() else new
 
 
-def _librarian_prose(text):
-    # Only Tico's own jargon: the team's prose about its business (its company, coworkers, machines, a race
-    # runner) is a source fact and stays as written. Instructions keep the rest of the wording.
-    text = text.replace(r"\n", "\n")
-    for old, new in ((r"\bthrough the runner\b", "through Tico"), (r"\bstanding instructions\b", "Instructions"),
-                     (r"\bHub docs\b", "Tico docs"),
-                     (r"\bthe runner(?=\s+(?:pulls?|syncs?)\b[^.!?\n]*?(?:\b(?:updates?|releases?|changes|instructions|"
-                      r"repository|repo|next run|Tico)\b|AGENT\.md))", "the Computer")):
-        text = re.sub(old, lambda m, new=new: _keep_case(m[0], new), text, flags=re.I)
-    return text
-
-
 def librarian_text(body):
-    """Repair generated prose while preserving code, links, quotes and blockquotes."""
-    body, out, at = str(body or ""), [], 0
-    for literal in LIBRARIAN_LITERAL.finditer(body):
-        out += [_librarian_prose(body[at:literal.start()]), literal[0]]
-        at = literal.end()
-    return "".join(out + [_librarian_prose(body[at:])])
+    """Repair generated prose (Tico's own jargon only) while keeping code, links, quotes and blockquotes as written:
+    the team's prose about its business (its company, coworkers, machines, a race runner) is a source fact."""
+    body = str(body or "")
+    literals = [m.span() for m in LIBRARIAN_LITERAL.finditer(body)]
+    runners = {m.start() for m in RUNNER.finditer(body)}
+    out, at = [], 0
+    for start, end in literals + [(len(body), len(body))]:
+        text = ""
+        if at < start:
+            text = re.sub(r"\bthe runner\b", lambda m, base=at: (_keep_case(m[0], "the Computer")
+                                                                if base + m.start() in runners else m[0]),
+                          body[at:start], flags=re.I).replace(r"\n", "\n")
+            for old, new in JARGON:
+                text = re.sub(old, lambda m, new=new: _keep_case(m[0], new), text, flags=re.I)
+        out += [text, body[start:end]]
+        at = end
+    return "".join(out)
 
 
 def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s,

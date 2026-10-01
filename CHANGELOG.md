@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.42] - 2026-10-01
+
+### Fixed
+- The Librarian follows Markdown's own code rules (fences closed by a long enough line, equal-length backtick spans,
+  indented code) and keeps single-quoted text across lines; "the runner syncs `AGENT.md`" still reads as the Computer.
+- docs-eval treats "approximately: $29" as approximate.
+
 ## [0.2.41] - 2026-10-01
 
 ### Fixed

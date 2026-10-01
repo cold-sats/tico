@@ -125,7 +125,8 @@ def test_value_claims_reject_negation_contradiction_wrong_subject_and_double_neg
     "Studio costs $29. Pricing is $99 per month.", "Studio costs $29. Subscription is $99 monthly.",
     "Studio costs $29. Payment is $99 per month.", "Studio costs $29, give or take.", "Studio costs $29 approximately.",
     "Studio costs $29 (approximately).", "Studio costs approximately USD $29.", "Studio costs $29, with some variation.",
-    "Studio costs (approximately) $29 monthly.", "Studio costs $29 USD approximately.", "Studio's price may vary from $29."])
+    "Studio costs (approximately) $29 monthly.", "Studio costs $29 USD approximately.", "Studio's price may vary from $29.",
+    "Studio costs approximately: $29 monthly."])
 def test_a_later_sentence_contradicting_the_fact_fails_it(answer):
     fact = {"subject": "studio", "predicate": "cost|price|month", "value": "$29"}
     assert not E.fact_matches(answer, fact)

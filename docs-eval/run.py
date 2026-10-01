@@ -96,7 +96,7 @@ def fact_matches(text, fact):
                 unit = re.sub(r"^[\d.,]+\s*", "", expected)
                 pattern = r"\d+(?:\.\d+)?\s+" + re.escape(unit)
         number = re.match(r"^\$?(\d+(?:[.,]\d+)*)", expected)
-        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s+(?:USD\s*|US\s*)?\$?\d"
+        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s*[:,\-–—]?\s*(?:USD\s*|US\s*)?\$?\d"
         # Uncertainty words count unless negated: "with some variation" fails, "with no variation" does not.
         approximate += (r"|(?<!\bno )(?<!\bnot )(?<!n't )(?<!\bnever )(?<!\bwithout )(?<!\bwithout any )"
                         r"\b(?:(?:some|slight|minor|small|price)\s+)?(?:variation|varies|vary|variable|estimated?|ballpark)\b")
