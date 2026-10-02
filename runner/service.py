@@ -999,10 +999,29 @@ class Runner:
             except APIError:
                 if self.stop.wait(30):
                     return
-        for path in sorted({self.local_path(row["bot"], row.get("config")) for row in assignments}):
+        pushed = set()
+        for row in assignments:
             if self.stop.is_set():
                 return
-            self.push(path)
+            path = self.local_path(row["bot"], row.get("config"))
+            if path in pushed:
+                continue
+            env = self.credential_environment(row["bot"], row.get("config"))
+            credentials = getattr(self, "credentials", None)
+            token = os.urandom(32).hex() if credentials else None
+            if credentials:
+                credentials.register(token, row["bot"])
+                env["HUB_TOKEN"] = token      # a temporary socket capability, never the registration token
+            try:
+                git_credentials.apply(env, self.client, row["bot"], self.config_path if not credentials else None,
+                                      credentials.path if credentials else None)
+                if env.get("GIT_CONFIG_VALUE_1") == git_credentials.FAILED_HELPER:
+                    continue                # never fall back to another login when scoped access failed
+                if self.push(path, env, shared=is_shared(row.get("config") or {})):
+                    pushed.add(path)
+            finally:
+                if credentials:
+                    credentials.unregister(token)
 
     @staticmethod
     def readiness_candidates(assignments, eligible=()):

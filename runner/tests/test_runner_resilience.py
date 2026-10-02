@@ -9,6 +9,8 @@ import tempfile
 import threading
 import time
 import unittest
+
+import pytest
 from concurrent.futures import Future
 from pathlib import Path
 from unittest import mock
@@ -644,3 +646,65 @@ def test_busy_bots_include_worktree_maintenance(tmp_path):
     runner.claim_next()
     assert client.posts == [('jobs/claim', {'next_run': True, 'busy_bots': ['coo']})]
 
+
+@pytest.mark.parametrize("configured", [True, False])
+def test_startup_backlog_uses_the_bots_scoped_helper(tmp_path, configured):
+    from runner.tests.test_git_credentials import Hub, fill
+    from runner import git_credentials as G, safe_git
+    from types import SimpleNamespace
+    seen = []
+    client = Hub({"configured": configured, "token": "test-token", "repository": "acme/emp-ana"})
+    client.get = lambda route: [{"bot": "ana", "config": {}}]
+    path = tmp_path / "emp-ana"
+    path.mkdir()
+    runner = SimpleNamespace(stop=threading.Event(), client=client, config_path=None,
+                             local_path=lambda *args: path,
+                             credential_environment=lambda *args: safe_git.process_environment(),
+                             push=lambda path, env, shared: seen.append((path, env)) or True)
+    Runner.push_backlog(runner)
+    assert len(seen) == 1
+    env = seen[0][1]
+    assert client.calls == [("github/token", {"bot": "ana"})]
+    if configured:
+        assert "password=test-token" in fill(safe_git.environment(env), tmp_path)
+        assert "test-token" not in env["GIT_CONFIG_VALUE_1"]
+        assert not (path / ".gitconfig").exists()
+    else:
+        assert "GH_TOKEN" not in env
+
+def test_startup_backlog_never_pushes_with_another_login_after_token_failure(tmp_path):
+    from runner.tests.test_git_credentials import Hub
+    from types import SimpleNamespace
+    client = Hub(error=OSError("offline"))
+    client.get = lambda route: [{"bot": "ana", "config": {}}]
+    push = mock.Mock()
+    runner = SimpleNamespace(stop=threading.Event(), client=client, config_path=None,
+                             local_path=lambda *args: tmp_path, credential_environment=lambda *args: {}, push=push)
+    Runner.push_backlog(runner)
+    push.assert_not_called()
+
+
+def test_startup_push_refreshes_through_the_socket_and_revokes_its_capability(tmp_path):
+    from types import SimpleNamespace
+    from runner import credential_socket as C, safe_git
+    from runner.tests.test_git_credentials import Hub, fill
+    socket_dir = tempfile.TemporaryDirectory(dir="/tmp")
+    server = C.Server(Path(socket_dir.name) / "cred.sock", lambda bot: "fresh-test-token").start()
+    try:
+        client = Hub({"configured": True, "token": "initial-test-token"})
+        client.get = lambda route: [{"bot": "ana", "config": {}}]
+        seen = []
+        def push(path, env, shared):
+            assert "password=fresh-test-token" in fill(safe_git.environment(env), tmp_path)
+            seen.append(env["HUB_TOKEN"])
+            return True
+        runner = SimpleNamespace(stop=threading.Event(), client=client, config_path=tmp_path / "unreadable.json",
+                                 credentials=server, local_path=lambda *args: tmp_path,
+                                 credential_environment=lambda *args: safe_git.process_environment(), push=push)
+        Runner.push_backlog(runner)
+        assert len(seen) == 1 and not server.attempts
+        with pytest.raises(ValueError):
+            C.request(server.path, seen[0])
+    finally:
+        server.stop()
+        socket_dir.cleanup()
