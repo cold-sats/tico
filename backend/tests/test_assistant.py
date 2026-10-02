@@ -290,3 +290,32 @@ def test_a_token_from_a_finished_turn_no_longer_acts_as_the_person(api):
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id=?", (attempt["id"],))
     assert api.get("/api/v2/me", headers=headers(token)).status_code == 409      # not the person, not the bot
+
+
+def test_real_assistant_lease_keeps_actual_bot_private_boundaries_and_revocation(api):
+    from backend.store import Problem
+    private = post(api, 'tasks', {'owner': 'human:ben', 'title': 'Review the confidential packet',
+                                 'body': 'Confidential packet.', 'private': True})
+    attached = post(api, 'tasks/' + private['id'] + '/files', {'name': 'packet.md', 'text': 'Confidential attachment.'})
+    r, attempt = assistant_turn(api, 'ben-test')
+    token = attempt['token']
+    who = api.app.state.auth.authenticate(headers(token), '/api/v2/tasks/' + private['id'], 'GET')
+    assert who.task_actor == 'bot:coo' and who.attempt_id == attempt['id']
+    for path in ('tasks/' + private['id'],
+                 'conversations/' + private['conversation_id'] + '/messages',
+                 'files/' + attached['file']['id']):
+        response = api.get('/api/v2/' + path, headers=headers(token))
+        assert response.status_code in (403, 404), response.text
+        assert 'Confidential' not in response.text
+    sql = api.post('/api/v2/sql', json={'sql': 'SELECT id,body FROM tasks WHERE id=?',
+                                      'params': [private['id']]}, headers=headers(token))
+    assert sql.status_code == 200 and sql.json()['rows'] == [], sql.text
+    own = post(api, 'tasks', {'owner': 'bot:coo', 'title': 'Review the assistant packet',
+                            'body': 'Review it.', 'private': True}, token='ben-test')
+    assert get(api, 'tasks/' + own['id'], token)['task']['id'] == own['id']
+    post(api, 'tasks/' + own['id'], {'version': own['version'], 'private': False}, token=token, expected=403)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET state='completed' WHERE id=?", (attempt['id'],))
+    with pytest.raises(Problem) as revoked:
+        api.app.state.store.write(who, lambda c: {})
+    assert revoked.value.status == 409

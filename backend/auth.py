@@ -103,6 +103,9 @@ def standing(c, pid):
 
 
 def validate_identity(c, who):
+    if who.task_actor:
+        validate_identity(c, Identity(who.task_actor, 'bot', runner_id=who.runner_id,
+                                      attempt_id=who.attempt_id, agent=who.agent))
     if who.role == "service":
         # Again under a write's lock: a key revoked since the request began writes nothing.
         if not c.execute("SELECT 1 FROM service_keys WHERE id=? AND revoked_at IS NULL",
@@ -369,7 +372,8 @@ class Auth:
         email = str(human.get("email") or "").lower()
         return Identity(row["owner_actor"], "owner" if email and email == self.owner_email else "human",
                         email=email, via_token=True, token_label=self.settings.assistant_name,
-                        via="assistant")
+                        via="assistant", task_actor="bot:" + attempt["bot"],
+                        attempt_id=attempt["id"], runner_id=attempt["runner_id"])
 
     def authenticate(self, headers, path="", method=""):
         bearer = headers.get("authorization", "")
@@ -843,7 +847,8 @@ class Auth:
             raise Problem("forbidden", "The initiating person is no longer on the roster", 403)
         email = str(human.get("email") or "").lower()
         role = "owner" if email and email == self.owner_email else "human"
-        return Identity(actor, role, email=email, task_actor=who.actor)
+        return Identity(actor, role, email=email, task_actor=who.task_actor or who.actor,
+                        runner_id=who.runner_id, attempt_id=who.attempt_id, agent=who.agent, via=who.via)
 
     def task_row(self, c, who, row):
         if self.task_snapshot(c) and row:
