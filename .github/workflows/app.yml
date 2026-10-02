@@ -13,6 +13,7 @@ on:
     branches: [main]
     paths: ["app/**", "scripts/app_release.py", ".github/workflows/app.yml"]
   workflow_dispatch:
+  workflow_call:    # every version tag (release.yml): a failed desktop build fails the release
 
 permissions:
   contents: read

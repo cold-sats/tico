@@ -4516,7 +4516,7 @@ dependencies = [
 
 [[package]]
 name = "tico-app"
-version = "2.0.4"
+version = "2.0.5"
 dependencies = [
  "env_logger",
  "log",

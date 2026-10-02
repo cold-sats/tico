@@ -58,6 +58,11 @@ Docker images are published by a separate workflow (on the same `v*` tag, plus a
 knows its version (a source checkout reports `dev`). There is no source archive: the server and the runners run from
 the images, and a Mac runner is a git checkout that moves to the release's tag.
 
+The desktop app is built for every tag too (`.github/workflows/app.yml`, called from the Release workflow). If any
+desktop build fails, the GitHub release is not created and the Release run is red: servers only offer a version that
+has a release, so a failed desktop build stops the rollout. Bump `app/tauri.conf.json` and `app/Cargo.toml` when the
+app itself changes; installed apps update only to a higher app version.
+
 ## What installations do
 
 The server asks Tico HQ (`https://updates.tico.team/v1/latest`, which serves the same release from GitHub and counts the install
