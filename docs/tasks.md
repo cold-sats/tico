@@ -321,6 +321,18 @@ exists. Mentions, administrators, managers, parent ownership and delegations gra
 Reassigning a private task gives the new assignee access and removes the previous assignee's
 future access unless they remain its requester. Reassignment never clears Private.
 
+Task-linked messages, files and previews, execution output, SQL results, search context and saved
+responses apply the same current-participant boundary. Retained room grants and attachment
+uploader ownership do not restore revoked access. File downloads use authenticated delivery
+with `no-store`; private task notices stay out of Slack, and batch records remain on the task.
+Bot status hides free-form private context. Automatic KPI readings are withheld for bots with
+private history because their mixed history cannot support a safe public view. Reads use a coherent database snapshot; the next request sees committed
+permission changes.
+
+Privacy controls future reads and supported automated delivery. An authorized participant may
+retain or copy information already read. Downloads, provider history and external copies cannot
+be recalled, and unrelated untagged prose cannot reliably be identified as private task content.
+
 The existing bot Settings editor offers **Create private tasks by default**. This also covers
 requests assigned to that bot, including its shared branches. The Legal template enables it
 by default; Tico does not guess from names. A human may clear the create checkbox to choose

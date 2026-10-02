@@ -706,7 +706,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         if not row:
             raise Problem("not_found", "File not found", 404)
         from . import task_privacy as privacy
-        if not privacy.blob_readable(c, who.actor, bid):
+        if not privacy.blob_readable(c, privacy.actor(who), bid):
             raise Problem("not_found", "File not found", 404)
         # Ownership of the company account is not ordinary access to another person's
         # private Tico attachment. Shared-room and task access is derived from the linked

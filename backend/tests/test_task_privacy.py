@@ -14,9 +14,10 @@ def test_private_two_party_matrix(api, requester, owner):
     tokens = {'human:ana': 'ana-test', 'human:ben': 'ben-test', 'human:priya': 'priya-test',
               **{'bot:' + slug: bot_token(api, slug) for slug in ('ops', 'cpo', 'cmo')}}
     with api.app.state.store.transaction() as c:
+        typ = H.type_create(c, H.KEEPER, 'Private matrix work',
+                            [{'name': 'Open', 'status': 'open'}], bots='work')
         task = H.task_create(c, requester, 'Review the sensitive packet', 'Sensitive packet.', owner,
-                             private=True, lint=False)
-        H.type_update(c, H.KEEPER, task['type_id'], bots='work')
+                             private=True, type=typ['id'], lint=False)
         c.execute('INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) '
                   'VALUES(?,?,?,?,?)', (task['id'], 'bot:cmo', requester, None, H.shift(H.now(), hours=24)))
     for actor, token in tokens.items():

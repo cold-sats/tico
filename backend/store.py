@@ -1156,9 +1156,20 @@ class Store:
                 if row["request_hash"] != hashed:
                     raise Problem("idempotency_conflict", "This key was used for different content", 409)
                 result = json.loads(row["response_json"])
-                from .auth import Auth
+                from .auth import Auth, Identity
+                from . import task_privacy as privacy
                 replay_auth = Auth(self)
                 replay_auth.sync_access(c)
+                replay_principal = identity
+                if identity.role == "runner" and isinstance(result, dict) and isinstance(result.get("attempt"), dict):
+                    saved = result["attempt"]
+                    hosted = c.execute("SELECT 1 FROM attempts a JOIN assignments x ON x.bot=a.bot "
+                                       "WHERE a.id=? AND a.runner_id=? AND x.runner_id=?",
+                                       (saved.get("id"), identity.runner_id, identity.runner_id)).fetchone()
+                    if not hosted:
+                        raise Problem("privacy", "This execution is no longer assigned to this computer", 403)
+                    replay_principal = Identity("bot:" + saved["bot"], "bot", runner_id=identity.runner_id,
+                                                attempt_id=saved["id"])
                 # Cached results keep their retry semantics, but access is current on every retry.
                 task_ids = set()
                 for part in operation.split("/"):
@@ -1177,7 +1188,8 @@ class Store:
                             referenced(item)
                 referenced(result)
                 for task_id in task_ids:
-                    replay_auth.task(c, identity, task_id)
+                    replay_auth.task(c, replay_principal, task_id)
+                privacy.require_payload(c, replay_principal, result)
                 return result
             c.execute("SAVEPOINT domain_write")
             try:

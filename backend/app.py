@@ -320,6 +320,8 @@ def create_app(settings=None):
                 began = time.perf_counter()
                 who = await asyncio.get_running_loop().run_in_executor(AUTH_POOL, auth.authenticate, request.headers,
                                                                        request.url.path, request.method)
+                if who.via == "assistant" and not who.confirmed and not who.task_actor:
+                    who = replace(who, task_actor="bot:" + settings.assistant_bot)
                 request.state.auth_ms = (time.perf_counter() - began) * 1000
                 request.state.identity = who
                 if census.person_due(who):
@@ -380,9 +382,11 @@ def create_app(settings=None):
                                   "the person confirms it in " + settings.app_name, 403)
             early = None
             caller = getattr(request.state, "identity", None)
+            if caller:
+                request.state.privacy_source = caller
             if caller and request.method not in ("GET", "HEAD", "OPTIONS"):
                 with store.read() as c:
-                    privacy.guard_write(c, caller, request.url.path)
+                    privacy.guard_write(c, caller, request.url.path, auth)
             on_behalf = request.headers.get(botops_act.HEADER)
             if (not on_behalf and getattr(request.state, "identity", None) is not None
                     and request.state.identity.actor == "bot:" + BOTOPS
@@ -405,7 +409,7 @@ def create_app(settings=None):
                 early, acted = await asyncio.get_running_loop().run_in_executor(
                     None, act_for_requester, request, on_behalf)
                 if acted is not None:
-                    request.state.identity = acted
+                    request.state.identity = replace(acted, task_actor=caller.task_actor or caller.actor)
                     if via_reset is None:
                         via_reset = H.VIA.set("botops")
             response = early or await call_next(request)
@@ -659,8 +663,27 @@ def create_app(settings=None):
             return {'occurrences': routines.occurrences(c, schedule_id, limit)}
 
     def mutate(request, body, fn, check=None):
+        def current_access(c):
+            if check:
+                check(c)
+            batch_path = re.fullmatch(r"/api/v2/batch/([^/]+)/(next|respond|commit)", request.url.path)
+            if batch_path:
+                row = c.execute("SELECT * FROM batches WHERE id=? AND person=?",
+                                (batch_path[1], request.state.identity.actor)).fetchone()
+                privacy.require_batch(c, request.state.identity, row)
+        def protected_write(c):
+            source = getattr(request.state, "privacy_source", request.state.identity)
+            token = H.PRIVATE_WRITE.set(H.PRIVATE_WRITE.get() or privacy.private_execution(c, source))
+            try:
+                return fn(c)
+            except H.Refused as exc:
+                exc.private = getattr(exc, "private", False) or H.PRIVATE_WRITE.get()
+                raise
+            finally:
+                H.PRIVATE_WRITE.reset(token)
         result = store.mutate(request.state.identity, request.url.path,
-                              request.headers.get("idempotency-key"), body.model_dump(), fn, check=check)
+                              request.headers.get("idempotency-key"), body.model_dump(), protected_write, check=current_access)
+
         if isinstance(result, dict) and "_refusal" in result:
             refusal = result["_refusal"]
             raise Problem(refusal["code"], refusal["detail"], refusal["status"])
@@ -673,7 +696,7 @@ def create_app(settings=None):
             H.hydrate_task_tags(c, [row])
         value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
                  "labels": H.task_labels(row), "lane": row.get("lane") or "company",
-                 "next_run": bool(row.get("next_run")), "private": bool(row.get("private")), "cover": None}
+                 "next_run": bool(row.get("next_run")), "private": H.task_private(c, row), "cover": None}
         if c is not None and row.get("next_run"):
             value["next_run_waiting"] = H.next_run_waiting(c, row)
         value.pop("labels_json", None)
@@ -1318,7 +1341,7 @@ def create_app(settings=None):
     # What a caller who may only see a bot is told about it: its name, role, who runs it and who it
     # reports to. Its status, machine, queue and configuration are its activity, which is Read.
     SEE_ONLY = ("slug", "display_name", "state", "description", "team", "operator", "reports_to", "owners",
-                "thread_mode", "temp", "access", "bot_owners", "onboarding_state")
+                "thread_mode", "temp", "access", "bot_owners", "onboarding_state", "private_tasks_default")
 
     def bot_view(c, bot, level, access, registry_roster, registry_entries, who):
         """One bot as the bot list and the bot detail show it: everything for a caller who may read
@@ -1351,7 +1374,7 @@ def create_app(settings=None):
                         "reports_to": config["reports_to"], "repo": repo,
                         "repo_url": repo_url(repo, settings.github_owner),
                         "bot_contact": declared.get("bot_contact") or "open",
-                        "private_tasks_default": bool(declared.get("private_tasks_default")),
+                        "private_tasks_default": H.private_tasks_default(c, "bot:" + bot["slug"]),
                         "template": declared.get("template") or "",
                         "template_version": declared.get("template_version") or "",
                         "shared": bool(declared.get("shared")),
@@ -1374,7 +1397,7 @@ def create_app(settings=None):
         row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
                              and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
         row["queued"] = privacy.job_count(c, who, bot["slug"])
-        row["next_run"] = sum(H.task_private_readable(c, who.actor, t) for t in H.next_run_tasks(c, bot["slug"]))
+        row["next_run"] = sum(privacy.task_readable(c, who, t) for t in H.next_run_tasks(c, bot["slug"]))
         row["notes"] = len(H.notes_waiting(c, bot["slug"], limit=500))
         external = agents.presence(c, bot["slug"])
         row["agent"] = external["agent"] if external else None
@@ -1576,7 +1599,7 @@ def create_app(settings=None):
                     auth.conversation(c, who, conv["id"])
                 except Problem:
                     continue
-                messages = H.messages(c, conv["id"], limit=200)
+                messages = privacy.page(c, who, conv["id"])["messages"]
                 bot = H.bot(c, row["bot"]) or {}
                 threads.append({"bot": row["bot"], "display_name": bot.get("display_name") or row["bot"],
                                 "conversation_id": conv["id"], "channel": row["channel"],
@@ -1832,6 +1855,7 @@ def create_app(settings=None):
         who = request.state.identity
         views.human_only(who)
         def work(c):
+            privacy.require_batch(c, who, batch.current(c, who.actor))
             items = views.needs_items(c, auth, who, task_view)
             snapshot = views.fleet_snapshot_cached(c, auth, who, task_view)
             return batch.start(c, who.actor, items, snapshot, scope=body.bot)
@@ -1855,12 +1879,12 @@ def create_app(settings=None):
             for m in c.execute("SELECT * FROM messages WHERE to_actor=? AND "
                                "from_actor LIKE 'bot:%' AND kind IN ('say','ask','answer') AND created>? "
                                "AND deleted_at IS NULL ORDER BY created DESC LIMIT 6", (who.actor, start)).fetchall():
-                if not privacy.message_readable(c, who.actor, m):
+                if not privacy.message_readable(c, privacy.actor(who), m):
                     continue
                 said.append({"from": batch._name(c, m["from_actor"]), "kind": m["kind"],
                              "when": m["created"], "text": batch._clip(m["body"] or "", 240)})
             stuck = [t for t in H.stuck_tasks(c, hidden=auth.unreadable_bots(c, who))
-                     if H.task_private_readable(c, who.actor, H.task(c, t["id"]))]
+                     if privacy.task_readable(c, who, H.task(c, t["id"]))]
             open_ = batch.current(c, who.actor)
             return {"now": H.now(), "since": start, "alerts": batch.alerts(snapshot),
                     "lineup": batch.lineup(c, who.actor, notes + rows),
@@ -2084,7 +2108,7 @@ def create_app(settings=None):
             raise Problem("forbidden", "The stuck-task sweep is BotOps's and people's", 403)
         with store.read() as c:
             return {"tasks": [t for t in H.stuck_tasks(c, hours=max(1, hours), hidden=auth.unreadable_bots(c, who))
-                              if H.task_private_readable(c, who.actor, H.task(c, t["id"]))]}
+                              if privacy.task_readable(c, who, H.task(c, t["id"]))]}
 
     @app.get("/api/v2/tasks/{tid}")
     def task(request: Request, tid: str):
@@ -2114,7 +2138,8 @@ def create_app(settings=None):
                 can_comment = True
             except Problem:
                 can_comment = False
-            return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who)), "events": H.task_history(c, tid),
+            return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who)),
+                    "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
                     "can_comment": can_comment,
                     "children": children,
                     "parent": {"id": parent["id"], "title": parent["title"], "status": parent["status"]} if parent else None,
@@ -2124,6 +2149,8 @@ def create_app(settings=None):
 
     def task_create(c, who, body, lint=True):
         source = who
+        if body.private is None and who.task_actor and H.private_tasks_default(c, who.task_actor):
+            body = body.model_copy(update={"private": True})
         if privacy.private_execution(c, who):
             if body.private is False:
                 raise Problem("privacy", "Private task work cannot create company-visible tasks", 403)
@@ -2155,7 +2182,25 @@ def create_app(settings=None):
             raise Problem("date", "due must be an ISO-8601 date/time with a timezone", 422)
         if body.goal_id and not G.goal(c, body.goal_id):
             raise Problem("not_found", "Unknown goal", 404)
+        requester_actor = None
+        if (who.role == "bot" and owner == who.actor and not body.parent_id and who.attempt_id
+                and (body.private if body.private is not None else H.private_tasks_default(c, who.actor))):
+            origin = c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                               "JOIN messages m ON m.id=j.message_id WHERE a.id=? AND a.bot=?",
+                               (who.attempt_id, H.actor_id(who.actor))).fetchone()
+            if origin and privacy.message_readable(c, privacy.actor(who), origin):
+                if H.is_human(origin["from_actor"]):
+                    requester_actor = origin["from_actor"]
+                else:
+                    message = H.message(c, origin["id"])
+                    source_task = H.task(c, H.message_task_id(message, H.conversation(c, message["conversation_id"])))
+                    if (source_task and H.task_private(c, source_task) and source_task["owner"] == who.actor
+                            and H.is_human(source_task["requester"])):
+                        requester_actor = source_task["requester"]
+            if requester_actor and not privacy.readable(c, requester_actor, privacy.attempt_tasks(c, who.attempt_id)):
+                raise Problem("privacy", "The verified requester cannot receive this private execution's other context", 403)
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, body.parent_id,
+                            requester_actor=requester_actor,
                             private=body.private, conversation_id=rooms.task_conversation_id(c, auth, owner,
                                 H.task(c, body.parent_id)["requester"] if body.parent_id and H.is_human(who.actor)
                                 and H.is_human(H.task(c, body.parent_id)["requester"]) else who.actor),
@@ -2192,8 +2237,9 @@ def create_app(settings=None):
             who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
-            if body.private is False and H.task_private(c, row) and (caller.role == "bot" or caller.via):
-                raise Problem("privacy", "Only the human requester can make a private task company-visible", 403)
+            if body.private is False and H.task_private(c, row) and (caller.role == "bot" or caller.task_actor):
+                raise Problem("privacy", "Only the human requester can make a private task company-visible",
+                              422 if who.role == "bot" else 403)
             if who is not caller:
                 H.event(c, caller.actor, "task.update_delegated", task_id,
                         {"on_behalf_of": who.actor, "message_id": body.on_behalf_of,
@@ -2246,7 +2292,7 @@ def create_app(settings=None):
                 row = H.task(c, task_id)
                 if not row:
                     raise Problem("not_found", "Task not found", 404)
-                if not H.task_private_readable(c, who.actor, row):
+                if not privacy.task_readable(c, who, row):
                     raise Problem("not_found", "Task not found", 404)
                 hidden = auth.unreadable_bots(c, who)
                 if any(str(a).startswith("bot:") and H.actor_id(a) in hidden
@@ -2592,7 +2638,7 @@ def create_app(settings=None):
                 if (H.bot(c, H.actor_id(requester)) or {}).get("state") != "active":
                     raise Problem("forbidden", "The requesting bot is no longer active", 403)
                 return Identity(requester, "bot", runner_id=who.runner_id, attempt_id=who.attempt_id,
-                                via="botops", confirmed=True)
+                                via="botops", confirmed=True, task_actor=who.actor)
             if not initial or requester == H.KEEPER or requester == who.actor:
                 return who
             if task and task["owner"] == who.actor and not task.get("request_id"):
@@ -2601,14 +2647,14 @@ def create_app(settings=None):
                                      "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                     if made and H._json(made["detail_json"], {}).get("via") != "assistant":
                         person = auth.identity_for_actor(c, task["requester"])
-                        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
+                        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True, task_actor=who.actor)
                 origin = c.execute("SELECT actor FROM events WHERE action='botops.task_requested' AND target=? "
                                    "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                 if origin and str(origin["actor"]).startswith("human:"):
                     auth.conversation(c, who, task["conversation_id"])
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
-                    return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
+                    return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True, task_actor=who.actor)
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 made = c.execute("SELECT 1 FROM events WHERE action='task.create' AND target=? AND actor=? LIMIT 1",
@@ -2659,7 +2705,7 @@ def create_app(settings=None):
             raise Problem("on_behalf_of", "Cite a request from the conversation you are working on", 403) from None
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
-        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
+        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True, task_actor=who.actor)
 
     def botops_owns_task(path, body=None):
         """A note, comment or status on a task BotOps owns is BotOps' own work: it needs no one's rights and is BotOps'
@@ -2735,6 +2781,12 @@ def create_app(settings=None):
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
             if body.task_id:
                 auth.task(c, who, body.task_id)
+            if privacy.private_execution(c, who):
+                sources = [tid for tid in privacy.attempt_tasks(c, who.attempt_id) if H.task_private(c, H.task(c, tid))]
+                if body.task_id and body.task_id not in sources:
+                    raise Problem("privacy", "Private execution status must keep its task provenance", 403)
+                if not body.task_id and sources:
+                    body.task_id = sources[0]
             return H.status_set(c, who.actor, bot, state=body.state, focus=body.focus, task_id=body.task_id)
         return mutate(request, body, work)
 
@@ -2769,10 +2821,10 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             result = H.inbox(c, who.actor)
-            result["messages"] = [m for m in result["messages"] if privacy.message_readable(c, who.actor, m)]
-            result["tasks"] = [t for t in result.get("tasks", []) if H.task_private_readable(c, who.actor, t)]
+            result["messages"] = [m for m in result["messages"] if privacy.message_readable(c, privacy.actor(who), m)]
+            result["tasks"] = [t for t in result.get("tasks", []) if privacy.task_readable(c, who, t)]
             result["approvals"] = [a for a in result.get("approvals", [])
-                                   if privacy.message_readable(c, who.actor, H.message(c, a["message_id"]))]
+                                   if privacy.message_readable(c, privacy.actor(who), H.message(c, a["message_id"]))]
             if who.role == "bot":
                 visible = []
                 for message in result["messages"]:
@@ -3622,14 +3674,19 @@ def create_app(settings=None):
                                  "JOIN jobs j ON j.id=a.job_id JOIN messages m ON m.id=j.message_id "
                                  "WHERE m.conversation_id=? AND e.id>? ORDER BY e.id LIMIT 200",
                                  (cid, cursor)).fetchall()
-                return [dict(r) for r in rows if privacy.attempt_readable(c, who.actor, r["attempt_id"])], privacy.page(c, who, cid)["messages"]
+                return [dict(r) for r in rows if privacy.attempt_readable(c, privacy.actor(who), r["attempt_id"])
+                        and privacy.content_readable(c, privacy.actor(who), dict(r))], privacy.page(c, who, cid)["messages"]
         async def generate():
             cursor = max(after, 0)
             # Bounded connection lifetime ensures periodic reauthentication.
             for _ in range(55):
                 if await request.is_disconnected():
                     return
-                rows, messages_now = await asyncio.to_thread(poll, cursor)
+                try:
+                    rows, messages_now = await asyncio.to_thread(poll, cursor)
+                except Problem:
+                    yield 'event: expired\ndata: {}\n\n'
+                    return
                 for row in rows:
                     cursor = row["id"]
                     yield f"id: {cursor}\nevent: output\ndata: {encode(row)}\n\n"

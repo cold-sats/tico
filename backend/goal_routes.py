@@ -245,7 +245,7 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("not_found", "Unknown goal", 404)
             if who.role == "bot":
                 G.mark_read(c, who.actor, [gid])
-            return {"goal": G.view(c, row)}
+            return {"goal": G.view(c, row, auth.task_sql(c, who))}
 
     @app.post("/api/v2/goals")
     def goal_create(request: Request, body: M.GoalCreate):

@@ -19,6 +19,7 @@ import re
 
 from . import hubdb as H
 from .store import Problem
+from . import task_privacy as privacy
 from .views import needs_order
 
 KINDS = ("decide", "needs_info", "instruct", "rule", "skip", "later")
@@ -196,6 +197,8 @@ def _pending(c, person):
     reports, awaiting = [], {}
     since = H.shift(H.now(), days=-REPORT_DAYS)
     for sent in _sent(c, person, since):
+        if not privacy.message_readable(c, person, sent):
+            continue
         if _consumed(sent["report_json"], sent["id"], sent["first"]):
             continue
         keys = ((H._json(sent["refs_json"], {}) or {}).get("live") or {}).get("items") or []
@@ -204,6 +207,8 @@ def _pending(c, person):
         if not reply:
             for key in keys:
                 awaiting.setdefault(key, sent["to_actor"])
+            continue
+        if not privacy.message_readable(c, person, reply):
             continue
         items = json.loads(sent["items_json"] or "[]")
         parts = MARKER.split(reply["body"] or "")
@@ -501,8 +506,29 @@ def _deliver(c, who, batch_id, outbox, record, send):
     person = signature(c, who)
     for to in dict.fromkeys(list(outbox) + list(record)):
         lines, done = outbox.get(to) or [], record.get(to) or []
-        keys = [key for key, _ in lines]
-        text = _brief(person, done, [line for _, line in lines])
+        public_lines, public_done = [], []
+        for collection, output in ((lines, public_lines), (done, public_done)):
+            for key, line in collection:
+                kind, ident = key.split(":", 1)
+                task = H.task(c, ident) if kind == "task" else None
+                source = H.approval(c, ident) if kind == "approval" else None
+                private = bool(task and H.task_private(c, task)) or bool(source and not privacy.public_message(
+                    c, H.message(c, source["message_id"])))
+                if private:
+                    # Each private record stays on its task, never copied to a bot room.
+                    if task:
+                        try:
+                            H.task_comment(c, who.actor, ident, line)
+                            applied.append("Recorded on its private task")
+                        except Exception as e:
+                            errors.append(_clip(str(e), 200))
+                    continue
+                output.append((key, line))
+        lines, done = public_lines, public_done
+        if not lines and not done:
+            continue
+        keys = [key for key, _ in lines + done]
+        text = _brief(person, [line for _, line in done], [line for _, line in lines])
         refs = {"live": {"kind": "batch", "batch": batch_id, "items": keys,
                          **({"via": who.token_label} if getattr(who, "token_label", "") else {})}}
         if not lines:
@@ -553,13 +579,13 @@ def commit(c, auth, who, batch_id, send):
                 if r["kind"] == "decide":
                     line = _apply_decide(c, auth, who, item, r)
                 elif r["kind"] == "rule":
-                    H.event(c, who.actor, "batch.rule", key, {"text": r["text"], "bot": to, "batch": batch["id"]})
+                    H.event(c, who.actor, "batch.rule", key, {"text": r["text"], "bot": to, "batch": batch["id"], "item": key})
                     applied.append(f"Rule for {H.actor_id(to)}: {_clip(r['text'], 120)}")
                     outbox.setdefault(to, []).append(
                         (key, f"[item {n}] {item['title']} ({item['kind']}, {key})\n"
                               f"{who.actor} sets a standing rule: {r['text']}"))
                 elif r["kind"] == "later":
-                    H.event(c, who.actor, "batch.later", key, {"until": r["until"], "batch": batch["id"]})
+                    H.event(c, who.actor, "batch.later", key, {"until": r["until"], "batch": batch["id"], "item": key})
                     line = f"Later ({r['until'][:10]}): {item['title']}"
                 elif r["kind"] == "skip":
                     applied.append(f"Skipped: {item['title']}")
@@ -569,7 +595,7 @@ def commit(c, auth, who, batch_id, send):
                         (key, f"[item {n}] {item['title']} ({item['kind']}, {key})\n{who.actor} {what}: {r['text']}"))
                 if line:
                     applied.append(line)
-                    record.setdefault(to, []).append(_record_line(item, r, line))
+                    record.setdefault(to, []).append((key, _record_line(item, r, line)))
             except Problem as e:
                 errors.append(f"{item['title']}: {e.detail}")
             except Exception as e:  # a refusal from the write layer is a line in the record, not an abort
@@ -580,7 +606,7 @@ def commit(c, auth, who, batch_id, send):
     c.execute("UPDATE batches SET state='committed', committed_at=?, message_id=? WHERE id=?",
               (H.now(), message_id, batch["id"]))
     H.event(c, who.actor, "batch.committed", batch["id"],
-            {"responses": len(responses), "applied": applied, "errors": errors, "sent": sent,
+            {"responses": len(responses), "applied": applied, "errors": errors, "sent": sent, "items": order,
              "scope": batch.get("scope")})
     return {"committed": True, "id": batch["id"], "scope": batch.get("scope"), "applied": applied,
             "errors": errors, "sent": {H.actor_id(k): v for k, v in sent.items()},

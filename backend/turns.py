@@ -178,7 +178,7 @@ def mark_runs(c, messages):
 def annotate(c, auth, who, messages):
     """Add `run` (which run handled it), `ref_tasks` and, on a bot's reply, what the run did to
     messages this reader may already see."""
-    messages[:] = [m for m in messages if privacy.message_readable(c, who.actor, m)]
+    messages[:] = [m for m in messages if privacy.message_readable(c, privacy.actor(who), m)]
     mark_runs(c, messages)
     titles = {}
     for tid in {v for m in messages for v in task_refs(m)}:
@@ -199,7 +199,7 @@ def annotate(c, auth, who, messages):
     # What a bot did to answer is its run log: Read. Someone who may only write to it gets the answer.
     access = auth.bot_accesses(c, who, sorted({t["bot"] for t in turns.values()}))
     turns = {aid: t for aid, t in turns.items() if access.get(t["bot"], auth.FULL)["read"]
-             and privacy.attempt_readable(c, who.actor, aid)}
+             and privacy.attempt_readable(c, privacy.actor(who), aid)}
     replies = {aid: m for aid, m in replies.items() if aid in turns}
     if not turns:
         return messages
@@ -231,7 +231,7 @@ def annotate(c, auth, who, messages):
         aid = owner_of(row["from_actor"], row["created"])
         if not aid or row["conversation_id"] == rooms_of[aid] or row["to_actor"] == row["from_actor"]:
             continue
-        if readable(lambda: auth.conversation(c, who, row["conversation_id"])) and privacy.message_readable(c, who.actor, row):
+        if readable(lambda: auth.conversation(c, who, row["conversation_id"])) and privacy.message_readable(c, privacy.actor(who), row):
             did[aid].append({"kind": row["kind"], "to": row["to_actor"], "text": clip(row["body"], 160), "at": row["created"]})
     for row in c.execute(f"SELECT ts,actor,rule,detail_json FROM refusals WHERE actor IN ({who_marks}) AND ts BETWEEN ? AND ?",
                          (*actors, lo, hi)):
@@ -242,6 +242,8 @@ def annotate(c, auth, who, messages):
     events = {aid: [] for aid in turns}
     for row in c.execute(f"SELECT attempt_id,kind,payload_json,created FROM attempt_events WHERE attempt_id IN "
                          f"({','.join('?' * len(turns))}) AND {STEP_EVENTS} ORDER BY attempt_id,seq", tuple(turns)):
+        if not privacy.content_readable(c, privacy.actor(who), dict(row)):
+            continue
         events[row["attempt_id"]].append((row["kind"], json.loads(row["payload_json"]), row["created"]))
     for aid, t in turns.items():
         steps = build_steps(events[aid])
@@ -266,7 +268,7 @@ def install(app, store, auth):
             auth.require_read(c, who, row["bot"])
             events = [(r["kind"], json.loads(r["payload_json"]), r["created"]) for r in c.execute(
                 f"SELECT kind,payload_json,created FROM attempt_events WHERE attempt_id=? AND {STEP_EVENTS} ORDER BY seq",
-                (aid,))]
+                (aid,)) if privacy.content_readable(c, privacy.actor(who), dict(r))]
             steps = build_steps(events)
             return {"turn_id": aid, "started": row["started"], "finished": row["finished"],
                     "took_s": seconds(row["started"], row["finished"]),

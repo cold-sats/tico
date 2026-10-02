@@ -60,8 +60,23 @@ def _stamp(at):
     return at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
-def value(conn, slug, key, at=None):
+def private_history(conn, slug):
+    actor = H.bot_actor(slug)
+    # Mixed task/turn metrics have no stored participant provenance. Do not publish
+    # a bot's aggregate history when it includes private work, even to its manager.
+    return bool(conn.execute("SELECT 1 FROM tasks t WHERE (t.private IS NULL OR t.private<>0) AND "
+                    "(t.owner=? OR t.requester=? OR t.carried_by IN (SELECT id FROM attempts WHERE bot=?) "
+                    "OR t.id IN (SELECT " + H.MESSAGE_TASK_SQL + " FROM jobs j JOIN messages m ON m.id=j.message_id "
+                    "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.bot=?) "
+                    "OR t.id IN (SELECT v.value FROM events e JOIN attempts a ON a.id=e.target "
+                    "JOIN json_each(e.detail_json,'$.tasks') v WHERE a.bot=? AND e.action='task.next-run.carried')) LIMIT 1",
+                    (actor, actor, slug, slug, slug)).fetchone())
+
+
+def value(conn, slug, key, at=None, *, _privacy_checked=False):
     """The metric over the window that ends at `at`, or None when there was nothing to measure."""
+    if not _privacy_checked and private_history(conn, slug):
+        return None
     at = at or _now()
     end = _stamp(at)
     since = _stamp(at - timedelta(days=METRICS[key]["window"]))
@@ -116,11 +131,13 @@ def readings(conn, kpi_id, at=None):
     if not parsed:
         return []
     slug, key = parsed
+    if private_history(conn, slug):
+        return []
     at = at or _now()
     out = []
     for back in range(DAYS - 1, -1, -1):
         end = at - timedelta(days=back) if back else at
-        amount = value(conn, slug, key, end)
+        amount = value(conn, slug, key, end, _privacy_checked=True)
         if amount is None:
             continue
         stamp = _stamp(end)

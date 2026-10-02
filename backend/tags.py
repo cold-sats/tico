@@ -4,6 +4,7 @@ from fastapi import Request
 
 from .models import Contract, ID
 from .store import H, Problem
+from . import task_privacy as privacy
 
 
 class TagCreate(Contract):
@@ -28,9 +29,9 @@ def install(app, store, auth, mutate, task_views):
     def mover(c, who):
         return who.role == "owner" or who.role == "human" and H.can_move(c, who.actor)
 
-    def require_tag(c, ident):
+    def require_tag(c, who, ident):
         row = H.tag(c, ident)
-        if not row:
+        if not row or not privacy.tag_readable(c, who, row):
             raise Problem("not_found", "Tag not found", 404)
         return row
 
@@ -38,18 +39,18 @@ def install(app, store, auth, mutate, task_views):
     def list_tags(request: Request, is_template: bool | None = None):
         auth.domain(request.state.identity)
         with store.read() as c:
-            return {"tags": H.tags(c, is_template)}
+            return {"tags": [t for t in H.tags(c, is_template) if privacy.tag_readable(c, request.state.identity, t)]}
 
     @app.get("/api/v2/tags/{tag_id}")
     def show_tag(request: Request, tag_id: str, limit: int = 500, offset: int = 0):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            row = require_tag(c, tag_id)
+            row = require_tag(c, who, tag_id)
             limit, offset = max(1, min(limit, 500)), max(0, offset)
             tasks = H.tasks(c, label=row["key"], visible=auth.task_sql(c, who), limit=limit + 1, offset=offset)
             return {"tag": row, "editable": H.tag_can_edit(c, who.actor, row, mover(c, who)),
-                    "tasks": task_views(tasks[:limit], c),
+                    "tasks": task_views(tasks[:limit], c, auth.task_sql(c, who)),
                     "next_offset": offset + limit if len(tasks) > limit else None}
 
     def create(c, who, body, template_id=None):
@@ -66,7 +67,7 @@ def install(app, store, auth, mutate, task_views):
     @app.post("/api/v2/tags/{tag_id}/instances")
     def create_instance(request: Request, tag_id: str, body: TagCreate):
         def work(c):
-            template = require_tag(c, tag_id)
+            template = require_tag(c, request.state.identity, tag_id)
             if body.template_id and H.tag(c, body.template_id) != template:
                 raise Problem("kind", "Use the template named in the path", 422)
             return create(c, request.state.identity, body, template["id"])
@@ -77,7 +78,7 @@ def install(app, store, auth, mutate, task_views):
         def work(c):
             who = request.state.identity
             auth.domain(who)
-            row = require_tag(c, tag_id)
+            row = require_tag(c, who, tag_id)
             if not H.tag_can_edit(c, who.actor, row, mover(c, who)):
                 raise Problem("forbidden", "This tag is edited by its owner or a task mover", 403)
             if row["version"] != body.version:

@@ -271,6 +271,8 @@ class Files:
         out = []
         for row in c.execute("SELECT * FROM bot_files WHERE task_id=? AND locator='tico_blob' "
                              "ORDER BY last_activity_at DESC", (task_id,)):
+            if not self.visible(c, who, row, {}):
+                continue
             versions = []
             for v in c.execute("SELECT * FROM bot_file_versions WHERE file_id=? ORDER BY version DESC", (row["id"],)):
                 fields = dict(v)
@@ -289,6 +291,8 @@ class Files:
         for b in c.execute("SELECT b.*,m.width,m.height,m.duration_ms,m.media_state,m.poster_blob_id,m.thumb_blob_id "
                            "FROM blobs b JOIN task_assets a ON a.blob_id=b.id LEFT JOIN blob_media m ON m.blob_id=b.id WHERE a.task_id=? "
                            "AND NOT EXISTS(SELECT 1 FROM bot_file_versions v WHERE v.blob_id=b.id)", (task_id,)):
+            if not privacy.blob_readable(c, privacy.actor(who), b["id"]):
+                continue
             out.append({"id": b["id"], "name": b["name"], "mime": b["content_type"], "current_version": 1,
                         "archived": False, "versions": [{"n": 1, "size": b["size"], "mime": b["content_type"],
                         "sha256": b["digest"], "created": b["created"], "by": b["owner"],
@@ -522,12 +526,12 @@ class Files:
         """Whether `who` may know this file exists: its scope's visibility, and never a runner's."""
         if who.role not in ("owner", "human", "bot"):
             return False
-        if row["task_id"] and not H.task_private_readable(c, who.actor, H.task(c, row["task_id"])):
+        if row["task_id"] and not privacy.task_readable(c, who, H.task(c, row["task_id"])):
             return False
         for version in c.execute("SELECT blob_id,attempt_id FROM bot_file_versions WHERE file_id=?", (row["id"],)):
-            if not privacy.blob_readable(c, who.actor, version["blob_id"]):
+            if not privacy.blob_readable(c, privacy.actor(who), version["blob_id"]):
                 return False
-            if version["attempt_id"] and not privacy.attempt_readable(c, who.actor, version["attempt_id"]):
+            if version["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), version["attempt_id"]):
                 return False
         if who.role == "bot" and H.actor_id(who.actor) != row["bot"] and not row["scope"].startswith("task:"):
             return False
@@ -657,7 +661,7 @@ class Files:
             rows = [{"id": r["id"], "actor": r["actor"], "action": r["action"], "task_id": r["task_id"],
                      "version": r["version"], "digest": r["digest"], "created": r["created"]}
                     for r in c.execute("SELECT * FROM bot_file_activity WHERE file_id=? ORDER BY id DESC LIMIT 500", (fid,))]
-            rows = [r for r in rows if not r["task_id"] or H.task_private_readable(c, who.actor, H.task(c, r["task_id"]))]
+            rows = [r for r in rows if not r["task_id"] or privacy.task_readable(c, who, H.task(c, r["task_id"]))]
             return {"file": fid, "activity": rows}
 
     def serve(self, who, fid, version=None, meta=False, request=None, derivative=None):

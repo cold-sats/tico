@@ -1151,8 +1151,8 @@ class Execution:
         jobs = []
         for row in c.execute("SELECT * FROM jobs WHERE bot=? AND state='uncertain' ORDER BY created", (bot,)):
             message = H.message(c, row['message_id'])
-            if (not privacy.message_readable(c, who.actor, message)
-                    or row['attempt_id'] and not privacy.attempt_readable(c, who.actor, row['attempt_id'])):
+            if (not privacy.message_readable(c, privacy.actor(who), message)
+                    or row['attempt_id'] and not privacy.attempt_readable(c, privacy.actor(who), row['attempt_id'])):
                 continue
             conv = H.conversation(c, message['conversation_id'])
             # An operator must be able to unblock their own bot whatever it was doing. That is

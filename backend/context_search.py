@@ -66,7 +66,7 @@ def install_context_search(app, store, auth):
             if source in ("all", "docs"):
                 # The company's own docs: internal ones (written or imported in Tico) and linked ones.
                 for hit in app.state.docs.find(c, q, limit):
-                    if not privacy.content_readable(c, who.actor, hit):
+                    if not privacy.content_readable(c, privacy.actor(who), hit):
                         continue
                     if hit["type"] == "internal":
                         found.append({"kind": "document", "id": hit["id"], "title": hit["title"], "collection": "docs",
@@ -80,7 +80,7 @@ def install_context_search(app, store, auth):
                     if not documents.visible(who, row):
                         continue
                     doc = json.loads(row["payload_json"])
-                    if not privacy.content_readable(c, who.actor, doc):
+                    if not privacy.content_readable(c, privacy.actor(who), doc):
                         continue
                     title, content = doc.get("title", ""), doc.get("content", "")
                     body = "\n".join((content, str(doc.get("search", ""))))
@@ -94,7 +94,7 @@ def install_context_search(app, store, auth):
                 matches = market.find(c, q, limit=limit)
                 for kind, rows in (("market_entity", matches["entities"]), ("market_evidence", matches["evidence"])):
                     for row in rows:
-                        if not privacy.content_readable(c, who.actor, row):
+                        if not privacy.content_readable(c, privacy.actor(who), row):
                             continue
                         body = row.get("summary") or row.get("quote") or row.get("our_read") or ""
                         found.append({"kind": kind, "id": row["id"],
@@ -109,13 +109,13 @@ def install_context_search(app, store, auth):
             auth.domain(request.state.identity)
             row = c.execute("SELECT * FROM docs WHERE archived=0 AND (id=? OR path=? COLLATE NOCASE)", (id, id)).fetchone()
             if row:
-                if not privacy.content_readable(c, request.state.identity.actor, dict(row)):
+                if not privacy.content_readable(c, privacy.actor(request.state.identity), dict(row)):
                     raise Problem("not_found", "Document not found", 404)
                 return {"id": row["id"], "title": row["title"], "content": row["body"], "path": row["path"],
                         "collection": "docs", "category": "Internal / " + (row["path"].rpartition("/")[0] or "Docs"),
                         "url": "#/docs/" + quote(row["id"], safe=""), "version": row["version"], "updated": row["updated"]}
             result = documents.document(c, auth, request.state.identity, id)
-            if not privacy.content_readable(c, request.state.identity.actor, result):
+            if not privacy.content_readable(c, privacy.actor(request.state.identity), result):
                 raise Problem("not_found", "Document not found", 404)
             return result
 

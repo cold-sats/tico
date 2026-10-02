@@ -144,13 +144,13 @@ def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, worl
     assert column(api, f"SELECT task_id FROM task_events WHERE task_id='{world['coo_task']['id']}'", ben)
 
 
-def test_a_bot_sees_only_its_turn_its_tasks_and_no_private_data(api, world):
+def test_a_bot_reads_ordinary_tasks_but_only_its_granted_rooms_and_no_private_data(api, world):
     token = world["attempt"]["token"]
     assert query(api, "SELECT 1", token)["rows"] == [[1]]
     bodies = column(api, "SELECT body FROM messages", token)
     assert bodies == ["Ana private context.", "New task from human:ana: Summarize the week"]
     assert column(api, "SELECT id FROM conversations", token) == [world["ana_room"]]
-    assert column(api, "SELECT id FROM tasks", token) == [world["coo_task"]["id"]]
+    assert column(api, "SELECT id FROM tasks", token) == sorted([world["coo_task"]["id"], world["finance_task"]["id"]])
     assert "inbox" not in column(api, "SELECT slug FROM bots", token)
     assert column(api, "SELECT id FROM attempts", token) == [world["attempt"]["id"]]
     # Its running job and the queued one behind its own task; nothing of another bot's.
@@ -158,7 +158,7 @@ def test_a_bot_sees_only_its_turn_its_tasks_and_no_private_data(api, world):
     assert len(jobs) == 2 and [world["attempt"]["job_id"], "ops"] in jobs and {row[1] for row in jobs} == {"ops"}
     assert column(api, "SELECT key FROM registry_metadata", token) == []
     assert column(api, "SELECT DISTINCT actor FROM events", token) in ([], ["bot:ops"])
-    # A delegation opens a task to a bot for as long as it lasts.
+    # Delegations do not widen the already readable ordinary task set or the hidden bot's activity.
     with api.app.state.store.transaction() as c:
         for task, by in ((world["finance_task"], "bot:finance"), (world["private"], "bot:inbox")):
             wake = c.execute("SELECT id FROM messages WHERE conversation_id=?", (task["conversation_id"],)).fetchone()[0]
