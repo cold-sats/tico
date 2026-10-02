@@ -100,6 +100,7 @@ def run(args, who=None):
     if args.cmd == "meeting":
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields.pop("granola_action", None)
         if fn == "meeting import":
             return hubtools.meetings_import_file(client, fields)
         return hubtools.BY_NAME[tool_name(fn)]["fn"](client, fields)
