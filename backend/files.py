@@ -23,6 +23,7 @@ from . import models as M
 from .auth import Identity
 from .blobs import register
 from .store import H, Problem, encode, repo_url
+from . import task_privacy as privacy
 from clients import bot_files as BF
 
 SCHEMA = """
@@ -121,6 +122,8 @@ class Files:
         if not row or (who.role == "runner" and row["runner_id"] != who.runner_id):
             raise Problem("forbidden", "That turn is not this computer's", 403)
         message, conversation = H.message(c, row["mid"]), H.conversation(c, row["conversation_id"])
+        if not privacy.attempt_readable(c, "bot:" + bot, attempt_id):
+            raise Problem("privacy", "This bot can no longer read the task for this turn", 403)
         return row["conversation_id"], H.message_task_id(message, conversation)
 
     def target(self, c, who, bot, fields):
@@ -138,6 +141,9 @@ class Files:
             acting = who if who.role == "bot" else Identity("bot:" + bot, "bot", runner_id=who.runner_id, attempt_id=attempt)
             self.auth.task(c, acting, task)
         if wanted == "bot":
+            if ((task or turn_task) and H.task_private(c, H.task(c, task or turn_task))
+                    or attempt and any(H.task_private(c, H.task(c, tid)) for tid in privacy.attempt_tasks(c, attempt))):
+                raise Problem("privacy", "Private task files stay on their task", 403)
             if conversation and not turn_task and not task:
                 raise Problem("forbidden", "A bot cannot make a chat's file bot-wide; an owner promotes it", 403)
             return "bot", task or turn_task, None, attempt
@@ -157,6 +163,8 @@ class Files:
         c.execute("INSERT INTO bot_file_activity(file_id,actor,action,attempt_id,task_id,version,digest,created,detail_json) "
                   "VALUES(?,?,?,?,?,?,?,?,?)", (fid, actor, action, attempt or None, task, version, digest,
                                                 now or H.now(), encode(detail or {})))
+        if task:
+            c.execute("UPDATE tasks SET updated=? WHERE id=?", (now or H.now(), task))
 
     def open_row(self, c, *, bot, scope, identity, title, kind, mime, locator, url=None, provider=None,
                  task, conversation, now):
@@ -263,6 +271,8 @@ class Files:
         out = []
         for row in c.execute("SELECT * FROM bot_files WHERE task_id=? AND locator='tico_blob' "
                              "ORDER BY last_activity_at DESC", (task_id,)):
+            if not self.visible(c, who, row, {}):
+                continue
             versions = []
             for v in c.execute("SELECT * FROM bot_file_versions WHERE file_id=? ORDER BY version DESC", (row["id"],)):
                 fields = dict(v)
@@ -281,6 +291,8 @@ class Files:
         for b in c.execute("SELECT b.*,m.width,m.height,m.duration_ms,m.media_state,m.poster_blob_id,m.thumb_blob_id "
                            "FROM blobs b JOIN task_assets a ON a.blob_id=b.id LEFT JOIN blob_media m ON m.blob_id=b.id WHERE a.task_id=? "
                            "AND NOT EXISTS(SELECT 1 FROM bot_file_versions v WHERE v.blob_id=b.id)", (task_id,)):
+            if not privacy.blob_readable(c, privacy.actor(who), b["id"]):
+                continue
             out.append({"id": b["id"], "name": b["name"], "mime": b["content_type"], "current_version": 1,
                         "archived": False, "versions": [{"n": 1, "size": b["size"], "mime": b["content_type"],
                         "sha256": b["digest"], "created": b["created"], "by": b["owner"],
@@ -453,6 +465,7 @@ class Files:
                         raise Problem("forbidden", "Only a task participant or someone who can move it archives its attachments", 403)
                 c.execute("DELETE FROM task_assets WHERE blob_id=?", (fid,))
                 for task in linked:
+                    c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task["task_id"]))
                     for published in c.execute("SELECT f.id FROM bot_files f JOIN bot_file_versions v "
                                                "ON v.file_id=f.id "
                                                "WHERE v.blob_id=? AND f.scope=? AND f.archived=0",
@@ -482,6 +495,8 @@ class Files:
                     self.auth.task(c, who, body.task)
                 fields["task_id"] = body.task or None
             if body.promote:
+                if row["task_id"] and H.task_private(c, H.task(c, row["task_id"])):
+                    raise Problem("privacy", "Private task files stay on their task", 403)
                 if row["scope"] == "bot":
                     raise Problem("conflict", "This file is already bot-wide", 409)
                 if self.find(c, row["bot"], "bot", row["identity"]):
@@ -511,6 +526,13 @@ class Files:
         """Whether `who` may know this file exists: its scope's visibility, and never a runner's."""
         if who.role not in ("owner", "human", "bot"):
             return False
+        if row["task_id"] and not privacy.task_readable(c, who, H.task(c, row["task_id"])):
+            return False
+        for version in c.execute("SELECT blob_id,attempt_id FROM bot_file_versions WHERE file_id=?", (row["id"],)):
+            if not privacy.blob_readable(c, privacy.actor(who), version["blob_id"]):
+                return False
+            if version["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), version["attempt_id"]):
+                return False
         if who.role == "bot" and H.actor_id(who.actor) != row["bot"] and not row["scope"].startswith("task:"):
             return False
         key = row["scope"]
@@ -639,6 +661,7 @@ class Files:
             rows = [{"id": r["id"], "actor": r["actor"], "action": r["action"], "task_id": r["task_id"],
                      "version": r["version"], "digest": r["digest"], "created": r["created"]}
                     for r in c.execute("SELECT * FROM bot_file_activity WHERE file_id=? ORDER BY id DESC LIMIT 500", (fid,))]
+            rows = [r for r in rows if not r["task_id"] or privacy.task_readable(c, who, H.task(c, r["task_id"]))]
             return {"file": fid, "activity": rows}
 
     def serve(self, who, fid, version=None, meta=False, request=None, derivative=None):

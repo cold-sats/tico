@@ -8,9 +8,35 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Whoever wrote a task comment can change its text or delete it: `POST /api/v2/tasks/{tid}/comments/{mid}` and
+  `.../delete` in the stable API, `hub task comment-edit` and `hub task comment-delete`, and MCP `hub_task_comment_edit`
+  and `hub_task_comment_delete`. Neither wakes anyone. Deleted text is omitted from future supported reads, and
+  the audit log keeps only change metadata. Copies already delivered to people, bots or external services remain. The task view shows "edited" beside an edited comment.
+
+- Service keys: a key another system, such as your product's backend, uses to file, update, close and reopen tasks,
+  and nothing else. `POST /api/v2/inbound/tasks` takes the system's own `key` for each piece of work and makes one task
+  match what it says now, so calls may come in any order and twice. The owner and the admins manage keys with
+  `hub service-key create|list|revoke` (or `/api/v2/service-keys`); there is no Settings page for them yet
+  (docs/service-keys.md).
+- Task types can let every bot comment and create subtasks (`read`), or also move, reassign and link tasks (`work`),
+  through Settings → Types, the API, CLI and MCP. Ordinary company tasks are readable by default; these settings
+  grant additional actions and never bypass a private task's participants.
+- A task can be renamed: `title` on `POST /api/v2/tasks/{id}`, `hub_task_update` and `hub task update --title`, for
+  whoever may change its other fields. The new title gets the checks a new task's title would, is kept in the task's
+  history, and becomes the subject of the task's own conversation.
+
 - Imported meetings wait in a personal Pending queue before sharing, with approve, dismiss and restore actions, batch sharing, per-person auto-share, a Team review default, and CLI/MCP review tools.
 - Private company desktop apps built on version tags, with encrypted CI artifacts and automatic updates from their own Tico server.
 - Owners can set a public team icon in Settings or through the API and CLI.
+- Ticket numbers: a mover can make a custom type **numbered**, and each task created on it or moved onto it gets the
+  team's next number (one sequence for the whole team), kept for good. A mover can keep an imported ticket's number
+  (`number` on create, or once on a task that has none). `#18945` names the task wherever an id does, and
+  `GET /api/v2/tasks?number=18945` finds it.
+- A task has a place within its step, `step_rank`: a task that enters a step joins its end (its top with `top`), and
+  the people on it and movers can move it. `GET /api/v2/tasks` takes `type` and `step` filters and `sort=step`, the
+  board filtered to a type orders its columns that way, and `hub task list` and `hub_task_list` take the same.
+- `GET /api/v2/tasks?updated_since=<time>` returns only the tasks changed after that time, for a client that polls, and
+  `brief=true` leaves out their bodies and acceptance criteria.
 
 ### Improved
 - Granola retries rate limits sooner, reports current sync counts and account status, and keeps sign-in responsive during background sync. Regenerated summaries update only notes that have not been edited by a person.
@@ -22,6 +48,8 @@ All notable changes to Tico are recorded here. The format follows
 - Support diagnostics group repeated server failures, include safe exception locations, runner heartbeat/recovery context and bounded browser failure counts, and report missing capture coverage without verbose logging.
 
 ### Fixed
+- A task's `updated` time moves when a file is attached to it or archived, a link is removed, a linked pull request
+  changes state, or a question on it is asked or answered, as it already did for its fields, comments and new links.
 - Listening uses a valid local question override consistently and reports invalid overrides without exposing their contents. Health shows invalid Listening categories, and repeated configuration checks avoid duplicate warnings.
 - Oversized multipart headers return a consistent upload error and release temporary files. Linux runner configuration checks handle GNU and BSD file metadata tools consistently.
 - The team chart shows personal branches only to their operator, labeled Your branch. Original bots remain visible in their groups; administrators can still inspect other branches through the branch picker and Settings.
@@ -29,9 +57,18 @@ All notable changes to Tico are recorded here. The format follows
 - S3 attachments and desktop downloads share the first credential source that passes a bounded write check, with optional explicit selection. Uploads wait for a writable source and keep that identity through multipart cleanup. Health reports the source and denied permission; failed checks retry every 30 minutes, and denied reads try other sources before retained local copies. Concurrent probes and download manifest fetches share bounded work, including delayed credential discovery.
 
 ### Changed
+- A task on a custom type is a ticket on that type's board, not an ask: the rule for a request to a person (a title
+  that starts with a verb, the ask first, under 120 words) applies to General tasks only, in the API, MCP, `hub` and
+  the dry run. A ticket still needs a title.
+- A bot's ticket on a custom type keeps its reference numbers and all-caps words: the plain-English title check
+  applies to General tasks only.
+
+- Tickets on a numbered type stay out of their owner's Needs you, and the desktop count, unless one carries a question
+  for that person; a declined ticket stays out of its requester's. General tasks and other types are listed as before.
 - Fireflies is no longer offered for new imports. Existing meetings, notes, recordings, file versions and historical source filters remain available.
 
 ### Security
+- New ordinary tasks are readable by company people and bots. Private tasks limit future access to the requester and current assignee; bot defaults also protect requests assigned to sensitive bots. Existing known ordinary work remains visible; sensitive or ambiguous origins upgrade privately while retaining messages and attachments.
 - Backport the GLib string iterator pointer fix used by the Linux desktop app, with a checked vendored source and an optimized regression test.
 
 ## [0.3.11] - 2026-10-02
@@ -43,6 +80,7 @@ All notable changes to Tico are recorded here. The format follows
 - Reading conversation messages no longer fails when a teammate created tasks during its turn.
 - Assistant turns on older Computers fetch the Assistant's own credentials while acting with the person's rights.
 - Jobs that repeatedly fail to start stop after ten expired leases since server startup, leaving old attempts out of the upgrade retry cap. Notices tolerate missing Computer and teammate records and ask to check the Computer; only an incompatible runner is asked to update Tico.
+
 
 ## [0.3.10] - 2026-10-02
 

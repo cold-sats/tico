@@ -406,16 +406,20 @@ def tag_update(api, args):
 
 # ----------------------------------------------------------------------------- tasks
 @tool("hub_task_create", "File a task for a bot or a person. A task for a person is a decision "
-      "or a review: title says what you are asking, body under 120 words. `dry_run` reports the "
+      "or a review: title says what you are asking, body under 120 words (a ticket on a custom type's "
+      "board is exempt; asks stay on General). `dry_run` reports the "
       "checks a create would fail and writes nothing.",
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
-       "title": _s("What you are asking for, in plain words: no reference numbers, no all-caps"),
+       "title": _s("Task title: General uses plain words without reference numbers or all-caps; custom types keep board references"),
        "body": _s("The details", default=""),
        "due": _s("ISO-8601 date-time with timezone"),
+       "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
        "parent_id": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
        "request_id": _s("BotOps continuation: originating human chat message id"),
        "type": _s("Task type id or name; defaults to General"),
        "step": _s("Step id or name within the type; sets its status"),
+       "number": {"type": "integer", "minimum": 1,
+                  "description": "Movers: keep an imported ticket's number (unique across the team)"},
        "labels": {"type": "array", "items": {"type": "string"},
                   "description": "Labels: a project name, a kind (bug, front-end). Lower-case words."},
        "top": {"type": "boolean", "default": False,
@@ -431,9 +435,11 @@ def task_create(api, args):
     body = {"owner": _target(api, args["owner"]), "title": args["title"], "body": args.get("body") or "",
             "due": args.get("due"), "parent_id": args.get("parent_id"),
             "goal_id": args.get("goal_id") or None}
-    for field in ("labels", "top", "links", "next_run", "request_id", "type", "step"):
+    for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
+    if args.get("private") is not None:
+        body["private"] = args["private"]
     if args.get("dry_run"):
         return api.post("tasks/dry-run", body)
     return api.post("tasks", body, key=_key(args))
@@ -493,6 +499,13 @@ def task_run(api, args):
                   "description": "Only these statuses"},
        "lane": {"type": "string", "enum": ["company", "product"]},
        "label": _s("Only tasks carrying this label"),
+       "type": _s("Only tasks of this type (id or name)"),
+       "step": _s("Only tasks in this step (id or name; with `type`, that type's step)"),
+       "sort": {"type": "string", "enum": ["queue", "finished", "step"],
+                "description": "queue (default), finished (most recently done first) or step (a board's columns in order)"},
+       "number": {"type": "integer", "minimum": 1, "maximum": 999999999, "description": "Only this task number"},
+       "updated_since": _s("Only tasks changed after this ISO-8601 time with a timezone"),
+       "brief": {"type": "boolean", "description": "Leave out each task's body and acceptance criteria"},
        "all": {"type": "boolean", "default": False,
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
        "stuck": {"type": "boolean", "default": False,
@@ -501,12 +514,14 @@ def task_run(api, args):
 def task_list(api, args):
     if args.get("stuck"):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
-    if args.get("all"):
-        return {"tasks": api.get("tasks")["tasks"], "bots": api.get("bots")}
-    return api.get("tasks", owner=_target(api, args.get("owner")) if args.get("owner") else None,
+    more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since") if args.get(name)}
+    if args.get("brief"):
+        more["brief"] = "true"
+    rows = api.get("tasks", owner=_target(api, args.get("owner")) if args.get("owner") else None,
                    requester=_target(api, args.get("requester")) if args.get("requester") else None,
                    status=",".join(args["status"]) if args.get("status") else None,
-                   lane=args.get("lane") or None, label=args.get("label") or None)["tasks"]
+                   lane=args.get("lane") or None, label=args.get("label") or None, **more)["tasks"]
+    return {"tasks": rows, "bots": api.get("bots")} if args.get("all") else rows
 
 
 @tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One open question at a time; wait for its answer before asking another.",
@@ -516,12 +531,16 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, or what blocks it. "
+@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes.",
       {"id": TASK_ID,
+       "private": {"type": "boolean", "description": "Tighten visibility; only the direct human requester can publish"},
+       "title": _s("A new title; it is checked as a new task's title would be"),
        "status": {"type": "string", "enum": ["open", "doing", "waiting", "review", "done", "declined"]},
        "type": _s("Task type id or name"),
        "step": _s("Step id or name within the task type; sets status. An empty string clears it"),
+       "step_rank": {"type": "number", "description": "Its place within its step, lower first"},
+       "number": {"type": "integer", "minimum": 1, "description": "Movers: the number of a task that has none"},
        "note": _s("What changed, or the result"),
        "quiet": {"type": "boolean", "description": "Keep detailed notes on the task; chat receives only its title and status"},
        "owner": _s("Hand the task to this bot or person"),
@@ -538,9 +557,11 @@ def task_update(api, args):
         body["quiet"] = True
     if args.get("labels") is not None:
         body["labels"] = args["labels"]
-    for field in ("type", "step"):
+    for field in ("title", "type", "step", "step_rank", "number"):
         if args.get(field) is not None:
             body[field] = args[field]
+    if args.get("private") is not None:
+        body["private"] = args["private"]
     if args.get("blocked_by") is not None:
         body["blocked_by"] = args["blocked_by"]
     return api.post("tasks/" + args["id"], body, key=_key(args))
@@ -551,6 +572,7 @@ TASK_STEPS = {"type": "array", "items": {"type": "object", "properties": {
     "id": _s("Keep this id when editing an existing step"), "name": _s("Step name"),
     "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)}},
     "required": ["name", "status"], "additionalProperties": False}}
+NUMBERED = {"type": "boolean", "description": "Give each task created on or moved onto the type the team's next number"}
 
 
 @tool("hub_task_types", "Task types and their steps, in order. Status remains the task contract.",
@@ -559,17 +581,26 @@ def task_types(api, args):
     return api.get("task-types/" + args["id"])["type"] if args.get("id") else api.get("task-types")["types"]
 
 
+TYPE_BOTS = {"type": "string", "enum": ["parties", "read", "work"],
+             "description": "What every bot may do with the type's tasks: parties (only the bots on each task), "
+                            "read (read and comment on all of them) or work (also change them)"}
+
+
 @tool("hub_task_type_create", "Create a task type and its steps (movers only).",
-      {"name": _s("Type name"), "steps": TASK_STEPS}, required=("name",), writes=True)
+      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("name",), writes=True)
 def task_type_create(api, args):
-    return api.post("task-types", {"name": args["name"], "steps": args.get("steps") or []}, key=_key(args))
+    body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered"))}
+    if args.get("bots"):
+        body["bots"] = args["bots"]
+    return api.post("task-types", body, key=_key(args))
 
 
 @tool("hub_task_type_update", "Edit a task type (movers only). Steps replace the full list; keep retained ids. "
       "A step with tasks cannot be removed.", {"id": _s("Type id or name"), "name": _s("Type name"),
-      "steps": TASK_STEPS}, required=("id",), writes=True)
+      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("id",), writes=True)
 def task_type_update(api, args):
-    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps") if k in args}, key=_key(args))
+    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered") if k in args},
+                    key=_key(args))
 
 
 @tool("hub_task_type_delete", "Delete an unused task type (movers only). General stays built in.",
@@ -593,6 +624,23 @@ def task_comment(api, args):
       {"id": TASK_ID}, required=("id",))
 def task_answers(api, args):
     return api.get(f"tasks/{args['id']}/answers")
+
+
+COMMENT_ID = _s("The comment's id (`id` in the task's `comments`)")
+
+
+@tool("hub_task_comment_edit", "Change the text of a comment you wrote on a task. It wakes nobody and is not "
+      "sent again; it shows as edited.",
+      {"id": TASK_ID, "comment_id": COMMENT_ID, "text": _s("The new text")},
+      required=("id", "comment_id", "text"), writes=True)
+def task_comment_edit(api, args):
+    return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}", {"text": args["text"]}, key=_key(args))
+
+
+@tool("hub_task_comment_delete", "Take back a comment you wrote on a task: it is no longer listed or handed to a "
+      "bot.", {"id": TASK_ID, "comment_id": COMMENT_ID}, required=("id", "comment_id"), writes=True)
+def task_comment_delete(api, args):
+    return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}/delete", {}, key=_key(args))
 
 
 @tool("hub_task_label", "Add or remove labels on a task. A project is a label; so is a kind (bug, front-end).",
@@ -2630,8 +2678,10 @@ def docs_fetch(api, args):
 # `hub` commands with no tool: they write the Mac's own workspace (`clients/catalog.py`), which
 # the hub cannot reach, so BotOps runs them in a shell. Everything else is in both doors.
 # `hub_db` runs where the database credential is, on the runner; the server's MCP endpoint
-# has neither the credential nor any business connecting to a team database.
-SHELL_ONLY = {"hub_task_worktree_setup", "hub_bot_check", "hub_db"}
+# has neither the credential nor any business connecting to a team database. A person makes and
+# revokes service keys in their own shell: a new key is shown to them, never to an agent's context.
+SHELL_ONLY = {"hub_task_worktree_setup", "hub_bot_check", "hub_db", "hub_service_key_create",
+              "hub_service_key_list", "hub_service_key_revoke"}
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 

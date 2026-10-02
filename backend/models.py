@@ -91,9 +91,12 @@ class Answer(Contract):
 
 
 Lane = Literal["company", "product"]
+# A task's number: one sequence for the whole team, like one board's ticket numbers.
+TaskNumber = Annotated[int, Field(ge=1, le=999_999_999)]
 
 
 class TaskCreate(Contract):
+    private: StrictBool | None = None
     title: str = Field(min_length=1, max_length=300)
     body: Text
     owner: ID
@@ -110,6 +113,8 @@ class TaskCreate(Contract):
     request_id: ID | None = None
     type: ID | None = None
     step: str | None = Field(default=None, max_length=200)
+    # An imported ticket's own number (a mover's); a numbered type gives the next one otherwise.
+    number: TaskNumber | None = None
 
 
 class NoteCreate(Contract):
@@ -119,7 +124,9 @@ class NoteCreate(Contract):
 
 
 class TaskUpdate(Contract):
+    private: StrictBool | None = None
     version: int = Field(ge=1)
+    title: str | None = Field(default=None, min_length=1, max_length=300)
     status: Literal["open", "doing", "waiting", "review", "ready", "done", "declined"] | None = None
     note: str | None = Field(default=None, max_length=200_000)
     quiet: bool = False
@@ -135,6 +142,8 @@ class TaskUpdate(Contract):
     rank: float | None = None
     type: ID | None = None
     step: str | None = Field(default=None, max_length=200)   # "" clears the step
+    step_rank: float | None = Field(default=None, allow_inf_nan=False)   # its place within its step
+    number: TaskNumber | None = None      # a mover's, for a task that has none
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
     # delegated_identity): checked as that person, never as BotOps.
     on_behalf_of: ID | None = None
@@ -147,14 +156,23 @@ class TaskStepInput(Contract):
     status: Literal["open", "doing", "waiting", "review", "ready", "done", "closed", "declined"]
 
 
+# What every bot may do with a type's tasks beyond its own (hubdb.TYPE_BOTS): parties keeps them to
+# the bots on each task; read opens all of them to read and comment on; work also to change.
+TypeBots = Literal["parties", "read", "work"]
+
+
 class TaskTypeCreate(Contract):
     name: ID
     steps: list[TaskStepInput] = Field(default_factory=list)
+    bots: TypeBots | None = None
+    numbered: bool = False
 
 
 class TaskTypeUpdate(Contract):
     name: ID | None = None
     steps: list[TaskStepInput] | None = None
+    bots: TypeBots | None = None
+    numbered: bool | None = None
 
 
 class QuestionOption(Contract):
@@ -924,6 +942,7 @@ class GroupUpdate(Contract):
 
 
 class BotDefinitionCreate(Contract):
+    private_tasks_default: StrictBool = False
     slug: Slug
     display_name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=2000)
@@ -961,6 +980,7 @@ class BotArchive(Contract):
 
 
 class BotDefinitionUpdate(Contract):
+    private_tasks_default: StrictBool | None = None
     template: str | None = Field(default=None, max_length=80)
     display_name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=2000)
@@ -1422,3 +1442,26 @@ class PersonalTokenCreate(Contract):
     and how long it lives; 90 days unless asked, never more than a year."""
     label: str = Field(min_length=1, max_length=80)
     expires_in_days: int = Field(default=90, ge=1, le=365)
+
+
+class ServiceKeyCreate(Contract):
+    """A service key (backend/service_keys.py): the label names the system that holds it, on every
+    task it files."""
+    label: str = Field(min_length=1, max_length=80)
+
+
+class InboundTask(Contract):
+    """What one piece of another system's work should look like now (POST /api/v2/inbound/tasks).
+    `owner`, `title` and `body` are needed only when the call files the task; anything left out
+    stays as it is."""
+    key: str = Field(min_length=1, max_length=200)      # the other system's own id for the work
+    owner: ID | None = None                             # human:<id>, bot:<slug> or a person's email
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    body: Text | None = None
+    type: ID | None = None
+    step: str | None = Field(default=None, max_length=200)
+    labels: list[str] | None = Field(default=None, max_length=20)
+    links: list[str] = Field(default_factory=list, max_length=20)
+    due: str | None = None
+    close: bool = False
+    note: str | None = Field(default=None, max_length=200_000)

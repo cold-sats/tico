@@ -20,7 +20,7 @@ HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "chat", "assistant", "tag", "task", "goal", "kpi",
                "proposal", "market", "listening", "tool", "routine", "approval", "brief", "mcp", "needs-you", "run", "team", "health",
                "update", "grokbot", "calendar", "sql", "db", "classify", "decision", "template", "bot", "repo", "skill", "agent", "human", "group", "api", "computer",
-               "credential", "slack", "support"]
+               "credential", "slack", "support", "service-key"]
 
 
 def run_hub(*args, env=None):
@@ -535,3 +535,46 @@ def test_team_icon_cli_streams_the_owner_logo(tmp_path, monkeypatch):
     args = hubcli.parser().parse_args(["team", "icon", str(logo)])
     assert remotecli.run(args) == {"url": "/api/v2/team/icon"}
     assert calls == [("team/icon", b"logo")]
+
+
+def test_task_board_filters_survive_the_all_form():
+    from clients.hubtools import task_list
+    args = hubcli.parser().parse_args(['task', 'list', '--all', '--type', 'Dev ticket', '--step', 'To do',
+                                      '--sort', 'step', '--number', '42', '--updated-since', '2026-01-01T00:00:00Z', '--brief'])
+    class Api:
+        def __init__(self):
+            self.query = None
+        def get(self, path, **query):
+            if path == 'bots':
+                return []
+            self.query = query
+            return {'tasks': [{'id': 'task'}]}
+    api = Api()
+    result = task_list(api, vars(args))
+    assert result == {'tasks': [{'id': 'task'}], 'bots': []}
+    assert {key: api.query[key] for key in ('type', 'step', 'sort', 'number', 'updated_since', 'brief')} == {
+        'type': 'Dev ticket', 'step': 'To do', 'sort': 'step', 'number': 42,
+        'updated_since': '2026-01-01T00:00:00Z', 'brief': 'true'}
+
+
+def test_task_rename_cli_keeps_number_and_step_fields(monkeypatch):
+    from clients import remotecli
+    sent = []
+    class Api:
+        def __init__(self, *args, **kwargs):
+            pass
+        def get(self, path, **query):
+            if path == 'me':
+                return {'actor': 'human:ana', 'kind': 'member'}
+            return {'task': {'id': 'task', 'version': 3}}
+        def post(self, path, body, key=None):
+            sent.append((path, body))
+            return {}
+    monkeypatch.setattr(remotecli, 'Client', Api)
+    monkeypatch.setenv('HUB_API_URL', 'http://example.test')
+    monkeypatch.setenv('HUB_TOKEN', 'test-token')
+    remotecli.run(hubcli.parser().parse_args(['task', 'update', '#42', '--title', 'Ticket copy',
+                                           '--step', 'To do', '--step-rank', '2', '--number', '42']))
+    assert sent[0][0] == 'tasks/#42'
+    assert {key: sent[0][1][key] for key in ('title', 'step', 'step_rank', 'number', 'version')} == {
+        'title': 'Ticket copy', 'step': 'To do', 'step_rank': 2.0, 'number': 42, 'version': 3}

@@ -55,6 +55,7 @@ function settingsEditBot(slug = '') {
         ${editing ? '<fieldset class="bot-editor-wide brepo" data-bot-repos hidden></fieldset>' : ''}
         <label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}> Allow branches</label>
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
+        <label class="bot-editor-wide"><span><input type="checkbox" name="private_tasks_default" ${e?.private_tasks_default ? 'checked' : ''}> Create private tasks by default</span><small>Tasks created by or assigned to this bot start private. A human requester can choose company visibility.</small></label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
         ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
         ${editing ? '' : `<label class="bot-editor-wide">Model and effort
@@ -175,6 +176,7 @@ function settingsEditBot(slug = '') {
           display_name: form.elements.display_name.value, description: form.elements.description.value,
           reports_to: form.elements.reports_to.value || null, status: form.elements.status.value,
           bot_contact: form.elements.bot_contact.value,
+          private_tasks_default: form.elements.private_tasks_default.checked,
           repo: form.elements.repo.value, thread_mode: form.elements.thread_mode.value,
           temp: form.elements.temp.checked, shared: form.elements.shared.checked, expected_revision: rev});
       } else {
@@ -182,6 +184,7 @@ function settingsEditBot(slug = '') {
         added = await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,
           description: form.elements.description.value, reports_to: form.elements.reports_to.value || null,
           status: form.elements.status.value, repo: form.elements.repo.value,
+          private_tasks_default: form.elements.private_tasks_default.checked,
           thread_mode: form.elements.thread_mode.value, shared: form.elements.shared.checked, model: choice.model, effort: choice.effort,
           harness: choice.harness, operator: form.elements.operator.value || S.me?.id,
           runner_id: form.elements.runner_id.value || null});

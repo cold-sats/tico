@@ -97,7 +97,8 @@ async function taskModalShow(task, d = taskModal()) {
   d.scrollTop = 0;
   // the list knows the task; the detail adds its parts, its parent and the comments
   const [detail] = await Promise.all([v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`), taskTypesLoad().catch(() => TASK_TYPES)]);
-  if (!detail?.task || !d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
+  if (!d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
+  if (!detail?.task) { d.close(); d.innerHTML = ''; TASK_DRAFTS.delete(String(task.id)); return; }
   await taskMenuSettled(d);                 // never pull a menu out from under the pointer
   if (!d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
   if (d.liveTask && Number(detail.task.version) < Number(d.liveTask.version)) return;   // a save landed since this was asked for
@@ -132,6 +133,8 @@ function taskModalBind(d, task, full = false) {
   // Each change goes through the dialog's queue (taskSave), one at a time, each with the latest version.
   const change = (body, then, field) => taskSaveQueued(d, String(task.id), body, then, field);
   taskPropsBind(d, task, change);
+  const privacy = $('[data-task-private]', d);
+  if (privacy) privacy.onchange = () => change({private: privacy.checked}, undefined, 'private');
   d.querySelectorAll('[data-drop-label]').forEach(b => b.onclick = () => change(cur => ({labels: (cur.labels || []).filter(l => l !== b.dataset.dropLabel)}), undefined, 'tags'));
   const link = $('[data-modal-link]', d);
   const addLink = $('[data-link-add]', d);
@@ -231,11 +234,12 @@ const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}`
   lane: v => `moved it to the ${v === 'company' ? 'team' : v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the tags: ${l.join(', ')}` : 'removed the tags'; } catch { return 'changed the tags'; } },
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
-  lint: v => `noted: ${v}`, note: v => `noted: ${clipLine(String(v || ''), 200)}`};
+  lint: v => `noted: ${v}`, note: v => `noted: ${clipLine(String(v || ''), 200)}`, comment: () => 'deleted a comment'};
 // `files`: the task's files (ui/app/task-files.js), for the files a comment carried.
 function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
   if (x.kind === 'event') {
     if (x.field === 'status' && x.old == null) return '';           // created: the header says so
+    if (x.field === 'comment' && x.new) return '';                  // an edit: the comment itself says edited
     // A step move already names where the task went; its status change would say it twice.
     if (x.field === 'status' && all?.some(y => y.kind === 'event' && y.field === 'step' && y.new && y.ts === x.ts)) return '';
     // A note saved with a status change or a comment is already shown there; a note on its own says what it is.
@@ -255,7 +259,7 @@ function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
   const kind = m.kind === 'ask' ? '<span class="pill needs">question</span>' : m.kind === 'answer' ? '<span class="pill">answer</span>' : '';
   return `<div class="tcomment${String(m.from_actor || '').startsWith('bot:') ? ' bot' : ''}"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor, m.refs?.via)}</span>${kind}
       ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next run on this task">saved</span>' : ''}
-      <span class="spacer"></span><time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
+      <span class="spacer"></span>${m.edited_at ? `<span class="muted" title="Edited ${esc(fmt(m.edited_at))}">edited</span>` : ''}<time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
     ${body ? `<div class="md">${safeMd(body)}</div>` : ''}
     ${tfCommentFilesHTML(m, files)}${ask ? askHTML(ask, m.answers, askTargetOf(m), m.from_actor, taskId, files, canAnswer) : ''}</div>`;
 }
@@ -303,7 +307,14 @@ async function taskChatRead(state) {
     if (taskChatCurrent(state) && !state.sending) taskCommentsRender(state, data);
   } catch (e) {
     if (!taskChatCurrent(state)) return;
-    if ([400, 403, 404].includes(e.status)) {state.stopped = true; clearInterval(state.poll);}
+    if ([403, 404].includes(e.status)) {
+      state.stopped = true; clearInterval(state.poll);
+      TASK_DRAFTS.delete(String(state.id)); PROP_TASKS = null;
+      state.dialog.close(); state.dialog.innerHTML = '';
+      if (TASKS_ST) void tasksLoad(TASKS_ST);
+      return;
+    }
+    if (e.status === 400) {state.stopped = true; clearInterval(state.poll);}
     const status = $('[data-task-chat-status]', state.host);
     if (status) status.textContent = `Unable to refresh: ${e.message}`;
     else state.host.innerHTML = `<p class="err" role="status">Comments unavailable: ${esc(e.message)}</p>`;
@@ -377,7 +388,7 @@ function hubModalHTML(t, it, opts = {}) {
   const mover = canMove();
   const links = (t.links || []).filter(l => l.kind !== 'pr' && l.kind !== 'worktree');   // those are Code, in the rail
   const pos = opts.peek ? taskPeekPos(t.id) : '';
-  return `<div class="tmodal-head">${taskStatusIcon(t)}<span class="pill tstatus">${esc(statusWord)}</span>${t.blocked_by && !finished
+  return `<div class="tmodal-head">${taskStatusIcon(t)}<span class="pill tstatus">${esc(statusWord)}</span>${t.private ? '<span title="Only the requester and assignee can see this task" aria-label="Private"><span class="nav-icon" aria-hidden="true">lock</span></span>' : ''}${t.blocked_by && !finished
       ? `<span class="tchip-blocked" title="Blocked by ${esc(t.blocker?.title || 'another task')}">blocked</span>` : ''}
       <span class="tmodal-owner">${actorFace(t.owner, 18)}<span class="who">${esc(actorLabel(t.owner))}</span></span>
       <span class="spacer"></span>${pos ? `<span class="peek-pos tnum" title="J / K or ↑ / ↓ move to the next or previous task">${esc(pos)}</span>` : ''}

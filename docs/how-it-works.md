@@ -61,7 +61,8 @@ conversation per hour and 10 unsolicited messages per human per bot per day
 is optional, decided by a human and consumed once. Bot requests to a human are linted:
 a nonempty first line and under 120 words outside quoted drafts. Put the ask first; the first-line
 check does not judge whether it is an ask. Replies to the human's own message are exempt from this
-request-format lint; title and Credential checks apply separately. Repeated refusals
+request-format lint, and so is a task on a custom type, which is a ticket on that type's board
+rather than a request ([Tasks](tasks.md)); title and Credential checks apply separately. Repeated refusals
 open a review task and, at 10 a day, pause the bot for an hour; a third attempt in a day to reach another bot's files or a `secrets/` path
 (`TICO_ESCAPE_QUARANTINE_AT`) quarantines it until a human clears it.
 
@@ -239,9 +240,10 @@ pulls or clones any `reads:` sibling repos beside it.
 **A bot needs you.** It asks with `hub task ask` (the task goes `waiting`), requests an approval,
 or files a task for you. All of these appear in **Needs you** at the top of **Tasks** with
 **Reply**, **Approve** / **Decline**, **Done** / **Close**. Needs you is your queue: approvals and
-questions first (each blocks a bot), then your own tasks in rank order. There is no priority;
-a mover (anyone in the leadership, product or engineering group) drags a task up or down, into
-another column, or between lanes; everyone else sees the board and comments.
+questions first (each blocks a bot), then your own tasks in rank order. Tickets on a numbered type
+stay on their board and come to Needs you only with a question for you ([Tasks](tasks.md)). There
+is no priority; a mover (anyone in the leadership, product or engineering group) drags a task up or
+down, into another column, or between lanes; everyone else sees the board and comments.
 
 **A bot finishes.** It commits its repository, marks the task `done` with a note, and the reply is
 saved in the conversation. The task shows under **Tasks → Done** with the bot's note; a bot that

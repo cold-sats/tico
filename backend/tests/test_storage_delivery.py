@@ -214,7 +214,7 @@ def test_multipart_range_cache_etag_limits_and_legacy(api):
     url = '/api/v2/files/' + bid
     h = headers('ana-test')
     full = api.get(url, headers=h)
-    assert full.content == b'0123456789' and full.headers['cache-control'] == 'no-cache'
+    assert full.content == b'0123456789' and full.headers['cache-control'] == 'private, no-store'
     assert full.headers['content-type'].startswith('text/plain')
     assert full.headers['content-disposition'].startswith('inline')
     assert full.headers['x-content-type-options'] == 'nosniff'
@@ -234,7 +234,7 @@ def test_multipart_range_cache_etag_limits_and_legacy(api):
     assert head.headers['content-length'] == '10'
     assert api.head(url).status_code == 401
     assert api.get(url, headers={**h, 'If-None-Match': full.headers['etag']}).status_code == 304
-    assert 'immutable' in api.get(url + '?v=1', headers=h).headers['cache-control']
+    assert 'no-store' in api.get(url + '?v=1', headers=h).headers['cache-control']
     assert api.get(url + '/poster?v=1', headers=h).status_code == 404
     assert api.get(url).status_code == 401
     assert api.app.state.store.settings.upload_max_bytes == 2 * 1024 ** 3
@@ -414,7 +414,7 @@ def test_metadata_worker_images_supplied_poster_and_missing_tools(api, monkeypat
     assert meta['width'] == 800 and meta['height'] == 400 and meta['media_state'] == 'ready'
     for kind, limit in [('poster', 800), ('thumb', 480)]:
         response = api.get(f'/api/v2/files/{bid}/{kind}?v=1', headers=headers('ana-test'))
-        assert response.status_code == 200 and 'immutable' in response.headers['cache-control']
+        assert response.status_code == 200 and 'no-store' in response.headers['cache-control']
         with Image.open(io.BytesIO(response.content)) as preview:
             assert max(preview.size) <= limit
     video = attach(api, tid, 'movie.mp4', b'no tools needed')

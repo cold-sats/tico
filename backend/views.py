@@ -18,6 +18,7 @@ from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
 from pathlib import Path
 
 from .store import H, P, Problem, bot_readiness, encode, message_page, readiness_document, repo_url
+from . import task_privacy as privacy
 
 
 MIN_RUNNER_VERSION = (0, 2, 0)
@@ -74,6 +75,8 @@ def failed_attempts(c, who, auth, bot=None, since=None, limit=200):
             continue
         try:
             auth.conversation(c, who, message["conversation_id"])
+            privacy.require_message(c, who, message)
+            privacy.require_attempt(c, who, row["id"])
         except Problem:
             continue
         try:
@@ -275,7 +278,7 @@ def operation_issues(c, who, auth):
             continue
         location = machine(c, slug)
         mac_offline = bool(location.get("machine") and not location.get("online") and not location.get("agent"))
-        status = H.status(c, slug) or {}
+        status = privacy.status(c, who, H.status(c, slug)) or {}
         if bot["state"] == "quarantined" or status.get("state") == "quarantined":
             add("bot", bot["display_name"] + " needs attention",
                 status.get("focus") or "The bot is " + (status.get("state") or bot["state"]),
@@ -305,11 +308,12 @@ def operation_issues(c, who, auth):
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime} usage limit; retrying automatically", bot=slug,
                         severity="warning", needs_person=False)
-        queued = c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='queued'", (slug,)).fetchone()[0]
+        queued = privacy.job_count(c, who, slug)
         if location.get("agent"):
-            queued = c.execute("SELECT count(*) FROM messages WHERE to_actor=? AND read_at IS NULL "
-                               "AND (expires_at IS NULL OR expires_at > ?)", ("bot:" + slug, H.now())).fetchone()[0]
-        uncertain = c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='uncertain'", (slug,)).fetchone()[0]
+            queued = sum(privacy.message_readable(c, privacy.actor(who), m) for m in c.execute(
+                "SELECT * FROM messages WHERE to_actor=? AND read_at IS NULL "
+                "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL", ("bot:" + slug, H.now())))
+        uncertain = privacy.job_count(c, who, slug, ("uncertain",))
         if uncertain and not mac_offline:
             noun = "run" if uncertain == 1 else "runs"
             queued_note = (f" {queued} other request{' is' if queued == 1 else 's are'} still queued."
@@ -430,13 +434,16 @@ def snapshot_mark(c, cid):
         "  WHERE m.conversation_id=? ORDER BY m.rowid DESC LIMIT 1)", (cid, cid, cid, cid)).fetchone())
 
 
-def conversation_snapshot(c, cid):
-    page = message_page(c, cid)
+def conversation_snapshot(c, cid, who=None):
+    page = privacy.page(c, who, cid) if who else message_page(c, cid)
     job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until FROM jobs j JOIN messages m ON m.id=j.message_id "
                     "LEFT JOIN attempts a ON a.id=j.attempt_id WHERE m.conversation_id=? "
                     "AND coalesce(json_extract(m.refs_json,'$.maintenance'),'')!='checkpoint' "
                     "ORDER BY m.rowid DESC LIMIT 1", (cid,)).fetchone()
     execution = None
+    if job and who and (not privacy.message_readable(c, privacy.actor(who), H.message(c, job["message_id"]))
+                        or job["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), job["attempt_id"])):
+        job = None
     if job:
         state = job["state"]
         input_added = state == "input"
@@ -576,13 +583,17 @@ def recent_bots(c, auth, who, since, limit, needs):
     def touch(slug, ts):
         if slug and access.get(slug, auth.FULL)["see"] and ts and ts > seen.get(slug, ""):
             seen[slug] = ts
-    for row in c.execute("SELECT from_actor, to_actor, created FROM messages WHERE created>=? AND "
+    for row in c.execute("SELECT * FROM messages WHERE created>=? AND "
                          "((from_actor=? AND to_actor LIKE 'bot:%') OR (to_actor=? AND from_actor LIKE 'bot:%'))",
                          (since, me, me)):
+        if not privacy.message_readable(c, privacy.actor(who), row):
+            continue
         touch(H.actor_id(row["to_actor"] if row["from_actor"] == me else row["from_actor"]), row["created"])
-    for row in c.execute("SELECT owner, requester, updated FROM tasks WHERE updated>=? AND "
+    for row in c.execute("SELECT * FROM tasks WHERE updated>=? AND "
                          "((requester=? AND owner LIKE 'bot:%') OR (owner=? AND requester LIKE 'bot:%'))",
                          (since, me, me)):
+        if not privacy.task_readable(c, who, dict(row)):
+            continue
         touch(H.actor_id(row["owner"] if row["requester"] == me else row["requester"]), row["updated"])
     waiting = {}
     for item in needs:
@@ -595,12 +606,13 @@ def recent_bots(c, auth, who, since, limit, needs):
         bot = H.bot(c, slug) or {}
         # The bot's status is its activity: a person who may only write to it hears what it said
         # to them, not what it is doing.
-        status = (H.status(c, slug) or {}) if access.get(slug, auth.FULL)["read"] else {}
+        status = (privacy.status(c, who, H.status(c, slug)) or {}) if access.get(slug, auth.FULL)["read"] else {}
         actor = H.bot_actor(slug)
-        mine = c.execute("SELECT body, created, conversation_id FROM messages WHERE from_actor=? AND to_actor=? "
-                         "ORDER BY created DESC LIMIT 1", (me, actor)).fetchone()
-        theirs = c.execute("SELECT body, created, conversation_id FROM messages WHERE from_actor=? AND to_actor=? "
-                           "ORDER BY created DESC LIMIT 1", (actor, me)).fetchone()
+        mine = next((m for m in c.execute("SELECT * FROM messages WHERE from_actor=? AND to_actor=? "
+                    "ORDER BY created DESC", (me, actor)) if privacy.message_readable(c, privacy.actor(who), m)), None)
+        theirs = next((m for m in c.execute("SELECT * FROM messages WHERE from_actor=? AND to_actor=? AND deleted_at IS NULL "
+                      "ORDER BY created DESC", (actor, me)) if privacy.message_readable(c, privacy.actor(who), m)), None)
+
         conversation = next((m["conversation_id"] for m in sorted(filter(None, (mine, theirs)),
                              key=lambda m: m["created"], reverse=True) if m["conversation_id"]), None)
         tasks = c.execute("SELECT id, title, status, owner, updated FROM tasks WHERE status IN "
@@ -640,7 +652,7 @@ def needs_items(c, auth, who, task_view):
                           "first_line": (row.get("body") or "").split("\n")[0]})
     for row in raw["approvals"]:
         msg = H.message(c, row["message_id"])
-        if msg and msg["to_actor"] == who.actor:
+        if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
             items.append({**row, "kind": "approval", "what": row["kind"],
                           "title": "Approve this " + row["kind"],
                           "requester": row["requested_by"], "conversation_id": msg["conversation_id"]})
@@ -654,28 +666,35 @@ _FLEET_CACHE = {}
 
 
 def fleet_snapshot_cached(c, auth, identity, task_view, ttl=FLEET_CACHE_S):
-    """The same snapshot, reused for `ttl` seconds per person (the brief and a
-    batch start on the go should not rebuild the whole fleet each call). Status moves slower than a
-    voice turn; 15 s stale is invisible there."""
-    import time
-    key, now = identity.actor, time.monotonic()
-    hit = _FLEET_CACHE.get(key)
-    if hit and now - hit[0] < ttl:
-        return hit[1]
-    snap = fleet_snapshot(c, auth, identity, task_view)
-    _FLEET_CACHE[key] = (now, snap)
-    if len(_FLEET_CACHE) > 200:
-        _FLEET_CACHE.clear()
-    return snap
+    """Build a fresh snapshot so participant changes revoke every read immediately."""
+    # Participant changes revoke reads immediately, including already warmed snapshots.
+    return fleet_snapshot(c, auth, identity, task_view)
 
 
 def fleet_snapshot(c, auth, identity, task_view):
     """One live, actor-scoped control-plane snapshot for Tico's private room."""
+    privacy.snapshot(c)
     principal = auth.tico_principal(c, identity)
     access = auth.bot_accesses(c, principal)
-    allowed = {row["slug"] for row in H.bots(c) if access.get(row["slug"], auth.FULL)["write"]}
+    bot_rows = H.bots(c)
+    allowed = {row["slug"] for row in bot_rows if access.get(row["slug"], auth.FULL)["write"]}
+    task_rows = [dict(t) for t in c.execute("SELECT * FROM tasks")]
+    bot_tasks = {}
+    for task in task_rows:
+        for actor in {task["owner"], task["requester"]}:
+            if H.is_bot(actor):
+                bot_tasks.setdefault(H.actor_id(actor), []).append(task)
+    statuses = {s["bot"]: dict(s) for s in c.execute("SELECT * FROM bot_status")}
+    queued = {}
+    from .privacy_index import ReadIndex
+    index = ReadIndex(c, principal)
+    for m in c.execute("SELECT m.*,j.bot,j.attempt_id FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.state='queued'"):
+        if (not dict(m).get("deleted_at") and not dict(m).get("deleted") and
+                index.message(m["id"], m["conversation_id"], m["refs_json"], m["in_reply_to"]) and
+                (not m["attempt_id"] or index.attempt(m["attempt_id"]))):
+            queued[m["bot"]] = queued.get(m["bot"], 0) + 1
     bots = []
-    for row in H.bots(c):
+    for row in bot_rows:
         slug = row["slug"]
         if slug not in allowed:
             continue
@@ -685,29 +704,28 @@ def fleet_snapshot(c, auth, identity, task_view):
                          "task_id": None, "online": None, "ready": None, "queued": None,
                          "active_attempt": None})
             continue
-        status = H.status(c, slug) or {}
+        # Fleet only exposes focus/task identity, so counters/approval scans are unnecessary.
+        source = {k: v for k, v in statuses.get(slug, {}).items() if k not in ("open_tasks", "needs_human")}
+        status = privacy.status(c, principal, source, tasks=bot_tasks.get(slug, [])) or {}
         location = machine(c, slug)
         attempt = c.execute(
             "SELECT id,state,started,lease_until FROM attempts WHERE bot=? "
             "AND state IN ('leased','running') AND lease_until>? ORDER BY created DESC LIMIT 1",
             (slug, H.now())).fetchone()
+        if attempt and not index.attempt(attempt["id"]):
+            attempt = None
         bots.append({"slug": slug, "name": row["display_name"],
                      "state": status.get("state") or row["state"],
                      "focus": status.get("focus") or "", "task_id": status.get("task_id"),
                      "online": location["online"], "ready": location["ready"],
-                     "queued": c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='queued'",
-                                         (slug,)).fetchone()[0],
+                     "queued": queued.get(slug, 0),
                      "active_attempt": dict(attempt) if attempt else None})
     tasks = []
-    for row in H.tasks(c, status=H.ACTIVE_STATUSES + ("declined",)):
+    for row in H.tasks(c, status=H.ACTIVE_STATUSES + ("declined",), visible=auth.task_sql(c, principal)):
         actors = (row["owner"], row["requester"])
         relevant = principal.actor in actors or any(
             str(actor).startswith("bot:") and H.actor_id(actor) in allowed for actor in actors)
         if not relevant:
-            continue
-        try:
-            auth.task(c, principal, row["id"])
-        except Problem:
             continue
         tasks.append({k: row.get(k) for k in
                       ("id", "title", "owner", "requester", "status", "due", "note", "updated")})
@@ -764,6 +782,8 @@ def install_views(app, store, auth, mutate, task_view):
                 continue
             try:
                 auth.conversation(c, who, message["conversation_id"])
+                privacy.require_message(c, who, message)
+                privacy.require_attempt(c, who, turn["id"])
             except Problem:
                 continue
             rows.append((turn, message))
@@ -830,6 +850,7 @@ def install_views(app, store, auth, mutate, task_view):
                 rows.append({"name": slug, "display_name": bot["display_name"], "state": bot["state"],
                              "status": bot["state"], "description": (configs.get(slug, {}) or {}).get("description") or "",
                              "reports_to": reports, "my_access": level, **policy,
+                             "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                              "team": P.team_of(slug, configs, people),
                              "org_parent": P.org_parent("bot", slug, people, configs, archived),
                              "operator": registry["operator"] if registry else None,
@@ -854,6 +875,7 @@ def install_views(app, store, auth, mutate, task_view):
             rows.append({**config, "resolved_runtime": resolved_runtime, "resolved_model": resolved_model,
                          "model_source": "" if not resolved_runtime else "bot" if own else "company", "name": slug, "display_name": bot["display_name"],
                          "state": bot["state"], "status": bot["state"],
+                         "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                          "host": "keeper", "tasks": "hub", "has_repo": location["ready"],
                          "team": P.team_of(slug, configs, people),
                          "org_parent": P.org_parent("bot", slug, people, configs, archived),
@@ -1011,6 +1033,10 @@ def install_views(app, store, auth, mutate, task_view):
                                  f"JOIN conversations cv ON cv.id=m.conversation_id LEFT JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
                                  "WHERE j.state IN ('queued','leased','running','input') ORDER BY j.created"):
                 if readable.get(row["bot"], auth.FULL)["read"]:
+                    if not privacy.message_readable(c, privacy.actor(who), H.message(c, row["message_id"])):
+                        continue
+                    if row["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), row["attempt_id"]):
+                        continue
                     # Never the message text: a shared bot's private chats belong to their people.
                     title = row["task_title"] or "Message from " + H.actor_id(row["from_actor"])
                     item = {"employee": row["bot"], "bot": row["bot"], "id": row["id"], "started": row["started"],
@@ -1162,6 +1188,9 @@ def install_views(app, store, auth, mutate, task_view):
             runtime = runtime or "local"
             session = c.execute("SELECT * FROM bot_sessions WHERE bot=? AND runtime=? AND model=?",
                                 (bot, str(runtime), model)).fetchone() if runtime else None
+            if session and any(not privacy.attempt_readable(c, privacy.actor(who), r[0]) for r in c.execute(
+                    "SELECT id FROM attempts WHERE bot=? AND thread_id=?", (bot, session["thread_id"]))):
+                session = None
             return {"cloud": True, "current": True, "runtime": runtime, "model": model,
                     "session_id": (session["thread_id"] if session
                                    else (rows[-1][0].get("thread_id") if rows else "cloud")),
@@ -1213,9 +1242,13 @@ def install_views(app, store, auth, mutate, task_view):
         if slug:
             from .shared_bots import route
             slug = H.actor_id(route(c, who.actor, "bot:" + slug))
+        if H.task_private(c, task) and slug and not H.task_private_readable(c, "bot:" + slug, task):
+            slug = None
         bot = (H.bot(c, slug) if slug else None) or {}
         allowed = bool(slug) and may_chat(c, auth, who, slug)
         conv = rooms.chat_room(c, auth, who, slug) if allowed else None
+        if H.task_private(c, task) and conv:
+            conv = auth.conversation(c, who, task["conversation_id"])
         message = None
         if text is not None:
             if expected_recipient and expected_recipient != slug:
@@ -1226,10 +1259,11 @@ def install_views(app, store, auth, mutate, task_view):
             if not allowed:
                 auth.require_write(c, who, slug)
                 raise Problem("forbidden", "This bot takes requests in its own Assistant room, not here", 403)
+            privacy.require_destination(c, who, "bot:" + slug, conv["id"], {"task": tid})
             message = H.say(c, who.actor, "bot:" + slug, text, conversation_id=conv["id"], refs={"task": tid})
             c.execute("INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)",
                       (tid, "bot:" + slug, who.actor, message["id"], H.shift(H.now(), hours=24)))
-        tagged = [m for m in (message_page(c, conv["id"])["messages"] if conv else [])
+        tagged = [m for m in (privacy.page(c, who, conv["id"])["messages"] if conv else [])
                   if H.message_task_id(m) == tid]
         recipient = {"slug": slug, "name": bot.get("display_name") or slug, "can_chat": allowed} if slug else None
         return {"bot": slug, "recipient": recipient, "conversation": conv, "message": message, "messages": tagged}
@@ -1287,7 +1321,7 @@ def install_views(app, store, auth, mutate, task_view):
     def snapshot(request: Request, cid: str):
         with store.read() as c:
             auth.conversation(c, request.state.identity, cid)
-            snap = conversation_snapshot(c, cid)
+            snap = conversation_snapshot(c, cid, request.state.identity)
             turns.annotate(c, auth, request.state.identity, snap["messages"])
             return snap
 
@@ -1298,7 +1332,7 @@ def install_views(app, store, auth, mutate, task_view):
             auth.authenticate(request.headers)
             with store.read() as c:
                 auth.conversation(c, who, cid)
-                snap = conversation_snapshot(c, cid)
+                snap = conversation_snapshot(c, cid, who)
                 turns.annotate(c, auth, who, snap["messages"])
                 return encode(snap)
         def read_mark():

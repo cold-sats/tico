@@ -66,7 +66,8 @@ multiple statements are refused; `EXPLAIN QUERY PLAN` is allowed.
 
 Reserved, never readable through SQL: `credentials`, `credential_keys`, `credential_grants`,
 `idempotency` (stored request and response bodies), `runners` (credential hashes),
-`human_tokens` (personal API token hashes), `enrollments`, `session_epochs`, `settings_changes`, `backup_verified_blobs`, every
+`human_tokens` (personal API token hashes), `service_keys` and `service_key_tasks` (service keys,
+[service-keys.md](service-keys.md)), `enrollments`, `session_epochs`, `settings_changes`, `backup_verified_blobs`, every
 `_litestream_*` table and every `sqlite_*` internal other than `sqlite_master`.
 
 ## The useful tables
@@ -82,7 +83,8 @@ Timestamps are ISO-8601 UTC text (`2026-09-15T21:40:12.931675Z`); compare them w
 | `humans` | `id, name, email, slack_id, teams_json` | bots do not get `email` |
 | `conversations` | `id, kind, scope, subject, task_id, participants_json, owner_actor, room_key, created, last_message_at, closed_at` | `scope`: direct, personal, shared, task |
 | `messages` | `id, conversation_id, from_actor, to_actor, kind, body, refs_json, in_reply_to, created, delivered_at, read_at, wait_s` | `kind`: say, ask, answer, notice, steer |
-| `tasks` | `id, title, body, requester, owner, status, due, parent_id, goal_id, conversation_id, created, updated, done_at, closed_at, closed_by, note, version, acceptance_json` | `status`: open, doing, waiting, done, closed, declined |
+| `tasks` | `id, title, body, requester, owner, status, due, parent_id, goal_id, conversation_id, created, updated, done_at, closed_at, closed_by, note, version, acceptance_json, type_id, step_id, number, step_rank` | `status`: open, doing, waiting, done, closed, declined; `number` is the team-wide ticket number a numbered type gives (NULL until one does), `step_rank` the task's place within its step, lower first ([Tasks](tasks.md)) |
+| `task_types` | `id, name, numbered, created, updated` | types and, in `task_steps(id, type_id, name, position, status)`, their steps; `numbered` is 1 when the type numbers its tasks |
 | `task_events` | `task_id, ts, actor, field, old, new, note` | every change to a task |
 | `goals` | `id, title, owner, parent_id, body, status, status_note, status_by, status_at, status_source, suggest_status, suggest_note, suggest_at, rank, last_read_at, last_read_by, created, created_by, updated` | what every human and bot is for; `status`: red, yellow, green, gray (no data), done, dropped, or NULL while proposed or not yet scored; `status_source`: `auto` (the Goal Manager's arithmetic) or `person` (set by hand, sticks until handed back); `suggest_*` is what the arithmetic says over a human's colour; `parent_id` is the goal it supports (optional); `owner` is `bot:x`, `human:x` or `company`; `tasks.goal_id` names the goal a task serves |
 | `goal_events` | `goal_id, ts, actor, field, old, new, note, status_by, status_source` | every change to a goal; a `status` row says who set it and how |

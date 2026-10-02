@@ -20,9 +20,9 @@ def test_messages_include_readable_tasks_created_during_the_turn(api, reader):
     with api.app.state.store.transaction() as c:
         visible = H.task_create(c, "bot:ops", "Draft the launch post", "For the team.", "bot:ops", lint=False)
         private = H.task_create(c, "bot:ops", "Review private mail", "Private.", "bot:inbox", lint=False)
-        child = H.task_create(c, "bot:finance", "Draft the budget", "For the launch.", "bot:finance",
+        child = H.task_create(c, "bot:ops", "Draft the budget", "For the launch.", "bot:finance",
                               parent_id=visible["id"], lint=False)
-        # A ref to a nested task exercises ancestor permissions as well as the raw created-task row.
+        # A party files the subtask; ordinary read alone does not permit filing it.
         H.say(c, "bot:ops", "human:ana", "Filed the work.", conversation_id=msg["conversation_id"],
               in_reply_to=msg["id"], refs={"turn_id": attempt["id"], "tasks": [visible["id"], private["id"], child["id"]]})
     token = attempt["token"] if reader == "bot" else reader

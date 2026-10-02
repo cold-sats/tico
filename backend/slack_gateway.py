@@ -71,6 +71,7 @@ import yaml
 from . import hubdb as H
 from . import people as P
 from . import providers
+from . import task_privacy as privacy
 from . import slack_app
 from . import slack_channels as SC
 from .config import Settings, slack_credentials
@@ -961,7 +962,7 @@ class Gateway:
             rows = [dict(r) for r in c.execute(
                 "SELECT m.id,m.body,m.conversation_id,m.from_actor,m.to_actor FROM messages m "
                 "WHERE m.kind IN ('say','ask','answer','notice') AND m.from_actor LIKE 'bot:%' "
-                "AND m.to_actor LIKE 'human:%' "
+                "AND m.to_actor LIKE 'human:%' AND m.deleted_at IS NULL "
                 "AND json_extract(m.refs_json,'$.task_completion') IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) "
                 "AND NOT EXISTS (SELECT 1 FROM slack_threads t WHERE t.conversation_id=m.conversation_id) "
@@ -971,6 +972,8 @@ class Gateway:
             bot, pid = row["from_actor"][4:], row["to_actor"][6:]
             slack_id = ""
             with self.store.transaction() as c:
+                if not privacy.public_message(c, H.message(c, row["id"])):
+                    continue
                 if c.execute("SELECT 1 FROM slack_threads WHERE conversation_id=?",
                              (row["conversation_id"],)).fetchone():
                     continue
@@ -1003,6 +1006,8 @@ class Gateway:
             if not channel:
                 continue
             with self.store.transaction() as c:
+                if not privacy.public_message(c, H.message(c, row["id"])):
+                    continue
                 if c.execute("SELECT 1 FROM slack_threads WHERE conversation_id=?",
                              (row["conversation_id"],)).fetchone():
                     continue
@@ -1024,9 +1029,11 @@ class Gateway:
                 "SELECT m.id,m.body,m.in_reply_to,t.channel,t.thread_ts,t.bot FROM messages m "
                 "JOIN slack_threads t ON t.conversation_id=m.conversation_id AND m.from_actor='bot:'||t.bot "
                 "WHERE m.created>t.created AND m.kind IN ('say','ask','answer','notice') AND m.to_actor LIKE 'human:%' "
-                "AND json_extract(m.refs_json,'$.task_completion') IS NULL "
+                "AND m.deleted_at IS NULL AND json_extract(m.refs_json,'$.task_completion') IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) ORDER BY m.created LIMIT 50").fetchall()
             for r in rows:
+                if not privacy.public_message(c, H.message(c, r["id"])):
+                    continue
                 # The reply goes where the message it answers was: the thread root in a channel;
                 # in a DM, the bottom of the DM unless the person wrote inside a reply thread.
                 where = c.execute(
@@ -1059,6 +1066,8 @@ class Gateway:
         for message in pending:
             pid = message["to_actor"][6:]
             with self.store.read() as c:
+                if not privacy.public_message(c, H.message(c, message["id"])):
+                    continue
                 person = P.person(pid, roster(c))
                 channel = self.im_channel(c, pid)
                 slack_id = str((H.human(c, pid) or {}).get("slack_id") or
@@ -1140,17 +1149,21 @@ class Gateway:
             due = [dict(r) for r in c.execute(
                 "SELECT * FROM slack_posts WHERE state='ready' OR (state='rate_limited' AND next_attempt<=?) "
                 "ORDER BY created LIMIT 20", (now,))]
-            shaped = {row["message_id"]: self.rendered(c, row) for row in due}
         results = []
         for post in due:
             if not post["bot"] and not self.settings.slack_gateway_enabled:
                 continue
             with self.store.transaction() as c:
+                if not privacy.public_message(c, H.message(c, post["message_id"])):
+                    c.execute("UPDATE slack_posts SET state='cancelled',text='',error='Task privacy prevents delivery',updated=? "
+                              "WHERE message_id=? AND state IN ('ready','rate_limited')", (self.clock(), post["message_id"]))
+                    continue
+                shaped = self.rendered(c, post)
                 claimed = c.execute("UPDATE slack_posts SET state='sending',attempts=attempts+1,updated=? "
                                     "WHERE message_id=? AND state IN ('ready','rate_limited')", (self.clock(), post["message_id"])).rowcount
             if not claimed:
                 continue
-            body = shaped[post["message_id"]]
+            body = shaped
             if not self.customize:
                 if not self._customize_warned:
                     LOG.warning("Posting without %s: replies show as %s with the footer only", CUSTOMIZE_SCOPE,

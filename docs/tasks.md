@@ -31,10 +31,60 @@ reorder and delete types and steps. Move every task off a step before deleting i
 finished tasks. Move tasks to another type before deleting the type. Changing an occupied step's
 status moves its tasks to that status, using the normal completion and reopening behavior.
 
+A task on a custom type is a ticket on that type's board, not an ask. The rule that shapes a
+request to a person (a title that starts with a verb, the ask in the first line, under 120 words
+outside quoted drafts) applies to General tasks only, so a ticket keeps the title and the long
+description it was written with. The plain-English check on a title a bot writes (no reference
+numbers, no all-caps words) also applies to General tasks only, so a bot can file "#18945 (B/F)
+Fix the account page" as written. It still needs a title. A decision for a person stays on General.
+
+Whoever may change a task's other fields (its owner, its requester, the owner or requester of a task
+above it, a delegate or a mover) may also rename it. A new title gets the checks a new task's title
+would: never empty, at most 300 characters, a verb first and no internal codes on a General task for
+a person, plain English when a bot writes it on General, and no other live task between the same
+requester and owner, under the same parent, with that title. The old and new titles are in the task's history, and a task's own conversation keeps the
+new title as its subject.
+
 A task on a custom type with a linked pull request follows the existing GitHub flow: review when
 the PR opens, ready when it merges, and done when the configured release includes it. Each move
 uses the mapping above, including clearing the step when the type has no match. General tasks
 keep their existing behavior.
+
+## Types bots work on
+
+Every bot can read company-visible tasks subject to existing bot activity restrictions. Types
+control additional permission to comment, file subtasks or change work in **Settings → Types**,
+with `bots` on the task-types routes or `hub task type update "Dev ticket" --bots work`.
+
+| `bots` | Additional permission for unrelated bots |
+|---|---|
+| `parties` (the default) | None beyond reading company tasks |
+| `read` | Comment on company tasks and file subtasks |
+| `work` | Also change step, owner, due date, description, order and links |
+
+Private overrides every type permission. Closing, ready or closed steps and labels keep their
+existing human controls. Changing type cannot publish a private task.
+A bot's comment is a message to the people on the task, under the usual rules for reaching them.
+## Numbers and the order within a step
+
+A mover can make a custom type **numbered**: a board of tickets, worked through on the board. Its
+tickets stay out of their owner's **Needs you** unless one asks that person something, and a declined
+one stays out of its requester's. Each task created on a numbered type, or moved onto one, gets the
+team's next number: one sequence for the whole team, like one board's ticket numbers,
+the highest number yet plus one, starting at 1. A number never changes, even if the task later
+moves to another type. Turning numbering on does not number the tasks already on the type. To keep
+an imported ticket's number, a mover passes `number` when creating it, or gives it once to a task
+that has none; a number another task has is refused (`422 duplicate`). Wherever a task id is
+accepted, `#18945` names the task with that number (`%2318945` in a URL; quote it in a shell).
+The digits alone are not read as a number, since a cut-short id can look the same.
+
+Numbers range from 1 to 999999999; an exhausted sequence refuses a new number without creating a task.
+
+A task also has a place within its step, `step_rank`, lower first, apart from `rank`, its place in
+its owner's queue. A task that enters a step, when it is created or its step, type or status
+changes, goes to the end of the step, or to the top when it is created with `top`. The people on
+the task and movers set `step_rank` to move it within the step. On the board, a type's columns are
+in that order.
 
 ## CLI and MCP
 
@@ -42,14 +92,21 @@ keep their existing behavior.
 hub task types
 hub task create --owner content --title "Draft the campaign" --body "Use the brief." --type Marketing
 hub task update <task-id> --step "Legal review"
+hub task update <task-id> --title "(B/F) Account page: improve the copy"
 hub task update <task-id> --status review
 hub task update <task-id> --type General
 hub task update <task-id> --step ""
+hub task type update "Dev ticket" --numbered
+hub task create --owner ben --title "(B/F) Fix the account page" --type "Dev ticket" --number 18945
+hub task show '#18945'
+hub task update '#18945' --step "On deck" --step-rank 2.5
+hub task list --type "Dev ticket" --sort step
 ```
 
 `hub_task_types` lists types and ordered steps. `hub_task_create` and `hub_task_update` accept
-`type` and `step`, as ids or names. Movers manage definitions with `hub_task_type_create`,
-`hub_task_type_update` and `hub_task_type_delete`, or `hub task type create|update|delete`.
+`type` and `step`, as ids or names, and `number`; `hub_task_update` also takes `step_rank` and `title`, and
+`hub_task_list` takes `type`, `step` and `sort`. Movers manage definitions with `hub_task_type_create`,
+`hub_task_type_update` and `hub_task_type_delete` (with `numbered`), or `hub task type create|update|delete`.
 
 For example, put this JSON array in `steps.json`:
 
@@ -66,10 +123,20 @@ explicit positions are provided. Omitted steps are removed; new steps omit `id`.
 
 `GET/POST /api/v2/task-types` list and create types. `GET/POST /api/v2/task-types/{id}` read and
 update one. `DELETE /api/v2/task-types/{id}`, or `POST /api/v2/task-types/{id}/delete`, deletes an
-unused type. Updates accept `name` and a replacement `steps` array, retaining existing step ids.
-All writes use the existing Idempotency-Key contract. Task create and update accept `type` and
-`step`; task answers include `type_id`, `step_id`, a `type` object and a `step` object (null when
-unmapped).
+unused type. Create and update accept `numbered`; updates accept `name` and a replacement `steps`
+array, retaining existing step ids. All writes use the existing Idempotency-Key contract. Task
+create and update accept `type`, `step` and `number`, and update accepts `step_rank` and `title`; task answers
+include `type_id`, `step_id`, a `type` object, a `step` object (null when unmapped), `number` and
+`step_rank`.
+
+`GET /api/v2/tasks` takes `type` and `step` (ids or names; a step name without `type` means that
+step in every type), `number`, and `sort=step`: by the step's position, then `step_rank`, then
+when the task was created. `GET /api/v2/tasks?type=Dev%20ticket&sort=step` is a board's columns,
+in order. Add `updated_since=<ISO-8601 time with timezone>` to poll only changed tasks; `brief=true`
+leaves out bodies and acceptance criteria. `hub task list` and `hub_task_list` accept the same filters,
+including with `--all`/`all`, and support `number` lookup.
+
+Type create and update also accept `bots` (`parties`, `read` or `work`).
 
 `task_types` and `task_steps` are readable through SQL. Join them to the caller's visible `tasks`
 using `tasks.type_id` and `tasks.step_id`; the task visibility rules still apply.
@@ -241,3 +308,91 @@ On the board, a task with a picture shows the newest one as a cover, and a dot m
 question. **Pin** in the Tasks toolbar keeps the current view and filters under **Pipelines** in
 the left rail, for you only; ✕ on a pin removes it. Pins are links: nothing moves a task's step
 on its own.
+
+
+## Company and private tasks
+
+New ordinary tasks are readable by active company people and bots. Reading does not grant
+permission to change, reassign or complete work. Type bot settings continue to grant comment,
+subtask and work permissions; they cannot override Private or restricted bot activity.
+
+Turn on **Private** in the existing task controls to limit future reads to the requester and
+current assignee, human or bot. The assignee may tighten visibility; only the human requester
+can publish again. Bots cannot publish a private task, including when acting for a person.
+Bot-requested private work stays private until a future explicit human publication mechanism
+exists. Mentions, administrators, managers, parent ownership and delegations grant no access.
+Reassigning a private task gives the new assignee access and removes the previous assignee's
+future access unless they remain its requester. Reassignment never clears Private.
+
+Task-linked messages, files and previews, execution output, SQL results, search context and saved
+responses apply the same current-participant boundary. Retained room grants and attachment
+uploader ownership do not restore revoked access. File downloads use authenticated delivery
+with `no-store`; private task notices stay out of Slack, and batch records remain on the task.
+Bot status hides free-form private context. Automatic KPI readings are withheld for bots with
+private history because their mixed history cannot support a safe public view. Reads use a coherent database snapshot; the next request sees committed
+permission changes.
+
+Privacy controls future reads and supported automated delivery. An authorized participant may
+retain or copy information already read. Downloads, provider history and external copies cannot
+be recalled, and unrelated untagged prose cannot reliably be identified as private task content.
+
+The existing bot Settings editor offers **Create private tasks by default**. This also covers
+requests assigned to that bot, including its shared branches. The Legal template enables it
+by default; Tico does not guess from names. A human may clear the create checkbox to choose
+company visibility explicitly. Supported structured output and automated delivery from a private
+task retain its access restrictions. A private parent's subtasks are private and have their own
+two participants. Publishing a child requires detaching it from a private parent.
+
+Upgrade retains every task, message and attachment. Existing tasks whose requester and assignee
+have known ordinary roster/config identities stay company-visible. Legal-template and sensitive
+default bots, their branches and private descendants become private. Missing roster/config
+identities, malformed sensitive defaults, unresolved branch sources and missing parents fail
+closed as private. Any already stored privacy is preserved. No names or task text determine
+privacy. The remaining participant retains access to orphaned private work; restore the original
+roster identity or use separately approved offline recovery when neither participant exists.
+There is no owner, manager or service-key recovery bypass. Old clients omit the
+new optional fields and keep working; new tasks created through an old runner receive the same
+server defaults. Direct legacy database inserts that omit privacy stay private.
+
+Future reads, task context, files, links, counts and notices enforce current access. Content
+already downloaded or delivered to a bot, an external service or a person cannot be recalled.
+Authorized participants can retain or copy information elsewhere, including while working on
+another task. Tico does not reliably classify arbitrary untagged prose or track every private
+read as a restriction on later work. Persistent bot sessions and external copies are not recalled.
+
+Task numbers, queue order and import numbering retain their existing semantics. Opaque number
+and rank gaps may remain; they do not disclose hidden task content or participants.
+
+## Editing and deleting comments
+
+Whoever wrote a comment, a person or a bot, can change its text or delete it, signed in as
+themselves. Nobody else can, the owner included, and neither can the Assistant or BotOps on the
+author's behalf. Only comments can be changed. A question, an answer, a notice, an approval or a chat
+line in a bot's room that mentions the task cannot.
+
+An edit gets the checks a new comment gets, and the comment is marked as edited; Tico's task view
+shows "edited" beside its time. A delete takes the comment off the task. Neither wakes anyone or
+sends anything. Both move the task's updated time and add a line to its history. The audit log
+(`events`) records the change without retaining old text.
+
+A deleted comment leaves a tombstone with its text cleared. It is excluded from SQL for everyone,
+including the owner, and is excluded from future comment reads and bot context. Cached write replies are refreshed
+so retrying an earlier call does not return old or deleted text. If it started a bot run that has not
+begun yet, the run is cancelled. The questions it answered are open again, and the bot it woke loses the delegation that
+came with it. An edit is not sent again: a bot that next reads the comment gets its current text.
+
+Only plain comments can change. Attachment and structured-review comments are refused because
+their independent file and answer records are retained. Already delivered plain comments can
+still be edited or deleted in Tico; queued outbound copies stop and no retroactive change is sent
+to external services. Provider threads, retained bot sessions and already delivered external
+copies cannot be recalled here. Current task read access is
+required on every call, including an idempotent retry.
+
+```sh
+hub task comment-edit <task-id> <comment-id> "Use the August numbers."
+hub task comment-delete <task-id> <comment-id>
+```
+
+The comment id is the `id` in the task's `comments` (`hub task show`). MCP: `hub_task_comment_edit`
+(`id`, `comment_id`, `text`) and `hub_task_comment_delete` (`id`, `comment_id`). The API routes are
+in [Task comments](api.md#task-comments).

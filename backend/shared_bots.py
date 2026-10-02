@@ -9,7 +9,7 @@ from .store import H, Problem, encode, repo_url
 # What a branch takes from its original at every claim. Everything else (its name, its person,
 # its computer) is the branch's own.
 FOLLOWED = ("model", "runtime", "harness", "reasoning_effort", "session", "fallback",
-            "max_run_minutes", "bot_contact")
+            "max_run_minutes", "bot_contact", "private_tasks_default")
 
 
 def _json(value):

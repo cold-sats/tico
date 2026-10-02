@@ -96,9 +96,9 @@ def readings(conn, kpi_id, limit=500):
     return K.readings(conn, kpi_id, limit=limit)
 
 
-def tasks_of(conn, goal_id):
+def tasks_of(conn, goal_id, visible="coalesce(private,1)=0"):
     return H._rows(conn.execute("SELECT id,title,owner,requester,status,updated FROM tasks WHERE goal_id=? "
-                                "ORDER BY status, updated DESC", (goal_id,)))
+                                "AND (" + visible + ") ORDER BY status, updated DESC", (goal_id,)))
 
 
 def checkins(conn, goal_id, limit=50):
@@ -129,10 +129,10 @@ def _proposal_view(row):
     return row
 
 
-def view(conn, row):
+def view(conn, row, visible="coalesce(private,1)=0"):
     """One goal with everything the page and `hub goal show` print."""
     return {**row, "kpis": kpis(conn, row["id"]), "children": children(conn, row["id"]),
-            "chain": chain(conn, row["id"]), "tasks": tasks_of(conn, row["id"]),
+            "chain": chain(conn, row["id"]), "tasks": tasks_of(conn, row["id"], visible),
             "events": history(conn, row["id"]), "checkins": checkins(conn, row["id"], 10),
             "proposals": proposals(conn, "pending", goal_id=row["id"])}
 
@@ -474,7 +474,8 @@ def _from_owner(conn, row, at):
     if said:
         return {"status": SIGNAL_COLOUR[said["signal"]], "basis": "checkin",
                 "reason": f"Check-in {_age(said['ts'], at)} ago: {said['signal'].replace('_', ' ')}"}
-    tasks = conn.execute("SELECT status, done_at, closed_at, updated FROM tasks WHERE goal_id=? AND status!='declined'",
+    tasks = conn.execute("SELECT status, done_at, closed_at, updated FROM tasks WHERE goal_id=? "
+                         "AND status!='declined' AND coalesce(private,1)=0",
                          (row["id"],)).fetchall()
     if not tasks:
         return None

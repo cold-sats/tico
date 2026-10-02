@@ -147,6 +147,13 @@ def run(args, who=None):
         # Runs here, beside the credential; the hub only checks who is asking and keeps the audit.
         from clients import dbquery
         return dbquery.run(client, args)
+    if args.cmd == "service-key":
+        # A person's own shell (hubtools.SHELL_ONLY): a new key is shown to them, never to an agent's context.
+        if fn == "service-key create":
+            return client.post("service-keys", {"label": args.label}, key=os.environ.get("HUB_OPERATION_ID"))
+        if fn == "service-key revoke":
+            return client.post("service-keys/" + args.id + "/revoke", {}, key=os.environ.get("HUB_OPERATION_ID"))
+        return client.get("service-keys")["keys"]
     identity = client.get("me")
     actor = identity["actor"]
     key = os.environ.get("HUB_OPERATION_ID")
@@ -237,6 +244,10 @@ def run(args, who=None):
                 body["name"] = args.name
             if args.steps_file:
                 body["steps"] = json.loads(Path(args.steps_file).read_text())
+            if args.bots:
+                body["bots"] = args.bots
+            if args.numbered is not None:
+                body["numbered"] = args.numbered
             return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
         if sub == "types":
             if args.delete:
@@ -255,7 +266,9 @@ def run(args, who=None):
             body = Path(args.body_file).read_text() if args.body_file else args.body
             payload = {"owner": target(args.owner), "title": args.title, "body": body,
                        "due": args.due, "parent_id": args.parent, "goal_id": getattr(args, "goal", None) or None}
-            for field in ("type", "step"):
+            if getattr(args, "private", None) is not None:
+                payload["private"] = args.private
+            for field in ("type", "step", "number"):
                 if getattr(args, field, None) is not None:
                     payload[field] = getattr(args, field)
             if args.label:
@@ -292,6 +305,10 @@ def run(args, who=None):
             return post(f"tasks/{args.id}/comments", body)
         if sub == "answers":
             return client.get(f"tasks/{args.id}/answers")
+        if sub == "comment-edit":
+            return post(f"tasks/{args.id}/comments/{args.comment_id}", {"text": args.text})
+        if sub == "comment-delete":
+            return post(f"tasks/{args.id}/comments/{args.comment_id}/delete", {})
         if sub == "link":
             return post(f"tasks/{args.id}/links", {"url": args.url, "title": args.title})
         if sub == "label":
@@ -340,7 +357,9 @@ def run(args, who=None):
             else:
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
-                for field in ("type", "step"):
+                if getattr(args, "private", None) is not None:
+                    body["private"] = args.private
+                for field in ("title", "type", "step", "step_rank", "number"):
                     if getattr(args, field, None) is not None:
                         body[field] = getattr(args, field)
                 if args.blocked_by is not None:

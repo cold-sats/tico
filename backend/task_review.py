@@ -3,6 +3,7 @@ import html
 import re
 
 from .store import H, Problem, encode
+from . import task_privacy as privacy
 
 
 def readable_text(value):
@@ -15,7 +16,13 @@ def readable_text(value):
 
 def comment_rights(c, auth, who, task_id):
     row = auth.task(c, who, task_id)
-    others = [a for a in dict.fromkeys([row["owner"], row["requester"], H.task_origin(c, row)])
+    if who.role == "bot" and who.actor not in (row["owner"], row["requester"]):
+        delegated = c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
+                              (task_id, who.actor, H.now())).fetchone()
+        if not delegated and not H.task_ancestor_party(c, who.actor, row) and not H.type_bot_reads(c, who.actor, row):
+            raise Problem("forbidden", "Reading a task does not grant permission to comment", 403)
+    origin = None if H.task_private(c, row) else H.task_origin(c, row)
+    others = [a for a in dict.fromkeys([row["owner"], row["requester"], origin])
               if a and a not in (who.actor, H.KEEPER)]
     target = next((a for a in others if H.is_bot(a)), None)
     if target and who.actor != row["owner"]:
@@ -48,6 +55,8 @@ def check_ask(c, task_id, ask, auth, who):
         target = H.resolve_actor(c, ask.who)
         if not H.bot(c, H.actor_id(target)) and not H.human(c, H.actor_id(target)):
             raise Problem("validation", "Question recipient not found", 422)
+        if not H.task_private_readable(c, target, H.task(c, task_id)):
+            raise Problem("privacy", "Private questions stay with the requester and current owner", 403)
         if H.is_bot(target):
             row = H.task(c, task_id)
             if target not in (row["owner"], row["requester"], H.task_origin(c, row)):
@@ -64,6 +73,8 @@ def check_ask(c, task_id, ask, auth, who):
 def version_review(c, fid, number):
     row = c.execute("SELECT * FROM task_file_reviews WHERE file_id=? AND version=?", (fid, number)).fetchone()
     asked = H.message(c, row["ask_message_id"]) if row and row["ask_message_id"] else None
+    if asked and (asked.get("deleted_at") or asked.get("deleted")):
+        asked = None
     return {"note": row["note"] if row else None, "comment_id": row["comment_id"] if row else None,
             "ask": {**{k: asked["refs"].get(k) for k in ("questions", "who")}, "by": asked["from_actor"]} if asked else None,
             "answers": H.review_answers(c, asked["id"]) if asked else []}
@@ -78,6 +89,7 @@ def edit_version(c, auth, who, task_id, fid, number, body):
         raise Problem("forbidden", "Only whoever added this version may edit its note or question", 403)
     value = check_ask(c, task_id, body.ask, auth, who)
     current = version_review(c, fid, number)
+    c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task_id))
     c.execute("INSERT OR IGNORE INTO task_file_reviews(file_id,version) VALUES(?,?)", (fid, number))
     if "note" in body.model_fields_set:
         c.execute("UPDATE task_file_reviews SET note=? WHERE file_id=? AND version=?", (body.note, fid, number))
@@ -120,6 +132,7 @@ def answer_task(c, auth, who, task_id, body, wake):
         asked = H.message(c, review[0]) if review and review[0] else None
     if not asked or asked["kind"] != "ask" or not asked["refs"].get("questions"):
         raise Problem("validation", "The target has no structured question", 422)
+    privacy.require_message(c, who, asked)
     if asked["from_actor"] == who.actor:
         raise Problem("forbidden", "The asker cannot answer their own question", 403)
     questions = {q["id"]: q for q in asked["refs"]["questions"]}

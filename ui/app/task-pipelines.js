@@ -84,7 +84,8 @@ function taskPipelineBoard(items, state) {
   }
   const STEP_KIND = {open: 'starting', doing: 'doing', waiting: 'waiting', review: 'review', ready: 'review', done: 'done', closed: 'closed', declined: 'needs'};
   for (const column of columns) {
-    column.items.sort(byRank);
+    column.items.sort((a, b) => (a.task.step_rank ?? Infinity) - (b.task.step_rank ?? Infinity)
+      || String(a.task.created).localeCompare(String(b.task.created)) || String(a.task.id).localeCompare(String(b.task.id)));
     const step = type.steps.find(step => step.id === column.id);
     column.kind = STEP_KIND[step?.status || column.id.replace(/^status-/, '')] || '';
   }
@@ -134,12 +135,16 @@ async function renderTaskTypes() {
     const add = host.querySelector('[data-new-type]'); if (add) add.onclick = () => taskTypeEditor();
   } catch (error) { host.textContent = error.message; }
 }
+// What every bot may do with company tasks beyond reading (docs/tasks.md, "Types bots work on").
+const TYPE_BOTS = [['parties', 'Participants change their tasks'], ['read', 'Every bot may comment and create subtasks'],
+  ['work', 'Every bot reads and works on all of them']];
 function taskTypeEditor(type = null) {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal task-type-editor';
   dialog.setAttribute('aria-label', type ? 'Edit type' : 'New type');
   dialog.innerHTML = `<div class="tmodal-head"><h2>${type ? 'Edit type' : 'New type'}</h2><span class="spacer"></span><button class="ghost" type="button" data-close aria-label="Close">✕</button></div>
     <form class="tmodal-body"><label>Name <input name="typeName" required value="${esc(type?.name || '')}" aria-label="Type name"></label>
     <div data-steps></div><button class="ghost" type="button" data-add-step>Add step</button>
+    <label>Bots <select name="typeBots" aria-label="What bots may do">${TYPE_BOTS.map(([value, words]) => `<option value="${value}"${(type?.bots || 'parties') === value ? ' selected' : ''}>${esc(words)}</option>`).join('')}</select></label>
     <div class="row"><button class="primary" type="submit">Save</button>${type ? '<button class="ghost danger" type="button" data-delete-type>Delete</button>' : ''}</div>
     <p data-error class="err" role="status"></p></form>`;
   document.body.append(dialog); dialog.showModal();
@@ -171,7 +176,7 @@ function taskTypeEditor(type = null) {
     event.preventDefault();
     const steps = [...rows.children].map((row, position) => ({...(row.dataset.stepId ? {id: row.dataset.stepId} : {}),
       name: row.querySelector('input').value, status: row.querySelector('select').value, position}));
-    void saved({name: dialog.querySelector('[name=typeName]').value, steps});
+    void saved({name: dialog.querySelector('[name=typeName]').value, steps, bots: dialog.querySelector('[name=typeBots]').value});
   };
   const remove = dialog.querySelector('[data-delete-type]');
   if (remove) remove.onclick = async () => {

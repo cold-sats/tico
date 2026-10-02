@@ -117,6 +117,14 @@ CREATE TABLE IF NOT EXISTS human_tokens(
  id TEXT PRIMARY KEY, human TEXT NOT NULL REFERENCES humans(id), label TEXT NOT NULL,
  token_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL, created_by TEXT NOT NULL,
  last_used TEXT, expires_at TEXT, revoked_at TEXT);
+-- Service keys (backend/service_keys.py): another system's credential for one route, as a hash, and
+-- the task each (key, that system's own key for the work) pair names.
+CREATE TABLE IF NOT EXISTS service_keys(
+ id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL,
+ created_by TEXT NOT NULL, last_used TEXT, revoked_at TEXT, revoked_by TEXT);
+CREATE TABLE IF NOT EXISTS service_key_tasks(
+ key_id TEXT NOT NULL REFERENCES service_keys(id), external_key TEXT NOT NULL,
+ task_id TEXT NOT NULL REFERENCES tasks(id), created TEXT NOT NULL, PRIMARY KEY(key_id, external_key));
 CREATE TABLE IF NOT EXISTS oidc_sessions(
  id_hash TEXT PRIMARY KEY, human TEXT NOT NULL REFERENCES humans(id), email TEXT NOT NULL,
  created TEXT NOT NULL, last_seen TEXT NOT NULL, expires_at TEXT NOT NULL);
@@ -326,6 +334,21 @@ CREATE INDEX IF NOT EXISTS slack_task_completion_notices ON messages(
 SCHEMA += SLACK_SCHEMA
 
 
+def refused(c, identity, exc):
+    """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it."""
+    c.execute("ROLLBACK TO domain_write")
+    c.execute("RELEASE domain_write")
+    # Preserve refusal auditing, but never a partial domain operation.
+    token = H.PRIVATE_WRITE.set(getattr(exc, 'private', False))
+    try:
+        H.refuse(c, identity.actor, exc.rule, exc.detail, exc.severity)
+    except H.Refused:
+        pass
+    finally:
+        H.PRIVATE_WRITE.reset(token)
+    return Problem(exc.rule, exc.detail, 403 if exc.rule in ("identity", "escape", "quarantined", "close") else 422)
+
+
 # A client retries a failed write with the same Idempotency-Key within seconds, so two
 # days of stored responses is generous. Without a bound the table kept every mutating
 # request's response forever: most of the database file.
@@ -439,8 +462,9 @@ def digest(value):
 
 
 def message_page(c, cid, *, before=None, since=None, limit=200):
-    """Newest page, in display order; rowid breaks ties for messages in the same millisecond."""
-    clauses, args = ["conversation_id=?"], [cid]
+    """Newest page, in display order; rowid breaks ties for messages in the same millisecond. A
+    deleted task comment is left out: this page is also what a bot's run is handed."""
+    clauses, args = ["conversation_id=?", "deleted_at IS NULL"], [cid]
     if before:
         anchor = c.execute("SELECT rowid FROM messages WHERE id=? AND conversation_id=?", (before, cid)).fetchone()
         if not anchor:
@@ -951,9 +975,18 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=54").fetchone():
                     H._apply(c, H.TASK_REVIEW_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(54,?)", (H.now(),))
+                # What every bot may do with a type's tasks (hubdb.TYPE_BOTS). Checked on every start
+                # rather than numbered, so no migration number collides with another branch's.
+                H.add_column(c, "task_types", "bots", "TEXT")
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=55").fetchone():
                     H._apply(c, H.MEETING_REVIEW_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(55,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=56").fetchone():
+                    H._apply(c, H.NUMBERS_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(56,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=57").fetchone():
+                    H.migrate_task_privacy(c)
+                    c.execute("INSERT INTO cloud_migrations VALUES(57,?)", (H.now(),))
                 c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
                     AFTER INSERT ON bot_config
                     WHEN json_extract(NEW.config_json,'$.repo_access_mode') IS NULL
@@ -1105,7 +1138,7 @@ class Store:
             from . import groups as Groups
             Groups.migrate(c, self.settings)
 
-    def mutate(self, identity, operation, key, body, fn):
+    def mutate(self, identity, operation, key, body, fn, check=None):
         if not key or len(key) > 200:
             raise Problem("idempotency_key", "Provide an Idempotency-Key of 1–200 characters", 422)
         hashed = digest(encode(body))
@@ -1115,27 +1148,56 @@ class Store:
             # Authenticate leases again under the same write lock as the mutation.
             from .auth import validate_identity
             validate_identity(c, identity)
+            if check:
+                check(c)
             row = c.execute("SELECT * FROM idempotency WHERE actor=? AND operation=? AND key=?",
                             (principal, operation, key)).fetchone()
             if row:
                 if row["request_hash"] != hashed:
                     raise Problem("idempotency_conflict", "This key was used for different content", 409)
-                return json.loads(row["response_json"])
+                result = json.loads(row["response_json"])
+                from .auth import Auth, Identity
+                from . import task_privacy as privacy
+                replay_auth = Auth(self)
+                replay_auth.sync_access(c)
+                replay_principal = identity
+                if identity.role == "runner" and isinstance(result, dict) and isinstance(result.get("attempt"), dict):
+                    saved = result["attempt"]
+                    hosted = c.execute("SELECT 1 FROM attempts a JOIN assignments x ON x.bot=a.bot "
+                                       "WHERE a.id=? AND a.runner_id=? AND x.runner_id=?",
+                                       (saved.get("id"), identity.runner_id, identity.runner_id)).fetchone()
+                    if not hosted:
+                        raise Problem("privacy", "This execution is no longer assigned to this computer", 403)
+                    replay_principal = Identity("bot:" + saved["bot"], "bot", runner_id=identity.runner_id,
+                                                attempt_id=saved["id"])
+                # Cached results keep their retry semantics, but access is current on every retry.
+                task_ids = set()
+                for part in operation.split("/"):
+                    if H.task(c, part):
+                        task_ids.add(part)
+                def referenced(value):
+                    if isinstance(value, dict):
+                        if "requester" in value and "owner" in value and value.get("id"):
+                            task_ids.add(value["id"])
+                        for name, item in value.items():
+                            if name in ("task", "task_id", "parent_id", "blocked_by") and isinstance(item, str) and H.task(c, item):
+                                task_ids.add(item)
+                            referenced(item)
+                    elif isinstance(value, list):
+                        for item in value:
+                            referenced(item)
+                referenced(result)
+                for task_id in task_ids:
+                    replay_auth.task(c, replay_principal, task_id)
+                privacy.require_payload(c, replay_principal, result)
+                return result
             c.execute("SAVEPOINT domain_write")
             try:
                 result = fn(c)
                 c.execute("RELEASE domain_write")
             except H.Refused as exc:
-                c.execute("ROLLBACK TO domain_write")
-                c.execute("RELEASE domain_write")
-                # Preserve refusal auditing, but never a partial domain operation.
-                try:
-                    H.refuse(c, identity.actor, exc.rule, exc.detail, exc.severity)
-                except H.Refused:
-                    pass
-                refusal = Problem(exc.rule, exc.detail, 403 if exc.rule in
-                                  ("identity", "escape", "quarantined", "close") else 422)
-                result = {"_refusal": {"code": refusal.code, "detail": refusal.detail,
+                refusal = refused(c, identity, exc)
+                result = {"_refusal": {"code": refusal.code, "detail": ("Private task write refused" if getattr(exc, "private", False) else refusal.detail),
                                        "status": refusal.status}}
             if not is_poll(operation, result):
                 c.execute("INSERT INTO idempotency VALUES(?,?,?,?,?,?)",
@@ -1144,8 +1206,26 @@ class Store:
             raise refusal
         return result
 
+    def write(self, identity, fn):
+        """`mutate` without an idempotency record, for a route whose request is its own: the same
+        identity check under the write lock, and the same all-or-nothing refusal."""
+        refusal = None
+        with self.transaction() as c:
+            from .auth import validate_identity
+            validate_identity(c, identity)
+            c.execute("SAVEPOINT domain_write")
+            try:
+                result = fn(c)
+                c.execute("RELEASE domain_write")
+            except H.Refused as exc:
+                refusal = refused(c, identity, exc)
+        if refusal:
+            raise refusal
+        return result
+
     def enqueue_existing(self):
         with self.transaction() as c:
             c.execute("INSERT OR IGNORE INTO jobs(id,message_id,bot,created) "
                       "SELECT id,id,substr(to_actor,5),created FROM messages NEW "
-                      "WHERE to_actor LIKE 'bot:%' AND delivered_at IS NULL AND NOT " + EXTERNAL_BOT_SQL)
+                      "WHERE to_actor LIKE 'bot:%' AND delivered_at IS NULL AND deleted_at IS NULL AND NOT "
+                      + EXTERNAL_BOT_SQL)

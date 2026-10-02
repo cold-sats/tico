@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import re
 import sqlite3
 import stat
 from dataclasses import dataclass, replace
@@ -14,6 +15,7 @@ from . import bot_access as A
 from . import identity_proxy
 from . import people as P
 from . import rooms
+from . import service_keys
 from . import team_rules
 from .store import H, Problem, digest
 
@@ -56,6 +58,8 @@ def _edit_distance(a, b, limit):
 @dataclass(frozen=True)
 class Identity:
     actor: str
+    # owner, human, bot, runner, or service: another system's key (backend/service_keys.py), actor
+    # "service:<key id>", its label in token_label, which reaches one route and nothing else.
     role: str
     email: str = ""
     runner_id: str = ""
@@ -78,6 +82,8 @@ class Identity:
     # may do and propose the rest, or (confirmed) the person's own click on a proposal it made.
     via: str = ""
     confirmed: bool = False
+    # Acting for a human does not grant a bot membership in that human's private tasks.
+    task_actor: str = ""
 
 
 def standing(c, pid):
@@ -97,6 +103,15 @@ def standing(c, pid):
 
 
 def validate_identity(c, who):
+    if who.task_actor:
+        validate_identity(c, Identity(who.task_actor, 'bot', runner_id=who.runner_id,
+                                      attempt_id=who.attempt_id, agent=who.agent))
+    if who.role == "service":
+        # Again under a write's lock: a key revoked since the request began writes nothing.
+        if not c.execute("SELECT 1 FROM service_keys WHERE id=? AND revoked_at IS NULL",
+                         (H.actor_id(who.actor),)).fetchone():
+            raise Problem("identity", "Invalid credential", 401)
+        return
     if who.role in ("owner", "human"):
         if not H.human(c, H.actor_id(who.actor)):
             raise Problem("identity", "Unknown person", 401)
@@ -313,6 +328,25 @@ class Auth:
         return Identity("human:" + row["human"], role, email=email, via_token=True,
                         token_label=str(row["label"] or ""))
 
+    def identity_from_service_key(self, c, token, path, method):
+        """Another system's service key (backend/service_keys.py), on the one route it may use.
+
+        It is no person and no bot: anywhere else it is refused here, before any route could take
+        its unfamiliar role for one with more reach. A revoked key is refused like an unknown one."""
+        row = c.execute("SELECT id,label,last_used,revoked_at FROM service_keys WHERE key_hash=?",
+                        (digest(token),)).fetchone()
+        if not row or row["revoked_at"]:
+            raise Problem("identity", "Invalid credential", 401)
+        if (method, path) != ("POST", service_keys.INBOUND_PATH):
+            raise Problem("forbidden", "A service key only files tasks, with POST " + service_keys.INBOUND_PATH, 403)
+        now = H.now()
+        if not row["last_used"] or row["last_used"] < H.shift(now, seconds=-60):
+            try:
+                c.execute("UPDATE service_keys SET last_used=? WHERE id=?", (now, row["id"]))
+            except sqlite3.Error:
+                pass
+        return Identity("service:" + row["id"], "service", token_label=str(row["label"]))
+
     def assistant_principal(self, c, attempt):
         """The person an assistant chat turn acts for, as that person and nobody more, or None.
 
@@ -338,7 +372,8 @@ class Auth:
         email = str(human.get("email") or "").lower()
         return Identity(row["owner_actor"], "owner" if email and email == self.owner_email else "human",
                         email=email, via_token=True, token_label=self.settings.assistant_name,
-                        via="assistant")
+                        via="assistant", task_actor="bot:" + attempt["bot"],
+                        attempt_id=attempt["id"], runner_id=attempt["runner_id"])
 
     def authenticate(self, headers, path="", method=""):
         bearer = headers.get("authorization", "")
@@ -355,6 +390,8 @@ class Auth:
                 who = self.owner_identity(c)
             elif token and (who := self.identity_from_local_owner_token(c, token)):
                 pass
+            elif token.startswith(service_keys.PREFIX):
+                who = self.identity_from_service_key(c, token, path, method)
             elif token:
                 row = c.execute("SELECT id FROM runners WHERE token_hash=? AND revoked_at IS NULL",
                                 (digest(token),)).fetchone()
@@ -601,30 +638,30 @@ class Auth:
             return set()
         return {slug for slug, level in self.bot_accesses(c, who).items() if not level["read"]}
 
-    def task_sql(self, c, who, delegations="task_delegations"):
-        """The tasks this caller may read, as a WHERE fragment over `tasks` (owner, requester, id).
+    @staticmethod
+    def task_snapshot(c):
+        # A detail response must not mix pre-revocation authorization with later private comments/files.
+        if not c.in_transaction:
+            c.execute('BEGIN')
+            return True
+        return False
 
-        The same rule as `task_row`, for lists: a task that involves a bot the caller cannot read
-        is theirs only as a party to it. `delegations` names the table a bot's delegations are
-        read from (the SQL endpoint reads a guarded view of it)."""
-        if who.role == "owner" or who.role not in ("human", "bot"):
-            return "1"
+    def task_sql(self, c, who, delegations="task_delegations"):
+        """Company tasks are readable subject to bot activity controls; private tasks have two parties.
+
+        Ownership, type-wide work, ancestry and delegation never widen private visibility.
+        `delegations` stays accepted for compatibility with the guarded SQL caller.
+        """
+        self.task_snapshot(c)
+        if who.role not in ("owner", "human", "bot"):
+            return "0"
         hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who))]
         clear = ("NOT (owner IN %s OR requester IN %s)" % ((A.qlist(hidden),) * 2)) if hidden else "1"
         me = A.q(who.actor)
-        if who.role == "bot":
-            # Materialize ancestry before SQL installs its guarded views: a recursive view
-            # would otherwise need access to the unfiltered tasks table during execution.
-            managed = [r[0] for r in c.execute("WITH RECURSIVE managed(id) AS ("
-                "SELECT child.id FROM tasks child JOIN tasks parent ON child.parent_id=parent.id "
-                "WHERE ? IN (parent.owner,parent.requester) UNION "
-                "SELECT child.id FROM tasks child JOIN managed ON child.parent_id=managed.id) "
-                "SELECT managed.id FROM managed JOIN tasks t ON t.id=managed.id WHERE ? NOT IN (t.owner,t.requester)",
-                (who.actor, who.actor))]
-            return (f"({me} IN (owner,requester) OR ({clear} AND id IN {A.qlist(managed)}) OR "
-                    f"({clear} AND id IN (SELECT task_id FROM {delegations} "
-                    f"WHERE delegate={me} AND expires>{A.q(H.now())})))")
-        return f"({clear} OR {me} IN (owner,requester))"
+        audience = f"({me} IN (owner,requester) OR (coalesce(private,1)=0 AND ({clear})))"
+        if who.task_actor:
+            audience += f" AND (coalesce(private,1)=0 OR {A.q(who.task_actor)} IN (owner,requester))"
+        return audience
 
     def operator(self, c, who, bot):
         row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
@@ -751,6 +788,10 @@ class Auth:
         row = H.conversation(c, conversation_id)
         if not row:
             raise Problem("not_found", "Conversation not found", 404)
+        if row.get("task_id"):
+            self.task(c, who, row["task_id"])
+            if row.get("kind") == "task":
+                return row
         if who.role == "bot":
             # A runner turn sees the conversations its attempt was handed. An external agent
             # has no attempt: it sees the conversations it is in, which is what a claim would
@@ -806,16 +847,20 @@ class Auth:
             raise Problem("forbidden", "The initiating person is no longer on the roster", 403)
         email = str(human.get("email") or "").lower()
         role = "owner" if email and email == self.owner_email else "human"
-        return Identity(actor, role, email=email)
+        return Identity(actor, role, email=email, task_actor=who.task_actor or who.actor,
+                        runner_id=who.runner_id, attempt_id=who.attempt_id, agent=who.agent, via=who.via)
 
     def task_row(self, c, who, row):
+        if self.task_snapshot(c) and row:
+            row = H.task(c, row["id"])
         self.domain(who)
         if not row:
             raise Problem("not_found", "Task not found", 404)
-        if who.role == "owner":
-            return row
+        if who.role not in ("owner", "human", "bot") or not H.task_private_readable(c, who.actor, row):
+            raise Problem("not_found", "Task not found", 404)
+        if who.task_actor and not H.task_private_readable(c, who.task_actor, row):
+            raise Problem("not_found", "Task not found", 404)
         participants = (row["owner"], row["requester"])
-        ancestor_party = who.role == "bot" and H.task_ancestor_party(c, who.actor, row)
         if who.actor not in participants:
             # A party to a task always sees it; anyone else needs Read on every bot it involves.
             bots = [H.actor_id(a) for a in participants if str(a).startswith("bot:")]
@@ -824,22 +869,20 @@ class Auth:
                     raise Problem("not_found", "Task not found", 404)
                 if not level["read"]:
                     raise Problem("forbidden", f"This task involves {slug}, whose activity you cannot read", 403)
-        if who.role == "bot" and who.actor not in participants and not ancestor_party:
-            delegated = c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
-                                  (row["id"], who.actor, H.now())).fetchone()
-            if not delegated and not H.task_ancestor_party(c, who.actor, row):
-                raise Problem("forbidden", "This task is not assigned or delegated to you", 403)
         return row
 
     def task(self, c, who, task_id):
+        self.task_snapshot(c)
         return self.task_row(c, who, H.task(c, task_id))
 
     def resolve_task(self, c, who, ident, visible=None):
         """The full task id for what a caller typed: the id itself, a unique prefix of at least
-        TASK_PREFIX_MIN characters, or a refusal. Models copy a long UUID imperfectly, so an
-        ambiguous prefix lists its candidates and a near miss is only suggested, never used.
-        Only tasks `visible` (default: what this caller may read) are matched, so a refusal never
-        names a task the caller cannot see."""
+        TASK_PREFIX_MIN characters, a task's number (`#18945`), or a refusal. Models copy a long
+        UUID imperfectly, so an ambiguous prefix lists its candidates and a near miss is only
+        suggested, never used; for the same reason bare digits, which a cut-short id can be, are
+        never read as a number. Only tasks `visible` (default: what this caller may read) are
+        matched, so a refusal never names a task the caller cannot see."""
+        self.task_snapshot(c)
         if not isinstance(ident, str) or not ident.strip():
             return ident
         ident = ident.strip()
@@ -857,6 +900,14 @@ class Auth:
                     continue
                 found.append(row)
             return found
+
+        number = re.fullmatch(r"#(\d{1,18})", ident)
+        if number:
+            rows = readable(H._rows(c.execute("SELECT id,title,owner,requester,parent_id FROM tasks WHERE number=? AND ("
+                                              + visible + ")", (int(number.group(1)),))))
+            if rows:
+                return rows[0]["id"]
+            raise Problem("not_found", "No task %s" % ident, 404)
 
         if TASK_PREFIX_MIN <= len(ident) < 36:
             rows = readable(H._rows(c.execute(

@@ -77,7 +77,10 @@ generates; after a change to the API, `python -m backend.openapi_v2` rewrites it
 | A browser app served from the same address as Tico | Tico's own session cookie | [custom-frontend.md](custom-frontend.md#same-origin-option-a) |
 | A server or script | A personal API token, `Authorization: Bearer tico_pt_...` | [custom-frontend.md](custom-frontend.md#servers-and-scripts-option-c) |
 
-Whatever the credential, the caller is a human on your roster and sees what that human sees.
+Whatever the credential, the caller is a human on your roster and sees what that human sees. Another system that
+only files, updates and closes tasks, such as your product's backend, uses a service key instead,
+`Authorization: Bearer tico_sk_...`: it is no one on your roster and reaches `POST /api/v2/inbound/tasks` and nothing
+else ([service-keys.md](service-keys.md)).
 
 ## Who can see, read and write to a bot
 
@@ -132,6 +135,44 @@ keep the `labels` entry in `task_events`. See [Tags and release checklists](usin
 unused types can be deleted, and steps with tasks cannot be removed. Task creation and updates
 accept `type` and `step`. Answers add `type_id`, `step_id`, `type` and `step` while preserving the
 existing status contract. See [Task types and steps](tasks.md) for mapping and update examples.
+
+A `numbered` type gives each of its tasks the team's next `number`, which never changes; a mover may
+pass an imported ticket's own `number` (`422 duplicate` when it is taken), and `#18945` (`%2318945`
+in a URL) works wherever a task id does. `step_rank` is a task's place within its step.
+`GET /api/v2/tasks` takes `type`, `step` and `number` filters and `sort=step` for a board in column
+order. A client that polls asks `updated_since=<ISO 8601 with a timezone>` for only the tasks
+changed after that instant (closing, reopening, comments, questions, links and attachments count;
+what only shows in `children_summary` or `pr_state`, such as a subtask moving or a pull request's
+checks and reviews, does not), and `brief=true` to leave out bodies and acceptance criteria.
+
+## Task comments
+
+`POST /api/v2/tasks/{tid}/comments/{mid}` with `{"text": "..."}` changes the text of a comment the caller
+wrote; `POST /api/v2/tasks/{tid}/comments/{mid}/delete` with `{}` deletes it. `mid` is the comment's `id` in
+`GET /api/v2/tasks/{tid}`. Both answer as commenting does, `{"comment": {...}, "comments": [...], "woke": false}`:
+the comment with `edited_at`, or a tombstone with an empty body and `deleted_at` after a delete, and then
+the task's comments as the task lists them. Neither wakes anyone or sends anything.
+
+- `404 not_found`: the comment is not on this task, or was already deleted.
+- `403`: the caller did not write it, or is acting for its author (BotOps, or the Assistant, which gets
+  `confirm_required`); or the message is a question, an answer, a notice or a chat line in a bot's room
+  rather than a comment.
+- An edit's text gets the checks a new comment's text gets (`422` when empty, `403 escape` for a secrets path
+  or another bot's workspace path), and an edit needs what a new comment needs: Write on the bot on the other
+  side of the task, unless the caller owns the task, and that bot's contact rule when the caller is a bot.
+
+Every entry in a task's `comments` carries `edited_at`, null until it is edited; a deleted comment is not
+listed or included in future bot context. The task's `updated` moves, and its `events` gain
+`{"field": "comment", "old": "<comment id>", "new": "<comment id>"}` for an edit and `"new": null` for a
+delete. The audit log keeps only change metadata. Deleted comments have their text cleared and are excluded
+from `POST /api/v2/sql` for every caller, including the owner. Cached write replies are refreshed when
+a comment changes; an edit or delete retry still checks the caller's current task read access.
+Only plain comments without attachments or structured review data can change. Prior delivery does
+not prevent an author from editing or deleting the current record. Queued outbound copies stop;
+no correction or deletion is sent to external services. Provider threads, existing bot context
+and external copies already delivered remain outside this operation. An edit accepts only `text`,
+not `ask` or attachments.
+A client can tell a server offers this by the `editTaskComment` and `deleteTaskComment` operations in `GET /api/v2/openapi.json`.
 
 ## Branches
 

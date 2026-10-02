@@ -36,12 +36,13 @@ Use `releases/download/vX.Y.Z/install.sh` to pin a release. For a shared server,
 
 - [Register a computer](install.md#add-computers-to-run-your-bots), [Harnesses](harnesses.md) and [Environments](environments.md).
 - [Build a bot](creating-bots.md), [Routines](routines.md), [Agent context](agent-context.md) and [Watchers](watchers.md).
-- [API](api.md), [Custom frontend](custom-frontend.md), [Listening API](listening.md#save-decide-and-resolve) and
-  [Needs you batches](needs-you-batches.md).
+- [API](api.md), [Custom frontend](custom-frontend.md), [Listening API](listening.md#save-decide-and-resolve),
+  [Needs you batches](needs-you-batches.md) and [Service keys](service-keys.md), for another system that files tasks.
 - External agents: [Common setup](connect-an-agent.md), [Hermes](hermes-agents.md), [OpenClaw](openclaw-agents.md), [Grok sync](grok-bot-sync.md).
 - Advanced operations: [Cloud provisioning](install-advanced.md), [Sizing](sizing.md), [Observability](observability.md),
   [Databases](databases.md), [Query Tico data](hub-sql.md), [Slack gateway](slack-gateway.md).
 - Project maintenance: [Architecture](architecture.md), [Contributing](../CONTRIBUTING.md), [Releasing](releasing.md),
   [Tico HQ](tico-hq.md) and [Telemetry](telemetry.md).
 
-[Task types and steps](tasks.md): custom pipelines, status mapping, and CLI, MCP, API and SQL examples.
+[Task types and steps](tasks.md): custom pipelines, status mapping, and CLI, MCP, API and SQL examples;
+editing and deleting your own comments.

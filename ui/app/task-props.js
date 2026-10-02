@@ -36,9 +36,11 @@ function taskPropsHTML(t, opts = {}) {
   const statusName = STATUS_WORD[t.status] || String(t.status || '');
   rows.push(row('status', 'Status', taskStatusIcon(t) + txt(statusName), {edit: r.edit || (!r.live && r.reopen), words: statusName}));
   // Owner and who asked
-  rows.push(row('owner', 'Owner', actorFace(t.owner, 16) + txt(actorLabel(t.owner)), {edit: r.edit, words: actorLabel(t.owner)}));
+  rows.push(row('owner', 'Owner', actorFace(t.owner, 16) + txt(actorLabel(t.owner)), {edit: r.edit, words: actorLabel(t.owner),
+    extra: t.private ? '<small>Reassigning grants the new assignee access and removes the previous assignee’s access unless they requested the task.</small>' : ''}));
   const asker = taskRequester(t);
   rows.push(row('asker', 'Asked by', asker ? actorFace(asker, 16) + txt(actorLabel(asker)) : txt('Unknown'), {words: actorLabel(asker) || 'Unknown', empty: !asker}));
+  rows.push(`<div class="prop" data-prop-row="private"><span class="prop-k">Private</span><span class="prop-vwrap"><label><input type="checkbox" data-task-private ${t.private ? 'checked' : ''} ${r.party && (!t.private || myActor() === t.requester) ? '' : 'disabled'}> ${t.private ? '<span class="nav-icon" aria-hidden="true">lock</span> Private' : 'Company'}</label><small>Only the requester and assignee can see a private task.</small></span></div>`);
   // Due: a person's deadline (red once passed), or when a bot's parked task wakes (muted "Wakes Oct 2")
   const dueAt = parseServerTime(t.due);
   const info = taskDueInfo(t);

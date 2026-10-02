@@ -575,7 +575,21 @@ def install(app, store, auth, mutate, settings_admin, requester=None):
             auth.require_read(c, who, bot)      # a 404 for someone who cannot even see the bot
             if not H.bot(c, bot):
                 raise Problem("not_found", "Bot not found", 404)
-            return listing(c, store.settings, bot)
+            result = listing(c, store.settings, bot)
+            from . import task_privacy as privacy
+            def redact(value):
+                if isinstance(value, dict):
+                    tid = value.get("task_id")
+                    if tid and not privacy.task_readable(c, who, H.task(c, tid)):
+                        value.pop("task_id", None)
+                        value.pop("pending", None)
+                    for item in value.values():
+                        redact(item)
+                elif isinstance(value, list):
+                    for item in value:
+                        redact(item)
+            redact(result)
+            return result
 
     @app.post("/api/v2/bots/{bot}/tools")
     def register_tool(request: Request, bot: str, body: M.ToolRegister):

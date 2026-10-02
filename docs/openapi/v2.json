@@ -3,7 +3,7 @@
   "info": {
     "title": "Tico API (v2)",
     "version": "2.0.0",
-    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Granola connection and sync writes do not require an idempotency key. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
+    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Granola connection and sync writes do not require an idempotency key, nor does POST /api/v2/inbound/tasks, whose own `key` is its idempotency. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
   },
   "tags": [
     {
@@ -5261,6 +5261,73 @@
         ]
       }
     },
+    "/api/v2/inbound/tasks": {
+      "post": {
+        "summary": "Another system's work as it is now, by its own key: files, updates, closes or reopens one task (service key only; docs/service-keys.md)",
+        "operationId": "upsertInboundTask",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundTask"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundTaskResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "serviceKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Not needed: the pair (service key, `key`) makes a repeated call harmless, and the header is ignored."
+          }
+        ]
+      }
+    },
     "/api/v2/kpis": {
       "get": {
         "summary": "The KPIs the caller may see; goal_id, owner, unlinked=true narrow it; auto_for=<bot> is that bot's five automatic KPIs",
@@ -8358,6 +8425,172 @@
         ]
       }
     },
+    "/api/v2/service-keys": {
+      "get": {
+        "summary": "Service keys, never the secret (owner and admins)",
+        "operationId": "listServiceKeys",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Session"
+        ]
+      },
+      "post": {
+        "summary": "Make a key another system uses to file, update and close tasks, and nothing else; shown once (owner and admins)",
+        "operationId": "createServiceKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceKeyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Session"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/service-keys/{key_id}/revoke": {
+      "post": {
+        "summary": "Revoke a service key",
+        "operationId": "revokeServiceKey",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Session"
+        ]
+      }
+    },
     "/api/v2/subscriptions": {
       "get": {
         "summary": "Profiles and assignments",
@@ -9143,7 +9376,7 @@
     },
     "/api/v2/tasks": {
       "get": {
-        "summary": "Tasks the caller can see",
+        "summary": "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, brief=true leaves out bodies",
         "operationId": "listTasks",
         "parameters": [
           {
@@ -9254,6 +9487,80 @@
               "type": "string",
               "default": "queue",
               "title": "Sort"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "step",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Step"
+            }
+          },
+          {
+            "name": "number",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Number"
+            }
+          },
+          {
+            "name": "updated_since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          },
+          {
+            "name": "brief",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Brief"
             }
           }
         ],
@@ -9775,6 +10082,166 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/TaskComment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v2/tasks/{tid}/comments/{mid}": {
+      "post": {
+        "summary": "Change the text of a comment you wrote; it wakes nobody and is marked edited_at",
+        "operationId": "editTaskComment",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "mid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskComment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v2/tasks/{tid}/comments/{mid}/delete": {
+      "post": {
+        "summary": "Delete a comment you wrote from future comment reads and bot context; existing delivered copies remain",
+        "operationId": "deleteTaskComment",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "mid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
               }
             }
           }
@@ -14621,6 +15088,174 @@
         ],
         "additionalProperties": true
       },
+      "InboundTask": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Labels"
+          },
+          "links": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Links"
+          },
+          "due": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due"
+          },
+          "close": {
+            "type": "boolean",
+            "title": "Close",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "InboundTask",
+        "description": "What one piece of another system's work should look like now (POST /api/v2/inbound/tasks).\n`owner`, `title` and `body` are needed only when the call files the task; anything left out\nstays as it is."
+      },
+      "InboundTaskResult": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changed",
+          "created",
+          "task"
+        ],
+        "additionalProperties": true
+      },
       "InternalDoc": {
         "type": "object",
         "properties": {
@@ -16184,6 +16819,20 @@
             "type": "string",
             "description": "A notice Tico wrote, as stored (with actor ids); `body` shows names to people"
           },
+          "edited_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the author last changed a task comment's text; null when never edited"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the author deleted a task comment. A delete or retry acknowledgment can include a tombstone with an empty body; deleted comments are never listed"
+          },
           "run": {
             "type": "object",
             "description": "The run that handled this message, once one has: on a person's message `{job_id, attempt_id, state}` where `state` is `started_run` (it started the run) or `added_to_run` (it was folded into a run already working); on a bot's reply `{job_id, attempt_id}` (the run that wrote it, plus a summary of what it did). Absent until a run takes the message",
@@ -17353,6 +18002,23 @@
         ],
         "additionalProperties": true
       },
+      "ServiceKeyCreate": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "ServiceKeyCreate",
+        "description": "A service key (backend/service_keys.py): the label names the system that holds it, on every\ntask it files."
+      },
       "Snapshot": {
         "type": "object",
         "properties": {
@@ -17844,6 +18510,9 @@
       "Task": {
         "type": "object",
         "properties": {
+          "private": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -17851,7 +18520,8 @@
             "type": "string"
           },
           "body": {
-            "type": "string"
+            "type": "string",
+            "description": "Left out of a list asked for with brief=true, as is acceptance_criteria"
           },
           "requester": {
             "type": "string"
@@ -17982,6 +18652,20 @@
               }
             ]
           },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The task's number, unique across the team (#18945); given once on a numbered type and never changed"
+          },
+          "step_rank": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Its place within its step, lower first"
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -17990,8 +18674,6 @@
           }
         },
         "required": [
-          "acceptance_criteria",
-          "body",
           "created",
           "due",
           "id",
@@ -18140,6 +18822,17 @@
       },
       "TaskCreate": {
         "properties": {
+          "private": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private"
+          },
           "title": {
             "type": "string",
             "maxLength": 300,
@@ -18281,6 +18974,19 @@
               }
             ],
             "title": "Step"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 999999999.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
           }
         },
         "additionalProperties": false,
@@ -18683,6 +19389,9 @@
           "name": {
             "type": "string"
           },
+          "numbered": {
+            "type": "boolean"
+          },
           "created": {
             "type": "string"
           },
@@ -18694,12 +19403,26 @@
             "items": {
               "$ref": "#/components/schemas/TaskStep"
             }
+          },
+          "bots": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "read",
+              "work",
+              null
+            ],
+            "description": "What every bot may do with the type's tasks beyond its own: read (read, comment, file subtasks) or work (also change them); null keeps each task to the bots on it"
           }
         },
         "required": [
+          "bots",
           "created",
           "id",
           "name",
+          "numbered",
           "steps",
           "updated"
         ],
@@ -18719,6 +19442,27 @@
             },
             "type": "array",
             "title": "Steps"
+          },
+          "bots": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "parties",
+                  "read",
+                  "work"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bots"
+          },
+          "numbered": {
+            "type": "boolean",
+            "title": "Numbered",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -18783,6 +19527,33 @@
               }
             ],
             "title": "Steps"
+          },
+          "bots": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "parties",
+                  "read",
+                  "work"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bots"
+          },
+          "numbered": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numbered"
           }
         },
         "additionalProperties": false,
@@ -18791,10 +19562,34 @@
       },
       "TaskUpdate": {
         "properties": {
+          "private": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private"
+          },
           "version": {
             "type": "integer",
             "minimum": 1.0,
             "title": "Version"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           },
           "status": {
             "anyOf": [
@@ -18976,6 +19771,30 @@
               }
             ],
             "title": "Step"
+          },
+          "step_rank": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Rank"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 999999999.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
           },
           "on_behalf_of": {
             "anyOf": [
@@ -19628,6 +20447,11 @@
         "type": "http",
         "scheme": "bearer",
         "description": "A bearer session from POST /auth/token (browser apps) or a personal API token (servers)."
+      },
+      "serviceKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A service key, tico_sk_..., which reaches POST /api/v2/inbound/tasks and nothing else."
       },
       "cookie": {
         "type": "apiKey",

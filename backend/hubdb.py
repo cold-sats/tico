@@ -12,7 +12,9 @@ Shape of every write:
     raises Refused(rule, detail, severity)   # also written to `refusals`, never stored
 
 `actor` is `"bot:<slug>"`, `"human:<id>"` or `"keeper"`. Every write appends an `events` row.
-Nothing is edited or deleted (rule 9): tasks and status carry their own history tables.
+Nothing is edited or deleted (rule 9): tasks and status carry their own history tables. A plain task
+comment's author may change or take it back: the row stays marked, without retaining
+withdrawn text in the audit trail.
 
     conn = connect()                         # <projects>/runtime/hub.db, or $HUB_DB
     sync_registry(conn, employees, people)   # bots and humans from the registry
@@ -590,12 +592,30 @@ CREATE TABLE IF NOT EXISTS task_file_reviews(
  PRIMARY KEY(file_id,version));
 """
 
+# A numbered type gives each of its tasks the team's next number, kept for good; `step_rank` is a
+# task's place within its step, apart from `rank`, its place in the owner's queue. Every task
+# already in a step keeps the order it was filed in (rowid order), so a new one joins the end.
+NUMBERS_SCHEMA = """
+ALTER TABLE task_types ADD COLUMN numbered INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN number INTEGER;
+ALTER TABLE tasks ADD COLUMN step_rank REAL;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_number ON tasks(number);
+CREATE INDEX IF NOT EXISTS tasks_step_rank ON tasks(step_id, step_rank);
+UPDATE tasks SET step_rank=rowid WHERE step_id IS NOT NULL AND step_rank IS NULL;
+"""
+
+# Existing records have no reliable sensitivity marker. Preserve them privately on upgrade;
+# legacy inserts that omit the new field also fail closed. Current creates specify the default.
+TASK_PRIVACY_SCHEMA = """
+ALTER TABLE tasks ADD COLUMN private INTEGER NOT NULL DEFAULT 1 CHECK (private IN (0,1));
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
               REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA,
               USAGE_LIMITS_SCHEMA, TAGS_SCHEMA, PIPELINES_SCHEMA, CHAT_GOALS_SCHEMA, REPOSITORIES_SCHEMA, TASK_LINKS_V2_SCHEMA, SUBSCRIPTIONS_SCHEMA,
-              STORAGE_SCHEMA, TASK_REVIEW_SCHEMA, MEETING_REVIEW_SCHEMA]
+              STORAGE_SCHEMA, TASK_REVIEW_SCHEMA, MEETING_REVIEW_SCHEMA, NUMBERS_SCHEMA, TASK_PRIVACY_SCHEMA]
 
 
 class Refused(Exception):
@@ -772,7 +792,10 @@ def migrate(conn, adopt_legacy=False):
     for i in range(version, len(MIGRATIONS)):
         conn.execute("BEGIN IMMEDIATE")
         try:
-            _apply(conn, MIGRATIONS[i])
+            if i == 23:
+                migrate_task_privacy(conn)
+            else:
+                _apply(conn, MIGRATIONS[i])
             conn.execute(f"PRAGMA user_version={i + 1}")
             conn.execute("COMMIT")
         except Exception:
@@ -791,6 +814,8 @@ def migrate(conn, adopt_legacy=False):
                  "ON conversations(owner_actor,room_key) WHERE scope='personal' AND closed_at IS NULL")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_shared_room "
                  "ON conversations(room_key) WHERE scope='shared' AND closed_at IS NULL")
+    # What every bot may do with a type's tasks (TYPE_BOTS); NULL keeps them to the parties.
+    add_column(conn, "task_types", "bots", "TEXT")
     # The tasks board columns. The cloud store backfills rank
     # and lane once (its migration 29); here the columns simply exist.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
@@ -808,6 +833,10 @@ def migrate(conn, adopt_legacy=False):
         conn.execute("ALTER TABLE tasks ADD COLUMN next_run INTEGER NOT NULL DEFAULT 0")
     if "carried_by" not in columns:
         conn.execute("ALTER TABLE tasks ADD COLUMN carried_by TEXT")
+    # A task comment its author changed or took back (task_comment_edit, task_comment_delete). Checked on
+    # every start rather than numbered, so no migration number collides with another branch's.
+    add_column(conn, "messages", "edited_at", "TEXT")
+    add_column(conn, "messages", "deleted_at", "TEXT")
     # Quiet notes (`hub note`): a line left for a bot's next run, asking nothing. `carried_by` is
     # the attempt that took it there; a cancelled note never goes.
     conn.execute("CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, from_actor TEXT NOT NULL, "
@@ -854,6 +883,38 @@ def _one(conn, sql, args=()):
 # request writes says "via assistant" without each write knowing about it.
 VIA = contextvars.ContextVar("hub_via", default="")
 
+PRIVATE_WRITE = contextvars.ContextVar("hub_private_write", default=False)
+
+
+def private_task_write(fn):
+    """Keep refusal audit/escalation content-free for a private domain write, including local runners."""
+    import functools
+    import inspect
+    signature = inspect.signature(fn)
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        values = signature.bind_partial(*args, **kwargs).arguments
+        conn, actor = values['conn'], values['actor']
+        row = task(conn, values.get('task_id')) if values.get('task_id') else None
+        private = bool(row and task_private(conn, row) or values.get('private'))
+        if fn.__name__ == 'task_create':
+            if values.get('private') is False and (not is_human(actor) or VIA.get()):
+                values['private'] = None
+            target = resolve_actor(conn, values.get('owner'))
+            parent = task(conn, values.get('parent_id')) if values.get('parent_id') else None
+            private = bool((values.get('private') if values.get('private') is not None else
+                            private_tasks_default(conn, actor) or private_tasks_default(conn, target))
+                           or parent and task_private(conn, parent))
+        token = PRIVATE_WRITE.set(PRIVATE_WRITE.get() or private)
+        try:
+            return fn(*args, **kwargs)
+        except Refused as exc:
+            exc.private = PRIVATE_WRITE.get()
+            raise
+        finally:
+            PRIVATE_WRITE.reset(token)
+    return guarded
+
 
 def event(conn, actor, action, target="", detail=None):
     """Append the audit row every write leaves behind."""
@@ -875,14 +936,15 @@ def writing_refusal(rule, detail):
 
 def refuse(conn, actor, rule, detail="", severity="normal"):
     """Record a refusal, escalate it (rule 8), and raise. Never returns."""
+    recorded = "Private task write refused" if PRIVATE_WRITE.get() else detail
     row = {"id": new_id(), "ts": now(), "actor": str(actor), "rule": rule,
-           "detail_json": _dump({"detail": detail}), "severity": severity}
+           "detail_json": _dump({"detail": recorded}), "severity": severity}
     conn.execute("INSERT INTO refusals (id, ts, actor, rule, detail_json, severity) "
                  "VALUES (:id, :ts, :actor, :rule, :detail_json, :severity)", row)
-    event(conn, actor, "refused", rule, {"detail": detail, "severity": severity})
+    event(conn, actor, "refused", rule, {"detail": recorded, "severity": severity})
     if rule != "quarantined":
         try:
-            _escalate(conn, actor, rule, detail, severity, row["ts"])
+            _escalate(conn, actor, rule, recorded, severity, row["ts"])
         except Exception:       # an escalation must never hide the refusal it came from
             pass
     if writing_refusal(rule, detail):
@@ -996,15 +1058,7 @@ def lint_human_item(text, title=None):
     if "mistake to fix or a limit to keep" in body or "touches something you care about" in body:
         problems.append("write a concrete human decision, recommendation, and next step; do not forward a refusal diagnostic")
     if title is not None:
-        head = str(title or "").strip()
-        if not head:
-            problems.append("give it a title that says what you are asking for")
-        else:
-            if not _is_verb_opener(head):
-                problems.append(f'start the title with a verb (it starts "{head.split()[0]}")')
-        m = LINT_CODES.search(head) or LINT_JARGON.search(head)
-        if m:
-            problems.append(f'internal codes in the title: "{m.group(0)}"')
+        problems += lint_human_title(title)
     if not _first_line(body):
         problems.append("write the ask in the first line, with your recommendation")
     outside = _outside_quotes(body)
@@ -1020,9 +1074,24 @@ def lint_human_item(text, title=None):
     return problems
 
 
+def lint_human_title(title):
+    """Rule 7's title half: a verb at the front, no `owner:`/`status:` codes. What a renamed task
+    for a person is checked on, since its body was checked when it was filed."""
+    head = str(title or "").strip()
+    if not head:
+        return ["give it a title that says what you are asking for"]
+    problems = []
+    if not _is_verb_opener(head):
+        problems.append(f'start the title with a verb (it starts "{head.split()[0]}")')
+    m = LINT_CODES.search(head) or LINT_JARGON.search(head)
+    if m:
+        problems.append(f'internal codes in the title: "{m.group(0)}"')
+    return problems
+
+
 def lint_title(title):
     """Plain English in a title a bot wrote: no reference numbers, no shouting. The problems,
-    empty when it passes. Applied to every bot-written task title, whoever the owner is."""
+    empty when it passes. Applied to every bot-written General task title, whoever the owner is."""
     head = str(title or "")
     problems = []
     m = LINT_IDENT.search(head)
@@ -1464,6 +1533,10 @@ def _opener(conn, conversation_id):
 
 
 # ----------------------------------------------------------------------------- messages
+MESSAGE_ESCAPE = ("The message includes a secrets path or another bot’s workspace path. Remove the restricted "
+                  "reference and retry; this did not send anything outside the Hub.")
+
+
 def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None,
         in_reply_to=None, wait_s=None):
     """The one write every message goes through: rules 1, 2, 3, 4, 7 and 8 all live here."""
@@ -1472,8 +1545,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
         refuse(conn, actor, "kind", f"a message is {'|'.join(MESSAGE_KINDS)}, not {kind}")
     severity = classify(body, to_actor=resolve_actor(conn, to_actor), where="message", actor=actor, conn=conn)
     if severity == "escape" and not (actor == KEEPER and kind == "notice"):
-        refuse(conn, actor, "escape", "The message includes a secrets path or another bot’s workspace path. Remove the restricted reference and retry; this did not send anything outside the Hub.",
-               "escape")
+        refuse(conn, actor, "escape", MESSAGE_ESCAPE, "escape")
     target = _reach(conn, actor, to_actor)
     refs = dict(refs or {})
 
@@ -1696,8 +1768,11 @@ def answer(conn, actor, message_id, body, unknown=False, *, comment_refs=None, c
     if unknown:
         refs["unknown"] = True
     conv = conversation(conn, asked["conversation_id"])
-    return _write_message(conn, actor, comment_target or asked["from_actor"], body, conv, "answer", refs,
-                          message_id, None)
+    msg = _write_message(conn, actor, comment_target or asked["from_actor"], body, conv, "answer", refs, message_id, None)
+    about = message_task_id(asked, conv)
+    if about:                               # an answered question on a task changes the task
+        conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), about))
+    return msg
 
 
 def notice(conn, actor, to_actor, body, refs=None, expires_days=NOTICE_DAYS):
@@ -1736,6 +1811,7 @@ def type_get(conn, value):
     row = _one(conn, "SELECT * FROM task_types WHERE id=? OR name=? COLLATE NOCASE ORDER BY id=? DESC LIMIT 1",
                (value, value, value))
     if row:
+        row["numbered"] = bool(row.get("numbered"))
         row["steps"] = _rows(conn.execute("SELECT * FROM task_steps WHERE type_id=? ORDER BY position,id", (row["id"],)))
     return row
 
@@ -1744,8 +1820,162 @@ def type_list(conn):
     rows = _rows(conn.execute("SELECT * FROM task_types ORDER BY id<>?,name", (GENERAL_TYPE,)))
     steps = _rows(conn.execute("SELECT * FROM task_steps ORDER BY position,id"))
     for row in rows:
+        row["numbered"] = bool(row.get("numbered"))
         row["steps"] = [step for step in steps if step["type_id"] == row["id"]]
     return rows
+
+
+# What every bot may do with the tasks of a type, beyond the tasks it is a party to. A team's board
+# (a developer board, a support queue) is shared work: the bots that file, build and hand it on need
+# to read all of it, where a person's own to-dos stay with the people and bots on them.
+#   read: read every task of the type, comment on it and file a subtask under it.
+#   work: also change it as its owner or requester could (step, owner, due, body, rank) and add or
+#         remove its links. Closing it, a ready step and its labels stay with people.
+TYPE_BOTS = ("read", "work")
+
+
+def _type_bots(conn, actor, bots):
+    if bots in (None, "", "parties"):
+        return None
+    if bots not in TYPE_BOTS:
+        refuse(conn, actor, "kind", f"bots is parties, {' or '.join(TYPE_BOTS)}, not {bots}")
+    return bots
+
+
+def type_bots(conn, row):
+    """What every bot may do with this task because of its type: None, "read" or "work"."""
+    type_id = row.get("type_id") if "type_id" in row else (
+        (_one(conn, "SELECT type_id FROM tasks WHERE id=?", (row["id"],)) or {}).get("type_id"))
+    if not type_id:
+        return None
+    found = _one(conn, "SELECT bots FROM task_types WHERE id=?", (type_id,))
+    return (found or {}).get("bots") or None
+
+
+def type_bot_reads(conn, actor, row):
+    return is_bot(actor) and task_private_readable(conn, actor, row) and type_bots(conn, row) in TYPE_BOTS
+
+
+def type_bot_works(conn, actor, row):
+    return is_bot(actor) and task_private_readable(conn, actor, row) and type_bots(conn, row) == "work"
+
+
+def task_private(conn, row):
+    """Read partial rows conservatively; callers often select only the task's identity fields."""
+    if not row:
+        return True
+    row = dict(row)
+    if "private" in row:
+        return bool(row["private"] is None or row["private"])
+    found = _one(conn, "SELECT private FROM tasks WHERE id=?", (row["id"],))
+    return not found or bool(found["private"] is None or found["private"])
+
+
+def task_private_readable(conn, actor, row):
+    if not row:
+        return False
+    row = dict(row)
+    if not task_private(conn, row):
+        return True
+    if "owner" not in row or "requester" not in row:
+        row = task(conn, row["id"])
+    return bool(row and actor in (row["owner"], row["requester"]))
+
+
+def _task_private_writer(conn, actor, row):
+    # The keeper performs internal maintenance; it is never an authenticated task reader.
+    if actor != KEEPER and not task_private_readable(conn, actor, row):
+        refuse(conn, actor, "not-found", "Task not found")
+
+
+def private_tasks_default(conn, actor):
+    if not is_bot(actor) or not _has_table(conn, "bot_config"):
+        return False
+    from .shared_bots import declared, source_of
+    config = declared(conn, actor_id(actor))
+    if source_of(config):
+        config = declared(conn, source_of(config))
+    return config.get("private_tasks_default", config.get("template") == "general-counsel") is True
+
+
+
+def migrate_task_privacy(conn):
+    """Classify pre-privacy rows from stored roster/config identities; keep ambiguity private."""
+    had_privacy = 'private' in {row[1] for row in conn.execute('PRAGMA table_info(tasks)')}
+    _apply(conn, TASK_PRIVACY_SCHEMA)
+    if not had_privacy:
+        humans = {row[0] for row in conn.execute('SELECT id FROM humans')}
+        bots = {row[0] for row in conn.execute('SELECT slug FROM bots')}
+        configs = {row[0]: _json(row[1]) for row in conn.execute('SELECT bot,config_json FROM bot_config')} \
+            if _has_table(conn, 'bot_config') else {}
+        def sensitive_or_unknown(actor):
+            if actor == KEEPER:
+                return False
+            if is_human(actor):
+                return actor_id(actor) not in humans
+            if not is_bot(actor) or actor_id(actor) not in bots:
+                return True
+            slug, seen = actor_id(actor), set()
+            while slug not in seen:
+                seen.add(slug)
+                config = configs.get(slug)
+                if not isinstance(config, dict):
+                    return True
+                if config.get('shared_from'):
+                    slug = str(config['shared_from'])
+                    continue
+                setting = config.get('private_tasks_default')
+                if 'private_tasks_default' in config and not isinstance(setting, bool):
+                    return True
+                return setting if setting is not None else config.get('template') == 'general-counsel'
+            return True
+        rows = _rows(conn.execute('SELECT id,requester,owner,parent_id FROM tasks'))
+        private = {row['id'] for row in rows if sensitive_or_unknown(row['requester'])
+                   or sensitive_or_unknown(row['owner'])}
+        ids = {row['id'] for row in rows}
+        children = {}
+        for row in rows:
+            children.setdefault(row['parent_id'], []).append(row['id'])
+            if row['parent_id'] and row['parent_id'] not in ids:
+                private.add(row['id'])
+        pending = list(private)
+        while pending:
+            for child in children.get(pending.pop(), []):
+                if child not in private:
+                    private.add(child)
+                    pending.append(child)
+        conn.executemany('UPDATE tasks SET private=? WHERE id=?',
+                         [(int(row['id'] in private), row['id']) for row in rows])
+    add_column(conn, 'conversations', 'scope', "TEXT NOT NULL DEFAULT 'direct'")
+    for row in _rows(conn.execute('SELECT * FROM tasks WHERE private IS NULL OR private<>0')):
+        isolate_private_task(conn, row)
+
+
+def isolate_private_task(conn, row):
+    """Move tracked task messages intact out of broader rooms and revoke former thread members."""
+    if not task_private(conn, row):
+        return row
+    conv = conversation(conn, row["conversation_id"])
+    parties = list(dict.fromkeys([row["requester"], row["owner"]]))
+    if not conv or conv.get("kind") != "task" or conv.get("task_id") != row["id"]:
+        thread = {"id": new_id()}
+        conn.execute("INSERT INTO conversations(id,kind,subject,participants_json,created,scope,task_id) "
+                     "VALUES(?,?,?,?,?,?,?)", (thread["id"], "task", row["title"], _dump(parties), now(), "task", row["id"]))
+        if conv:
+            for message in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=?", (conv["id"],))):
+                if message_task_id(message, conv) == row["id"]:
+                    conn.execute("UPDATE messages SET conversation_id=? WHERE id=?", (thread["id"], message["id"]))
+        conn.execute("UPDATE conversations SET task_id=? WHERE id=?", (row["id"], thread["id"]))
+        conn.execute("UPDATE tasks SET conversation_id=? WHERE id=?", (thread["id"], row["id"]))
+        conv = thread
+    conn.execute("UPDATE conversations SET participants_json=? WHERE id=?", (_dump(parties), conv["id"]))
+    return task(conn, row["id"])
+
+
+def bot_readable_types(conn):
+    """The ids of the types whose every task any bot may read."""
+    return [r[0] for r in conn.execute("SELECT id FROM task_types WHERE bots IN (%s)"
+                                       % ",".join("?" * len(TYPE_BOTS)), TYPE_BOTS)]
 
 
 def _type_writer(conn, actor, mover):
@@ -1801,18 +2031,20 @@ def _type_steps(conn, actor, type_id, steps):
                 conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_row["id"],))
 
 
-def type_create(conn, actor, name, steps=(), mover=None):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
+    bots = _type_bots(conn, actor, bots)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,created,updated) VALUES(?,?,?,?)", (ident, name, ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,bots,numbered,created,updated) VALUES(?,?,?,?,?,?)",
+                 (ident, name, bots, int(bool(numbered)), ts, ts))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -1822,8 +2054,12 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None):
     if name is not None:
         name = _type_name(conn, actor, name, row["id"])
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
+    if numbered is not None:
+        conn.execute("UPDATE task_types SET numbered=? WHERE id=?", (int(bool(numbered)), row["id"]))
     if steps is not None:
         _type_steps(conn, actor, row["id"], steps)
+    if bots is not None:
+        conn.execute("UPDATE task_types SET bots=? WHERE id=?", (_type_bots(conn, actor, bots), row["id"]))
     conn.execute("UPDATE task_types SET updated=? WHERE id=?", (now(), row["id"]))
     after = type_get(conn, row["id"])
     event(conn, actor, "task_type.update", row["id"], after)
@@ -1869,18 +2105,53 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
-    """Every task status write keeps its type and step consistent, including old runners."""
+    """Every task status write keeps its type and step consistent, including old runners. A task
+    that enters a step joins its end; one that lands on a numbered type without a number gets one."""
     type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
     ts = now()
     conn.execute("UPDATE tasks SET status=?,type_id=?,step_id=?,updated=? WHERE id=?",
                  (effective, type_id, step_id, ts, row["id"]))
     if row.get("type_id") != type_id:
         _task_event(conn, row["id"], actor, "type", row.get("type_id"), type_id, note)
+        _next_number(conn, actor, row["id"], type_id, note)
     if row.get("step_id") != step_id:
+        conn.execute("UPDATE tasks SET step_rank=? WHERE id=?",
+                     (_step_end(conn, step_id, row["id"]) if step_id else None, row["id"]))
         _task_event(conn, row["id"], actor, "step", row.get("step_id"), step_id, note)
     if row.get("status") != effective:
         _task_event(conn, row["id"], actor, "status", row.get("status"), effective, note)
     return effective
+
+
+def _step_end(conn, step_id, task_id, top=False):
+    """The step_rank that puts a task at the end (or the top) of a step's other tasks."""
+    lo, hi = conn.execute("SELECT MIN(step_rank), MAX(step_rank) FROM tasks WHERE step_id=? AND id<>?",
+                          (step_id, task_id)).fetchone()
+    if top:
+        return (lo if lo is not None else 1.0) - 1.0
+    return (hi if hi is not None else 0.0) + 1.0
+
+
+def _number_free(conn, actor, number):
+    """A number a mover gives a task: a positive whole number no other task has (one sequence for the team)."""
+    if isinstance(number, bool) or not isinstance(number, int) or not 1 <= number <= 999_999_999:
+        refuse(conn, actor, "kind", "A task number is a whole number from 1 to 999999999")
+    taken = _one(conn, "SELECT id FROM tasks WHERE number=?", (number,))
+    if taken:
+        refuse(conn, actor, "duplicate", f"#{number} is already another task's number; a number belongs to one task")
+    return number
+
+
+def _next_number(conn, actor, task_id, type_id, note=""):
+    """The team's next number (the highest yet, plus one) for a task without one on a numbered type."""
+    numbered = _one(conn, "SELECT 1 FROM task_types WHERE id=? AND numbered=1", (type_id,))
+    if numbered and conn.execute("UPDATE tasks SET number=(SELECT COALESCE(MAX(number), 0) + 1 FROM tasks) "
+                                 "WHERE id=? AND number IS NULL "
+                                 "AND (SELECT COALESCE(MAX(number), 0) FROM tasks)<999999999", (task_id,)).rowcount:
+        number = _one(conn, "SELECT number FROM tasks WHERE id=?", (task_id,))["number"]
+        _task_event(conn, task_id, actor, "number", None, number, note)
+    elif numbered and _one(conn, "SELECT 1 FROM tasks WHERE id=? AND number IS NULL", (task_id,)):
+        refuse(conn, actor, "number", "The team's task numbers have reached 999999999")
 
 
 def _labels(labels):
@@ -2045,6 +2316,9 @@ def _queue_end(conn, owner, top=False):
 def _unblock(conn, done_task):
     """A finished task frees whatever waited on it; a bot owner hears about it."""
     for row in _rows(conn.execute("SELECT * FROM tasks WHERE blocked_by=?", (done_task["id"],))):
+        if task_private(conn, done_task) and (not task_private(conn, row) or not all(
+                task_private_readable(conn, party, done_task) for party in (row['owner'], row['requester']))):
+            continue                  # do not copy private completion into a wider task
         conn.execute("UPDATE tasks SET blocked_by=NULL, updated=?, version=version+1 WHERE id=?",
                      (now(), row["id"]))
         _task_event(conn, row["id"], KEEPER, "blocked_by", done_task["id"], None,
@@ -2068,6 +2342,7 @@ def link_kind(url):
     return "url"
 
 
+@private_task_write
 def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
     """Attach a link to a task. A pull request link is what moves a product-lane task."""
     _writer(conn, actor)
@@ -2108,16 +2383,19 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
 
 
 def _task_link_allowed(conn, actor, row, mover=None, kind=None):
+    _task_private_writer(conn, actor, row)
     if is_human(actor) and kind != "worktree":
         return
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     delegated = _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
                      (row["id"], actor, now()))
-    if not mover and actor not in (row["owner"], row["requester"]) and not delegated and not task_ancestor_party(conn, actor, row):
+    if (not mover and actor not in (row["owner"], row["requester"]) and not delegated
+            and not task_ancestor_party(conn, actor, row) and not type_bot_works(conn, actor, row)):
         refuse(conn, actor, "identity", "This task is not yours to change")
 
 
+@private_task_write
 def task_unlink(conn, actor, task_id, link_id, mover=None):
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -2132,10 +2410,12 @@ def task_unlink(conn, actor, task_id, link_id, mover=None):
         detail['delete_requested'] = True
         detail.pop('restore_on_reopen', None)
         conn.execute('UPDATE task_links SET detail_json=?,updated=? WHERE id=?', (json.dumps(detail), now(), link_id))
+        conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
         _task_event(conn, task_id, actor, 'link', have['url'], None, 'cleanup requested')
         event(conn, actor, 'task.unlink', task_id, {'url': have['url'], 'cleanup': True})
         return have
     conn.execute("DELETE FROM task_links WHERE id=?", (link_id,))
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
     _task_event(conn, task_id, actor, "link", have["url"], None, "removed")
     event(conn, actor, "task.unlink", task_id, {"url": have["url"]})
     if have["kind"] == "pr":
@@ -2145,6 +2425,8 @@ def task_unlink(conn, actor, task_id, link_id, mover=None):
 
 
 def task_ancestor_party(conn, actor, row):
+    if not task_private_readable(conn, actor, row):
+        return False
     seen = {row["id"]}
     parent_id = row.get("parent_id")
     while parent_id and parent_id not in seen:
@@ -2162,6 +2444,12 @@ def _task_parent(conn, actor, task_id, parent_id):
     parent = task(conn, parent_id)
     if not parent:
         refuse(conn, actor, "not-found", f"no task {parent_id} to file this under")
+    _task_private_writer(conn, actor, parent)
+    if (is_bot(actor) and actor not in (parent["owner"], parent["requester"])
+            and not type_bot_reads(conn, actor, parent) and not task_ancestor_party(conn, actor, parent)
+            and not _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
+                         (parent["id"], actor, now()))):
+        refuse(conn, actor, "identity", "This task type does not allow unrelated bots to create subtasks")
     seen = {task_id} if task_id else set()
     cursor = parent
     while cursor:
@@ -2254,6 +2542,8 @@ def task_tree(conn, task_id, visible_ids=None):
 
 
 def _parent_finished(conn, row, previous, actor=None):
+    if task_private(conn, row):
+        return
     terminal = ("done", "closed", "declined")
     if previous in terminal or row["status"] not in terminal or not row.get("parent_id"):
         return
@@ -2275,9 +2565,13 @@ def task_links(conn, task_id):
 
 def task_ask_recipient(conn, actor, row, ask):
     target = ask.get("who") or (row["owner"] if actor == row["requester"] else row["requester"])
-    return resolve_actor(conn, target)
+    target = resolve_actor(conn, target)
+    if task_private(conn, row) and target not in (row["owner"], row["requester"]):
+        refuse(conn, actor, "private", "Only the requester and assignee can receive private task questions")
+    return target
 
 
+@private_task_write
 def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None):
     """A comment on a task: one message in the task's conversation, tagged with the task, from
     whoever wrote it. It wakes the bot on the other side of the task when `wake` (a mover, the
@@ -2286,11 +2580,12 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
     text = str(text or "").strip()
     if not text:
         refuse(conn, actor, "lint", "write the comment")
     others = [a for a in dict.fromkeys([row["owner"], row["requester"], task_origin(conn, row)])
-              if a and a not in (actor, KEEPER)]
+              if a and a not in (actor, KEEPER) and task_private_readable(conn, a, row)]
     target = next((a for a in others if is_bot(a)), None) or (others[0] if others else None)
     refs = {"task": task_id, "comment": True, **(extra_refs or {})}
     if not wake:
@@ -2319,14 +2614,15 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
 
 
 def task_comments(conn, task_id):
-    """Every comment and ask on this task, oldest first, with who wrote it."""
+    """Every comment and ask on this task, oldest first, with who wrote it. A deleted comment is not
+    listed; an edited one carries `edited_at`."""
     row = task(conn, task_id)
     if not row or not row.get("conversation_id"):
         return []
     conv = conversation(conn, row["conversation_id"])
     out = []
-    for m in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY created",
-                                (row["conversation_id"],))):
+    for m in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=? AND deleted_at IS NULL "
+                                "ORDER BY created", (row["conversation_id"],))):
         m["refs"] = _json(m.get("refs_json"), {}) or {}
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
             if m["kind"] == "ask" and m["refs"].get("questions"):
@@ -2341,8 +2637,8 @@ def task_comments(conn, task_id):
 def review_answers(conn, message_id):
     out = []
     for row in conn.execute(
-            "SELECT * FROM messages WHERE (kind='answer' AND in_reply_to=?) "
-            "OR id=(SELECT answered_by FROM messages WHERE id=?) ORDER BY created,rowid",
+            "SELECT * FROM messages WHERE deleted_at IS NULL AND ((kind='answer' AND in_reply_to=?) "
+            "OR id=(SELECT answered_by FROM messages WHERE id=?)) ORDER BY created,rowid",
             (message_id, message_id)):
         refs = _json(row["refs_json"], {}) or {}
         out.append(refs.get("answer") or {"by": row["from_actor"], "text": row["body"], "at": row["created"]})
@@ -2364,10 +2660,127 @@ def open_task_asks(conn, task_row):
     return asks
 
 
+def comment_on(conn, task_row, message_id):
+    """The message `message_id` when it is on this task's thread the way `task_comments` finds it
+    (deleted or not, any kind), else None."""
+    msg = message(conn, message_id, include_deleted=True)
+    if not msg or not task_row or msg["conversation_id"] != task_row.get("conversation_id"):
+        return None
+    return msg if message_task_id(msg, conversation(conn, msg["conversation_id"])) == task_row["id"] else None
+
+
+def is_comment(msg):
+    """Written by `task_comment`: a say tagged `comment`. Not a question, an answer, a notice, an
+    approval, a bot's reply to its run or a chat message that only mentions the task."""
+    refs = msg.get("refs") or {}
+    return (msg.get("kind") == "say" and bool(refs.get("comment"))
+            and not (set(refs) - {"task", "comment", "quiet", "via"}))
+
+
+
+def _withdraw_queued_comment_copies(conn, message_id):
+    """Stop unsent copies and drop local outbound text; already delivered copies remain elsewhere."""
+    if _has_table(conn, 'slack_posts'):
+        conn.execute("UPDATE slack_posts SET text='',state=CASE WHEN state IN ('ready','retry') "
+                     "THEN 'cancelled' ELSE state END,updated=? WHERE message_id=?", (now(), message_id))
+
+
+def _refresh_comment_replies(conn, msg):
+    """A retry keeps its original effect, but never replays withdrawn comment words."""
+    conn.execute("UPDATE events SET detail_json=json_remove(detail_json,'$.old') "
+                 "WHERE target=? AND action IN ('message.edited','message.deleted')", (msg["id"],))
+    if not _has_table(conn, "idempotency"):
+        return
+    def refresh(value):
+        if isinstance(value, dict):
+            if value.get("id") == msg["id"] and "from_actor" in value:
+                return msg
+            return {k: refresh(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [refresh(v) for v in value if not (msg.get("deleted_at") and isinstance(v, dict)
+                    and v.get("id") == msg["id"] and "from_actor" in v)]
+        return value
+    for row in conn.execute("SELECT rowid,response_json FROM idempotency WHERE instr(response_json,?)>0",
+                            (msg["id"],)).fetchall():
+        conn.execute("UPDATE idempotency SET response_json=? WHERE rowid=?",
+                     (_dump(refresh(_json(row["response_json"], {}))), row["rowid"]))
+
+
+def _own_comment(conn, actor, task_id, message_id):
+    """The live comment `message_id` on this task, when `actor` wrote it; refused otherwise."""
+    _writer(conn, actor)
+    row = task(conn, task_id)
+    readable = globals().get("task_private_readable")
+    if row and row.get("private") and (not readable or not readable(conn, actor, row)):
+        refuse(conn, actor, "identity", "This task is not available to you")
+    msg = comment_on(conn, row, message_id)
+    if not msg or msg.get("deleted_at"):
+        refuse(conn, actor, "not-found", f"no comment {message_id} on task {task_id}")
+    if not is_comment(msg):
+        refuse(conn, actor, "kind", "only a comment is edited or deleted, not a question, an answer, "
+                                    "a notice or a chat message")
+    if msg["from_actor"] != actor:
+        refuse(conn, actor, "identity", f"{actor_id(msg['from_actor'])} wrote this comment; only they change it")
+    return msg
+
+
+@private_task_write
+def task_comment_edit(conn, actor, task_id, message_id, text):
+    """The author changes a comment's text. The new text gets the checks a new comment's text gets
+    (`task_comment`, `say`); rule 7's lint is for unsolicited items, and a comment is tagged with its
+    task, so it never applies. Nothing is sent and nobody wakes: whoever reads the task next reads the
+    new text."""
+    msg = _own_comment(conn, actor, task_id, message_id)
+    text = str(text or "").strip()
+    if not text:
+        refuse(conn, actor, "lint", "write the comment")
+    if classify(text, to_actor=msg["to_actor"], where="message", actor=actor, conn=conn) == "escape":
+        refuse(conn, actor, "escape", MESSAGE_ESCAPE, "escape")
+    if actor == "bot:librarian":
+        text = librarian_text(text)
+    if text == msg["body"]:
+        return msg                  # the same words are no edit: no mark, no history line
+    ts = now()
+    conn.execute("UPDATE messages SET body=?, edited_at=? WHERE id=?", (text, ts, message_id))
+    _task_event(conn, task_id, actor, "comment", message_id, message_id)
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (ts, task_id))
+    event(conn, actor, "message.edited", message_id, {"task": task_id})
+    edited = message(conn, message_id)
+    _withdraw_queued_comment_copies(conn, message_id)
+    _refresh_comment_replies(conn, edited)
+    return edited
+
+
+@private_task_write
+def task_comment_delete(conn, actor, task_id, message_id):
+    """The author takes a comment back. Only its metadata stays for the audit trail, excluded from future comment reads: a run it queued and nobody started is cancelled, the questions it answered
+    are open again, and the bot it woke loses the delegation that came with it (`task_delegations`)."""
+    msg = _own_comment(conn, actor, task_id, message_id)
+    ts = now()
+    conn.execute("UPDATE messages SET body='',refs_json=?,deleted_at=? WHERE id=?",
+                 (_dump({"task": task_id, "comment": True}), ts, message_id))
+    reopened = [r["id"] for r in _rows(conn.execute("SELECT id FROM messages WHERE answered_by=?", (message_id,)))]
+    conn.execute("UPDATE messages SET answered_by=NULL WHERE answered_by=?", (message_id,))
+    conn.execute("UPDATE task_delegations SET expires=? WHERE message_id=? AND expires>?", (ts, message_id, ts))
+    cancelled = _has_table(conn, "jobs") and conn.execute(
+        "UPDATE jobs SET state='cancelled' WHERE message_id=? AND state='queued'", (message_id,)).rowcount > 0
+    _task_event(conn, task_id, actor, "comment", message_id, None)
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (ts, task_id))
+    event(conn, actor, "message.deleted", message_id,
+          {"task": task_id, "reopened": reopened, "cancelled_run": cancelled})
+    deleted = message(conn, message_id, include_deleted=True)
+    _withdraw_queued_comment_copies(conn, message_id)
+    _refresh_comment_replies(conn, deleted)
+    return deleted
+
+
+@private_task_write
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
-                goal_id=None, next_run=False, type=None, step=None):
-    """Rule 5. Anyone may open a task for any active owner; a human owner is linted (rule 7).
+                goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None,
+                requester_actor=None):
+    """Rule 5. Anyone may open a task for any active owner; a human owner's General task is
+    linted (rule 7).
 
     `next_run` files it for the bot's next run instead of starting one: the notice is written
     quietly, and the next run the bot has for any reason carries the task in its prompt
@@ -2376,7 +2789,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     `conversation_id` attaches the task to an existing chat room. A room is not claimed as
     this task's private thread: many tasks share one room, and messages carry `refs.task`.
     `lane` picks the pipeline (company or product; default by the owner's team); the task
-    joins the bottom of the owner's queue unless `top`.
+    joins the bottom of the owner's queue and of its step unless `top`.
+    `number` keeps an imported task's number: a mover's (`mover`, as in `task_update`), and free.
     """
     _writer(conn, actor)
     from .shared_bots import route
@@ -2384,6 +2798,18 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     requester = parent["requester"] if parent and is_human(actor) and is_human(parent["requester"]) else actor
+    if private is False and (not is_human(actor) or VIA.get()):
+        private = None              # a bot cannot override a sensitive default to publish
+    private = bool((private if private is not None else
+                    private_tasks_default(conn, actor) or private_tasks_default(conn, target))
+                   or parent and task_private(conn, parent))
+    if private:
+        requester = actor
+    if requester_actor is not None:
+        # Only the server supplies a verified human origin for a bot's own work.
+        if not is_human(requester_actor) or target != actor or not human(conn, requester_actor):
+            refuse(conn, actor, "identity", "Human requester attribution requires the bot's own verified work")
+        requester = requester_actor
     title = str(title or "").strip()
     body = str(body or "")
     severity = classify(f"{title}\n{body}", to_actor=target, actor=actor, conn=conn)
@@ -2393,27 +2819,36 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     if next_run and not is_bot(target):
         refuse(conn, actor, "next-run", "only a bot has a next run; file an ordinary task for a person")
     lane = _lane_for(conn, lane, target, actor)
-    # Rule 7 shapes an ask to a person (a verb, the ask first).
-    if is_human(target) and lint:
+    general = _task_state(conn, actor, {}, type=type, step=step)[0] == GENERAL_TYPE
+    # Rule 7 shapes an ask to a person (a verb, the ask first). A task on a custom type is a
+    # ticket on that type's board, written the way the board writes them, not an ask.
+    if is_human(target) and lint and general:
         problems = lint_human_item(body, title=title)
         if problems:
             refuse(conn, actor, "lint", "; ".join(problems), severity)
     elif not title:
         refuse(conn, actor, "lint", "give it a title that says what you are asking for")
-    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" else []
+    # A ticket keeps the board's own references ("#18945", "(B/F)") in its title.
+    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" and general else []
     if plain and TITLE_LINT == "refuse":
         refuse(conn, actor, "lint", "; ".join(plain), severity)
-    _task_state(conn, actor, {}, type=type, step=step)
     labels = _labels(labels)
     dup = _one(conn, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
                      "AND coalesce(parent_id,'')=? "
                      f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
                (requester, target, title, parent_id or "", *LIVE_STATUSES))
-    if dup and (deduplicate or actor != KEEPER):
-        refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
+    if dup and task_private_readable(conn, actor, task(conn, dup["id"])) and (deduplicate or actor != KEEPER):
+        detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
+                  else f"{dup['id']} already asks {actor_id(target)} for this")
+        refuse(conn, actor, "duplicate", detail)
+    if number is not None:
+        if not (actor == KEEPER or mover or mover is None and can_move(conn, actor)):
+            refuse(conn, actor, "identity", f"a task's number is given by a person on the "
+                                            f"{', '.join(MOVER_TEAMS)} teams, not by {actor_id(actor)}")
+        number = _number_free(conn, actor, number)
     ts = now()
     dedicated = False
-    if conversation_id:
+    if conversation_id and not private:
         conv = conversation(conn, conversation_id)
         if not conv:
             refuse(conn, actor, "not-found", f"no conversation {conversation_id}")
@@ -2425,19 +2860,26 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
            "status": "open", "due": due, "parent_id": parent_id, "conversation_id": conv["id"],
            "created": ts, "updated": ts, "done_at": None, "closed_at": None, "closed_by": None,
            "note": "", "lane": lane, "rank": _queue_end(conn, target, top),
-           "goal_id": goal_id or None, "next_run": 1 if next_run else 0}
+           "goal_id": goal_id or None, "next_run": 1 if next_run else 0, "number": number, "private": int(private)}
     conn.execute("INSERT INTO tasks (id, title, body, requester, owner, due, parent_id, "
                  "conversation_id, created, updated, done_at, closed_at, closed_by, note, lane, rank, "
-                 "goal_id, next_run) VALUES "
+                 "goal_id, next_run, number, private) VALUES "
                  "(:id, :title, :body, :requester, :owner, :due, :parent_id, "
                  ":conversation_id, :created, :updated, :done_at, :closed_at, :closed_by, :note, "
-                 ":lane, :rank, :goal_id, :next_run)", row)
+                 ":lane, :rank, :goal_id, :next_run, :number, :private)", row)
     _set_task_tags(conn, actor, row["id"], labels)
     if dedicated:
         conn.execute("UPDATE conversations SET task_id=? WHERE id=?", (row["id"], conv["id"]))
+    if number is not None:
+        _task_event(conn, row["id"], actor, "number", None, number, "")
     _set_status(conn, actor, {**row, "status": None}, status="open", type=type)
     if step is not None:
         task_update(conn, actor, row["id"], step=step)
+    if top:
+        placed = task(conn, row["id"])
+        if placed["step_id"]:
+            conn.execute("UPDATE tasks SET step_rank=? WHERE id=?",
+                         (_step_end(conn, placed["step_id"], row["id"], top=True), row["id"]))
     if goal_id:
         _task_event(conn, row["id"], actor, "goal_id", None, goal_id, "")
     if plain:
@@ -2467,31 +2909,76 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     return task(conn, row["id"])
 
 
+def _retitle(conn, actor, row, title, owner, type_id, parent_id=None):
+    """A new title gets the checks a new task's title would, against the task as the update
+    leaves it: never empty; on a General task for a person, rule 7's title half; no live task
+    between the same requester and owner, under the same parent, already called that (task_create's
+    duplicate rule); for a bot on General, the plain-English check, whose warnings are returned to
+    be recorded once the title lands."""
+    target = resolve_actor(conn, owner) if owner is not None else row["owner"]
+    parent = row.get("parent_id") if parent_id is None else (str(parent_id).strip() or None)
+    general = type_id == GENERAL_TYPE
+    if not title:
+        refuse(conn, actor, "lint", "give it a title that says what you are asking for")
+    if is_human(target) and general:
+        problems = lint_human_title(title)
+        if problems:
+            refuse(conn, actor, "lint", "; ".join(problems))
+    dup = _one(conn, "SELECT id FROM tasks WHERE id<>? AND requester=? AND owner=? AND title=? "
+                     "AND coalesce(parent_id,'')=? "
+                     f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
+               (row["id"], row["requester"], target, title, parent or "", *LIVE_STATUSES))
+    if dup and task_private_readable(conn, actor, task(conn, dup["id"])):
+        detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
+                  else f"{dup['id']} already asks {actor_id(target)} for this")
+        refuse(conn, actor, "duplicate", detail)
+    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" and general else []
+    if plain and TITLE_LINT == "refuse":
+        refuse(conn, actor, "lint", "; ".join(plain))
+    return plain
+
+
+@private_task_write
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
-                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None):
+                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
+                step_rank=None, number=None, title=None, private=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane`, `labels` and `blocked_by` are a mover's to change (`mover` says whether
     this actor is one; the keeper always is). The owner/requester may re-parent under a task
     they participate in. Pass `blocked_by=""` or `parent_id=""` to clear.
     `rank` is the position in the owner's queue: a participant may rank its own tasks.
+    `step_rank` is its place within its step, lower first, set the same way.
     `goal_id` names the goal the task serves; "" takes it off (backend/goals.py).
+    `number` gives a task that has none its number (a mover's, as on create); it never changes.
+    `title` renames it, checked as a new task's title would be (`_retitle`).
     """
     _writer(conn, actor)
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
+    if private is not None and bool(private) != task_private(conn, row):
+        if actor not in (row["owner"], row["requester"]):
+            refuse(conn, actor, "private", "Only the requester or assignee can change task privacy")
+        if not private and (actor != row["requester"] or not is_human(actor) or VIA.get()):
+            refuse(conn, actor, "private", "Only the human requester can publish a private task")
+        if not private and row.get("parent_id") and parent_id != "":
+            parent = task(conn, row["parent_id"])
+            if parent and task_private(conn, parent):
+                refuse(conn, actor, "private", "Detach this task from its private parent before publishing")
     mine = actor in (row["owner"], row["requester"])
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
                      (task_id, actor, now()))
-    mine = mine or bool(delegated) or task_ancestor_party(conn, actor, row)
+    mine = mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     if not mine and not mover and actor != KEEPER:
         refuse(conn, actor, "identity", f"{task_id} is not yours to change")
     state_change = status is not None or type is not None or step is not None
+    type_id = row.get("type_id") or GENERAL_TYPE
     if state_change:
-        _, _, effective = _task_state(conn, actor, row, status, type, step)
+        type_id, _, effective = _task_state(conn, actor, row, status, type, step)
         if status is not None or step is not None:
             status = effective
         # A move between steps with the same status changes only the pipeline label.
@@ -2528,23 +3015,44 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     own_blocker = blocked_by is not None and actor == row["owner"]
     if own_blocker and blocked_by == task_id:
         refuse(conn, actor, "blocked_by", "a task cannot wait on itself")
+    if number is not None and number == row.get("number"):
+        number = None               # sent back unchanged
     wanted = {k: v for k, v in (("lane", lane), ("labels", labels),
                                 ("blocked_by", None if own_blocker else blocked_by),
-                                ("parent_id", None if actor in (row["owner"], row["requester"]) else parent_id)) if v is not None}
+                                ("parent_id", None if actor in (row["owner"], row["requester"]) else parent_id), ("number", number)) if v is not None}
     if wanted and not mover:
         refuse(conn, actor, "identity",
                f"{', '.join(wanted)} on a task {'is' if len(wanted) == 1 else 'are'} changed by a person on "
                f"the {', '.join(MOVER_TEAMS)} teams, not by {actor_id(actor)}")
     if lane is not None:
         lane = _lane_for(conn, lane, row["owner"], actor)    # a task moves only onto company
+    if title is not None:
+        title = str(title).strip()
+    if title == row["title"]:
+        title = None                # sent back unchanged: nothing to check or record
+    plain = _retitle(conn, actor, row, title, owner, type_id, parent_id) if title is not None else []
     ts = now()
     sets, args = [], {}
-    for field, value in (("note", note), ("due", due), ("body", body), ("lane", lane)):
+    if number is not None:
+        if row.get("number") is not None:
+            refuse(conn, actor, "kind", f"this task is #{row['number']}; a task's number never changes")
+        # Written before any move below, so a move onto a numbered type finds it already there.
+        conn.execute("UPDATE tasks SET number=? WHERE id=?", (_number_free(conn, actor, number), task_id))
+        _task_event(conn, task_id, actor, "number", None, number, note or "")
+        sets.append("updated=:updated")
+    if step_rank is not None:
+        sets.append("step_rank=:step_rank")
+        args["step_rank"] = float(step_rank)
+    if private is not None and bool(private) != task_private(conn, row):
+        sets.append("private=:private")
+        args["private"] = int(private)
+        _task_event(conn, task_id, actor, "private", int(task_private(conn, row)), int(private), "")
+    for field, value in (("title", title), ("note", note), ("due", due), ("body", body), ("lane", lane)):
         if value is None:
             continue
-        severity = classify(str(value), actor=actor, conn=conn) if field == "body" and is_bot(actor) else "normal"
+        severity = classify(str(value), actor=actor, conn=conn) if field in ("title", "body") and is_bot(actor) else "normal"
         if severity == "escape":
-            refuse(conn, actor, "escape", f"the task body reaches outside the hub: {_clip(value, 80)}", severity)
+            refuse(conn, actor, "escape", f"the task {field} reaches outside the hub: {_clip(value, 80)}", severity)
         sets.append(f"{field}=:{field}")
         args[field] = value
         _task_event(conn, task_id, actor, field, row.get(field), value, note or "")
@@ -2558,6 +3066,12 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 refuse(conn, actor, "kind", "a task cannot block itself")
             if not task(conn, blocker):
                 refuse(conn, actor, "not-found", f"no task {blocker} to block on")
+            block = task(conn, blocker)
+            _task_private_writer(conn, actor, block)
+            if task_private(conn, block) and (not (args.get('private', row.get('private'))) or not all(
+                    task_private_readable(conn, party, block)
+                    for party in (args.get('owner', row['owner']), row['requester']))):
+                refuse(conn, actor, 'private', 'A private dependency requires the same private audience')
         sets.append("blocked_by=:blocked_by")
         args["blocked_by"] = blocker
         _task_event(conn, task_id, actor, "blocked_by", row.get("blocked_by"), blocker, note or "")
@@ -2569,6 +3083,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 refuse(conn, actor, "identity", "Only the parent's owner, requester or a mover can move a subtask away")
         if parent:
             target_parent = _task_parent(conn, actor, task_id, parent)
+            if task_private(conn, target_parent):
+                if private is False:
+                    refuse(conn, actor, "private", "A task under a private parent stays private")
+                sets.append("private=1")
             if not mover and actor not in (target_parent["owner"], target_parent["requester"]) and not task_ancestor_party(conn, actor, target_parent):
                 refuse(conn, actor, "identity", "Re-parent under a task you own or requested")
         sets.append("parent_id=:parent_id")
@@ -2576,6 +3094,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _task_event(conn, task_id, actor, "parent_id", row.get("parent_id"), parent, note or "")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
+        if private_tasks_default(conn, new_owner):
+            sets.append("private=1")
         if is_bot(row['owner']) and 'detail_json' in {r[1] for r in conn.execute('PRAGMA table_info(task_links)')}:
             for link in task_links(conn, task_id):
                 if link['kind'] == 'worktree':
@@ -2612,8 +3132,17 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     args["updated"] = ts
     if sets:
         conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
+    if title is not None:
+        # The task's own thread was named after it; a room many tasks share keeps its subject.
+        conn.execute("UPDATE conversations SET subject=? WHERE id=? AND task_id=? AND subject=?",
+                     (title, row["conversation_id"], task_id, row["title"]))
+    if plain:
+        _task_event(conn, task_id, KEEPER, "lint", None, "; ".join(plain), "")
+        event(conn, actor, "task.lint", task_id, {"problems": plain})
     event(conn, actor, "task.update", task_id, {"status": status, "note": note})
-    after = task(conn, task_id)
+    after = isolate_private_task(conn, task(conn, task_id))
+    if owner is not None or private is not None or task_private(conn, after) != task_private(conn, row):
+        conn.execute("DELETE FROM task_delegations WHERE task_id=?", (task_id,))
     # A bot that asked for `tasks` is always told and never woken for it, so there is nothing to
     # weigh: the news is free. Everyone else keeps the original rule, where the only way to
     # spare a bot the run was to withhold the notice.
@@ -2663,6 +3192,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
 
 
 def _task_close_allowed(conn, actor, row, note):
+    _task_private_writer(conn, actor, row)
     if actor != KEEPER and not is_human(actor) and row["status"] != "closed" and children_summary(conn, row["id"])["open"]:
         refuse(conn, actor, "children", "Finish the open subtasks before closing this task")
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
@@ -2675,6 +3205,7 @@ def _task_close_allowed(conn, actor, row, note):
         refuse(conn, actor, "lint", "Tell the requesting bot why you are closing this task in a note")
 
 
+@private_task_write
 def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=None):
     """Rule 5. The requester closes, or any human. The owner never does."""
     _writer(conn, actor)
@@ -2788,6 +3319,7 @@ def task_ask(conn, actor, task_id, body):
                    "you already asked about this task; wait for the answer")
     msg = say(conn, actor, row["requester"], body, conversation_id=row["conversation_id"],
               kind="ask", refs={"task": task_id})
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))     # its question is part of it
     if row["status"] in ("open", "doing", "review"):
         task_update(conn, actor, task_id, status="waiting")
     return msg
@@ -2852,6 +3384,8 @@ MESSAGE_TASK_SQL = f"coalesce({_task_ref_sql('$.task')}, {_task_ref_sql('$.task_
 
 def _mirror_task_note(conn, actor, task_row, note):
     """Copy a task note into the bot's chat room so people and later turns can read it."""
+    if task_private(conn, task_row):
+        return
     text = str(note or "").strip()
     if not text:
         return
@@ -2998,7 +3532,7 @@ def stalled_tasks(conn, at=None):
     at = at or now()
     rows = _rows(conn.execute(
         "SELECT t.* FROM tasks t JOIN bots b ON t.owner='bot:'||b.slug WHERE b.state='active' "
-        "AND t.status IN ('open','doing') AND t.updated<? ORDER BY t.updated",
+        "AND t.status IN ('open','doing') AND coalesce(t.private,1)=0 AND t.updated<? ORDER BY t.updated",
         (shift(at, seconds=-STALL_MINUTES * 60),)))
     if not rows:
         return []
@@ -3071,6 +3605,7 @@ def wake_stalled(conn, at=None):
     return {"woke": woke, "escalated": escalated}
 
 
+@private_task_write
 def task_run_now(conn, actor, task_id):
     """Start a bot's task now: a quiet task stops waiting for the next run, and any task gets a
     run of its own, as the task it is ("Run now" used to send a chat message
@@ -3080,6 +3615,7 @@ def task_run_now(conn, actor, task_id):
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
     if not is_bot(row["owner"]):
         refuse(conn, actor, "run-now", "only a bot's task runs; a person does it themselves")
     if row["status"] not in ACTIVE_STATUSES:
@@ -3192,7 +3728,7 @@ def _wake(conn, task_row, target, body, refs=None, quiet_bots=False, quiet=False
     """
     if quiet_bots and (quiet or tasks_only(conn, target)):
         refs = {**(refs or {}), "quiet": True}
-    if not target or not _actor_exists(conn, target):
+    if not target or not _actor_exists(conn, target) or not task_private_readable(conn, target, task_row):
         return None
     message_refs = {"task": task_row["id"], **(refs or {})}
     return _write_message(conn, KEEPER, target, body,
@@ -3572,8 +4108,9 @@ def chats_with(conn, actor, bot_actor_id):
     return out
 
 
-def message(conn, message_id):
-    row = _one(conn, "SELECT * FROM messages WHERE id=?", (message_id,))
+def message(conn, message_id, *, include_deleted=False):
+    row = _one(conn, "SELECT * FROM messages WHERE id=?" + ("" if include_deleted else " AND deleted_at IS NULL"),
+               (message_id,))
     if row:
         row["refs"] = _json(row.get("refs_json"), {}) or {}
         if row["kind"] == "ask" and row["refs"].get("questions"):
@@ -3585,7 +4122,7 @@ def message(conn, message_id):
 
 
 def messages(conn, conversation_id, since=None, limit=200):
-    sql = "SELECT * FROM messages WHERE conversation_id=?"
+    sql = "SELECT * FROM messages WHERE conversation_id=? AND deleted_at IS NULL"
     args = [conversation_id]
     if since:
         sql += " AND created > ?"
@@ -3605,12 +4142,12 @@ def answers_to(conn, message_ids):
     """
     out = {}
     for mid in message_ids or []:
-        row = _one(conn, "SELECT * FROM messages WHERE in_reply_to=? AND kind='answer' "
+        row = _one(conn, "SELECT * FROM messages WHERE in_reply_to=? AND kind='answer' AND deleted_at IS NULL "
                          "ORDER BY created LIMIT 1", (mid,))
         if not row:
             asked = _one(conn, "SELECT answered_by FROM messages WHERE id=?", (mid,))
             if asked and asked.get("answered_by"):
-                row = _one(conn, "SELECT * FROM messages WHERE id=?", (asked["answered_by"],))
+                row = _one(conn, "SELECT * FROM messages WHERE id=? AND deleted_at IS NULL", (asked["answered_by"],))
         if row:
             row["refs"] = _json(row.get("refs_json"), {}) or {}
             out[mid] = row
@@ -3619,7 +4156,7 @@ def answers_to(conn, message_ids):
 
 def undelivered(conn, to_actor=None, limit=200):
     """What the keeper's mailbox loop reads: messages no runtime has accepted yet."""
-    sql = "SELECT * FROM messages WHERE delivered_at IS NULL"
+    sql = "SELECT * FROM messages WHERE delivered_at IS NULL AND deleted_at IS NULL"
     args = []
     if to_actor:
         sql += " AND to_actor=?"
@@ -3635,7 +4172,7 @@ def inbox(conn, actor, at=None):
     at = at or now()
     rows = _rows(conn.execute(
         "SELECT * FROM messages WHERE to_actor=? AND (delivered_at IS NULL OR read_at IS NULL) "
-        "AND (expires_at IS NULL OR expires_at > ?) ORDER BY created", (actor, at)))
+        "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL ORDER BY created", (actor, at)))
     answered = answers_to(conn, [r["id"] for r in rows if r.get("kind") == "ask"])
     for row in rows:
         row["refs"] = _json(row.get("refs_json"), {}) or {}
@@ -3679,10 +4216,16 @@ def labels_in_use(conn, visible="1"):
         "GROUP BY tags.key ORDER BY n DESC, tags.key", ACTIVE_STATUSES)]
 
 
+STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step_id)"
+
+
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
-          offset=0, order="queue", visible=None):
+          offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
+          updated_since=None, tickets=True):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
-    `Auth.task_sql`), so a caller's page and its `offset` are cut in the query."""
+    `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
+    a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
+    `tickets=False` leaves out the tasks on a numbered type."""
     sql, args, where = "SELECT * FROM tasks", [], []
     if visible and visible != "1":
         where.append("(" + visible + ")")
@@ -3695,6 +4238,20 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     if lane:
         where.append("lane=?")
         args.append(lane)
+    if type_id:
+        where.append("type_id=?")
+        args.append(type_id)
+    if step_ids:
+        where.append(f"step_id IN ({','.join('?' * len(step_ids))})")
+        args += list(step_ids)
+    if number is not None:
+        where.append("number=?")
+        args.append(number)
+    if updated_since:
+        where.append("updated>?")
+        args.append(updated_since)
+    if not tickets:
+        where.append("NOT EXISTS (SELECT 1 FROM task_types WHERE task_types.id=tasks.type_id AND task_types.numbered=1)")
     if label:
         where.append("EXISTS (SELECT 1 FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
                      "WHERE task_tags.task_id=tasks.id AND tags.key=?)")
@@ -3716,8 +4273,11 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
         ordering = "(rank IS NULL), rank, created, id"
     elif order == "finished":
         ordering = "COALESCE(done_at,closed_at,updated,created) DESC, id DESC"   # most recently done first
+    elif order == "step":
+        ordering = (f"{STEP_POSITION} IS NULL, {STEP_POSITION}, step_id, (step_rank IS NULL), step_rank, "
+                    "created, id")
     else:
-        raise ValueError("task order is queue or finished")
+        raise ValueError("task order is queue, finished or step")
     rows = _rows(conn.execute(sql + f" ORDER BY {ordering} LIMIT ? OFFSET ?",
                               (*args, max(1, int(limit)), max(0, int(offset)))))
     hydrate_task_tags(conn, rows)
@@ -3760,7 +4320,11 @@ def tasks_asked_of(conn, actor):
 
 
 def needs_you(conn, who):
-    """The "Needs you" list: my open tasks, unanswered asks to me, approvals, declined-to-me."""
+    """The "Needs you" list: my open tasks, unanswered asks to me, approvals, declined-to-me.
+
+    A task on a numbered type is a ticket on that type's board, worked through there: it is on
+    the list only while it carries a question for the person, and a declined one stays off its
+    requester's list."""
     actor = who if actor_kind(who) else human_actor(who)
     pending = _rows(conn.execute("SELECT * FROM approvals WHERE decision IS NULL ORDER BY created"))
     for row in pending:
@@ -3768,13 +4332,15 @@ def needs_you(conn, who):
     # The person's queue: asks first (each blocks a bot), then their own tasks in rank order.
     # Product-lane work is a backlog a developer works through on the Product board, not a
     # decision owed today: it counts here only when it carries a question for the person.
-    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES) if (t.get("lane") or "company") != "product"]
+    # The same goes for a numbered type's tickets, a board of its own.
+    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES, tickets=False)
+             if (t.get("lane") or "company") != "product"]
     seen = {t["id"] for t in owned}
     asked = [t for t in tasks_asked_of(conn, actor) if t["id"] not in seen]
     return {"actor": actor,
             "tasks": asked + owned,
             "approvals": pending,
-            "declined": tasks(conn, requester=actor, status="declined")}
+            "declined": tasks(conn, requester=actor, status="declined", tickets=False)}
 
 
 def approval(conn, approval_id):

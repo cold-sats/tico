@@ -25,7 +25,11 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--goal ID] [--dry-run] the checks a create would fail, nothing written
                     [--next-run]           for a bot: no wake; its next run carries the task
     hub task ask <id> "<question>"
+    hub task comment <id> "<text>"         on the record with your name
+    hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
+    hub task comment-delete <id> <comment-id>          take back a comment you wrote
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
+                    [--title "..."]        rename it: checked as a new task's title would be
     hub task close <id> [--note "..."]
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
@@ -240,6 +244,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub slack channel remove <channel> [--reader BOT]   take the channel off the list, or only that reader off it
     hub slack channel import               store the channels of the old registry/slack-channels.yaml, once
     hub support file "<message>"           tell the Tico team about a gap or fault (a Confirm card first)
+    hub service-key create --label "Billing backend"
+                                           the owner or an admin: a key another system uses to file, update and close
+                                           tasks (POST /api/v2/inbound/tasks, docs/service-keys.md); shown once
+    hub service-key list | revoke <id>     every service key, never its secret; stop one at once
     hub grokbot sync --file f.json         sync your Grok Bots into Tico
 
 The commands of the last release keep working for one more release, hidden: each prints a one-line "renamed to"
@@ -321,27 +329,29 @@ def owner_from_registry(name):
     return None
 
 
-def task_problems(actor, owner, title, body):
+def task_problems(actor, owner, title, body, type=None):
     """(resolved owner, the problems the server's `task_create` would refuse on), writing none.
 
     The owner's kind comes from the registry files; the lint (`lint_human_item`) and the reach
-    rule (`classify`) are hubdb's own functions run here. Reach against live state and the
-    duplicate check are the hub's to decide at the real create.
+    rule (`classify`) are hubdb's own functions run here. Reach against live state, the
+    duplicate check and whether a named type exists are the hub's to decide at the real create.
+    A type other than General is a custom type, whose tasks neither lint shapes.
     """
     from backend import hubdb as H
     problems = []
     title, body = str(title or "").strip(), str(body or "")
+    general = str(type or "").strip().lower() in ("", H.GENERAL_TYPE)
     target = owner_from_registry(owner)
     if not target:
         problems.append(f"{owner} is not in registry/employees.yaml or registry/people.yaml")
     if H.is_bot(actor) and H.classify(f"{title}\n{body}", to_actor=target) == "escape":
         problems.append("the task reaches outside the hub (rule 8): a real create is refused "
                         "and repeating it quarantines you")
-    if H.is_human(target):
+    if H.is_human(target) and general:
         problems += H.lint_human_item(body, title=title)
     elif not title:
         problems.append("give it a title that says what you are asking for")
-    if H.is_bot(actor):
+    if H.is_bot(actor) and general:
         # plain-English titles: a warning this week, a refusal once TICO_TITLE_LINT=refuse
         problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
     return target, problems
@@ -364,7 +374,7 @@ def cmd_task_dry_run(args, who):
     slug = (os.environ.get("HUB_BOT") or os.environ.get("HUB_EMPLOYEE") or "").strip()
     actor = H.bot_actor(slug) if slug else None
     body = body_of(args)
-    owner, problems = task_problems(actor, args.owner, args.title, body)
+    owner, problems = task_problems(actor, args.owner, args.title, body, getattr(args, "type", None))
     if problems:
         print("\n".join(f"- {p}" for p in problems))
         return 1
@@ -613,6 +623,7 @@ def parser():
         s.add_argument("--task", help="task id; defaults to this run's task")
         s.set_defaults(fn="task worktree " + operation)
     s = task.add_parser("create")
+    s.add_argument("--private", action="store_true", default=None, help="only requester and assignee may read")
     s.add_argument("--owner", required=True)
     s.add_argument("--title", required=True)
     s.add_argument("--body", default="")
@@ -630,16 +641,24 @@ def parser():
     s.add_argument("--request-id", dest="request_id", help="BotOps continuation: the originating human chat message")
     s.add_argument("--type", help="task type id or name; defaults to General")
     s.add_argument("--step", help="step id or name in the type")
+    s.add_argument("--number", type=int, help="movers: keep an imported ticket's number")
     s.set_defaults(fn="task create")
     types = task.add_parser("type", help="manage task types (movers only)").add_subparsers(dest="type_sub")
+    bots_help = ("what every bot may do with the type's tasks: parties (only the bots on each task), "
+                 "read (read and comment on all of them) or work (also change them)")
     s = types.add_parser("create")
     s.add_argument("--name", required=True)
     s.add_argument("--steps-file", dest="steps_file")
+    s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
+    s.add_argument("--numbered", action="store_true", default=None, help="number each task on the type")
     s.set_defaults(fn="task type create")
     s = types.add_parser("update")
     s.add_argument("id")
     s.add_argument("--name")
     s.add_argument("--steps-file", dest="steps_file")
+    s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
+    s.add_argument("--numbered", action=argparse.BooleanOptionalAction, default=None,
+                   help="number each task created on or moved onto the type")
     s.set_defaults(fn="task type update")
     s = types.add_parser("delete")
     s.add_argument("id")
@@ -655,7 +674,11 @@ def parser():
     s.add_argument("text")
     s.set_defaults(fn="task ask")
     s = task.add_parser("update")
+    visibility = s.add_mutually_exclusive_group()
+    visibility.add_argument("--private", dest="private", action="store_true", default=None)
+    visibility.add_argument("--company", dest="private", action="store_false", help="human requester publishes the task")
     s.add_argument("id")
+    s.add_argument("--title", help="a new title, checked as a new task's title would be")
     s.add_argument("--status", choices=list(TASK_STATUSES))
     s.add_argument("--note")
     s.add_argument("--owner")
@@ -665,6 +688,8 @@ def parser():
     s.add_argument("--quiet", action="store_true", help="keep detailed notes on the task")
     s.add_argument("--type", help="task type id or name")
     s.add_argument("--step", help="step id or name; sets status; an empty string clears it")
+    s.add_argument("--step-rank", dest="step_rank", type=float, help="its place within its step, lower first")
+    s.add_argument("--number", type=int, help="movers: the number of a task that has none")
     s.set_defaults(fn="task update")
     s = task.add_parser("comment", help="leave a comment on a task, on the record with your name")
     s.add_argument("id")
@@ -674,6 +699,15 @@ def parser():
     choices.add_argument("--ask", help="JSON file containing structured questions")
     choices.add_argument("--choices", help="comma-separated option labels")
     s.set_defaults(fn="task comment")
+    s = task.add_parser("comment-edit", help="change the text of a comment you wrote; it wakes nobody")
+    s.add_argument("id")
+    s.add_argument("comment_id", help="the comment's id (its id in the task's comments)")
+    s.add_argument("text")
+    s.set_defaults(fn="task comment-edit")
+    s = task.add_parser("comment-delete", help="take back a comment you wrote")
+    s.add_argument("id")
+    s.add_argument("comment_id", help="the comment's id (its id in the task's comments)")
+    s.set_defaults(fn="task comment-delete")
     s = task.add_parser("link", help="attach a link: the pull request you opened, an issue, a document")
     s.add_argument("id")
     s.add_argument("url")
@@ -707,6 +741,12 @@ def parser():
     s.add_argument("--status", action="append", choices=list(TASK_STATUSES))
     s.add_argument("--lane", choices=["company", "product"])
     s.add_argument("--label")
+    s.add_argument("--type", help="only tasks of this type (id or name)")
+    s.add_argument("--step", help="only tasks in this step (id or name)")
+    s.add_argument("--sort", choices=["queue", "finished", "step"], help="step: in step order, then each one's place in it")
+    s.add_argument("--number", type=int, help="only this task number")
+    s.add_argument("--updated-since", help="only tasks changed after this ISO-8601 time with a timezone")
+    s.add_argument("--brief", action="store_true", help="leave out bodies and acceptance criteria")
     s.add_argument("--all", action="store_true", help="the board: every task and every bot you may see, as {tasks, bots}")
     s.add_argument("--stuck", action="store_true",
                    help="only open work untouched for --hours that waits on nobody (BotOps's sweep)")
@@ -1428,6 +1468,14 @@ def parser():
     s = support.add_parser("file", help="a Confirm card shows the message; nothing is sent until the person confirms")
     s.add_argument("message")
     s.set_defaults(fn="support file")
+    keys = sub.add_parser("service-key", help="keys another system uses to file, update and close tasks (owner and admins)").add_subparsers(dest="sub")
+    s = keys.add_parser("create", help="make a key; it is shown this once")
+    s.add_argument("--label", required=True, help="the system that holds it; every task it files says so")
+    s.set_defaults(fn="service-key create")
+    keys.add_parser("list", help="every service key, never its secret").set_defaults(fn="service-key list")
+    s = keys.add_parser("revoke", help="stop a key at once")
+    s.add_argument("id")
+    s.set_defaults(fn="service-key revoke")
     return p
 
 

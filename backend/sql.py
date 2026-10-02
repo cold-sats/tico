@@ -10,6 +10,7 @@ denied outright. Nothing here depends on prompt text.
 """
 
 import base64
+import hashlib
 import re
 import secrets
 import sqlite3
@@ -20,6 +21,8 @@ from pydantic import Field
 
 from . import listening as L
 from . import rooms
+from . import task_privacy as privacy
+from .privacy_index import ReadIndex
 from .bot_access import q, qlist
 from .models import Contract
 from .store import H, Problem
@@ -49,7 +52,7 @@ class Query(Contract):
     max_rows: int | None = Field(default=None, ge=1, le=5000)
 
 
-def guarded(c, auth, who, inner):
+def guarded(c, auth, who, inner, function):
     """Every table a caller may read through a view: name -> (row predicate, hidden columns).
 
     The predicates say in SQL what `auth.bot_access`, `auth.conversation`, `auth.task` and
@@ -79,6 +82,24 @@ def guarded(c, auth, who, inner):
         conversations = (f"CASE COALESCE(scope,'direct') WHEN 'personal' THEN COALESCE(owner_actor,{first_human})={me} "
                          f"WHEN 'shared' THEN {room_bot} IN {qlist(shared)} ELSE {participant} END")
     tasks = auth.task_sql(c, who, delegations=inner("task_delegations"))
+    # Evaluate provenance only for candidate rows, never scan unrelated content first.
+    msg_gate = function("message") + "(id,conversation_id,refs_json,in_reply_to)"
+    message_columns = {r[1] for r in c.execute("PRAGMA table_info(messages)")}
+    for deleted in ("deleted_at", "deleted"):
+        if deleted in message_columns:
+            msg_gate += f" AND coalesce({deleted},0)=0"
+    attempt_gate = function("attempt") + "(id)"
+    event_gate = function("event") + "(target,actor,ts,detail_json)"
+    tag_gate = function("tag") + "(id,is_template)"
+    content_gate = lambda cols: function("content") + "(" + ",".join(cols) + ")"
+    blob_gate = function("blob") + "(id)"
+    file_gate = ("(task_id IS NULL OR task_id IN (SELECT id FROM tasks)) AND NOT EXISTS ("
+                 "SELECT 1 FROM " + inner("bot_file_versions") + " v WHERE v.file_id=id AND (NOT " +
+                 function("blob") + "(v.blob_id) OR (v.attempt_id IS NOT NULL AND NOT " +
+                 function("attempt") + "(v.attempt_id))))")
+
+    # Even an attempt's retained conversation grant must pass the current task gate.
+    conversations = f"({conversations}) AND (task_id IS NULL OR kind<>'task' OR task_id IN (SELECT id FROM tasks))"
     by_task = "task_id IN (SELECT id FROM tasks)"
     by_message = "message_id IN (SELECT id FROM messages)"
     by_schedule = "schedule_id IN (SELECT id FROM schedules)"
@@ -118,23 +139,26 @@ def guarded(c, auth, who, inner):
               "WHERE review_state<>'live')")
     rules = {
         "conversations": conversations,
-        "messages": "conversation_id IN (SELECT id FROM conversations)",
+        "messages": "conversation_id IN (SELECT id FROM conversations) AND deleted_at IS NULL AND " + msg_gate,
         "tasks": tasks,
-        "tags": "1", "task_tags": by_task,
-        "task_events": by_task, "task_delegations": by_task,
+        "tags": tag_gate, "task_tags": by_task,
+        "task_events": by_task + " AND " + content_gate(("old", "new", "note")), "task_delegations": by_task,
         "task_reminders": by_task, "task_assets": by_task, "task_links": by_task,
         "message_assets": by_message,
-        "approvals": "1" if owner else f"requested_by={me} OR message_id IN (SELECT id FROM {inner('messages')} WHERE to_actor={me})",
+        "approvals": ("(task_id IS NULL OR " + by_task + ") AND " + by_message + " AND (" +
+                      ("1" if owner else f"requested_by={me} OR message_id IN (SELECT id FROM messages WHERE to_actor={me})") + ")"),
         "bots": bots_visible("slug"),
         "bot_status": bots_visible("bot"), "bot_status_history": bots_visible("bot"),
         "schedules": bots_visible("bot"), "bot_config": bots_visible("bot"), "bot_control": bots_visible("bot"),
         "bot_transitions": bots_visible("bot"), "assignments": bots_visible("bot"),
-        "schedule_config": by_schedule, "schedule_occurrences": by_schedule,
-        "turns": f"{bots_visible('bot')} AND (message_id IS NULL OR {by_message})",
+        "schedule_config": by_schedule, "schedule_occurrences": f"{by_schedule} AND (task_id IS NULL OR {by_task})",
+        "turns": f"{bots_visible('bot')} AND (message_id IS NULL OR {by_message}) AND "
+                 f"(task_id IS NULL OR {by_task}) AND " + attempt_gate,
         "deltas": "turn_id IN (SELECT id FROM turns)",
         "jobs": f"{bots_visible('bot')} AND {by_message}",
-        "attempts": by_job, "job_recovery": by_job,
-        "attempt_events": by_attempt, "attempt_inputs": by_attempt, "attempt_conversations": by_attempt,
+        "attempts": by_job + " AND " + attempt_gate, "job_recovery": by_job + " AND " + by_attempt,
+        "attempt_events": by_attempt + " AND " + content_gate(("payload_json",)),
+        "attempt_inputs": by_attempt, "attempt_conversations": by_attempt,
         "bot_transition_checkpoints": "conversation_id IN (SELECT id FROM conversations)",
         "task_types": "1", "task_steps": "1",
         "humans": "1",
@@ -159,7 +183,9 @@ def guarded(c, auth, who, inner):
         "listen_judgments": "id IS NOT NULL" if listener else "item_id IN (SELECT id FROM listen_items)",
         # The roster, the sign-in lists and roles, onboarding: for the owner and the Admins.
         "registry_metadata": "1" if admin and not bot else "0",
-        "events": events, "refusals": "1" if owner else mine if bot else f"actor={me}",
+        "events": f"({events}) AND " + event_gate,
+        "refusals": "(" + ("1" if owner else mine if bot else f"actor={me}") + ") AND " +
+                    function("event") + "('',actor,ts,detail_json)",
         "meetings": f"({meetings}) AND id NOT IN (SELECT meeting_id FROM {inner('media_control')} WHERE deleted_at IS NOT NULL)",
         "meeting_versions": by_meeting, "meeting_deliveries": by_meeting, "media_assets": by_meeting, "media_control": by_meeting,
         "meeting_items": by_meeting, "meeting_brain": by_meeting, "meeting_comments": by_meeting,
@@ -168,15 +194,16 @@ def guarded(c, auth, who, inner):
         "document_versions": "id IN (SELECT id FROM documents)",
         "docs": "id IS NOT NULL", "doc_versions": "doc_id IN (SELECT id FROM docs)",
         "linked_docs": "id IS NOT NULL",
-        "bot_files": ((f"bot={q(H.actor_id(who.actor))} AND " if bot else "")
+        "bot_files": (file_gate + " AND " + (f"bot={q(H.actor_id(who.actor))} AND " if bot else "")
                       + f"(CASE WHEN scope LIKE 'task:%' THEN substr(scope,6) IN (SELECT id FROM tasks) "
                         "WHEN scope LIKE 'conversation:%' THEN substr(scope,14) IN (SELECT id FROM conversations) "
                         f"ELSE {bots_visible('bot')} END)"),
         "bot_file_versions": "file_id IN (SELECT id FROM bot_files)",
         "bot_file_activity": "file_id IN (SELECT id FROM bot_files)",
         # The company owner is not thereby the owner of everyone's private attachments (media.py).
-        "blobs": ("" if bot else f"owner={me} OR ") + "id IN (SELECT blob_id FROM message_assets) "
-                 "OR id IN (SELECT blob_id FROM task_assets) OR id IN (SELECT blob_id FROM media_assets)",
+        "blobs": blob_gate + " AND (" + ("" if bot else f"owner={me} OR ") +
+                 "id IN (SELECT blob_id FROM message_assets) OR id IN (SELECT blob_id FROM task_assets) "
+                 "OR id IN (SELECT blob_id FROM media_assets))",
         "archives": "1" if owner else "0" if bot else f"owner={me}",
         "connector_snapshots": "1" if owner else "0" if bot else f"owner={q(person)}",
         "service_jobs": "1" if owner else "0" if bot else f"requested_by={me}",
@@ -186,19 +213,58 @@ def guarded(c, auth, who, inner):
         "mail_fts": "1" if owner else "0",
         "slack_posts": by_message if owner else "message_id IS NULL",
     }
+    for table in ("bot_status", "bot_status_history"):
+        rules[table] += " AND (task_id IS NULL OR " + by_task + ")"
+        # Untagged free-form status can retain the previous private turn's content.
+        rules[table] += (" AND NOT EXISTS (SELECT 1 FROM " + inner("tasks") +
+                         " t WHERE (t.owner='bot:'||bot OR t.requester='bot:'||bot) "
+                         "AND (t.private IS NULL OR t.private<>0) AND NOT " +
+                         function("task") + "(t.id))")
+    for table in ("docs", "doc_versions", "linked_docs", "documents", "document_versions"):
+        cols = [r[1] for r in c.execute(f'PRAGMA table_info("{table}")')]
+        rules[table] = "(" + rules[table] + ") AND " + content_gate(cols)
+    rules["task_file_reviews"] = "file_id IN (SELECT id FROM bot_files) OR file_id IN (SELECT id FROM blobs)"
+    rules["bot_file_activity"] += " AND (task_id IS NULL OR " + by_task + ") AND (attempt_id IS NULL OR " + by_attempt + ")"
+    rules["bot_file_versions"] += " AND (attempt_id IS NULL OR " + by_attempt + ")"
     hidden = {table: set(HIDDEN.get(table, ())) for table in rules}
     if bot:
         hidden["humans"].add("email")
     return {table: (rules[table], hidden[table]) for table in rules}
 
 
-def connect(path, c, auth, who):
+def connect(path, c, auth, who, trace=None):
     """A read-only connection whose temp views and authorizer carry this caller's visibility."""
     prefix = "v" + secrets.token_hex(12) + "_"
     inner = lambda table: f'"{prefix}{table}"'  # noqa: E731
-    tables = guarded(c, auth, who, inner)
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5, isolation_level=None)
+    function = lambda name: f'"{prefix}privacy_{name}"'  # noqa: E731
+    # Internal provenance SELECTs cannot leave authorized prepared statements for callers.
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5, isolation_level=None, cached_statements=0)
+    conn.row_factory = sqlite3.Row
+    if trace:
+        conn.set_trace_callback(trace)
+    trusted = [False]
     try:
+        # Predicates, provenance and result rows use one read snapshot.
+        conn.execute("BEGIN")
+        tables = guarded(conn, auth, who, inner, function)
+        source_tables = set(tables) | {"blob_media"}
+        class Source:
+            def execute(self, statement, args=()):
+                statement = re.sub(r'\b(FROM|JOIN)\s+(\w+)', lambda m:
+                                   m[1] + ' main."' + m[2] + '"' if m[2] in source_tables else m[0], statement,
+                                   flags=re.I)
+                trusted[0] = True
+                try:
+                    return conn.execute(statement, args)
+                finally:
+                    trusted[0] = False
+        index = ReadIndex(Source(), who)
+        functions = {"message": (4, index.message), "attempt": (1, index.attempt),
+                     "event": (4, index.event), "tag": (2, index.tag), "blob": (1, index.blob),
+                     "task": (1, lambda tid: tid not in index.denied),
+                     "content": (-1, lambda *parts: index.content(list(parts)))}
+        for name, (arity, fn) in functions.items():
+            conn.create_function(prefix + "privacy_" + name, arity, fn, deterministic=True)
         conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 10_000_000)   # no randomblob(1e9) memory bombs
         conn.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 0)
         conn.execute("PRAGMA busy_timeout=5000")
@@ -210,7 +276,14 @@ def connect(path, c, auth, who):
             names = ",".join(f'"{column}"' for column in columns)
             conn.execute(f'CREATE TEMP VIEW {inner(table)} AS SELECT {names} FROM main."{table}"')
         for table, (predicate, _) in tables.items():
-            conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT * FROM {inner(table)} WHERE {predicate}')
+            projection = "*"
+            if table == "tasks":
+                columns = [r[1] for r in conn.execute('PRAGMA main.table_info("tasks")')]
+                projection = ",".join(f'CASE WHEN "{col}" IN (SELECT id FROM tasks) THEN "{col}" ELSE NULL END AS "{col}"'
+                                      if col in ("parent_id", "blocked_by") else f'"{col}"' for col in columns)
+                # Avoid a self-recursive view while checking the referenced task's rights.
+                projection = projection.replace("SELECT id FROM tasks", f"SELECT id FROM {inner('tasks')} WHERE {predicate}")
+            conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT {projection} FROM {inner(table)} WHERE {predicate}')
         # Older SQLite versions initialize JSON virtual tables with schema authorization calls.
         # Initialize only these built-ins before installing the read-only authorizer.
         for function in sorted(TABLE_FUNCTIONS):
@@ -234,10 +307,12 @@ def connect(path, c, auth, who):
         if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_RECURSIVE):
             return sqlite3.SQLITE_OK
         if action == sqlite3.SQLITE_FUNCTION:
+            if column and column.startswith(prefix + "privacy_"):
+                return sqlite3.SQLITE_OK if context in tables else sqlite3.SQLITE_DENY
             return sqlite3.SQLITE_DENY if column in DENIED_FUNCTIONS else sqlite3.SQLITE_OK
         # FTS5 checks main.data_version before reading; nothing else may PRAGMA.
         if action == sqlite3.SQLITE_PRAGMA:
-            return sqlite3.SQLITE_OK if table == "data_version" else sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK if table == "data_version" or trusted[0] and table == "table_info" else sqlite3.SQLITE_DENY
         if action != sqlite3.SQLITE_READ:
             return sqlite3.SQLITE_DENY
         if schema is None:
@@ -245,6 +320,8 @@ def connect(path, c, auth, who):
             # name resolves to the temp view first, so only the objects with no view are denied.
             return sqlite3.SQLITE_DENY if table in denied else sqlite3.SQLITE_OK
         if schema == "main":
+            if trusted[0] and table in source_tables:
+                return sqlite3.SQLITE_OK
             if table in OPEN or table in TABLE_FUNCTIONS:
                 return sqlite3.SQLITE_OK
             # These are visible in full (predicate 1). SQLite answers count(*) by reading
@@ -309,34 +386,33 @@ def install_sql(app, store, auth):
         who = request.state.identity
         if not STATEMENT.match(body.sql):
             raise Problem("sql", "Send one SELECT, WITH or EXPLAIN QUERY PLAN statement", 422)
-        with store.read() as c:
-            principal = who
-            if who.role == "runner":
-                # A Mac's credential queries as the person who registered it, and only here:
-                # a runner still cannot write, chat or act as a person anywhere else.
-                row = c.execute("SELECT operator,platform FROM runners WHERE id=?", (who.runner_id,)).fetchone()
-                # A server's runner is shared by every bot on it, and any of them can read its
-                # credential file: it must not read the company as its operator.
-                if not str(row["platform"] or "").startswith("darwin"):
-                    raise Problem("forbidden", "Only a Mac's runner credential reads as its operator; "
-                                               "use a personal API token", 403)
-                principal = auth.identity_for_actor(c, "human:" + row["operator"])
-            conn = connect(store.settings.db_path, c, auth, principal)
-        cap, seconds = LIMITS[principal.role]
-        if body.max_rows:
-            cap = min(cap, body.max_rows)
-        detail = {"sql": body.sql[:2000], "rows": 0, "ms": 0, "error": None}
-        if principal is not who:
-            detail["as"] = principal.actor
+        # Audit metadata cannot copy literals or SQL error excerpts from private work.
+        detail = {"query_hash": hashlib.sha256(body.sql.encode()).hexdigest(),
+                  "query_bytes": len(body.sql.encode()), "rows": 0, "ms": 0, "error": None}
         try:
-            try:
-                result = run(conn, body.sql, body.params, cap, seconds)
-                detail.update(rows=result["row_count"], ms=result["ms"])
-                return result
-            except Problem as exc:
-                detail["error"] = exc.detail
-                raise
+            with store.read() as c:
+                principal = who
+                if who.role == "runner":
+                    # Only a personal Mac reads SQL with its registering person's rights.
+                    row = c.execute("SELECT operator,platform FROM runners WHERE id=?", (who.runner_id,)).fetchone()
+                    if not str(row["platform"] or "").startswith("darwin"):
+                        raise Problem("forbidden", "Only a Mac's runner credential reads as its operator; "
+                                                   "use a personal API token", 403)
+                    principal = auth.identity_for_actor(c, "human:" + row["operator"])
+                    detail["as"] = principal.actor
+                cap, seconds = LIMITS[principal.role]
+                if body.max_rows:
+                    cap = min(cap, body.max_rows)
+                conn = connect(store.settings.db_path, c, auth, principal)
+                try:
+                    result = run(conn, body.sql, body.params, cap, seconds)
+                    detail.update(rows=result["row_count"], ms=result["ms"])
+                    return result
+                finally:
+                    conn.close()
+        except Problem as exc:
+            detail["error"] = exc.code
+            raise
         finally:
-            conn.close()
             with store.transaction() as c:
                 H.event(c, who.actor, "sql.query", "", detail)

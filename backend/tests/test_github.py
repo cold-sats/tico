@@ -683,3 +683,15 @@ def test_wake_is_not_reported_sent_when_the_final_write_fails(api):
         assert G.flush_wakes(FailingDelete(c)) == []
         assert c.execute('SELECT count(*) FROM messages').fetchone()[0] == before
         assert c.execute('SELECT 1 FROM registry_metadata WHERE key=?', (key,)).fetchone()
+
+
+def test_link_checks_and_mergeability_are_visible_to_task_polling(api):
+    task = post(api, "tasks", {"owner": "cpo", "title": "Ship the pricing page", "body": "x", "links": [PR]})
+    for event, payload in (
+        ("pull_request", pr_event("refresh", mergeable=True, head={"sha": "head"})),
+        ("status", {"state": "success", "context": "tests", "sha": "head", "pull_requests": [{"html_url": PR}],
+                    "repository": {"full_name": "ticoteam/tico"}}),
+    ):
+        since = get(api, "tasks/" + task["id"])["task"]["updated"]
+        hook(api, event, payload)
+        assert task["id"] in [t["id"] for t in get(api, "tasks?updated_since=" + since)["tasks"]]

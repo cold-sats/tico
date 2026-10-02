@@ -238,6 +238,7 @@ function openTaskCreate(owner = '', opts = {}) {
         ${parent ? `<p class="muted">Part of <b>${esc(parent.title)}</b></p>` : ''}
         <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" required aria-label="Title" placeholder="Email Dana the renewal brief"></div>
         <label>For <select name="owner" required aria-label="Who this task is for">${taskOwnerOptions(owner)}</select></label>
+        <label class="task-private"><span class="privacy-row"><input type="checkbox" name="private" ${parent?.private ? 'checked' : ''}> Private</span><small>Only the requester and assignee can see this task.</small></label>
         <div class="r3">
           <label>Tags <input type="text" name="labels" list="task-label-list-new" placeholder="bug, pricing-page" aria-label="Tag keys, comma separated" size="18" value="${esc((opts.labels || []).join(', '))}"><datalist id="task-label-list-new">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
           <label><input type="checkbox" name="top"> Top of their queue</label>
@@ -251,6 +252,17 @@ function openTaskCreate(owner = '', opts = {}) {
       </form>
     </div>`;
   $('[data-modal-close]', d).onclick = () => d.close();
+  const creation = $('#task-create-form', d);
+  let privateTouched = false;
+  creation.elements.private.addEventListener('change', () => { privateTouched = true; });
+  const privateDefault = () => {
+    const slug = creation.elements.owner.value.replace(/^bot:/, '');
+    const bot = S.emps.find(e => e.name === slug);
+    if (parent?.private || !privateTouched)
+      creation.elements.private.checked = !!parent?.private || !!bot?.private_tasks_default;
+    creation.elements.private.disabled = !!parent?.private;
+  };
+  creation.elements.owner.addEventListener('change', privateDefault); privateDefault();
   goalOptions().then(goals => {
     const sel = $('#task-create-form select[name=goal]'); if (!sel || !goals.length) return;
     sel.innerHTML = '<option value="">No goal</option>' + goals.map(g =>
@@ -265,6 +277,7 @@ function openTaskCreate(owner = '', opts = {}) {
     if (!body) { msg.textContent = 'Add details.'; form.body.focus(); return; }
     btn.disabled = true; msg.textContent = 'Creating…';
     const payload = {title, body, owner};
+    payload.private = form.elements.private.checked;
     taskPipelineCreatePayload(form, payload);
     const labels = form.labels.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
     if (labels.length) payload.labels = labels;
