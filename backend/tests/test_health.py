@@ -227,3 +227,31 @@ def test_a_bot_waiting_for_its_first_setup_is_not_slow(environment):
         queue(c, "helper", 20, "held-work")
     body, checks = health_of(api)
     assert body["slow"] == [] and checks["queue"]["status"] == "ok"
+
+
+def test_missing_tool_credentials_name_the_tool_and_current_computer(environment):
+    import json
+    api = environment()
+    computer = enrolled(api)
+    add_bot(api, "ana")
+    tools = [{"service": "gmail", "credential": "missing", "env": "GOOGLE_SA_KEY"},
+             {"service": "google-calendar", "credential": "missing", "env": "GOOGLE_SA_KEY"},
+             {"service": "posthog", "credential": "missing", "env": "POSTHOG_KEY"},
+             {"service": "github", "credential": "present"}]
+    report = {"schema_version": 1, "bots": {"ana": {"tools": tools}, "unassigned": {"tools": tools}}}
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('ana',?,1,?,'t')",
+                  (computer, H.now()))
+        c.execute("UPDATE runners SET readiness_json=?,label='Mail Computer' WHERE id=?", (json.dumps(report), computer))
+    _, checks = health_of(api)
+    warning = checks["tool_credentials"]
+    assert warning["status"] == "warn"
+    assert all(name in warning["summary"] for name in ("Gmail", "Google Calendar", "PostHog", "Mail Computer"))
+    assert "GOOGLE_SA_KEY" not in warning["summary"] and "GitHub" not in warning["summary"]
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO humans(id,name,email) VALUES('sam-test','Sam','sam@example.com')")
+    _, limited = health_of(api, as_person(api, "sam-test"))
+    assert "tool_credentials" not in limited
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='archived' WHERE slug='ana'")
+    assert "tool_credentials" not in health_of(api)[1]
