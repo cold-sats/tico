@@ -177,8 +177,12 @@ async fn connect_server(app: App, address: String) -> Result<(), String> {
 fn server_capability(hub: &url::Url) -> Value {
     let mut capability: Value = serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
     // Explicit port also confines default-port URLs: URLPattern otherwise treats an
-    // omitted port as a wildcard. Escaping ':' keeps IPv6 hosts literal.
-    let host = hub.host_str().unwrap().replace(':', "\\:");
+    // omitted port as a wildcard. Host characters must stay literal in URLPattern.
+    let mut host = String::new();
+    for ch in hub.host_str().unwrap().chars() {
+        if matches!(ch, ':' | '*' | '?' | '+' | '(' | ')' | '{' | '}' | '\\') { host.push('\\'); }
+        host.push(ch);
+    }
     let port = hub.port_or_known_default().unwrap();
     capability["remote"] = serde_json::json!({"urls": [format!("{}://{host}:{port}/*", hub.scheme())]});
     capability
@@ -194,6 +198,8 @@ mod capability_tests {
             ("https://team.example.com/tico/", "https://team.example.com:443/*"),
             ("http://localhost:8765/", "http://localhost:8765/*"),
             ("http://team.example.com/", "http://team.example.com:80/*"),
+            ("https://[::1]:8765/", r"https://[\:\:1]:8765/*"),
+            ("https://*.example.com/", r"https://\*.example.com:443/*"),
         ] {
             let capability = server_capability(&url::Url::parse(address).unwrap());
             assert_eq!(capability["remote"]["urls"], serde_json::json!([pattern]));
