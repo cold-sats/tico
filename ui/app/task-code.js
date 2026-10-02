@@ -137,7 +137,9 @@ function taskRailPaint(d, t) {
   const old = $('[data-sub-add]', rail);
   if (old) st.owner = old.elements.owner.value;
   const typed = old?.elements.title.value || '', focused = !!old && old.contains(document.activeElement) ? document.activeElement.name : '';
-  const html = taskCodeHTML(t) + taskSubtasksHTML(t, kids, st.open, st.adding, st.owner);
+  // Code is drawn from the full task only: list rows carry no worktree details (ahead, behind, files, errors).
+  const code = st.full && String(st.full.id) === String(t.id) ? taskCodeHTML(st.full) : '';
+  const html = code + taskSubtasksHTML(t, kids, st.open, st.adding, st.owner);
   rail.innerHTML = html;
   rail.hidden = !html;
   d.classList.toggle('has-rail', !!html);
@@ -197,7 +199,7 @@ function taskRailBind(d, t) {
         catch (e) { if (![404, 405].includes(e.status)) throw e; await post(base, {remove: drop.dataset.codeDrop}); }   // an older server
         const data = await get(`/v2/tasks/${encodeURIComponent(t.id)}`);
         if (TASKS_ST) void tasksLoad(TASKS_ST);
-        if (d.open && d.dataset.task === String(t.id)) taskModalShow(data.task);
+        if (d.open && d.dataset.task === String(t.id)) { if (d.taskRail) d.taskRail.full = data.task; taskModalShow(data.task); }
       } catch (e) { toast(e.message, true); drop.disabled = false; }
     }
   };

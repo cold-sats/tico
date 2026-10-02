@@ -73,6 +73,10 @@ function subsRuntimeHTML(c, p) {
   const owner = S.me?.role === 'owner';
   const reported = Object.keys(p.runtimes || {}).length;
   const shown = reported ? SUBS_RUNTIMES.filter(([id]) => p.runtimes[id]) : SUBS_RUNTIMES;
+  // Not known for any runtime: no state to show, but an owner can still sign it in.
+  if (shown.every(([id]) => typeof p.runtimes?.[id]?.signed_in !== 'boolean') && reported) {
+    return owner ? shown.map(([id, label]) => `<button class="ghost subs-signin" type="button" data-model-login data-runner="${esc(c.runner_id)}" data-runtime="${esc(id)}" data-profile="${esc(p.name)}" data-machine="${esc(c.label)}" aria-label="Sign in ${esc(p.name)} to ${esc(label)} on ${esc(c.label)}">Sign in to ${esc(label)}</button>`).join('') : '';
+  }
   return shown.map(([id, label]) => {
     const v = reported ? p.runtimes[id]?.signed_in : false;
     if (typeof v !== 'boolean') return '';                 // not known: nothing to say
@@ -92,13 +96,15 @@ function subsGroupRowHTML(g, names) {
       <option value="">${esc(none)}</option>${list.map(n => `<option value="${esc(n)}"${n === own ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>
     ${gaps.map(label => `<span class="pill fail subs-gap">Not signed in on ${esc(label)}</span>`).join('')}</li>`;
 }
-// `force` redraws even while someone is choosing or typing in it (after their own change).
-async function renderSettingsSubs(force = false) {
+// A new subscription's name being typed is never wiped by a redraw; `force` redraws anyway (after the person's own
+// group change). `loaded`: SUBS was just read, so it is not read again.
+const subsTyping = () => formBusy($('#set-subs [data-subs-add]'));
+async function renderSettingsSubs(force = false, loaded = false) {
   const card = $('#settings-subs'), el = $('#set-subs');
   if (!card || !el) return;
-  if (!force && el.contains(document.activeElement)) return;
-  if (!S.me?.cloud || !await subsLoad() || !$('#set-subs')) { card.hidden = true; return; }
-  if (!force && el.contains(document.activeElement)) return;
+  if (!force && subsTyping()) return;
+  if (!S.me?.cloud || !(loaded ? SUBS : await subsLoad()) || !$('#set-subs')) { card.hidden = true; return; }
+  if (!force && subsTyping()) return;
   const names = subsNames(), owner = S.me?.role === 'owner';
   const machines = (SETTINGS_DATA?.machines || []).filter(m => !m.revoked_at);
   const computers = SUBS.computers.filter(c => c.profiles.length);
@@ -133,9 +139,10 @@ async function renderSettingsSubs(force = false) {
     ev.preventDefault();
     const name = subsSlug(form.elements.profile.value);
     if (!name) { $('#subs-add-msg').textContent = 'Use letters or numbers'; form.elements.profile.focus(); return; }
-    form.elements.profile.value = name; $('#subs-add-msg').textContent = '';
+    $('#subs-add-msg').textContent = '';
     window.TicoModelLogin?.open({runnerId: form.elements.runner.value, runtime: form.elements.runtime.value, profile: name,
       machine: form.elements.runner.selectedOptions[0]?.textContent || ''});
+    form.elements.profile.value = '';                     // handed to the sign-in; the list redraws once it reports
   };
 }
 

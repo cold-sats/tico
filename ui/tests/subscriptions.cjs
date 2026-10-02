@@ -29,7 +29,8 @@ function fixtures() {
       profiles_by_computer: [
         {runner_id: 'r1', label: 'Acme box', profiles: [
           {name: 'acme-eng', runtimes: {codex: {signed_in: true}, claude: {signed_in: false}}},
-          {name: 'acme-ops', runtimes: {claude: {signed_in: true}, codex: {signed_in: null}}}]},
+          {name: 'acme-ops', runtimes: {claude: {signed_in: true}, codex: {signed_in: null}}},
+          {name: 'acme-new', runtimes: {codex: {signed_in: null}, claude: {signed_in: null}}}]},     // reported, state unknown
         {runner_id: 'r2', label: "Sam's Mac", profiles: [
           {name: 'acme-eng', runtimes: {claude: {signed_in: false}}},
           {name: 'acme-ops', runtimes: {claude: {signed_in: true}}}]},
@@ -113,7 +114,14 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
       if (body.profile && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(body.profile)) return json({detail: [{loc: ['body', 'profile'], msg: 'String should match pattern'}]}, 422);
       return json({id: 'l1', state: 'waiting', url: 'https://claude.ai/oauth/example', code: 'ACME-1234', created: new Date().toISOString(), lines: []});
     }
-    if (p.match(/^\/api\/v2\/computers\/[^/]+\/logins\/l1(\/cancel)?$/)) return json({id: 'l1', state: method === 'POST' ? 'cancelled' : 'waiting', url: 'https://claude.ai/oauth/example', code: 'ACME-1234', created: new Date().toISOString(), lines: []});
+    if (p.match(/^\/api\/v2\/computers\/[^/]+\/logins\/l1(\/cancel)?$/)) {
+      // finishLogin: the sign-in completes, and the computer reports it on its next heartbeat.
+      if (data.finishLogin && method === 'GET') {
+        data.subs.profiles_by_computer[0].profiles[0].runtimes.claude.signed_in = true;
+        return json({id: 'l1', state: 'signed_in', created: new Date().toISOString(), lines: []});
+      }
+      return json({id: 'l1', state: method === 'POST' ? 'cancelled' : 'waiting', url: 'https://claude.ai/oauth/example', code: 'ACME-1234', created: new Date().toISOString(), lines: []});
+    }
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json({});
   });
@@ -134,6 +142,9 @@ async function computers(browser) {
   assert.match(await eng.innerText(), /acme-eng\s*Codex · signed in\s*Claude Code · not signed in\s*Sign in/);
   assert.equal(await eng.locator('.subs-signin').count(), 1, 'Sign in only where it is not signed in');
   assert.equal(await box.locator('[data-subs-profile="acme-ops"]').innerText().then(t => t.replace(/\s+/g, ' ').trim()), 'acme-ops Claude Code · signed in', 'unknown says nothing');
+  // Unknown for every runtime: no state, but the owner can still sign it in.
+  assert.deepEqual(await box.locator('[data-subs-profile="acme-new"] button').allInnerTexts(), ['Sign in to Codex', 'Sign in to Claude Code']);
+  assert.equal(await box.locator('[data-subs-profile="acme-new"] .pill').count(), 0);
   if (SHOTS) { fs.mkdirSync(SHOTS, {recursive: true}); await card.screenshot({path: path.join(SHOTS, 'settings-computers-subscriptions-dark.png')}); }
   // Sign in: the browser-code login for that computer and subscription.
   await eng.locator('.subs-signin').click();
@@ -148,7 +159,7 @@ async function computers(browser) {
   assert.deepEqual(await groups.locator('.subs-name').allInnerTexts(), ['Engineering', 'Web', 'Operations']);
   assert.equal(await groups.locator('[data-subs-group="g-eng"]').inputValue(), 'acme-eng');
   assert.equal(await groups.locator('[data-subs-group="g-web"] option').first().innerText(), 'From Engineering (acme-eng)');
-  assert.deepEqual(await groups.locator('[data-subs-group="g-ops"] option').allInnerTexts(), ['None', 'acme-eng', 'acme-ops']);
+  assert.deepEqual(await groups.locator('[data-subs-group="g-ops"] option').allInnerTexts(), ['None', 'acme-eng', 'acme-new', 'acme-ops']);
   // Builder (in Web) runs on Sam's Mac where acme-eng is not signed in; Scout's old laptop never reported: no chip for it.
   assert.deepEqual(await groups.locator('.subs-row', {hasText: 'Engineering'}).locator('.subs-gap').allInnerTexts(), ["Not signed in on Sam's Mac"]);
   await groups.locator('[data-subs-group="g-ops"]').selectOption('acme-ops');
@@ -191,7 +202,8 @@ async function botEditor(browser) {
   const line = rows.locator('[data-bot-sub-line]');
   await line.locator('.sb-sub-text').waitFor();
   // Its computer's subscriptions first, then the others.
-  assert.deepEqual(await sub.locator('option').allInnerTexts(), ['From group (Engineering)', 'acme-eng', 'acme-ops']);
+  assert.deepEqual(await sub.locator('option').allInnerTexts(), ['From group (Engineering)', 'acme-eng', 'acme-ops', 'acme-new']);
+  assert.deepEqual(await sub.locator('optgroup').evaluateAll(gs => gs.map(g => g.label)), ["Sam's Mac", 'Other computers']);
   assert.equal(await sub.inputValue(), '');
   assert.equal(await sub.isDisabled(), false, 'the owner may choose');
   assert.equal(await line.locator('.sb-sub-text').innerText(), "Subscription: acme-eng · from group Engineering · Sam's Mac");
@@ -214,6 +226,29 @@ async function botEditor(browser) {
   assert.deepEqual(last(writes, '/api/v2/subscriptions'), {scope: 'bot', target: 'builder', profile: null});
   assert.deepEqual(errors, []);
   console.log('bot editor: ok');
+  await page.close();
+}
+
+// After a sign-in the list catches up by itself, even with the keyboard still inside the card (N1); only a name
+// being typed holds a redraw back.
+async function signInRefresh(browser) {
+  const {page, errors, data} = await open(browser);
+  const card = page.locator('#settings-subs');
+  const eng = card.locator('.subs-pc').first().locator('[data-subs-profile="acme-eng"]');
+  await eng.locator('.subs-signin').waitFor();
+  // A redraw with focus on a group select still happens.
+  await card.locator('[data-subs-group="g-ops"]').focus();
+  data.subs.assignments.push({scope: 'group', target: 'g-ops', profile: 'acme-ops'});
+  await page.evaluate(() => loadSettings());
+  await page.waitForFunction(() => document.querySelector('[data-subs-group="g-ops"]')?.value === 'acme-ops');
+  data.finishLogin = true;
+  await eng.locator('.subs-signin').click();
+  const dialog = page.locator('dialog.model-login');
+  await dialog.locator('[data-status][data-state="signed_in"]').waitFor({timeout: 8000});
+  await dialog.locator('[data-close]').first().click();
+  await card.locator('.subs-pc').first().locator('[data-subs-profile="acme-eng"]', {hasText: 'Claude Code · signed in'}).waitFor({timeout: 10000});
+  assert.deepEqual(errors, []);
+  console.log('sign-in refresh: ok');
   await page.close();
 }
 
@@ -267,6 +302,6 @@ async function phone(browser) {
 
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
-  try { await computers(browser); await botEditor(browser); await who(browser); await oldServer(browser); await phone(browser); }
+  try { await computers(browser); await botEditor(browser); await signInRefresh(browser); await who(browser); await oldServer(browser); await phone(browser); }
   finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

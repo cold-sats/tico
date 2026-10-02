@@ -79,7 +79,10 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
     if (p === '/api/v2/tasks/labels') return json({labels: [], tags: []});
     if (p === '/api/v2/tasks' && method === 'GET') {
       const owner = url.searchParams.get('owner');
-      return json({tasks: owner ? data.tasks.filter(t => t.owner === 'bot:' + owner) : url.searchParams.get('requester') ? [] : data.tasks, next_offset: null});
+      // List rows leave out the links' detail_json (and pr_sha), as backend/app.py lists do; the detail has them.
+      const rows = (owner ? data.tasks.filter(t => t.owner === 'bot:' + owner) : url.searchParams.get('requester') ? [] : data.tasks)
+        .map(t => ({...t, links: (t.links || []).map(({detail_json, pr_sha, ...l}) => l)}));
+      return json({tasks: rows, next_offset: null});
     }
     if (p === '/api/v2/tasks' && method === 'POST') {
       const body = req.postDataJSON(); writes.push({method, p, body});

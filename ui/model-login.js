@@ -30,9 +30,13 @@
     let tries = 0;
     const look = async () => {
       tries += 1;
-      try { if (typeof renderSettingsSubs === 'function') await renderSettingsSubs(); } catch { /* not on Settings */ }
+      // Read the subscriptions here, so a redraw held back (someone typing a new name) never stops the look.
       let ready = false;
-      try { ready = typeof subsSignedIn === 'function' && subsSignedIn(runnerId, profile, runtime) === true; } catch { /* same */ }
+      try {
+        if (typeof subsLoad === 'function') await subsLoad();
+        ready = typeof subsSignedIn === 'function' && subsSignedIn(runnerId, profile, runtime) === true;
+        if (typeof renderSettingsSubs === 'function') await renderSettingsSubs(false, true);
+      } catch { /* not on Settings */ }
       if (!ready && tries < 10) setTimeout(look, 3000);
     };
     setTimeout(look, 1500);

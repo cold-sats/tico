@@ -130,13 +130,15 @@ async function taskModalShow(task) {
   if (!detail?.task || !d.open || d.dataset.task !== task.id) return;
   const full = {...detail.task, children: detail.children || [], parent: detail.parent || null};
   d.innerHTML = hubModalHTML(full, taskItem(full));
-  taskModalBind(d, full);
+  taskModalBind(d, full, true);
   void taskRailLoad(d, full, detail);
   void taskChatLoad(task.id, d, detail);
 }
-function taskModalBind(d, task) {
+// `full`: the task as GET /v2/tasks/{id} answers it (list rows leave out what the rail's Code section needs).
+function taskModalBind(d, task, full = false) {
   d.taskAttachments = task.attachments || [];
   if (d.taskRail?.id !== String(task.id)) d.taskRail = {id: String(task.id), open: new Set()};
+  if (full) d.taskRail.full = task;
   taskRailPaint(d, task); taskRailBind(d, task);
   $('[data-modal-close]', d).onclick = () => d.close();
   void taskGoalTitle(d);
