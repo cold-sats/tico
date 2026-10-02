@@ -278,7 +278,8 @@ class Session:
             self.view = {"url": "", "code": "", "lines": self.view["lines"]}
         log(f"Tico runner: {self.runtime} sign-in {state}")
         if state == "signed_in":
-            getattr(self.manager, "clear_rejection", lambda runtime: None)(self.runtime)
+            self.manager.runner.clear_rejection(self.runtime, self.profile or
+                (self.manager.profile("").name if self.manager.profile("") else ""))
 
 
 class Logins:

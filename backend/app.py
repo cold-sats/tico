@@ -2660,22 +2660,22 @@ def create_app(settings=None):
     @app.post("/api/v2/runners/{rid}/logins")
     def start_login(request: Request, rid: str, body: M.LoginStart):
         return mutate(request, body, lambda c: model_login.start(
-            c, request.state.identity, rid, body.runtime, body.profile))
+            c, request.state.identity, rid, body.runtime, body.profile, auth=auth))
 
     @app.get("/api/v2/runners/{rid}/logins/{lid}")
     def read_login(request: Request, rid: str, lid: str):
         # A read that also expires: a sign-in nobody finished does not stay open.
         with store.transaction() as c:
-            return model_login.read(c, request.state.identity, rid, lid)
+            return model_login.read(c, request.state.identity, rid, lid, auth=auth)
 
     @app.post("/api/v2/runners/{rid}/logins/{lid}/code")
     def login_code(request: Request, rid: str, lid: str, body: M.LoginCode):
         return mutate(request, body, lambda c: model_login.submit_code(
-            c, request.state.identity, rid, lid, body.code))
+            c, request.state.identity, rid, lid, body.code, auth=auth))
 
     @app.post("/api/v2/runners/{rid}/logins/{lid}/cancel")
     def cancel_login(request: Request, rid: str, lid: str, body: M.Empty):
-        return mutate(request, body, lambda c: model_login.cancel(c, request.state.identity, rid, lid))
+        return mutate(request, body, lambda c: model_login.cancel(c, request.state.identity, rid, lid, auth=auth))
 
     # The runner asks for work here and reports back; nothing listens on the runner.
     @app.get("/api/v2/runner-logins")
@@ -2828,10 +2828,7 @@ def create_app(settings=None):
         readable = auth.bot_accesses(c, who)
         rows = []
         for r in c.execute("SELECT * FROM runners WHERE revoked_at IS NULL ORDER BY label"):
-            if who.role == "bot" and not c.execute("SELECT 1 FROM assignments WHERE runner_id=? AND bot=?",
-                                                   (r["id"], mine)).fetchone():
-                continue
-            if who.role != "bot" and not (everyone or r["operator"] == mine or r["accepts_member_bots"]):
+            if not (everyone or r["operator"] == mine or r["accepts_member_bots"]):
                 continue
             bots = [x["bot"] for x in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (r["id"],))
                     if (readable.get(x["bot"]) or {}).get("see")]

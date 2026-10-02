@@ -38,6 +38,8 @@ def test_heartbeat_profiles_claim_and_old_computer(api):
     ready(api, r, ['ops'])
     assert get(api, 'bots/ops/subscription')['signed_in'] is None
     assert get(api, 'bots/ops/subscription')['problem'] == 'Update Test Mac to use subscriptions'
+    post(api, 'chat/ops', {'text': 'Wait for the assigned subscription'})
+    assert claim(api, r) is None
     body = {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
             'profiles': [{'name': 'engineering', 'runtimes': {'fake': {'signed_in': True}}}]}
     post(api, 'runners/heartbeat', body, token=r['token'])
@@ -48,11 +50,20 @@ def test_heartbeat_profiles_claim_and_old_computer(api):
     assignment = get(api, 'runners/assignments', r['token'])[0]
     assert assignment['profile'] == 'engineering'
     post(api, 'chat/ops', {'text': 'Check the current delivery'})
-    assert claim(api, r)['profile'] == 'engineering'
+    work = claim(api, r)
+    assert work['profile'] == 'engineering'
+    post(api, 'attempts/' + work['id'] + '/started', {'thread_id': 'thread'}, token=r['token'])
+    post(api, 'attempts/' + work['id'] + '/complete', {'outcome': 'completed', 'last_seq': 0}, token=r['token'])
+    post(api, 'chat/ops', {'text': 'Wait while this subscription is unavailable'})
     # A complete replacement report removes profiles; a missing report from an old runner doesn't.
     post(api, 'runners/heartbeat', {**body, 'profiles': []}, token=r['token'])
     sub = get(api, 'bots/ops/subscription')
-    assert sub['signed_in'] is False and sub['problem'] == 'profile engineering not on Test Mac'
+    assert sub['signed_in'] is False and sub['problem'] == "Subscription engineering isn't on Test Mac"
+    assert claim(api, r) is None
+    signed_out = {**body, 'profiles': [{'name': 'engineering', 'runtimes': {'fake': {'signed_in': False}}}]}
+    post(api, 'runners/heartbeat', signed_out, token=r['token'])
+    assert claim(api, r) is None
+    assert get(api, 'bots/ops/subscription')['problem'] == "Subscription engineering isn't signed in on Test Mac"
     health = get(api, 'health')
     assert any(check['id'] == 'subscriptions' for check in health['checks'])
     ready(api, r, ['ops'])
@@ -179,8 +190,35 @@ def test_actual_profile_is_kept_with_completion_and_usage(api):
     work = claim(api, r)
     post(api, 'attempts/' + work['id'] + '/started', {'thread_id': 'thread'}, token=r['token'])
     post(api, 'attempts/' + work['id'] + '/complete', {'outcome': 'completed', 'last_seq': 0,
-         'profile_used': 'local-fallback', 'usage': {'input_tokens': 1, 'runtime': 'fake',
-                                                   'profile_used': 'local-fallback'}}, token=r['token'])
+         'profile_used': 'local', 'usage': {'input_tokens': 1, 'runtime': 'fake',
+                                                   'profile_used': 'local'}}, token=r['token'])
     with api.app.state.store.read() as c:
         result = json.loads(c.execute('SELECT result_json FROM attempts WHERE id=?', (work['id'],)).fetchone()[0])
-    assert result['profile_used'] == result['usage']['profile_used'] == 'local-fallback'
+    assert result['profile_used'] == result['usage']['profile_used'] == 'local'
+
+
+def test_bot_computer_visibility_only_restricts_subscriptions(api):
+    own, shared = runner(api), runner(api, label='Shared Computer')
+    assign(api, own, 'ops')
+    ready(api, own, ['ops'])
+    post(api, 'chat/ops', {'text': 'Inspect computers'})
+    token = claim(api, own)['token']
+    assert {row['id'] for row in get(api, 'computers', token)['computers']} == {own['runner_id'], shared['runner_id']}
+    assert [row['runner_id'] for row in get(api, 'subscriptions', token)['profiles_by_computer']] == [own['runner_id']]
+    assert {row['id'] for row in get(api, 'fleet/check')['computers']} == {own['runner_id'], shared['runner_id']}
+
+
+def test_server_rejection_blocks_only_matching_profile(api):
+    from backend.execution import Execution
+    r = runner(api)
+    body = {'version': 'test', 'platform': 'test', 'readiness': {'schema_version': 1,
+        'runtimes': {'codex': {'installed': True, 'authenticated': 'ready'}},
+        'bots': {'ops': {'ready': True, 'runtime': 'codex', 'profile': 'one'},
+                 'cpo': {'ready': True, 'runtime': 'codex', 'profile': 'two'}}}}
+    post(api, 'runners/heartbeat', body, token=r['token'])
+    with api.app.state.store.transaction() as c:
+        Execution.mark_rejected(c, r['runner_id'], 'codex', 'Unauthorized', 'one')
+        report = json.loads(c.execute('SELECT readiness_json FROM runners WHERE id=?', (r['runner_id'],)).fetchone()[0])
+    assert report['bots']['ops']['ready'] is False
+    assert report['bots']['cpo']['ready'] is True
+    assert report['runtimes']['codex']['authenticated'] == 'ready'

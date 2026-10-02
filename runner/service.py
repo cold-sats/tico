@@ -724,10 +724,27 @@ class Runner:
                           if row["bot"] == bot), None)
         return profiles.select(self.config, bot, requested)
 
+    def subscription_problem(self, name, signed_out=False, computer=None):
+        label = (computer or self.config.get("label") or next((row.get("computer_label") for row in
+                 getattr(self, "assignments_seen", []) if row.get("computer_label")), None) or "this computer")
+        return f"Subscription {name} isn't signed in on {label}" if signed_out else f"Subscription {name} isn't on {label}"
+
+    def turn_profile(self, attempt):
+        requested = attempt.get("profile")
+        profile = profiles.select(self.config, attempt["bot"], requested)
+        if requested:
+            if profile is None:
+                raise RuntimeError(self.subscription_problem(requested, computer=attempt.get("computer_label")))
+            runtime = (attempt.get("config") or {}).get("runtime") or ""
+            status = self.runtime_readiness(runtime, [attempt], profile)
+            if status.get("authenticated") in ("missing", "failed", "rejected") or self.rejection(runtime, profile.name):
+                raise RuntimeError(self.subscription_problem(requested, signed_out=True, computer=attempt.get("computer_label")))
+        return profile
+
     def add_profile(self, name):
         """Persist a UI-created login without changing existing local assignments."""
         config_path = getattr(self, "config_path", None)
-        root = Path(config_path).parent / "profiles" if config_path else self.state.directory / "profiles"
+        root = Path(config_path).parent / "profiles" if config_path else (self.state.directory.parent if isolation.enabled() else self.state.directory) / "profiles"
         entry = profiles.create(root, name)
         if config_path:
             path = Path(config_path)
@@ -1123,6 +1140,7 @@ class Runner:
         return mcp_servers.supported(servers, runtime, harness)
 
     def environment(self, attempt, granted=None):
+        profile = self.turn_profile(attempt)
         # Credentials come from live grants; the machine credential is never included.
         # --projects selects the operator's actual layout, which need not be the
         # parent of this checkout. Never fall back to another operator's secrets.
@@ -1172,7 +1190,6 @@ class Runner:
         # The subscription this bot runs on. Claude and Grok key their login to HOME, so it has
         # to be the turn's own environment, not something the host sets: this is the same dict
         # the host process and the turn's shell commands get.
-        profile = profiles.select(self.config, attempt["bot"], attempt.get("profile"))
         if profile:
             env = profile.environment((attempt.get("config") or {}).get("runtime") or "", env)
         env.update({"HUB_API_URL": self.config["url"], "HUB_TOKEN": attempt["token"],
@@ -1204,22 +1221,30 @@ class Runner:
             used = {}
             for entry in assignments:
                 profile = profiles.select(self.config, entry["bot"], entry.get("profile"))
-                if profile and entry["config"].get("runtime") == runtime:
-                    used.setdefault(profile.name, profile)
+                if entry["config"].get("runtime") == runtime and (profile or not entry.get("profile")):
+                    used.setdefault(profile.name if profile else "", profile)
             if not used:
                 report[runtime] = self.runtime_readiness(runtime, assignments)
                 continue
-            rows = {name: self.runtime_readiness(runtime, assignments, used[name]) for name in sorted(used)}
+            rows = {name: dict(self.runtime_readiness(runtime, assignments, used[name])) for name in sorted(used)}
             worst = min(rows, key=lambda name: (profiles.SIGN_IN_ORDER.index(rows[name]["authenticated"]), name))
             report[runtime] = {**rows[worst], "profiles": rows,
                                "detail": "; ".join(f"{name}: {row['detail']}" for name, row in rows.items())[:500]}
         for runtime, row in report.items():
-            rejected = self.rejection(runtime)
-            if rejected and row.get("installed"):
-                report[runtime] = {**row, "authenticated": "rejected", "rejected_at": rejected["at"],
-                                   "rejected_reason": rejected["reason"],
-                                   "credential_source": "credentials" if not row.get("profiles") and self.team_key_only(runtime) else "computer",
-                                   "detail": ("Sign-in rejected: " + rejected["reason"])[:500]}
+            targets = row.get("profiles") or {"": row}
+            for name, status in targets.items():
+                rejected = self.rejection(runtime, name)
+                if rejected and status.get("installed"):
+                    status.update(authenticated="rejected", rejected_at=rejected["at"],
+                                  rejected_reason=rejected["reason"],
+                                  credential_source="credentials" if not name and self.team_key_only(runtime) else "computer",
+                                  detail=("Sign-in rejected: " + rejected["reason"])[:500])
+            if row.get("profiles"):
+                worst = min(targets, key=lambda name: (targets[name]["authenticated"] != "rejected",
+                            profiles.SIGN_IN_ORDER.index(targets[name]["authenticated"])
+                            if targets[name]["authenticated"] != "rejected" else -1))
+                report[runtime] = {**targets[worst], "profiles": targets,
+                                   "detail": "; ".join(f"{name}: {status['detail']}" for name, status in targets.items())[:500]}
         return report
 
     def profile_report(self):
@@ -1254,7 +1279,7 @@ class Runner:
                             signed = json.loads(probe.stdout).get("loggedIn") is True
                     except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
                         pass
-                runtimes[runtime] = {"signed_in": signed}
+                runtimes[runtime] = {"signed_in": False if self.rejection(runtime, name) else signed}
             result.append({"name": name, "runtimes": runtimes})
             if len(result) == 100:
                 break
@@ -1265,12 +1290,16 @@ class Runner:
     # A provider that refused the key or sign-in on a real turn. Retrying cannot help, so the
     # runtime stops taking work (a not-ready bot is never claimed) until a credential changes, a
     # sign-in succeeds, or REJECT_RECHECK_S passes and one turn is allowed to find out again.
-    def credential_fingerprint(self):
+    def credential_fingerprint(self, profile=""):
         """Changes when a key or sign-in might have: never reads a secret into the report."""
         seen = [(k, v) for k, v in sorted(os.environ.items()) if "API_KEY" in k or "OAUTH_TOKEN" in k]
         home = Path.home()
         files = [Path(os.environ.get("CODEX_HOME") or home / ".codex") / "auth.json", home / ".claude.json",
                  home / ".claude" / ".credentials.json", *sorted((Path(self.config["projects_dir"]) / "secrets").glob("*.env"))]
+        selected = profiles.select(self.config, requested=profile) if profile else None
+        if selected:
+            files = [selected.directory / "codex" / "auth.json", selected.directory / "claude" / ".claude.json",
+                     selected.directory / "claude" / ".claude" / ".credentials.json"]
         for path in files:
             try:
                 stat = path.stat()
@@ -1279,22 +1308,24 @@ class Runner:
                 pass
         return hashlib.sha256(repr(seen).encode()).hexdigest()
 
-    def rejection(self, runtime):
+    def rejection(self, runtime, profile=""):
         rows = self.__dict__.setdefault("_rejected", {})
-        row = rows.get(runtime)
-        if row and (time.monotonic() - row["mono"] >= REJECT_RECHECK_S or row["fingerprint"] != self.credential_fingerprint()):
-            del rows[runtime]
+        row = rows.get((runtime, profile))
+        if row and (time.monotonic() - row["mono"] >= REJECT_RECHECK_S or row["fingerprint"] != self.credential_fingerprint(profile)):
+            del rows[runtime, profile]
             row = None
         return row
 
-    def reject(self, runtime, text):
-        self.__dict__.setdefault("_rejected", {})[runtime] = {
+    def reject(self, runtime, text, profile=""):
+        self.__dict__.setdefault("_rejected", {})[runtime, profile] = {
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "mono": time.monotonic(),
-            "reason": rejection_reason(text), "fingerprint": self.credential_fingerprint()}
+            "reason": rejection_reason(text), "fingerprint": self.credential_fingerprint(profile)}
+        self._profile_report_cache = None
         self.last_heartbeat = float("-inf")     # tell the server now, before another bot claims work
 
-    def clear_rejection(self, runtime):
-        self.__dict__.setdefault("_rejected", {}).pop(runtime, None)
+    def clear_rejection(self, runtime, profile=""):
+        self.__dict__.setdefault("_rejected", {}).pop((runtime, profile), None)
+        self._profile_report_cache = None
         self.last_heartbeat = float("-inf")
 
     def preflight(self, assignments, runtimes=None):
@@ -1308,12 +1339,12 @@ class Runner:
             profile = profiles.select(self.config, bot, entry.get("profile"))
             # This bot's own subscription, not the worst of the machine's: a signed-out profile
             # blocks its own bots only.
-            status = (runtimes[runtime].get("profiles", {}).get(profile.name) if profile and runtime in runtimes
+            status = (runtimes[runtime].get("profiles", {}).get(profile.name if profile else "") if runtime in runtimes
                       else None) or runtimes.get(runtime, {})
             problems, warnings = [], []
             missing_profile = profiles.missing(self.config, entry.get("profile"))
             if missing_profile:
-                warnings.append(missing_profile)
+                problems.append(self.subscription_problem(entry["profile"], computer=entry.get("computer_label")))
             repository_present = (path / "AGENT.md").is_file()
             materialized, failure = "", ""
             if not repository_present:
@@ -1347,10 +1378,12 @@ class Runner:
                     problems.append("Antigravity CLI is not on PATH")
             elif not runtimes[runtime]["installed"]:
                 problems.append("Runtime executable is not on PATH")
-            elif runtimes[runtime].get("authenticated") == "rejected":
-                problems.append(runtimes[runtime]["detail"])
+            elif status.get("authenticated") == "rejected":
+                problems.append(self.subscription_problem(entry["profile"], signed_out=True, computer=entry.get("computer_label")) if entry.get("profile")
+                                else status["detail"])
             elif status["authenticated"] in ("missing", "failed"):
-                problems.append((f"{profile.name}: " if profile else "")
+                problems.append(self.subscription_problem(entry["profile"], signed_out=True, computer=entry.get("computer_label")) if entry.get("profile")
+                                else (f"{profile.name}: " if profile else "")
                                 + (status["detail"] or "Runtime sign-in is not ready"))
             model = str(entry["config"].get("model") or "")
             # Codex's cache is the model-picker catalog, not an exhaustive list of
@@ -1579,7 +1612,7 @@ class Runner:
                 signed = isinstance(status, dict) and status.get("loggedIn") is True
                 if not signed and profile is None:
                     self.team_model_keys("claude")
-                token = self.headless_login("claude")
+                token = self.headless_login("claude") if profile is None else None
                 if signed:
                     authenticated, detail = "ready", "Signed in with " + str(status.get("authMethod") or "Claude")
                 elif token:
@@ -1737,7 +1770,7 @@ class Runner:
         runtime = config.get("runtime") or ""
         # `env` already carries the profile's HOME / CODEX_HOME (see `environment`); what is left
         # is the knobs that are not environment variables.
-        profile = profiles.select(self.config, attempt["bot"], attempt.get("profile"))
+        profile = self.turn_profile(attempt)
         if runtime == "grok":
             from .hosts.grok import GrokHost
             return GrokHost(bot=attempt["bot"], model=config.get("model"),
@@ -2218,9 +2251,11 @@ class Runner:
                     self.state.append(aid, "diagnostic",
                                       {"text": type(exc).__name__ + ": fallback harness interrupted; inspect local runner"})
             if auth_rejected and outcome == "failed":
-                self.reject(auth_rejected["runtime"], auth_rejected["reason"])
+                self.reject(auth_rejected["runtime"], auth_rejected["reason"],
+                            (profiles.select(self.config, bot, attempt.get("profile")).name
+                             if profiles.select(self.config, bot, attempt.get("profile")) else ""))
                 log(f"Tico runner: {bot}: {auth_rejected['runtime']} sign-in was rejected; this computer takes no "
-                    f"{auth_rejected['runtime']} work until the key or sign-in changes")
+                    f"{auth_rejected['runtime']} work on this profile until the key or sign-in changes")
             if limited:
                 log(f"Tico runner: {bot} hit a {fallback or runtime} usage limit; the cloud will retry later")
             elif retryable:
@@ -2262,11 +2297,11 @@ class Runner:
                                               "status": "stopped", "note": goal_failure[0] or "The harness run " + outcome})
             spent = meter[0].report(ran[0], ran[1], self.billing(bot, ran[1]))
             selected_profile = profiles.select(self.config, bot, attempt.get("profile"))
-            profile_used = selected_profile.name if selected_profile else None
+            profile_used = selected_profile.name if selected_profile and host is not None else None
             if spent and profile_used:
                 spent["profile_used"] = profile_used
             completion = self.state.finish(aid, {"outcome": outcome, "text": reply,
-                                                "profile_used": profile_used,
+                                                **({"profile_used": profile_used} if profile_used else {}),
                                                 "tokens_in": tokens.get("input"), "tokens_out": tokens.get("output"),
                                                 **({"usage": spent} if spent else {}),
                                                 **({"limited": True} if limited else {}),
@@ -2323,6 +2358,8 @@ class Runner:
         """Send a result. A server from before usage refuses the field outright (422): the result must not
         be lost over it, so it goes again without, and the same for a result kept across a restart."""
         pending = dict(completion)
+        if not pending.get("profile_used"):
+            pending.pop("profile_used", None)
         for retry in range(3):
             try:
                 return self.client.post(f"attempts/{aid}/complete", pending, key=f"complete:{aid}" if retry == 0 else f"complete:{aid}:compat-{retry}")

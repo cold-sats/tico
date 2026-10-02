@@ -71,16 +71,18 @@ class Readiness(unittest.TestCase):
         self.assertEqual(rows["coo"]["problems"], ["Missing bot repository or AGENT.md"])
         self.assertIn("two: Codex login required", rows["sales"]["problems"])
 
-    def test_server_profile_overrides_local_and_missing_profile_warns(self):
+    def test_server_profile_overrides_local_and_missing_profile_blocks(self):
         config = self.runner.config
         self.assertEqual(profiles.select(config, 'sales', 'one').name, 'one')
-        self.assertEqual(profiles.select(config, 'sales', 'absent').name, 'two')
+        self.assertIsNone(profiles.select(config, 'sales', 'absent'))
         self.assertEqual(profiles.missing(config, 'absent'), 'profile absent not on this computer')
         assignments, report = self.report()
         assignments[1]['profile'] = 'absent'
+        assignments[1]['computer_label'] = 'Build Computer'
         row = self.runner.preflight(assignments, report)[1]
-        self.assertIn('profile absent not on this computer', row['warnings'])
-        self.assertEqual(row['profile'], 'two')
+        self.assertIn("Subscription absent isn't on Build Computer", row['problems'])
+        self.assertFalse(row['ready'])
+        self.assertEqual(row['profile'], '')
 
     def test_reports_all_profiles_and_sign_in_state(self):
         import json
@@ -144,12 +146,14 @@ class Readiness(unittest.TestCase):
         work = {**BOT, 'profile': 'one'}
         self.runner.credential_environment = lambda *args: {'CLAUDE_CONFIG_DIR': '/operator/.claude'}
         self.runner.vault_values = {}
+        self.runner.runtime_readiness = lambda *args: {"authenticated": "ready"}
         env = self.runner.environment(work)
         self.assertEqual(env['CODEX_HOME'], str(Path(self.one['dir']) / 'codex'))
         with mock.patch('runner.hosts.codex.mcp_disable_config') as disable:
             self.runner.make_host(work, env)
         disable.assert_called_once_with(Path(self.one['dir']) / 'codex')
         work['config'] = {'runtime': 'claude'}
+        self.runner.runtime_readiness = lambda *args: {"authenticated": "ready"}
         env = self.runner.environment(work)
         self.assertEqual(env['HOME'], str(Path(self.one['dir']) / 'claude'))
         self.assertEqual(env['CLAUDE_CONFIG_DIR'], '/operator/.claude')
@@ -169,7 +173,7 @@ class Readiness(unittest.TestCase):
         destination.mkdir()
         (root / '.profiles').symlink_to(destination, target_is_directory=True)
         entry = self.runner.add_profile('engineering')
-        self.assertEqual(Path(entry['dir']), self.runner.state.directory / 'profiles/engineering')
+        self.assertEqual(Path(entry['dir']), (self.runner.state.directory / 'profiles/engineering').resolve())
         self.assertEqual(list(destination.iterdir()), [])
         for relative in ('claude/.claude', 'profile.json'):
             path = Path(entry['dir']) / relative
@@ -218,7 +222,7 @@ class Readiness(unittest.TestCase):
         self.assertEqual(completion['profile_used'], 'two')
         self.assertEqual(calls[-1]['usage'], {})
 
-    def test_a_turn_records_the_fallback_profile_and_separates_resume_keys(self):
+    def test_a_turn_records_the_assigned_profile_and_separates_resume_keys(self):
         from runner.hosts.fake import FakeHost
         from runner.tests.test_runner_resilience import FakeClient, attempt
         (Path(self.tmp.name) / 'emp-coo').mkdir()
@@ -228,7 +232,8 @@ class Readiness(unittest.TestCase):
                         host_factory=lambda a, env: FakeHost(replies=['done']), client=client,
                         push=lambda path, env=None: (0, ''))
         runner.renew_interval = 0.05
-        row = {**attempt(), 'profile': 'absent'}
+        runner.runtime_readiness = lambda *args: {"authenticated": "ready"}
+        row = {**attempt(), 'profile': 'two'}
         runner.execute(row)
         done = client.completion()
         self.assertEqual(done['profile_used'], 'two')
@@ -250,3 +255,58 @@ class Readiness(unittest.TestCase):
         first.stop.assert_called_once()
         self.assertEqual(factory.call_count, 2)
         warm.release(second, False)
+
+    def test_assigned_profile_cannot_start_on_another_login(self):
+        from unittest import mock
+        for method in (self.runner.environment, lambda work: self.runner.make_host(work, {})):
+            with self.assertRaisesRegex(RuntimeError, "Subscription absent isn't on"):
+                method({**BOT, 'profile': 'absent'})
+            with mock.patch.object(self.runner, 'runtime_readiness', return_value={'authenticated': 'missing'}):
+                with self.assertRaisesRegex(RuntimeError, "Subscription one isn't signed in"):
+                    method({**BOT, 'profile': 'one'})
+
+    def test_rejection_is_per_runtime_and_profile(self):
+        from unittest import mock
+        self.runner.reject('codex', 'Unauthorized', 'two')
+        self.assertIsNone(self.runner.rejection('codex', 'one'))
+        self.assertIsNone(self.runner.rejection('claude', 'two'))
+        with mock.patch.object(self.runner, 'runtime_readiness', return_value={
+                'installed': True, 'authenticated': 'ready', 'detail': ''}):
+            assignments = [{'bot': 'a', 'profile': 'one', 'config': {'runtime': 'codex'}},
+                           {'bot': 'b', 'profile': 'two', 'config': {'runtime': 'codex'}}]
+            report = self.runner.runtime_report(assignments)
+            rows = self.runner.preflight(assignments, report)
+        self.assertNotIn("Subscription one isn't signed in on this computer", rows[0]['problems'])
+        self.assertIn("Subscription two isn't signed in on this computer", rows[1]['problems'])
+        no_local = {**self.runner.config, 'default_profile': None, 'bot_profiles': {}}
+        with mock.patch.object(self.runner, 'config', no_local), mock.patch.object(
+                self.runner, 'runtime_readiness', return_value={
+                    'installed': True, 'authenticated': 'ready', 'detail': ''}):
+            mixed = [*assignments, {'bot': 'operator-login', 'config': {'runtime': 'codex'}}]
+            operator_row = self.runner.preflight(mixed, self.runner.runtime_report(mixed))[-1]
+            self.assertNotIn('Sign-in rejected: Unauthorized', operator_row['problems'])
+        self.runner.clear_rejection('codex', 'one')
+        self.assertIsNotNone(self.runner.rejection('codex', 'two'))
+        self.runner.clear_rejection('codex', 'two')
+        self.assertIsNone(self.runner.rejection('codex', 'two'))
+
+    def test_parent_symlink_is_supported_but_profile_symlink_is_refused(self):
+        root = Path(self.tmp.name)
+        (root / 'linked').symlink_to(root / 'profiles', target_is_directory=True)
+        entry = profiles.create(root / 'linked' / 'profiles', 'linked-profile')
+        self.assertEqual(Path(entry['dir']), (root / 'profiles/profiles/linked-profile').resolve())
+
+    def test_docker_profile_ownership_uses_process_identity(self):
+        from unittest import mock
+        with mock.patch('runner.isolation.identity', return_value=(12345, 12345)), \
+                mock.patch('runner.profiles.os.fchown') as chown:
+            entry = profiles.create(Path(self.tmp.name) / 'docker-profiles', 'engineering')
+        self.assertGreaterEqual(chown.call_count, 7)
+        self.assertTrue(all(call.args[1:] == (12345, 12345) for call in chown.call_args_list))
+        self.assertEqual(Path(entry['dir']).stat().st_mode & 0o777, 0o700)
+
+    def test_completion_omits_empty_profile_used(self):
+        from unittest import mock
+        self.runner.client = mock.Mock()
+        self.runner.complete('attempt', {'outcome': 'completed', 'profile_used': None})
+        self.assertNotIn('profile_used', self.runner.client.post.call_args.args[1])

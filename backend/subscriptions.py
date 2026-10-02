@@ -64,7 +64,13 @@ def record(c, runner_id, profiles):
 
 def listing(c, auth, who, computer_rows):
     computers = []
-    for runner in computer_rows(c, who):
+    visible = (c.execute("SELECT r.* FROM runners r JOIN assignments a ON a.runner_id=r.id "
+                         "WHERE a.bot=? AND r.revoked_at IS NULL", (H.actor_id(who.actor),)).fetchall()
+               if who.role == "bot" else computer_rows(c, who))
+    for runner in visible:
+        if who.role == 'bot' and not c.execute('SELECT 1 FROM assignments WHERE runner_id=? AND bot=?',
+                                              (runner['id'], H.actor_id(who.actor))).fetchone():
+            continue
         computers.append({'runner_id': runner['id'], 'label': runner['label'], 'profiles': [
             {'name': row['profile'], 'runtimes': json.loads(row['runtimes_json'] or '{}')}
             for row in c.execute('SELECT * FROM computer_profiles WHERE runner_id=? ORDER BY profile', (runner['id'],))]})
@@ -126,10 +132,10 @@ def bot_subscription(c, bot, settings, ctx=None):
             if row:
                 signed_in = json.loads(row[0] or '{}').get(runtime, {}).get('signed_in')
                 if signed_in is False:
-                    problem = f'{profile} is not signed in on {runner["label"]}'
+                    problem = f"Subscription {profile} isn't signed in on {runner['label']}"
             else:
                 signed_in = False
-                problem = f'profile {profile} not on {runner["label"]}'
+                problem = f"Subscription {profile} isn't on {runner['label']}"
     return {'profile': profile, 'source': source, 'computer': computer, 'signed_in': signed_in, 'problem': problem}
 
 

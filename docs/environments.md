@@ -129,14 +129,16 @@ scripts/tico -e acme profile list
 Selection order for a run: the bot's server assignment, then the nearest group's assignment.
 With neither, the Computer uses the bot's entry in `bot_profiles`, then `default_profile`, then
 the operator's own logins. If a server-assigned profile is missing on this Computer, the runner
-uses that local fallback and reports the missing profile in Health and subscription status.
+holds the bot and reports `Subscription <name> isn't on <computer>` in Health and subscription status.
+A signed-out assignment also holds the bot, with `Subscription <name> isn't signed in on <computer>`.
+Older Computers without profile reporting cannot claim bots with a server assignment.
 Linux Docker profiles currently share the existing bot Unix user; their separate login directories
 do not enforce file isolation between groups.
 
 | Runtime | How the profile moves its login |
 |---|---|
 | `codex` | `CODEX_HOME` points at `<profile>/codex` |
-| `claude` | `HOME` points at `<profile>/claude`; `CLAUDE_CONFIG_DIR` points at its `.claude` directory |
+| `claude` | `HOME` points at `<profile>/claude`, keeping the existing login layout |
 | `grok` | `HOME` points at `<profile>/grok`. Grok Build 1.0.30 also honours `GROK_HOME` (probed 2026-09-15), but one rule for both keeps a profile a single directory |
 | `gemini` | No variable in the run's environment: the Gemini host is handed `<profile>/gemini` and sets `GEMINI_CLI_HOME` and `GEMINI_CLI_SYSTEM_SETTINGS_PATH` itself |
 
