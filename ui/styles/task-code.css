@@ -40,7 +40,7 @@ button.prop-v:hover,button.prop-v[aria-expanded=true]{background:var(--prop-hove
 .prop-tags{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0;padding:3px 0}
 .prop-date{position:absolute;left:0;bottom:0;width:1px;height:1px;padding:0;border:0;opacity:0;pointer-events:none}
 .prop-date.shown{position:static;width:auto;height:26px;opacity:1;pointer-events:auto}
-.props-msg{font-size:12px;color:var(--fail);padding:4px 0 0}
+.props-msg{font-size:12px;color:var(--fail);padding:4px 0 0;white-space:pre-line}
 .props-msg:empty{display:none}
 .tl-menu .tl-mi.danger{color:var(--fail)}
 .tl-mi-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

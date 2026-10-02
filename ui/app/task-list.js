@@ -242,6 +242,12 @@ function tasksNest(items, nest) {
 }
 const tasksDescendants = (key, kids) => (kids.get(key) || []).reduce((n, k) => n + 1 + tasksDescendants(k.key, kids), 0);
 const tasksCanSelect = () => canMove();
+// A row's signature: a short hash of its HTML, written on it as data-sig. The poll's patch compares signatures.
+function tasksSigned(html) {
+  let h = 5381;
+  for (let i = 0; i < html.length; i++) h = ((h << 5) + h + html.charCodeAt(i)) | 0;
+  return html.replace(/^(<div [^>]*?)>/, `$1 data-sig="${(h >>> 0).toString(36)}">`);
+}
 
 // ---- one line per task
 function taskListRowHTML(it, ctx, depth = 0) {
@@ -257,19 +263,21 @@ function taskListRowHTML(it, ctx, depth = 0) {
   const pid = t.parent_id ? String(t.parent_id) : '';
   const parent = pid && depth === 0 ? (tasksById(state).get(pid) || t.parent) : null;
   const when = ctx.done ? (it.closed || it.updated) : it.updated;
-  const tab = state.tabKey === key ? 0 : -1;
-  const row = `<div class="tl-row${selected ? ' sel' : ''}${failed ? ' failed' : ''}${state.peek === key ? ' peeked' : ''}${state.cursor === key ? ' is-cursor' : ''}${note?.mine ? ' mine' : ''}" data-task-key="${esc(key)}" role="listitem" aria-level="${depth + 1}" style="--depth:${depth}" title="${esc(taskRowTip(t))}">
-    ${ctx.select ? `<input type="checkbox" class="tl-check" data-select="${esc(key)}" tabindex="-1" aria-label="Select ${esc(it.title)}"${selected ? ' checked' : ''}>` : '<span class="tl-check-pad"></span>'}
+  // What a row shows is drawn here; its selection, cursor and peek are painted on afterwards (tasksSelectionPaint,
+  // tasksCursorPaint), so an unchanged row keeps the same signature and the poll leaves it alone.
+  void selected;
+  const row = tasksSigned(`<div class="tl-row${failed ? ' failed' : ''}${note?.mine ? ' mine' : ''}" data-task-key="${esc(key)}" role="listitem" aria-level="${depth + 1}" style="--depth:${depth}" title="${esc(taskRowTip(t))}">
+    ${ctx.select ? `<input type="checkbox" class="tl-check" data-select="${esc(key)}" tabindex="-1" aria-label="Select ${esc(it.title)}">` : '<span class="tl-check-pad"></span>'}
     ${kids.length ? `<button type="button" class="tl-chev${open ? ' open' : ''}" data-expand="${esc(key)}" tabindex="-1" aria-expanded="${open ? 'true' : 'false'}" aria-label="${open ? 'Hide' : 'Show'} subtasks of ${esc(it.title)}">${TL_ICON.chev}</button>` : '<span class="tl-chev-pad"></span>'}
     ${taskStatusIcon(t)}
-    <button type="button" class="tl-open" data-open-task="${esc(key)}" tabindex="${tab}"${state.peek === key ? ' aria-current="true"' : ''}${selected ? ' aria-describedby="tl-sel-word"' : ''}${kids.length ? ` aria-expanded="${open ? 'true' : 'false'}"` : ''}><span class="tl-title">${esc(it.title)}</span></button>
+    <button type="button" class="tl-open" data-open-task="${esc(key)}" tabindex="-1"${kids.length ? ` aria-expanded="${open ? 'true' : 'false'}"` : ''}><span class="tl-title">${esc(it.title)}</span></button>
     ${parent?.title ? `<span class="tl-parent" title="Part of ${esc(parent.title)}"><span aria-hidden="true">↳ </span><span class="tl-parent-t">${esc(parent.title)}</span></span>` : ''}
     ${note ? `<span class="tl-note" title="${esc(note.text)}"><span class="tl-note-ic">${TL_ICON.note}</span><span class="tl-note-text">${esc(note.text)}</span></span>` : '<span class="tl-fill"></span>'}
     <span class="tl-chips">${taskChipsHTML(t)}</span>
     <span class="tl-people">${showAsker ? `<span class="tl-asker" title="Asked by ${esc(actorLabel(asker))}">${actorFace(asker, 14)}</span>` : ''}<span class="tl-face" title="${esc(actorLabel(t.owner))}">${actorFace(t.owner, 18)}</span></span>
     <time class="tl-age tnum" datetime="${esc(when || '')}" title="${ctx.done ? 'Done' : 'Updated'} ${esc(fmt(when))}">${esc(ageShort(when))}</time>
     ${failed ? `<span class="tl-failed" role="img" aria-label="Not changed: ${esc(failed)}" title="Not changed: ${esc(failed)}">!</span>` : ''}
-  </div>`;
+  </div>`);
   return row + (open ? kids.map(k => taskListRowHTML(k, ctx, depth + 1)).join('') : '');
 }
 function tasksEmptyHTML(state, what) {
@@ -554,7 +562,8 @@ async function tasksBulkApply(state, describe, bodyFor) {
       try {
         await post(`/v2/tasks/${encodeURIComponent(t.id)}`, {version: t.version, ...body});
         changed++;
-        if (describe.close) closed.push(t.id);
+        if (describe.close) closed.push({id: t.id, status: t.status, step_id: t.step_id || '', owner: t.owner, typed: pipelineTypeId(t) !== 'general',
+          told: !!body.note || !!actorSlug(taskRequester(t))});
         break;
       } catch (e) {
         if (e.status === 409 && attempt === 0) {
@@ -577,7 +586,7 @@ async function tasksBulkApply(state, describe, bodyFor) {
   const names = [...failed.keys()].map(k => tasksSelectedTitle(state, k));
   state.bulkMsg = [`${changed} ${describe.done}`, already ? `${already} already ${describe.already || 'so'}` : '', skipped ? `${skipped} skipped` : '',
     failed.size ? `${failed.size} not changed: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : ''].filter(Boolean).join(', ');
-  if (closed.length) state.bulkUndo = {ids: closed, until: Date.now() + 10000};
+  if (closed.length) state.bulkUndo = {items: closed, until: Date.now() + 10000};
   if (failed.size) toast(`${failed.size} not changed: ${[...failed.entries()].map(([k, m]) => `${tasksSelectedTitle(state, k)} (${m})`).join('; ')}`, true);
   await tasksLoad(state);
   if (TASKS_ST !== state) return;
@@ -594,19 +603,27 @@ function tasksBulkSettle(state, ms) {
     tasksBulkBar(state);
   }, ms);
 }
+// Undo puts each closed task back as it was: its status (or step), and its owner if that moved. A bot that asked for
+// the task was already told it closed; the message says so rather than pretend. Nothing else can start meanwhile.
 async function tasksBulkUndo(state) {
-  const ids = state.bulkUndo?.ids || [];
-  state.bulkUndo = null; state.bulkMsg = `Reopening ${ids.length}…`; tasksBulkBar(state);
+  if (state.bulkBusy) return;
+  const items = state.bulkUndo?.items || [];
+  state.bulkUndo = null; state.bulkBusy = true; state.bulkMsg = `Reopening ${items.length}…`; tasksBulkBar(state);
   let ok = 0;
-  for (const id of ids) {
+  for (const prev of items) {
     try {
-      const fresh = (await get(`/v2/tasks/${encodeURIComponent(id)}`)).task;
-      await post(`/v2/tasks/${encodeURIComponent(id)}`, {version: fresh.version, status: 'open'});
+      const fresh = (await get(`/v2/tasks/${encodeURIComponent(prev.id)}`)).task;
+      const body = prev.typed && prev.step_id ? {step: prev.step_id} : {status: prev.status};
+      if (fresh.owner !== prev.owner) body.owner = actorSlug(prev.owner) || prev.owner;
+      await post(`/v2/tasks/${encodeURIComponent(prev.id)}`, {version: fresh.version, ...body});
       ok++;
     } catch (e) { toast(`Not reopened: ${e.message}`, true); }
   }
   if (TASKS_ST !== state) return;
-  state.bulkMsg = `${ok} reopened`;
+  state.bulkBusy = false;
+  const told = items.some(p => p.told);
+  state.bulkMsg = told ? `Reopened; bots were already told` : `${ok} reopened`;
+  if (told) toast('Reopened; bots were already told');
   await tasksLoad(state);
   tasksBulkBar(state);
   tasksBulkSettle(state, 4000);
@@ -693,8 +710,11 @@ function taskPeekClosed() {
   document.body.classList.remove('task-peek-open');
   if (state) { state.peek = ''; clearTimeout(state.peekTimer); }
   for (const el of document.querySelectorAll('#task-body .peeked')) { el.classList.remove('peeked'); el.querySelector('[aria-current]')?.removeAttribute('aria-current'); }
-  if (history.state?.taskPeek) history.back();     // the sheet's own history entry (a phone's Back) goes with it
+  // The sheet's own history entry (a phone's Back) goes with it, once: back() lands later than the dialog's close
+  // event, so a second close before it lands must not step back again (off the Tasks page).
+  if (history.state?.taskPeek && !PEEK_BACK) { PEEK_BACK = true; history.back(); }
 }
+let PEEK_BACK = false;
 function taskPeekOpen(state, key, opts = {}) {
   const task = tasksById(state).get(String(key).slice(1));
   if (!task) return;
@@ -729,12 +749,13 @@ function tasksPeekSync(state) {
   const d = $('#task-peek');
   if (!d?.open || !state.peek) return;
   const fresh = tasksById(state).get(state.peek.slice(1));
-  if (!fresh || String(fresh.version) === d.dataset.version) return;
+  if (!fresh || Number(fresh.version) <= Number(d.dataset.version) || d.saving) return;
   const busy = d.contains(document.activeElement) && document.activeElement.matches('input, textarea, select, [contenteditable]');
   if (busy || $('.prop-pop:popover-open', d)) return;
   void taskModalShow(fresh, d);
 }
 window.addEventListener('popstate', () => {
+  PEEK_BACK = false;
   const d = $('#task-peek');
   if (d?.open && !history.state?.taskPeek && TASKS_ST) taskPeekClose(TASKS_ST);
 });
