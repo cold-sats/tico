@@ -2838,7 +2838,9 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
                      f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
                (requester, target, title, parent_id or "", *LIVE_STATUSES))
     if dup and task_private_readable(conn, actor, task(conn, dup["id"])) and (deduplicate or actor != KEEPER):
-        refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
+        detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
+                  else f"{dup['id']} already asks {actor_id(target)} for this")
+        refuse(conn, actor, "duplicate", detail)
     if number is not None:
         if not (actor == KEEPER or mover or mover is None and can_move(conn, actor)):
             refuse(conn, actor, "identity", f"a task's number is given by a person on the "
@@ -2927,7 +2929,9 @@ def _retitle(conn, actor, row, title, owner, type_id, parent_id=None):
                      f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
                (row["id"], row["requester"], target, title, parent or "", *LIVE_STATUSES))
     if dup and task_private_readable(conn, actor, task(conn, dup["id"])):
-        refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
+        detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
+                  else f"{dup['id']} already asks {actor_id(target)} for this")
+        refuse(conn, actor, "duplicate", detail)
     plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" and general else []
     if plain and TITLE_LINT == "refuse":
         refuse(conn, actor, "lint", "; ".join(plain))

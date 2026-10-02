@@ -185,6 +185,29 @@ def test_bot_acting_for_human_cannot_publish_in_domain(api):
         assert H.task_private(c, H.task(c, task['id']))
 
 
+def test_acted_duplicate_diagnostics_keep_private_ids_out_of_responses_and_audit(api):
+    with api.app.state.store.transaction() as c:
+        private = H.task_create(c, 'human:ben', 'Review confidential work', 'Review it.',
+                                'bot:cpo', private=True, lint=False)
+        ordinary = H.task_create(c, 'human:ben', 'Review ordinary work', 'Review it.',
+                                 'bot:cpo', lint=False)
+        token = H.VIA.set('assistant')
+        try:
+            for write in (lambda: H.task_create(c, 'human:ben', private['title'], 'Review it.',
+                                                'bot:cpo', lint=False),
+                          lambda: H.task_update(c, 'human:ben', ordinary['id'], title=private['title'])):
+                with pytest.raises(H.Refused) as refused:
+                    write()
+                assert private['id'] not in str(refused.value)
+            with pytest.raises(H.Refused) as public_duplicate:
+                H.task_create(c, 'human:ben', ordinary['title'], 'Review it.', 'bot:cpo', lint=False)
+            assert ordinary['id'] in str(public_duplicate.value)
+        finally:
+            H.VIA.reset(token)
+        diagnostics = c.execute("SELECT detail_json FROM events WHERE action='refused'").fetchall()
+        assert private['id'] not in str([tuple(row) for row in diagnostics])
+
+
 def test_task_read_snapshot_cannot_mix_old_access_with_new_private_comment(api):
     from backend.auth import Identity
     from backend.store import Problem
