@@ -2,6 +2,9 @@
 
 import os
 import threading
+import time
+
+CLIENT_BUILD_TIMEOUT = 5
 
 
 class Sources:
@@ -10,24 +13,54 @@ class Sources:
         self.settings = settings
         self.selected = None
         self._clients = {}
+        self._building = {}
         self._lock = threading.Lock()
 
     @property
     def kind(self):
         return self.selected or kinds(self.settings)[0]
 
-    def client_for(self, kind):
+    def client_for(self, kind, reads=False):
+        cache_key = kind, reads
         with self._lock:
-            if kind not in self._clients:
-                self._clients[kind] = client(self.settings, kind=kind)
-            return self._clients[kind]
+            if cache_key in self._clients:
+                return self._clients[cache_key]
+            task = self._building.get(cache_key)
+            if task is None or (task[0].is_set() and time.monotonic() - task[2] >= 30):
+                done, errors = threading.Event(), []
+                task = self._building[cache_key] = done, errors, time.monotonic()
+                def build():
+                    try:
+                        if reads:
+                            from botocore.config import Config
+                            config = Config(connect_timeout=2, read_timeout=5, retries={"total_max_attempts": 1})
+                            s3 = client(self.settings, kind=kind, config=config)
+                        else:
+                            s3 = client(self.settings, kind=kind)
+                        with self._lock:
+                            self._clients[cache_key] = s3
+                    except Exception as exc:
+                        errors.append(exc)
+                    finally:
+                        done.set()
+                # Credential providers (including IMDS) run before SDK socket timeouts apply.
+                # At most one construction per kind/access mode survives a caller timeout.
+                threading.Thread(target=build, name="tico-s3-client", daemon=True).start()
+        done, errors, _ = task
+        if not done.wait(CLIENT_BUILD_TIMEOUT):
+            raise TimeoutError("S3 credential lookup timed out")
+        if errors:
+            raise errors[0]
+        with self._lock:
+            return self._clients[cache_key]
 
     @property
     def s3(self):
         return self.client_for(self.kind)
 
     def read_s3(self, operation, **options):
-        return read(self.client_for, self.kind, kinds(self.settings, reads=True), operation, **options)
+        return read(lambda kind: self.client_for(kind, reads=True), self.kind,
+                    kinds(self.settings, reads=True), operation, **options)
 
 
 def region(settings, env=None):

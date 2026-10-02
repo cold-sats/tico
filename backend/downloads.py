@@ -37,6 +37,7 @@ from .store import Problem
 from . import blob_s3, releases
 
 PREFIX = "releases/app/"
+MANIFEST_MAX_BYTES = 1024 * 1024
 OS_NAMES = ("mac", "windows", "linux")
 FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ +-]{0,200}$")
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$")
@@ -56,6 +57,8 @@ class Downloads:
         self._github = (0.0, None)
         self._github_transport = github_transport
         self._lock = threading.Lock()
+        self._manifest_ready = threading.Event()
+        self._manifest_ready.set()
         self._github_ready = threading.Event()
         self._github_ready.set()
 
@@ -80,14 +83,27 @@ class Downloads:
         """Read the bucket at most once a minute, including absent manifests."""
         if not self.bucket:
             return None
-        fetched, cached = self._manifest
-        if fetched and time.time() - fetched < 60:
-            return cached
+        with self._lock:
+            fetched, cached = self._manifest
+            if fetched and time.monotonic() - fetched < 60:
+                return cached
+            fetching = not self._manifest_ready.is_set()
+            if not fetching:
+                self._manifest_ready.clear()
+        if fetching:
+            if cached is not None:
+                return cached
+            self._manifest_ready.wait(0.1)
+            with self._lock:
+                return self._manifest[1]
+        value = None
         try:
             response, _ = self.read_s3("get_object", Bucket=self.bucket, Key=self.prefix + "latest.json")
             stream = response["Body"]
             try:
-                body = stream.read()
+                body = stream.read(MANIFEST_MAX_BYTES + 1)
+                if len(body) > MANIFEST_MAX_BYTES:
+                    raise ValueError("app manifest too large")
             finally:
                 stream.close()
             value = json.loads(body)
@@ -95,7 +111,10 @@ class Downloads:
                 value = None
         except Exception:
             value = None
-        self._manifest = (time.time(), value)
+        finally:
+            with self._lock:
+                self._manifest = (time.monotonic(), value)
+                self._manifest_ready.set()
         return value
 
     def github_manifest(self):

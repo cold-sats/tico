@@ -323,7 +323,7 @@ def test_denied_writes_keep_s3_mode_and_local_read_fallback(api):
     assert not s3.objects
     response = api.get('/api/v2/health', headers=headers()).json()
     assert response['storage']['mode'] == 's3'
-    assert response['storage']['copy']['failed'] == 1
+    assert response['storage']['copy']['failed'] == 0
     assert next(check for check in response['checks'] if check['id'] == 'blob_storage')['status'] == 'warn'
 
 

@@ -150,7 +150,64 @@ def test_download_storage_uses_blob_region_endpoint_and_prefix(monkeypatch, tmp_
     assert downloads.bucket_manifest()["version"] == MANIFEST["version"]
     url = downloads.file_url("2.1.0", "Tico_2.1.0_universal.dmg")
     assert url.startswith("https://s3.test/team/files/releases/app/2.1.0/")
-    assert calls == [("s3", {"region_name": "us-east-1", "endpoint_url": "https://s3.example.com"})]
+    assert len(calls) == 1 and calls[0][0] == 's3'
+    options = dict(calls[0][1])
+    config = options.pop('config')
+    assert options == {"region_name": "us-east-1", "endpoint_url": "https://s3.example.com"}
+    assert (config.connect_timeout, config.read_timeout, config.retries) == (2, 5, {'total_max_attempts': 1})
+
+
+@pytest.mark.parametrize('failure', ['oversize', 'malformed', 'read'])
+def test_bucket_manifest_reads_are_bounded_closed_and_failures_cached(failure):
+    from backend.downloads import MANIFEST_MAX_BYTES
+
+    calls = []
+    class Body(io.BytesIO):
+        def read(self, size=-1):
+            assert size == MANIFEST_MAX_BYTES + 1
+            if failure == 'read':
+                raise RuntimeError('private credential material')
+            return super().read(size)
+    body = Body(b'x' * (MANIFEST_MAX_BYTES + 2) if failure == 'oversize' else b'{invalid')
+    class S3:
+        def get_object(self, **options):
+            calls.append(options)
+            return {'Body': body}
+    downloads = Downloads(SimpleNamespace(blob_bucket='acme-files', runner_url='', public_url=''), S3())
+    assert downloads.bucket_manifest() is None
+    assert body.closed
+    assert downloads.bucket_manifest() is None and len(calls) == 1
+
+
+@pytest.mark.parametrize('warm', [False, True])
+def test_bucket_manifest_fetch_is_single_flight_without_holding_lock(warm):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    entered, release = threading.Event(), threading.Event()
+    calls, bodies = [], []
+    class S3:
+        def get_object(self, **options):
+            calls.append(options)
+            entered.set()
+            assert release.wait(2)
+            body = io.BytesIO(json.dumps(MANIFEST).encode())
+            bodies.append(body)
+            return {'Body': body}
+    downloads = Downloads(SimpleNamespace(blob_bucket='acme-files', runner_url='', public_url=''), S3())
+    stale = {'version': '0.3.6'} if warm else None
+    downloads._manifest = (1.0, stale)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(downloads.bucket_manifest)
+        try:
+            assert entered.wait(1)
+            assert pool.submit(downloads.bucket_manifest).result(timeout=1) == stale
+            assert len(calls) == 1
+        finally:
+            release.set()
+        assert first.result(timeout=1) == MANIFEST
+    assert downloads.bucket_manifest() == MANIFEST and len(calls) == 1
+    assert bodies[0].closed
 
 
 @pytest.mark.parametrize("warm", [False, True])

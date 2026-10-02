@@ -153,6 +153,8 @@ Local disk is the default. To use S3:
 Docker forwards this setting from `.env`. Explicit `backup` and `keys` require both keys;
 missing or denied keys produce a Health warning without selecting another source for writes.
 If no source passes the check in `auto`, the first candidate remains available for reads.
+Uploads return a retryable storage error until a source passes the check, and after a denied
+check. Each upload keeps the same client through all parts, completion and abort.
 A denied GET or HEAD tries each other configured source once before attachments fall back to
 retained local copies. Download links are signed by the source that passed their HEAD check.
 Read retries never change the selected write source.
@@ -174,8 +176,17 @@ prefix for each candidate until one succeeds. This publishes no file and needs n
 A denied check shows a warning such as **S3 storage can't write: AccessDenied on acme-files
 (s3:PutObject)**. If creation succeeds but cleanup is
 denied, Health instead names the missing `s3:AbortMultipartUpload` permission. The probe uses
-5-second connect and 10-second read timeouts with at most two retries, and shutdown does not wait
-for an in-flight probe. Storage stays in S3 mode, new uploads
+5-second connect and 10-second read timeouts with at most two retries, and a five-minute overall
+wait, including SDK credential discovery. Concurrent checks share one probe; shutdown does not
+wait for an in-flight call, and a canceled probe cannot later select a write source.
+Read client credential discovery waits at most five seconds per source and access mode, sharing
+one background construction for each, so a delayed credential provider preserves local read
+fallback without accumulating workers. Desktop bucket manifest requests share one fetch,
+read at most 1 MiB plus one byte to detect oversized manifests, and always close the response.
+GET and HEAD use separate read clients with 2-second connect and 5-second read timeouts and
+one attempt; upload clients keep their existing timeout budget. These are socket inactivity
+limits, not a wall-clock deadline for DNS, credential refresh or a continuously active stream.
+Storage stays in S3 mode, new uploads
 report the failure, and reads still fall back to retained local copies. After fixing credentials or
 permissions, the check repeats every 30 minutes while failing and switches to the first working
 source automatically. Retained local files are then copied again. Restarting also repeats the
