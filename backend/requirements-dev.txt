@@ -59,6 +59,8 @@ jmespath==1.1.0
     #   botocore
 packaging==26.3
     # via pytest
+pillow==12.3.0
+    # via -r backend/requirements.in
 playwright==1.62.0
     # via -r backend/requirements-dev.in
 pluggy==1.6.0
@@ -95,6 +97,8 @@ python-dateutil==2.9.0.post0
     # via
     #   botocore
     #   croniter
+python-multipart==0.0.32
+    # via -r backend/requirements.in
 pyyaml==6.0.3
     # via -r backend/requirements.in
 s3transfer==0.19.2
