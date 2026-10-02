@@ -103,6 +103,126 @@ class Sets(unittest.TestCase):
         self.assertEqual(shipped.read_text(), (ROOT / "questions/mail-triage.json").read_text())
         self.assertEqual(J.load_set("mail-triage", root=shipped.parent)["label"], J.load_set("mail-triage")["label"])
 
+    def test_registry_symlinks_and_nonfiles_never_read_outside_or_fall_back(self):
+        import os, tempfile
+        from unittest import mock
+        cases = ("file-link", "internal-link", "directory-link", "registry-link", "dangling-file", "dangling-directory",
+                 "file-directory", "directory-file", "file-fifo", "read-failure", "invalid-json", "invalid-set")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                registry, outside = root / "registry", root / "outside"
+                registry.mkdir()
+                questions = registry / "questions"
+                questions.mkdir()
+                outside.mkdir()
+                (outside / "questions").mkdir()
+                secret = "outside-question-content-must-not-be-read"
+                data = {"id": "listening-item", "version": 99, "summary": secret,
+                        "questions": {"lead": {"type": "noul", "instructions": secret}}}
+                victim = outside / "questions/listening-item.json"
+                victim.write_text(json.dumps(data))
+                path = questions / "listening-item.json"
+                if case == "file-link":
+                    path.symlink_to(victim)
+                elif case == "internal-link":
+                    (questions / "source.json").write_text(json.dumps(data))
+                    path.symlink_to("source.json")
+                elif case == "directory-link":
+                    questions.rmdir()
+                    questions.symlink_to(victim.parent, target_is_directory=True)
+                elif case == "registry-link":
+                    questions.rmdir()
+                    registry.rmdir()
+                    registry.symlink_to(outside, target_is_directory=True)
+                elif case == "dangling-file":
+                    path.symlink_to(outside / "missing.json")
+                elif case == "dangling-directory":
+                    questions.rmdir()
+                    questions.symlink_to(outside / "missing", target_is_directory=True)
+                elif case == "file-directory":
+                    path.mkdir()
+                elif case == "directory-file":
+                    questions.rmdir()
+                    questions.write_text(secret)
+                elif case == "file-fifo":
+                    os.mkfifo(path)
+                elif case == "read-failure":
+                    path.write_text(json.dumps(data))
+                elif case == "invalid-json":
+                    path.write_text('{"outside-question-content-must-not-be-read": [}')
+                else:
+                    path.write_text(json.dumps({"id": secret}))
+                outside_ids = {(p.stat().st_dev, p.stat().st_ino) for p in (outside, victim.parent, victim)}
+                real_open = os.open
+
+                def contained_open(*args, **kwargs):
+                    if case == "read-failure" and args[0] == path.name:
+                        raise PermissionError("private read error must not be exposed")
+                    descriptor = real_open(*args, **kwargs)
+                    info = os.fstat(descriptor)
+                    self.assertNotIn((info.st_dev, info.st_ino), outside_ids, "an outside descriptor must never open")
+                    return descriptor
+
+                with mock.patch.object(J.os, "open", side_effect=contained_open):
+                    with self.assertRaises(J.JudgeError) as refused:
+                        J.load_set("listening-item", registry_dir=registry)
+                self.assertEqual(refused.exception.code, "invalid")
+                self.assertEqual(refused.exception.detail, "Invalid registry question set. Use a regular, valid JSON file in registry/questions.")
+                self.assertNotIn(secret, str(refused.exception))
+
+    def test_only_absent_registry_overrides_fall_back(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with_questions = root / "with-questions"
+            (with_questions / "questions").mkdir(parents=True)
+            shipped = J.load_set("listening-item", root=J.QUESTIONS_DIR)
+            for registry in (root / "missing", root, with_questions):
+                self.assertEqual(J.load_set("listening-item", registry_dir=registry)["label"], shipped["label"])
+
+    def test_registry_file_swap_to_an_outside_symlink_is_refused(self):
+        import os, tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions = root / "registry/questions"
+            questions.mkdir(parents=True)
+            path = questions / "listening-item.json"
+            path.write_text((J.QUESTIONS_DIR / path.name).read_text())
+            victim = root / "outside.json"
+            victim.write_text("private-outside-fixture")
+            real_open = os.open
+
+            def swapped_open(part, flags, **kwargs):
+                if part == path.name:
+                    path.unlink()
+                    path.symlink_to(victim)
+                return real_open(part, flags, **kwargs)
+
+            with mock.patch.object(J.os, "open", side_effect=swapped_open), mock.patch.object(J.os, "fdopen") as read:
+                with self.assertRaises(J.JudgeError):
+                    J.load_set("listening-item", registry_dir=questions.parent)
+                read.assert_not_called()
+
+    def test_platforms_without_safe_registry_open_keep_absent_and_explicit_root_fallbacks(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(J, "_REGISTRY_DIR_FD", False):
+            registry = Path(directory)
+            shipped = J.load_set("listening-item", root=J.QUESTIONS_DIR)
+            self.assertEqual(J.load_set("listening-item", registry_dir=registry)["label"], shipped["label"])
+            questions = registry / "questions"
+            questions.mkdir()
+            self.assertEqual(J.load_set("listening-item", registry_dir=registry)["label"], shipped["label"])
+            (questions / "listening-item.json").write_text((J.QUESTIONS_DIR / "listening-item.json").read_text())
+            with mock.patch.object(J.os, "fdopen") as read:
+                with self.assertRaises(J.JudgeError) as refused:
+                    J.load_set("listening-item", registry_dir=registry)
+                read.assert_not_called()
+            self.assertEqual(refused.exception.code, "invalid")
+            self.assertEqual(J.load_set("listening-item", root=J.QUESTIONS_DIR, registry_dir=registry)["label"], shipped["label"])
+
     def test_a_computer_without_this_checkout_s_questions_finds_the_bot_s_own_copy(self):
         import os, tempfile
         from unittest import mock

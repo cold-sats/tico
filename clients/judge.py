@@ -27,9 +27,11 @@ read back per question set.
 Pure stdlib on purpose: the runner venv, the mail venv, the cloud venv and the `hub` CLI all
 import it.
 """
+import hashlib
 import json
 import math
 import os
+import stat
 import time
 import urllib.error
 import urllib.request
@@ -40,6 +42,7 @@ MODEL = "jev-latest"
 KEY_ENV = "TYPESAFE_API_KEY"
 TYPES = ("choice", "score", "noul")
 QUESTIONS_DIR = Path(__file__).resolve().parents[1] / "questions"
+_REGISTRY_DIR_FD = os.open in os.supports_dir_fd and os.stat in os.supports_dir_fd
 
 # What one call may carry. TypeSafe takes up to 255 options and 10 levels, and Jev 1.13 reads
 # 32k tokens of state plus the longest question (64k for the whole call); the state limit here
@@ -362,6 +365,61 @@ def question_dirs(env=None, cwd=None):
     return [Path(d) for d in found if d]
 
 
+def _registry_error(revision):
+    error = JudgeError("invalid", "Invalid registry question set. Use a regular, valid JSON file in registry/questions.")
+    error.config_revision = revision
+    return error
+
+
+def _registry_text(registry, name):
+    """Read only regular files through anchored, no-follow registry directory handles.
+
+    None means an absent override; existing symlinks, nonfiles and read failures are errors.
+    The opaque revision lets diagnostics notice changed invalid files without exposing content.
+    """
+    descriptors, revision = [], hashlib.sha256()
+    try:
+        parent = None
+        anchored = _REGISTRY_DIR_FD and hasattr(os, "O_NOFOLLOW")
+        location = Path(registry)
+        for part, directory in ((Path(registry), True), ("questions", True), (name + ".json", False)):
+            try:
+                if anchored:
+                    info = os.stat(part, dir_fd=parent, follow_symlinks=False)
+                else:
+                    location = location if part == Path(registry) else location / part
+                    info = location.lstat()
+            except FileNotFoundError:
+                return None
+            revision.update(repr((info.st_dev, info.st_ino, info.st_mode, info.st_size,
+                                  info.st_mtime_ns, info.st_ctime_ns)).encode())
+            expected = stat.S_ISDIR if directory else stat.S_ISREG
+            if not expected(info.st_mode):
+                raise _registry_error(revision.hexdigest())
+            if not anchored:
+                if directory:
+                    continue
+                raise _registry_error(revision.hexdigest())
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+            if directory:
+                flags |= os.O_DIRECTORY
+            descriptor = os.open(part, flags, dir_fd=parent)
+            descriptors.append(descriptor)
+            opened = os.fstat(descriptor)
+            if not expected(opened.st_mode):
+                raise _registry_error(revision.hexdigest())
+            parent = descriptor
+        with os.fdopen(descriptor, "r", encoding="utf-8", closefd=False) as stream:
+            text = stream.read()
+        revision.update(text.encode())
+        return text, revision.hexdigest()
+    except (OSError, UnicodeError):
+        raise _registry_error(revision.hexdigest()) from None
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def load_set(name, root=None, *, registry_dir=None):
     """A validated question set: an explicit root, or the company's registry before the shipped copy.
 
@@ -373,10 +431,13 @@ def load_set(name, root=None, *, registry_dir=None):
     path = Path(root or QUESTIONS_DIR) / (name + ".json")
     if not root:
         registry = registry_dir if registry_dir is not None else os.environ.get("TICO_REGISTRY_DIR")
-        custom = Path(registry) / "questions" / (name + ".json") if registry else None
-        if custom and custom.is_file():
-            path = custom
-        elif not path.is_file():
+        custom = _registry_text(registry, name) if registry else None
+        if custom is not None:
+            try:
+                return check_set(json.loads(custom[0]), name)
+            except (ValueError, JudgeError):
+                raise _registry_error(custom[1]) from None
+        if not path.is_file():
             path = next((d / (name + ".json") for d in question_dirs() if (d / (name + ".json")).is_file()), path)
     try:
         data = json.loads(path.read_text())
