@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-10-02
+
+### Fixed
+- Downloading a .json attachment returned reformatted content; files are served exactly as stored again.
+
 ## [0.3.8] - 2026-10-02
 
 ### Added

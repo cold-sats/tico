@@ -175,7 +175,10 @@ Every file, version, poster, and thumbnail request checks the existing Tico righ
 `GET /api/v2/files/{id}?v=N` selects a version; `/versions/N` remains supported for stored bot
 files. `/poster?v=N` and `/thumb?v=N` return 404 when a preview is unavailable. Tico streams S3 or local bytes, supports HEAD and a single HTTP byte range (206/416; multiple ranges return the full 200 response), and returns a digest
 ETag. Versioned responses are immutable for a year; latest responses use `no-cache` and can return
-304. Images, supported video, audio, PDF, plain text, Markdown, and CSV can open inline. SVG,
+304. Downloads preserve the stored bytes exactly, including JSON whitespace and encoding;
+API display-name annotations never change file contents. `X-Content-SHA256` and ETag identify
+the whole stored file, including on HEAD and partial (206) responses.
+Images, supported video, audio, PDF, plain text, Markdown, and CSV can open inline. SVG,
 HTML, and unknown types download. All byte responses retain `nosniff`. PDFs are inline with `default-src 'none'; style-src 'unsafe-inline'`
 and no sandbox, allowing the browser PDF viewer. Other types retain the sandbox CSP.
 

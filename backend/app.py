@@ -12,6 +12,7 @@ from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 
@@ -510,14 +511,16 @@ def create_app(settings=None):
             key = request.method + " " + (getattr(found, "path", None) or ("static" if not request.url.path.startswith("/api") else "unmatched"))
             app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000)
 
-    @app.middleware("http")
-    async def display_names(request, call_next):
+    async def display_names(request, response):
         """Stable v2 answers carry display names beside actor ids (backend/names.py)."""
-        response = await call_next(request)
-        if (response.status_code != 200 or "count" in request.query_params or not STABLE_PATH.fullmatch(request.url.path)
+        # Only API JSON is editable. FileResponse, StreamingResponse and raw byte Response
+        # objects must keep their bodies, lengths and digests, whatever their content type.
+        if (not isinstance(response, JSONResponse) or request.method == "HEAD" or response.status_code != 200
+                or "content-disposition" in response.headers or "x-content-sha256" in response.headers
+                or "count" in request.query_params or not STABLE_PATH.fullmatch(request.url.path)
                 or "application/json" not in response.headers.get("content-type", "")):
             return response
-        raw = b"".join([chunk async for chunk in response.body_iterator])
+        raw = response.body
         who = getattr(request.state, "identity", None)
 
         def work():
@@ -528,10 +531,22 @@ def create_app(settings=None):
             body = await asyncio.get_running_loop().run_in_executor(None, work)
         except sqlite3.Error:
             body = None
-        headers = [(k, v) for k, v in response.raw_headers if k.lower() != b"content-length"]
-        out = Response(content=body if body is not None else raw, status_code=response.status_code)
-        out.raw_headers = headers + [(b"content-length", str(len(body if body is not None else raw)).encode())]
-        return out
+        if body is not None:
+            response.body = body
+            response.headers["Content-Length"] = str(len(body))
+        return response
+
+    class DisplayNameRoute(APIRoute):
+        def get_route_handler(self):
+            handler = super().get_route_handler()
+
+            async def named_response(request):
+                return await display_names(request, await handler(request))
+            return named_response
+
+    # HTTP middleware's call_next wraps every response as a stream, hiding its original
+    # type. Annotate before that wrapping so actual file/stream responses stay untouched.
+    app.router.route_class = DisplayNameRoute
 
     @app.get("/api/v2/ops/timing")
     def request_timings(request: Request):

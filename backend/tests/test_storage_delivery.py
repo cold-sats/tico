@@ -121,6 +121,93 @@ def attach(api, tid, name, data):
     return response.json()['file']['id']
 
 
+@pytest.mark.parametrize('name,original', [
+    ('report.json', b'{\n  "owner": "human:ana",\n  "text": "\\u00e9"\n}\n'),
+    ('report.csv', b'owner,text\r\nhuman:ana," spaced "\r\n'),
+    ('report.md', b'# Report\n\n  human:ana  \n'),
+    ('report.txt', b'  human:ana\r\nfinal line  \n'),
+    ('report.svg', b'<svg xmlns="http://www.w3.org/2000/svg">\n  <title>Report</title>\n</svg>\n'),
+    ('report.html', b'<!doctype html>\n<html>  <body>Report</body> </html>\n'),
+])
+def test_attachment_bytes_and_digests_across_versions_and_legacy_ids(api, name, original):
+    tid = task(api)
+    legacy = attach(api, tid, name, original)
+    latest = original + b'\n'
+    fid = attach(api, tid, name, latest)
+    with api.app.state.store.read() as c:
+        row = c.execute('SELECT file_id FROM bot_file_versions WHERE blob_id=?', (legacy,)).fetchone()
+        series = row['file_id']
+        assert c.execute('SELECT file_id FROM bot_file_versions WHERE blob_id=?', (fid,)).fetchone()[0] == series
+    h = headers('ana-test')
+    for url, data in [
+        (f'/api/v2/files/{series}', latest),
+        (f'/api/v2/files/{series}?v=1', original),
+        (f'/api/v2/files/{series}?v=2', latest),
+        (f'/api/v2/files/{series}/versions/1', original),
+        (f'/api/v2/files/{series}/versions/2', latest),
+        (f'/api/v2/files/{legacy}', original),
+        (f'/api/v2/files/{legacy}?v=1', original),
+        (f'/api/v2/files/{fid}', latest),
+    ]:
+        digest = hashlib.sha256(data).hexdigest()
+        full = api.get(url, headers=h)
+        assert full.status_code == 200 and full.content == data, url
+        assert hashlib.sha256(full.content).hexdigest() == full.headers['x-content-sha256'] == digest
+        assert full.headers['etag'] == '"' + digest + '"'
+        assert full.headers['content-length'] == str(len(data))
+        partial = api.get(url, headers={**h, 'Range': 'bytes=2-9'})
+        assert partial.status_code == 206 and partial.content == data[2:10], url
+        assert partial.headers['x-content-sha256'] == digest  # digest identifies the whole stored file
+        assert partial.headers['content-range'] == f'bytes 2-9/{len(data)}'
+        head = api.head(url, headers=h)
+        assert head.status_code == 200 and head.content == b'', url
+        for key in ('content-length', 'content-type', 'x-content-sha256', 'etag'):
+            assert head.headers[key] == full.headers[key], (url, key)
+
+
+@pytest.mark.parametrize('kind', ['raw', 'disposition', 'digest', 'stream', 'file', 'partial', 'head',
+                                  'version', 'poster', 'thumb', 'meeting', 'download'])
+def test_display_names_leave_byte_responses_untouched(api, tmp_path, monkeypatch, kind):
+    from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+    raw = b'{\n  "owner": "human:ana"\n}\n'
+    path = {'version': '/api/v2/files/example/versions/1', 'poster': '/api/v2/files/example/poster',
+            'thumb': '/api/v2/files/example/thumb', 'meeting': '/api/meetings/example/media',
+            'download': '/download/example.json'}.get(kind, '/api/v2/tasks')
+    def response():
+        if kind == 'file':
+            source = tmp_path / 'report.json'
+            source.write_bytes(raw)
+            return FileResponse(source, media_type='application/json')
+        if kind == 'stream':
+            return StreamingResponse(iter([raw[:10], raw[10:]]), media_type='application/json',
+                                     headers={'Content-Length': str(len(raw))})
+        extra = {'Content-Disposition': 'attachment'} if kind == 'disposition' else (
+            {'X-Content-SHA256': hashlib.sha256(raw).hexdigest()} if kind == 'digest' else {})
+        if kind in ('disposition', 'digest', 'partial', 'head'):
+            result = JSONResponse(json.loads(raw), headers=extra, status_code=206 if kind == 'partial' else 200)
+            result.body = raw
+            result.headers['Content-Length'] = str(len(raw))
+            return result
+        return Response(raw, media_type='application/json', headers=extra,
+                        status_code=206 if kind == 'partial' else 200)
+    api.app.add_api_route(path, response, methods=['GET', 'HEAD'])
+    api.app.router.routes.insert(0, api.app.router.routes.pop())
+    monkeypatch.setattr('backend.names.annotate_json', lambda *a, **kw: pytest.fail('rewrote file bytes'))
+    result = api.request('HEAD' if kind == 'head' else 'GET', path, headers=headers('ana-test'))
+    assert result.status_code == (206 if kind == 'partial' else 200)
+    assert result.content == (b'' if kind == 'head' else raw)
+    assert result.headers['content-length'] == str(len(raw))
+
+
+def test_display_names_still_annotate_api_json(api):
+    tid = task(api)
+    result = api.get(f'/api/v2/tasks/{tid}', headers=headers('ana-test'))
+    assert result.status_code == 200
+    data = result.json()
+    assert data['task']['requester_name'] == 'Ana'
+    assert data['actors']['human:ana'] == 'Ana'
+
+
 def test_multipart_range_cache_etag_limits_and_legacy(api):
     tid = task(api)
     bid = attach(api, tid, 'sample.txt', b'0123456789')
