@@ -163,7 +163,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       assert.equal(count(w, 'status'), polled, 'polling stops once the sync is done');
       assert.equal(await page.locator('#mg-row .mg-sub').innerText(), 'Free plan: notes from the last 30 days');
       assert.equal(await page.locator('#mg-row [data-g=connect]').count(), 0);
-      assert.match(await page.locator('#meet-sources [data-msrc=granola] .mt-text').innerText(), /Connected/);
+      assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 0, 'Granola shows once: its row, not a tile too');
       await shot(page, `granola-connected-${scheme}`);
       // The … menu: keyboard opens it on its first item; Escape closes it back on the button.
       const more = page.locator('#mg-row [data-g=more]');
@@ -199,7 +199,6 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       assert.equal(await page.locator('#mg-row .mg-sub').count(), 0, 'no free plan line on a paid plan');
       assert.equal(await page.locator('#mg-row .mg-err').innerText(), 'Granola needs sign-in again');
       assert.equal(await page.locator('#mg-row [data-g=more]').count(), 1, 'Disconnect stays reachable');
-      assert.match(await page.locator('#meet-sources [data-msrc=granola] .mt-text').innerText(), /Sign in/);
       await shot(page, `granola-needs-signin-${scheme}`);
       await page.waitForTimeout(300);
       assert.equal(count(w, 'sync'), 0, 'no sync while signed out');
@@ -218,18 +217,19 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     await page.locator('#mg-row .mg-key').click();
     await page.locator('dialog[aria-label="Connect Granola"] form[data-importer=granola]').waitFor();
     await page.keyboard.press('Escape');
-    // the Granola tile starts the account flow
-    await page.locator('#meet-sources [data-msrc=granola]').click();
+    // the row is the one way in: no Granola tile in the strip beside it
+    assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 0);
+    await page.locator('#mg-row [data-g=connect]').click();
     await page.locator('#mg-code').waitFor();
     assert.deepEqual(errors, []);
     await context.close();
 
-    // ---- a member: no key link, but the tile and Connect work for their own account
+    // ---- a member: no key link, but Connect works for their own account
     w = world({role: 'member'});
     ({page, errors, context} = await open(browser, desk, w));
     await page.locator('#mg-row [data-g=connect]').waitFor();
     assert.equal(await page.locator('#mg-row .mg-key').count(), 0);
-    assert.equal(await page.locator('#meet-sources [data-msrc=granola]').isDisabled(), false);
+    assert.equal(await page.locator('#mg-row [data-g=connect]').isDisabled(), false);
     assert.equal(await page.locator('#meet-sources [data-msrc=zoom]').isDisabled(), true);
     await context.close();
 

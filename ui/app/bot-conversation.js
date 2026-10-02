@@ -239,8 +239,8 @@ function sessionHead(d, slug) {
       + (pointer.updated ? ` · saved ${esc(ago(pointer.updated))}` : '')
       + (pointer.runner_id ? ` · runner ${esc(pointer.runner_id)}` : '')
     : 'Tico pointer: none yet';
-  return `${d.cloud ? 'Cloud session' : d.current ? 'Live session file' : 'Session file'}: <strong>${esc(d.runtime)}</strong>
-    ${d.model ? `<span class="muted">${esc(d.model)}</span>` : ''}
+  return `${d.cloud ? 'Cloud session' : d.current ? 'Live session file' : 'Session file'}: <strong>${esc(harnessWords(d.runtime))}</strong>
+    ${d.model ? `<span class="muted">${esc(modelWords(d.model))}</span>` : ''}
     <span class="mono">${esc(d.session_id)}</span>
     ${pointerLine}
     ${resumeBox}

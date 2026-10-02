@@ -214,7 +214,7 @@ def prepare(directory, url="", public=False):
             out.write(os.urandom(32).hex())
     settings = Settings(
         db_path=directory / "hub.sqlite", registry_dir=directory / "registry", environment_id="demo",
-        company_name="Acme", app_name="Tico", assistant_name="Tico", owner_email=OWNER_EMAIL,
+        company_name="Acme", app_name="Tico", assistant_name="Assistant", owner_email=OWNER_EMAIL,
         github_owner="acme", local_owner_token_file=token_file, public_url=(url.rstrip("/") if url and not public else f"http://127.0.0.1:{DEFAULT_PORT}"),
         scheduler_enabled=False, blob_dir=directory / "blobs", enabled_providers=("anthropic",),
         default_runtime="claude", default_model="claude-opus-5", release_id="demo", demo=True,

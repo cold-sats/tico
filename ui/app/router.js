@@ -12,7 +12,11 @@ function route() {
   document.body.classList.toggle('bot-page', !!botHere);   // a phone gives the bot page the whole screen
   window.TicoObservability?.route(S.route);
   document.body.classList.remove('mobile-composer-focus');
-  $('#main').classList.remove('chat-layout', 'bot-chat-layout', 'mail-layout', 'messaging-layout', 'docs-layout', 'market-layout', 'tasks-layout');
+  // Every page starts from a bare #main: a layout class left behind (the bot page's bot-split-layout made #main a
+  // two-column grid) would lay the next page out in that grid. Each page adds its own again; the Librarian's
+  // rail keeps its own class (ui/docs-ask.js re-syncs it after the route).
+  const main = $('#main');
+  main.className = main.classList.contains('librarian-open') ? 'librarian-open' : '';
   document.body.classList.remove('task-peek-open');
   if (!(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) window.marketStop?.();
   taskChatStop(); $('#task-modal')?.close();

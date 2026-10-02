@@ -38,6 +38,10 @@ button.prop-v:hover,button.prop-v[aria-expanded=true]{background:var(--prop-hove
 .prop-x:hover,.prop-add:hover{color:var(--ink);background:var(--prop-hover)}
 @media (hover:none){.prop-x{opacity:1}}
 .prop-tags{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0;padding:3px 0}
+/* A button alone in the tags row ("Add tags", "None"): its -6px margin moves to the row, so the row's width counts the
+   whole button and the words are never cut. */
+.prop-tags>.prop-v{margin-left:0;flex:none}
+.prop-tags:has(>.prop-v:first-child){margin-left:-6px}
 .prop-date{position:absolute;left:0;bottom:0;width:1px;height:1px;padding:0;border:0;opacity:0;pointer-events:none}
 .prop-date.shown{position:static;width:auto;height:26px;opacity:1;pointer-events:auto}
 .props-msg{font-size:12px;color:var(--fail);padding:4px 0 0;white-space:pre-line}
