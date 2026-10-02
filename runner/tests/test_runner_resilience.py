@@ -535,165 +535,59 @@ def test_the_runner_keeps_its_last_trouble_lines_for_a_support_bundle():
     outage.RECENT.clear()
 
 
-def test_checkout_lock_excludes_another_process_and_releases_after_close(tmp_path):
-    import sys
-    from runner.checkout_lock import hold
-    code = "from runner.checkout_lock import hold; import sys\nwith hold(sys.argv[1], sys.argv[2]) as ok: sys.exit(0 if ok else 7)"
-    checkout = tmp_path / "nested" / "bot-ops"
-    with hold(checkout, tmp_path / "state") as acquired:
-        assert acquired
-        assert subprocess.run([sys.executable, "-c", code, str(checkout), str(tmp_path / "state")], check=False).returncode == 7
-    assert subprocess.run([sys.executable, "-c", code, str(checkout), str(tmp_path / "state")], check=False).returncode == 0
-
-
-def test_busy_checkout_never_starts_a_harness_and_can_run_after_release(tmp_path):
-    from runner.checkout_lock import hold
-    checkout = tmp_path / "emp-coo"
-    checkout.mkdir()
-    client, host = FakeClient(), FakeHost(replies=["done"])
-    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
-                    tmp_path / "state", client=client, host_factory=lambda *args: host,
-                    push=lambda *args, **kw: (0, ""))
-    with hold(checkout, tmp_path / "state"):
-        runner.execute(attempt())
-        assert not host.prompts
-        assert client.completion()["outcome"] == "checkout_busy"
-    runner.execute(attempt("att-2"))
-    assert len(host.prompts) == 1
-
-
-def test_old_server_claims_only_bots_without_local_turns(tmp_path):
+def test_busy_bots_follow_live_turn_processes_until_they_exit(tmp_path):
     client = FakeClient()
     runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
                     tmp_path / "state", client=client)
-    runner.active["att-1"] = Future()
+    future = Future()
+    runner.active["att-1"] = future
     runner.attempt_bots["att-1"] = "ops"
-    runner.assignments_seen = [{"bot": "ops"}, {"bot": "finance"}]
+    # Even after a lost lease, the supervisor tracks the live worker.
     runner.claim_next()
-    assert client.posts == [("jobs/claim", {"next_run": True, "bot": "finance"})]
-    runner.assignments_seen = [{"bot": "ops"}]
-    assert runner.claim_next() == {"attempt": None}
-    assert len(client.posts) == 1
+    runner.claim_next()
+    assert client.posts == [("jobs/claim", {"next_run": True, "busy_bots": ["ops"]})] * 2
+    future.set_result(None)
+    runner.claim_next()
+    assert client.posts[-1] == ("jobs/claim", {"next_run": True, "busy_bots": []})
 
 
-def test_process_reports_fall_back_on_an_old_server(tmp_path):
+def test_busy_bots_fall_back_to_one_claim_on_an_old_server(tmp_path):
     client = FakeClient()
     original = client.post
+    seen = []
     def old(path, body=None, key=None):
-        if "active_attempts" in body:
-            raise APIError("validation", "Extra inputs: active_attempts", 422, False)
+        seen.append(body)
+        if "busy_bots" in body:
+            raise APIError("validation", "Extra inputs: busy_bots", 422, False)
         return original(path, body, key)
     client.post = old
     runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
                     tmp_path / "state", client=client)
-    runner._reports_attempts = True
+    runner.assignments_seen = [{"bot": "ops"}, {"bot": "finance"}]
     assert runner.claim_next() == {"attempt": None}
-    assert not runner._reports_attempts
-    runner._reports_attempts = True
+    assert runner.claim_next() == {"attempt": None}
+    assert seen == [{"next_run": True, "busy_bots": []}, {"next_run": True}, {"next_run": True}]
+    # Re-probe after an old server updates, without restarting the computer.
+    runner._busy_bots_after = 0
+    assert runner.claim_next() == {"attempt": None}
+    assert seen[-2:] == [{"next_run": True, "busy_bots": []}, {"next_run": True}]
+    # Heartbeats keep the original contract, with no process report.
     assert runner.report_heartbeat({"readiness": {}}) == {}
-    assert not runner._reports_attempts
 
 
-def test_checkout_lock_errors_run_unlocked_and_log_once(tmp_path, monkeypatch, caplog):
-    from runner import checkout_lock
-    checkout_lock._warned = False
-    def denied(*args, **kw):
-        raise PermissionError('State folder is read-only')
-    monkeypatch.setattr(checkout_lock.os, 'open', denied)
-    for _ in range(3):
-        with checkout_lock.hold(tmp_path / 'repo', tmp_path / 'state') as ok:
-            assert ok
-    monkeypatch.setattr(checkout_lock.Path, 'mkdir', denied)
-    with checkout_lock.hold(tmp_path / 'repo', tmp_path / 'state') as ok:
-        assert ok
-    assert len([r for r in caplog.records if 'running unlocked' in r.message]) == 1
-
-
-def test_checkout_lock_without_flock_runs_unlocked(tmp_path, monkeypatch):
-    from runner import checkout_lock
-    monkeypatch.setattr(checkout_lock, 'fcntl', None)
-    with checkout_lock.hold(tmp_path / 'repo', tmp_path / 'state') as ok:
-        assert ok and not checkout_lock.inherited_fds()
-
-
-def test_harness_inherits_lock_after_runner_releases_it(tmp_path):
-    import sys
-    from runner import checkout_lock, isolation
-    with checkout_lock.hold(tmp_path / 'repo', tmp_path / 'state') as ok:
-        assert ok
-        child = isolation.popen([sys.executable, '-c', 'import sys; print("ready", flush=True); sys.stdin.read()'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-        assert child.stdout.readline().strip() == b'ready'
-    try:
-        with checkout_lock.hold(tmp_path / 'repo', tmp_path / 'state') as ok:
-            assert not ok
-    finally:
-        child.communicate(timeout=5)
-    with checkout_lock.hold(tmp_path / 'repo', tmp_path / 'state') as ok:
-        assert ok
-
-
-def test_heartbeat_does_not_hold_claim_lock_during_network(tmp_path, monkeypatch):
-    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)}, tmp_path / 'state', client=FakeClient())
-    runner._reports_attempts = True
-    def report(body):
-        assert body['active_attempts'] == []
-        assert runner.claim_lock.acquire(blocking=False)
-        runner.claim_lock.release()
-        return {}
-    monkeypatch.setattr(runner, '_report_heartbeat', report)
-    runner.report_heartbeat({'readiness': {}})
-
-
-def test_old_server_checks_other_bots_after_empty_claim(tmp_path):
-    client = FakeClient()
-    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)}, tmp_path / 'state', client=client)
-    runner.assignments_seen = [{'bot': 'ops'}, {'bot': 'finance'}]
-    original = client.post
-    def post(path, body=None, key=None):
-        original(path, body, key)
-        return {'attempt': {'id': 'available'}} if body.get('bot') == 'finance' else {'attempt': None}
-    client.post = post
-    assert runner.claim_next()['attempt']['id'] == 'available'
-    assert [body['bot'] for path, body in client.posts] == ['ops', 'finance']
-
-
-def test_reused_checkout_attempt_resets_outbox_and_idempotency(tmp_path):
+def test_started_and_saved_completion_keep_original_idempotency_keys(tmp_path):
     client, host = FakeClient(), FakeHost(replies=['done'])
-    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)}, tmp_path / 'state', client=client,
-                    host_factory=lambda *args: host, push=lambda *args, **kw: (0, ''))
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)},
+                    tmp_path / 'state', client=client, host_factory=lambda *args: host,
+                    push=lambda *args, **kw: (0, ''))
     keys, original = [], client.post
     def post(path, body=None, key=None):
         keys.append(key)
         return original(path, body, key)
     client.post = post
-    from runner.checkout_lock import hold
-    checkout = tmp_path / 'emp-coo'
-    checkout.mkdir()
-    with hold(checkout, tmp_path / 'state'):
-        runner.execute(attempt())
-    retry = {**attempt(), 'checkout_retry': 1, 'token': 'new-turn-token'}
-    runner.execute(retry)
-    assert len(host.prompts) == 1
-    assert 'started:att-1:0' in keys and 'started:att-1:1' in keys
-    assert 'complete:att-1:0' in keys and 'complete:att-1:1' in keys
-    with runner.state.connect() as c:
-        row = c.execute('SELECT * FROM attempts').fetchone()
-        assert json.loads(row['payload'])['token'] == 'new-turn-token'
-        assert json.loads(row['completion'])['outcome'] == 'completed'
-
-
-def test_persistent_host_does_not_keep_checkout_locked_between_runs(tmp_path):
-    client, hosts = FakeClient(), []
-    def factory(*args):
-        host = FakeHost(replies=['done'])
-        hosts.append(host)
-        return host
-    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)}, tmp_path / 'state', client=client,
-                    host_factory=factory, push=lambda *args, **kw: (0, ''))
     (tmp_path / 'emp-coo').mkdir()
-    for aid in ('att-1', 'att-2'):
-        a = attempt(aid)
-        a['config'] = {'runtime': 'gemini', 'harness': 'antigravity', 'max_run_minutes': 1}
-        runner.execute(a)
-        assert not runner.warm.entries
-    assert len(hosts) == 2 and all(not host.alive() for host in hosts)
+    runner.execute(attempt())
+    runner.complete('att-1', client.completion())
+    assert 'started:att-1' in keys
+    assert keys.count('complete:att-1') == 2
+    assert not any(key and key.startswith(('started:att-1:', 'complete:att-1:')) for key in keys)

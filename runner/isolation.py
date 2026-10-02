@@ -53,10 +53,6 @@ def run(args, **kwargs):
 
 
 def popen(args, **kwargs):
-    from .checkout_lock import inherited_fds
-    fds = inherited_fds()
-    if fds:
-        kwargs["pass_fds"] = tuple(set(kwargs.get("pass_fds", ())) | set(fds))
     args, kwargs = wrap(args, kwargs)
     return subprocess.Popen(args, **kwargs)
 

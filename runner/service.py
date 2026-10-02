@@ -20,7 +20,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
-from . import checkout_lock, goals, repositories
+from . import goals, repositories
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -558,7 +558,6 @@ class Runner:
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.capacity)
         self.active = {}
         self.attempt_bots = {}
-        self.claim_lock = threading.RLock()
         self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
         self.last_heartbeat = 0
         self.vault_files = {}
@@ -1914,20 +1913,6 @@ class Runner:
         return socket_path
 
     def execute(self, attempt):
-        with checkout_lock.hold(self.local_path(attempt["bot"], attempt.get("config")), self.state.directory) as acquired:
-            if acquired:
-                return self._execute(attempt)
-            # An older server may redeliver after lease expiry, or another runner process
-            # may share this checkout. Settle this attempt without touching the checkout.
-            aid = attempt["id"]
-            self.state.record(attempt)
-            self.client.post(f"attempts/{aid}/started", {"thread_id": "checkout-busy"}, key=f"started:{aid}:{attempt.get('checkout_retry', 0)}")
-            completion = self.state.finish(aid, {"outcome": "checkout_busy", "text": "The bot's checkout is still in use",
-                                                  "retryable": True})
-            self.complete(aid, completion)
-            self.state.phase(aid, "synced")
-
-    def _execute(self, attempt):
         aid, bot = attempt["id"], attempt["bot"]
         self.state.record(attempt)
         lost, done = threading.Event(), threading.Event()
@@ -2079,7 +2064,7 @@ class Runner:
                 if lost.is_set() or time.monotonic() >= deadline[0]:
                     raise RuntimeError("Lease expired while preparing runtime")
                 # Acknowledge before execution. Any later crash is explicitly uncertain.
-                self.client.post(f"attempts/{aid}/started", {"thread_id": thread}, key=f"started:{aid}:{attempt.get('checkout_retry', 0)}")
+                self.client.post(f"attempts/{aid}/started", {"thread_id": thread}, key=f"started:{aid}")
                 self.state.phase(aid, "running")
                 prompt = self.prompt(attempt, after=self.state.cursor(thread) if resumed else None,
                                       resumed=resumed)
@@ -2244,9 +2229,7 @@ class Runner:
                             pass
             finally:
                 if persistent and host:
-                    # A cached process would keep the inherited checkout lock while idle.
-                    # Its saved provider conversation still resumes on the next turn.
-                    self.warm.release(host, outcome == "completed" and not checkout_lock.inherited_fds())
+                    self.warm.release(host, outcome == "completed")
                 if self.credentials:
                     self.credentials.unregister(attempt["token"])
                 redact_mod.release(aid)
@@ -2260,15 +2243,10 @@ class Runner:
     def complete(self, aid, completion):
         """Send a result. A server from before usage refuses the field outright (422): the result must not
         be lost over it, so it goes again without, and the same for a result kept across a restart."""
-        with self.state.connect() as c:
-            row = c.execute("SELECT payload FROM attempts WHERE id=?", (aid,)).fetchone()
-        retry = json.loads(row[0]).get("checkout_retry", 0) if row else 0
-        key = f"complete:{aid}:{retry}"
+        key = f"complete:{aid}"
         try:
             return self.client.post(f"attempts/{aid}/complete", completion, key=key)
         except APIError as exc:
-            if exc.status == 422 and completion.get("outcome") == "checkout_busy":
-                return self.client.post(f"attempts/{aid}/complete", {**completion, "outcome": "interrupted"}, key=key + ":legacy")
             if exc.status != 422 or "usage" not in completion:
                 raise
             return self.client.post(f"attempts/{aid}/complete", {k: v for k, v in completion.items() if k != "usage"},
@@ -2369,7 +2347,6 @@ class Runner:
                 row.pop("credential_source", None)
             beat = self.report_heartbeat(body)
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
-        self._reports_attempts = bool((beat or {}).get("active_attempts"))
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
             # A person pressed Restart: take main if that is safe, then restart once nothing runs.
@@ -2387,9 +2364,6 @@ class Runner:
         self.recover_output()
 
     def report_heartbeat(self, body):
-        with self.claim_lock:
-            if getattr(self, "_reports_attempts", False):
-                body["active_attempts"] = list(self.active)
         return self._report_heartbeat(body)
 
     def _report_heartbeat(self, body):
@@ -2413,10 +2387,6 @@ class Runner:
                 if exc.status != 422:
                     raise
                 detail = str(exc.detail or "Heartbeat validation failed")
-                if "active_attempts" in body:
-                    body.pop("active_attempts")
-                    self._reports_attempts = False
-                    continue
                 if "repositories" in body and "extra" in detail.lower() and ("repositories" in detail or "readiness." not in detail):
                     body.pop("repositories", None)
                     self._repositories_after = time.monotonic() + 600
@@ -2532,16 +2502,15 @@ class Runner:
         if self.follower.blocks_claims(bool(self.active)):
             return
         while len(self.active) < self.capacity and time.monotonic() >= getattr(self, "next_claim", 0):
-            with self.claim_lock:
-                result = self.claim_next()
-                if result.get("attempt"):
-                    attempt = result["attempt"]
-                    self.state.record(attempt)
-                    config = attempt.get("config") or {}
-                    self.attempt_bots[attempt["id"]] = attempt["bot"]
-                    self.attempt_runtimes[attempt["id"]] = {config.get("runtime") or "",
-                                                            (configured_fallback(config) or {}).get("runtime") or ""} - {""}
-                    self.active[attempt["id"]] = self.pool.submit(self.execute, attempt)
+            result = self.claim_next()
+            if result.get("attempt"):
+                attempt = result["attempt"]
+                self.state.record(attempt)
+                config = attempt.get("config") or {}
+                self.attempt_bots[attempt["id"]] = attempt["bot"]
+                self.attempt_runtimes[attempt["id"]] = {config.get("runtime") or "",
+                                                        (configured_fallback(config) or {}).get("runtime") or ""} - {""}
+                self.active[attempt["id"]] = self.pool.submit(self.execute, attempt)
             self.next_claim = time.monotonic() + self.claim_wait(bool(result.get("attempt")))
             if result.get("paused") and result["paused"] != getattr(self, "_paused_note", None):
                 self._paused_note = result["paused"]
@@ -2552,29 +2521,17 @@ class Runner:
 
     def claim_next(self):
         body = {"next_run": True}
-        if getattr(self, "_reports_attempts", False):
-            body["active_attempts"] = list(self.active)
-        elif getattr(self, "assignments_seen", []):
-            # An old server has no process reports: probe every available bot in this
-            # poll so an empty queue cannot hide another bot's work for many seconds.
-            busy = set(self.attempt_bots.values())
-            for row in getattr(self, "assignments_seen", []):
-                if row["bot"] in busy:
-                    continue
-                with checkout_lock.hold(self.local_path(row["bot"], row.get("config")), self.state.directory) as available:
-                    if not available:
-                        continue
-                result = self.client.post("jobs/claim", {**body, "bot": row["bot"]})
-                if result.get("attempt") or result.get("paused"):
-                    return result
-            return {"attempt": None}
+        # Lease expiry does not mean this supervisor's worker has stopped.
+        if time.monotonic() >= getattr(self, "_busy_bots_after", 0):
+            body["busy_bots"] = sorted({self.attempt_bots[aid] for aid, future in self.active.items()
+                                        if not future.done() and aid in self.attempt_bots})
         try:
             return self.client.post("jobs/claim", body)
         except APIError as exc:
-            if exc.status != 422 or "active_attempts" not in body:
+            if exc.status != 422 or "busy_bots" not in body:
                 raise
-            self._reports_attempts = False
-            return self.claim_next()
+            self._busy_bots_after = time.monotonic() + 600
+            return self.client.post("jobs/claim", {"next_run": True})
 
     def step_harnesses(self):
         """Owner actions, installs and updates. An update is switched in only at a moment no running

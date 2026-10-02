@@ -1291,9 +1291,6 @@ def create_app(settings=None):
             return {k: v for k, v in row.items() if k in SEE_ONLY}
         row["draining"] = bool(c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot["slug"],)).fetchone())
         row["status"] = H.status(c, bot["slug"])
-        waiting = views.checkout_wait(c, bot["slug"])
-        if waiting:
-            row["status"] = {**(row["status"] or {}), "focus": waiting}
         row["assignment"] = dict(assignment) if assignment else None
         row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
                              and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
@@ -2236,9 +2233,6 @@ def create_app(settings=None):
             def with_bot_state(row):
                 if row:
                     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
-                    waiting = views.checkout_wait(c, row["bot"])
-                    if waiting:
-                        row["focus"] = waiting
                     row = usage_limits.overlay(c, row, default)      # over a spend limit: paused, and why
                 return row
             if bot:

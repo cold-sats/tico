@@ -51,7 +51,7 @@ def test_idle_claims_do_not_take_the_write_lock_and_never_starve_leases(api):
         started = time.monotonic()
         assert post(api, "jobs/claim", {"next_run": True}, token=runners[0]["token"]) == {"attempt": None}
         assert time.monotonic() - started < 1
-        assert post(api, "jobs/claim", {"active_attempts": ["unknown-attempt"]}, token=runners[0]["token"]) == {"attempt": None}
+        assert post(api, "jobs/claim", {"busy_bots": ["unknown-bot"]}, token=runners[0]["token"]) == {"attempt": None}
         holder.execute("ROLLBACK")
     post(api, "chat/ops", {"text": "Anything today?"})
     statuses, got = [], []
@@ -215,7 +215,10 @@ def test_database_failure_keeps_original_error_and_stops_work(tmp_path):
     c.execute('BEGIN IMMEDIATE')
     with pytest.raises(sqlite3.DatabaseError, match='malformed'):
         with isolated(c, 'disk', 'two'):
-            raise sqlite3.DatabaseError('database disk image is malformed')
+            c.execute('INSERT INTO data VALUES(?)', ('written before corruption',))
+            exc = sqlite3.DatabaseError('database disk image is malformed')
+            exc.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+            raise exc
     c.rollback()
     c.close()
 
@@ -291,3 +294,17 @@ def test_row_isolation_keeps_standalone_task_databases_working(tmp_path):
     c.commit()
     assert c.execute('SELECT x FROM data').fetchall() == [(2,)]
     c.close()
+
+
+def test_row_sql_error_rolls_back_row_and_keeps_next_row(api):
+    from backend.batch_work import isolated
+    store = api.app.state.store
+    with store.transaction() as c:
+        with isolated(c, 'json', 'bad'):
+            c.execute("INSERT INTO registry_metadata VALUES('bad-row','{}')")
+            c.execute("SELECT json_extract(?, '$.value')", ('{',))
+        with isolated(c, 'json', 'good'):
+            c.execute("INSERT INTO registry_metadata VALUES('good-row','{}')")
+        assert not c.execute("SELECT 1 FROM registry_metadata WHERE key='bad-row'").fetchone()
+        assert c.execute("SELECT 1 FROM registry_metadata WHERE key='good-row'").fetchone()
+        assert c.execute("SELECT last_error FROM service_health WHERE service='background:json:bad'").fetchone()[0] == 'json: malformed JSON'
