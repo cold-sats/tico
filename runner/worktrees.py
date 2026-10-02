@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import threading
+import weakref
 
 from clients.tico import APIError
 from . import git_credentials, isolation, repositories, safe_git
@@ -46,7 +47,7 @@ def safe_path(workspace, relative):
 
 def disk_floor(workspace):
     usage = shutil.disk_usage(workspace)
-    floor = max(5 * repositories.GB, usage.total * .1)
+    floor = 5 * repositories.GB
     if usage.free < floor:
         raise ValueError(f'Not enough disk to create worktree: {usage.free / repositories.GB:.1f} GB free, needs {floor / repositories.GB:g} GB. Free space on this volume')
 
@@ -74,9 +75,15 @@ def locked(workspace, task):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def setup_environment(env):
+    keys = {'PATH', 'HOME', 'SHELL', 'LANG', 'TZ', 'TMPDIR', 'TMP', 'TEMP', 'VIRTUAL_ENV', 'CONDA_PREFIX',
+            'PYENV_ROOT', 'CARGO_HOME', 'RUSTUP_HOME', 'GOPATH', 'JAVA_HOME'}
+    return {key: value for key, value in env.items() if key in keys or key.startswith('LC_')}
+
+
 def setup(path, command, env):
     if command:
-        with isolation.popen(['/bin/sh', '-c', command], cwd=path, env=safe_git.environment(env),
+        with isolation.popen(['/bin/sh', '-c', command], cwd=path, env=setup_environment(env),
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                              start_new_session=True) as process:
             try:
@@ -86,7 +93,7 @@ def setup(path, command, env):
                 process.wait()
                 raise ValueError('Worktree setup timed out; run setup again') from None
         if code:
-            raise ValueError(f'Worktree created but setup failed (exit {code}); run the repository setup command again')
+            raise ValueError(f'Worktree created but setup failed (exit {code}); run setup again; setup has no credentials, so network authentication must be configured outside setup')
 
 
 def metadata(client, name):
@@ -114,14 +121,14 @@ def command(client, operation, value, task=None):
             if not row:
                 raise ValueError('No present worktree for this repository on the task')
             path = safe_path(workspace, row['path'])
-            with locked(workspace, row['id']):
+            with locked(workspace, row['path']):
                 setup(path, repo.get('setup_command'), env)
                 return client.patch(f'tasks/{task}/links/{row["id"]}', {'setup_pending': False})
         if operation == 'add':
             disk_floor(workspace)
             repo = metadata(client, value)
             link = client.post(f'tasks/{task}/worktrees', {'repo': repo['full_name']})
-            with locked(workspace, link['link_id']):
+            with locked(workspace, link['path']):
                 checked_branch(link['branch'])
                 path = safe_path(workspace, link['path'])
                 if path.exists():
@@ -174,7 +181,7 @@ def command(client, operation, value, task=None):
 def checked_branch(branch):
     if not isinstance(branch, str) or not branch or len(branch) > 200 or branch.startswith('-'):
         raise ValueError('Invalid or oversized worktree branch')
-    if git(Path.cwd(), 'check-ref-format', '--branch', branch, env=safe_git.process_environment(), check=False).returncode:
+    if isolation.run([*safe_git.PREFIX, 'check-ref-format', '--branch', branch], cwd='/', env=safe_git.process_environment(), capture_output=True, timeout=15).returncode:
         raise ValueError('Invalid worktree branch')
     return branch
 
@@ -260,16 +267,23 @@ def inspect(workspace, row, env=None, cache=None):
     return result
 
 
-_BUILD = {'node_modules', '.venv', 'venv', 'dist', 'build', 'target', '.next', '__pycache__', '.cache', 'coverage'}
+_BUILD = {'node_modules', '.venv', 'venv', 'dist', 'build', 'target', '.next', '__pycache__', '.cache', 'coverage', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.gradle', '.turbo', '.parcel-cache'}
+def build_file(name):
+    parts = Path(name).parts
+    return any(part in _BUILD for part in parts) or any(parts[i:i + 2] in (('.terraform', 'providers'), ('.terraform', 'plugin-cache')) for i in range(len(parts) - 1))
+
+
 _SECRET = ('.env*', '*.pem', '*.key', 'id_rsa*', 'credentials*', '*.p12')
 
 
-def _act(workspace, row, action, env):
+def _act(workspace, row, action, env, vault_values=(), before_remove=lambda: True):
     env = safe_git.environment(env)
     path = safe_path(workspace, row['path'])
     if action == 'remove':
         if not path.exists():
             # Prune even when the folder was removed outside Tico.
+            if not row.get('repo'):
+                return 'removed'
             base = Path(workspace) / 'repos' / row['repo'].lower().replace('/', '__')
             if (base.parent.is_symlink() or base.is_symlink() or (base / '.git').is_symlink()
                     or base.resolve().parent != base.parent.resolve()):
@@ -277,6 +291,8 @@ def _act(workspace, row, action, env):
             if base.exists():
                 git(base, 'worktree', 'prune', '--expire', 'now', env=env)
             return 'removed'
+        if not row.get('repo'):
+            raise ValueError('Repository not identified; kept worktree')
         branch = checked_branch(row['branch'])
         if not (path / '.git').is_file():
             raise ValueError('Tracked path is not a worktree; left as it is')
@@ -291,13 +307,13 @@ def _act(workspace, row, action, env):
             raise ValueError('Repository default branch is unknown; refresh Repositories before cleanup')
         git(base, 'worktree', 'prune', '--expire', 'now', env=env)
         ignored = git(path, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z', env=env).stdout.split('\0')
-        if any(name and not any(part in _BUILD for part in Path(name).parts) for name in ignored):
+        if any(name and not build_file(name) for name in ignored):
             raise ValueError('kept: ignored files')
         dirty = git(path, 'status', '--porcelain', env=env).stdout.strip()
         wip = wip_branch(row)
         if wip in defaults:
             raise ValueError('Snapshot branch matches the default branch; kept worktree')
-        current = git(path, 'symbolic-ref', '--short', 'HEAD', env=env).stdout.strip()
+        current = git(path, 'symbolic-ref', '--short', 'HEAD', env=env, check=False).stdout.strip()
         if dirty:
             names = (git(path, 'diff', 'HEAD', '--name-only', '-z', env=env).stdout
                      + git(path, 'ls-files', '--others', '--exclude-standard', '-z', env=env).stdout).split('\0')
@@ -310,18 +326,19 @@ def _act(workspace, row, action, env):
             exists = git(path, 'show-ref', '--verify', 'refs/heads/' + branch, env=env, check=False).returncode == 0
             if exists and git(path, 'merge-base', '--is-ancestor', branch, 'HEAD', env=env, check=False).returncode:
                 raise ValueError('Task branch has separate history; kept worktree to preserve unpushed commits')
+            from . import redact
+            patch = git(path, 'diff', '--no-ext-diff', '--no-textconv', 'HEAD', env=env).stdout
+            patch += ''.join((path / name).read_text(errors='replace') for name in names if name and (path / name).is_file())
+            known = redact.for_turn(env, vault_values)
+            possible_secret = re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{24,}', patch)
+            if redact.scrub_log(patch) != patch or known and known.holds(patch.encode()) or possible_secret:
+                raise ValueError('Possible secret in unsaved changes; kept worktree')
             if current != wip:
                 if git(path, 'show-ref', '--verify', 'refs/heads/' + wip, env=env, check=False).returncode == 0:
                     if git(path, 'merge-base', '--is-ancestor', wip, 'HEAD', env=env, check=False).returncode:
                         raise ValueError('Saved work has separate history; kept worktree')
                 git(path, 'switch', '-C', wip, env=env)
             git(path, 'add', '--all', env=env)
-            from . import redact
-            patch = git(path, 'diff', '--cached', env=env).stdout
-            known = redact.for_turn(env)
-            possible_secret = re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{24,}', patch)
-            if redact.scrub_log(patch) != patch or known and known.holds(patch.encode()) or possible_secret:
-                raise ValueError('Possible secret in unsaved changes; kept worktree')
             git(path, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'Save task work before cleanup', env=env)
             git(path, 'push', 'origin', 'HEAD:refs/heads/' + wip, env=env)
             if branch not in defaults:
@@ -334,11 +351,16 @@ def _act(workspace, row, action, env):
                     if git(path, 'merge-base', '--is-ancestor', branch, 'HEAD', env=env, check=False).returncode:
                         raise ValueError('Task branch has separate history; kept worktree')
                     fast_forward(path, branch, 'HEAD', env)
-            elif not row.get('prs_finished'):
+            else:
                 if int(git(path, 'rev-list', '--count', 'HEAD', '--not', '--remotes=origin', env=env).stdout):
-                    if current != branch or branch in defaults:
+                    if row.get('prs_finished') or not current:
+                        git(path, 'push', 'origin', 'HEAD:refs/heads/' + wip, env=env)
+                    elif current != branch or branch in defaults:
                         raise ValueError('Unpushed history on another or default branch; kept worktree')
-                    git(path, 'push', 'origin', branch + ':refs/heads/' + branch, env=env)
+                    else:
+                        git(path, 'push', 'origin', branch + ':refs/heads/' + branch, env=env)
+        if not before_remove():
+            raise Deferred('Task reopened or bot is running; retry cleanup later')
         git(base, 'worktree', 'remove', str(path), env=env)
         return 'removed'
     branch = checked_branch(row['branch'])
@@ -351,14 +373,22 @@ def _act(workspace, row, action, env):
     git(base, 'worktree', 'prune', '--expire', 'now', env=env)
     isolation.mkdir(path.parent, mode=0o755)
     local = git(base, 'show-ref', '--verify', 'refs/heads/' + branch, env=env, check=False).returncode == 0
-    task_remote = remote_branch(base, branch, env)
-    saved = remote_branch(base, wip_branch(row), env)
-    # Read the legacy snapshot too when upgrading an existing install.
-    legacy = remote_branch(base, 'wip/' + row['task_id'][:8], env) if not saved else None
-    saved = saved or legacy
+    try:
+        task_remote = remote_branch(base, branch, env)
+        saved = remote_branch(base, wip_branch(row), env)
+        legacy = remote_branch(base, 'wip/' + row['task_id'][:8], env) if not saved else None
+        saved = saved or legacy
+    except ValueError:
+        if not local:
+            raise
+        task_remote, saved = None, None
+        row['restore_source'] = 'local (remote unavailable)'
     start = branch if local else task_remote or 'origin/' + default
-    if saved and (not (local or task_remote) or git(base, 'merge-base', '--is-ancestor', start, saved, env=env, check=False).returncode == 0):
-        start = saved
+    if saved:
+        if not (local or task_remote) or git(base, 'merge-base', '--is-ancestor', start, saved, env=env, check=False).returncode == 0:
+            start = saved
+        else:
+            row['snapshot_skipped'] = saved
     if local:
         if start != branch:
             fast_forward(base, branch, start, env)
@@ -368,15 +398,23 @@ def _act(workspace, row, action, env):
     return 'present'
 
 
-def act(workspace, row, action, env):
-    with locked(workspace, row.get('id') or row['link_id']):
-        return _act(workspace, row, action, env)
+class Deferred(ValueError):
+    pass
+
+
+def act(workspace, row, action, env, vault_values=(), before_remove=lambda: True):
+    with locked(workspace, row['path']):
+        return _act(workspace, row, action, env, vault_values, before_remove)
 
 
 class Worktrees:
-    def __init__(self, workspace, client, idle=lambda: True, environment=lambda bot: safe_git.process_environment()):
+    def __init__(self, workspace, client, idle=lambda: True, environment=lambda bot: safe_git.process_environment(), vault_values=lambda bot: (), retain_vault=lambda owners: None):
         self.workspace, self.client, self.idle = workspace, client, idle
         self.environment = environment
+        self.vault_values = vault_values
+        self.retain_vault = retain_vault
+        self.bot_locks = weakref.WeakValueDictionary()
+        self.maintaining = set()
         self.retry = {}
         self.stats = {}
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -385,6 +423,30 @@ class Worktrees:
         self.actions = {}
         self.errors = {}
         self.lock = threading.Lock()
+
+    def bot_lock(self, bot):
+        with self.lock:
+            return self.bot_locks.setdefault(bot.removeprefix('bot:'), threading.RLock())
+
+    def claim(self, client, assignments):
+        # Coordinate selection with maintenance without adding a server field.
+        with self.lock:
+            if not self.maintaining:
+                return client.post('jobs/claim', {'next_run': True})
+            for assignment in assignments:
+                bot = assignment['bot']
+                if bot in self.maintaining:
+                    continue
+                result = client.post('jobs/claim', {'next_run': True, 'bot': bot})
+                if result.get('attempt') or result.get('paused'):
+                    return result
+            return {'attempt': None}
+
+    def bot_idle(self, bot):
+        try:
+            return self.idle(bot)
+        except TypeError:
+            return self.idle()
 
     def poll(self, actions=()):
         with self.lock:
@@ -400,31 +462,46 @@ class Worktrees:
             rows = self.client.get('runners/me/worktrees')['worktrees']
         except Exception:
             return
+        self.retain_vault({r['owner'].removeprefix('bot:') for r in rows})
         failed = set()
         errors = {key: error for key, error in self.errors.items() if any(r["id"] == key for r in rows)}
         for action in actions:
-            if not self.idle():
-                break
             row = next((r for r in rows if r['id'] == action['link_id']), None)
-            if not row or not row.get('repo') or time.monotonic() < self.retry.get(row['id'], (0, 0))[0]:
+            if not row or time.monotonic() < self.retry.get(row['id'], (0, 0))[0]:
                 continue
             closed = row['task_status'] in ('done', 'closed', 'declined') or row['bot_state'] == 'archived' or json.loads(row.get('detail_json') or '{}').get('delete_requested')
             if action['action'] == 'remove' and not closed or action['action'] == 'restore' and closed:
                 continue
-            env = safe_git.environment(self.environment(row['owner']))
+            bot_lock = self.bot_lock(row['owner'])
+            if not bot_lock.acquire(blocking=False):
+                continue
+            if not self.bot_idle(row['owner']):
+                bot_lock.release()
+                continue
+            with self.lock:
+                self.maintaining.add(row['owner'].removeprefix('bot:'))
             action_row = {}
             try:
-                granted = self.client.post(f'runners/me/worktrees/{row["id"]}/token')
-                if not granted.get('token'):
-                    raise ValueError('No repository credential for this worktree')
-                env.update(git_credentials.environment(granted['token']))
-                repo = next((r for r in self.client.get('runners/me/repositories')['repositories'] if r['full_name'].lower() == row['repo'].lower()), {})
+                env = safe_git.environment(self.environment(row['owner']))
+                if row.get('repo'):
+                    granted = self.client.post(f'runners/me/worktrees/{row["id"]}/token')
+                    if not granted.get('token'):
+                        raise ValueError('No repository credential for this worktree')
+                    env.update(git_credentials.environment(granted['token']))
+                    repo = next((r for r in self.client.get('runners/me/repositories')['repositories'] if r['full_name'].lower() == row['repo'].lower()), {})
+                else:
+                    repo = {}
                 action_row = {**row, **repo, **action, 'full_name': row['repo']}
-                state = act(self.workspace, action_row, action['action'], env)
-                self.client.patch(f'tasks/{row["task_id"]}/links/{row["id"]}', {'state': state, 'cleanup': action['action'] == 'remove', 'setup_pending': action['action'] == 'restore'})
+                def still_closed():
+                    fresh = next((r for r in self.client.get('runners/me/worktrees')['worktrees'] if r['id'] == row['id']), None)
+                    return fresh is not None and self.bot_idle(row['owner']) and (fresh['task_status'] in ('done', 'closed', 'declined') or fresh['bot_state'] == 'archived' or json.loads(fresh.get('detail_json') or '{}').get('delete_requested'))
+                state = act(self.workspace, action_row, action['action'], env, self.vault_values(row['owner']), still_closed)
+                self.client.patch(f'tasks/{row["task_id"]}/links/{row["id"]}', {'state': state, 'cleanup': action['action'] == 'remove', 'setup_pending': action['action'] == 'restore', **{k: action_row[k] for k in ('snapshot_skipped', 'restore_source') if k in action_row}})
                 row['state'] = state
                 errors.pop(row['id'], None)
                 self.retry.pop(row['id'], None)
+            except Deferred:
+                continue
             except (ValueError, APIError) as exc:
                 failed.add(row['id'])
                 if action_row.get('skipped_files'):
@@ -436,6 +513,10 @@ class Worktrees:
             except Exception:
                 failed.add(row['id'])
                 errors[row['id']] = 'Worktree action failed; history kept. Check repository access, network, disk space and permissions'
+            finally:
+                with self.lock:
+                    self.maintaining.discard(row['owner'].removeprefix('bot:'))
+                bot_lock.release()
         for key in failed:
             failures = self.retry.get(key, (0, 0))[1] + 1
             self.retry[key] = (time.monotonic() + min(300 * 2 ** min(failures - 1, 7), 21600), failures)

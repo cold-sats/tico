@@ -35,7 +35,7 @@ function reposDrawList() {
   if (!list || !REPOS) return;
   const admin = settingsIsAdmin();
   const q = (host.querySelector('[data-repos-filter]')?.value || '').trim().toLowerCase();
-  const all = (REPOS.repositories || []).filter(r => REPOS_SHOW_BOTS || !r.bot_repo)
+  const all = (REPOS.repositories || []).filter(r => REPOS_SHOW_BOTS || !r.bot_repo || r.enabled)
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
   const rows = all.filter(r => !q || r.full_name.toLowerCase().includes(q));
   const filter = host.querySelector('[data-repos-filter]');
@@ -58,6 +58,7 @@ async function renderSettingsRepos(fresh) {
   host.innerHTML = `<header><h2>Repositories</h2><span class="spacer"></span>
       ${bots ? `<label class="repos-bots"><input type="checkbox" data-repos-bots${REPOS_SHOW_BOTS ? ' checked' : ''}>Show bot repos</label>` : ''}
       <button class="ghost repos-small" type="button" data-repos-refresh${dis}>Refresh</button></header>
+    <p class="repos-line">Refreshes daily and on Refresh.</p>
     <div class="repos-bar"><span class="repos-k" id="repos-newbot">New bots get</span>
       ${repoSegHTML('repos_new_bot', 'New bots get', [['own', 'Own repo only'], ['all', 'All ticked repos']], REPOS.new_bot_default || 'own', !admin)}
       <input type="search" class="repos-filter" data-repos-filter placeholder="Filter" aria-label="Filter repositories" autocomplete="off" hidden></div>

@@ -551,7 +551,7 @@ class Runner:
         self.client = client or Client(config["url"], config["token"], timeout=10, retries=1)
         self.state = State(state_dir)
         self.repositories = repositories.Repositories(config["projects_dir"], self.state.directory / "repositories.json", self.client)
-        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda: not self.active, environment=lambda bot: self.credential_environment(bot.removeprefix("bot:")))
+        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda bot: bot.removeprefix("bot:") not in self.active_bots.values(), vault_values=lambda bot: self.worktree_vault.get(bot.removeprefix("bot:"), []), retain_vault=self.retain_worktree_vault, environment=lambda bot: self.credential_environment(bot.removeprefix("bot:")))
         self.follower = Follower(config, self.state.directory, self.client, supervised=supervised)
         self.capacity = int(config.get("capacity", 4))
         self.host_factory = host_factory or self.make_host
@@ -562,11 +562,13 @@ class Runner:
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
+        self.worktree_vault = {}
+        self.active_bots = {}
         self.vault_names = {}             # attempt id -> the variable names its vault grants put in the run
         # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
         # a turn's host process needs lives in a directory the bot user owns instead.
         self.host_state = isolation.bot_state(self.state.directory)
-        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))   # None unless isolated
+        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))
         self.warm = WarmSessions(self.host_state / "antigravity")
         self.attempt_runtimes = {}     # attempt id -> host names its turn may use
         self.tools = harness_tools.Harnesses(
@@ -1904,7 +1906,7 @@ class Runner:
                 renewal.failed(exc)
 
     def arm_credentials(self, env, attempt, bot):
-        """Register this attempt with the credential socket (isolated runners) and point the turn at it. Every
+        """Register this attempt with the supervisor credential socket and point the turn at it. Every
         isolated turn gets it, message bot or not: the Google key is not in the turn, so the mail CLI asks here,
         and a bot the hub named no mailbox for is told so instead of being told the key is missing."""
         socket_path = self.credentials.path if self.credentials else None
@@ -1913,7 +1915,17 @@ class Runner:
             env[credential_socket.SOCKET_ENV] = str(socket_path)
         return socket_path
 
+    def retain_worktree_vault(self, owners):
+        keep = owners | {row['bot'] for row in self.assignments_seen} | set(self.active_bots.values())
+        for bot in list(self.worktree_vault):
+            if bot not in keep:
+                self.worktree_vault.pop(bot, None)
+
     def execute(self, attempt):
+        with self.worktrees.bot_lock(attempt["bot"]):
+            return self.execute_turn(attempt)
+
+    def execute_turn(self, attempt):
         aid, bot = attempt["id"], attempt["bot"]
         self.state.record(attempt)
         lost, done = threading.Event(), threading.Event()
@@ -1937,9 +1949,12 @@ class Runner:
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.arm_credentials(env, attempt, bot)
-                git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
+                git_credentials.apply(env, self.client, bot, self.config_path if not socket_path else None, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))
+                if self.credentials:
+                    redactor = redactor or redact_mod.Redactor([])
+                    self.credentials.set_redactor(attempt["token"], redactor)
                 if redactor:
                     redactor.register(aid)
                 def redact(value):
@@ -2234,6 +2249,7 @@ class Runner:
                 if self.credentials:
                     self.credentials.unregister(attempt["token"])
                 redact_mod.release(aid)
+                self.worktree_vault[attempt["bot"]] = self.vault_values.get(aid, [])
                 self.vault_values.pop(aid, None)
                 self.vault_names.pop(aid, None)
                 for filename in self.vault_files.pop(aid, []):
@@ -2348,7 +2364,7 @@ class Runner:
             for row in runtime_rows:
                 row.pop("credential_source", None)
             beat = self.report_heartbeat(body)
-        if hasattr(self, "worktrees") and not self.active:
+        if hasattr(self, "worktrees"):
             self.worktrees.poll((beat or {}).get("worktree_actions", []))
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
         self.published_agent_instructions.update(instruction_versions)
@@ -2386,7 +2402,7 @@ class Runner:
                 return self.client.post("runners/heartbeat", body)
             except APIError as exc:
                 detail = str(exc.detail or "Heartbeat validation failed")
-                if 400 <= exc.status < 500 and "worktrees" in body:
+                if "worktrees" in body and ("worktrees" in str(exc.detail).lower() or exc.status == 422 and "extra" in str(exc.detail).lower()):
                     body.pop("worktrees", None)
                     self._worktrees_after = time.monotonic() + 600
                     continue
@@ -2472,6 +2488,7 @@ class Runner:
         for aid, future in list(self.active.items()):
             if future.done():
                 del self.active[aid]
+                self.active_bots.pop(aid, None)
                 self.next_claim = 0         # capacity came free: look for the next job now
                 self.attempt_runtimes.pop(aid, None)
                 try:
@@ -2506,7 +2523,7 @@ class Runner:
         if self.follower.blocks_claims(bool(self.active)):
             return
         while len(self.active) < self.capacity and time.monotonic() >= getattr(self, "next_claim", 0):
-            result = self.client.post("jobs/claim", {"next_run": True})   # prompt() carries them
+            result = self.worktrees.claim(self.client, self.assignments_seen)   # prompt() carries next-run tasks
             self.next_claim = time.monotonic() + self.claim_wait(bool(result.get("attempt")))
             if result.get("paused") and result["paused"] != getattr(self, "_paused_note", None):
                 self._paused_note = result["paused"]
@@ -2519,6 +2536,7 @@ class Runner:
             config = attempt.get("config") or {}
             self.attempt_runtimes[attempt["id"]] = {config.get("runtime") or "",
                                                     (configured_fallback(config) or {}).get("runtime") or ""} - {""}
+            self.active_bots[attempt["id"]] = attempt["bot"]
             self.active[attempt["id"]] = self.pool.submit(self.execute, attempt)
 
     def step_harnesses(self):

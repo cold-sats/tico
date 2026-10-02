@@ -146,6 +146,7 @@ def test_unselected_base_with_linked_worktree_is_not_deleted(trees):
         manager.sync({}, None, REMOVE_AFTER + 1)
         assert base.exists()
         git(base, 'worktree', 'remove', '--force', str(workspace / row['path']))
+        git(base, 'branch', '-D', row['branch'])
         manager.sync({}, None, REMOVE_AFTER + 1)
         assert not base.exists()
     finally:
@@ -276,9 +277,14 @@ def test_fetch_failure_is_not_missing_branch(trees, monkeypatch):
             raise ValueError('Git fetch failed; synthetic network failure')
         return real_git(path, *args, **kwargs)
     monkeypatch.setattr(W, 'git', failed_fetch)
+    W.act(workspace, row, 'restore', os.environ.copy())
+    assert path.exists() and git(path, 'rev-parse', 'HEAD') == head
+    assert row['restore_source'] == 'local (remote unavailable)'
+    git(base, 'worktree', 'remove', str(path))
+    git(base, 'branch', '-D', row['branch'])
     with pytest.raises(ValueError, match='fetch failed'):
         W.act(workspace, row, 'restore', os.environ.copy())
-    assert not path.exists() and git(base, 'rev-parse', row['branch']) == head
+    assert not path.exists()
 
 
 def test_missing_folder_registration_is_pruned_for_restore_and_base_cleanup(trees):
@@ -289,6 +295,8 @@ def test_missing_folder_registration_is_pruned_for_restore_and_base_cleanup(tree
     W.act(workspace, row, 'restore', os.environ.copy())
     assert path.exists()
     shutil.rmtree(path)
+    git(base, 'worktree', 'prune', '--expire', 'now')
+    git(base, 'branch', '-D', row['branch'])
     from runner.repositories import Repositories, REMOVE_AFTER
     manager = Repositories(workspace, workspace / 'state.json', client)
     manager.rows = {'org/product': {'full_name': 'org/product', 'managed': True, 'left_at': 0}}
@@ -310,7 +318,7 @@ def test_new_base_clone_detects_default_and_restores_remote_snapshot(trees, monk
     def local_clone(args, **kwargs):
         if 'clone' in args:
             cloned.append(args)
-            result = real_run([str(remote) if a == 'https://github.com/org/product.git' else a for a in args], **kwargs)
+            result = real_run([*(['git', '-c', 'protocol.file.allow=always'] if args[0] == 'git' else [args[0]]), *[str(remote) if a == 'https://github.com/org/product.git' else a for a in args[1:]]], **kwargs)
             if result.returncode == 0:
                 git(base, 'config', 'remote.origin.url', 'https://github.com/org/product.git')
                 git(base, 'config', f'url.{remote}.insteadOf', 'https://github.com/org/product.git')
@@ -460,8 +468,249 @@ def test_add_using_task_prefix_waits_for_the_same_link_restore_lock(trees):
         return response
     client.post.side_effect = posted_link
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        with W.locked(workspace, row['id']):
+        with W.locked(workspace, row['path']):
             future = pool.submit(W.command, client, 'add', 'org/product', row['task_id'][:8])
             assert posted.wait(2)
             assert not future.done()
         assert future.result(timeout=5)['link_id'] == row['id']
+
+
+@pytest.mark.parametrize('secret', ['github_pat_' + 'x' * 30, 'unusual-database-password'])
+def test_snapshot_refusal_preserves_head_index_and_files(trees, secret):
+    workspace, base, remote, row, client = trees
+    path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+    (path / 'file').write_text('staged change')
+    git(path, 'add', 'file')
+    (path / 'file').write_text('unstaged change')
+    (path / 'notes').write_text(secret)
+    before = (git(path, 'symbolic-ref', 'HEAD'), git(path, 'diff', '--cached'), git(path, 'diff'), git(path, 'status', '--porcelain'))
+    with pytest.raises(ValueError, match='Possible secret'):
+        W.act(workspace, row, 'remove', os.environ.copy(), [secret])
+    after = (git(path, 'symbolic-ref', 'HEAD'), git(path, 'diff', '--cached'), git(path, 'diff'), git(path, 'status', '--porcelain'))
+    assert after == before
+    assert (path / 'notes').read_text() == secret
+    assert git(base, 'show-ref', '--verify', 'refs/heads/' + row['branch'])
+
+
+@pytest.mark.parametrize('cache', ['.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.gradle', '.terraform/providers'])
+def test_cleanup_removes_ignored_build_caches(trees, cache):
+    workspace, base, remote, row, client = trees
+    path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+    (path / '.gitignore').write_text(cache.split('/')[0] + '/\n')
+    (path / cache).mkdir(parents=True)
+    (path / cache / 'cache').write_text('cached output')
+    assert W.act(workspace, row, 'remove', os.environ.copy()) == 'removed'
+    assert not path.exists()
+
+
+def test_setup_has_no_tokens_or_socket_but_keeps_toolchain(trees, monkeypatch):
+    workspace, base, remote, row, client = trees
+    monkeypatch.setenv('HUB_TOKEN', 'synthetic-attempt-token')
+    monkeypatch.setenv('GH_TOKEN', 'synthetic-repository-token')
+    monkeypatch.setenv('TICO_GITHUB_EXTRA', 'synthetic-helper-key')
+    monkeypatch.setenv(W.git_credentials.credential_socket.SOCKET_ENV, 'synthetic-socket')
+    monkeypatch.setenv('JAVA_HOME', '/example/toolchain')
+    command = 'env > setup-env'
+    W.setup(workspace, command, os.environ.copy())
+    environment = dict(line.split('=', 1) for line in (workspace / 'setup-env').read_text().splitlines())
+    assert environment['JAVA_HOME'] == '/example/toolchain'
+    assert 'PATH' in environment and 'HOME' in environment
+    assert not any('TOKEN' in key or key.startswith(('HUB_', 'TICO_GITHUB_')) or 'synthetic-' in value for key, value in environment.items())
+
+
+@pytest.mark.parametrize('dirty', [False, True])
+def test_detached_cleanup_and_finished_pr_save_unpushed_history(trees, dirty):
+    workspace, base, remote, row, client = trees
+    client.get.return_value['repositories'][0]['setup_command'] = None
+    path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+    git(path, 'checkout', '--detach')
+    (path / 'file').write_text('detached work')
+    if not dirty:
+        git(path, 'add', '.')
+        git(path, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'Offline work')
+    W.act(workspace, {**row, 'prs_finished': True}, 'remove', os.environ.copy())
+    assert not path.exists()
+    assert git(remote, 'show', W.wip_branch(row) + ':file') == 'detached work'
+
+
+def test_reopen_just_before_remove_defers_and_per_bot_lock_blocks_turn(trees):
+    import concurrent.futures
+    workspace, base, remote, row, client = trees
+    path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+    with pytest.raises(W.Deferred):
+        W.act(workspace, row, 'remove', os.environ.copy(), before_remove=lambda: False)
+    assert path.exists()
+    saved = {**row, 'task_status': 'closed', 'bot_state': 'active'}
+    client.get.side_effect = lambda route: {'worktrees': [saved]} if route.endswith('/worktrees') else {'repositories': [{**row, 'access': 'write'}]}
+    client.post.return_value = {'token': 'synthetic-scoped-token'}
+    client.patch.side_effect = lambda route, body: saved.update(body)
+    manager = W.Worktrees(workspace, client, idle=lambda bot: bot != 'bot:busy')
+    try:
+        # A different bot is busy: this owner still cleans up.
+        manager.sync([{**row, 'action': 'remove'}])
+        assert not path.exists()
+        saved['task_status'] = 'open'
+        saved['state'] = 'removed'
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            with manager.bot_lock(row['owner']):
+                pool.submit(manager.sync, [{**row, 'action': 'restore'}]).result(timeout=3)
+                assert not path.exists()
+        manager.sync([{**row, 'action': 'restore'}])
+        assert path.exists()
+        saved['task_status'] = 'closed'
+        reads = [0]
+        def reopening(route):
+            if route.endswith('/worktrees'):
+                reads[0] += 1
+                if reads[0] > 1:
+                    saved['task_status'] = 'open'
+                return {'worktrees': [saved]}
+            return {'repositories': [{**row, 'access': 'write'}]}
+        client.get.side_effect = reopening
+        manager.sync([{**row, 'action': 'remove'}])
+        assert path.exists() and row['id'] not in manager.retry
+    finally:
+        manager.close()
+
+
+def test_path_only_missing_cleanup_needs_no_token(trees):
+    workspace, base, remote, row, client = trees
+    row = {**row, 'repo': None, 'branch': None, 'task_status': 'closed', 'bot_state': 'active', 'state': 'missing'}
+    client.get.return_value = {'worktrees': [row]}
+    manager = W.Worktrees(workspace, client)
+    try:
+        manager.sync([{**row, 'action': 'remove'}])
+        client.post.assert_not_called()
+        assert client.patch.call_args.args[1]['state'] == 'removed'
+        assert manager.reports[0]['state'] == 'removed'
+    finally:
+        manager.close()
+
+
+def test_snapshot_skipped_is_reported_and_branch_check_ignores_cwd(trees, monkeypatch):
+    workspace, base, remote, row, client = trees
+    path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+    (path / 'file').write_text('saved work')
+    W.act(workspace, row, 'remove', os.environ.copy())
+    git(base, 'update-ref', 'refs/heads/' + row['branch'], 'origin/main')
+    git(base, 'worktree', 'add', str(path), row['branch'])
+    (path / 'file').write_text('rebased work')
+    git(path, 'add', '.')
+    git(path, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'New history')
+    git(base, 'worktree', 'remove', str(path))
+    monkeypatch.chdir(base.parent.parent)
+    with mock.patch.object(W.isolation, 'run', wraps=W.isolation.run) as run:
+        W.checked_branch(row['branch'])
+        assert run.call_args.kwargs['cwd'] == '/'
+        assert '-C' not in run.call_args.args[0]
+    W.act(workspace, row, 'restore', os.environ.copy())
+    assert row['snapshot_skipped'].endswith(W.wip_branch(row))
+    assert (path / 'file').read_text() == 'rebased work'
+
+
+def test_unrelated_heartbeat_errors_keep_worktree_fields():
+    for status, detail in [(401, 'Invalid token'), (403, 'Forbidden'), (409, 'Conflict'), (422, 'goals.0 invalid')]:
+        runner = Runner.__new__(Runner)
+        runner.client = mock.Mock()
+        runner.client.post.side_effect = APIError('validation', detail, status)
+        body = {'worktrees': [], 'readiness': {'bots': {}}}
+        with pytest.raises(APIError):
+            runner.report_heartbeat(body)
+        assert 'worktrees' in body
+
+
+def test_full_mirror_base_offline_commit_push_cleanup_recreate(trees, monkeypatch):
+    from runner.repositories import Repositories, REMOVE_AFTER
+    workspace, base, remote, row, client = trees
+    shutil.rmtree(base)
+    supervisor = mock.Mock()
+    supervisor.post.return_value = {'token': 'synthetic-computer-read-token', 'repositories': ['org/product']}
+    supervisor.get.return_value = {'repositories': [{**row, 'access': 'write'}]}
+    manager = Repositories(workspace, workspace / 'state' / 'repositories.json', supervisor)
+    manager.state_file.parent.mkdir()
+    manager.rows = {'org/product': {'full_name': 'org/product'}}
+    launch = manager.run_git
+    calls = []
+    def local_git(args, **kwargs):
+        calls.append((args, dict(kwargs['env']), kwargs.get('bot', False)))
+        if kwargs.get('bot'):
+            assert 'GH_TOKEN' not in kwargs['env'] and 'HUB_TOKEN' not in kwargs['env']
+        else:
+            assert str(base) not in args
+        remapped = [remote.as_uri() if a == 'https://github.com/org/product.git' and 'config' not in args else 'protocol.file.allow=always' if a == 'protocol.file.allow=never' else a for a in args]
+        return launch(remapped, **kwargs)
+    monkeypatch.setattr(manager, 'run_git', local_git)
+    try:
+        manager.update('org/product', row, 1)
+        assert manager.rows['org/product']['state'] == 'cloned'
+        assert (base / '.git' / 'tico-managed').exists()
+        assert git(base, 'symbolic-ref', 'refs/remotes/origin/HEAD') == 'refs/remotes/origin/main'
+        git(base, 'config', f'url.{remote}.insteadOf', 'https://github.com/org/product.git')
+        original_run = W.isolation.run
+        def offline_run(args, **kwargs):
+            if 'fetch' in args and 'origin' in args:
+                raise AssertionError('Worktree creation must use the local mirror')
+            return original_run(args, **kwargs)
+        monkeypatch.setattr(W.isolation, 'run', offline_run)
+        path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+        (path / 'file').write_text('offline commit')
+        git(path, 'add', '.')
+        git(path, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'Offline task work')
+        head = git(path, 'rev-parse', 'HEAD')
+        monkeypatch.setattr(W.isolation, 'run', original_run)
+        scoped = {**W.safe_git.process_environment(), **W.git_credentials.environment('synthetic-bot-write-token')}
+        with mock.patch.object(W.isolation, 'run', wraps=original_run) as pushes:
+            W.git(path, 'push', 'origin', row['branch'], env=scoped)
+            assert pushes.call_args.kwargs['env']['GH_TOKEN'] == 'synthetic-bot-write-token'
+            assert 'synthetic-computer-read-token' not in str(pushes.call_args)
+        assert git(remote, 'rev-parse', row['branch']) == head
+        manager.rows['org/product']['left_at'] = 0
+        manager.sync({}, None, REMOVE_AFTER + 1)
+        assert manager.rows['org/product']['error'] == 'kept: 1 task worktrees'
+        W.act(workspace, {**row, 'prs_finished': True}, 'remove', scoped)
+        assert not path.exists()
+        W.act(workspace, row, 'restore', scoped)
+        assert git(path, 'rev-parse', 'HEAD') == head
+        assert (path / 'file').read_text() == 'offline commit'
+        assert all(str(manager.mirror_path('org/product')) in args for args, env, bot in calls if env.get('GH_TOKEN') and 'fetch' in args)
+        assert 'synthetic-' not in (base / '.git' / 'config').read_text()
+    finally:
+        manager.close()
+
+
+def test_retirement_keeps_local_branches_and_broken_bases(trees):
+    from runner.repositories import Repositories, REMOVE_AFTER
+    workspace, base, remote, row, client = trees
+    manager = Repositories(workspace, workspace / 'state.json', client)
+    manager.rows = {'org/product': {'full_name': 'org/product', 'managed': True, 'left_at': 0}}
+    try:
+        git(base, 'branch', 'offline-branch')
+        manager.sync({}, None, REMOVE_AFTER + 1)
+        assert base.exists() and 'local branches' in manager.rows['org/product']['error']
+        git(base, 'checkout', 'offline-branch')
+        (base / 'file').write_text('unpublished')
+        git(base, 'add', '.')
+        git(base, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'Local work')
+        manager.sync({}, None, REMOVE_AFTER + 1)
+        assert base.exists() and 'unpublished commits' in manager.rows['org/product']['error']
+        # A damaged clone is retained rather than replaced, even with local branches.
+        (base / '.git' / 'HEAD').unlink()
+        manager.sync({}, None, REMOVE_AFTER + 1)
+        assert base.exists() and (base / 'file').read_text() == 'unpublished'
+    finally:
+        manager.close()
+
+
+def test_claims_skip_only_bot_under_maintenance(trees):
+    workspace, base, remote, row, client = trees
+    manager = W.Worktrees(workspace, client)
+    try:
+        manager.maintaining.add('engineer')
+        client.post.return_value = {'attempt': {'bot': 'other'}}
+        assert manager.claim(client, [{'bot': 'engineer'}, {'bot': 'other'}])['attempt']['bot'] == 'other'
+        client.post.assert_called_once_with('jobs/claim', {'next_run': True, 'bot': 'other'})
+        manager.maintaining.clear()
+        manager.claim(client, [])
+        assert client.post.call_args.args == ('jobs/claim', {'next_run': True})
+    finally:
+        manager.close()

@@ -135,7 +135,7 @@ def create_app(settings=None):
                     # page open; it is a no-op until its six hours are up.
                     await asyncio.to_thread(releases.notice)
                     from .repositories import daily
-                    await asyncio.to_thread(daily, app.state.github_app)
+                    daily(app.state.github_app)
                 except Exception as exc:
                     telemetry.capture("scheduler", exc)
                     import logging
@@ -167,6 +167,7 @@ def create_app(settings=None):
             yield
         finally:
             stop.set()
+            app.state.github_app.repository_stop.set()
             if demo_task:
                 await demo_task
             await timing_task
@@ -174,6 +175,8 @@ def create_app(settings=None):
                 await scheduler_task
             if directory_task:
                 await directory_task
+            from .repositories import stop_sync
+            await asyncio.to_thread(stop_sync, app.state.github_app)
             telemetry.close()
 
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
@@ -2717,6 +2720,7 @@ def create_app(settings=None):
             if not runner or not (auth.bot_admin(who) or who.role == "human" and who.actor == "human:" + runner["operator"]):
                 raise Problem("forbidden", "You cannot revoke this runner", 403)
             c.execute("UPDATE runners SET revoked_at=? WHERE id=?", (H.now(), rid))
+            c.execute('DELETE FROM registry_metadata WHERE key=?', ('computer-repositories:' + rid,))
             H.event(c, who.actor, "runner.revoked", rid)
             return {"revoked": True}
         return mutate(request, body, work)

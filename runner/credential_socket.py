@@ -20,6 +20,7 @@ import os
 import socket
 import socketserver
 import threading
+import tempfile
 from pathlib import Path
 
 from .outage import log
@@ -37,16 +38,27 @@ class Server:
         self.path, self.mint, self.mail = str(path), mint, mail
         self.attempts, self.mailboxes, self.lock = {}, {}, threading.Lock()
         self.server = None
+        self.redactors = {}
+        self.issued = {}
+        self.directory = None
 
     def register(self, attempt_token, bot, mailboxes=()):
         with self.lock:
             self.attempts[attempt_token] = bot
+            self.issued[attempt_token] = set()
             self.mailboxes[attempt_token] = {str(m).strip().lower() for m in mailboxes or ()}
 
     def unregister(self, attempt_token):
         with self.lock:
             self.attempts.pop(attempt_token, None)
             self.mailboxes.pop(attempt_token, None)
+            self.redactors.pop(attempt_token, None)
+            self.issued.pop(attempt_token, None)
+
+    def set_redactor(self, attempt_token, redactor):
+        with self.lock:
+            redactor.add(self.issued.pop(attempt_token, ()))
+            self.redactors[attempt_token] = redactor
 
     def answer(self, line):
         try:
@@ -70,6 +82,14 @@ class Server:
             return {"error": type(exc).__name__}
         if not granted:
             return {"error": "no token"}
+        with self.lock:
+            if token not in self.attempts:
+                return {"error": "unknown attempt"}
+            redactor = self.redactors.get(token)
+            if redactor:
+                redactor.add([granted])
+            else:
+                self.issued.setdefault(token, set()).add(granted)
         return {"token": granted}
 
     def answer_mail(self, bot, allowed, asked):
@@ -118,14 +138,19 @@ class Server:
             self.server.shutdown()
             self.server.server_close()
             Path(self.path).unlink(missing_ok=True)
+            if self.directory:
+                self.directory.cleanup()
 
 
 def serve(client, path=None, mail=None):
-    """The supervisor's server when isolation is on (else None): `client` is the runner's own, `mail`
+    """The supervisor's server: `client` is the runner's own, `mail`
     (service, mailbox) -> {"token", "expiry"} mints Gmail access."""
     from . import isolation
-    if not isolation.enabled():
-        return None
+    path = path or os.environ.get("TICO_RUNNER_CRED_SOCKET")
+    directory = None
+    if not isolation.enabled() and not path:
+        directory = tempfile.TemporaryDirectory(prefix="tico-credentials-", dir="/tmp")
+        path = str(Path(directory.name) / "credential.sock")
     path = path or os.environ.get("TICO_RUNNER_CRED_SOCKET") or DEFAULT_PATH
 
     def mint(bot, repository=None):
@@ -133,8 +158,12 @@ def serve(client, path=None, mail=None):
         granted = client.post("github/token", {"bot": bot})
         return select_token(granted, repository)
     try:
-        return Server(path, mint, mail).start()
+        server = Server(path, mint, mail).start()
+        server.directory = directory
+        return server
     except OSError as exc:
+        if directory:
+            directory.cleanup()
         log(f"Tico runner: no credential socket at {path} ({type(exc).__name__}); turns keep their start-of-turn token")
         return None
 

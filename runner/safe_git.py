@@ -5,7 +5,10 @@ import shutil
 import tempfile
 
 _SETTINGS = {'HOME', 'PATH', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'TZ', 'TERM', 'COLORTERM',
-             'CODEX_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME'}
+             'CODEX_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY',
+             'SSL_CERT_FILE', 'SSL_CERT_DIR', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE',
+             'https_proxy', 'http_proxy', 'no_proxy', 'VIRTUAL_ENV', 'CONDA_PREFIX', 'PYENV_ROOT',
+             'CARGO_HOME', 'RUSTUP_HOME', 'GOPATH', 'JAVA_HOME'}
 _hooks = tempfile.mkdtemp(prefix='tico-empty-hooks-')
 os.chmod(_hooks, 0o555)
 atexit.register(shutil.rmtree, _hooks, ignore_errors=True)

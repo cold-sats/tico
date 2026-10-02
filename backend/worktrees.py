@@ -36,6 +36,8 @@ class Update(Contract):
     branch: str | None = Field(default=None, max_length=200)
     cleanup: bool = False
     setup_pending: bool | None = None
+    snapshot_skipped: str | None = Field(default=None, max_length=300)
+    restore_source: str | None = Field(default=None, max_length=100)
     skipped_files: list[str] | None = Field(default=None, max_length=100)
 
 
@@ -133,7 +135,7 @@ def heartbeat(c, who, reports, capable, default_org=""):
         if action == 'remove':
             detail['cleanup_requested'] = True
         c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), row['id']))
-        if action and row['repo'] and (action == 'remove' or row['branch']):
+        if action and (action == 'remove' or row['repo'] and row['branch']):
             actions.append({'link_id': row['id'], 'action': action, 'branch': row['branch'], 'path': row['path'],
                             'task_id': row['task_id'], 'repo': row['repo'], 'owner': H.actor_id(row['owner']),
                             'prs_finished': bool(prs) and finished})
@@ -170,12 +172,21 @@ def install(app, store, auth, mutate):
         short = task['id'][:8]
         repo = grant['full_name'] if grant else None
         path = relative(path or f'tasks/{short}/{repo.replace("/", "__")}')
-        candidates = c.execute("SELECT * FROM task_links WHERE kind='worktree' AND computer_id=? AND coalesce(state,'unknown')<>'removed'", (assigned['id'],))
+        parts = PurePosixPath(path).parts
+        if attaching and parts[0].casefold() == 'tasks' and (len(parts) < 3 or parts[1] != short):
+            raise Problem('worktree_path', 'This worktree belongs to another task', 409)
+        candidates = c.execute("SELECT * FROM task_links WHERE kind='worktree' AND computer_id=?", (assigned['id'],))
         canonical = unicodedata.normalize('NFC', path).casefold()
         existing = next((r for r in candidates if unicodedata.normalize('NFC', r['path'] or '').casefold() == canonical), None)
         if existing:
-            if existing['task_id'] != task['id'] or existing['path'] != path:
+            owner = json.loads(existing['detail_json'] or '{}').get('owner', task['owner'])
+            if existing['task_id'] != task['id'] or existing['path'] != path or owner != task['owner']:
                 raise Problem('worktree_path', 'This worktree belongs to another task', 409)
+            if existing['state'] == 'removed':
+                detail = json.loads(existing['detail_json'] or '{}')
+                detail.pop('removed_by', None)
+                detail.pop('cleanup_requested', None)
+                c.execute("UPDATE task_links SET state='pending',detail_json=?,updated=? WHERE id=?", (json.dumps(detail), H.now(), existing['id']))
             return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
         count = c.execute("SELECT count(*) FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? AND coalesce(l.state,'unknown')<>'removed'", (task['owner'],)).fetchone()[0]
         if count >= 10:
@@ -238,7 +249,10 @@ def install(app, store, auth, mutate):
                 detail['setup_pending'] = body.setup_pending
             if body.skipped_files is not None:
                 detail['skipped_files'] = [str(name)[:1000] for name in body.skipped_files]
-            fields = body.model_dump(exclude_none=True, exclude={'cleanup', 'setup_pending', 'skipped_files'})
+            for key in ('snapshot_skipped', 'restore_source'):
+                if getattr(body, key) is not None:
+                    detail[key] = getattr(body, key)
+            fields = body.model_dump(exclude_none=True, exclude={'cleanup', 'setup_pending', 'skipped_files', 'snapshot_skipped', 'restore_source'})
             fields['detail_json'] = json.dumps(detail)
             if 'path' in fields:
                 fields['path'] = relative(fields['path'])

@@ -192,8 +192,8 @@ def test_failed_bot_creation_manual_removal_and_absent_at_close_do_not_restore(p
 
 def test_case_alias_and_unidentified_token_are_safe(prepared):
     api, tid, other = prepared
-    link = post(api, f'tasks/{tid}/worktrees/attach', {'path': 'tasks/custom'}).json()
-    response = post(api, f'tasks/{tid}/worktrees/attach', {'path': 'Tasks/CUSTOM', 'repo': 'Acme/product'})
+    link = post(api, f'tasks/{tid}/worktrees/attach', {'path': 'custom/worktree'}).json()
+    response = post(api, f'tasks/{tid}/worktrees/attach', {'path': 'CUSTOM/WORKTREE', 'repo': 'Acme/product'})
     assert response.status_code == 409
     response = post(api, 'runners/me/worktrees/' + link['link_id'] + '/token', {}, 'runner-test')
     assert response.status_code == 409 and 'Repository not identified yet' in response.text
@@ -224,7 +224,7 @@ def test_org_fallback_for_path_only_attachment_without_app(prepared):
     api, tid, _ = prepared
     with api.app_state.store.transaction() as c:
         c.execute("UPDATE bot_config SET repo='emp-cmo' WHERE bot='cmo'")
-    response = post(api, f'tasks/{tid}/worktrees/attach', {'path': 'tasks/fallback'})
+    response = post(api, f'tasks/{tid}/worktrees/attach', {'path': 'custom/fallback'})
     assert response.status_code == 200, response.text
     link = response.json()
     with api.app_state.store.transaction() as c:
@@ -248,3 +248,35 @@ def test_old_computer_token_needs_an_outstanding_action(prepared):
     with api.app_state.store.transaction() as c:
         c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
     assert post(api, route, {}, 'runner-test').status_code == 200
+
+
+def test_reopen_add_reuses_link_and_attach_keeps_original_owner(prepared):
+    api, tid, other = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='removed',detail_json=? WHERE id=?", (json.dumps({'owner': 'bot:cmo', 'removed_by': 'cleanup', 'restore_on_reopen': True}), link['link_id']))
+    added = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test')
+    assert added.status_code == 200 and added.json() == link
+    with api.app_state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM task_links WHERE kind='worktree'").fetchone()[0] == 1
+        assert c.execute('SELECT state FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0] == 'pending'
+    assert post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{other[:8]}/unattached', 'repo': 'Acme/product'}).status_code == 409
+    assert post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/manual', 'repo': 'Acme/product'}).status_code == 200
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='removed',detail_json=? WHERE id=?", (json.dumps({'owner': 'bot:cpo'}), link['link_id']))
+    assert post(api, f'tasks/{tid}/worktrees/attach', {'path': link['path'], 'repo': 'Acme/product'}).status_code == 409
+
+
+def test_unidentified_missing_link_is_removed_and_frees_limit(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/manual'}).json()
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
+    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'worktrees': True},
+            'worktrees': [{'link_id': link['link_id'], 'state': 'missing'}]}
+    action = post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'][0]
+    assert action['action'] == 'remove' and action['repo'] is None
+    body['worktrees'][0]['state'] = 'removed'
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    with api.app_state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM task_links WHERE kind='worktree' AND state<>'removed'").fetchone()[0] == 0
