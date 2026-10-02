@@ -195,6 +195,8 @@ class Execution:
         awake_since = self.waking(row, now)
         self.served_at = now
         del row
+        from .subscriptions import record
+        record(c, who.runner_id, body.profiles)
         readiness = readiness_document(body.readiness)
         from .repositories import save_metadata
         save_metadata(c, "computer-repositories:" + who.runner_id,
@@ -289,6 +291,8 @@ class Execution:
                          "JOIN bots b ON b.slug=a.bot JOIN bot_config bc ON bc.bot=a.bot "
                          "WHERE a.runner_id=? ORDER BY a.bot", (who.runner_id,)).fetchall()
         result = []
+        from .subscriptions import effective, context
+        subscription_context = context(c)
         from .views import roster
         people = roster(c)
         # The runner gets a concrete runtime and model; a bot that names none runs on the
@@ -299,7 +303,7 @@ class Execution:
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'])
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
-            result.append({**dict(row), 'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']))),
+            result.append({**dict(row), 'computer_label': runner['label'], 'profile': effective(c, row['bot'], subscription_context)[0], 'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']))),
                            'repository': bot_repository(c, self.store.settings, row['bot']),
                            'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
@@ -397,19 +401,30 @@ class Execution:
             H.event(c, H.KEEPER, "attempt.expired", row["id"], {"job_state": state})
 
     @staticmethod
-    def mark_rejected(c, runner_id, runtime, reason):
+    def mark_rejected(c, runner_id, runtime, reason, profile=None):
         """Record the refusal now; the runner's next heartbeat repeats it and later lifts it."""
         record = c.execute("SELECT readiness_json FROM runners WHERE id=?", (runner_id,)).fetchone()
         ready = readiness_document(record[0] if record else None)
         row = (ready.get("runtimes") or {}).get(runtime)
         if not isinstance(row, dict):
             return
+        if profile:
+            row = {}
         row.update(authenticated="rejected", rejected_at=H.now(), rejected_reason=reason[:300],
                    detail=("Sign-in rejected: " + reason)[:500])
         for bot in ready.get("bots", {}).values():
-            if isinstance(bot, dict) and bot.get("runtime") == runtime:
+            if isinstance(bot, dict) and bot.get("runtime") == runtime and bot.get("profile", "") == (profile or ""):
+                bot["sign_in"] = "rejected"
                 bot["ready"] = False
                 bot["problems"] = [row["detail"]]
+        if profile:
+            report = c.execute("SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?",
+                               (runner_id, profile)).fetchone()
+            if report:
+                runtimes = json.loads(report[0] or "{}")
+                runtimes[runtime] = {"signed_in": False}
+                c.execute("UPDATE computer_profiles SET runtimes_json=?,updated=? WHERE runner_id=? AND profile=?",
+                          (json.dumps(runtimes), H.now(), runner_id, profile))
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(ready), runner_id))
 
     def candidate(self, c, who, body, runner):
@@ -433,12 +448,25 @@ class Execution:
                         (who.runner_id, body.bot, body.bot)).fetchall()
         cooling, over = {}, {}
         default = usage_limits.company(c)
+        from .subscriptions import context, effective
+        from .repositories import metadata
+        subscription_context = context(c)
         def claimable(job):
+            profile = effective(c, job["bot"], subscription_context)[0]
+            if profile:
+                if not metadata(c, "computer-profiles:" + runner["id"]).get("reported"):
+                    return False
+                config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (job["bot"],)).fetchone()
+                runtime = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})[0]
+                report = c.execute("SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?",
+                                   (runner["id"], profile)).fetchone()
+                if not report or json.loads(report[0] or "{}").get(runtime, {}).get("signed_in") is False:
+                    return False
             check = bot_readiness(ready, job['bot'])
             if check.get('ready') is not True:
                 return False
             # The heartbeat may not have caught up with a refusal the runner just reported.
-            if (ready.get('runtimes', {}).get(check.get('runtime')) or {}).get('authenticated') == 'rejected':
+            if not check.get('profile') and check.get('sign_in') != 'ready' and (ready.get('runtimes', {}).get(check.get('runtime')) or {}).get('authenticated') == 'rejected':
                 return False
             message = H.message(c, job['message_id'])
             conversation = H.conversation(c, message['conversation_id'])
@@ -627,7 +655,10 @@ class Execution:
         inbox = P.inbox_person(row["bot"], people)
         parked = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         from .chat_goals import current
+        from .subscriptions import effective
         return {"attempt": {"chat_goal": current(c, conv["id"]), "routine": routine, "id": aid,
+                            "profile": effective(c, row["bot"])[0],
+                            "computer_label": runner["label"],
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
                             # The mailboxes an inbox bot's turn may ask its runner for mail access to: the one it declares
@@ -975,7 +1006,7 @@ class Execution:
             c.execute("UPDATE bot_sessions SET tokens_in=?,updated=? WHERE bot=? AND runtime=? AND model=? AND thread_id=?",
                       (int(body.tokens_in), H.now(), row["bot"], runtime, model, row["thread_id"]))
         if rejected:
-            self.mark_rejected(c, row["runner_id"], body.auth_rejected.runtime, body.auth_rejected.reason)
+            self.mark_rejected(c, row["runner_id"], body.auth_rejected.runtime, body.auth_rejected.reason, body.profile_used)
             H.event(c, H.KEEPER, "attempt.auth_rejected", aid,
                     {"bot": row["bot"], "runtime": body.auth_rejected.runtime, "reason": body.auth_rejected.reason})
         if body.fallback:

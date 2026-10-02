@@ -234,6 +234,7 @@ def delete(c, auth, who, gid):
             changed.append(person)
         people.append(person)
     del groups[gid]
+    c.execute("DELETE FROM subscription_assignments WHERE scope='group' AND target=?", (gid,))
     _finish(c, roster, people, changed)
     H.event(c, who.actor, "group.deleted", gid, {"moved_to": up})
     return {"id": gid, "deleted": True, "moved_to": up}

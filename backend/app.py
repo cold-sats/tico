@@ -2720,22 +2720,22 @@ def create_app(settings=None):
     @app.post("/api/v2/runners/{rid}/logins")
     def start_login(request: Request, rid: str, body: M.LoginStart):
         return mutate(request, body, lambda c: model_login.start(
-            c, request.state.identity, rid, body.runtime, body.profile))
+            c, request.state.identity, rid, body.runtime, body.profile, auth=auth))
 
     @app.get("/api/v2/runners/{rid}/logins/{lid}")
     def read_login(request: Request, rid: str, lid: str):
         # A read that also expires: a sign-in nobody finished does not stay open.
         with store.transaction() as c:
-            return model_login.read(c, request.state.identity, rid, lid)
+            return model_login.read(c, request.state.identity, rid, lid, auth=auth)
 
     @app.post("/api/v2/runners/{rid}/logins/{lid}/code")
     def login_code(request: Request, rid: str, lid: str, body: M.LoginCode):
         return mutate(request, body, lambda c: model_login.submit_code(
-            c, request.state.identity, rid, lid, body.code))
+            c, request.state.identity, rid, lid, body.code, auth=auth))
 
     @app.post("/api/v2/runners/{rid}/logins/{lid}/cancel")
     def cancel_login(request: Request, rid: str, lid: str, body: M.Empty):
-        return mutate(request, body, lambda c: model_login.cancel(c, request.state.identity, rid, lid))
+        return mutate(request, body, lambda c: model_login.cancel(c, request.state.identity, rid, lid, auth=auth))
 
     # The runner asks for work here and reports back; nothing listens on the runner.
     @app.get("/api/v2/runner-logins")
@@ -3505,6 +3505,8 @@ def create_app(settings=None):
     install_branches(app, store, auth, mutate, settings_admin, execution)
     from .bot_copy import install as install_bot_copy
     install_bot_copy(app, store, auth, mutate, settings_admin, place_now)
+    from .subscriptions import install as install_subscriptions
+    install_subscriptions(app, store, auth, mutate, settings, computer_rows)
     from .groups import install as install_groups
     install_groups(app, store, auth, mutate, settings)
     from .support import install as install_support
