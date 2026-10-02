@@ -437,7 +437,11 @@ def judge_pending(store, engine, who, limit=MAX_JUDGE, item_ids=None):
     """Score posts that have no judgment from the current set and route them. One decision call a post,
     each audited as a `judge.call` the way `/api/v2/decisions` audits, so the caller's budget counts it."""
     from .judge import DAILY_CALLS, used_today
-    qset = question_set(store.settings)
+    try:
+        qset = question_set(store.settings)
+    except J.JudgeError:
+        raise Problem("judge_questions", "The listening-item question set could not be loaded. "
+                      "Check registry/questions/listening-item.json.", 422) from None
     dests = destinations(store.settings, qset=qset)
     questions = qset["questions"]
     with store.read() as c:

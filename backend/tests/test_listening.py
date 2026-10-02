@@ -165,3 +165,15 @@ destinations:
     assert dests["lead"]["receiver"] == "bot:sales-ops"
     assert len(caplog.records) == 2
     assert "unknown" in caplog.text and "unless category 'wrong_type'" in caplog.text
+
+
+def test_invalid_registry_questions_refuse_decisions_without_private_details(api):
+    settings = api.app.state.store.settings
+    directory = settings.registry_dir / "questions"
+    directory.mkdir()
+    (directory / "listening-item.json").write_text('{"private-question-fixture-value": [}')
+    api.app.state.judge = engine = FakeJudge()
+    response = post(api, "listening/judge", {}, expected=422)
+    assert response["error"]["code"] == "judge_questions"
+    assert "private-question-fixture-value" not in json.dumps(response)
+    assert engine.calls == []

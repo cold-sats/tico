@@ -2,3 +2,4 @@
 2026-10-02 Implemented registry question overrides and Listening log/Health diagnostics without overlapping privacy or Granola files.
 2026-10-02 Focused regressions verified overrides, version rescoring, vetoes, secret omission, scoped grants, batching, proxy configuration and archived cleanup compatibility.
 2026-10-02 Extended real local Git retention checks; no live provider calls, no test deletions, and no full suite.
+2026-10-02 Final review added a clear safe 422 for malformed custom decision questions before calling a provider; focused refusal and valid routing checked.
