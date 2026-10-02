@@ -129,7 +129,8 @@ request already gets your final answer automatically, so link the task there onc
 should be the only thing the reader has to read: one decision, two options if you can name them, no playbook,
 coverage stats, or commit hashes. The human task title starts with a verb, its first line contains
 the question, and its body stays under 120 words outside a quoted draft. Do not paste the original
-brief into the task note.
+brief into the task note. A decision is a General task: a task on a custom type is a ticket on that
+type's board, which these checks leave alone, not a place for an ask.
 
 Give one recommendation with the material consequence and include the relevant draft or summary.
 Longer supporting files belong in the task's S3 deliverables prefix. Check for an existing request

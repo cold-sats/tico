@@ -2207,7 +2207,7 @@ def create_app(settings=None):
             if body.goal_id and not G.goal(c, body.goal_id):
                 raise Problem("not_found", "Unknown goal", 404)
             if body.close:
-                if any(v is not None for v in (body.status, body.owner, body.due, body.body, body.lane,
+                if any(v is not None for v in (body.title, body.status, body.owner, body.due, body.body, body.lane,
                                                body.labels, body.blocked_by, body.parent_id, body.rank,
                                                body.goal_id, body.type, body.step, body.step_rank, body.number, body.private)):
                     raise Problem("close", "Close and edit are separate operations", 422)

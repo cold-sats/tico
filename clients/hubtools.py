@@ -406,10 +406,11 @@ def tag_update(api, args):
 
 # ----------------------------------------------------------------------------- tasks
 @tool("hub_task_create", "File a task for a bot or a person. A task for a person is a decision "
-      "or a review: title says what you are asking, body under 120 words. `dry_run` reports the "
+      "or a review: title says what you are asking, body under 120 words (a ticket on a custom type's "
+      "board is exempt; asks stay on General). `dry_run` reports the "
       "checks a create would fail and writes nothing.",
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
-       "title": _s("What you are asking for, in plain words: no reference numbers, no all-caps"),
+       "title": _s("Task title: General uses plain words without reference numbers or all-caps; custom types keep board references"),
        "body": _s("The details", default=""),
        "due": _s("ISO-8601 date-time with timezone"),
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
@@ -530,10 +531,11 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, or what blocks it. "
+@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes.",
       {"id": TASK_ID,
        "private": {"type": "boolean", "description": "Tighten visibility; only the direct human requester can publish"},
+       "title": _s("A new title; it is checked as a new task's title would be"),
        "status": {"type": "string", "enum": ["open", "doing", "waiting", "review", "done", "declined"]},
        "type": _s("Task type id or name"),
        "step": _s("Step id or name within the task type; sets status. An empty string clears it"),
@@ -555,7 +557,7 @@ def task_update(api, args):
         body["quiet"] = True
     if args.get("labels") is not None:
         body["labels"] = args["labels"]
-    for field in ("type", "step", "step_rank", "number"):
+    for field in ("title", "type", "step", "step_rank", "number"):
         if args.get(field) is not None:
             body[field] = args[field]
     if args.get("private") is not None:

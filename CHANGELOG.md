@@ -14,6 +14,10 @@ All notable changes to Tico are recorded here. The format follows
 - A task type can open its tasks to every bot: `read` (read, comment, file subtasks) or `work` (also move,
   reassign and link them), in Settings → Types, the task-types routes, `hub task type --bots` and MCP. A team's
   board can be worked by the bots that file and build its tickets; everything else stays with the bots on it.
+- A task can be renamed: `title` on `POST /api/v2/tasks/{id}`, `hub_task_update` and `hub task update --title`, for
+  whoever may change its other fields. The new title gets the checks a new task's title would, is kept in the task's
+  history, and becomes the subject of the task's own conversation.
+
 - Imported meetings wait in a personal Pending queue before sharing, with approve, dismiss and restore actions, batch sharing, per-person auto-share, a Team review default, and CLI/MCP review tools.
 - Ticket numbers: a mover can make a custom type **numbered**, and each task created on it or moved onto it gets the
   team's next number (one sequence for the whole team), kept for good. A mover can keep an imported ticket's number
@@ -26,6 +30,12 @@ All notable changes to Tico are recorded here. The format follows
   `brief=true` leaves out their bodies and acceptance criteria.
 
 ### Changed
+- A task on a custom type is a ticket on that type's board, not an ask: the rule for a request to a person (a title
+  that starts with a verb, the ask first, under 120 words) applies to General tasks only, in the API, MCP, `hub` and
+  the dry run. A ticket still needs a title.
+- A bot's ticket on a custom type keeps its reference numbers and all-caps words: the plain-English title check
+  applies to General tasks only.
+
 - Tickets on a numbered type stay out of their owner's Needs you, and the desktop count, unless one carries a question
   for that person; a declined ticket stays out of its requester's. General tasks and other types are listed as before.
 

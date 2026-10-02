@@ -18986,6 +18986,19 @@
             "minimum": 1.0,
             "title": "Version"
           },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
           "status": {
             "anyOf": [
               {

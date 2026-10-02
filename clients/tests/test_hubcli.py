@@ -537,3 +537,26 @@ def test_task_board_filters_survive_the_all_form():
     assert {key: api.query[key] for key in ('type', 'step', 'sort', 'number', 'updated_since', 'brief')} == {
         'type': 'Dev ticket', 'step': 'To do', 'sort': 'step', 'number': 42,
         'updated_since': '2026-01-01T00:00:00Z', 'brief': 'true'}
+
+
+def test_task_rename_cli_keeps_number_and_step_fields(monkeypatch):
+    from clients import remotecli
+    sent = []
+    class Api:
+        def __init__(self, *args, **kwargs):
+            pass
+        def get(self, path, **query):
+            if path == 'me':
+                return {'actor': 'human:ana', 'kind': 'member'}
+            return {'task': {'id': 'task', 'version': 3}}
+        def post(self, path, body, key=None):
+            sent.append((path, body))
+            return {}
+    monkeypatch.setattr(remotecli, 'Client', Api)
+    monkeypatch.setenv('HUB_API_URL', 'http://example.test')
+    monkeypatch.setenv('HUB_TOKEN', 'test-token')
+    remotecli.run(hubcli.parser().parse_args(['task', 'update', '#42', '--title', 'Ticket copy',
+                                           '--step', 'To do', '--step-rank', '2', '--number', '42']))
+    assert sent[0][0] == 'tasks/#42'
+    assert {key: sent[0][1][key] for key in ('title', 'step', 'step_rank', 'number', 'version')} == {
+        'title': 'Ticket copy', 'step': 'To do', 'step_rank': 2.0, 'number': 42, 'version': 3}

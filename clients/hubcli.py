@@ -26,6 +26,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--next-run]           for a bot: no wake; its next run carries the task
     hub task ask <id> "<question>"
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
+                    [--title "..."]        rename it: checked as a new task's title would be
     hub task close <id> [--note "..."]
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
@@ -321,27 +322,29 @@ def owner_from_registry(name):
     return None
 
 
-def task_problems(actor, owner, title, body):
+def task_problems(actor, owner, title, body, type=None):
     """(resolved owner, the problems the server's `task_create` would refuse on), writing none.
 
     The owner's kind comes from the registry files; the lint (`lint_human_item`) and the reach
-    rule (`classify`) are hubdb's own functions run here. Reach against live state and the
-    duplicate check are the hub's to decide at the real create.
+    rule (`classify`) are hubdb's own functions run here. Reach against live state, the
+    duplicate check and whether a named type exists are the hub's to decide at the real create.
+    A type other than General is a custom type, whose tasks neither lint shapes.
     """
     from backend import hubdb as H
     problems = []
     title, body = str(title or "").strip(), str(body or "")
+    general = str(type or "").strip().lower() in ("", H.GENERAL_TYPE)
     target = owner_from_registry(owner)
     if not target:
         problems.append(f"{owner} is not in registry/employees.yaml or registry/people.yaml")
     if H.is_bot(actor) and H.classify(f"{title}\n{body}", to_actor=target) == "escape":
         problems.append("the task reaches outside the hub (rule 8): a real create is refused "
                         "and repeating it quarantines you")
-    if H.is_human(target):
+    if H.is_human(target) and general:
         problems += H.lint_human_item(body, title=title)
     elif not title:
         problems.append("give it a title that says what you are asking for")
-    if H.is_bot(actor):
+    if H.is_bot(actor) and general:
         # plain-English titles: a warning this week, a refusal once TICO_TITLE_LINT=refuse
         problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
     return target, problems
@@ -364,7 +367,7 @@ def cmd_task_dry_run(args, who):
     slug = (os.environ.get("HUB_BOT") or os.environ.get("HUB_EMPLOYEE") or "").strip()
     actor = H.bot_actor(slug) if slug else None
     body = body_of(args)
-    owner, problems = task_problems(actor, args.owner, args.title, body)
+    owner, problems = task_problems(actor, args.owner, args.title, body, getattr(args, "type", None))
     if problems:
         print("\n".join(f"- {p}" for p in problems))
         return 1
@@ -668,6 +671,7 @@ def parser():
     visibility.add_argument("--private", dest="private", action="store_true", default=None)
     visibility.add_argument("--company", dest="private", action="store_false", help="human requester publishes the task")
     s.add_argument("id")
+    s.add_argument("--title", help="a new title, checked as a new task's title would be")
     s.add_argument("--status", choices=list(TASK_STATUSES))
     s.add_argument("--note")
     s.add_argument("--owner")

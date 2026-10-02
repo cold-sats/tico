@@ -345,7 +345,7 @@ def run(args, who=None):
                              "goal_id": getattr(args, "goal", None)})
                 if getattr(args, "private", None) is not None:
                     body["private"] = args.private
-                for field in ("type", "step", "step_rank", "number"):
+                for field in ("title", "type", "step", "step_rank", "number"):
                     if getattr(args, field, None) is not None:
                         body[field] = getattr(args, field)
                 if args.blocked_by is not None:

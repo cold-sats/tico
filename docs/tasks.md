@@ -28,6 +28,20 @@ reorder and delete types and steps. Move every task off a step before deleting i
 finished tasks. Move tasks to another type before deleting the type. Changing an occupied step's
 status moves its tasks to that status, using the normal completion and reopening behavior.
 
+A task on a custom type is a ticket on that type's board, not an ask. The rule that shapes a
+request to a person (a title that starts with a verb, the ask in the first line, under 120 words
+outside quoted drafts) applies to General tasks only, so a ticket keeps the title and the long
+description it was written with. The plain-English check on a title a bot writes (no reference
+numbers, no all-caps words) also applies to General tasks only, so a bot can file "#18945 (B/F)
+Fix the account page" as written. It still needs a title. A decision for a person stays on General.
+
+Whoever may change a task's other fields (its owner, its requester, the owner or requester of a task
+above it, a delegate or a mover) may also rename it. A new title gets the checks a new task's title
+would: never empty, at most 300 characters, a verb first and no internal codes on a General task for
+a person, plain English when a bot writes it on General, and no other live task between the same
+requester and owner, under the same parent, with that title. The old and new titles are in the task's history, and a task's own conversation keeps the
+new title as its subject.
+
 A task on a custom type with a linked pull request follows the existing GitHub flow: review when
 the PR opens, ready when it merges, and done when the configured release includes it. Each move
 uses the mapping above, including clearing the step when the type has no match. General tasks
@@ -75,6 +89,7 @@ in that order.
 hub task types
 hub task create --owner content --title "Draft the campaign" --body "Use the brief." --type Marketing
 hub task update <task-id> --step "Legal review"
+hub task update <task-id> --title "(B/F) Account page: improve the copy"
 hub task update <task-id> --status review
 hub task update <task-id> --type General
 hub task update <task-id> --step ""
@@ -86,7 +101,7 @@ hub task list --type "Dev ticket" --sort step
 ```
 
 `hub_task_types` lists types and ordered steps. `hub_task_create` and `hub_task_update` accept
-`type` and `step`, as ids or names, and `number`; `hub_task_update` also takes `step_rank`, and
+`type` and `step`, as ids or names, and `number`; `hub_task_update` also takes `step_rank` and `title`, and
 `hub_task_list` takes `type`, `step` and `sort`. Movers manage definitions with `hub_task_type_create`,
 `hub_task_type_update` and `hub_task_type_delete` (with `numbered`), or `hub task type create|update|delete`.
 
@@ -107,7 +122,7 @@ explicit positions are provided. Omitted steps are removed; new steps omit `id`.
 update one. `DELETE /api/v2/task-types/{id}`, or `POST /api/v2/task-types/{id}/delete`, deletes an
 unused type. Create and update accept `numbered`; updates accept `name` and a replacement `steps`
 array, retaining existing step ids. All writes use the existing Idempotency-Key contract. Task
-create and update accept `type`, `step` and `number`, and update accepts `step_rank`; task answers
+create and update accept `type`, `step` and `number`, and update accepts `step_rank` and `title`; task answers
 include `type_id`, `step_id`, a `type` object, a `step` object (null when unmapped), `number` and
 `step_rank`.
 

@@ -310,6 +310,64 @@ def test_template_tags_and_pipeline_moves_preserve_each_other(api):
         assert c.execute('SELECT labels_json FROM tasks WHERE id=?', (task['id'],)).fetchone()[0] == '[]'
 
 
+def test_a_custom_types_task_is_a_ticket_not_an_ask(api):
+    typ = pipeline(api)
+    ticket = {"owner": "priya", "title": "(B/F) Account page: the copy", "body": "Details. " * 150}
+    refused = api.post("/api/v2/tasks", json=ticket, headers=headers())
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "lint"
+    assert not post(api, "tasks/dry-run", ticket)["ok"]
+    ticket["type"] = typ["name"]
+    assert post(api, "tasks/dry-run", ticket)["ok"]
+    task = post(api, "tasks", ticket)
+    assert task["title"] == ticket["title"] and task["type"]["id"] == typ["id"]
+    assert task["body"] == ticket["body"].strip()
+
+
+def test_bot_ticket_titles_and_long_descriptions_stay_exempt_on_custom_types(api, monkeypatch):
+    monkeypatch.setattr(H, "TITLE_LINT", "refuse")
+    typ = pipeline(api)
+    token = bot_token(api)
+    ticket = {"owner": "ana", "title": "#18945 (B/F) ACCOUNT COPY", "body": "Details. " * 150}
+    assert not post(api, "tasks/dry-run", ticket, token=token)["ok"]
+    ticket["type"] = typ["id"]
+    assert post(api, "tasks/dry-run", ticket, token=token)["ok"]
+    made = post(api, "tasks", ticket, token=token)
+    changed = post(api, "tasks/" + made["id"], {"version": made["version"], "title": "#18945 COPY UPDATE"}, token=token)
+    assert changed["title"] == "#18945 COPY UPDATE" and changed["body"] == ticket["body"].strip()
+
+
+def test_a_renamed_task_is_checked_like_a_new_one_and_keeps_its_history(api):
+    ask = post(api, "tasks", {"owner": "priya", "title": "Approve the launch copy", "body": "Yes or no?"})
+    refused = api.post("/api/v2/tasks/" + ask["id"], json={"version": ask["version"], "title": "The launch copy"},
+                       headers=headers())
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "lint"
+    renamed = post(api, "tasks/" + ask["id"], {"version": ask["version"], "title": "Approve the final copy"},
+                   token="priya-test")
+    assert renamed["title"] == "Approve the final copy"
+    assert any(e["field"] == "title" and (e["old"], e["new"]) == ("Approve the launch copy", "Approve the final copy")
+               for e in get(api, "tasks/" + ask["id"])["events"])
+    with api.app.state.store.read() as c:
+        subject = c.execute("SELECT subject FROM conversations WHERE id=?", (renamed["conversation_id"],)).fetchone()[0]
+    assert subject == "Approve the final copy"
+    typ = pipeline(api)
+    post(api, "task-types/" + typ["id"], {"numbered": True})
+    ticket = post(api, "tasks", {"owner": "priya", "title": "(B) Account page", "body": "x", "type": typ["id"]})
+    number, step = ticket["number"], ticket["step_id"]
+    error, result = call(api, "hub_task_update", {"id": "#" + str(number), "title": "(B/F) Account page: the copy"})
+    assert not error, result
+    ticket = result["task"]
+    assert ticket["title"] == "(B/F) Account page: the copy" and ticket["number"] == number and ticket["step_id"] == step
+    since = ticket["updated"]
+    for change in ({"title": " "}, {"title": "Changed", "close": True}, {"title": "The other page", "type": "General"}):
+        post(api, "tasks/" + ticket["id"], {"version": ticket["version"], **change}, expected=422)
+    duplicate = post(api, "tasks", {"owner": "priya", "title": "(B) Another page", "body": "x", "type": typ["id"]})
+    post(api, "tasks/" + ticket["id"], {"version": ticket["version"], "title": duplicate["title"]}, expected=422)
+    after = get(api, "tasks/" + ticket["id"])["task"]
+    assert (after["title"], after["version"], after["updated"]) == (ticket["title"], ticket["version"], since)
+    other = post(api, "tasks", {"owner": "cmo", "title": "Draft the launch copy", "body": "x"})
+    post(api, "tasks/" + other["id"], {"version": other["version"], "title": "Draft it"}, token="priya-test", expected=403)
+
+
 def test_steps_keep_status_contract_stay_first_match_and_clear(api):
     typ = pipeline(api)
     task = post(api, 'tasks', {'owner': 'cmo', 'title': 'Draft the campaign', 'body': 'Please.', 'type': typ['id']})
