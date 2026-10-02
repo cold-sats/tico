@@ -324,8 +324,9 @@ future access unless they remain its requester. Reassignment never clears Privat
 The existing bot Settings editor offers **Create private tasks by default**. This also covers
 requests assigned to that bot, including its shared branches. The Legal template enables it
 by default; Tico does not guess from names. A human may clear the create checkbox to choose
-company visibility explicitly. Bot execution on a private task cannot bypass that privacy. A private parent's subtasks are private and have
-their own two participants. Publishing a child requires detaching it from a private parent.
+company visibility explicitly. Supported structured output and automated delivery from a private
+task retain its access restrictions. A private parent's subtasks are private and have their own
+two participants. Publishing a child requires detaching it from a private parent.
 
 Upgrade retains every task, message and attachment. Existing tasks whose requester and assignee
 have known ordinary roster/config identities stay company-visible. Legal-template and sensitive
@@ -340,7 +341,9 @@ server defaults. Direct legacy database inserts that omit privacy stay private.
 
 Future reads, task context, files, links, counts and notices enforce current access. Content
 already downloaded or delivered to a bot, an external service or a person cannot be recalled.
-Persistent bot sessions and copies made outside tracked task routes are not an erasure system.
+Authorized participants can retain or copy information elsewhere, including while working on
+another task. Tico does not reliably classify arbitrary untagged prose or track every private
+read as a restriction on later work. Persistent bot sessions and external copies are not recalled.
 
 Task numbers, queue order and import numbering retain their existing semantics. Opaque number
 and rank gaps may remain; they do not disclose hidden task content or participants.
