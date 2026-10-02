@@ -2828,7 +2828,10 @@ def create_app(settings=None):
         readable = auth.bot_accesses(c, who)
         rows = []
         for r in c.execute("SELECT * FROM runners WHERE revoked_at IS NULL ORDER BY label"):
-            if not (everyone or r["operator"] == mine or r["accepts_member_bots"]):
+            if who.role == "bot" and not c.execute("SELECT 1 FROM assignments WHERE runner_id=? AND bot=?",
+                                                   (r["id"], mine)).fetchone():
+                continue
+            if who.role != "bot" and not (everyone or r["operator"] == mine or r["accepts_member_bots"]):
                 continue
             bots = [x["bot"] for x in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (r["id"],))
                     if (readable.get(x["bot"]) or {}).get("see")]
@@ -3446,7 +3449,7 @@ def create_app(settings=None):
     from .bot_copy import install as install_bot_copy
     install_bot_copy(app, store, auth, mutate, settings_admin, place_now)
     from .subscriptions import install as install_subscriptions
-    install_subscriptions(app, store, auth, mutate, settings)
+    install_subscriptions(app, store, auth, mutate, settings, computer_rows)
     from .groups import install as install_groups
     install_groups(app, store, auth, mutate, settings)
     from .support import install as install_support

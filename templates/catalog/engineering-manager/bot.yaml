@@ -4,8 +4,6 @@ labels: [owner:engineering-manager]
 reads: []
 reasoning_effort: medium
 max_run_minutes: 60
-repo_access_mode: all
-repo_all_access: read
 outbound_send: false
 routines:
   - id: daily-delivery-check

@@ -127,12 +127,26 @@ class Login(unittest.TestCase):
 
     def test_named_profile_is_created_and_login_stays_in_its_home(self):
         self.stub("codex", CODEX)
+        self.runner._profile_report_cache = (time.monotonic(), [])
         self.runner.client.wanted = [{"id": "named", "runtime": "codex", "profile": "engineering"}]
         self.drive(lambda: "signed_in" in self.states())
         home = self.logins.profile("engineering").home("codex")
         self.assertTrue((home / "auth.json").is_file())
         self.assertFalse((self.root / "codex-home" / "auth.json").exists())
         self.assertNotIn("default_profile", self.runner.config)
+        self.assertIsNone(self.runner._profile_report_cache)
+
+    def test_invalid_runtime_and_shared_profile_do_not_create_or_start_login(self):
+        from unittest import mock
+        self.runner.config['profiles'] = {'shared': {'dir': str(self.root / 'shared'), 'share_operator': True}}
+        with mock.patch.object(self.runner, 'add_profile') as add:
+            self.logins.begin({'id': 'bad-runtime', 'runtime': 'other', 'profile': 'new'})
+            self.logins.begin({'id': 'shared-login', 'runtime': 'codex', 'profile': 'shared'})
+            add.assert_not_called()
+        self.assertEqual(self.logins.sessions['bad-runtime'].report()['state'], 'failed')
+        report = self.logins.sessions['shared-login'].report()
+        self.assertEqual(report['state'], 'failed')
+        self.assertIn('sign in normally', str(report))
 
     def test_nothing_secret_leaves_the_machine(self):
         self.stub("codex", CODEX)

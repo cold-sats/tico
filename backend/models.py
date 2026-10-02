@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import AfterValidator, BeforeValidator, BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 Text = Annotated[str, Field(min_length=1, max_length=200_000)]
 ID = Annotated[str, Field(min_length=1, max_length=200)]
@@ -651,7 +651,7 @@ class SubscriptionAssignment(Contract):
 
 
 class Heartbeat(Contract):
-    profiles: list[ComputerProfile] | None = Field(default=None, max_length=100)
+    profiles: Annotated[list[Any], BeforeValidator(lambda value: value[:100] if isinstance(value, list) else value)] | None = None
     repositories: list[RepositoryStatus] | None = None
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
@@ -1185,6 +1185,7 @@ class RunUsage(Contract):
     output_tokens: int = Field(default=0, ge=0, le=10**12)
     model: str = Field(default="", max_length=120)
     runtime: str = Field(default="", max_length=60)
+    profile_used: str | None = Field(default=None, max_length=80)
     billing: Literal["api", "subscription"] = "api"   # `subscription`: a ChatGPT or Claude sign-in, not a key
 
 
@@ -1198,6 +1199,7 @@ class UsageDefault(UsageLimit):
 
 
 class Completion(Contract):
+    profile_used: str | None = Field(default=None, max_length=80)
     outcome: Literal["completed", "failed", "interrupted"]
     text: str = Field(default="", max_length=200_000)
     last_seq: int = Field(ge=0)

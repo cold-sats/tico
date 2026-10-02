@@ -83,12 +83,34 @@ class Readiness(unittest.TestCase):
         self.assertEqual(row['profile'], 'two')
 
     def test_reports_all_profiles_and_sign_in_state(self):
-        self.runner.runtime_readiness = lambda runtime, assignments, profile: {
-            'authenticated': 'ready' if profile.name == 'one' else 'missing'}
-        rows = self.runner.profile_report()
-        self.assertEqual([r['name'] for r in rows], ['one', 'two'])
-        self.assertTrue(rows[0]['runtimes']['codex']['signed_in'])
-        self.assertFalse(rows[1]['runtimes']['claude']['signed_in'])
+        import json
+        import subprocess
+        from unittest import mock
+        probes = []
+        def probe(argv, **kwargs):
+            probes.append((argv, kwargs))
+            signed = self.one['dir'] in str(kwargs['env'])
+            return type('R', (), {'returncode': 0 if signed else 1,
+                'stdout': json.dumps({'loggedIn': signed}) if 'claude' in argv[0] else 'Logged in using ChatGPT',
+                'stderr': ''})()
+        with mock.patch('runner.service.shutil.which', side_effect=lambda runtime: runtime), \
+                mock.patch('runner.service.isolation.run', side_effect=probe):
+            rows = self.runner.profile_report()
+            self.assertEqual([r['name'] for r in rows], ['one', 'two'])
+            self.assertTrue(rows[0]['runtimes']['codex']['signed_in'])
+            self.assertFalse(rows[1]['runtimes']['claude']['signed_in'])
+            self.assertIsNone(rows[0]['runtimes']['gemini']['signed_in'])
+            self.assertEqual(len(probes), 4)
+            self.runner.profile_report()
+            self.assertEqual(len(probes), 4)
+            self.assertTrue(all('--version' not in argv and kw['timeout'] <= 3 for argv, kw in probes))
+            self.runner.add_profile('new')
+            self.runner.profile_report()
+            self.assertEqual(len(probes), 10)
+        self.runner._profile_report_cache = None
+        with mock.patch('runner.service.shutil.which', return_value='codex'), \
+                mock.patch('runner.service.isolation.run', side_effect=subprocess.TimeoutExpired('probe', 3)):
+            self.assertEqual(self.runner.profile_report()[1]['runtimes'], rows[0]['runtimes'])
 
     def test_named_profile_is_persisted_without_replacing_local_assignments(self):
         import json
@@ -108,12 +130,14 @@ class Readiness(unittest.TestCase):
         class Client:
             def post(self, path, body):
                 if 'profiles' in body:
-                    raise APIError('validation', 'Extra inputs are not permitted: profiles', 422)
+                    raise APIError('validation', 'body.profiles: Extra inputs are not permitted', 422)
                 return {'server_time': 'now'}
         self.runner.client = Client()
-        body = {'readiness': {}, 'profiles': [{'name': 'one', 'runtimes': {}}]}
+        body = {'readiness': {}, 'repositories': [{'full_name': 'example/product', 'state': 'cloned'}], 'profiles': [{'name': 'one', 'runtimes': {}}]}
         self.assertEqual(self.runner.report_heartbeat(body), {'server_time': 'now'})
         self.assertNotIn('profiles', body)
+        self.assertIn('repositories', body)
+        self.assertFalse(hasattr(self.runner, '_repositories_after'))
 
     def test_claim_profile_controls_environment_and_host_home(self):
         from unittest import mock
@@ -128,7 +152,8 @@ class Readiness(unittest.TestCase):
         work['config'] = {'runtime': 'claude'}
         env = self.runner.environment(work)
         self.assertEqual(env['HOME'], str(Path(self.one['dir']) / 'claude'))
-        self.assertEqual(env['CLAUDE_CONFIG_DIR'], str(Path(self.one['dir']) / 'claude/.claude'))
+        self.assertEqual(env['CLAUDE_CONFIG_DIR'], '/operator/.claude')
+        self.assertNotIn('CLAUDE_CONFIG_DIR', profiles.Profile('one', self.one['dir']).environment('claude', {}))
 
     def test_readiness_reports_the_actual_local_fallback_profile(self):
         assignments, report = self.report()
@@ -138,11 +163,90 @@ class Readiness(unittest.TestCase):
         self.assertEqual(body['bots']['sales']['profile'], 'two')
         self.assertEqual(body['bots']['sales']['sign_in'], 'missing')
 
-    def test_named_profile_cannot_write_through_a_workspace_symlink(self):
+    def test_named_profile_uses_state_not_workspace_and_rejects_symlinks(self):
         root = Path(self.tmp.name)
         destination = root / 'other-directory'
         destination.mkdir()
         (root / '.profiles').symlink_to(destination, target_is_directory=True)
-        with self.assertRaises(ValueError):
-            self.runner.add_profile('engineering')
+        entry = self.runner.add_profile('engineering')
+        self.assertEqual(Path(entry['dir']), self.runner.state.directory / 'profiles/engineering')
         self.assertEqual(list(destination.iterdir()), [])
+        for relative in ('claude/.claude', 'profile.json'):
+            path = Path(entry['dir']) / relative
+            path.rmdir() if path.is_dir() else path.unlink()
+            path.symlink_to(destination)
+            with self.assertRaises(ValueError):
+                self.runner.add_profile('engineering')
+            path.unlink()
+            if relative == 'claude/.claude':
+                path.mkdir()
+
+    def test_profile_file_swap_cannot_overwrite_target(self):
+        from unittest import mock
+        target = Path(self.tmp.name) / 'target'
+        target.write_text('preserve')
+        real_open = os.open
+        def swapped(path, flags, *args, **kwargs):
+            if path == 'profile.json' and flags & os.O_CREAT:
+                os.symlink(target, path, dir_fd=kwargs['dir_fd'])
+            return real_open(path, flags, *args, **kwargs)
+        with mock.patch('runner.profiles.os.open', side_effect=swapped):
+            with self.assertRaises(ValueError):
+                self.runner.add_profile('swapped')
+        self.assertEqual(target.read_text(), 'preserve')
+
+    def test_invalid_local_names_are_not_reported(self):
+        from unittest import mock
+        self.runner.config['profiles'].update({'Acme_Main': self.one, 'a' * 81: self.one})
+        with mock.patch('runner.service.shutil.which', return_value=None):
+            self.assertEqual([r['name'] for r in self.runner.profile_report()], ['one', 'two'])
+
+    def test_completion_profiles_are_optional_for_old_servers(self):
+        from clients.tico import APIError
+        calls = []
+        class Client:
+            def post(self, path, body, key=None):
+                calls.append(body)
+                if 'profile_used' in body:
+                    raise APIError('validation', 'body.profile_used: Extra inputs are not permitted', 422)
+                if body.get('usage', {}).get('profile_used'):
+                    raise AssertionError('nested profile was not removed')
+                return {'ok': True}
+        self.runner.client = Client()
+        completion = {'outcome': 'completed', 'profile_used': 'two', 'usage': {'profile_used': 'two'}}
+        self.assertEqual(self.runner.complete('attempt', completion), {'ok': True})
+        self.assertEqual(completion['profile_used'], 'two')
+        self.assertEqual(calls[-1]['usage'], {})
+
+    def test_a_turn_records_the_fallback_profile_and_separates_resume_keys(self):
+        from runner.hosts.fake import FakeHost
+        from runner.tests.test_runner_resilience import FakeClient, attempt
+        (Path(self.tmp.name) / 'emp-coo').mkdir()
+        config = {**self.runner.config, 'default_profile': 'two', 'capacity': 1}
+        client = FakeClient()
+        runner = Runner(config, Path(self.tmp.name) / 'turn-state',
+                        host_factory=lambda a, env: FakeHost(replies=['done']), client=client,
+                        push=lambda path, env=None: (0, ''))
+        runner.renew_interval = 0.05
+        row = {**attempt(), 'profile': 'absent'}
+        runner.execute(row)
+        done = client.completion()
+        self.assertEqual(done['profile_used'], 'two')
+        self.assertEqual(done['usage']['profile_used'], 'two')
+        with runner.state.connect() as c:
+            keys = [r[0] for r in c.execute('SELECT conversation FROM sessions')]
+        self.assertTrue(any(':profile:two' in key for key in keys))
+
+    def test_warm_host_changes_when_profile_environment_changes(self):
+        from unittest import mock
+        from runner.warm import WarmSessions
+        warm = WarmSessions(Path(self.tmp.name) / 'warm')
+        work = {**BOT, 'conversation': {'id': 'conversation'}}
+        factory = mock.Mock(side_effect=lambda *args: mock.Mock(alive=lambda: True))
+        first, _ = warm.acquire(work, profiles.Profile('one', self.one['dir']).environment('claude', {'HUB_TOKEN': 'turn'}), factory)
+        warm.release(first, True)
+        second, _ = warm.acquire(work, profiles.Profile('two', self.two['dir']).environment('claude', {'HUB_TOKEN': 'turn'}), factory)
+        self.assertIsNot(first, second)
+        first.stop.assert_called_once()
+        self.assertEqual(factory.call_count, 2)
+        warm.release(second, False)

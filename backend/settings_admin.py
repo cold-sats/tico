@@ -194,11 +194,10 @@ class SettingsAdmin:
     def template_repo_defaults(self, template):
         from pathlib import Path
         import yaml
-        from clients.manifest import manifest_path
         if not template:
             return {}
         try:
-            manifest = yaml.safe_load(manifest_path(Path(self.settings.catalog_dir) / template).read_text()) or {}
+            manifest = yaml.safe_load((Path(self.settings.catalog_dir) / template / "card.yaml").read_text()) or {}
         except (OSError, yaml.YAMLError):
             return {}
         if not isinstance(manifest, dict):
@@ -281,7 +280,8 @@ class SettingsAdmin:
                   "model_managed_by": "cloud"}
         if body.template:
             config["template"] = body.template
-            config.update(self.template_repo_defaults(body.template))
+            if privileged:
+                config.update(self.template_repo_defaults(body.template))
         team = self._team(c, body.slug, config)
         now = H.now()
         c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "

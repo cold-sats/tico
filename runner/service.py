@@ -726,19 +726,11 @@ class Runner:
 
     def add_profile(self, name):
         """Persist a UI-created login without changing existing local assignments."""
-        root = Path(self.config["projects_dir"]) / ".profiles"
-        directory = root / name
-        if not profiles.NAME_RE.fullmatch(name or ""):
-            raise ValueError("A profile name is lowercase letters, digits, and single hyphens")
-        paths = [root, directory, directory / "profile.json"]
-        paths.extend(directory / runtime for runtime in profiles.RUNTIMES)
-        paths.extend(directory / runtime / ".gitconfig" for runtime in ("claude", "grok"))
-        if any(path.is_symlink() for path in paths):
-            raise ValueError("Subscription profile paths must not be symbolic links")
+        config_path = getattr(self, "config_path", None)
+        root = Path(config_path).parent / "profiles" if config_path else self.state.directory / "profiles"
         entry = profiles.create(root, name)
-        isolation.chown(entry["dir"], recursive=True)
-        if self.config_path:
-            path = Path(self.config_path)
+        if config_path:
+            path = Path(config_path)
             stored = json.loads(path.read_text())
             stored.setdefault("profiles", {})[name] = entry
             fd, temporary = tempfile.mkstemp(prefix=".runner-profile-", dir=path.parent)
@@ -1231,24 +1223,42 @@ class Runner:
         return report
 
     def profile_report(self):
-        """All named logins, including profiles no bot currently uses."""
+        """Cached provider sign-in probes with a ten-second budget for the entire report."""
         cached = self.__dict__.get("_profile_report_cache")
-        if cached and time.monotonic() - cached[0] < 60:
+        if cached and time.monotonic() - cached[0] < 600:
             return cached[1]
+        previous = {row['name']: row['runtimes'] for row in self.__dict__.get("_profile_report_previous", [])}
+        deadline = time.monotonic() + 10
         result = []
-        for name, entry in sorted((self.config.get("profiles") or {}).items()):
-            if not isinstance(entry, dict) or not entry.get("dir"):
+        entries = list((self.config.get("profiles") or {}).items())
+        for name, entry in sorted((name, entry) for name, entry in entries if isinstance(name, str)):
+            if (not isinstance(name, str) or not profiles.NAME_RE.fullmatch(name) or len(name) > 80
+                    or not isinstance(entry, dict) or not entry.get("dir")):
                 continue
             profile = profiles.Profile(name, entry["dir"], entry.get("share_operator"))
-            runtimes = {}
-            for runtime in profiles.RUNTIMES:
-                row = getattr(self, "runtime_rows", {}).get(runtime, {}).get("profiles", {}).get(name)
-                if row is None:
-                    row = self.runtime_readiness(runtime, [], profile)
-                state = row.get("authenticated")
-                runtimes[runtime] = {"signed_in": True if state == "ready" else
-                                     False if state in ("missing", "failed", "rejected") else None}
+            runtimes = {runtime: {"signed_in": None} for runtime in profiles.RUNTIMES}
+            for runtime in ("codex", "claude"):
+                signed = previous.get(name, {}).get(runtime, {}).get("signed_in")
+                budget = deadline - time.monotonic()
+                executable = shutil.which(runtime)
+                if executable and budget > 0:
+                    argv = [executable, "login", "status"] if runtime == "codex" else [executable, "auth", "status", "--json"]
+                    env = profile.environment(runtime)
+                    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"):
+                        env.pop(key, None)
+                    try:
+                        probe = isolation.run(argv, capture_output=True, text=True, timeout=min(3, budget), env=env)
+                        if runtime == "codex":
+                            signed = probe.returncode == 0 and "logged in" in (probe.stdout + probe.stderr).lower()
+                        else:
+                            signed = json.loads(probe.stdout).get("loggedIn") is True
+                    except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
+                        pass
+                runtimes[runtime] = {"signed_in": signed}
             result.append({"name": name, "runtimes": runtimes})
+            if len(result) == 100:
+                break
+        self._profile_report_previous = result
         self._profile_report_cache = (time.monotonic(), result)
         return result
 
@@ -2251,7 +2261,12 @@ class Runner:
                 self.state.append(aid, "goal", {"goal_id": goal["id"], "revision": goal["updated_at"],
                                               "status": "stopped", "note": goal_failure[0] or "The harness run " + outcome})
             spent = meter[0].report(ran[0], ran[1], self.billing(bot, ran[1]))
+            selected_profile = profiles.select(self.config, bot, attempt.get("profile"))
+            profile_used = selected_profile.name if selected_profile else None
+            if spent and profile_used:
+                spent["profile_used"] = profile_used
             completion = self.state.finish(aid, {"outcome": outcome, "text": reply,
+                                                "profile_used": profile_used,
                                                 "tokens_in": tokens.get("input"), "tokens_out": tokens.get("output"),
                                                 **({"usage": spent} if spent else {}),
                                                 **({"limited": True} if limited else {}),
@@ -2307,13 +2322,21 @@ class Runner:
     def complete(self, aid, completion):
         """Send a result. A server from before usage refuses the field outright (422): the result must not
         be lost over it, so it goes again without, and the same for a result kept across a restart."""
-        try:
-            return self.client.post(f"attempts/{aid}/complete", completion, key=f"complete:{aid}")
-        except APIError as exc:
-            if exc.status != 422 or "usage" not in completion:
-                raise
-            return self.client.post(f"attempts/{aid}/complete", {k: v for k, v in completion.items() if k != "usage"},
-                                    key=f"complete:{aid}:no-usage")
+        pending = dict(completion)
+        for retry in range(3):
+            try:
+                return self.client.post(f"attempts/{aid}/complete", pending, key=f"complete:{aid}" if retry == 0 else f"complete:{aid}:compat-{retry}")
+            except APIError as exc:
+                if exc.status != 422:
+                    raise
+                if "profile_used" in pending and ("profile_used" in str(exc.detail) or "extra" in str(exc.detail).lower() and "body." not in str(exc.detail)):
+                    pending.pop("profile_used", None)
+                    if pending.get("usage"):
+                        pending["usage"] = {k: v for k, v in pending["usage"].items() if k != "profile_used"}
+                elif "usage" in pending:
+                    pending.pop("usage")
+                else:
+                    raise
 
     def billing(self, bot, runtime):
         """`subscription` when the runtime this bot runs on is signed in with a plan (ChatGPT, Claude), else `api`."""
@@ -2449,13 +2472,13 @@ class Runner:
                 if exc.status != 422:
                     raise
                 detail = str(exc.detail or "Heartbeat validation failed")
+                if "profiles" in body and re.search(r"(?:^|[ ;])(?:body\.)?profiles(?:[.: ;]|$)", detail):
+                    body.pop("profiles", None)
+                    self._profiles_after = time.monotonic() + 600
+                    continue
                 if "repositories" in body and "extra" in detail.lower() and ("repositories" in detail or "readiness." not in detail):
                     body.pop("repositories", None)
                     self._repositories_after = time.monotonic() + 600
-                    continue
-                if "profiles" in body and "extra" in detail.lower() and ("profiles" in detail or "readiness." not in detail):
-                    body.pop("profiles", None)
-                    self._profiles_after = time.monotonic() + 600
                     continue
                 log("Tico runner: heartbeat rejected: " + detail[:1000])
                 if ("goals" in detail or "commands" in detail) and "Extra inputs" in detail and any(

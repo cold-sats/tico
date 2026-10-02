@@ -33,3 +33,5 @@ first_routine:
   draft_only: false
 example_output: knowledge/examples/delivery.md
 reasoning_effort: medium
+repo_access_mode: all
+repo_all_access: read

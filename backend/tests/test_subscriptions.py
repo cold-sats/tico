@@ -37,6 +37,7 @@ def test_heartbeat_profiles_claim_and_old_computer(api):
     put(api, 'subscriptions', {'scope': 'bot', 'target': 'ops', 'profile': 'engineering'})
     ready(api, r, ['ops'])
     assert get(api, 'bots/ops/subscription')['signed_in'] is None
+    assert get(api, 'bots/ops/subscription')['problem'] == 'Update Test Mac to use subscriptions'
     body = {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
             'profiles': [{'name': 'engineering', 'runtimes': {'fake': {'signed_in': True}}}]}
     post(api, 'runners/heartbeat', body, token=r['token'])
@@ -51,11 +52,12 @@ def test_heartbeat_profiles_claim_and_old_computer(api):
     # A complete replacement report removes profiles; a missing report from an old runner doesn't.
     post(api, 'runners/heartbeat', {**body, 'profiles': []}, token=r['token'])
     sub = get(api, 'bots/ops/subscription')
-    assert sub['signed_in'] is False and sub['problem'] == 'profile engineering not on this computer'
+    assert sub['signed_in'] is False and sub['problem'] == 'profile engineering not on Test Mac'
     health = get(api, 'health')
     assert any(check['id'] == 'subscriptions' for check in health['checks'])
     ready(api, r, ['ops'])
     assert get(api, 'bots/ops/subscription')['signed_in'] is None
+    assert get(api, 'bots/ops/subscription')['problem'] == 'Update Test Mac to use subscriptions'
 
 
 def test_assignment_permissions_and_named_login(api):
@@ -110,3 +112,75 @@ def test_subscriptions_migrations_are_repeatable_and_follow_repositories(api):
         H._apply(c, H.SUBSCRIPTIONS_SCHEMA)
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=52').fetchone()
         assert c.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
+
+
+def test_member_template_keeps_team_repository_default(api):
+    from pathlib import Path
+    api.app.state.store.settings.catalog_dir = Path(__file__).resolve().parents[2] / 'templates/catalog'
+    post(api, 'bots', {'slug': 'member-manager', 'display_name': 'Engineering Manager',
+                      'template': 'engineering-manager', 'model': 'hermes-profile'}, token='cara-test')
+    with api.app.state.store.read() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='member-manager'").fetchone()[0])
+    assert config['repo_access_mode'] == 'own'
+
+
+def test_member_coowner_cannot_override_subscription(api):
+    post(api, 'bots/cpo/owners', {'owners': ['cara'], 'expected_revision': 1})
+    put(api, 'subscriptions', {'scope': 'bot', 'target': 'cpo', 'profile': 'one'}, token='cara-test', expected=403)
+
+
+def test_bad_profiles_do_not_reject_heartbeat_and_unchanged_reports_do_not_write(api):
+    r = runner(api)
+    body = {'version': 'test', 'platform': 'test', 'readiness': {}, 'profiles': [
+        {'name': 'Acme_Main'}, {'name': 'a' * 81}, {'name': 'valid', 'runtimes': {}}]}
+    post(api, 'runners/heartbeat', body, token=r['token'])
+    assert get(api, 'subscriptions')['profiles_by_computer'][0]['profiles'] == [{'name': 'valid', 'runtimes': {}}]
+    from backend.subscriptions import record
+    with api.app.state.store.transaction() as c:
+        before = c.total_changes
+        record(c, r['runner_id'], body['profiles'])
+        assert c.total_changes == before
+
+
+def test_subscription_computers_use_computer_visibility(api):
+    r = runner(api)
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE runners SET accepts_member_bots=0 WHERE id=?', (r['runner_id'],))
+    assert get(api, 'subscriptions', 'cara-test')['profiles_by_computer'] == []
+    assert get(api, 'computers', 'cara-test')['computers'] == []
+    assign(api, r, 'ops')
+    ready(api, r, ['ops'])
+    post(api, 'chat/ops', {'text': 'Inspect subscriptions'})
+    token = claim(api, r)['token']
+    assert [row['runner_id'] for row in get(api, 'subscriptions', token)['profiles_by_computer']] == [r['runner_id']]
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO subscription_assignments VALUES('bot','missing','one',NULL,NULL)")
+    assert not get(api, 'subscriptions')['assignments']
+
+
+def test_computer_operator_can_assign_and_member_sees_own_subscription_problem(api):
+    from backend.tests.test_api import as_member
+    as_member(api, 'ben@acme.example')
+    r = runner(api, operator='ben', label='Member Computer')
+    assign(api, r, 'cpo')
+    put(api, 'subscriptions', {'scope': 'bot', 'target': 'cpo', 'profile': 'one'}, token='ben-test')
+    ready(api, r, ['cpo'])
+    health = get(api, 'health', 'ben-test')
+    check = next(x for x in health['checks'] if x['id'] == 'subscriptions')
+    assert 'cpo: Update Member Computer to use subscriptions' in check['summary']
+    put(api, 'subscriptions', {'scope': 'bot', 'target': 'cpo', 'profile': '../bad'}, expected=422)
+
+
+def test_actual_profile_is_kept_with_completion_and_usage(api):
+    r = runner(api)
+    assign(api, r, 'ops')
+    ready(api, r, ['ops'])
+    post(api, 'chat/ops', {'text': 'Record the actual subscription'})
+    work = claim(api, r)
+    post(api, 'attempts/' + work['id'] + '/started', {'thread_id': 'thread'}, token=r['token'])
+    post(api, 'attempts/' + work['id'] + '/complete', {'outcome': 'completed', 'last_seq': 0,
+         'profile_used': 'local-fallback', 'usage': {'input_tokens': 1, 'runtime': 'fake',
+                                                   'profile_used': 'local-fallback'}}, token=r['token'])
+    with api.app.state.store.read() as c:
+        result = json.loads(c.execute('SELECT result_json FROM attempts WHERE id=?', (work['id'],)).fetchone()[0])
+    assert result['profile_used'] == result['usage']['profile_used'] == 'local-fallback'

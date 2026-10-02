@@ -13,13 +13,13 @@ The runner registration names them:
     "default_profile": "acme",
     "bot_profiles": {"sales": "acme"}
 
-Profiles are runner-side only. The server records nothing about them but their name.
+Provider logins stay on the Computer. The server records profile names and sign-in state.
 """
 
 import json
 import os
 import re
-import shutil
+import stat
 from pathlib import Path
 
 RUNTIMES = ("codex", "claude", "gemini", "grok")
@@ -53,8 +53,6 @@ class Profile:
         home = self.home(runtime)
         if home and runtime in HOME_VAR:
             env[HOME_VAR[runtime]] = str(home)
-        if home and runtime == "claude":
-            env["CLAUDE_CONFIG_DIR"] = str(home / ".claude")
         return env
 
 
@@ -76,23 +74,62 @@ def select(config, bot=None, requested=None):
 
 def create(root, name, share_operator=False):
     """Make `<root>/<name>` with a home per runtime; returns its runner registration entry."""
-    if not NAME_RE.fullmatch(name or ""):
-        raise ValueError("A profile name is lowercase letters, digits, and single hyphens")
-    directory = Path(root).expanduser() / name
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    (directory / "profile.json").write_text(
-        json.dumps({"name": name, "share_operator": bool(share_operator)}, indent=2))
-    if not share_operator:
-        for runtime in RUNTIMES:
-            (directory / runtime).mkdir(mode=0o700, exist_ok=True)
-        # A relocated HOME is an empty home: without this, every commit a bot makes under it is
-        # authored by nobody. The copy is deliberate, so a client's profile can differ later.
-        source = Path.home() / ".gitconfig"
-        for runtime in ("claude", "grok"):
-            target = directory / runtime / ".gitconfig"
-            if source.is_file() and not target.exists():
-                shutil.copyfile(source, target)
-    return {"dir": str(directory), "share_operator": bool(share_operator)}
+    if not NAME_RE.fullmatch(name or "") or len(name) > 80:
+        raise ValueError("A profile name is lowercase letters, digits, and single hyphens (up to 80 characters)")
+    root = Path(root).expanduser()
+    root.parent.mkdir(parents=True, exist_ok=True)
+
+    def directory_at(parent_fd, child, mode):
+        try:
+            os.mkdir(child, mode, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        info = os.stat(child, dir_fd=parent_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError("Subscription profile paths must not be symbolic links")
+        fd = os.open(child, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        os.fchmod(fd, mode)
+        return fd
+
+    def write_new(fd, filename, content):
+        try:
+            target = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=fd)
+        except FileExistsError:
+            info = os.stat(filename, dir_fd=fd, follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("Subscription profile paths must not be symbolic links")
+            return
+        with os.fdopen(target, "wb") as output:
+            output.write(content)
+
+    with_fd = os.open(root.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        root_fd = directory_at(with_fd, root.name, 0o711)
+        try:
+            profile_fd = directory_at(root_fd, name, 0o700)
+            try:
+                write_new(profile_fd, "profile.json", json.dumps(
+                    {"name": name, "share_operator": bool(share_operator)}, indent=2).encode())
+                if not share_operator:
+                    for runtime in RUNTIMES:
+                        runtime_fd = directory_at(profile_fd, runtime, 0o700)
+                        try:
+                            if runtime == "claude":
+                                claude_fd = directory_at(runtime_fd, ".claude", 0o700)
+                                os.close(claude_fd)
+                            source = Path.home() / ".gitconfig"
+                            if runtime in ("claude", "grok") and source.is_file():
+                                write_new(runtime_fd, ".gitconfig", source.read_bytes())
+                        finally:
+                            os.close(runtime_fd)
+            finally:
+                os.close(profile_fd)
+        finally:
+            os.close(root_fd)
+    finally:
+        os.close(with_fd)
+    return {"dir": str(root / name), "share_operator": bool(share_operator)}
 
 
 def missing(config, requested):

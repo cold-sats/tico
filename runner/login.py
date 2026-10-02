@@ -304,19 +304,19 @@ class Logins:
 
     def begin(self, work):
         session = Session(self, work)
-        if session.profile and not self.profile(session.profile):
-            try:
-                self.runner.add_profile(session.profile)
-            except (OSError, ValueError) as exc:
-                session.finish("failed", "Could not create subscription profile: " + str(exc))
-                self.sessions[session.id] = session
-                return
         if session.runtime not in COMMANDS:
             session.finish("failed", "Browser sign-in is not available for " + session.runtime)
         elif any(other.live and other.key() == session.key() for other in self.sessions.values()):
             session.finish("failed", "Another sign-in is already running for " + session.runtime)
+        elif self.profile(session.profile) and self.profile(session.profile).share_operator:
+            session.finish("failed", f"Profile {session.profile} shares the operator's own logins; sign in normally")
         else:
-            session.thread.start()
+            try:
+                if session.profile and not self.profile(session.profile):
+                    self.runner.add_profile(session.profile)
+                session.thread.start()
+            except (OSError, ValueError) as exc:
+                session.finish("failed", "Could not create subscription profile: " + str(exc))
         self.sessions[session.id] = session
 
     def poll(self, force=False):

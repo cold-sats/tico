@@ -291,7 +291,8 @@ class Execution:
                          "JOIN bots b ON b.slug=a.bot JOIN bot_config bc ON bc.bot=a.bot "
                          "WHERE a.runner_id=? ORDER BY a.bot", (who.runner_id,)).fetchall()
         result = []
-        from .subscriptions import effective
+        from .subscriptions import effective, context
+        subscription_context = context(c)
         from .views import roster
         people = roster(c)
         # The runner gets a concrete runtime and model; a bot that names none runs on the
@@ -302,7 +303,7 @@ class Execution:
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'])
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
-            result.append({**dict(row), 'profile': effective(c, row['bot'])[0], 'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']))),
+            result.append({**dict(row), 'profile': effective(c, row['bot'], subscription_context)[0], 'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']))),
                            'repository': bot_repository(c, self.store.settings, row['bot']),
                            'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
