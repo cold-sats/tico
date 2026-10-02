@@ -301,6 +301,19 @@ life of the server: use a client secret you can rotate. Progress is in `/var/log
 The owner is the first human on the roster; add the others in the app. The wizard writes these settings; to change
 one later, edit `/opt/tico/.env` and run `docker compose up -d` there. `.env.example` in the bundle lists every setting.
 
+Attachment storage settings also go in `.env` next to `compose.yaml`:
+
+| Setting | Use |
+|---|---|
+| `TICO_BLOB_BUCKET` | Private attachment bucket, optionally `s3://acme-files/prefix`; unset keeps local storage. |
+| `TICO_BLOB_REGION` | Attachment region; otherwise `TICO_BACKUP_REGION` for AWS, then the AWS default. |
+| `TICO_BLOB_ENDPOINT` | Endpoint URL for an S3-compatible attachment store; unset uses AWS. |
+| `TICO_UPLOAD_MAX_BYTES` | Upload limit in bytes; default `2147483648` (2 GiB). |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Optional AWS credentials; the session token is for temporary keys. Without AWS credentials, profile or role settings, the backup `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY` pair is reused automatically. Grant it the attachment bucket permissions too. Without either pair, boto3 uses its default chain, including IAM roles. |
+| `AWS_REGION`, `AWS_DEFAULT_REGION` | Default attachment region, in that order, after the attachment and AWS backup regions. |
+
+See [File storage](files.md#storage) for bucket permissions and Health warnings.
+
 ### Cloudflare Tunnel
 
 No open ports, and Cloudflare Access can do the sign-in. The wizard creates the tunnel when you give it a token; by hand:
@@ -590,6 +603,13 @@ off, delete `updater` from `COMPOSE_PROFILES` and `TICO_UPDATER_URL` from `.env`
 recreates the updater, and restores the previous updater if the replacement fails. A failed server health check rolls the server
 image, bundle and database back. See [Updates](updates.md#the-servers-own-updater) for self-update and recovery.
 Computers follow the server's release by themselves.
+
+The release bundle includes the current `compose.yaml`, so **Update now** also adds newly forwarded
+attachment and AWS settings on existing installs while preserving `.env`. After upgrading, add
+`TICO_BLOB_BUCKET` to that `.env` and run `docker compose up -d`. If it was already set before the
+upgrade, the recreated server picks it up automatically. For manual upgrades, run the target
+release's installer again or replace `compose.yaml` with that release's copy before recreating
+the server; updating the image alone keeps the old environment list.
 
 ## Backups and restore
 

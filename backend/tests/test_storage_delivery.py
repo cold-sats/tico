@@ -276,6 +276,91 @@ def test_copy_verified_and_fallback_keeps_local(api):
         assert c.execute('SELECT COUNT(*) FROM blob_locations').fetchone()[0] == 0
 
 
+@pytest.mark.parametrize('failure', ['AccessDenied', 'NoCredentialsError'])
+def test_health_warns_about_s3_write_check_even_with_no_files(api, failure):
+    from botocore.exceptions import NoCredentialsError
+
+    blobs = api.app.state.blobs
+    settings = api.app.state.store.settings
+    blobs.bucket = settings.blob_bucket = 'acme-files'
+    blobs._s3 = s3 = S3()
+    def denied(**kw):
+        if failure == 'NoCredentialsError':
+            raise NoCredentialsError()
+        raise ClientError({'Error': {'Code': failure, 'Message': 'private credential detail'}}, 'CreateMultipartUpload')
+    s3.create_multipart_upload = denied
+    blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
+    response = api.get('/api/v2/health', headers=headers()).json()
+    check = next(check for check in response['checks'] if check['id'] == 'blob_storage')
+    assert response['storage']['mode'] == 's3'
+    assert response['storage']['copy'] == {'done': 0, 'total': 0, 'failed': 0}
+    assert check['status'] == 'warn'
+    assert check['summary'] == f"S3 storage can't write: {failure} on acme-files"
+    assert 'private credential detail' not in json.dumps(response)
+    assert not s3.objects
+    s3.create_multipart_upload = S3.create_multipart_upload.__get__(s3)
+    blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
+    healthy = api.get('/api/v2/health', headers=headers()).json()
+    assert not any(check['id'] == 'blob_storage' for check in healthy['checks'])
+
+
+def test_denied_writes_keep_s3_mode_and_local_read_fallback(api):
+    bid = attach(api, task(api), 'source.txt', b'retained bytes')
+    blobs = api.app.state.blobs
+    settings = api.app.state.store.settings
+    blobs.bucket = settings.blob_bucket = 'acme-files'
+    blobs._s3 = s3 = S3()
+    def denied(**kw):
+        raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'PutObject')
+    s3.create_multipart_upload = s3.put_object = s3.head_object = denied
+    s3.offline = True
+    blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
+    assert api.get('/api/v2/files/' + bid, headers=headers()).content == b'retained bytes'
+    with pytest.raises(Problem, match="S3 storage can't write: AccessDenied on acme-files"):
+        blobs.put(b'new bytes')
+    assert not s3.objects
+    response = api.get('/api/v2/health', headers=headers()).json()
+    assert response['storage']['mode'] == 's3'
+    assert response['storage']['copy']['failed'] == 1
+    assert next(check for check in response['checks'] if check['id'] == 'blob_storage')['status'] == 'warn'
+
+
+def test_s3_write_probe_retries_abort_without_accumulating_uploads(api):
+    blobs = api.app.state.blobs
+    blobs.bucket = api.app.state.store.settings.blob_bucket = 'acme-files'
+    blobs.settings.blob_prefix = 'team/files'
+    blobs._s3 = s3 = S3()
+    def denied(**kw):
+        raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'AbortMultipartUpload')
+    s3.abort_multipart_upload = denied
+    blobs.check_write(api.app.state.store)
+    blobs.check_write(api.app.state.store)
+    assert len(s3.calls) == 1
+    assert s3.calls[0]['Key'].startswith('team/files/blobs/')
+    assert s3.calls[0]['ServerSideEncryption'] == 'AES256'
+    assert not s3.objects
+    def already_aborted(**kw):
+        raise ClientError({'Error': {'Code': 'NoSuchUpload'}}, 'AbortMultipartUpload')
+    # Cleanup may have succeeded just before a previous process exited.
+    s3.abort_multipart_upload = already_aborted
+    blobs.check_write(api.app.state.store)
+    assert len(s3.calls) == 2
+    s3.abort_multipart_upload = S3.abort_multipart_upload.__get__(s3)
+    blobs.check_write(api.app.state.store)
+    with api.app.state.store.read() as c:
+        detail = json.loads(c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()[0])
+    assert not detail['error'] and 'upload_id' not in detail
+
+
+def test_rehearsal_skips_s3_write_probe(api):
+    blobs = api.app.state.blobs
+    blobs.bucket = 'acme-files'
+    blobs.rehearsal = True
+    blobs._s3 = s3 = S3()
+    blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
+    assert not s3.calls
+
+
 def test_blob_version_metadata_and_head(api):
     _, attempt = turn(api)
     made = publish(api, attempt, name='report.txt', text='header').json()['file']['id']

@@ -132,17 +132,29 @@ Local disk is the default. To use S3:
 2. Grant the server's IAM user or role `s3:ListBucket` and `s3:GetBucketLocation` on the bucket,
    and `s3:GetObject`, `s3:PutObject`, `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts`
    on its objects. The script installs this inline policy for `--user` or `--role`.
-3. Set `TICO_BLOB_BUCKET=acme-files` (or `s3://acme-files/prefix`) and restart the server.
+3. For Docker installs, put `TICO_BLOB_BUCKET=acme-files` (or `s3://acme-files/prefix`) in
+   `.env` next to `compose.yaml`, then run `docker compose up -d` in that directory to recreate
+   the server with the setting. Backup keys are reused automatically; grant them the file bucket
+   permissions from step 2. For other installs, set it in the server's environment and restart.
    Optionally set `TICO_BLOB_REGION` and `TICO_BLOB_ENDPOINT` for an S3-compatible store.
 
-Credentials come from boto3's default chain: the server's AWS environment, shared credentials
-or profile, or IAM role. The AWS keys already used for backups work when granted the file bucket
-permissions. No separate Tico file credential is needed. The bucket script needs Python with boto3
+When no AWS credentials, profile or role settings are present in the server's environment,
+`LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` from backups are passed directly to
+the S3 client. Otherwise credentials come from boto3's default chain: the server's AWS environment,
+shared credentials or profile, or IAM role. Without backup keys the default chain also applies.
+Keys are never exported into the server's environment or logged. Region uses `TICO_BLOB_REGION`,
+then `TICO_BACKUP_REGION` for AWS (no `TICO_BLOB_ENDPOINT`), then `AWS_REGION` or `AWS_DEFAULT_REGION`,
+then boto3's default. No separate Tico file credential is needed. The bucket script needs Python with boto3
 and provisioning rights; it is idempotent. Use a dedicated bucket since it sets security controls.
 
 Owners receive a read-only `storage` field on `/api/v2/health`: mode (`local` or `s3`), bucket,
 region, unique stored files, bytes, and copy counts (`done`, `total`, `failed`). A server on local
-storage shows one Not urgent note recommending S3; local laptop installs do not.
+storage shows one Not urgent note recommending S3; local laptop installs do not. On startup, an S3
+server checks write permission by starting and aborting an empty multipart upload under the file
+prefix. This publishes no file and needs no delete permission. A denied check shows a warning such
+as **S3 storage can't write: AccessDenied on acme-files**. Storage stays in S3 mode, new uploads
+report the failure, and reads still fall back to retained local copies. After fixing credentials or
+permissions, restart the server to repeat the check. Rehearsals skip this write check.
 
 
 With `TICO_BLOB_BUCKET` configured, every new attachment goes straight to private S3 storage.

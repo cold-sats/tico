@@ -5,6 +5,31 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+STORAGE_KEYS = {"TICO_BLOB_BUCKET", "TICO_BLOB_REGION", "TICO_BLOB_ENDPOINT", "TICO_UPLOAD_MAX_BYTES",
+                "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION", "AWS_DEFAULT_REGION"}
+
+
+def test_server_forwards_storage_and_aws_settings_in_checkout_and_release_bundle():
+    import io
+    import tarfile
+    import yaml
+    from scripts.build_install_bundle import build_bundle
+
+    with tarfile.open(fileobj=io.BytesIO(build_bundle(ROOT, "v0.3.9")), mode="r:gz") as bundle:
+        bundled_compose = bundle.extractfile("compose.yaml").read()
+        assert bundled_compose == (ROOT / "compose.yaml").read_bytes()
+        assert bundle.extractfile(".env.example").read().count(b"TICO_BLOB_BUCKET=") == 1
+    for content in ((ROOT / "compose.yaml").read_text(), bundled_compose):
+        services = yaml.safe_load(content)["services"]
+        environment = services["server"]["environment"]
+        assert STORAGE_KEYS <= set(environment)
+        assert all(environment[key] is None for key in STORAGE_KEYS)
+        assert {"LITESTREAM_ACCESS_KEY_ID", "LITESTREAM_SECRET_ACCESS_KEY"} <= set(environment)
+        assert "CLOUDFLARE_TUNNEL_TOKEN" not in environment
+        for name, service in services.items():
+            if name != "server":
+                assert not STORAGE_KEYS.intersection(service.get("environment", {}))
+
 
 def test_the_updater_image_follows_the_release_tag():
     text = (ROOT / "compose.yaml").read_text()
