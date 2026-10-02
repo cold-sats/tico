@@ -20,7 +20,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
-from . import goals
+from . import goals, repositories
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -550,6 +550,7 @@ class Runner:
         self.publish_notes = {}         # bot -> why its local history has not reached GitHub yet
         self.client = client or Client(config["url"], config["token"], timeout=10, retries=1)
         self.state = State(state_dir)
+        self.repositories = repositories.Repositories(config["projects_dir"], self.state.directory / "repositories.json", self.client)
         self.follower = Follower(config, self.state.directory, self.client, supervised=supervised)
         self.capacity = int(config.get("capacity", 4))
         self.host_factory = host_factory or self.make_host
@@ -2286,6 +2287,7 @@ class Runner:
                 log(f"Tico runner: could not recover {row.get('id')} ({type(exc).__name__}); will retry")
 
     def maintain(self):
+        repository_rows = self.repositories.poll()
         assignments = self.client.get("runners/assignments")
         self.migrate_credentials(assignments)
         self.bot_credential_names = self.client.get("runner-credential-grants")["bots"]
@@ -2327,6 +2329,8 @@ class Runner:
                 "agent_instructions": agent_instructions,
                 **({"checkout": self._checkout} if getattr(self, "_checkout", None) and not self.follower.following else {}),
                 **self.follower.fields()}
+        if repository_rows is not None and time.monotonic() >= getattr(self, "_repositories_after", 0):
+            body["repositories"] = repository_rows
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
@@ -2378,6 +2382,10 @@ class Runner:
                 if exc.status != 422:
                     raise
                 detail = str(exc.detail or "Heartbeat validation failed")
+                if "repositories" in body and "extra" in detail.lower() and ("repositories" in detail or "readiness." not in detail):
+                    body.pop("repositories", None)
+                    self._repositories_after = time.monotonic() + 600
+                    continue
                 log("Tico runner: heartbeat rejected: " + detail[:1000])
                 if ("goals" in detail or "commands" in detail) and "Extra inputs" in detail and any(
                         "goals" in row or "commands" in row for section in ("runtimes", "bots", "harnesses")
@@ -2610,4 +2618,5 @@ class Runner:
                 self.credentials.stop()
             self.pool.shutdown(wait=True)
             self.maintenance_pool.shutdown(wait=True)
+            self.repositories.close()
             self.warm.prune(close=True)

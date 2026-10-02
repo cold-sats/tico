@@ -323,3 +323,17 @@ Task types add named steps above the existing status contract. General is built 
 onto existing tasks. Every status write maps to a compatible step, or clears the step when the
 type has none, so older runners and GitHub webhook moves keep working. Movers manage definitions
 in Settings → Types; the board's type filter uses steps as columns. See [Tasks](tasks.md).
+
+## On computers
+
+Each computer keeps base clones of ticked repositories that its assigned active bots can reach in
+`<workspace>/repos/<owner>__<repo>/`, beside the existing bot folders. The runner checks the list
+each heartbeat, clones one repository per cycle in the background, and fetches at most every
+15 minutes. These are plain clones of the default branch; setup commands and task worktrees
+come in a later phase. Fetching uses a temporary GitHub App read token kept out of git config
+and logs. Run tokens still follow each bot's own repository access.
+
+Heartbeats and `python -m runner doctor` report each base clone's state, last fetch, disk use and
+any error. A base clone failure does not change a bot's readiness. A clone that has been absent
+from this computer's repository list for 30 days is removed from `repos/`. Older servers without
+the repository endpoint leave this feature idle.
