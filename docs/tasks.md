@@ -197,7 +197,8 @@ The version's metadata points to its ask message. These routes use the usual Ide
   `GET` lists the comments, including `ask` and `answers` on questions, and `answer` on responses.
 - `POST /api/v2/tasks/{id}/answers` accepts `target: {comment: id}` or
   `target: {file: id, version: n}`, `answers: {question_id: [label, ...]}`, optional `other`,
-  or `dismiss: true`. Answer every question, using an empty label list for an allowed Other reply.
+  or `dismiss: true`. Answer every question. For an allowed Other reply, use an empty label list
+  or omit that question id when supplying the shared `other` text.
   `GET` lists the structured answers.
 
 Comment and version `ask` objects include `questions`, `who` and `by` (the asker's actor).

@@ -250,6 +250,12 @@ class Files:
         c.execute("INSERT INTO bot_file_versions(file_id,version,blob_id,digest,size,name,mime,actor,created,media_state) "
                   "VALUES(?,?,?,?,?,?,?,?,?,?)",
                   (fid, number, blob, digest, size, name, mime, actor, created, "pending" if pending else "none"))
+        if not pending:
+            from .file_metadata import FIELDS
+            media = c.execute("SELECT * FROM blob_media WHERE blob_id=?", (blob,)).fetchone()
+            if media:
+                c.execute("UPDATE bot_file_versions SET " + ",".join(key + "=?" for key in FIELDS)
+                          + " WHERE file_id=? AND version=?", (*[media[key] for key in FIELDS], fid, number))
 
     def task_listing(self, c, who, task_id):
         from .task_review import version_review

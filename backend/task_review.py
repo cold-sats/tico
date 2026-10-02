@@ -129,8 +129,11 @@ def answer_task(c, auth, who, task_id, body, wake):
     else:
         if set(body.answers) - set(questions):
             raise Problem("validation", "Unknown question id", 422)
-        if set(body.answers) != set(questions):
+        missing = set(questions) - set(body.answers)
+        if missing and (not body.other or any(not questions[qid]["other"] for qid in missing)):
             raise Problem("validation", "Answer every question", 422)
+        # The page omits unselected questions when its shared Other text answers them.
+        body = body.model_copy(update={"answers": {qid: body.answers.get(qid, []) for qid in questions}})
         for qid, question in questions.items():
             labels = body.answers[qid]
             allowed = {o["label"] for o in question["options"]}

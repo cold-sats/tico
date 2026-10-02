@@ -9148,16 +9148,6 @@
             "description": "1-200 characters. Reusing a key with the same body replays the first answer."
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TaskFile"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "OK",
@@ -9186,6 +9176,227 @@
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "A deliverable a bot (or person) attaches to a task: text as-is, or bytes base64-encoded.",
+                "properties": {
+                  "name": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "text": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Text"
+                  },
+                  "content_base64": {
+                    "anyOf": [
+                      {
+                        "maxLength": 14000000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Content Base64"
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Note"
+                  },
+                  "ask": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "questions": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "maxLength": 40,
+                                  "minLength": 1,
+                                  "title": "Id",
+                                  "type": "string"
+                                },
+                                "header": {
+                                  "maxLength": 30,
+                                  "title": "Header",
+                                  "type": "string"
+                                },
+                                "question": {
+                                  "maxLength": 300,
+                                  "minLength": 1,
+                                  "title": "Question",
+                                  "type": "string"
+                                },
+                                "options": {
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "label": {
+                                        "maxLength": 60,
+                                        "minLength": 1,
+                                        "title": "Label",
+                                        "type": "string"
+                                      },
+                                      "description": {
+                                        "default": "",
+                                        "maxLength": 200,
+                                        "title": "Description",
+                                        "type": "string"
+                                      },
+                                      "file": {
+                                        "anyOf": [
+                                          {
+                                            "pattern": "^[^@]+@[1-9][0-9]*$",
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "title": "File"
+                                      }
+                                    },
+                                    "required": [
+                                      "label"
+                                    ],
+                                    "title": "QuestionOption",
+                                    "type": "object"
+                                  },
+                                  "maxItems": 6,
+                                  "title": "Options",
+                                  "type": "array"
+                                },
+                                "multi": {
+                                  "default": false,
+                                  "title": "Multi",
+                                  "type": "boolean"
+                                },
+                                "other": {
+                                  "default": true,
+                                  "title": "Other",
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "header",
+                                "question"
+                              ],
+                              "title": "ReviewQuestion",
+                              "type": "object"
+                            },
+                            "maxItems": 4,
+                            "minItems": 1,
+                            "title": "Questions",
+                            "type": "array"
+                          },
+                          "who": {
+                            "anyOf": [
+                              {
+                                "maxLength": 200,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Who"
+                          }
+                        },
+                        "required": [
+                          "questions"
+                        ],
+                        "title": "ReviewAsk",
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "title": "TaskFile",
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "A deliverable a bot (or person) attaches to a task: text as-is, or bytes base64-encoded.",
+                "properties": {
+                  "name": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Note"
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "At most TICO_UPLOAD_MAX_BYTES (2 GiB by default)."
+                  },
+                  "poster": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Optional PNG or JPEG poster."
+                  },
+                  "ask": {
+                    "type": "string",
+                    "description": "JSON-encoded structured ask, with questions and optional who."
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "title": "TaskFile",
+                "type": "object"
               }
             }
           }
@@ -17213,71 +17424,6 @@
           "task"
         ],
         "additionalProperties": true
-      },
-      "TaskFile": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name"
-          },
-          "text": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 2000000,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Text"
-          },
-          "content_base64": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 14000000,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content Base64"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "ask": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ReviewAsk"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "TaskFile",
-        "description": "A deliverable a bot (or person) attaches to a task: text as-is, or bytes base64-encoded."
       },
       "TaskFileList": {
         "type": "object",

@@ -54,6 +54,30 @@ class TaskFile(M.Contract):
     ask: M.ReviewAsk | None = None
 
 
+def task_file_contract():
+    schema = TaskFile.model_json_schema()
+    definitions = schema.pop("$defs", {})
+
+    def inline(node):
+        if isinstance(node, dict):
+            if "$ref" in node:
+                return inline(definitions[node["$ref"].rsplit("/", 1)[1]])
+            return {key: inline(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [inline(value) for value in node]
+        return node
+
+    schema = inline(schema)
+    multipart = {**schema, "required": ["file"], "properties": {
+        key: value for key, value in schema["properties"].items() if key not in ("text", "content_base64", "ask")}}
+    multipart["properties"].update({
+        "file": {"type": "string", "format": "binary", "description": "At most TICO_UPLOAD_MAX_BYTES (2 GiB by default)."},
+        "poster": {"type": "string", "format": "binary", "description": "Optional PNG or JPEG poster."},
+        "ask": {"type": "string", "description": "JSON-encoded structured ask, with questions and optional who."}})
+    return {"requestBody": {"required": True, "content": {
+        "application/json": {"schema": schema}, "multipart/form-data": {"schema": multipart}}}}
+
+
 def upload_contract(model):
     """Document the same strict fields the bounded multipart parser validates."""
     schema = model.model_json_schema()
@@ -367,7 +391,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             task_id = auth.resolve_task(c, request.state.identity, tid)
             return files.task_listing(c, request.state.identity, task_id)
 
-    @app.post("/api/v2/tasks/{tid}/files")
+    @app.post("/api/v2/tasks/{tid}/files", openapi_extra=task_file_contract())
     async def task_attach(request: Request, tid: str):
         who = request.state.identity
         from .task_review import comment_rights, edit_version
@@ -440,6 +464,9 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
             preview = register(c, who, **poster)["id"] if poster else None
             c.execute("INSERT INTO blob_media(blob_id,poster_blob_id) VALUES(?,?)", (item["id"], preview))
+            if preview:
+                c.execute("UPDATE bot_file_versions SET poster_blob_id=? WHERE file_id=? AND version=?",
+                          (preview, fid, number))
             return {"file": {**item, "file_id": fid, "version": number}, "file_id": fid, "version": number,
                     "link": store.settings.public_url + f"/api/v2/files/{fid}?v={number}"}
         # Include byte identity in the receipt without storing multipart bytes.
