@@ -328,6 +328,8 @@ class GitHubApp:
             missing = unreachable(c)
             names = [name for name in repos if name.lower() not in missing or name.lower() == str(own).lower()]
         if not names:
+            if diagnose_empty:
+                raise Problem('github_repo_not_accessible', 'Repository is not reachable; check the GitHub App installation (retry in five minutes)', 409)
             return None, None, []
         try:
             token, expires = self.mint(names, permissions, diagnose=False)
@@ -335,14 +337,16 @@ class GitHubApp:
             if problem.code not in ('github_repo_not_accessible', 'github_repo_missing'):
                 raise
             wide, _ = self.mint(None, {'metadata': 'read'})
-            absent = [name for name in names if self._call(
-                'GET', '/repos/' + name, headers={'Authorization': 'Bearer ' + wide}).status_code == 404]
+            absent = [name for name in names if name.lower() in missing]
+            if not absent:
+                absent = [name for name in names if self._call(
+                    'GET', '/repos/' + name, headers={'Authorization': 'Bearer ' + wide}).status_code == 404]
             if not absent:
                 raise
             with self.store.transaction() as c:
                 confirmed = metadata(c, 'repositories-confirmed-missing')
                 confirmed = {name: stamp for name, stamp in confirmed.items() if name in unreachable(c)}
-                confirmed.update({name.lower(): time.time() for name in absent})
+                confirmed.update({name.lower(): confirmed.get(name.lower(), time.time()) if name.lower() in missing else time.time() for name in absent})
                 save_metadata(c, 'repositories-confirmed-missing', confirmed)
                 for name in absent:
                     c.execute('INSERT INTO repositories(id,full_name,reachable,updated) VALUES(?,?,0,?) '
@@ -352,15 +356,15 @@ class GitHubApp:
             names = [name for name in names if name not in absent]
             if not names:
                 if diagnose_empty:
-                    raise self._unreachable(self.installation(), repos, 404)
+                    raise self._unreachable(self.installation(), repos, 404, known_absent=absent)
                 return None, None, []
-            token, expires = self.mint(names, permissions, diagnose=False)
+            token, expires, names = self.mint_reachable(names, permissions, diagnose_empty=diagnose_empty)
         from .repositories import reachable
         with self.store.transaction() as c:
             reachable(c, names)
         return token, expires, names
 
-    def _unreachable(self, installation, repos, status):
+    def _unreachable(self, installation, repos, status, known_absent=None):
         """Why GitHub would not scope a token to `repos`. A repository that does not exist yet answers
         404, the same as one the app cannot see, so ask GitHub what the installation can see: with
         access to every repository a 404 means it is not there yet; with selected repositories it could
@@ -375,9 +379,11 @@ class GitHubApp:
                 token = self.app_jwt(c, self.row(c))
             info = self._call("GET", f"/app/installations/{installation}", headers={"Authorization": "Bearer " + token})
             selection = info.json().get("repository_selection") if info.status_code < 300 else ""
-            wide, _ = self.mint(None, {"metadata": "read"})
-            absent = [repo for repo in repos
-                      if self._call("GET", f"/repos/{repo}", headers={"Authorization": "Bearer " + wide}).status_code == 404]
+            absent = known_absent
+            if absent is None:
+                wide, _ = self.mint(None, {"metadata": "read"})
+                absent = [repo for repo in repos
+                          if self._call("GET", f"/repos/{repo}", headers={"Authorization": "Bearer " + wide}).status_code == 404]
         except Problem:
             return problem
         if not absent:
@@ -693,7 +699,8 @@ def install_github_app(app, settings, store):
                 return {"connected": True, "org": row['org'], "repository": own or '', "repositories": wanted}
             if before['mode'] != 'chosen':
                 raise Problem('github_repo', 'This bot uses repository access; change it in Settings', 409)
-            R.set_access(c, bot, R.RepoAccessUpdate(mode='chosen', chosen=[R.Grant(full_name=r) for r in wanted]),
+            R.set_access(c, bot, R.RepoAccessUpdate(mode='chosen', chosen=[R.Grant(**r) for r in before['chosen']] +
+                                                   [R.Grant(full_name=r) for r in wanted if r.lower() not in {g['full_name'].lower() for g in before['chosen']}]),
                          row['org'], who.actor, legacy=True, team_list=app.state.auth.bot_admin(who))
         return {"connected": True, "org": row["org"], "repository": own or "", "repositories": wanted}
 

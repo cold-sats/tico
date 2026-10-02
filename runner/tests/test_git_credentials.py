@@ -166,6 +166,10 @@ def test_gh_placeholders_and_text_urls_select_checkout_origin(tmp_path, monkeypa
                  ['pr', 'create', '--title=https://github.com/Acme/product/pull/3'],
                  ['pr', 'comment', '5', '-b', 'https://github.com/Acme/product/pull/3']):
         assert G.gh_repository(args, {}) == 'Acme/docs'
+    for flag in ('--comment', '--notes', '-m', '--message', '--body', '--title', '--jq', '-q', '-f', '-F', '--search'):
+        assert G.gh_repository(['issue', 'close', '5', flag, 'https://github.com/Acme/product/issues/1'], {}) == 'Acme/docs'
+        assert G.gh_repository(['issue', 'close', '5', flag, '--repo=Acme/product'], {}) == 'Acme/docs'
+        assert G.gh_repository(['issue', 'close', '5', flag + '=https://github.com/Acme/product/issues/1'], {}) == 'Acme/docs'
     assert G.gh_repository(['pr', 'view', 'https://github.com/Acme/product/pull/3'], {}) == 'Acme/product'
 
 
@@ -179,3 +183,32 @@ def test_each_granted_token_is_redacted_after_apply():
     redactor = redact.for_turn(env)
     assert redactor.scrub_text('ghs_write_secret ghs_read_secret') == redact.MASK + ' ' + redact.MASK
     assert redact.for_turn({'GH_TOKEN': 'ghs_clone_secret'}).scrub_text('ghs_clone_secret') == redact.MASK
+
+
+def test_app_token_failure_blocks_machine_helpers_and_askpass(tmp_path):
+    from clients.tico import APIError
+    marker = tmp_path / 'machine-used'
+    machine = tmp_path / '.gitconfig'
+    machine.write_text('[credential "https://github.com"]\nhelper = "!echo machine >> ' + str(marker) + '; echo username=machine; echo password=machine"\n')
+    askpass = tmp_path / 'askpass'
+    askpass.write_text('#!/bin/sh\necho askpass >> ' + str(marker) + '\necho machine\n')
+    askpass.chmod(0o755)
+    for hub in (Hub(error=APIError('github_token', 'App token failed', 409)), Hub({'configured': True})):
+        env = {'PATH': '/usr/bin:/bin', 'HOME': str(tmp_path), 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_ASKPASS': str(askpass)}
+        assert not G.apply(env, hub, 'alpha')
+        result = subprocess.run(['git', 'credential', 'fill'], input='protocol=https\nhost=github.com\n\n',
+                                env=env, cwd=tmp_path, capture_output=True, text=True, timeout=10)
+        assert result.returncode != 0
+        assert 'GitHub App token unavailable' in result.stderr
+        assert not marker.exists()
+    hub = Hub({'configured': False})
+    assert not G.apply({}, hub, 'alpha')
+    hub.error = APIError('github_token', 'App was connected since the previous turn', 409)
+    env = {'PATH': '/usr/bin:/bin', 'HOME': str(tmp_path), 'GIT_CONFIG_NOSYSTEM': '1'}
+    assert not G.apply(env, hub, 'alpha')
+    assert 'password=machine' not in fill(env, tmp_path)
+    assert not marker.exists()
+    env = {'PATH': '/usr/bin:/bin', 'HOME': str(tmp_path), 'GIT_CONFIG_NOSYSTEM': '1'}
+    assert not G.apply(env, Hub({'configured': False}), 'alpha')
+    assert 'password=machine' in fill(env, tmp_path)
+    assert marker.exists()

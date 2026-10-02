@@ -8,7 +8,7 @@ import uuid
 from typing import Literal
 
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from . import hubdb as H
 from .auth import validate_identity
@@ -104,10 +104,10 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False):
         existing = c.execute('SELECT enabled,bot_repo FROM repositories WHERE full_name=?', (name,)).fetchone()
         if legacy and not team_list and (not existing or not existing['enabled']):
             raise Problem('github_repo', 'Ask an Owner or admin to tick it in Settings > Repositories', 422)
-        previous = {r['full_name'].lower() for r in before['chosen']}
+        previous = {r['full_name'].lower(): r['access'] for r in before['chosen']}
         bot_repo = name.split('/')[1].lower().startswith('bot-') or any(
             str(repo_of(r[0], org) or '').lower() == name.lower() for r in c.execute('SELECT repo FROM bot_config'))
-        if (bot_repo or existing and existing['bot_repo']) and not team_list and name.lower() not in previous:
+        if (bot_repo or existing and existing['bot_repo']) and not team_list and (name.lower() not in previous or previous[name.lower()] == 'read' and grant.access == 'write'):
             raise Problem('forbidden', 'An Owner or admin chooses bot repositories', 403)
         if legacy and team_list:
             c.execute('INSERT INTO repositories(id,full_name,enabled,updated) VALUES(?,?,1,?) '
@@ -188,7 +188,7 @@ def _sync(service):
                     continue
                 config = json.loads(base64.b64decode(data['content']))
                 command = config.get('setup') if filename == 'tico.json' else (config.get('scripts') or {}).get('setup')
-                if isinstance(command, str):
+                if isinstance(command, str) and len(command.encode('utf-8')) <= 4096:
                     repo['setup_command'], repo['setup_source'] = command, filename
                     break
             except (ValueError, KeyError, TypeError, AttributeError):
@@ -322,6 +322,13 @@ class RepoAccessUpdate(Contract):
 class RepoUpdate(Contract):
     enabled: bool | None = None
     setup_command: str | None = None
+
+    @field_validator('setup_command')
+    @classmethod
+    def command_size(cls, value):
+        if value is not None and len(value.encode('utf-8')) > 4096:
+            raise ValueError('Setup command must fit within 4 KB')
+        return value
 
 
 class RepoSettings(Contract):

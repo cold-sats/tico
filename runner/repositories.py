@@ -28,6 +28,7 @@ class Repositories:
     def __init__(self, workspace, state_file, client):
         self.root = Path(workspace) / 'repos'
         self.state_file = Path(state_file)
+        self.mirrors = self.state_file.parent / 'mirrors'
         self.client = client
         self.lock = threading.RLock()
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -60,20 +61,22 @@ class Repositories:
             # The parent may have exited while a credential helper kept running.
             try:
                 os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
             process.wait(timeout=2)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
             pass
 
-    def run_git(self, command, *, env, timeout):
+    def run_git(self, command, *, env, timeout, bot=False):
         with tempfile.TemporaryDirectory(prefix='tico-git-hooks-') as hooks:
+            os.chmod(hooks, 0o755)
             command = [command[0], '-c', 'core.hooksPath=' + hooks, *command[1:]]
             with self.lock:
                 if self.stopping.is_set():
                     raise ValueError('Repository sync interrupted by computer shutdown')
-                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                           text=True, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+                launch = isolation.popen if bot else subprocess.Popen
+                process = launch(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           text=True, stdin=subprocess.DEVNULL, env=env, cwd=hooks, start_new_session=True)
                 self.process = process
             deadline = time.monotonic() + timeout
             try:
@@ -176,6 +179,9 @@ class Repositories:
                 path = self.path(name)
                 if self.rows[name].get('managed') and path.exists():
                     shutil.rmtree(path)
+                mirror = self.mirror_path(name)
+                if mirror.exists():
+                    shutil.rmtree(mirror)
                 with self.lock:
                     self.rows[name].update(state='removed', size_mb=0)
                     self.rows[name].pop('error', None)
@@ -192,6 +198,31 @@ class Repositories:
                 if selected:
                     self.rows[selected].update(state='failed', error='Could not save repository state; free disk space and check permissions')
 
+    def mirror_path(self, name):
+        path = self.mirrors / (name.lower().replace('/', '__') + '.git')
+        if self.mirrors.is_symlink() or path.is_symlink():
+            raise ValueError('Mirror contains a symlink; repair the computer mirror folder')
+        if self.mirrors.exists() and isolation.enabled():
+            stats = self.mirrors.stat()
+            if stats.st_uid != os.geteuid() or stats.st_mode & 0o022:
+                raise ValueError('Mirror folder is writable by another user; repair the computer mirror permissions')
+        if path.exists():
+            for root, dirs, files in os.walk(path, followlinks=False):
+                for entry in (Path(root), *(Path(root) / n for n in (*dirs, *files))):
+                    stats = entry.lstat()
+                    if entry.is_symlink():
+                        raise ValueError('Mirror contains a symlink; repair the computer mirror folder')
+                    if isolation.enabled() and (stats.st_uid != os.geteuid() or stats.st_mode & 0o022):
+                        raise ValueError('Mirror is writable by another user; repair the computer mirror permissions')
+        return path
+
+    @staticmethod
+    def mirror_permissions(path):
+        for root, dirs, files in os.walk(path, followlinks=False):
+            os.chmod(root, 0o755)
+            for name in files:
+                os.chmod(Path(root) / name, 0o644)
+
     def update(self, name, repo, now):
         token = ''
         created = False
@@ -200,69 +231,97 @@ class Repositories:
             exists = path.exists()
             if exists and (not self.rows[name].get('managed') or (path / '.git').is_symlink()):
                 raise ValueError('Repository folder already exists and is not a managed base clone; left as it is')
-            usage = shutil.disk_usage(self.root if self.root.exists() else self.root.parent)
-            floor = max(5 * GB, usage.total * .1)
+            volumes = (self.root if self.root.exists() else self.root.parent,
+                       self.mirrors if self.mirrors.exists() else self.state_file.parent)
+            volume, usage = min(((p, shutil.disk_usage(p)) for p in volumes), key=lambda item: item[1].free)
+            size_kb = int(repo.get('size_kb') or self.rows[name].get('size_mb', 0) * 1024)
+            floor = 5 * GB + 2 * size_kb * 1024
             if usage.free < floor:
                 with self.lock:
-                    self.rows[name].update(state='disk_low', error=f'Not enough disk to {"fetch" if exists else "clone"} {repo["full_name"]}: {usage.free / GB:.1f} GB free, needs {floor / GB:g} GB. Free space on this volume')
+                    self.rows[name].update(state='disk_low', error=f'Not enough disk to {"fetch" if exists else "clone"} {repo["full_name"]}: {usage.free / GB:.1f} GB free, needs {floor / GB:g} GB. Free space on {volume}')
                 return
+            from .service import Runner
+            clean = Runner.credential_environment(None, None)
+            clean.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+                         GIT_TERMINAL_PROMPT='0')
+            mirror = self.mirror_path(name)
+            self.mirrors.mkdir(mode=0o755, parents=True, exist_ok=True)
+            os.chmod(self.mirrors, 0o755)
             granted = self.client.post('runners/me/repositories/token')
             token = granted.get('token') or ''
             if not token or name not in {n.lower() for n in granted.get('repositories', [])}:
                 raise ValueError('No GitHub read token for this repository; check the GitHub connection')
-            from .service import Runner
-            env = Runner.credential_environment(None, None)
-            env.update(git_credentials.environment(token))
-            env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+            env = {**clean, **git_credentials.environment(token)}
             url = f'https://github.com/{repo["full_name"]}.git'
-            prefix = ['git', '-c', 'safe.directory=' + str(path.resolve()), '-c', 'http.followRedirects=false', '-c', 'core.fsmonitor=false',
-                      '-c', 'http.proxy=', '-c', 'http.sslVerify=true', '-c', 'protocol.allow=never',
-                      '-c', 'protocol.https.allow=always', '-c', 'protocol.file.allow=never']
-            timeout = max(900, min(7200, int(repo.get('size_kb') or self.rows[name].get('size_mb', 0) * 1024) // 1024))
-            if exists and not (path / '.git').is_dir():
-                shutil.rmtree(self.path(name))
-                exists = False
-            if exists:
-                checked = self.run_git([*prefix, '-C', str(path), 'rev-parse', '--git-dir'], env=env, timeout=10)
-                if checked.returncode:
-                    shutil.rmtree(self.path(name))
-                    exists = False
-            if exists:
-                config = self.run_git([*prefix, '-C', str(path), 'config', '--local', '--no-includes',
-                                       '--name-only', '--get-regexp', r'^(http|include|includeif)\..*'], env=env, timeout=10)
-                if config.returncode not in (0, 1):
-                    raise ValueError('Could not inspect base clone HTTP settings; repair its Git config')
-                for key in config.stdout.splitlines():
-                    if key.lower().startswith(('include.', 'includeif.')):
-                        raise ValueError('Base clone Git config includes another file; remove the include before fetching')
-                    setting = key.rsplit('.', 1)[-1].lower()
-                    if setting in ('proxy', 'sslcainfo', 'sslverify', 'extraheader'):
-                        prefix += ['-c', key + '=' + ('true' if setting == 'sslverify' else '')]
-                branch = repo.get('default_branch') or '*'
-                command = [*prefix, '-C', str(path), 'fetch', '--quiet', '--prune', '--no-tags', '--', url,
-                           f'+refs/heads/{branch}:refs/remotes/origin/{branch}']
-            else:
+            prefix = ['git', '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+                      '-c', 'http.followRedirects=false', '-c', 'http.sslVerify=true',
+                      '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.file.allow=never']
+            timeout = max(900, min(7200, size_kb // 1024))
+            branch = repo.get('default_branch')
+            if not branch:
+                result = self.run_git([*prefix, 'ls-remote', '--symref', url, 'HEAD'], env=env, timeout=timeout)
+                match = re.search(r'^ref: refs/heads/(.+)\tHEAD$', result.stdout, re.M)
+                if result.returncode or not match:
+                    raise ValueError('Could not find the default branch; check GitHub access')
+                branch = match.group(1)
+            if not mirror.exists():
+                done = self.run_git([*prefix, 'init', '--bare', '--quiet', '--initial-branch=' + branch, str(mirror)], env=clean, timeout=10)
+                if done.returncode:
+                    raise ValueError('Could not create mirror; check disk space and permissions')
+            # Only supervisor-owned Git config is read with an installation token.
+            config = self.run_git([*prefix, '-C', str(mirror), 'config', '--no-includes', '--name-only',
+                                   '--get-regexp', r'^(http|include|includeif)\.'], env=clean, timeout=10)
+            if config.returncode not in (0, 1):
+                raise ValueError('Could not inspect mirror Git config')
+            for key in config.stdout.splitlines():
+                if key.lower().startswith(('include.', 'includeif.')):
+                    raise ValueError('Mirror Git config includes another file; remove the include before fetching')
+                setting = key.rsplit('.', 1)[-1].lower()
+                value = 'true' if setting == 'sslverify' else (clean.get('GIT_SSL_CAINFO', '') if setting == 'sslcainfo' else '')
+                prefix += ['-c', key + '=' + value]
+            done = self.run_git([*prefix, '-C', str(mirror), 'fetch', '--quiet', '--prune', '--no-tags',
+                                 '--no-write-fetch-head', '--', url, f'+refs/heads/{branch}:refs/heads/{branch}'],
+                                env=env, timeout=timeout)
+            if done.returncode:
+                raise ValueError(f'Git mirror fetch failed (exit {done.returncode}); check GitHub access, disk space and network')
+            done = self.run_git([*prefix, '-C', str(mirror), 'symbolic-ref', 'HEAD', 'refs/heads/' + branch], env=clean, timeout=10)
+            if done.returncode:
+                raise ValueError('Could not set mirror default branch')
+            self.mirror_permissions(mirror)
+            # Bot-owned directories are touched only by unprivileged Git, without a token.
+            local = ['git', '-c', 'safe.directory=' + str(mirror.resolve()),
+                     '-c', 'safe.directory=' + str(path.resolve()), '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+                     '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always']
+            if not exists:
                 isolation.mkdir(self.root, mode=0o755)
                 created = True
                 with self.lock:
-                    self.rows[name].update(state="cloning", managed=True)
+                    self.rows[name].update(state='cloning', managed=True)
                     self.save()
-                command = [*prefix, 'clone', '--quiet']
-                if repo.get('default_branch'):
-                    command += ['--branch', repo['default_branch']]
-                command += ['--', url, str(path)]
-            # Supervisor Git never executes bot hooks or inherits supervisor credentials.
-            done = self.run_git(command, env=env, timeout=timeout)
-            if created:
+                done = self.run_git([*local, 'clone', '--quiet', '--single-branch', '--no-hardlinks',
+                                     '--origin', 'tico-mirror', '--branch', branch, '--', mirror.as_uri(), str(path)],
+                                    env=clean, timeout=timeout, bot=True)
+                if done.returncode:
+                    raise ValueError('Could not clone local mirror; check disk space and permissions')
+            else:
                 isolation.chown(path, recursive=True)
-            if exists and done.returncode == 128 and not self.stopping.is_set():
-                checked = self.run_git([*prefix, '-C', str(path), 'fsck', '--connectivity-only'], env=env, timeout=timeout)
-                if checked.returncode:
-                    shutil.rmtree(self.path(name))
-                    return self.update(name, repo, now)
+                done = self.run_git([*local, '-C', str(path), 'rev-parse', '--git-dir'], env=clean, timeout=10, bot=True)
+                if done.returncode:
+                    raise ValueError('Base clone is not a working Git repository; repair it without deleting local work')
+            for key, value in [('remote.tico-mirror.url', mirror.as_uri()),
+                               ('remote.tico-mirror.fetch', f'+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}'),
+                               ('remote.origin.url', url), ('remote.origin.pushurl', url),
+                               ('remote.origin.fetch', f'+refs/heads/{branch}:refs/remotes/origin/{branch}'),
+                               ('branch.' + branch + '.remote', 'origin'), ('branch.' + branch + '.merge', 'refs/heads/' + branch)]:
+                done = self.run_git([*local, '-C', str(path), 'config', '--local', '--replace-all', key, value], env=clean, timeout=10, bot=True)
+                if done.returncode:
+                    raise ValueError('Could not configure base clone mirror; check its Git config and permissions')
+            done = self.run_git([*local, '-C', str(path), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
+                                 '--', mirror.as_uri(), f'+refs/heads/{branch}:refs/remotes/origin/{branch}',
+                                 f'+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}'],
+                                env=clean, timeout=timeout, bot=True)
             if done.returncode:
-                # Git's stderr may contain credentials or local secrets; keep them out of reports.
-                raise ValueError(f'Git {"fetch" if exists else "clone"} failed (exit {done.returncode}); check GitHub access, disk space and network')
+                raise ValueError('Could not refresh base clone from local mirror; check disk space and permissions')
             size = sum(p.stat().st_size for root, dirs, files in os.walk(path, followlinks=False)
                        for p in (Path(root) / f for f in files) if not p.is_symlink()) / (1024 ** 2)
             with self.lock:

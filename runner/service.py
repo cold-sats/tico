@@ -977,7 +977,10 @@ class Runner:
     def credential_environment(self, bot, config=None):
         """Process settings only. Credentials arrive through this bot's live vault grants."""
         settings = {"HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "TERM", "COLORTERM",
-                    "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"}
+                    "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME",
+                    "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR",
+                    "GIT_SSL_CAINFO", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                    "https_proxy", "http_proxy", "no_proxy"}
         return {k: v for k, v in os.environ.items() if k in settings or k.startswith("LC_")}
 
     def migrate_credentials(self, assignments):
@@ -1935,7 +1938,7 @@ class Runner:
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.arm_credentials(env, attempt, bot)
-                git_credentials.apply(env, self.client, bot, self.config_path if socket_path else None, socket_path)
+                git_credentials.apply(env, self.client, bot, self.config_path if not socket_path else None, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))
                 if self.credentials:

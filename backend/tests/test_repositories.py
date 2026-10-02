@@ -74,7 +74,9 @@ def test_modes_mixed_scopes_alias_and_default(api, gh):
         {'full_name': 'Acme/docs', 'access': 'read'}, {'full_name': 'Acme/product', 'access': 'write'}]})
     assert api.get('/api/v2/bots/cpo/github-repos', headers=auth()).json()['repositories'] == ['Acme/product']
     assert put_extras(api, 'cpo', ['legacy']).status_code == 200
-    assert api.get('/api/v2/bots/cpo/repositories', headers=auth()).json()['chosen'] == [{'full_name': 'Acme/legacy', 'access': 'write'}]
+    assert api.get('/api/v2/bots/cpo/repositories', headers=auth()).json()['chosen'] == [
+        {'full_name': 'Acme/docs', 'access': 'read'}, {'full_name': 'Acme/legacy', 'access': 'write'},
+        {'full_name': 'Acme/product', 'access': 'write'}]
     put(api, 'bots/cpo/repositories', {'mode': 'own'})
     assert turn_token(api).json()['repositories'] == ['Acme/emp-cpo']
     put(api, 'repositories/settings', {'new_bot_default': 'all'})
@@ -513,3 +515,60 @@ def test_daily_does_not_queue_followup_and_shutdown_stops_worker(api, gh, monkey
     assert not service.repository_worker.is_alive()
     assert calls == [1]
     assert not service.repository_running
+
+
+def test_missing_own_repo_does_not_repeat_probes_for_other_grants(api, gh, monkeypatch):
+    catalog(api, gh)
+    runner_token(api, 'cpo')
+    for name in ('product', 'docs'):
+        put(api, 'repositories/Acme/' + name, {'enabled': True})
+    put(api, 'bots/cpo/repositories', {'mode': 'all'})
+    gh.missing.add('emp-cpo')
+    first = turn_token(api)
+    assert first.status_code == 200
+    assert set(first.json()['repositories']) == {'Acme/product', 'Acme/docs'}
+    probe_count = len([c for c in gh.calls if c[1].count('/') == 3 and c[1].startswith('/repos/')])
+    with api.app_state.store.read() as c:
+        stamp = R.metadata(c, 'repositories-confirmed-missing')['acme/emp-cpo']
+    for _ in range(3):
+        assert turn_token(api).status_code == 200
+    assert len([c for c in gh.calls if c[1].count('/') == 3 and c[1].startswith('/repos/')]) == probe_count
+    with api.app_state.store.read() as c:
+        assert R.metadata(c, 'repositories-confirmed-missing')['acme/emp-cpo'] == stamp
+    gh.missing.remove('emp-cpo')
+    assert 'Acme/emp-cpo' in turn_token(api).json()['repositories']
+
+
+def test_legacy_changes_preserve_grants_and_cannot_upgrade_bot_repo(api, gh):
+    import pytest
+    from backend.store import Problem
+    catalog(api, gh)
+    for name in ('bot-sales', 'docs', 'product'):
+        put(api, 'repositories/Acme/' + name, {'enabled': True})
+    chosen = [{'full_name': 'Acme/bot-sales', 'access': 'read'}, {'full_name': 'Acme/docs', 'access': 'read'}]
+    put(api, 'bots/cpo/repositories', {'mode': 'chosen', 'chosen': chosen})
+    assert put_extras(api, 'cpo', ['bot-sales', 'product']).status_code == 200
+    assert api.get('/api/v2/bots/cpo/repositories', headers=auth()).json()['chosen'] == chosen + [{'full_name': 'Acme/product', 'access': 'write'}]
+    with api.app_state.store.transaction() as c:
+        with pytest.raises(Problem) as caught:
+            R.set_access(c, 'cpo', R.RepoAccessUpdate(mode='chosen', chosen=[R.Grant(full_name='Acme/bot-sales')]),
+                         'Acme', 'human:sam', legacy=True, team_list=False)
+        assert caught.value.status == 403
+        assert {r['full_name']: r['access'] for r in R.access(c, 'cpo', 'Acme')['chosen']} == {
+            'Acme/bot-sales': 'read', 'Acme/docs': 'read', 'Acme/product': 'write'}
+
+
+def test_setup_command_limit_applies_to_settings_and_repo_files(api, gh):
+    catalog(api, gh)
+    put(api, 'repositories/Acme/product', {'enabled': True})
+    for command in ('x' * 4097, 'é' * 2049, 'a\n' * 2049, 'a\0' * 2049):
+        response = api.put('/api/v2/repositories/Acme/product', json={'setup_command': command}, headers=auth())
+        assert response.status_code == 422
+    put(api, 'repositories/Acme/product', {'setup_command': 'a\n' * 2048})
+    # A new oversize file cannot replace the last usable command.
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE repositories SET setup_command='make previous',setup_source='tico.json' WHERE full_name='Acme/product'")
+    gh.setup_files['/repos/Acme/product/contents/tico.json'] = {'setup': 'x' * 4097}
+    R.sync(api.app_state.github_app)
+    with api.app_state.store.read() as c:
+        assert c.execute("SELECT setup_command FROM repositories WHERE full_name='Acme/product'").fetchone()[0] == 'make previous'

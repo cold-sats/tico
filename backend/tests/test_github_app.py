@@ -299,10 +299,12 @@ def test_repositories_not_on_the_list_are_not_in_the_token(api, gh):
     assert put_extras(api, "cpo", ["shared-docs"]).status_code == 200
     turn_token(api)
     assert "secrets" not in gh.of("/access_tokens")[-1][2]["repositories"]
-    # Another bot's list is its own, and clearing the list takes the repositories back out.
+    # Another bot's list is its own. The legacy alias preserves grants; the current API removes them.
     runner_token(api, "cmo")
     assert turn_token(api, "cmo").json()["repositories"] == ["Acme/emp-cmo"]
     put_extras(api, "cpo", [])
+    assert 'Acme/shared-docs' in turn_token(api).json()['repositories']
+    assert api.put('/api/v2/bots/cpo/repositories', json={'mode': 'chosen', 'chosen': []}, headers=auth()).status_code == 200
     assert turn_token(api).json()["repositories"] == ["Acme/emp-cpo"]
 
 

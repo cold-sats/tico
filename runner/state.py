@@ -6,6 +6,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from . import isolation
+
 
 # One Claude/Codex/Gemini thread per bot. Conversation id and "new chat" epochs
 # do not fork it; token rotation and a failed turn still start a fresh one.
@@ -30,8 +32,19 @@ class State:
     def __init__(self, directory):
         self.directory = Path(directory)
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.directory, 0o700)
+        if isolation.enabled():
+            # Mirrors are public read-only; the rest of the state remains private.
+            # Traversal alone exposes no directory listing; existing entries stay private.
+            for entry in self.directory.iterdir():
+                if entry.name != 'mirrors' and not entry.is_symlink():
+                    os.chmod(entry, 0o700 if entry.is_dir() else 0o600)
+            os.chmod(self.directory, 0o711)
+        else:
+            os.chmod(self.directory, 0o700)
         self.path = self.directory / "runner.sqlite"
+        fd = os.open(self.path, os.O_CREAT | os.O_WRONLY, 0o600)
+        os.close(fd)
+        os.chmod(self.path, 0o600)
         with self.connect() as c:
             c.executescript("""
                 PRAGMA journal_mode=WAL;
