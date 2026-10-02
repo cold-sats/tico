@@ -206,3 +206,31 @@ Task list and detail rows include `cover: {url, width, height}` or null. The cov
 image version's thumbnail (or the image itself) or a video's poster; its URL includes `?v=N`.
 Archived files are excluded, dimensions may be null, and each task page computes covers in one query.
 For multi-question reviews, `other` is one string for the entire answer.
+## Files and questions on the page
+
+A task's **Files** strip has one tile per file at its newest version: a thumbnail or poster when there
+is one, the name, the version and its age (`v3 · 2h`), and a dot while a question on it is open.
+Click a tile to open it under the strip. Markdown renders (long files fold after about 30 lines),
+CSV and JSON lists show as a table (first 200 rows), images show full size (← and → step through
+the task's images), video and audio stream with their poster, a PDF shows page 1 and opens in a new
+tab, and SVG, HTML and other files offer a download. The `v1 · v2 · v3` switcher changes version;
+**Compare** shows two versions side by side, or a line diff for text. Each version shows who added
+it, when, its note and its question. Esc or the tile again closes it.
+
+A comment that carried files shows a small thumbnail for an image and a chip for anything else;
+either opens that file's tile at that version.
+
+A question (on a comment or a file version) shows its options as buttons. One question that takes
+one answer sends on the first click; otherwise pick, optionally type in **Other**, then **Send**.
+**Dismiss** declines it. Anyone who may comment can answer, except whoever asked, who sees the
+question without buttons. The answer appears as a comment, and the question folds to its answers
+(all kept, newest last); **Answer** adds another.
+
+Pictures linked in task details, comments and chat (`![](https://…)` or a bare `.png`, `.jpg`,
+`.jpeg`, `.gif` or `.webp` link) show inline; click one for full size. They are loaded from their
+own site, not through Tico. YouTube, Vimeo and Loom links open in the viewer.
+
+On the board, a task with a picture shows the newest one as a cover, and a dot marks an open
+question. **Pin** in the Tasks toolbar keeps the current view and filters under **Pipelines** in
+the left rail, for you only; ✕ on a pin removes it. Pins are links: nothing moves a task's step
+on its own.

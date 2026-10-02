@@ -120,7 +120,7 @@ async function desktop(browser) {
   const modal = page.locator('#task-modal');
   const rail = modal.locator('[data-task-rail]');
   await rail.locator('.task-subs .sub-row').first().waitFor();
-  // Code: worktrees first, then pull requests; other links stay under Links & files.
+  // Code: worktrees first, then pull requests; other links stay under Links.
   const lines = await rail.locator('.code-line').allInnerTexts();
   assert.equal(lines.length, 6);
   assert.match(lines[0], /^web\s*·\s*tico\/t-check-checkout\s*·\s*↑2 ↓1\s*·\s*3 files/);

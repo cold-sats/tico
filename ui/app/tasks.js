@@ -276,15 +276,16 @@ function taskRowNote(t) {
 }
 
 // ---- the board: one column per state; an empty column folds to a thin strip with its name and count
-// The same card the list's peek opens: the title, its chips, the owner's face and the age. Nothing else.
+// The same card the list's peek opens: a cover when the task has a picture, the title, its chips, a dot for an open
+// question, the owner's face and the age.
 function taskCard(it) {
   const t = it.task, st = TASKS_ST;
   const chips = t ? taskChipsHTML(t, {maxTags: 2}) : '';
   void st;   // selection, cursor and peek are painted on (task-list.js), so the card's signature only changes with its content
-  return tasksSigned(`<div class="bcard" data-task-key="${esc(it.key)}">
+  return tasksSigned(`<div class="bcard" data-task-key="${esc(it.key)}">${t ? taskCoverHTML(t) : ''}
     <button class="bcard-open" type="button" data-open-task="${esc(it.key)}" title="${esc(t ? taskRowTip(t) : it.title)}" tabindex="-1">
       ${t ? taskStatusIcon(t) : ''}<span class="bcard-title">${esc(it.title)}</span></button>
-    <div class="bcard-foot">${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>
+    <div class="bcard-foot">${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>${t ? taskAskDot(t) : ''}
       <span class="tl-face" aria-hidden="true">${actorFace(it.actor, 16)}</span>
       <span class="age tnum" title="${esc(fmt(it.updated))}">${esc(ageShort(it.updated))}</span></div>
   </div>`);

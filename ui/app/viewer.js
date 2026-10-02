@@ -84,21 +84,23 @@ function csvParse(text) {
   if (cell !== '' || row.length) end();
   return rows;
 }
-function csvView(text) {
-  const rows = csvParse(text), wrap = document.createElement('div');
+function csvView(text, max = CSV_ROWS) { return rowsView(csvParse(text), max); }
+// Rows (the first one the header) as the same table: a CSV, or a JSON list of objects (a task's file viewer).
+function rowsView(rows, max = CSV_ROWS) {
+  const wrap = document.createElement('div');
   wrap.className = 'csv-view';
   if (!rows.length) { wrap.textContent = 'This file is empty.'; return wrap; }
   const scroll = document.createElement('div'), table = document.createElement('table'), head = table.createTHead().insertRow();
   scroll.className = 'csv-scroll'; scroll.tabIndex = 0; table.className = 'csv';
   for (const v of rows[0]) head.appendChild(document.createElement('th')).textContent = v;
   const body = table.createTBody();
-  for (const r of rows.slice(1, CSV_ROWS + 1)) { const tr = body.insertRow(); for (const v of r) tr.insertCell().textContent = v; }
+  for (const r of rows.slice(1, max + 1)) { const tr = body.insertRow(); for (const v of r) tr.insertCell().textContent = v; }
   scroll.append(table); wrap.append(scroll);
   const total = rows.length - 1;
-  if (total > CSV_ROWS) {
+  if (total > max) {
     const note = document.createElement('p');
     note.className = 'muted csv-note';
-    note.textContent = `Showing ${CSV_ROWS.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} rows. Download the file for the rest.`;
+    note.textContent = `Showing ${max.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} rows. Download the file for the rest.`;
     wrap.append(note);
   }
   return wrap;
@@ -283,7 +285,7 @@ function mediaThumb(a, item) {
     if (holder && holder.querySelectorAll('.inline-thumb').length >= 6) return;
     const b = Object.assign(document.createElement('button'), {type: 'button', className: 'inline-thumb'});
     b.setAttribute('aria-label', 'View ' + item.name);
-    const img = document.createElement('img'); img.alt = item.name; img.decoding = 'async';
+    const img = document.createElement('img'); img.alt = item.name; img.decoding = 'async'; img.loading = 'lazy';
     b.append(img); a.after(b);
     const set = src => { img.src = src; img.onload = () => b.classList.add('ready'); img.onerror = () => b.remove(); };
     if (item.fileId) viewFile(item.fileId, item.name).then(f => f.kind === 'image' ? set(f.url) : b.remove()).catch(() => b.remove());
@@ -291,6 +293,9 @@ function mediaThumb(a, item) {
     else b.remove();
   }
 }
+// A picture in formatted text shows a sized skeleton until it arrives (ui/styles/viewer.css); one that fails goes.
+document.addEventListener('load', ev => { if (ev.target.matches?.('.md img')) ev.target.classList.add('ready'); }, true);
+document.addEventListener('error', ev => { if (ev.target.matches?.('.md img')) ev.target.classList.add('broken'); }, true);
 let MEDIA_INLINE_QUEUED = false;
 new MutationObserver(() => {
   if (MEDIA_INLINE_QUEUED) return;

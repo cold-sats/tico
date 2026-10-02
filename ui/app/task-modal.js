@@ -1,111 +1,26 @@
-/* ui/app/task-modal.js — The task modal, its file preview and its comment thread
+/* ui/app/task-modal.js — The task modal and its comment thread (its files: ui/app/task-files.js)
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
 // ---- the task modal: one item, in full, with what you can do to it
-let TASK_FILE_PREVIEW = null;
-function taskFilePreviewReset() {
-  if (!TASK_FILE_PREVIEW) return;
-  TASK_FILE_PREVIEW.abort.abort();
-  if (TASK_FILE_PREVIEW.url) URL.revokeObjectURL(TASK_FILE_PREVIEW.url);
-  TASK_FILE_PREVIEW = null;
-}
-function taskFilePreviewKind(file) {
-  const name = String(file.name || '').toLowerCase();
-  if (/\.(md|markdown)$/.test(name)) return ['markdown', 'text/plain'];
-  if (/\.csv$/.test(name) || /^text\/csv\b/i.test(file.mime || '')) return ['csv', 'text/csv'];
-  if (/\.(txt|text|json|log|yaml|yml)$/.test(name)) return ['text', 'text/plain'];
-  if (/\.(png|jpe?g|gif|webp)$/.test(name)) return ['image', /\.png$/.test(name) ? 'image/png' : /\.gif$/.test(name) ? 'image/gif' : /\.webp$/.test(name) ? 'image/webp' : 'image/jpeg'];
-  if (/\.pdf$/.test(name)) return ['pdf', 'application/pdf'];
-  if (/\.(mp4|webm|mov)$/.test(name)) return ['video', /\.webm$/.test(name) ? 'video/webm' : /\.mov$/.test(name) ? 'video/quicktime' : 'video/mp4'];
-  if (/\.(mp3|m4a|wav|ogg)$/.test(name)) return ['audio', /\.wav$/.test(name) ? 'audio/wav' : /\.ogg$/.test(name) ? 'audio/ogg' : /\.m4a$/.test(name) ? 'audio/mp4' : 'audio/mpeg'];
-  return [null, null];
-}
-async function taskFilePreviewOpen(file, dialog) {
-  const box = $('[data-task-file-preview]', dialog);
-  if (!box || !file.id) return;
-  taskFilePreviewReset();
-  const path = `${API}/v2/files/${encodeURIComponent(file.id)}`;
-  box.hidden = false;
-  box.innerHTML = `<div class="task-file-preview-head"><strong>${esc(file.name || 'Attachment')}</strong><span class="spacer"></span><a href="${path}" download>Download</a><button type="button" class="ghost" data-close-file-preview aria-label="Close attachment preview">✕</button></div><div data-task-file-content role="status">Loading preview…</div>`;
-  const state = TASK_FILE_PREVIEW = {abort: new AbortController(), url: null};
-  // Images, video and audio play from their address: the browser streams, seeks and caches them, so going back and
-  // forth never downloads them again. A sized skeleton holds the place until the first frame or the metadata arrive.
-  const [early] = taskFilePreviewKind(file);
-  if (early === 'image' || early === 'video' || early === 'audio') {
-    const content = $('[data-task-file-content]', box);
-    content.removeAttribute('role');
-    const src = esc(path);
-    content.innerHTML = `<div class="media-skel ${early}" aria-busy="true">${early === 'image'
-      ? `<img src="${src}" alt="${esc(file.name || 'Attachment')}" decoding="async">`
-      : early === 'video' ? `<video src="${src}" controls playsinline preload="metadata"></video>`
-      : `<audio src="${src}" controls preload="metadata"></audio>`}</div>`;
-    const wrap = content.firstElementChild, el = wrap.firstElementChild;
-    const ready = () => { wrap.classList.add('ready'); wrap.removeAttribute('aria-busy'); };
-    el.addEventListener(early === 'image' ? 'load' : 'loadedmetadata', ready, {once: true});
-    el.addEventListener('error', () => {
-      if (TASK_FILE_PREVIEW !== state) return;
-      ready(); wrap.insertAdjacentHTML('afterend', '<p class="err">Preview unavailable. Download it to open it.</p>');
-    }, {once: true});
-    if (early === 'image' && el.complete && el.naturalWidth) ready();
-    return;
-  }
-  try {
-    const response = await fetch(path, {cache: 'no-store', signal: state.abort.signal});
-    if (!response.ok) throw new Error(response.status === 403 ? 'You do not have access to this file.' : `Preview unavailable (${response.status}).`);
-    const encodedName = response.headers.get('Content-Disposition')?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-    if (encodedName) { try { file = {...file, name: decodeURIComponent(encodedName)}; } catch {} }
-    const [kind, type] = taskFilePreviewKind(file);
-    if (TASK_FILE_PREVIEW !== state || !box.isConnected || !dialog.open) return;
-    $('.task-file-preview-head strong', box).textContent = file.name || 'Attachment';
-    if (!kind) { $('[data-task-file-content]', box).textContent = 'This file cannot be shown here. Download it to open it.'; return; }
-    const blob = await response.blob();
-    if (TASK_FILE_PREVIEW !== state || !box.isConnected || !dialog.open) return;
-    const content = $('[data-task-file-content]', box);
-    if (kind === 'markdown' || kind === 'text' || kind === 'csv') {
-      const raw = await blob.text();
-      if (TASK_FILE_PREVIEW !== state || !box.isConnected || !dialog.open) return;
-      if (kind === 'csv') { content.replaceChildren(csvView(raw)); return; }
-      content.innerHTML = kind === 'markdown' ? `<div class="md">${safeMd(raw)}</div>` : `<pre>${esc(raw)}</pre>`;
-      return;
-    }
-    state.url = URL.createObjectURL(new Blob([blob], {type}));
-    const src = esc(state.url);
-    content.innerHTML = kind === 'image' ? `<img src="${src}" alt="${esc(file.name || 'Attachment')}">`
-      : kind === 'video' ? `<video src="${src}" controls playsinline preload="metadata"></video>`
-      : kind === 'audio' ? `<audio src="${src}" controls preload="metadata"></audio>`
-      : `<iframe src="${src}" sandbox title="${esc(file.name || 'PDF attachment')}"></iframe>`;
-  } catch (error) {
-    if (TASK_FILE_PREVIEW === state && !state.abort.signal.aborted && box.isConnected) {
-      $('[data-task-file-content]', box).innerHTML = `<span class="err">${esc(error.message)}</span>`;
-    }
-  }
-}
 // The full task (#task-modal, a modal dialog) and the side peek (#task-peek, a dialog shown beside the list) draw the
 // same content and wire the same clicks.
 function taskDialogWire(d) {
+  tfWire(d);
+  // A link in the task to one of its files opens that file's tile; any other file link opens the viewer (viewer.js).
   d.addEventListener('click', ev => {
-    const close = ev.target.closest('[data-close-file-preview]');
-    if (close) { taskFilePreviewReset(); $('[data-task-file-preview]', d).hidden = true; return; }
-    const button = ev.target.closest('[data-preview-file]');
-    if (button) {
-      const file = (d.taskAttachments || []).find(f => f.id === button.dataset.previewFile)
-        || {id: button.dataset.previewFile, name: button.dataset.previewName};
-      void taskFilePreviewOpen(file, d); return;
-    }
     const anchor = ev.target.closest('a[href]');
-    if (!anchor || anchor.hasAttribute('download')) return;
+    if (!anchor || anchor.hasAttribute('download') || ev.defaultPrevented) return;
     const url = new URL(anchor.href, location.href);
     const match = url.origin === location.origin && url.pathname.match(/^\/api\/v2\/files\/([^/]+)$/);
-    if (!match) return;
-    ev.preventDefault();
-    const id = decodeURIComponent(match[1]);
-    const file = (d.taskAttachments || []).find(f => f.id === id)
-      || {id, name: anchor.textContent.trim()};
-    void taskFilePreviewOpen(file, d);
+    if (match && tfOpen(d, decodeURIComponent(match[1]), url.searchParams.get('v'), {scroll: true})) ev.preventDefault();
   });
   d.addEventListener('issue-acted', () => d.close());
-  d.addEventListener('close', () => { if (!TASK_CHAT || TASK_CHAT.dialog === d) taskChatStop(); taskFilePreviewReset(); });
+  d.addEventListener('close', () => {
+    if (!TASK_CHAT || TASK_CHAT.dialog === d) taskChatStop();
+    d.tfEl?.querySelector('video, audio')?.pause();
+    d.tfEl = null; d.tfOpen = null;
+  });
 }
 function taskModal() {
   let d = $('#task-modal');
@@ -151,7 +66,6 @@ async function taskModalShow(task, d = taskModal()) {
   if (!d) d = taskModal();
   const peek = !!d.dataset.peek;
   taskChatStop();
-  taskFilePreviewReset();
   // A menu open on this task (a property picked while a save was still on its way) is never pulled away: the redraw
   // waits for it to close, then draws the newest copy.
   if (d.open && String(d.dataset.task) === String(task.id) && $('.prop-pop', d)?.matches(':popover-open')) {
@@ -198,6 +112,7 @@ async function taskModalShow(task, d = taskModal()) {
   taskPropFocus(d); d.focusProp = '';
   void taskRailLoad(d, full, detail);
   void taskChatLoad(task.id, d, detail);
+  void tfLoad(d, task.id);
   if (typing) { const box = $('.task-chat textarea', d); box?.focus(); box?.setSelectionRange(box.value.length, box.value.length); }
 }
 // After a property saves, the redrawn row gets the focus back.
@@ -206,7 +121,7 @@ function taskPropFocus(d) {
 }
 // `full`: the task as GET /v2/tasks/{id} answers it (list rows leave out what the rail's Code section needs).
 function taskModalBind(d, task, full = false) {
-  d.taskAttachments = task.attachments || [];
+  tfAdopt(d, task);
   d.dataset.version = String(task.version ?? '');
   if (!d.liveTask || String(d.liveTask.id) !== String(task.id) || Number(task.version) >= Number(d.liveTask.version)) d.liveTask = task;
   if (d.taskRail?.id !== String(task.id)) d.taskRail = {id: String(task.id), open: new Set()};
@@ -317,7 +232,8 @@ const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}`
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
   lint: v => `noted: ${v}`, note: v => `noted: ${clipLine(String(v || ''), 200)}`};
-function commentLineHTML(x, i, all) {
+// `files`: the task's files (ui/app/task-files.js), for the files a comment carried.
+function commentLineHTML(x, i, all, files = [], taskId = '') {
   if (x.kind === 'event') {
     if (x.field === 'status' && x.old == null) return '';           // created: the header says so
     // A step move already names where the task went; its status change would say it twice.
@@ -333,13 +249,15 @@ function commentLineHTML(x, i, all) {
     return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
       <time class="muted tnum" title="${esc(fmt(x.ts))}">${esc(ago(x.ts))}</time></div>`;
   }
-  const m = x.message;
+  const m = x.message, ask = askOf(m);
+  // a question's text is in its block; a body that only repeats it is left out
+  const body = ask && ask.questions.some(q => String(q.question || '').trim() === String(m.body || '').trim()) ? '' : m.body || '';
   const kind = m.kind === 'ask' ? '<span class="pill needs">question</span>' : m.kind === 'answer' ? '<span class="pill">answer</span>' : '';
   return `<div class="tcomment${String(m.from_actor || '').startsWith('bot:') ? ' bot' : ''}"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor, m.refs?.via)}</span>${kind}
       ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next run on this task">saved</span>' : ''}
       <span class="spacer"></span><time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
-    <div class="md">${safeMd(m.body || '')}</div>
-    ${S.me?.cloud ? (m.refs?.attachments || []).map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join(' ') : ''}</div>`;
+    ${body ? `<div class="md">${safeMd(body)}</div>` : ''}
+    ${tfCommentFilesHTML(m, files)}${ask ? askHTML(ask, m.answers, askTargetOf(m), m.from_actor, taskId, files) : ''}</div>`;
 }
 function taskCommentsRender(state, data) {
   const host = state.host;
@@ -357,9 +275,16 @@ function taskCommentsRender(state, data) {
     box.value = TASK_DRAFTS.get(String(state.id)) || '';
     box.oninput = () => { if (box.value) TASK_DRAFTS.set(String(state.id), box.value); else TASK_DRAFTS.delete(String(state.id)); };
   }
-  const html = lines.map(commentLineHTML).join('') || '<p class="muted">Nothing said yet.</p>';
+  state.data = data;
+  // a new comment may have carried a new version of a file, or answered a question on one
+  const count = (data.comments || data.messages || []).length;
+  if (state.count != null && count !== state.count) void tfLoad(state.dialog, state.id);
+  state.count = count;
+  const files = tfFiles(state.dialog);
+  const html = lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id)).join('') || '<p class="muted">Nothing said yet.</p>';
+  const thread = $('.task-comments', host);
+  if (thread.contains(document.activeElement) && document.activeElement.closest('.ask')) return;     // never under someone answering
   if (html !== state.rendered) {
-    const thread = $('.task-comments', host);
     const atEnd = !state.rendered || thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 40;
     thread.innerHTML = html;
     if (atEnd) thread.scrollTop = thread.scrollHeight;
@@ -445,7 +370,6 @@ function hubModalHTML(t, it, opts = {}) {
   const statusWord = taskStatusLabel(t);
   const mover = canMove();
   const links = (t.links || []).filter(l => l.kind !== 'pr' && l.kind !== 'worktree');   // those are Code, in the rail
-  const files = (t.attachments || []);
   const pos = opts.peek ? taskPeekPos(t.id) : '';
   return `<div class="tmodal-head">${taskStatusIcon(t)}<span class="pill tstatus">${esc(statusWord)}</span>${t.blocked_by && !finished
       ? `<span class="tchip-blocked" title="Blocked by ${esc(t.blocker?.title || 'another task')}">blocked</span>` : ''}
@@ -464,11 +388,10 @@ function hubModalHTML(t, it, opts = {}) {
         : `<div class="tdesc md">${safeMd(original)}</div>`) : (waitText ? '' : '<p class="muted tdesc">No details.</p>')}
       ${note && note.replace(/\s+/g, ' ').trim() !== waitText ? `<details class="task-orig"><summary>Progress</summary><div class="tdesc md">${safeMd(note)}</div></details>` : ''}
       ${(t.acceptance_criteria || []).length ? `<section class="tsec"><h3 class="rail-h">Done looks like</h3><ul class="tcriteria">${t.acceptance_criteria.map(a => `<li>${esc(a)}</li>`).join('')}</ul></section>` : ''}
-      <section class="tsec task-links"><h3 class="rail-h">Links &amp; files<button type="button" class="prop-add" data-link-add aria-label="Add a link" title="Add a link">${TL_ICON.plus}</button></h3>
-        ${links.length || files.length ? `<div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}
-          ${files.map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join('')}</div>` : ''}
+      <section class="tsec task-links"><h3 class="rail-h">Links<button type="button" class="prop-add" data-link-add aria-label="Add a link" title="Add a link">${TL_ICON.plus}</button></h3>
+        ${links.length ? `<div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}</div>` : ''}
         <form class="inline task-link-add" data-modal-link hidden><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" aria-label="Add a link"></form></section>
-      <div class="task-file-preview" data-task-file-preview hidden></div>
+      <section class="tsec task-files" data-task-files aria-label="Files" hidden></section>
       </div>
       <aside class="task-side" aria-label="Details">
         <section class="task-props" data-task-props aria-label="Properties">${taskPropsHTML(t, opts)}</section>

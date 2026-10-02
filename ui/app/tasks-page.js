@@ -42,6 +42,7 @@ function pageTasks(forced, openId = '') {
           <button type="button" class="tl-addf" id="task-filter" aria-haspopup="true">${TL_ICON.filter}<span>Filter</span></button>
           <button type="button" class="linkish tl-clear" id="task-filter-clear" hidden>Clear</button></div>
         <span class="spacer"></span>
+        <button type="button" class="tl-addf tl-pin" id="task-pin" aria-pressed="false">Pin</button>
         <button type="button" class="tl-addf tl-selmode" id="task-select-mode" aria-pressed="false" hidden>Select</button>
         <span class="tl-groupby" id="task-group-wrap"></span>
       </div>
@@ -50,6 +51,7 @@ function pageTasks(forced, openId = '') {
       <div class="tl-bulk" id="task-bulk" role="toolbar" aria-label="Selected tasks" hidden></div>
     </div></div>
     <div id="task-filter-pop" class="tl-pop" popover></div>`;
+  $('#task-pin').onclick = () => tasksPinToggle(state);
   $('#task-new').onclick = () => { const p = tasksCreatePrefill(state); openTaskCreate(p.owner, {labels: p.labels}); };
   const search = $('#task-q');
   search.oninput = () => {

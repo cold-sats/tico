@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Task files keep versions by name, with notes, questions and every answer.
+- Tasks show file tiles, version previews and comparisons; board cards show covers and open questions.
+- Pin task views under Pipelines and see linked pictures inline.
+- Stream large attachments to local storage or S3, with video seeking, posters and thumbnails.
+- Health shows file storage and background copy progress.
+
+### Fixed
+- Files attached to comments appear on every install.
+
 ## [0.3.6] - 2026-10-02
 
 ### Fixed
