@@ -35,11 +35,11 @@ marketStyle.textContent = `.market-shell.market-shell-blank{display:flex;align-i
 @keyframes marketspin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.market-spin{animation:none;border-color:var(--accent)}}
 .market-none{margin:0;color:var(--muted);font-size:14px}
-.market-blank{margin:0;color:#9a9a9a}
-.market-ask-open{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:0 0 10px;padding:7px 10px;border-radius:7px;background:none;border:1px solid #3a3a3a;color:#e6e6e6;font-size:13px;cursor:pointer}
-.market-ask-open .nav-icon{font-size:17px;color:#c4b5fd}
-.market-ask-open:hover{background:#2a2a2a}
-.market-ask-open:focus-visible{outline:2px solid #c4b5fd;outline-offset:1px}
+.market-blank{margin:0;color:var(--muted)}
+.market-ask-open{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:0 0 10px;padding:7px 10px;border-radius:7px;background:none;border:1px solid var(--line);color:var(--ink);font-size:13px;cursor:pointer}
+.market-ask-open .nav-icon{font-size:17px;color:var(--accent)}
+.market-ask-open:hover{background:var(--surface2)}
+.market-ask-open:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 @media (max-width:600px){.market-shell.market-shell-blank{align-items:flex-start;padding:28px 16px}.market-start-actions .primary{flex:1}}`;
 document.head.appendChild(marketStyle);
 
@@ -376,14 +376,20 @@ function mountGraph(canvas, rows, edges) {
     return near;
   }
 
+  // The theme's colours (ui/styles/tokens.css), read once a frame so a theme switch repaints at once.
+  let pal = {};
+  function palette() {
+    const cs = getComputedStyle(canvas), v = name => cs.getPropertyValue(name).trim();
+    pal = {bg: v('--bg') || '#121417', ink: v('--ink') || '#e6e9ee', soft: v('--g7') || '#b6bec9', muted: v('--muted') || '#8a93a0',
+      line: v('--g5') || '#5b6470', ok: v('--ok') || '#6cc48f', accent: v('--accent') || '#45c09c'};
+  }
   function color(node, near) {
-    if (cited.has(node.id)) return '#8fd18c';
-    if (node.id === focus) return '#ffffff';
-    if (near.has(node.id)) return '#f2f2f2';
-    if (node.type === 'segment') return '#7dce7a';
-    if (node.tier === 'core') return '#e8e8e8';
-    if (node.type === 'channel') return '#8d8d8d';
-    return '#bdbdbd';
+    if (cited.has(node.id)) return pal.accent;
+    if (node.id === focus || near.has(node.id)) return pal.ink;
+    if (node.type === 'segment') return pal.ok;
+    if (node.tier === 'core') return pal.ink;
+    if (node.type === 'channel') return pal.muted;
+    return pal.soft;
   }
 
   function draw() {
@@ -398,7 +404,8 @@ function mountGraph(canvas, rows, edges) {
     const ctx = canvas.getContext('2d');
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, rect.width, rect.height);
-    ctx.fillStyle = '#191919';
+    palette();
+    ctx.fillStyle = pal.bg;
     ctx.fillRect(0, 0, rect.width, rect.height);
     if (frame < 40) step();
     frame += 1;
@@ -411,9 +418,11 @@ function mountGraph(canvas, rows, edges) {
       ctx.beginPath();
       ctx.moveTo(link.a.x, link.a.y);
       ctx.lineTo(link.b.x, link.b.y);
-      ctx.strokeStyle = hot ? 'rgba(230,230,230,0.55)' : 'rgba(180,180,180,0.18)';
+      ctx.strokeStyle = hot ? pal.ink : pal.line;
+      ctx.globalAlpha = hot ? 0.55 : 0.35;
       ctx.lineWidth = hot ? 1.15 : 0.8;
       ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     for (const node of nodes) {
       ctx.beginPath();
@@ -423,11 +432,29 @@ function mountGraph(canvas, rows, edges) {
     }
     ctx.font = '12px system-ui, sans-serif';
     ctx.textBaseline = 'middle';
-    for (const node of nodes) {
-      const show = node.id === focus || node.id === hover || near.has(node.id) || node.tier === 'core' || node.id === marketSelfId();
-      if (!show) continue;
-      ctx.fillStyle = node.id === focus || node.id === hover ? '#f7f7f7' : 'rgba(220,220,220,0.78)';
-      ctx.fillText(node.name, node.x + node.r + 4, node.y);
+    // A small graph names every node; a big one its core, the focus and its neighbours. Each label sits on a halo of
+    // the background so a line under it never runs through the words.
+    // Labels go in order of importance, each to the right, left, above or below its node, wherever it covers no
+    // label already drawn and no other node; a minor one with no free spot is left out.
+    const few = nodes.length <= 40;
+    const rank = node => node.id === focus || node.id === hover ? 0 : near.has(node.id) ? 1 : node.tier === 'core' || node.id === marketSelfId() ? 2 : 3;
+    const placed = [], h = 14;
+    const hits = (box, self) => placed.some(o => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t)
+      || nodes.some(n => n !== self && n.x + n.r > box.l && n.x - n.r < box.r && n.y + n.r > box.t && n.y - n.r < box.b);
+    ctx.lineJoin = 'round';
+    for (const node of [...nodes].sort((a, b) => rank(a) - rank(b))) {
+      if (!few && rank(node) === 3) continue;
+      const w = ctx.measureText(node.name).width, gap = node.r + 5;
+      const spots = [[node.x + gap, node.y], [node.x - gap - w, node.y], [node.x - w / 2, node.y - gap - 4], [node.x - w / 2, node.y + gap + 4]]
+        .map(([x, y]) => ({x, y, box: {l: x - 2, r: x + w + 2, t: y - h / 2, b: y + h / 2}}));
+      const spot = spots.find(o => !hits(o.box, node)) || (rank(node) < 3 ? spots[0] : null);
+      if (!spot) continue;
+      placed.push(spot.box);
+      ctx.strokeStyle = pal.bg; ctx.lineWidth = 3.5; ctx.globalAlpha = 0.9;
+      ctx.strokeText(node.name, spot.x, spot.y);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = node.id === focus || node.id === hover ? pal.ink : pal.soft;
+      ctx.fillText(node.name, spot.x, spot.y);
     }
     ctx.restore();
     if (running) requestAnimationFrame(draw);

@@ -410,12 +410,9 @@ async function goalManagerMount(pageState) {
     const rows = (await get(`/v2/bots/${GM}/routines`)).routines || [];
     const runs = await Promise.all(rows.map(r => get(`/v2/routines/${encodeURIComponent(r.id)}/occurrences`).then(o => o.occurrences?.[0] || null, () => null)));
     if (!current()) return;
-    let here = '';
-    try { here = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* no zone */ }
     routinesEl.innerHTML = rows.length ? rows.map(r => {
       const when = r.enabled === false || !r.active ? 'paused' : r.on ? '' : r.next ? 'next ' + fmt(r.next) : '';
-      const zone = r.timezone && !r.on && r.timezone !== here ? ' (' + r.timezone + ')' : '';
-      return `<li><span class="nav-icon" aria-hidden="true">schedule</span><span><b>${esc(r.title)}</b> · ${esc(cadenceWords(r) + zone)}${when ? ' · ' + esc(when) : ''}</span></li>`;
+      return `<li><span class="nav-icon" aria-hidden="true">schedule</span><span><b>${esc(r.title)}</b> · ${esc(cadenceZoned(r))}${when ? ' · ' + esc(when) : ''}</span></li>`;
     }).join('') : '<li class="muted">No routines.</li>';
     // The last run: what the bot last reported, else the newest routine firing.
     const status = v2StatusOf(GM);

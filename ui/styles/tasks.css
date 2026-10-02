@@ -14,7 +14,7 @@
 .trow summary:hover{background:var(--surface2);border-radius:6px}
 .trow .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trow .tags{display:flex;gap:4px}
-.trow .st-ic,.trow .who-av{display:none}
+.trow .st-ic,.trow .si,.trow .who-av{display:none}
 .st-ic{width:18px;height:18px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;font-weight:700;line-height:1;box-sizing:border-box}
 .st-ic .nav-icon{font-size:17px}
 .st-needs{background:var(--needs,#d64545);color:#fff}

@@ -133,7 +133,7 @@ function botRecurringHTML(e, slug) {
     return {...s, ...st, employee: slug, active: st.active != null ? st.active : s.active};
   }).sort((a, b) => (a.active ? 0 : 1) - (b.active ? 0 : 1) || String(a.next || '~').localeCompare(String(b.next || '~')) || String(a.title).localeCompare(String(b.title)));
   if (!rows.length) return '';
-  const words = r => { const w = cadenceWords(r) || ''; return w.charAt(0).toUpperCase() + w.slice(1) + (r.timezone && !r.on ? ` (${r.timezone})` : ''); };
+  const words = r => { const w = cadenceZoned(r) || ''; return w.charAt(0).toUpperCase() + w.slice(1); };
   const paused = r => r.enabled === false || r.enabled === 0;
   const next = r => paused(r) ? '<span class="muted" title="kept, not running">paused</span>'
     : !r.active ? '<span class="muted">not armed</span>'

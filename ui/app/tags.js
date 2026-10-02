@@ -148,12 +148,19 @@ async function pageTag(key) {
 function tagTaskRows(tasks) {
   return (tasks || []).map(task => `<a class="tag-task" href="#/task/${encodeURIComponent(task.id)}">${esc(task.title)} <span class="muted">${esc(STATUS_WORD[task.status] || task.status)}</span></a>`).join('') || '<div class="empty">No tasks</div>';
 }
+// A new tag is a name and notes; its key (made from the name) and its metadata wait under Advanced. A tag made from a
+// template asks for its key, since that names this instance (release-2026-10-02).
+const tagKeyOf = name => String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 function tagCreateForm(template = null) {
+  const metadata = `<label>Metadata <textarea name="metadata" rows="2">${esc(JSON.stringify(template?.metadata || {}, null, 2))}</textarea></label>`;
+  if (template) return `<form class="tag-form" data-tag-create>
+    <label>Key <input name="key" required placeholder="release-2026-10-02"></label>${metadata}
+    <button type="submit">Create</button><p role="alert" data-tag-error></p></form>`;
   return `<form class="tag-form" data-tag-create>
-    <label>Key <input name="key" required placeholder="${template ? 'release-2026-10-02' : 'bug'}"></label>
-    ${template ? '' : '<label>Label <input name="label"></label><label><input type="checkbox" name="is_template"> Template</label>'}
-    <label>Metadata <textarea name="metadata" rows="2">${esc(JSON.stringify(template?.metadata || {}, null, 2))}</textarea></label>
-    ${template ? '' : '<label>Notes <textarea name="markdown" rows="5" placeholder="- [ ] Check the result"></textarea></label>'}
+    <label>Name <input name="label" required placeholder="bug"></label>
+    <label>Notes <textarea name="markdown" rows="5" placeholder="- [ ] Check the result"></textarea></label>
+    <label><input type="checkbox" name="is_template"> Template</label>
+    <details class="tag-advanced"><summary>Advanced</summary><label>Key <input name="key" placeholder="made from the name"></label>${metadata}</details>
     <button type="submit">Create</button><p role="alert" data-tag-error></p></form>`;
 }
 function bindTagCreate(root, template = null) {
@@ -165,7 +172,8 @@ function bindTagCreate(root, template = null) {
     try {
       const metadata = JSON.parse(form.elements.metadata.value || '{}');
       if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Metadata must be a JSON object');
-      const body = {key: form.elements.key.value, metadata};
+      const body = {key: form.elements.key.value.trim() || tagKeyOf(form.elements.label?.value), metadata};
+      if (!body.key) throw new Error('Give the tag a name');
       if (!template) Object.assign(body, {label: form.elements.label.value || body.key, is_template: form.elements.is_template.checked, markdown: form.elements.markdown.value});
       const result = await post(template ? '/v2/tags/' + encodeURIComponent(template.id) + '/instances' : '/v2/tags', body);
       location.hash = '#/tag/' + encodeURIComponent(result.tag.key);
@@ -178,8 +186,8 @@ function tagEditForm(tag, save, editable) {
   const editor = $('[data-tag-editor]');
   editor.hidden = false;
   editor.innerHTML = `<form class="tag-form"><label>Label <input name="label" value="${esc(tag.label)}" required></label>
-    <label>Metadata <textarea name="metadata" rows="3">${esc(JSON.stringify(tag.metadata, null, 2))}</textarea></label>
     <label>Notes <textarea name="markdown" rows="8">${esc(tag.markdown)}</textarea></label>
+    <details class="tag-advanced"><summary>Advanced</summary><label>Metadata <textarea name="metadata" rows="3">${esc(JSON.stringify(tag.metadata, null, 2))}</textarea></label></details>
     <button type="submit">Save</button><button type="button" data-tag-cancel>Cancel</button><p role="alert" data-tag-error></p><button type="button" data-tag-refresh hidden>Load current</button></form>`;
   $('[data-tag-cancel]', editor).onclick = () => { editor.hidden = true; };
   $('form', editor).onsubmit = async event => {
@@ -216,9 +224,13 @@ async function renderTags(host) {
     const data = await get('/v2/tags');
     if (!host.isConnected) return;
     const list = template => data.tags.filter(tag => tag.is_template === template).map(tag =>
-      `<a class="tag-task" href="#/tag/${encodeURIComponent(tag.key)}">${esc(tagSummary(tag))}</a>`).join('') || '<div class="empty">None yet</div>';
-    host.innerHTML = `<section class="card"><header><h2>Templates</h2><button type="button" class="ghost" data-release-starter>Release checklist</button></header>${list(true)}</section>
-      <section class="card"><header><h2>Tags</h2></header>${list(false)}</section>
+      `<a class="tag-task" href="#/tag/${encodeURIComponent(tag.key)}">${esc(tagSummary(tag))}</a>`).join('');
+    // The release checklist starter: the way to begin when there are no templates, a small button once there are.
+    const starter = label => `<button type="button" class="ghost" data-release-starter>${label}</button>`;
+    const templates = list(true);
+    host.innerHTML = `<section class="card"><header><h2>Templates</h2>${templates ? starter('Release checklist') : ''}</header>${templates
+        || `<div class="empty tags-empty">No templates. ${starter('Start with a release checklist')}</div>`}</section>
+      <section class="card"><header><h2>Tags</h2></header>${list(false) || '<div class="empty">None yet</div>'}</section>
       <section class="card"><header><h2>New tag</h2></header>${tagCreateForm()}</section>`;
     bindTagCreate(host);
     $('[data-release-starter]', host).onclick = async event => {

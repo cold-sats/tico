@@ -15,10 +15,22 @@ const credEnvs = texts => {
   }
   return out;
 };
-const credSummary = creds => {
+// A credential in plain words: the saved credential's own name when the vault holds one for this tool, else what the
+// variable is (CLOSE_API_KEY is an "API key", DB_<NAME>_URL a "Connection string"); the variable stays in the tooltip.
+const CRED_WORDS = {api: 'API', sa: 'service account', url: 'connection string', cli: 'path to the CLI', oauth: 'OAuth'};
+const credWords = (env, service) => {
+  const skip = new Set(['db', '<name>', ...String(service || '').toLowerCase().split(/[^a-z0-9]+/), 'google', 'close', 'slack']);
+  const words = env.toLowerCase().split('_').filter(w => w && !skip.has(w)).map(w => CRED_WORDS[w] || w);
+  const text = words.join(' ') || env;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+const credSummary = (creds, row) => {
+  const saved = row ? vaultForIntegration(row) : [];
+  if (saved.length) return saved.map(c => `<span title="${esc(c.env || '')}">${esc(c.name || c.env)}</span>`).join(', ');
+  const first = String((creds || [])[0] || '');
+  if (/^none\b/i.test(first)) return '<span class="muted">None needed</span>';
   const envs = credEnvs(creds);
-  if (envs.length) return envs.map(e => `<code>${esc(e)}</code>`).join(' ');
-  const first = (creds || [])[0];
+  if (envs.length) return envs.map(e => `<span title="${esc(e)}">${esc(credWords(e, row?.service))}</span>`).join(', ');
   return first ? esc(first) : '<span class="muted">—</span>';
 };
 function vaultForIntegration(row) {
@@ -115,8 +127,8 @@ async function pageIntegrations() {
         `<tr><td><a href="${INTEGRATIONS}/${esc(r.service)}" title="hub tool show ${esc(r.service)}">${esc(r.title)}</a>
           <div class="muted">${esc(INTEGRATION_KIND[r.kind] || r.kind)} · ${esc(r.writes)}</div></td>
           <td>${esc(({ready: 'Ready', problem: 'Needs attention', pending: 'Pending', unknown: 'Not checked', not_configured: 'Not configured', removed: 'Removed'})[r.status] || 'Not checked')}</td>
-          <td>${(r.bots || []).map(bot => `<a href="#/bot/${encodeURIComponent(bot)}">${esc(bot)}</a>`).join(', ') || '—'}</td>
-          <td class="int-creds">${credSummary(r.credentials)}</td>
+          <td>${(r.bots || []).map(bot => `<a href="#/bot/${encodeURIComponent(bot)}">${empName(bot)}</a>`).join(', ') || '—'}</td>
+          <td class="int-creds">${credSummary(r.credentials, r)}</td>
           <td><button class="int-key" type="button" data-int-cred="${esc(r.service)}" title="Credentials for ${esc(r.title)}" aria-label="Credentials for ${esc(r.title)}">key_vertical</button></td></tr>`).join('')}</tbody></table></div>`
         : `<div class="empty">${INT_ROWS.length ? 'No tool matches.' : 'No tools.'}</div>`;
     };
@@ -138,7 +150,7 @@ async function pageIntegrations() {
       if (b) { ev.preventDefault(); intCredOpen(b.dataset.intCred); }
     };
     // The vault lists itself for whoever may open it (owners and credential admins add and share).
-    if (S.me?.credential_access) void vaultLoad();
+    if (S.me?.credential_access) void vaultLoad().then(() => { if (load === INT_LOAD) draw(); });   // saved credentials name themselves
     const jump = $('[data-int-vault-link]');
     if (jump) jump.onclick = ev => { ev.preventDefault(); $('#int-vault')?.scrollIntoView({behavior: 'smooth', block: 'start'}); };
     return;

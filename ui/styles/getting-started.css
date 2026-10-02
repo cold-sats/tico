@@ -12,7 +12,8 @@
 .gs-org-hint a{color:var(--ink);font-weight:600}
 .hl-page{max-width:760px}
 .hl-page h2{font-size:15px;margin:var(--s5) 0 var(--s2)}
-.hl-list,.hl-computers,.hl-bots,.hl-models{list-style:none;margin:0;padding:0}
+.hl-list,.hl-computers,.hl-bots,.hl-models,.hl-notes{list-style:none;margin:0;padding:0}
+.hl-notes li{padding:3px 0;font-size:13.5px}
 .hl-check{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s3) 0;border-bottom:1px solid var(--line)}
 .hl-main{flex:1;min-width:0}.hl-main p{margin:2px 0 0;color:var(--muted);font-size:13.5px}
 .hl-fixes{display:flex;gap:var(--s2);flex-wrap:wrap}

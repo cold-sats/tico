@@ -43,6 +43,15 @@
   const label = key => String(key).replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase());
   const asList = value => (Array.isArray(value) ? value : [value]).map(String).filter(Boolean);
 
+  // What a person reads: "pull_requests" is "pull requests"; a model is written one way everywhere (ui/app/format.js).
+  const canWord = v => String(v).replace(/[_-]+/g, ' ');
+  const shownIdentity = tool => tool.id === 'model' && typeof modelWords === 'function' ? modelWords(tool.identity) : tool.identity;
+  // A repository's Access row already says own or granted; the status line keeps only the rest ("Checked out on its computer").
+  const shownDetail = tool => {
+    if (!isRepo(tool)) return tool.detail || '';
+    const rest = String(tool.detail || '').split(/;\s*/).filter(part => !/^(own|granted) repository\b/i.test(part)).join('; ');
+    return rest.charAt(0).toUpperCase() + rest.slice(1);
+  };
   // A GitHub repository: the bot's own (instructions and memory) or one granted to it, read only or read and write.
   const isRepo = tool => /^github(-app)?$/i.test(String(tool.service || '')) && !!(tool.scope?.repo || tool.url);
   const ownRepo = tool => tool.id === 'repo' || /own repository/i.test(tool.detail || '');
@@ -62,7 +71,7 @@
   function facts(tool) {
     const rows = [];
     if (isRepo(tool)) { if (access(tool)) rows.push(['Access', access(tool)]); }
-    else if (tool.id !== 'model' && can(tool).length) rows.push(['Can', can(tool).join(', ')]);
+    else if (tool.id !== 'model' && can(tool).length) rows.push(['Can', can(tool).map(canWord).join(', ')]);
     for (const [key, value] of Object.entries(tool.scope || {})) {
       if (isRepo(tool) && key === 'repo') continue;
       rows.push([label(key), asList(value).join(', ')]);
@@ -72,7 +81,7 @@
     return rows.filter(([, v]) => v);
   }
   function summary(tool) {
-    return [tool.name, tool.identity, ...facts(tool).map(([k, v]) => k === 'State' ? v : `${k.toLowerCase()} ${v}`)].filter(Boolean).join(', ');
+    return [tool.name, shownIdentity(tool), ...facts(tool).map(([k, v]) => k === 'State' ? v : `${k.toLowerCase()} ${v}`)].filter(Boolean).join(', ');
   }
 
   // One tooltip for the strip, moved to whichever icon the pointer or focus is on (the .tip look of ui/app/tooltip.js).
@@ -83,7 +92,7 @@
       TIP.id = 'bts-tip'; TIP.className = 'tip bts-tip'; TIP.setAttribute('role', 'tooltip'); TIP.hidden = true;
       document.body.append(TIP);
     }
-    TIP.innerHTML = `<div class="tip-head">${esc(tool.name)}${tool.identity ? ` · ${esc(tool.identity)}` : ''}</div>
+    TIP.innerHTML = `<div class="tip-head">${esc(tool.name)}${tool.identity ? ` · ${esc(shownIdentity(tool))}` : ''}</div>
       <dl>${facts(tool).map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === 'State' && tool.status === 'problem' ? ' class="bt-problem"' : ''}>${esc(v)}</dd>`).join('')}</dl>`;
     TIP.hidden = false;
     el.setAttribute('aria-describedby', 'bts-tip');
@@ -170,9 +179,9 @@
       const repo = isRepo(tool);
       const identityLabel = tool.id === 'model' ? 'Runs on' : repo ? 'Repository' : 'Acts as';
       if (tool.identity) rows.push([identityLabel, tool.url && repo
-        ? `<a href="${esc(tool.url)}" target="_blank" rel="noopener noreferrer">${esc(tool.identity)}</a>` : esc(tool.identity)]);
+        ? `<a href="${esc(tool.url)}" target="_blank" rel="noopener noreferrer">${esc(tool.identity)}</a>` : esc(shownIdentity(tool))]);
       if (repo && access(tool)) rows.push(['Access', esc(access(tool))]);
-      else if (tool.can?.length && tool.id !== 'model') rows.push(['Can', tool.can.map(v => `<span class="pill">${esc(v)}</span>`).join('')]);
+      else if (tool.can?.length && tool.id !== 'model') rows.push(['Can', tool.can.map(v => `<span class="pill">${esc(canWord(v))}</span>`).join('')]);
       for (const [key, value] of Object.entries(tool.scope || {})) {
         if (repo && key === 'repo') continue;
         rows.push([label(key), esc(asList(value).join(', '))]);
@@ -182,7 +191,7 @@
       if (tool.note) rows.push(['Note', esc(tool.note)]);
       const status = tool.status === 'problem' && tool.problem
         ? `<span class="bt-problem">${esc(tool.problem)}</span>`
-        : `${statusPill(tool)}${tool.detail ? ` <span class="muted">${esc(tool.detail)}</span>` : ''}`;
+        : `${statusPill(tool)}${shownDetail(tool) ? ` <span class="muted">${esc(shownDetail(tool))}</span>` : ''}`;
       rows.push(['Status', status]);
       return `<dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>`;
     }

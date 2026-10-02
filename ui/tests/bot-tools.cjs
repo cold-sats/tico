@@ -156,7 +156,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.equal(await page.locator('#pane-more').isVisible(), true);
       assert.equal(await list.locator('.bt-item').count(), 9);
       const text = await list.innerText();
-      for (const expected of ['openai/gpt-6-luna', 'acme-co/emp-cmo', 'PostHog project 12345 (US), personal key', '12345', 'POSTHOG_KEY',
+      for (const expected of ['GPT-6-luna', 'acme-co/emp-cmo', 'PostHog project 12345 (US), personal key', '12345', 'POSTHOG_KEY',
         'funnels only', 'Credential missing on Test Mac', '#ops, #launch', 'SLACK_TOKEN', 'nothing to check', 'account 3'])
         assert(text.includes(expected), scheme + ': the list says ' + expected + '\n' + text);
       assert.equal(await list.locator('[data-tool=repo] a').getAttribute('href'), 'https://github.com/acme-co/emp-cmo');
