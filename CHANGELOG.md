@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-02
+
 ### Changed
 - The bot page's right rail runs full height in a denser style: Active first, then Updates (just "Updates · 10h
   ago"), Files (names only, a small "+N"), Recurring, with "Assigned to others" and Done folded at the bottom. The

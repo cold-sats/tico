@@ -92,7 +92,7 @@ to `.env`, keep only these lines, and run `docker compose up -d`:
 ```
 TICO_TEAM_NAME=Acme
 TICO_OWNER_EMAIL=you@example.com
-TICO_TAG=v0.2.42
+TICO_TAG=v0.3.1
 TICO_PORT=8765
 COMPOSE_PROFILES=updater
 TICO_UPDATER_URL=http://updater:8080
