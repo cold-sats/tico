@@ -1941,6 +1941,8 @@ class Runner:
             if msg.get("from_actor") == own:
                 continue                    # its own words, which the session already holds
             lines.append(f"{speaker(msg)} [{msg['id']}]: {msg['body']}")
+            if msg.get("refs", {}).get("answer"):
+                lines.append("answer: " + json.dumps(msg["refs"]["answer"], ensure_ascii=False))
             if msg.get("refs", {}).get("attachments"):
                 lines.append("Attachments: " + json.dumps(msg["refs"]["attachments"], ensure_ascii=False))
         current = attempt["message"]
@@ -1948,8 +1950,11 @@ class Runner:
                                                 else str(attempt.get("principal") or "requester"))
                      + ":\n" + current["body"])
         current_refs = attempt["message"].get("refs") or {}
-        if current_refs:
-            lines.append("Current message references:\n" + json.dumps(current_refs, ensure_ascii=False))
+        if current_refs.get("answer"):
+            lines.append("answer: " + json.dumps(current_refs["answer"], ensure_ascii=False))
+        remaining_refs = {k: v for k, v in current_refs.items() if k != "answer"}
+        if remaining_refs:
+            lines.append("Current message references:\n" + json.dumps(remaining_refs, ensure_ascii=False))
         if attempt["message"].get("refs", {}).get("attachments"):
             lines.append("Current attachments: " + json.dumps(attempt["message"]["refs"]["attachments"], ensure_ascii=False))
         if attempt.get("next_run"):

@@ -275,7 +275,20 @@ def run(args, who=None):
         if sub == "ask":
             return post(f"tasks/{args.id}/ask", {"text": args.text})
         if sub == "comment":
-            return post(f"tasks/{args.id}/comments", {"text": args.text})
+            from clients.task_review import ask_from_args, attachment
+            ask = ask_from_args(args)
+            references = []
+            for index, path in enumerate(getattr(args, "attach", None) or []):
+                made = post(f"tasks/{args.id}/files", attachment(path), suffix=f":attachment:{index}")
+                references.append(f"{made['file_id']}@{made['version']}")
+            body = {"text": args.text}
+            if references:
+                body["attachments"] = references
+            if ask is not None:
+                body["ask"] = ask
+            return post(f"tasks/{args.id}/comments", body)
+        if sub == "answers":
+            return client.get(f"tasks/{args.id}/answers")
         if sub == "link":
             return post(f"tasks/{args.id}/links", {"url": args.url, "title": args.title})
         if sub == "label":
@@ -291,12 +304,14 @@ def run(args, who=None):
             return post("tasks/" + args.id, {"version": current["version"], "labels": labels})
         if sub == "attach":
             path = Path(args.file)
+            from clients.task_review import ask_from_args
             body = {"name": args.name or path.name}
+            ask = ask_from_args(args)
+            if ask is not None:
+                body["ask"] = ask
+            if getattr(args, "note", None) is not None:
+                body["note"] = args.note
             if client.features().get("task_files_multipart"):
-                if getattr(args, "note", None):
-                    body["note"] = args.note
-                if getattr(args, "ask", None):
-                    body["ask"] = json.loads(Path(args.ask).read_text())
                 uploads = {"file": path}
                 if getattr(args, "poster", None):
                     uploads["poster"] = Path(args.poster)

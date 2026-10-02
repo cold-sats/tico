@@ -201,19 +201,89 @@ class Files:
         return c.execute("SELECT * FROM bot_files WHERE id=?", (row["id"],)).fetchone(), created, changed
 
     def publish_task_deliverable(self, c, who, task_id, item, digest):
-        """A bot's deliverable attached to a task (media.py) is a file, in the same transaction."""
-        if who.role != "bot":
-            return None
-        bot = H.actor_id(who.actor)
-        try:
-            name, mime = BF.check_name(item["name"])
-        except BF.Refused as exc:
-            raise refused(exc) from exc
-        row, *_ = self.add_version(c, bot=bot, actor=who.actor, scope="task:" + task_id, task=task_id,
-                                   conversation=None, attempt=who.attempt_id, identity=series(bot, "task-file/" + name),
-                                   title=name, name=name, mime=mime, blob_id=item["id"], digest=digest,
-                                   size=item["size"])
-        return row["id"]
+        """Compatibility hook for attachment upload paths, including streaming uploads."""
+        from .views import default_bot
+        task = H.task(c, task_id)
+        actors = (who.actor, task["owner"], task["requester"])
+        bot = next((H.actor_id(a) for a in actors if H.is_bot(a)), None) or default_bot(c, self.store.settings)
+        if who.role == "bot":
+            try:
+                BF.check_name(item["name"])
+            except BF.Refused as exc:
+                raise refused(exc) from exc
+        fid, _ = self.attach_task(c, who, task_id, item, digest, bot)
+        return fid
+
+    def attach_task(self, c, who, task_id, item, digest, bot):
+        """Same task and display name means one series, even across authors."""
+        row = c.execute("SELECT f.* FROM bot_files f JOIN bot_file_versions v "
+                        "ON v.file_id=f.id AND v.version=f.current_version "
+                        "WHERE f.task_id=? AND f.archived=0 AND v.name=? "
+                        "ORDER BY f.last_activity_at DESC LIMIT 1", (task_id, item["name"])).fetchone()
+        created = row is None
+        legacy = None
+        if row is None:
+            legacy = c.execute("SELECT b.* FROM blobs b JOIN task_assets a ON a.blob_id=b.id "
+                               "WHERE a.task_id=? AND b.name=? AND b.id<>? AND NOT EXISTS "
+                               "(SELECT 1 FROM bot_file_versions v WHERE v.blob_id=b.id) "
+                               "ORDER BY b.created DESC LIMIT 1", (task_id, item["name"], item["id"])).fetchone()
+            fid, stamp = (legacy["id"] if legacy else new_id()), H.now()
+            c.execute("INSERT INTO bot_files(id,bot,scope,identity,title,kind,mime,locator,task_id,"
+                      "first_activity_at,last_activity_at) VALUES(?,?,?,?,?,?,?,'tico_blob',?,?,?)",
+                      (fid, bot, "task:" + task_id, "task-file:" + fid, item["name"], BF.kind_of(item["name"]),
+                       item["content_type"], task_id, stamp, stamp))
+            row = c.execute("SELECT * FROM bot_files WHERE id=?", (fid,)).fetchone()
+            if legacy:
+                self.insert_task_version(c, fid, 1, legacy["id"], legacy["digest"], legacy["size"],
+                                         legacy["name"], legacy["content_type"], legacy["owner"], legacy["created"], pending=False)
+        number = row["current_version"] + 1 + (1 if legacy else 0)
+        self.insert_task_version(c, row["id"], number, item["id"], digest, item["size"], item["name"],
+                                 item["content_type"], who.actor, H.now())
+        c.execute("UPDATE bot_files SET current_version=?,mime=?,last_activity_at=? WHERE id=?",
+                  (number, item["content_type"], H.now(), row["id"]))
+        self.activity(c, row["id"], who.actor, "created" if created else "modified", task=task_id,
+                      version=number, digest=digest)
+        return row["id"], number
+
+    @staticmethod
+    def insert_task_version(c, fid, number, blob, digest, size, name, mime, actor, created, *, pending=True):
+        c.execute("INSERT INTO bot_file_versions(file_id,version,blob_id,digest,size,name,mime,actor,created,media_state) "
+                  "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                  (fid, number, blob, digest, size, name, mime, actor, created, "pending" if pending else "none"))
+
+    def task_listing(self, c, who, task_id):
+        from .task_review import version_review
+        self.auth.task(c, who, task_id)
+        out = []
+        for row in c.execute("SELECT * FROM bot_files WHERE task_id=? AND locator='tico_blob' "
+                             "ORDER BY last_activity_at DESC", (task_id,)):
+            versions = []
+            for v in c.execute("SELECT * FROM bot_file_versions WHERE file_id=? ORDER BY version DESC", (row["id"],)):
+                fields = dict(v)
+                versions.append({"n": v["version"], "size": v["size"], "mime": v["mime"], "sha256": v["digest"],
+                                 "created": v["created"], "by": v["actor"],
+                                 **version_review(c, row["id"], v["version"]),
+                                 **{k: fields.get(k) for k in ("width", "height", "duration_ms", "media_state")},
+                                 "poster_url": f"/api/v2/files/{row['id']}/poster?v={v['version']}" if fields.get("poster_blob_id") else None,
+                                 "thumb_url": f"/api/v2/files/{row['id']}/thumb?v={v['version']}" if fields.get("thumb_blob_id") else None,
+                                 "url": f"/api/v2/files/{row['id']}?v={v['version']}"})
+            if versions:
+                name = c.execute("SELECT name FROM bot_file_versions WHERE file_id=? AND version=?",
+                                 (row["id"], row["current_version"])).fetchone()[0]
+                out.append({"id": row["id"], "name": name, "mime": row["mime"],
+                            "current_version": row["current_version"], "archived": bool(row["archived"]), "versions": versions})
+        for b in c.execute("SELECT b.*,m.width,m.height,m.duration_ms,m.media_state,m.poster_blob_id,m.thumb_blob_id "
+                           "FROM blobs b JOIN task_assets a ON a.blob_id=b.id LEFT JOIN blob_media m ON m.blob_id=b.id WHERE a.task_id=? "
+                           "AND NOT EXISTS(SELECT 1 FROM bot_file_versions v WHERE v.blob_id=b.id)", (task_id,)):
+            out.append({"id": b["id"], "name": b["name"], "mime": b["content_type"], "current_version": 1,
+                        "archived": False, "versions": [{"n": 1, "size": b["size"], "mime": b["content_type"],
+                        "sha256": b["digest"], "created": b["created"], "by": b["owner"],
+                        **version_review(c, b["id"], 1),
+                        **{k: b[k] for k in ("width", "height", "duration_ms", "media_state")},
+                        "poster_url": f"/api/v2/files/{b['id']}/poster?v=1" if b["poster_blob_id"] else None,
+                        "thumb_url": f"/api/v2/files/{b['id']}/thumb?v=1" if b["thumb_blob_id"] else None,
+                        "url": f"/api/v2/files/{b['id']}?v=1"}]})
+        return {"files": out}
 
     def read_input(self, content_type, raw, query):
         if content_type.startswith("application/json"):
@@ -352,7 +422,19 @@ class Files:
         who = request.state.identity
 
         def work(c):
-            if not is_file_id(fid):
+            stored = c.execute("SELECT * FROM bot_files WHERE id=? AND identity LIKE 'task-file:%'", (fid,)).fetchone()
+            if stored and body.model_dump(exclude_none=True) == {"archived": True}:
+                task = self.auth.task(c, who, stored["task_id"])
+                if (who.actor not in (task["owner"], task["requester"])
+                        and not (who.role == "owner" or who.role == "human" and H.can_move(c, who.actor))):
+                    raise Problem("forbidden", "Only a task participant or someone who can move it archives its attachments", 403)
+                c.execute("UPDATE bot_files SET archived=1,last_activity_at=? WHERE id=?", (H.now(), fid))
+                c.execute("DELETE FROM task_assets WHERE task_id=? AND blob_id IN "
+                          "(SELECT blob_id FROM bot_file_versions WHERE file_id=?)", (stored["task_id"], fid))
+                self.activity(c, fid, who.actor, "archived", task=stored["task_id"])
+                H.event(c, who.actor, "task.file_archived", stored["task_id"], {"file": fid})
+                return {"file": {"id": fid, "archived": True}}
+            if not is_file_id(fid) and not stored:
                 if body.model_dump(exclude_none=True) != {"archived": True}:
                     raise Problem("validation", "Task attachments support archive only", 422)
                 linked = c.execute("SELECT task_id FROM task_assets WHERE blob_id=?", (fid,)).fetchall()
@@ -366,10 +448,12 @@ class Files:
                 c.execute("DELETE FROM task_assets WHERE blob_id=?", (fid,))
                 for task in linked:
                     for published in c.execute("SELECT f.id FROM bot_files f JOIN bot_file_versions v "
-                                               "ON v.file_id=f.id AND v.version=f.current_version "
+                                               "ON v.file_id=f.id "
                                                "WHERE v.blob_id=? AND f.scope=? AND f.archived=0",
                                                (fid, "task:" + task["task_id"])).fetchall():
                         c.execute("UPDATE bot_files SET archived=1,last_activity_at=? WHERE id=?", (H.now(), published["id"]))
+                        c.execute("DELETE FROM task_assets WHERE task_id=? AND blob_id IN "
+                                  "(SELECT blob_id FROM bot_file_versions WHERE file_id=?)", (task["task_id"], published["id"]))
                         self.activity(c, published["id"], who.actor, "archived", task=task["task_id"])
                     H.event(c, who.actor, "task.file_archived", task["task_id"], {"file": fid})
                 return {"file": {"id": fid, "archived": True}}
@@ -421,7 +505,7 @@ class Files:
         """Whether `who` may know this file exists: its scope's visibility, and never a runner's."""
         if who.role not in ("owner", "human", "bot"):
             return False
-        if who.role == "bot" and H.actor_id(who.actor) != row["bot"]:
+        if who.role == "bot" and H.actor_id(who.actor) != row["bot"] and not row["scope"].startswith("task:"):
             return False
         key = row["scope"]
         if key not in cache:
@@ -504,6 +588,8 @@ class Files:
             self.bot_row(c, who, bot)
             cache, caches = {}, {"task": {}, "repo": {}}
             rows = [r for r in c.execute("SELECT * FROM bot_files WHERE bot=? AND archived=0 "
+                                         "AND (identity NOT LIKE 'task-file:%' OR EXISTS (SELECT 1 FROM bot_file_versions v "
+                                         "WHERE v.file_id=bot_files.id AND v.actor='bot:' || bot_files.bot)) "
                                          "ORDER BY last_activity_at DESC, id DESC", (bot,))
                     if self.visible(c, who, r, cache)]
             start = 0
@@ -609,6 +695,18 @@ def install_files(app, store, auth, blobs, mutate):
     @app.patch("/api/v2/files/{fid}")
     def edit(request: Request, fid: str, body: FileEdit):
         return files.edit(request, fid, body)
+
+    @app.patch("/api/v2/files/{fid}/versions/{number}")
+    def edit_version(request: Request, fid: str, number: int, body: M.FileVersionEdit):
+        from .task_review import edit_version as change
+        def work(c):
+            row = c.execute("SELECT task_id FROM bot_files WHERE id=?", (fid,)).fetchone()
+            if not row:
+                row = c.execute("SELECT task_id FROM task_assets WHERE blob_id=?", (fid,)).fetchone()
+            if not row or not row["task_id"]:
+                raise Problem("not_found", "Task file not found", 404)
+            return change(c, auth, request.state.identity, row["task_id"], fid, number, body)
+        return mutate(request, body, work)
 
     @app.get("/api/v2/files/{fid}/activity")
     def activity(request: Request, fid: str):

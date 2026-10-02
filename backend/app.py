@@ -645,7 +645,7 @@ def create_app(settings=None):
             H.hydrate_task_tags(c, [row])
         value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
                  "labels": H.task_labels(row), "lane": row.get("lane") or "company",
-                 "next_run": bool(row.get("next_run"))}
+                 "next_run": bool(row.get("next_run")), "cover": None}
         if c is not None and row.get("next_run"):
             value["next_run_waiting"] = H.next_run_waiting(c, row)
         value.pop("labels_json", None)
@@ -662,7 +662,9 @@ def create_app(settings=None):
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
-            value.update({"origin_actor": H.task_origin(c, row), "ask": H.unanswered_ask(c, row)})
+            value.update({"origin_actor": H.task_origin(c, row), "ask": H.unanswered_ask(c, row), "open_asks": len(H.open_task_asks(c, row))})
+            from .task_review import task_covers
+            value["cover"] = task_covers(c, [row["id"]]).get(row["id"])
             from .blobs import brief
             value["attachments"] = [brief(r) for r in c.execute(
                 "SELECT b.* FROM blobs b JOIN task_assets a ON a.blob_id=b.id WHERE a.task_id=?", (row["id"],))]
@@ -686,6 +688,8 @@ def create_app(settings=None):
         H.hydrate_task_tags(c, rows)
         ids = [row["id"] for row in rows]
         marks = ",".join("?" * len(ids))
+        from .task_review import task_covers
+        covers = task_covers(c, ids)
 
         parts = {row["parent_id"]: {"total": row["total"] or 0, "done": row["done"] or 0}
                  for row in c.execute(
@@ -712,27 +716,22 @@ def create_app(settings=None):
             blockers = {row["id"]: dict(row) for row in c.execute(
                 f"SELECT id,title,status FROM tasks WHERE id IN ({blocker_marks})", blocker_ids)}
 
-        asks = {}
-        conversations = list({row.get("conversation_id") for row in rows if row.get("conversation_id")})
-        if conversations:
-            conv_marks = ",".join("?" * len(conversations))
-            latest = {}
-            for message in c.execute(
-                    f"SELECT * FROM messages WHERE kind='ask' AND conversation_id IN ({conv_marks}) "
-                    "ORDER BY conversation_id,created DESC", conversations):
-                latest.setdefault(message["conversation_id"], dict(message))
-            ask_ids = [message["id"] for message in latest.values()]
-            answered = set()
-            if ask_ids:
-                ask_marks = ",".join("?" * len(ask_ids))
-                answered.update(row[0] for row in c.execute(
-                    f"SELECT DISTINCT in_reply_to FROM messages WHERE kind='answer' "
-                    f"AND in_reply_to IN ({ask_marks})", ask_ids))
-            for conversation, message in latest.items():
-                if message["id"] in answered or message.get("answered_by"):
-                    continue
-                message["refs"] = H._json(message.get("refs_json"), {}) or {}
-                asks[conversation] = message
+        asks, open_counts = {}, {}
+        for message in c.execute(
+                "SELECT * FROM (SELECT m.*,t.id AS ask_task_id,"
+                "COUNT(*) OVER (PARTITION BY t.id) AS open_count,"
+                "ROW_NUMBER() OVER (PARTITION BY t.id ORDER BY m.rowid DESC) AS ask_rank "
+                "FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
+                f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
+                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.answered_by IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')) "
+                "WHERE ask_rank=1", ids):
+            message = dict(message)
+            tid = message.pop("ask_task_id")
+            open_counts[tid] = message.pop("open_count")
+            message.pop("ask_rank")
+            message["refs"] = H._json(message.get("refs_json"), {}) or {}
+            asks[tid] = message
 
         origins = {}
         for event in c.execute(
@@ -756,8 +755,8 @@ def create_app(settings=None):
                 "links": links[row["id"]],
                 "children_summary": summaries[row["id"]],
                 "pr_state": H.pr_state(links[row["id"]]),
-                "attachments": attachments[row["id"]],
-                "ask": asks.get(row.get("conversation_id")),
+                "attachments": attachments[row["id"]], "cover": covers.get(row["id"]),
+                "ask": asks.get(row["id"]), "open_asks": open_counts.get(row["id"], 0),
             })
             if row.get("blocked_by"):
                 value["blocker"] = blockers.get(row["blocked_by"])
@@ -2186,19 +2185,51 @@ def create_app(settings=None):
         def work(c):
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
-            # The comment goes to the bot on the other side of the task (`H.task_comment`), so it is
-            # a request to it: Write, and the same bot-to-bot limits a message has. The owner
-            # answering whoever asked for the work is the reply path, which needs no Write.
-            others = [a for a in dict.fromkeys([row["owner"], row["requester"], H.task_origin(c, row)])
-                      if a and a not in (who.actor, H.KEEPER)]
-            target = next((a for a in others if H.is_bot(a)), None)
-            if target and who.actor != row["owner"]:
-                auth.require_write(c, who, H.actor_id(target))
-            if target:
-                auth.require_bot_contact(c, who, target, task_id=task_id, kind="comment")
+            from .task_review import comment_rights, check_ask, file_version
+            comment_rights(c, auth, who, task_id)
+            ask = check_ask(c, task_id, body.ask, auth, who)
+            attached = []
+            for reference in body.attachments:
+                fid, number = reference.rsplit("@", 1)
+                version = file_version(c, task_id, fid, int(number))
+                attached.append({"id": fid, "file_id": fid, "version": int(number), "ref": reference,
+                                 "name": version["name"], "size": version["size"], "content_type": version["mime"],
+                                 "url": f"/api/v2/files/{fid}?v={number}"})
             wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or mover(c, who)
-            msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake)
+            msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask,
+                                 extra_refs={"attachments": attached, "files": body.attachments} if attached else None)
+            for item in attached:
+                c.execute("INSERT OR IGNORE INTO task_file_reviews(file_id,version) VALUES(?,?)",
+                          (item["id"], item["version"]))
+                c.execute("UPDATE task_file_reviews SET comment_id=coalesce(comment_id,?) WHERE file_id=? AND version=?",
+                          (msg["id"], item["id"], item["version"]))
+            msg = next(m for m in H.task_comments(c, task_id) if m["id"] == msg["id"])
             return {"comment": msg, "comments": H.task_comments(c, task_id), "woke": bool(wake)}
+        return mutate(request, body, work)
+
+    @app.get("/api/v2/tasks/{tid}/comments")
+    def task_comments(request: Request, tid: str):
+        with store.read() as c:
+            task_id = auth.resolve_task(c, request.state.identity, tid)
+            auth.task(c, request.state.identity, task_id)
+            return {"comments": H.task_comments(c, task_id)}
+
+    @app.get("/api/v2/tasks/{tid}/answers")
+    def task_answers(request: Request, tid: str):
+        with store.read() as c:
+            task_id = auth.resolve_task(c, request.state.identity, tid)
+            auth.task(c, request.state.identity, task_id)
+            return {"answers": [m["answer"] for m in H.task_comments(c, task_id) if m.get("answer")]}
+
+    @app.post("/api/v2/tasks/{tid}/answers")
+    def task_answer(request: Request, tid: str, body: M.TaskAnswer):
+        who = request.state.identity
+        def work(c):
+            from .task_review import answer_task
+            task_id = auth.resolve_task(c, who, tid)
+            row = auth.task(c, who, task_id)
+            wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or mover(c, who)
+            return answer_task(c, auth, who, task_id, body, wake=wake)
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks/{tid}/tree")

@@ -63,6 +63,14 @@ Small text deliverables can also live in your repo's `reports/`; large or binary
 the bucket. A deliverable in the bucket or on a task is still internal; anything
 customer-facing stays a draft until `outbound_send` is on.
 
+## Asking people
+Deliver files with `hub task attach <id> <file> --note "..." --ask ask.json`, or use
+`--choices "Approve,Request changes"` for one question. The same task and name adds a version.
+For a comment, use `hub task comment <id> "..." --attach <file> --ask ask.json` (MCP tools accept
+`ask` too). Ask once per version. Read the `answer: {...}` block in the wake, or
+`hub task answers <id>`, and act on that answer. Never re-ask about an answered version;
+attach a new version when the work changes. Answers record who replied; the bot decides its next step.
+
 ## Access
 What you may touch, and as whom, is declared under `tools:` in your `bot.yaml` and shown in the
 hub app. Not listed means not allowed, except the implicit access to your own bot repository,

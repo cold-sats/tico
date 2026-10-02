@@ -50,8 +50,8 @@ class TaskFile(M.Contract):
     name: str = Field(min_length=1, max_length=200)
     text: str | None = Field(default=None, min_length=1, max_length=2_000_000)
     content_base64: str | None = Field(default=None, min_length=1, max_length=14_000_000)
-    note: str = Field(default="", max_length=64000)
-    ask: dict | None = None
+    note: str | None = Field(default=None, max_length=500)
+    ask: M.ReviewAsk | None = None
 
 
 def upload_contract(model):
@@ -361,11 +361,19 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             return result
         return await asyncio.to_thread(write, request, body, uploads, work)
 
+    @app.get("/api/v2/tasks/{tid}/files")
+    def task_files(request: Request, tid: str):
+        with store.read() as c:
+            task_id = auth.resolve_task(c, request.state.identity, tid)
+            return files.task_listing(c, request.state.identity, task_id)
+
     @app.post("/api/v2/tasks/{tid}/files")
     async def task_attach(request: Request, tid: str):
         who = request.state.identity
+        from .task_review import comment_rights, edit_version
         with store.read() as c:
-            auth.task(c, who, tid)
+            tid = auth.resolve_task(c, who, tid)
+            comment_rights(c, auth, who, tid)
         poster = None
         if request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
             from .file_upload import parse
@@ -420,14 +428,20 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                     raise Problem("file_refused", str(exc), 422) from exc
             digest = await asyncio.to_thread(blobs.put, data, content_type)
         def work(c):
-            auth.task(c, who, tid)
+            task = comment_rights(c, auth, who, tid)
             item = register(c, who, digest, size, body.name, content_type)
+            bot_actor = next((a for a in (who.actor, task["owner"], task["requester"]) if H.is_bot(a)), None)
+            fid, number = files.attach_task(c, who, tid, item, digest,
+                                           H.actor_id(bot_actor) if bot_actor else default_bot(c, store.settings))
             c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, item["id"]))
+            if body.note is not None or body.ask is not None:
+                edit_version(c, auth, who, tid, fid, number,
+                             M.FileVersionEdit(note=body.note, ask=body.ask))
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
-            files.publish_task_deliverable(c, who, tid, item, digest)
             preview = register(c, who, **poster)["id"] if poster else None
             c.execute("INSERT INTO blob_media(blob_id,poster_blob_id) VALUES(?,?)", (item["id"], preview))
-            return {"file": item, "link": store.settings.public_url + item["url"]}
+            return {"file": {**item, "file_id": fid, "version": number}, "file_id": fid, "version": number,
+                    "link": store.settings.public_url + f"/api/v2/files/{fid}?v={number}"}
         # Include byte identity in the receipt without storing multipart bytes.
         receipt = {**body.model_dump(), "digest": digest, "size": size, "poster": poster}
         if request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
@@ -611,11 +625,19 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         return row
 
     @app.get("/api/v2/files/{bid}/meta")
-    def file_meta(request: Request, bid: str):
+    def file_meta(request: Request, bid: str, v: int | None = None):
         """Name, size and type without the bytes (the viewer decides a
         thumbnail or a type mark from this, not by downloading the file)."""
-        if is_file_id(bid):
-            return files.serve(request.state.identity, bid, meta=True)
+        with store.read() as c:
+            stored = c.execute("SELECT 1 FROM bot_files WHERE id=?", (bid,)).fetchone()
+        if is_file_id(bid) or stored:
+            try:
+                return files.serve(request.state.identity, bid, v, meta=True)
+            except Problem as exc:
+                if is_file_id(bid) or v not in (None, 1) or exc.status not in (403, 404):
+                    raise
+        if v not in (None, 1):
+            raise Problem("not_found", "File version not found", 404)
         with store.read() as c:
             row = readable_blob(c, request.state.identity, bid)
             media = c.execute("SELECT * FROM blob_media WHERE blob_id=?", (bid,)).fetchone()
@@ -652,8 +674,16 @@ def install_media(app, store, auth, mutate, send_message, task_create):
 
     def download_blob(request, bid, v=None, derivative=None):
         who = request.state.identity
-        if is_file_id(bid):
-            return files.serve(who, bid, v, request=request, derivative=derivative)
+        with store.read() as c:
+            stored = c.execute("SELECT 1 FROM bot_files WHERE id=?", (bid,)).fetchone()
+        if is_file_id(bid) or stored:
+            try:
+                return files.serve(who, bid, v, request=request, derivative=derivative)
+            except Problem as exc:
+                if is_file_id(bid) or v not in (None, 1) or exc.status not in (403, 404):
+                    raise
+        if v not in (None, 1):
+            raise Problem("not_found", "File version not found", 404)
         with store.read() as c:
             row = resolve_blob(c, who, bid, v, derivative)
         from .file_delivery import serve

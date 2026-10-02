@@ -139,3 +139,70 @@ A head pusher counts as the bot only when their login matches the PR author. Req
 changes always wake the owner, including requests from those identities.
 Automatic shipping waits until every merged PR is included in the configured release;
 PRs in another repository remain Ready for their release or a human's completion.
+
+## Files, versions and questions
+
+Attach a file to the task so anyone who can read the task can open it. Uploading the same name
+on the same task adds a new version, even when another teammate uploads it. Another task or an
+archived file starts a separate file. Older attachments appear as v1 without rewriting existing data.
+Each version records who uploaded it, when, its size and type, an optional note (up to 500 characters),
+and a question with its answers. Media metadata can be null until processing finishes.
+
+```sh
+hub task attach <task-id> report.md --note "Revised introduction" --choices "Approve,Request changes"
+hub task comment <task-id> "Choose a draft" --attach draft-a.md --attach draft-b.md --ask ask.json
+hub task answers <task-id>
+```
+
+`--ask` reads a JSON object from a file; it and `--choices` are alternatives. The shorthand builds
+one question (`id: verdict`) with the given options and an Other text answer. MCP tools
+`hub_task_attach` and `hub_task_comment` accept `ask`; attach also accepts `note`. Comment's
+`attachments` contains references such as `file-id@2`. `hub_task_answers` lists recorded answers.
+
+```json
+{"questions":[{"id":"verdict","header":"Review","question":"Is this ready?",
+ "options":[{"label":"Approve"},{"label":"Request changes","description":"Say what to change"}],
+ "multi":false,"other":true}],"who":null}
+```
+
+Questions may be on a comment or a file version. An ask has one to four questions, each with
+an id (up to 40 characters), header (30), question (300), and zero to six options. Labels are up
+to 60 characters and descriptions up to 200. An option can link to a version using `file: "<id>@<n>"`.
+`multi` defaults to false; `other` defaults to true. Question ids and labels must be unique.
+Unknown fields are rejected. `who` names a person or bot for Needs you; otherwise the requester
+is highlighted (the owner when the requester asks). Every open ask counts in the task's
+`open_asks`, including older unanswered questions.
+
+Uploading any file or version requires comment permission. Anyone who may comment on the task
+can answer, except the asker. Read permission alone does not grant comment or answer permission. Answers validate question ids and option labels; Other
+text is accepted only when the question allows it. A dismissal closes the ask too. Every answer
+is retained, oldest first, as an existing answer message and a readable task comment. Answers
+follow the comment wake rule: a bot, task owner or requester, or human mover wakes the task's bot; other teammates' answers wait for its next turn. The Computer receives the comment
+text and one `answer: {...}` block; older Computers still read the text.
+The bot decides what to do and whether to move the step. Ask once per version and act on the
+answer; attach a new version when the work changes.
+
+The API uses the existing ask/answer protocol (`messages.kind`, `refs.questions`, `refs.target`,
+and `refs.answer`); plain questions and text replies keep working. Plain comments keep structured
+questions open; an older Computer's plain answer closes its target and reads as `{by, text, at}`.
+Needs you excludes closed, cancelled, archived and declined tasks, even with an open question.
+The version's metadata points to its ask message. These routes use the usual Idempotency-Key contract:
+
+- `POST /api/v2/tasks/{id}/files` accepts the existing `name` plus `text` or `content_base64`, and
+  optional `note` and `ask`. The result includes `file_id` and `version`, alongside the existing
+  `file` and `link` fields.
+- `GET /api/v2/tasks/{id}/files` returns files, including archived files, with versions newest first.
+- `PATCH /api/v2/files/{id}/versions/{n}` accepts `note` and `ask`, by the version's uploader.
+- `POST /api/v2/tasks/{id}/comments` accepts `text`, `ask`, and version references in `attachments`.
+  `GET` lists the comments, including `ask` and `answers` on questions, and `answer` on responses.
+- `POST /api/v2/tasks/{id}/answers` accepts `target: {comment: id}` or
+  `target: {file: id, version: n}`, `answers: {question_id: [label, ...]}`, optional `other`,
+  or `dismiss: true`. Answer every question, using an empty label list for an allowed Other reply.
+  `GET` lists the structured answers.
+
+Comment and version `ask` objects include `questions`, `who` and `by` (the asker's actor).
+Comment `refs.attachments` includes each attached version's `id`, `name` and `version`.
+Task list and detail rows include `cover: {url, width, height}` or null. The cover is the newest
+image version's thumbnail (or the image itself) or a video's poster; its URL includes `?v=N`.
+Archived files are excluded, dimensions may be null, and each task page computes covers in one query.
+For multi-question reviews, `other` is one string for the entire answer.

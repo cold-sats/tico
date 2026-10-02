@@ -192,3 +192,14 @@ The optional ffmpeg + poppler-utils install was measured in a disposable
 APT reported 119 MB of download archives and 417 MB of installed packages. This exceeds the
 150 MB image budget, so these tools are omitted from the standard server image. Install them in
 a custom server image, or supply a poster. Pillow and the multipart parser ship with the server.
+## Task file reviews
+
+Task attachments are versioned by name within their task, across uploaders. Reusing a name
+adds a version; an archived name starts a new file. Existing attachments are v1. Task files
+and their versions are listed by `GET /api/v2/tasks/{id}/files`, with notes, questions, all
+answers and nullable media metadata. Downloads accept `?v=<n>` for an exact version.
+The version's author can edit its note or question through
+`PATCH /api/v2/files/{id}/versions/{n}`. File bytes remain immutable. Reviews use the existing
+ask/answer messages, so their text remains readable by older Computers.
+See [Files, versions and questions](tasks.md#files-versions-and-questions) for the CLI, MCP
+and answer contracts.
