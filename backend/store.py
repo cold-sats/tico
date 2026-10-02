@@ -339,10 +339,13 @@ def refused(c, identity, exc):
     c.execute("ROLLBACK TO domain_write")
     c.execute("RELEASE domain_write")
     # Preserve refusal auditing, but never a partial domain operation.
+    token = H.PRIVATE_WRITE.set(getattr(exc, 'private', False))
     try:
         H.refuse(c, identity.actor, exc.rule, exc.detail, exc.severity)
     except H.Refused:
         pass
+    finally:
+        H.PRIVATE_WRITE.reset(token)
     return Problem(exc.rule, exc.detail, 403 if exc.rule in ("identity", "escape", "quarantined", "close") else 422)
 
 
@@ -1182,7 +1185,7 @@ class Store:
                 c.execute("RELEASE domain_write")
             except H.Refused as exc:
                 refusal = refused(c, identity, exc)
-                result = {"_refusal": {"code": refusal.code, "detail": refusal.detail,
+                result = {"_refusal": {"code": refusal.code, "detail": ("Private task write refused" if getattr(exc, "private", False) else refusal.detail),
                                        "status": refusal.status}}
             if not is_poll(operation, result):
                 c.execute("INSERT INTO idempotency VALUES(?,?,?,?,?,?)",

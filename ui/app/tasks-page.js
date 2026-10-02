@@ -246,10 +246,13 @@ function openTaskCreate(owner = '', opts = {}) {
     </div>`;
   $('[data-modal-close]', d).onclick = () => d.close();
   const creation = $('#task-create-form', d);
+  let privateTouched = false;
+  creation.elements.private.addEventListener('change', () => { privateTouched = true; });
   const privateDefault = () => {
     const slug = creation.elements.owner.value.replace(/^bot:/, '');
     const bot = S.emps.find(e => e.name === slug);
-    creation.elements.private.checked = !!parent?.private || !!bot?.private_tasks_default;
+    if (parent?.private || !privateTouched)
+      creation.elements.private.checked = !!parent?.private || !!bot?.private_tasks_default;
     creation.elements.private.disabled = !!parent?.private;
   };
   creation.elements.owner.addEventListener('change', privateDefault); privateDefault();

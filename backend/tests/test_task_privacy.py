@@ -151,3 +151,19 @@ def test_private_reassignment_updates_thread_members_without_losing_messages(api
         assert set(json.loads(conv['participants_json'])) == {'human:ana', 'human:priya'}
         assert c.execute('SELECT 1 FROM messages WHERE conversation_id=? AND body=?',
                          (conv['id'], 'Tracked comment.')).fetchone()
+
+
+def test_private_dependency_and_refusal_audit_never_copy_sensitive_content(api):
+    private = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review sensitive evidence', 'body': 'Review it.', 'private': True})
+    public = post(api, 'tasks', {'owner': 'cmo', 'title': 'Review release timing', 'body': 'Review it.'})
+    post(api, 'tasks/' + public['id'], {'version': public['version'], 'blocked_by': private['id']}, expected=422)
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET blocked_by=? WHERE id=?', (private['id'], public['id']))
+        H._unblock(c, H.task(c, private['id']))
+        assert H.task(c, public['id'])['blocked_by'] == private['id']
+        try:
+            H.task_update(c, 'bot:cpo', private['id'], body='Publish outside the hub SECRET-PACKET')
+        except H.Refused as exc:
+            assert exc.private
+        audit = c.execute("SELECT detail_json FROM events WHERE action='refused'").fetchall()
+        assert all('SECRET-PACKET' not in row[0] for row in audit)

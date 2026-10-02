@@ -883,6 +883,36 @@ def _one(conn, sql, args=()):
 # request writes says "via assistant" without each write knowing about it.
 VIA = contextvars.ContextVar("hub_via", default="")
 
+PRIVATE_WRITE = contextvars.ContextVar("hub_private_write", default=False)
+
+
+def private_task_write(fn):
+    """Keep refusal audit/escalation content-free for a private domain write, including local runners."""
+    import functools
+    import inspect
+    signature = inspect.signature(fn)
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        values = signature.bind_partial(*args, **kwargs).arguments
+        conn, actor = values['conn'], values['actor']
+        row = task(conn, values.get('task_id')) if values.get('task_id') else None
+        private = bool(row and task_private(conn, row) or values.get('private'))
+        if fn.__name__ == 'task_create':
+            target = resolve_actor(conn, values.get('owner'))
+            parent = task(conn, values.get('parent_id')) if values.get('parent_id') else None
+            private = bool((values.get('private') if values.get('private') is not None else
+                            private_tasks_default(conn, actor) or private_tasks_default(conn, target))
+                           or parent and task_private(conn, parent))
+        token = PRIVATE_WRITE.set(PRIVATE_WRITE.get() or private)
+        try:
+            return fn(*args, **kwargs)
+        except Refused as exc:
+            exc.private = PRIVATE_WRITE.get()
+            raise
+        finally:
+            PRIVATE_WRITE.reset(token)
+    return guarded
+
 
 def event(conn, actor, action, target="", detail=None):
     """Append the audit row every write leaves behind."""
@@ -904,14 +934,15 @@ def writing_refusal(rule, detail):
 
 def refuse(conn, actor, rule, detail="", severity="normal"):
     """Record a refusal, escalate it (rule 8), and raise. Never returns."""
+    recorded = "Private task write refused" if PRIVATE_WRITE.get() else detail
     row = {"id": new_id(), "ts": now(), "actor": str(actor), "rule": rule,
-           "detail_json": _dump({"detail": detail}), "severity": severity}
+           "detail_json": _dump({"detail": recorded}), "severity": severity}
     conn.execute("INSERT INTO refusals (id, ts, actor, rule, detail_json, severity) "
                  "VALUES (:id, :ts, :actor, :rule, :detail_json, :severity)", row)
-    event(conn, actor, "refused", rule, {"detail": detail, "severity": severity})
+    event(conn, actor, "refused", rule, {"detail": recorded, "severity": severity})
     if rule != "quarantined":
         try:
-            _escalate(conn, actor, rule, detail, severity, row["ts"])
+            _escalate(conn, actor, rule, recorded, severity, row["ts"])
         except Exception:       # an escalation must never hide the refusal it came from
             pass
     if writing_refusal(rule, detail):
@@ -2281,6 +2312,9 @@ def _queue_end(conn, owner, top=False):
 def _unblock(conn, done_task):
     """A finished task frees whatever waited on it; a bot owner hears about it."""
     for row in _rows(conn.execute("SELECT * FROM tasks WHERE blocked_by=?", (done_task["id"],))):
+        if task_private(conn, done_task) and (not task_private(conn, row) or not all(
+                task_private_readable(conn, party, done_task) for party in (row['owner'], row['requester']))):
+            continue                  # do not copy private completion into a wider task
         conn.execute("UPDATE tasks SET blocked_by=NULL, updated=?, version=version+1 WHERE id=?",
                      (now(), row["id"]))
         _task_event(conn, row["id"], KEEPER, "blocked_by", done_task["id"], None,
@@ -2304,6 +2338,7 @@ def link_kind(url):
     return "url"
 
 
+@private_task_write
 def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
     """Attach a link to a task. A pull request link is what moves a product-lane task."""
     _writer(conn, actor)
@@ -2356,6 +2391,7 @@ def _task_link_allowed(conn, actor, row, mover=None, kind=None):
         refuse(conn, actor, "identity", "This task is not yours to change")
 
 
+@private_task_write
 def task_unlink(conn, actor, task_id, link_id, mover=None):
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -2531,6 +2567,7 @@ def task_ask_recipient(conn, actor, row, ask):
     return target
 
 
+@private_task_write
 def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None):
     """A comment on a task: one message in the task's conversation, tagged with the task, from
     whoever wrote it. It wakes the bot on the other side of the task when `wake` (a mover, the
@@ -2715,6 +2752,7 @@ def _own_comment(conn, actor, task_id, message_id):
     return msg
 
 
+@private_task_write
 def task_comment_edit(conn, actor, task_id, message_id, text):
     """The author changes a comment's text. The new text gets the checks a new comment's text gets
     (`task_comment`, `say`); rule 7's lint is for unsolicited items, and a comment is tagged with its
@@ -2740,6 +2778,7 @@ def task_comment_edit(conn, actor, task_id, message_id, text):
     return edited
 
 
+@private_task_write
 def task_comment_delete(conn, actor, task_id, message_id):
     """The author takes a comment back. Only its metadata stays for the audit trail, never listed again or
     handed to a bot: a run it queued and nobody started is cancelled, the questions it answered
@@ -2762,6 +2801,7 @@ def task_comment_delete(conn, actor, task_id, message_id):
     return deleted
 
 
+@private_task_write
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
                 goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None,
@@ -2919,6 +2959,7 @@ def _retitle(conn, actor, row, title, owner, type_id, parent_id=None):
     return plain
 
 
+@private_task_write
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
                 step_rank=None, number=None, title=None, private=None):
@@ -3046,7 +3087,12 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 refuse(conn, actor, "kind", "a task cannot block itself")
             if not task(conn, blocker):
                 refuse(conn, actor, "not-found", f"no task {blocker} to block on")
-            _task_private_writer(conn, actor, task(conn, blocker))
+            block = task(conn, blocker)
+            _task_private_writer(conn, actor, block)
+            if task_private(conn, block) and (not (args.get('private', row.get('private'))) or not all(
+                    task_private_readable(conn, party, block)
+                    for party in (args.get('owner', row['owner']), row['requester']))):
+                refuse(conn, actor, 'private', 'A private dependency requires the same private audience')
         sets.append("blocked_by=:blocked_by")
         args["blocked_by"] = blocker
         _task_event(conn, task_id, actor, "blocked_by", row.get("blocked_by"), blocker, note or "")
@@ -3180,6 +3226,7 @@ def _task_close_allowed(conn, actor, row, note):
         refuse(conn, actor, "lint", "Tell the requesting bot why you are closing this task in a note")
 
 
+@private_task_write
 def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=None):
     """Rule 5. The requester closes, or any human. The owner never does."""
     _writer(conn, actor)
@@ -3579,6 +3626,7 @@ def wake_stalled(conn, at=None):
     return {"woke": woke, "escalated": escalated}
 
 
+@private_task_write
 def task_run_now(conn, actor, task_id):
     """Start a bot's task now: a quiet task stops waiting for the next run, and any task gets a
     run of its own, as the task it is ("Run now" used to send a chat message

@@ -77,6 +77,7 @@ lightbulb
 link
 local_library
 local_shipping
+lock
 logout
 loyalty
 mail

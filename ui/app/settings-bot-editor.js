@@ -55,7 +55,7 @@ function settingsEditBot(slug = '') {
         ${editing ? '<fieldset class="bot-editor-wide brepo" data-bot-repos hidden></fieldset>' : ''}
         <label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}> Allow branches</label>
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
-        <label class="bot-editor-wide"><span><input type="checkbox" name="private_tasks_default" ${e?.private_tasks_default ? 'checked' : ''}> Create private tasks by default</span><small>Tasks created by or assigned to this bot are private. Only the requester and assignee can see them.</small></label>
+        <label class="bot-editor-wide"><span><input type="checkbox" name="private_tasks_default" ${e?.private_tasks_default ? 'checked' : ''}> Create private tasks by default</span><small>Tasks created by or assigned to this bot start private. A human requester can choose company visibility.</small></label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
         ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
         ${editing ? '' : `<label class="bot-editor-wide">Model and effort
