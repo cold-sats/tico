@@ -49,9 +49,11 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         links: [{id: 'l1', kind: 'pr', url: 'https://github.com/ticoteam/tico/pull/412', title: 'tico#412', state: 'open'}], parts: {total: 2, done: 1}}),
       task('Fix the checkout bug', {owner: 'bot:cpo', lane: 'product', status: 'open', rank: 2, labels: ['bug']}),
     ];
-    const comments = [{id: 'm1', kind: 'say', from_actor: 'human:ben', to_actor: 'bot:cmo', body: 'Use the September numbers.', created: now, refs: {task: 'Draft the newsletter', comment: true, attachments: [{id: 'doc', name: 'review-packet.md'}]}}];
+    const comments = [{id: 'm1', kind: 'say', from_actor: 'human:ben', to_actor: 'bot:cmo', body: 'Use the September numbers.', created: now, edited_at: now, refs: {task: 'Draft the newsletter', comment: true, attachments: [{id: 'doc', name: 'review-packet.md'}]}}];
     const events = [{id: 'e1', task_id: 'Draft the newsletter', ts: now, actor: 'human:reviewer', field: 'status', old: null, new: 'open', note: ''},
-                    {id: 'e2', task_id: 'Draft the newsletter', ts: now, actor: 'bot:cmo', field: 'status', old: 'open', new: 'doing', note: ''}];
+                    {id: 'e2', task_id: 'Draft the newsletter', ts: now, actor: 'bot:cmo', field: 'status', old: 'open', new: 'doing', note: ''},
+                    {id: 'e3', task_id: 'Draft the newsletter', ts: now, actor: 'human:ben', field: 'comment', old: 'm1', new: 'm1', note: ''},
+                    {id: 'e4', task_id: 'Draft the newsletter', ts: now, actor: 'human:ben', field: 'comment', old: 'm0', new: null, note: ''}];
     const posted = [];
     const people = [];
     let preferencePending = true, tasksStartedBeforePreference = false;
@@ -285,6 +287,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-modal .task-comments .tcomment', {hasText: 'Use the September numbers.'}).waitFor();
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /ben/i, 'the author is on the comment');
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /moved it to Doing/);
+    // An edited comment says so beside its time; a deleted one leaves only a line in the history.
+    assert.equal(await page.locator('#task-modal .tcomment', {hasText: 'Use the September numbers.'}).locator('[title^="Edited"]').count(), 1);
+    assert.match(await page.locator('#task-modal .task-comments').innerText(), /deleted a comment/);
+    assert.doesNotMatch(await page.locator('#task-modal .task-comments').innerText(), /changed comment|edited a comment/);
     assert.equal(await page.getByRole('heading', {name: 'Comments'}).count(), 1);
     assert.equal(await page.locator('#task-modal button[data-prop="status"]').count(), 1, 'a mover can change the status');
     assert.equal(await page.locator('#task-modal select').count(), 0, 'properties, not a form of selects');

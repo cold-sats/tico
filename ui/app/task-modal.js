@@ -295,10 +295,11 @@ const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}`
   lane: v => `moved it to the ${v === 'company' ? 'team' : v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the tags: ${l.join(', ')}` : 'removed the tags'; } catch { return 'changed the tags'; } },
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
-  lint: v => `noted: ${v}`, note: () => 'left a note'};
+  lint: v => `noted: ${v}`, note: () => 'left a note', comment: () => 'deleted a comment'};
 function commentLineHTML(x, i, all) {
   if (x.kind === 'event') {
     if (x.field === 'status' && x.old == null) return '';           // created: the header says so
+    if (x.field === 'comment' && x.new) return '';                  // an edit: the comment itself says edited
     // A step move already names where the task went; its status change would say it twice.
     if (x.field === 'status' && all?.some(y => y.kind === 'event' && y.field === 'step' && y.new && y.ts === x.ts)) return '';
     const say = TASK_EVENT_WORDS[x.field] ? TASK_EVENT_WORDS[x.field](x.new) : `changed ${x.field}`;
@@ -309,7 +310,7 @@ function commentLineHTML(x, i, all) {
   const kind = m.kind === 'ask' ? '<span class="pill needs">question</span>' : m.kind === 'answer' ? '<span class="pill">answer</span>' : '';
   return `<div class="tcomment${String(m.from_actor || '').startsWith('bot:') ? ' bot' : ''}"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor, m.refs?.via)}</span>${kind}
       ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next run on this task">saved</span>' : ''}
-      <span class="spacer"></span><time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
+      <span class="spacer"></span>${m.edited_at ? `<span class="muted" title="Edited ${esc(fmt(m.edited_at))}">edited</span>` : ''}<time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
     <div class="md">${safeMd(m.body || '')}</div>
     ${S.me?.cloud ? (m.refs?.attachments || []).map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join(' ') : ''}</div>`;
 }
