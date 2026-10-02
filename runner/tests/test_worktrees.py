@@ -848,3 +848,32 @@ def test_no_app_failed_clone_explains_computer_login(trees):
     with mock.patch.object(W.isolation, 'run', side_effect=unavailable):
         with pytest.raises(ValueError, match="git could not reach org/product with this computer's git login: access refused"):
             W.command(client, 'add', 'org/product')
+
+
+@pytest.mark.parametrize('kind', ['modified', 'untracked', 'stash', 'detached'])
+def test_retirement_keeps_all_local_work(trees, kind):
+    from runner.repositories import base_kept
+    workspace, base, remote, row, client = trees
+    if kind == 'untracked':
+        (base / 'untracked').write_text('local work')
+    else:
+        (base / 'file').write_text('local work')
+        if kind == 'stash':
+            git(base, 'stash', 'push')
+        elif kind == 'detached':
+            git(base, 'checkout', '--detach')
+            git(base, 'add', '.')
+            git(base, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'Detached work')
+    assert base_kept(base).startswith('kept:')
+    assert base.exists()
+
+
+def test_failed_snapshot_fast_forward_returns_to_task_branch(trees):
+    workspace, base, remote, row, client = trees
+    path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+    (path / 'file').write_text('saved task changes')
+    with mock.patch.object(W, 'fast_forward', side_effect=ValueError('failed fast-forward')):
+        with pytest.raises(ValueError, match='failed fast-forward'):
+            W.act(workspace, row, 'remove', os.environ.copy())
+    assert git(path, 'symbolic-ref', '--short', 'HEAD') == row['branch']
+    assert git(remote, 'show', W.wip_branch(row) + ':file') == 'saved task changes'

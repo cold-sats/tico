@@ -491,3 +491,35 @@ def test_real_isolated_mirror_is_readable_but_not_writable(monkeypatch):
             manager.close()
         finally:
             os.umask(old_umask)
+
+
+def test_uppercase_managed_marker_has_only_the_wanted_row(repos):
+    path = repos.root / 'acme__product' / '.git'
+    path.mkdir(parents=True)
+    (path / 'tico-managed').write_text(json.dumps({'full_name': 'Acme/Product'}))
+    repos.client.get.return_value = {'repositories': [{'full_name': 'Acme/Product'}]}
+    with mock.patch.object(repos, 'sync'):
+        cycle(repos)
+        assert list(repos.rows) == ['acme/product']
+        assert 'left_at' not in repos.rows['acme/product']
+        repos.sync.assert_called_once()
+
+
+@pytest.mark.parametrize('kind', ['fifo', 'symlink', 'oversized'])
+def test_poll_skips_unsafe_managed_markers(repos, tmp_path, kind):
+    import os
+    path = repos.root / 'acme__product' / '.git'
+    path.mkdir(parents=True)
+    marker = path / 'tico-managed'
+    if kind == 'fifo':
+        os.mkfifo(marker)
+    elif kind == 'symlink':
+        outside = tmp_path / 'outside.json'
+        outside.write_text(json.dumps({'full_name': 'Acme/Product'}))
+        marker.symlink_to(outside)
+    else:
+        marker.write_text(' ' * 2048)
+    repos.client.get.return_value = {'repositories': []}
+    with mock.patch.object(repos, 'sync'):
+        cycle(repos)
+    assert repos.rows == {}

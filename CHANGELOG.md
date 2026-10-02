@@ -16,6 +16,7 @@ All notable changes to Tico are recorded here. The format follows
 - A redesigned Tasks page with one-line rows, tabs, groups, filter chips, side peek, a properties panel, bulk actions and keyboard controls.
 
 ### Changed
+- Git maintenance keeps the Computer’s system and global credential settings, URL rewrites, SSH command, proxy and CA settings, and Git identity, without running repository-configured programs.
 - Computers keep repository mirrors separately from bot-owned base clones. Base clones refresh from the mirror without a token and keep GitHub as their push destination.
 - New task worktrees try to refresh the mirror immediately; an unavailable connection uses cached history and reports its age.
 - Unused base clones retire after 30 days when no task worktrees remain and every local commit is saved remotely, even under a different branch name.

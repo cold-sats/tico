@@ -164,3 +164,22 @@ def test_scrubbing_never_runs_checkout_programs_or_writes_through_symlinks(tmp_p
         assert all('--no-optional-locks' in call.args[0] and 'core.fsmonitor=false' in call.args[0] for call in calls.call_args_list)
     assert not marker.exists()
     assert (outside / 'secret').read_text() == SECRET
+
+
+def test_atomic_scrub_never_follows_a_swapped_symlink(tmp_path, monkeypatch):
+    import os
+    path = tmp_path / 'report'
+    path.write_text(SECRET)
+    outside = tmp_path / 'outside'
+    outside.write_text('keep outside')
+    replace = os.replace
+    def swap(source, target, **kwargs):
+        path.unlink()
+        path.symlink_to(outside)
+        return replace(source, target, **kwargs)
+    monkeypatch.setattr(redact.os, 'replace', swap)
+    rewritten, excluded = redact.Redactor([SECRET]).scrub_files([path], tmp_path)
+    assert rewritten == [path] and excluded == []
+    assert not path.is_symlink()
+    assert SECRET not in path.read_text()
+    assert outside.read_text() == 'keep outside'

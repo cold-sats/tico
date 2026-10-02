@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import threading
 import time
@@ -176,10 +177,20 @@ class Repositories:
             for marker in self.root.glob('*/.git/tico-managed'):
                 name = marker.parent.parent.name.replace('__', '/', 1)
                 try:
-                    stored = json.loads(marker.read_text())
+                    if not stat.S_ISREG(marker.lstat().st_mode):
+                        continue
+                    fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                    with os.fdopen(fd, 'rb') as stream:
+                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                            continue
+                        data = stream.read(1025)
+                    if len(data) > 1024:
+                        continue
+                    stored = json.loads(data) if data else {}
                     name = stored.get('full_name') or name
                 except (OSError, ValueError, AttributeError):
-                    pass
+                    continue
+                name = name.lower() if valid_name(name) else name
                 if valid_repository(name) and not marker.is_symlink() and base_folder(name) == marker.parent.parent.name:
                     self.rows.setdefault(name, {'full_name': name, 'state': 'cloned', 'managed': True, 'left_at': now, 'size_mb': 0})
             for name, row in list(self.rows.items()):
@@ -605,9 +616,14 @@ def base_kept(path):
     count = max(0, sum(line.startswith('worktree ') for line in listing.stdout.splitlines()) - 1)
     if count:
         return f'kept: {count} task worktrees'
-    branches = isolation.run([*prefix, 'rev-list', '--count', '--branches', '--not', '--remotes'], env=env, capture_output=True, text=True, timeout=30)
+    status = isolation.run([*prefix, 'status', '--porcelain', '--untracked-files=all'], env=env, capture_output=True, text=True, timeout=30)
+    if status.returncode:
+        raise ValueError('Could not inspect base clone changes; repair without deleting local work')
+    if status.stdout.strip():
+        return 'kept: uncommitted or untracked files'
+    branches = isolation.run([*prefix, 'rev-list', '--count', '--ignore-missing', '--branches', 'HEAD', 'refs/stash', '--not', '--remotes'], env=env, capture_output=True, text=True, timeout=30)
     if branches.returncode:
         raise ValueError('Could not inspect local branches; repair without deleting local work')
     if int(branches.stdout.strip() or '0'):
-        return 'kept: local branches with unpublished commits'
+        return 'kept: local branches with unpublished commits (including HEAD or stash)'
     return None

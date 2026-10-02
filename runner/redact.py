@@ -15,6 +15,9 @@ secret (they are left out of what is published) and whether a commit made during
 """
 import base64
 import json
+import os
+import stat
+import uuid
 import re
 import subprocess
 import threading
@@ -117,20 +120,53 @@ class Redactor:
         rewritten, left_out = [], []
         for path in map(Path, paths):
             try:
-                parents = list(path.parents)
-                if root in parents:
-                    parents = parents[:parents.index(root)]
-                else:
-                    parents = [path.parent]
-                if path.is_symlink() or any(p.is_symlink() for p in parents) or not path.is_file():
-                    continue
-                data = path.read_bytes()
-                if not self.holds(data):
-                    continue
-                if b"\0" in data[:8000] or len(data) > _TEXT_LIMIT:
-                    left_out.append(path)
-                    continue
-                path.write_bytes(self.scrub_text(data.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape"))
+                # Anchor every parent by fd so a concurrent rename or symlink swap
+                # cannot redirect either the read or the atomic replacement.
+                anchored = Path(root).resolve() / path.relative_to(root) if root is not None else path.absolute()
+                directory = os.open(anchored.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                temporary = None
+                try:
+                    for part in anchored.parts[1:-1]:
+                        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                        os.close(directory)
+                        directory = child
+                    try:
+                        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                    except OSError:
+                        if stat.S_ISLNK(os.stat(path.name, dir_fd=directory, follow_symlinks=False).st_mode):
+                            continue
+                        raise
+                    with os.fdopen(fd, 'rb') as stream:
+                        info = os.fstat(stream.fileno())
+                        if not stat.S_ISREG(info.st_mode):
+                            continue
+                        if info.st_size > _TEXT_LIMIT:
+                            left_out.append(path)
+                            continue
+                        data = stream.read(_TEXT_LIMIT + 1)
+                    if not self.holds(data):
+                        continue
+                    if b"\0" in data[:8000] or len(data) > _TEXT_LIMIT:
+                        left_out.append(path)
+                        continue
+                    temporary = '.tico-scrub-' + uuid.uuid4().hex
+                    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 stat.S_IMODE(info.st_mode), dir_fd=directory)
+                    with os.fdopen(fd, 'wb') as stream:
+                        os.fchmod(stream.fileno(), stat.S_IMODE(info.st_mode))
+                        stream.write(self.scrub_text(data.decode('utf-8', 'surrogateescape')).encode('utf-8', 'surrogateescape'))
+                    current = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+                    if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                        left_out.append(path)
+                        continue
+                    os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+                finally:
+                    if temporary:
+                        try:
+                            os.unlink(temporary, dir_fd=directory)
+                        except FileNotFoundError:
+                            pass
+                    os.close(directory)
                 rewritten.append(path)
             except Exception:
                 left_out.append(path)

@@ -365,7 +365,10 @@ def _act(workspace, row, action, env, vault_values=(), before_remove=lambda: Tru
             git(path, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'Save task work before cleanup', env=env)
             git(path, 'push', 'origin', 'HEAD:refs/heads/' + wip, env=env)
             if branch not in defaults:
-                fast_forward(path, branch, 'HEAD', env)
+                try:
+                    fast_forward(path, branch, 'HEAD', env)
+                finally:
+                    git(path, 'switch', branch, env=env)
         else:
             # Retrying a failed snapshot push must still save its history.
             if current == wip:
@@ -373,7 +376,10 @@ def _act(workspace, row, action, env, vault_values=(), before_remove=lambda: Tru
                 if branch not in defaults:
                     if git(path, 'merge-base', '--is-ancestor', branch, 'HEAD', env=env, check=False).returncode:
                         raise ValueError('Task branch has separate history; kept worktree')
-                    fast_forward(path, branch, 'HEAD', env)
+                    try:
+                        fast_forward(path, branch, 'HEAD', env)
+                    finally:
+                        git(path, 'switch', branch, env=env)
             else:
                 if int(git(path, 'rev-list', '--count', 'HEAD', '--not', '--remotes=origin', env=env).stdout):
                     if row.get('prs_finished') or not current:
