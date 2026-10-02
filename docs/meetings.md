@@ -24,6 +24,53 @@ The CLI and the API act as the human whose credential they carry: set `HUB_API_U
 a personal token (see [Who can do what](#who-can-do-what)). All of them land in the same place, in the same shape, so the list, search, sharing, Send and
 action items work identically whatever the source.
 
+## Review before sharing
+
+Imported meetings wait in the importing person's **Pending** queue by default. Only the person
+they are filed for can open that queue or review a meeting, including through their own BotOps
+acting with their rights. The Team owner, participants, other people and bots cannot see pending
+or dismissed meetings. They do not appear in search, SQL exports, routines, Updates or KPIs.
+Pending is quiet: it does not add to **Needs you**. Existing meetings stay live after upgrade.
+Human **Add notes** stays live, including a pasted or uploaded transcript; a human API caller
+can also choose `review: "live"`. Computer importers keep using the same payloads: the server
+decides the review state for the person named in `owner_email`.
+
+`GET /api/v2/meetings?review=pending` returns `{"meetings": [...], "count": N, "pending_count": N}`.
+The default list is live; `review=dismissed` reads the person's dismissed meetings. Every listed
+meeting has `review_state` (`pending`, `live` or `dismissed`). The rail's existing
+`GET /api/v2/updates/unread` also returns `meetings_pending`, scoped to the caller.
+`GET /api/v2/meetings/{id}` opens a meeting under the same access rules as the older detail route.
+
+- `POST /api/v2/meetings/{id}/review {"action": "approve", "private": false}` shares a pending meeting.
+  Omit `private` to keep its source default: Granola is private by default; other sources are team
+  meetings unless their importer chose private. A team meeting with a transcript fires
+  `meeting.ready` and the older `recording.ready` once. Repeating approval does not fire again.
+- The same route with `{"action": "dismiss"}` hides it from Pending. Later syncs may update its
+  contents but keep it dismissed under the same dedup key. `{"action": "restore"}` brings a
+  dismissed meeting back to Pending. Re-import never shares a pending or dismissed meeting,
+  and source syncs preserve the privacy chosen at approval.
+- `POST /api/v2/meetings/review {"action": "approve_all"}` shares the caller's pending queue;
+  `dismiss_all` dismisses it. Optional `ids` selects meetings filed for that caller; an empty
+  list does nothing. Batch sharing keeps each source's privacy. A selection containing someone
+  else's meeting is refused as a whole. The answer has `meetings`, `count` and `pending_count`.
+
+`GET /api/v2/meetings/settings` returns `auto_share` (the person's choice, or `null` when unset),
+`review_default` (`review` or `auto`) and `effective_auto_share` (a boolean).
+`POST /api/v2/meetings/settings {"auto_share": true}` shares future imports automatically;
+`false` always requires review, and `null` clears the person's choice to use the Team default.
+The same preference is available at `GET`/`POST /api/v2/preferences/meetings.auto_share`, using
+the existing `{"value": true|false}` body. Only the owner can set the Team default through
+`POST /api/v2/meetings/settings {"review_default": "auto"}`; its initial value is `review`.
+A person's choice wins. Turning auto-share on leaves their existing queue pending: use Share all.
+
+CLI: `hub meeting pending`, `hub meeting approve <id>` or `hub meeting approve --all`,
+`hub meeting dismiss <id>`, and `hub meeting restore <id>`. MCP equivalents are
+`hub_meeting_pending`, `hub_meeting_approve` (`id` or `all: true`), `hub_meeting_dismiss`, and
+`hub_meeting_restore`. All use the caller's own meetings; BotOps uses the requesting person's
+rights. `hub meeting import ... --review live` shares immediately. `send_to` on a pending import
+is held until approval; direct Send and pushing items require a live meeting.
+
+
 ## The import API
 
 `POST /api/v2/meetings/import`, JSON (or `multipart/form-data`, with the media files as `files` parts
@@ -42,8 +89,9 @@ and `participants` and `context` as JSON-encoded text fields). Only a transcript
 | `notes` | Notes or a summary in Markdown, up to 200,000 characters. The source's own summary goes here |
 | `media_url` | An `https` link to the recording in the source |
 | `context` | A flat map of up to 20 short text fields the source wants kept (`lead_url`, `room`); keys are lower-case identifiers and `*_url` values must be `https` |
-| `private` | `true` narrows the meeting to its participants and its owner. Default: a team meeting, readable by everyone signed in |
-| `send_to` | A bot slug. Hands the meeting to that bot as a task, exactly as **Send** does, in the same call |
+| `private` | `true` narrows the meeting to its participants and its owner. Default: private for Granola; otherwise a team meeting, readable by everyone signed in after sharing |
+| `review` | `live` shares immediately when a human or their personal token imports. Otherwise the person's review setting applies; `pending` explicitly keeps it in their queue. Computers cannot request `live` |
+| `send_to` | A bot slug. Hands a live meeting to that bot as a task, exactly as **Send** does; a pending meeting waits until approval |
 | `owner_email` | Computers only: the roster human the meeting is filed for |
 
 A transcript is at most 1,000,000 characters and 10,000 segments. A file attached by multipart is at
@@ -54,13 +102,14 @@ The answer:
 
 ```json
 {"id": "20260928-161200-a3f1", "title": "Pricing call", "kind": "meeting", "status": "done",
- "turns": 42, "existing": false, "changed": true, "link": "#/meetings?meeting=20260928-161200-a3f1"}
+ "turns": 42, "review_state": "pending", "existing": false, "changed": true, "link": "#/meetings?meeting=20260928-161200-a3f1"}
 ```
 
 `existing` says the (source, `external_id`) already had a meeting; `changed` says something in the
 body differed from what was stored. A meeting somebody deleted answers
 `{"status": "deleted", "existing": true, "changed": false}` and is not brought back, so an importer
 that keeps offering it stops there. `422` says which field is wrong and why.
+
 
 ```sh
 curl -X POST "$HUB_API_URL/api/v2/meetings/import" \
@@ -134,7 +183,8 @@ format is a `422` that names the problem.
   once per meeting however often it is re-imported; a routine written `on: meeting.ready` gets one
   task carrying the notes and transcript. A private meeting fires nothing. The older name
   `recording.ready` is still emitted for routines written before the rename; new routines use
-  `meeting.ready`. Close imports do not fire the event.
+  `meeting.ready`. Close imports that arrive live do not fire the event; approving a pending
+  Close meeting fires it under the same transcript and privacy rules.
 - **Search.** `hub meeting search "pricing" --person Dana --since 2026-09-01` and
   `hub meeting read <id>` (the old `/api/v2/recordings/*` paths still answer for installed
   clients).
@@ -153,6 +203,11 @@ without a transcript is revisited, because transcripts may arrive after completi
 must already be enabled in the Close account for ordinary call transcripts to exist; Tico does not enable
 it. A Notetaker meeting transcript is available only after the meeting concludes. See
 [Close tool](../integrations/close-crm.md).
+
+Close meetings filed for a roster person use that person's review setting too. A team-wide
+Close import with no person (`owner_email` omitted or empty on the transcript API) stays live,
+filed under the Team owner. Older Close computers already send a filed-for person, so their
+imports use that person's queue without a computer update.
 
 The first pull covers 30 days of Close activity creation. Close's organization-wide activity API does
 not allow filtering by meeting time, so the worker revisits pending future meetings until their

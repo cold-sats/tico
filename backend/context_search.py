@@ -26,10 +26,13 @@ def excerpt(text, words, size=400):
 def readable(c, who, rid):
     """Bots may read explicitly shared meetings, never inherit their operator's private access."""
     if who.role != "bot":
-        return media.authorized(c, who, rid)
+        row = media.authorized(c, who, rid)
+        if row.get("review_state", "live") != "live":
+            raise Problem("not_found", "Meeting not found or unavailable", 404)
+        return row
     row = meetings.get(rid, c)
     deleted = c.execute("SELECT deleted_at FROM media_control WHERE meeting_id=?", (rid,)).fetchone()
-    if (not row or (deleted and deleted[0]) or row["metadata"].get("kind") != "meeting"
+    if (not row or row.get("review_state", "live") != "live" or (deleted and deleted[0]) or row["metadata"].get("kind") != "meeting"
             or row["metadata"].get("private") is not False):
         raise Problem("not_found", "Meeting not found or unavailable", 404)
     return row
@@ -39,7 +42,7 @@ def meeting_info(row):
     meta = row["metadata"]
     return {"id": row["id"], "title": row["title"], "created": row["created"], "started": meta.get("started"),
             "url": "#/meetings?meeting=" + quote(row["id"], safe=""),
-            "status": meta.get("status"), "duration_ms": meta.get("duration_ms")}
+            "status": meta.get("status"), "review_state": row.get("review_state", "live"), "duration_ms": meta.get("duration_ms")}
 
 
 def transcript_text(row):

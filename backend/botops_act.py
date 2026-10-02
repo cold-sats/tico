@@ -65,6 +65,7 @@ DO = _routes(
     ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", rf"docs/{_S}/restore"),
     ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
     ("POST", rf"meetings/{_S}/delete"), ("POST", "meetings/granola/sync"),
+    ("POST", rf"meetings/{_S}/review"), ("POST", "meetings/review"), ("POST", "meetings/settings"),
     ("POST", rf"(integrations|tools)/{_S}/learnings"), ("POST", rf"(integrations|tools)/{_S}/learnings/{_S}/delete"),
     ("POST", r"health/bot-access/dismiss"),
     # People and access. The route asks for the click on what needs it.
@@ -204,4 +205,3 @@ def default_delegable(method, path, body=None):
     if not path or OWN.fullmatch(path):
         return False
     return classify(method, path, body) in ("do", "confirm")
-

@@ -563,6 +563,7 @@ function meetNotesOpen(state) {
     const participants = [...dialog.querySelectorAll('input[name=manual-person]:checked')].map(i => i.value);
     for (const other of meetSplitList(q('#manual-others').value)) if (!participants.includes(other)) participants.push(other);
     const body = withTranscript ? {source: q('#manual-source').value, transcript} : {source: 'manual'};
+    body.review = 'live';
     if (title) body.title = title;
     if (notes) body.notes = notes;
     const at = meetLocalIso(q('#manual-when').value);

@@ -19,6 +19,7 @@ import hashlib
 import json
 import re
 from datetime import timedelta
+from typing import Literal
 
 from fastapi import Request
 from pydantic import Field, field_validator, model_validator
@@ -30,8 +31,8 @@ from . import models as M
 from . import people as P
 from .auth import Identity
 from .connectors import EMAIL, instant
-from .media import Note, Send, attachments, authorized, deliver, form, new_note, save, write_upload
-from .meetings import context as meeting_context, get as meeting
+from .media import Note, Send, attachments, authorized, deliver, form, new_note, save, upload_contract, write_upload
+from .meetings import get as meeting, initial_review, announce
 from .store import H, Problem, encode
 from .views import roster
 
@@ -65,7 +66,7 @@ def bounded_context(value):
 class ImportCreate(M.Contract):
     source: str = Field(min_length=1, max_length=40)
     external_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:-]+$")
-    owner_email: str = Field(min_length=3, max_length=320)
+    owner_email: str = Field(default="", max_length=320)
     title: str = Field(default="", max_length=300)
     started: str = Field(max_length=50)
     ended: str = Field(max_length=50)
@@ -83,7 +84,7 @@ class ImportCreate(M.Contract):
     @classmethod
     def address(cls, value):
         value = value.lower()
-        if not EMAIL.fullmatch(value):
+        if value and not EMAIL.fullmatch(value):
             raise ValueError("The owner of an imported meeting is an email address")
         return value
 
@@ -175,6 +176,7 @@ class MeetingImport(M.Contract):
     media_url: str = Field(default="", max_length=500)
     context: dict = Field(default_factory=dict)
     private: bool | None = None
+    review: Literal["pending", "live"] | None = None
     send_to: str = Field(default="", max_length=80)
     owner_email: str = Field(default="", max_length=320)      # a machine names the roster person it files for
 
@@ -309,7 +311,7 @@ def install_imports(app, store, auth, execution, mutate):
         row = c.execute("SELECT deleted_at FROM media_control WHERE meeting_id=?", (rid,)).fetchone()
         return bool(row and row[0])
 
-    @app.post("/api/v2/meetings/import")
+    @app.post("/api/v2/meetings/import", openapi_extra=upload_contract(MeetingImport))
     async def meeting_import(request: Request):
         """File a meeting of the caller's (or of `owner_email`, from a machine), or update the one
         this source and id already made."""
@@ -331,6 +333,8 @@ def install_imports(app, store, auth, execution, mutate):
                 raise Problem("forbidden", "Only an importer machine files a meeting for someone else", 403)
         else:
             runner = importer(c, machine)
+            if body.review == "live":
+                raise Problem("forbidden", "Only a person may share an imported meeting", 403)
             # Filing for someone is the importer's job; handing work to a bot in their name is not.
             if body.send_to:
                 raise Problem("forbidden", "An importer machine files meetings; a person sends them", 403)
@@ -360,7 +364,9 @@ def install_imports(app, store, auth, execution, mutate):
             meta = dict(authorized(c, who, ref[0], write=True)["metadata"])
         else:
             meta = new_note(c, who, Note(text=body.title or "Imported meeting"), [])
-            meta.update(note="", preview="", private=False)
+            meta.update(note="", preview="", private=body.source == "granola",
+                        review_state="live" if person_call and (body.review == "live" or body.source == "manual")
+                        else "pending" if body.review == "pending" else initial_review(c, who))
         rid = meta["id"]
         if fill_empty and existing:
             stored = meeting(rid, c)
@@ -384,6 +390,7 @@ def install_imports(app, store, auth, execution, mutate):
         fresh = [u for u in uploads if (u["name"], u["size"]) not in known]
         if existing and meta.get("import_hash") == fingerprint and not fresh:
             return {"id": rid, "status": "done", "existing": True, "changed": False,
+                    "review_state": meta.get("review_state", "live"),
                     "link": "#/meetings?meeting=" + rid}
         started = body.started_at or meta.get("started") or H.now()
         duration_ms = (int(body.duration_seconds * 1000) if body.duration_seconds is not None
@@ -395,7 +402,7 @@ def install_imports(app, store, auth, execution, mutate):
                     warning=None, error=None)
         if body.title or not existing:
             meta["title"] = body.title or meta.get("title") or "Imported meeting"
-        if body.private is not None:
+        if body.private is not None and (not existing or not meta.get("reviewed_at") or meta.get("review_state") != "live"):
             meta["private"] = body.private
         if people or not existing:
             meta.update(participants=people, confirmed_attendees=[p["email"] for p in people if p["email"]])
@@ -407,6 +414,10 @@ def install_imports(app, store, auth, execution, mutate):
             meta["preview"] = body.notes.strip()[:160]
         if fresh:
             meta["attachments"] = (meta.get("attachments") or []) + attachments(c, who, rid, fresh)
+        if body.send_to:
+            auth.target(c, who, body.send_to, need="write")
+            if meta.get("review_state") == "pending":
+                meta["review_send_to"] = body.send_to
         transcript = raw_transcript(turns)
         save(c, meta, transcript=transcript or None, readable=transcript.replace("\n", "\n\n") if transcript else
              stored["transcript_readable"] if fill_empty and existing else None,
@@ -417,29 +428,18 @@ def install_imports(app, store, auth, execution, mutate):
         H.event(c, machine.actor, "meeting.imported", rid,
                 {"source": body.source, "owner": who.email, "turns": len(turns), "notes": bool(body.notes),
                  "existing": existing})
-        if not existing and not meta.get("private") and turns:
-            announce(c, rid, meta)
+        if not existing:
+            announce(c, auth, rid, meta)
         result = {"id": rid, "title": meta["title"], "kind": "meeting", "status": "done", "turns": len(turns),
+                  "review_state": meta.get("review_state", "live"),
                   "existing": existing, "changed": True, "link": "#/meetings?meeting=" + rid}
-        if body.send_to:
+        if body.send_to and meta.get("review_state") == "live":
             # The same Send a person presses: the bot's task carries the transcript and notes.
             sent = deliver(c, auth, who, rid, Send(slug=body.send_to), [])
             result["sent"] = {"slug": sent["slug"], "task": sent.get("task")}
         return result
 
     app.state.import_meeting = file_meeting
-
-    def announce(c, rid, meta):
-        """A company meeting is readable by everyone signed in, so a routine may run on it. The
-        task carries the notes and transcript the way a delivery task does. `recording.ready` is
-        the old name of the event; routines written for it keep firing."""
-        from .routines import emit
-        done = meeting(rid, c)
-        content = "\n\n".join(part for part in (done["notes"], done["transcript_readable"], meeting_context(done)) if part)
-        facts = {"kind": "meeting", "recorded_by": meta.get("recorded_by"), "source": meta.get("source"),
-                 "ended": meta.get("ended"), "duration_ms": meta.get("duration_ms")}
-        for event in ("meeting.ready", "recording.ready"):
-            emit(c, event, rid, facts, title=meta.get("title") or rid, content=content, auth=auth)
 
     @app.post("/api/v2/imports/transcripts")
     def transcript_import(request: Request, body: TranscriptImport):
@@ -488,7 +488,7 @@ def install_imports(app, store, auth, execution, mutate):
                 meta = dict(record["metadata"])
             else:
                 person = c.execute("SELECT id,email FROM humans WHERE email IS NOT NULL AND lower(email)=?",
-                                   (body.owner_email,)).fetchone()
+                                   (body.owner_email or auth.settings.owner_email.lower(),)).fetchone()
                 if not person:
                     raise Problem("not_found", "The owner of an imported meeting must be on the Tico roster", 404)
                 owner = Identity("human:" + person["id"], "human", person["email"])
@@ -498,6 +498,7 @@ def install_imports(app, store, auth, execution, mutate):
                             status="done", started=body.started, ended=body.ended,
                             duration_ms=body.duration_ms,
                             recorded_by=person["email"], uploaded_by=runner["id"], private=False,
+                            review_state=initial_review(c, owner) if body.owner_email else "live",
                             source=body.source, source_type=body.resource_type,
                             source_context=body.context, warning=None, error=None)
             if not ref:
@@ -520,7 +521,7 @@ def install_imports(app, store, auth, execution, mutate):
             if latest and (latest["content_hash"] == content_hash or
                            instant(body.source_updated_at) < instant(latest["source_updated_at"])):
                 return {"id": rid, "status": meta["status"], "existing": existing,
-                        "changed": False, "transcript_id": latest["id"]}
+                        "review_state": meta.get("review_state", "live"), "changed": False, "transcript_id": latest["id"]}
             c.execute("INSERT INTO recording_transcripts(meeting_id,source,resource_type,external_id,"
                       "transcript_index,content_hash,source_updated_at,turns_json,transcript_text,"
                       "summary_text,imported_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
@@ -548,7 +549,7 @@ def install_imports(app, store, auth, execution, mutate):
                     {"source": body.source, "resource_type": body.resource_type,
                      "external_id": body.external_id, "transcript_id": transcript_id})
             return {"id": rid, "status": meta["status"], "existing": existing,
-                    "changed": True, "transcript_id": transcript_id}
+                    "review_state": meta.get("review_state", "live"), "changed": True, "transcript_id": transcript_id}
         return mutate(request, body, work)
 
     @app.post("/api/v2/imports/sources/close/status")

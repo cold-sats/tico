@@ -6351,6 +6351,74 @@
         ]
       }
     },
+    "/api/v2/meetings": {
+      "get": {
+        "summary": "Meetings; review=pending reads your own queue",
+        "operationId": "listMeetings",
+        "parameters": [
+          {
+            "name": "review",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "pending",
+                "live",
+                "dismissed"
+              ],
+              "type": "string",
+              "default": "live",
+              "title": "Review"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingReviewList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
     "/api/v2/meetings/granola": {
       "get": {
         "summary": "Your Granola connection",
@@ -6587,6 +6655,456 @@
         ]
       }
     },
+    "/api/v2/meetings/import": {
+      "post": {
+        "summary": "Import into your Pending queue unless shared explicitly or automatically",
+        "operationId": "importMeeting",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "One meeting from any source. Only a transcript or notes is required (docs/meetings.md).",
+                "properties": {
+                  "title": {
+                    "default": "",
+                    "maxLength": 300,
+                    "title": "Title",
+                    "type": "string"
+                  },
+                  "started_at": {
+                    "anyOf": [
+                      {
+                        "maxLength": 50,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Started At"
+                  },
+                  "duration_seconds": {
+                    "anyOf": [
+                      {
+                        "maximum": 86400,
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Duration Seconds"
+                  },
+                  "participants": {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "name": {
+                              "default": "",
+                              "maxLength": 200,
+                              "title": "Name",
+                              "type": "string"
+                            },
+                            "email": {
+                              "default": "",
+                              "maxLength": 320,
+                              "title": "Email",
+                              "type": "string"
+                            }
+                          },
+                          "title": "Participant",
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "maxItems": 100,
+                    "title": "Participants",
+                    "type": "array"
+                  },
+                  "source": {
+                    "default": "api",
+                    "maxLength": 40,
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "external_id": {
+                    "default": "",
+                    "maxLength": 200,
+                    "pattern": "^[A-Za-z0-9_.:@/-]*$",
+                    "title": "External Id",
+                    "type": "string"
+                  },
+                  "transcript": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    ],
+                    "default": "",
+                    "title": "Transcript"
+                  },
+                  "format": {
+                    "default": "auto",
+                    "maxLength": 10,
+                    "title": "Format",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "default": "",
+                    "maxLength": 200000,
+                    "title": "Notes",
+                    "type": "string"
+                  },
+                  "media_url": {
+                    "default": "",
+                    "maxLength": 500,
+                    "title": "Media Url",
+                    "type": "string"
+                  },
+                  "context": {
+                    "additionalProperties": true,
+                    "title": "Context",
+                    "type": "object"
+                  },
+                  "private": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Private"
+                  },
+                  "review": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "pending",
+                          "live"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Review"
+                  },
+                  "send_to": {
+                    "default": "",
+                    "maxLength": 80,
+                    "title": "Send To",
+                    "type": "string"
+                  },
+                  "owner_email": {
+                    "default": "",
+                    "maxLength": 320,
+                    "title": "Owner Email",
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    },
+                    "description": "At most 10 MB per file; entire request at most 20 MB. Files are untrusted, private source material."
+                  }
+                },
+                "title": "MeetingImport",
+                "type": "object"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "One meeting from any source. Only a transcript or notes is required (docs/meetings.md).",
+                "properties": {
+                  "title": {
+                    "default": "",
+                    "maxLength": 300,
+                    "title": "Title",
+                    "type": "string"
+                  },
+                  "started_at": {
+                    "anyOf": [
+                      {
+                        "maxLength": 50,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Started At"
+                  },
+                  "duration_seconds": {
+                    "anyOf": [
+                      {
+                        "maximum": 86400,
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Duration Seconds"
+                  },
+                  "participants": {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "name": {
+                              "default": "",
+                              "maxLength": 200,
+                              "title": "Name",
+                              "type": "string"
+                            },
+                            "email": {
+                              "default": "",
+                              "maxLength": 320,
+                              "title": "Email",
+                              "type": "string"
+                            }
+                          },
+                          "title": "Participant",
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "maxItems": 100,
+                    "title": "Participants",
+                    "type": "array"
+                  },
+                  "source": {
+                    "default": "api",
+                    "maxLength": 40,
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "external_id": {
+                    "default": "",
+                    "maxLength": 200,
+                    "pattern": "^[A-Za-z0-9_.:@/-]*$",
+                    "title": "External Id",
+                    "type": "string"
+                  },
+                  "transcript": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    ],
+                    "default": "",
+                    "title": "Transcript"
+                  },
+                  "format": {
+                    "default": "auto",
+                    "maxLength": 10,
+                    "title": "Format",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "default": "",
+                    "maxLength": 200000,
+                    "title": "Notes",
+                    "type": "string"
+                  },
+                  "media_url": {
+                    "default": "",
+                    "maxLength": 500,
+                    "title": "Media Url",
+                    "type": "string"
+                  },
+                  "context": {
+                    "additionalProperties": true,
+                    "title": "Context",
+                    "type": "object"
+                  },
+                  "private": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Private"
+                  },
+                  "review": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "pending",
+                          "live"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Review"
+                  },
+                  "send_to": {
+                    "default": "",
+                    "maxLength": 80,
+                    "title": "Send To",
+                    "type": "string"
+                  },
+                  "owner_email": {
+                    "default": "",
+                    "maxLength": 320,
+                    "title": "Owner Email",
+                    "type": "string"
+                  }
+                },
+                "title": "MeetingImport",
+                "type": "object"
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
+    "/api/v2/meetings/review": {
+      "post": {
+        "summary": "Share or dismiss your Pending meetings",
+        "operationId": "reviewMeetings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewMany"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingReviewList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/meetings/search": {
       "get": {
         "summary": "Search or list recorded meetings",
@@ -6709,6 +7227,107 @@
         ]
       }
     },
+    "/api/v2/meetings/settings": {
+      "get": {
+        "summary": "Your meeting review preference and Team default",
+        "operationId": "getMeetingReviewSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingReviewPreferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      },
+      "post": {
+        "summary": "Set auto-share; only the owner sets the Team default",
+        "operationId": "setMeetingReviewSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingReviewPreferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/meetings/transcript": {
       "get": {
         "summary": "A meeting's transcript",
@@ -6755,6 +7374,129 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
+    "/api/v2/meetings/{id}": {
+      "get": {
+        "summary": "Read a meeting with its notes and transcripts",
+        "operationId": "getMeeting",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewedMeeting"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
+    "/api/v2/meetings/{id}/review": {
+      "post": {
+        "summary": "Approve, dismiss or restore your own meeting",
+        "operationId": "reviewMeeting",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Review"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewedMeeting"
+                }
               }
             }
           },
@@ -15324,6 +16066,56 @@
         ],
         "additionalProperties": true
       },
+      "MeetingReviewList": {
+        "type": "object",
+        "properties": {
+          "meetings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewedMeeting"
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "pending_count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "meetings",
+          "pending_count"
+        ],
+        "additionalProperties": true
+      },
+      "MeetingReviewPreferences": {
+        "type": "object",
+        "properties": {
+          "auto_share": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "review_default": {
+            "type": "string",
+            "enum": [
+              "review",
+              "auto"
+            ]
+          },
+          "effective_auto_share": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "auto_share",
+          "effective_auto_share",
+          "review_default"
+        ],
+        "additionalProperties": true
+      },
       "MeetingSearch": {
         "type": "object",
         "properties": {
@@ -16154,6 +16946,36 @@
         ],
         "additionalProperties": true
       },
+      "Review": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "dismiss",
+              "restore"
+            ],
+            "title": "Action"
+          },
+          "private": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "Review"
+      },
       "ReviewAnswer": {
         "oneOf": [
           {
@@ -16245,6 +17067,38 @@
         ],
         "title": "ReviewAsk"
       },
+      "ReviewMany": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve_all",
+              "dismiss_all"
+            ],
+            "title": "Action"
+          },
+          "ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ReviewMany"
+      },
       "ReviewQuestion": {
         "properties": {
           "id": {
@@ -16292,6 +17146,39 @@
         ],
         "title": "ReviewQuestion"
       },
+      "ReviewSettings": {
+        "properties": {
+          "auto_share": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Share"
+          },
+          "review_default": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "review",
+                  "auto"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Default"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReviewSettings"
+      },
       "ReviewTarget": {
         "properties": {
           "comment": {
@@ -16336,6 +17223,31 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ReviewTarget"
+      },
+      "ReviewedMeeting": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "review_state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "live",
+              "dismissed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "review_state",
+          "title"
+        ],
+        "additionalProperties": true
       },
       "Revoked": {
         "type": "object",
@@ -18260,9 +19172,14 @@
         "properties": {
           "unread": {
             "type": "integer"
+          },
+          "meetings_pending": {
+            "type": "integer",
+            "description": "Pending meetings filed for the caller; never part of Needs you"
           }
         },
         "required": [
+          "meetings_pending",
           "unread"
         ],
         "additionalProperties": true

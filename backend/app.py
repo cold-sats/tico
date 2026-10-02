@@ -1700,7 +1700,9 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            return {"unread": updates.count_unread(c, who.actor, update_visible(c, who, mine))}
+            from .meetings import pending_count
+            return {"unread": updates.count_unread(c, who.actor, update_visible(c, who, mine)),
+                    "meetings_pending": pending_count(c, who)}
 
     @app.get("/api/v2/updates/{uid}")
     def update_show(request: Request, uid: str):
@@ -2318,6 +2320,10 @@ def create_app(settings=None):
     def set_preference(request: Request, key: str, body: M.Preference):
         who = request.state.identity
         auth.domain(who)
+        if key == "meetings.auto_share":
+            views.human_only(who)
+            if not isinstance(body.value, bool):
+                raise Problem("validation", "meetings.auto_share is a boolean", 422)
         if not re.fullmatch(r"[a-z0-9_.-]{1,64}", key):
             raise Problem("kind", "A preference key is lower-case letters, digits, dots, dashes", 422)
         def work(c):
@@ -3553,6 +3559,8 @@ def create_app(settings=None):
     install_imports(app, store, auth, execution, mutate)
     from .granola_mcp import install_granola
     install_granola(app)
+    from .meeting_review import install_meeting_review
+    install_meeting_review(app, store, auth, mutate)
     from .credentials import install_credentials
     install_credentials(app, store, delegate=delegated_identity, propose=propose_card)
     install_credential_cards(app, store, app.state.vault, auth, BOTOPS, delegated_identity, settings_admin._manager)

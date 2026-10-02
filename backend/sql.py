@@ -112,6 +112,10 @@ def guarded(c, auth, who, inner):
     else:
         events = (f"actor={me} OR target IN (SELECT id FROM tasks) OR target IN (SELECT id FROM conversations) "
                   "OR target IN (SELECT slug FROM bots) OR target IN (SELECT 'bot:'||slug FROM bots)")
+    # Imported drafts do not enter company search, exports or the audit feed.
+    meetings = f"({meetings}) AND review_state='live'"
+    events = (f"({events}) AND target NOT IN (SELECT id FROM {inner('meetings')} "
+              "WHERE review_state<>'live')")
     rules = {
         "conversations": conversations,
         "messages": "conversation_id IN (SELECT id FROM conversations)",

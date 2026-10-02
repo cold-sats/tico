@@ -112,6 +112,10 @@ def test_the_mcp_tool_and_the_cli_file_a_meeting_the_same_way(api, tmp_path):
     assert not err and made["turns"] == 2 and made["link"].startswith("#/meetings?meeting=")
     err, again = call(api, "hub_meeting_import", {"title": "From a tool", "transcript": TEXT, "source": "zoom", "external_id": "m-1"})
     assert again["id"] == made["id"] and again["changed"] is False
+    err, pending = call(api, "hub_meeting_pending", {})
+    assert [r["id"] for r in pending["meetings"]] == [made["id"]]
+    err, shared = call(api, "hub_meeting_approve", {"id": made["id"]})
+    assert not err and shared["review_state"] == "live"
     err, found = call(api, "hub_meeting_search", {"q": "annual plan"})
     assert [r["id"] for r in found["results"]] == [made["id"]]
     # `hub meeting import <file>` reads the file itself: the name is the title, --date takes this
@@ -136,4 +140,3 @@ def test_the_mcp_tool_and_the_cli_file_a_meeting_the_same_way(api, tmp_path):
         assert "not a date" in str(exc)
     else:
         raise AssertionError("a bad --date must be refused")
-

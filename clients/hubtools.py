@@ -273,6 +273,37 @@ def answer(api, args):
 
 
 # ----------------------------------------------------------------------------- meetings
+@tool("hub_meeting_pending", "List your own Pending meetings, before sharing with the Team.", {})
+def meeting_pending(api, args):
+    return _as_person(api).get("meetings", review="pending")
+
+
+@tool("hub_meeting_approve", "Share one of your Pending meetings, or all of them. Only meetings filed for you may be reviewed.",
+      {"id": _s("Meeting id"), "all": {"type": "boolean"}, "private": {"type": "boolean"}}, writes=True)
+def meeting_approve(api, args):
+    if bool(args.get("id")) == bool(args.get("all")):
+        raise ValueError("Give a meeting id or all=true")
+    person = _as_person(api)
+    if args.get("all"):
+        return person.post("meetings/review", {"action": "approve_all"}, key=_key(args))
+    body = {"action": "approve"}
+    if "private" in args:
+        body["private"] = args["private"]
+    return person.post(f"meetings/{args['id']}/review", body, key=_key(args))
+
+
+@tool("hub_meeting_dismiss", "Dismiss one of your Pending meetings; later syncs keep it dismissed.",
+      {"id": _s("Meeting id")}, required=("id",), writes=True)
+def meeting_dismiss(api, args):
+    return _as_person(api).post(f"meetings/{args['id']}/review", {"action": "dismiss"}, key=_key(args))
+
+
+@tool("hub_meeting_restore", "Restore one of your dismissed meetings to Pending.",
+      {"id": _s("Meeting id")}, required=("id",), writes=True)
+def meeting_restore(api, args):
+    return _as_person(api).post(f"meetings/{args['id']}/review", {"action": "restore"}, key=_key(args))
+
+
 @tool("hub_meeting_granola_status", "Read your own Granola connection status. To connect, open #/meetings in Tico in your browser and choose Connect Granola; sign-in must be completed by the person.", {})
 def granola_status(api, args):
     return _as_person(api).get("meetings/granola")
@@ -300,7 +331,7 @@ def meetings_transcript(api, args):
 
 
 @tool("hub_meeting_import", "File a meeting transcript or notes from another tool (Zoom, Google Meet, Granola, Otter, "
-      "Fireflies, a file...) as a finished meeting of yours. The transcript is plain text (one line per turn: an optional "
+      "Fireflies, a file...) into your Pending queue unless you choose live or auto-share. The transcript is plain text (one line per turn: an optional "
       "[mm:ss] and 'Name: text'), WebVTT, SRT, or JSON segments [{speaker, start, end, text}] with times in seconds; the "
       "format is detected. Send the same source and external_id again to update it instead of adding another.",
       {"title": _s("What the meeting was"), "transcript": {"description": "The transcript: text, WebVTT, SRT, or JSON "
@@ -312,7 +343,8 @@ def meetings_transcript(api, args):
        "participants": {"type": "array", "items": {"type": "string"}, "description": "Emails or names"},
        "source": _s("Where it came from: zoom, granola, otter, fireflies, upload... (default api)"),
        "external_id": _s("That system's id for it, to update it later"), "media_url": _s("An https link to the recording"),
-       "private": {"type": "boolean"}, "send_to": _s("A bot to hand the meeting to, as Send does")})
+       "private": {"type": "boolean"}, "review": _s("Share immediately, or keep in Pending", enum=["pending", "live"]),
+       "send_to": _s("A bot to hand the meeting to once shared, as Send does")})
 def meetings_import(api, args):
     return api.post("meetings/import", args)
 
@@ -2642,7 +2674,8 @@ AUDIENCE = {
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
-    **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync")},
+    **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync",
+                                   "hub_meeting_pending", "hub_meeting_approve", "hub_meeting_dismiss", "hub_meeting_restore")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,
