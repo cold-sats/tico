@@ -7,11 +7,17 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-10-02
+
 ### Fixed
 - Task links: `#/tasks/<id>` opens the task, and the Tasks view (Open, Board, Recurring, Done) stays in the address, so a board link is stable.
 - Task comments show a saved note's text, once, instead of "left a note".
 - Images, video and audio in a task load straight into the player with a placeholder while loading; video starts playing before the whole file has downloaded.
 - Health no longer calls a computer offline when a bot's work has only waited a while, and starter bots waiting for their first setup no longer count as slow work.
+- A bot's push at computer start-up uses that bot's own GitHub access, so its commits no longer wait unpushed.
+- A computer that enrolls again keeps its Google key for Mail and Calendar. Removing the key afterwards stays removed.
+- Enrolling a computer no longer puts archived bots on it.
+- Health warns when a Tool on an online computer is missing its credential.
 
 ## [0.3.4] - 2026-10-02
 
