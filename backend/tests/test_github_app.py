@@ -140,7 +140,9 @@ def test_manifest_contents_and_owner_only(api):
     assert m["name"] == "Acme Tico" and m["url"] == PUBLIC and m["public"] is False
     assert m["redirect_url"] == PUBLIC + "/api/v2/github/app/callback"
     assert m["hook_attributes"]["active"] is True
-    assert m["default_permissions"] == {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
+    assert m["default_permissions"] == {"contents": "write", "pull_requests": "write", "issues": "write",
+                                        "metadata": "read", "checks": "read", "statuses": "read"}
+    assert {"pull_request", "pull_request_review", "pull_request_review_comment", "check_run", "check_suite", "status", "push"} == set(m["default_events"])
     assert manifest(api, administration="true", name="Custom")["manifest"]["default_permissions"]["administration"] == "write"
     assert manifest(api, name="Custom")["manifest"]["name"] == "Custom"
     plain = api.get("/api/v2/github/app/manifest", params={"org": "Acme"}, headers=auth("nobody"))

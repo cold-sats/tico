@@ -70,3 +70,37 @@ unmapped).
 
 `task_types` and `task_steps` are readable through SQL. Join them to the caller's visible `tasks`
 using `tasks.type_id` and `tasks.step_id`; the task visibility rules still apply.
+
+## Subtasks and PRs
+
+Subtasks can nest to any depth. They inherit the parent's requester, so work delegated by a bot
+keeps the original requester's rights. A parent owner can read and move its descendants,
+including through the task tools and SQL, without gaining access to unrelated tasks. Moving a task to a new parent moves its whole subtree;
+a task cannot become its own ancestor. A parent with unfinished descendants cannot become Done.
+A human can still close it to cancel the work. Finishing the last subtask wakes the parent's
+owner with “All subtasks done”. Done, Closed and Declined count as finished.
+
+```sh
+hub task child <parent-id> --owner engineer --title "Build the service" --body "Use the plan."
+hub task tree <task-id>
+hub task parent <task-id> <new-parent-id>
+hub task parent <task-id> ""
+```
+
+The corresponding MCP tools are `hub_task_child_create`, `hub_task_tree` and `hub_task_reparent`.
+Task create accepts `parent_id`; task update accepts `parent_id` with the current `version`.
+`GET /api/v2/tasks/{id}/tree` returns nested subtasks with `id`, `title`, `status`, `owner`,
+`pr_state` and `children`. Task detail and list answers include `children_summary` with descendant
+counts: `total`, `open`, `done`, `prs_total` and `prs_merged`.
+
+Attach as many PRs as the task needs with `hub task link`. `GET/POST /api/v2/tasks/{id}/links`
+list or attach links; `DELETE /api/v2/tasks/{id}/links/{link_id}` removes one. The older POST
+with `remove` still works. PR links include repository, number, branch, checks, mergeability,
+review state and pending review comments. The task's `pr_state` shows the worst active PR:
+Failing, Conflict, Changes requested, Open, then Merged. Closed PRs are excluded; shipped PRs
+count as merged. A task becomes Ready only after every attached PR is merged or closed.
+Automatic PR moves retain the existing custom-type and legacy product-lane behavior.
+
+GitHub events wake the owner with specific PR items, grouped into one notice within three
+minutes. Automatic shipping waits until every merged PR is included in the configured release;
+PRs in another repository remain Ready for their release or a human's completion.

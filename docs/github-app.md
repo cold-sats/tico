@@ -108,3 +108,23 @@ app and reconnect, so Tico stores a key GitHub still accepts. Cached tokens keep
 Disconnect in Tico only forgets the app locally; bots fall back to their computers' git access. To
 revoke access on GitHub, uninstall the app from the organization's installed apps page, or delete the
 app from its settings page.
+
+## Task PR events
+
+New GitHub Apps include the task events and read permissions automatically. For an existing
+App, enable webhook events for Pull requests, Pull request reviews,
+Pull request review comments, Check runs, Check suites and Commit statuses, plus Push for
+release tracking. The webhook remains `POST /api/v2/github/webhook` with signature verification.
+Checks need read access to Checks and commit statuses need read access to Commit statuses in
+the GitHub App. Existing installations without these events continue to track PR open/close/merge.
+
+A PR event updates every task linked to that PR. Checks record passing, failing or pending;
+PR updates record clean, conflict or unknown mergeability. Reviews record approved, changes
+requested or commented; review comment creation/deletion updates the pending count. Commit
+statuses are matched to the PR's last reported head commit. The owner receives the specific
+check, conflict or review item, with events per task grouped into one wake within three minutes.
+The grouping survives server restarts and keeps at most 50 distinct notice items per burst.
+
+Several PRs can belong to one task. A merge or close makes it Ready only when all its PRs are
+merged or closed. A release completes it only after all merged PRs in that task are included;
+merged PRs in another repository remain Ready. Parents with open subtasks stay open.

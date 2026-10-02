@@ -414,13 +414,15 @@ def _said(response):
 
 def manifest(settings, name, administration):
     public = settings.public_url
-    permissions = dict(TURN_PERMISSIONS)
+    permissions = {**TURN_PERMISSIONS, "checks": "read", "statuses": "read"}
     if administration:
         permissions["administration"] = "write"
     return {"name": name[:34], "url": public, "redirect_url": public + "/api/v2/github/app/callback",
             "setup_url": public + "/api/v2/github/app/installed",
             "hook_attributes": {"url": public + "/api/v2/github/webhook", "active": True},
-            "public": False, "default_permissions": permissions, "default_events": []}
+            "public": False, "default_permissions": permissions,
+            "default_events": ["pull_request", "pull_request_review", "pull_request_review_comment",
+                               "check_run", "check_suite", "status", "push"]}
 
 
 def extra_repos(c, bot):

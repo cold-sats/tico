@@ -103,7 +103,7 @@ def computer_details(c, row, who, auth):
     update["wanted_release"] = runner_versions.desired()["version"]
     from .repositories import metadata
     return {"repositories": metadata(c, "computer-repositories:" + row["id"]).get("repositories", "unknown"),
-            "version": value.get("version") or "", "last_seen": value.get("last_seen"),
+            "version": value.get("version") or "", "release": update.get("release") or "", "last_seen": value.get("last_seen"),
             "readiness": readiness, "update": update, "fix": "Open Settings > Computers to retry the update" if update.get("error") else "Open Settings > Computers",
             "services": [], "services_scope": "team"}
 
@@ -968,6 +968,7 @@ def install_views(app, store, auth, mutate, task_view):
                     continue
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))]
                 value = dict(row)
+                value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
                 from .repositories import metadata

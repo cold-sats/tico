@@ -102,10 +102,12 @@ def set_access(c, bot, body, org, actor, legacy=False):
 
 def sync(service):
     row = service.row()
-    if not row or not service.installation():
+    if not row:
         with service.store.transaction() as c:
             c.execute('UPDATE repositories SET reachable=0 WHERE reachable<>0')
-        return
+        return False
+    if not service.installation():
+        return False
     token, _ = service.mint(None, {'contents': 'read', 'metadata': 'read'})
     headers = {'Authorization': 'Bearer ' + token}
     repos, page = [], 1
@@ -156,6 +158,7 @@ def sync(service):
                       (uuid.uuid4().hex, name, int(name.split('/')[1].lower().startswith('bot-') or name.lower() in own),
                        repo.get('default_branch'), repo['setup_command'], repo['setup_source'], H.now(), H.now()))
         save_metadata(c, 'repositories-synced', {'day': H.now()[:10]})
+    return True
 
 
 def daily(service):
@@ -164,8 +167,8 @@ def daily(service):
             return
     if time.time() - service.repository_sync_attempt < 3600:
         return
-    service.repository_sync_attempt = time.time()
-    sync(service)
+    if sync(service):
+        service.repository_sync_attempt = time.time()
 
 
 def runner_repos(c, runner_id, org):

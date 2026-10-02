@@ -128,3 +128,103 @@ def test_webhook_and_deploy_map_custom_steps_and_preserve_status_without_a_step(
     assert after['labels'] == [tag['key']] and after['tags'][0]['metadata'] == tag['metadata']
     assert get(api, 'tags/' + tag['id'])['tasks'][0]['status'] == 'done'
     assert get(api, 'tasks/' + general['id'])['task']['status'] == 'open'
+
+
+def test_many_prs_wait_for_every_link_and_roll_up_worst_state(api):
+    second = PR.replace('/412', '/413')
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ship both pieces', 'body': 'x', 'links': [PR, second]})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET lane='product' WHERE id=?", (task['id'],))
+    hook(api, 'pull_request', pr_event('opened', head={'sha': 'head1'}))
+    hook(api, 'pull_request', pr_event('closed', merged=True, merge_commit_sha='abc123'))
+    detail = get(api, 'tasks/' + task['id'])['task']
+    assert detail['status'] == 'review' and detail['pr_state'] == 'open'
+    assert detail['links'][0]['repo'] == 'ticoteam/tico' and detail['links'][0]['number'] == 412
+    hook(api, 'pull_request', pr_event('synchronize', html_url=second, mergeable=False, number=413))
+    assert get(api, 'tasks/' + task['id'])['task']['pr_state'] == 'conflict'
+    hook(api, 'check_run', {'repository': {'full_name': 'ticoteam/tico'}, 'check_run': {
+        'name': 'Unit tests', 'conclusion': 'failure', 'pull_requests': [{'number': 413}]}})
+    assert get(api, 'tasks/' + task['id'])['task']['pr_state'] == 'failing'
+    hook(api, 'pull_request_review', {'action': 'submitted', 'pull_request': {'html_url': second},
+        'review': {'state': 'changes_requested'}})
+    hook(api, 'pull_request_review_comment', {'action': 'created', 'pull_request': {'html_url': second}})
+    links = get(api, 'tasks/' + task['id'] + '/links')['links']
+    assert links[1]['review_state'] == 'changes_requested' and links[1]['pending_comments'] == 1
+    hook(api, 'pull_request', pr_event('closed', html_url=second))
+    assert get(api, 'tasks/' + task['id'])['task']['status'] == 'ready'
+    response = api.delete('/api/v2/tasks/' + task['id'] + '/links/' + links[1]['id'], headers=headers())
+    assert response.status_code == 200 and len(response.json()['links']) == 1
+
+
+def test_webhook_burst_is_durable_and_sends_one_specific_wake(api):
+    from backend import repositories as R
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Repair checks', 'body': 'x', 'links': [PR]})
+    with api.app.state.store.transaction() as c:
+        before = c.execute('SELECT count(*) FROM messages').fetchone()[0]
+    for name in ('Unit tests', 'Lint'):
+        hook(api, 'check_run', {'repository': {'full_name': 'ticoteam/tico'}, 'check_run': {
+            'name': name, 'conclusion': 'failure', 'pull_requests': [{'number': 412}]}})
+    with api.app.state.store.transaction() as c:
+        assert G.flush_wakes(c) == []
+        assert c.execute('SELECT count(*) FROM messages').fetchone()[0] == before
+        key = 'github-task-wake:' + task['id']
+        burst = R.metadata(c, key)
+        assert len(burst['items']) == 2
+        burst['due'] = H.shift(H.now(), seconds=-1)
+        R.save_metadata(c, key, burst)
+        assert G.flush_wakes(c) == [task['id']]
+        assert G.flush_wakes(c) == []
+        assert c.execute('SELECT count(*) FROM messages').fetchone()[0] == before + 1
+        message = c.execute('SELECT body FROM messages ORDER BY created DESC LIMIT 1').fetchone()[0]
+        assert 'Unit tests' in message and 'Lint' in message and 'tico#412' in message
+
+
+def test_shipping_waits_for_all_merged_prs_in_the_release(api):
+    second = PR.replace('/412', '/413')
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ship several changes', 'body': 'x', 'links': [PR, second]})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET lane='product' WHERE id=?", (task['id'],))
+    hook(api, 'pull_request', pr_event('closed', merged=True, merge_commit_sha='first'))
+    hook(api, 'pull_request', pr_event('closed', html_url=second, merged=True, merge_commit_sha='second'))
+    api.app.state.store.settings.release_commit = 'first'
+    with api.app.state.store.transaction() as c:
+        assert G.ship_deployed(c, api.app.state.store.settings) == []
+        G.push(c, {'ref': 'refs/heads/main', 'repository': {'full_name': 'ticoteam/tico'},
+                   'commits': [{'id': 'first'}, {'id': 'second'}]})
+        api.app.state.store.settings.release_commit = 'second'
+        assert G.ship_deployed(c, api.app.state.store.settings) == [task['id']]
+        assert all(l['state'] == 'shipped' for l in H.task_links(c, task['id']))
+
+
+def test_commit_status_and_old_head_checks_preserve_current_pr_state(api):
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Check the current commit', 'body': 'x', 'links': [PR]})
+    hook(api, 'pull_request', pr_event('synchronize', head={'sha': 'current'}))
+    hook(api, 'check_run', {'repository': {'full_name': 'ticoteam/tico'}, 'check_run': {
+        'name': 'Tests', 'head_sha': 'old', 'conclusion': 'failure', 'pull_requests': [{'number': 412}]}})
+    assert get(api, 'tasks/' + task['id'])['task']['links'][0]['checks'] == 'pending'
+    hook(api, 'status', {'repository': {'full_name': 'ticoteam/tico'}, 'sha': 'current',
+                        'context': 'Tests', 'state': 'success'})
+    assert get(api, 'tasks/' + task['id'])['task']['links'][0]['checks'] == 'passing'
+
+
+def test_task_link_upgrade_preserves_legacy_pr_rows(api):
+    from backend.store import Store
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Keep the existing PR', 'body': 'x', 'links': [PR]})
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute('CREATE TABLE legacy_task_links(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), '
+                  'kind TEXT NOT NULL, url TEXT NOT NULL, title TEXT, state TEXT, added_by TEXT, created TEXT NOT NULL, '
+                  'pr_sha TEXT, pr_merged_at TEXT)')
+        c.execute('INSERT INTO legacy_task_links SELECT id,task_id,kind,url,title,state,added_by,created,pr_sha,pr_merged_at FROM task_links')
+        c.execute('DROP TABLE task_links')
+        c.execute('ALTER TABLE legacy_task_links RENAME TO task_links')
+        c.execute('PRAGMA user_version=17')
+        c.execute('DELETE FROM cloud_migrations WHERE version=51')
+    Store(store.settings).initialize(seed_market=False)
+    with store.read() as c:
+        link = H.task_links(c, task['id'])[0]
+        assert link['url'] == PR and link['state'] == 'open' and link['title'] == 'tico#412'
+        assert link['repo'] == 'ticoteam/tico' and link['number'] == 412
+        assert link['path'] is None and link['computer_id'] is None and link['checks'] is None
+        assert c.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
+        assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=51').fetchone()

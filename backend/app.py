@@ -91,6 +91,11 @@ def create_app(settings=None):
         from concurrent.futures import ThreadPoolExecutor
         asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=64, thread_name_prefix="tico"))
         store.initialize()
+        try:
+            from .repositories import daily
+            await asyncio.to_thread(daily, app.state.github_app)
+        except Exception as exc:
+            telemetry.capture("repositories", exc)
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
         # A company from before the Librarian was built in gets it on update, once it can run it.
         try:
@@ -128,8 +133,13 @@ def create_app(settings=None):
         async def schedule_loop():
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
+            def github_wakes():
+                from .github import flush_wakes
+                with store.transaction() as c:
+                    flush_wakes(c)
             while not stop.is_set():
                 try:
+                    await asyncio.to_thread(github_wakes)
                     await asyncio.to_thread(scheduler.tick)
                     # The release check (and the anonymous count that rides on it) runs even when nobody has the
                     # page open; it is a no-op until its six hours are up.
@@ -625,6 +635,8 @@ def create_app(settings=None):
             value["attachments"] = [brief(r) for r in c.execute(
                 "SELECT b.* FROM blobs b JOIN task_assets a ON a.blob_id=b.id WHERE a.task_id=?", (row["id"],))]
             value["links"] = H.task_links(c, row["id"])
+            value["children_summary"] = H.children_summary(c, row["id"])
+            value["pr_state"] = H.pr_state(value["links"])
             if row.get("blocked_by"):
                 blocker = H.task(c, row["blocked_by"])
                 value["blocker"] = {"id": blocker["id"], "title": blocker["title"], "status": blocker["status"]} if blocker else None
@@ -703,12 +715,15 @@ def create_app(settings=None):
         if any(row.get("requester") == H.KEEPER and H.is_human(row.get("owner")) for row in rows):
             legacy_owner = H.human_actor(H.default_human(c))
         pipelines = H.type_list(c)
+        summaries = H.children_summaries(c, ids)
         result = []
         for row in rows:
             value = task_view(row, pipelines=pipelines)
             value.update({
                 "parts": parts.get(row["id"], {"total": 0, "done": 0}),
                 "links": links[row["id"]],
+                "children_summary": summaries[row["id"]],
+                "pr_state": H.pr_state(links[row["id"]]),
                 "attachments": attachments[row["id"]],
                 "ask": asks.get(row.get("conversation_id")),
             })
@@ -1563,7 +1578,7 @@ def create_app(settings=None):
             if who.role in ("owner", "human") and body.kind == "chat" and len(bots) == 1:
                 if any(p not in ("bot:" + bots[0], who.actor) for p in participants):
                     raise Problem("participants", "Use the bot's canonical personal or shared room", 422)
-                return rooms.chat_room(c, auth, who, bots[0])
+                return rooms.chat_room(c, auth, who, bots[0], subject=body.subject)
             conv = H.open_conversation(c, who.actor, participants, kind=body.kind, subject=body.subject)
             if who.role == "bot" and who.attempt_id:
                 c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, conv["id"]))
@@ -2016,12 +2031,14 @@ def create_app(settings=None):
         if body.goal_id and not G.goal(c, body.goal_id):
             raise Problem("not_found", "Unknown goal", 404)
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, body.parent_id,
-                            conversation_id=rooms.task_conversation_id(c, auth, owner, who.actor),
+                            conversation_id=rooms.task_conversation_id(c, auth, owner,
+                                H.task(c, body.parent_id)["requester"] if body.parent_id else who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
-        if request_id:
-            c.execute("UPDATE tasks SET request_id=? WHERE id=?", (request_id, row["id"]))
+        inherited_request = H.task(c, body.parent_id).get("request_id") if body.parent_id else None
+        if request_id or inherited_request:
+            c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))
         for url in body.links:
             H.task_link(c, who.actor, row["id"], url)
         return {"task": task_view(H.task(c, row["id"]), c)}
@@ -2144,6 +2161,42 @@ def create_app(settings=None):
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake)
             return {"comment": msg, "comments": H.task_comments(c, task_id), "woke": bool(wake)}
         return mutate(request, body, work)
+
+    @app.get("/api/v2/tasks/{tid}/tree")
+    def task_tree(request: Request, tid: str):
+        with store.read() as c:
+            who = request.state.identity
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
+            # The tree must not expose tasks the caller cannot read.
+            def visible(nodes):
+                result = []
+                for node in nodes:
+                    try:
+                        auth.task(c, who, node["id"])
+                    except Problem:
+                        continue
+                    node["children"] = visible(node["children"])
+                    result.append(node)
+                return result
+            return visible(H.task_tree(c, task_id))
+
+    @app.get("/api/v2/tasks/{tid}/links")
+    def get_task_links(request: Request, tid: str):
+        with store.read() as c:
+            task_id = auth.resolve_task(c, request.state.identity, tid)
+            auth.task(c, request.state.identity, task_id)
+            return {"links": H.task_links(c, task_id)}
+
+    @app.delete("/api/v2/tasks/{tid}/links/{link_id}")
+    def delete_task_link(request: Request, tid: str, link_id: str):
+        def work(c):
+            who = request.state.identity
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
+            H.task_unlink(c, who.actor, task_id, link_id)
+            return {"links": H.task_links(c, task_id)}
+        return mutate(request, M.TaskLink(remove=link_id), work)
 
     @app.post("/api/v2/tasks/{tid}/links")
     def task_links(request: Request, tid: str, body: M.TaskLink):

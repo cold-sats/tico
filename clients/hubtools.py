@@ -392,6 +392,27 @@ def task_create(api, args):
     return api.post("tasks", body, key=_key(args))
 
 
+@tool("hub_task_child_create", "Create a subtask carrying its parent's requester rights.",
+      {"parent_id": TASK_ID, "owner": _s("Bot slug or human id"), "title": _s("What to do"),
+       "body": _s("Details", default="")}, required=("parent_id", "owner", "title"), writes=True)
+def task_child_create(api, args):
+    return task_create(api, {**args, "body": args.get("body") or args["title"]})
+
+
+@tool("hub_task_tree", "The nested subtasks with status, owner and worst PR state.",
+      {"id": TASK_ID}, required=("id",))
+def task_tree(api, args):
+    return api.get(f"tasks/{args['id']}/tree")
+
+
+@tool("hub_task_reparent", "Move a task and its subtree under another parent; empty parent_id clears it.",
+      {"id": TASK_ID, "parent_id": _s("New parent id; omit or use an empty string to clear", default="")},
+      required=("id",), writes=True)
+def task_reparent(api, args):
+    current = api.get(f"tasks/{args['id']}")["task"]
+    return api.post(f"tasks/{args['id']}", {"version": current["version"], "parent_id": args.get("parent_id", "")}, key=_key(args))
+
+
 @tool("hub_task_show", "One task with its history and conversation.", {"id": TASK_ID}, required=("id",))
 def task_show(api, args):
     return api.get("tasks/" + args["id"])
@@ -1763,7 +1784,7 @@ tool("hub_bot_resume", "Resume a paused bot, as the person who asked you; one wi
 
 
 @tool("hub_computer_list", "The computers a bot may go on, as the person who asked you: label, whether it is online, whether it "
-      "takes members' bots, which bots run there, installed and wanted releases, update state, last error and service readiness.", {})
+      "takes members' bots, which bots run there, release (Tico), version (runner software), wanted release, update state, last error and service readiness.", {})
 def computers(api, args):
     return _as_person(api).get("computers")
 
@@ -2548,7 +2569,7 @@ REQUESTER = PEOPLE + BOTOPS
 REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
-ASSISTANT_WRITES = {"hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
+ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
                     "hub_update_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},

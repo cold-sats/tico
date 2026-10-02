@@ -422,3 +422,89 @@ def test_stranded_auto_reopen_maps_to_the_types_open_step(api):
         assert (task['id'], 'open') in H.sweep_stranded(c, at=future)
         after = H.task(c, task['id'])
         assert after['status'] == 'open' and after['step_id'] == typ['steps'][0]['id']
+
+
+def test_three_level_tree_requester_rules_cycles_and_last_child_wake(api):
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the feature', 'body': 'x'})
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build the service', 'body': 'x', 'parent_id': parent['id']}, token='ben-test')
+    leaf = post(api, 'tasks', {'owner': 'cmo', 'title': 'Build the page', 'body': 'x', 'parent_id': child['id']})
+    assert child['requester'] == leaf['requester'] == parent['requester']
+    post(api, 'tasks/' + leaf['id'] + '/links', {'url': 'https://github.com/example/service/pull/1'})
+    summary = get(api, 'tasks/' + parent['id'])['task']['children_summary']
+    assert summary == {'total': 2, 'open': 2, 'done': 0, 'prs_total': 1, 'prs_merged': 0}
+    tree = get(api, 'tasks/' + parent['id'] + '/tree')
+    assert tree[0]['id'] == child['id'] and tree[0]['children'][0]['pr_state'] == 'open'
+    post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'parent_id': leaf['id']}, expected=422)
+    post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'status': 'done'}, expected=422)
+    post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'}, expected=422)
+    leaf = post(api, 'tasks/' + leaf['id'], {'version': leaf['version'], 'close': True})
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == 1
+    child = post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'})
+    assert get(api, 'tasks/' + parent['id'])['task']['children_summary']['done'] == 2
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == 2
+    other = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the next feature', 'body': 'x'})
+    child = post(api, 'tasks/' + child['id'], {'version': child['version'], 'parent_id': other['id']})
+    assert get(api, 'tasks/' + parent['id'] + '/tree') == []
+    assert get(api, 'tasks/' + other['id'] + '/tree')[0]['children'][0]['id'] == leaf['id']
+    # A human can still cancel an open parent.
+    other = post(api, 'tasks/' + other['id'], {'version': other['version'], 'close': True})
+    assert other['status'] == 'closed'
+
+
+def test_ordinary_chat_keeps_subject_and_assistant_room_name(api):
+    conversation = post(api, 'conversations', {'participants': ['ops'], 'kind': 'chat'})
+    assert conversation['subject'] == 'Chat with ops'
+    named = post(api, 'conversations', {'participants': ['ops'], 'kind': 'chat', 'subject': 'Feature planning'})
+    assert named['id'] == conversation['id'] and named['subject'] == 'Feature planning'
+    assert post(api, 'conversations', {'participants': ['ops'], 'kind': 'chat'})['subject'] == 'Feature planning'
+
+
+def test_nested_task_mcp_and_cli_use_shared_routes(api, monkeypatch):
+    from backend.tests.test_mcp import call
+    from clients import hubcli, remotecli
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Coordinate the release', 'body': 'x'})
+    error, created = call(api, 'hub_task_child_create', {'parent_id': parent['short_id'], 'owner': 'cpo',
+        'title': 'Build a component', 'body': 'x'})
+    assert not error and created['task']['requester'] == parent['requester']
+    child = created['task']
+    error, tree = call(api, 'hub_task_tree', {'id': parent['short_id']})
+    assert not error and tree['result'][0]['id'] == child['id']
+    error, moved = call(api, 'hub_task_reparent', {'id': child['short_id'], 'parent_id': ''})
+    assert not error, moved
+    assert moved['task']['parent_id'] is None
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+        def get(self, path, **query):
+            return get(api, path)
+        def post(self, path, body, key=None):
+            response = api.post('/api/v2/' + path, json=body, headers=headers())
+            assert response.status_code == 200, response.text
+            return response.json()
+    monkeypatch.setattr(remotecli, 'Client', Client)
+    monkeypatch.setenv('HUB_API_URL', 'http://testserver')
+    args = hubcli.parser().parse_args(['task', 'parent', child['short_id'], parent['short_id']])
+    assert remotecli.run(args)['task']['parent_id'] == parent['id']
+    args = hubcli.parser().parse_args(['task', 'tree', parent['short_id']])
+    assert remotecli.run(args)[0]['id'] == child['id']
+    args = hubcli.parser().parse_args(['task', 'child', parent['short_id'], '--owner', 'cmo', '--title', 'Build another component'])
+    assert remotecli.run(args)['task']['parent_id'] == parent['id']
+
+
+def test_parent_owner_bot_can_track_and_reparent_inherited_subtasks(api):
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Manage the feature', 'body': 'x'})
+    token = bot_token(api)
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Implement the feature', 'body': 'x', 'parent_id': parent['id']}, token=token)
+    assert child['requester'] == 'human:ana'
+    assert get(api, 'tasks/' + child['short_id'], token=token)['task']['id'] == child['id']
+    assert get(api, 'tasks/' + parent['short_id'] + '/tree', token=token)[0]['id'] == child['id']
+    assert child['id'] in {row['id'] for row in get(api, 'tasks', token=token)['tasks']}
+    rows = post(api, 'sql', {'sql': 'SELECT id FROM tasks'}, token=token)['rows']
+    assert [child['id']] in rows
+    unrelated = post(api, 'tasks', {'owner': 'cpo', 'title': 'Do unrelated work', 'body': 'x'})
+    get(api, 'tasks/' + unrelated['id'], token=token, expected=403)
+    post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'status': 'done'}, token=token, expected=422)
+    moved = post(api, 'tasks/' + child['short_id'], {'version': child['version'], 'parent_id': ''}, token=token)
+    assert moved['parent_id'] is None
