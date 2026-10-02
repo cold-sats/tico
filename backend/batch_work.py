@@ -23,8 +23,11 @@ def isolated(c, kind, row_id, failures=None):
         yield
     except Exception as exc:
         # SQLite may already have rolled back the transaction (full disk, I/O). Keep
-        # that original error, and never continue after a database failure.
-        if not c.in_transaction or (isinstance(exc, sqlite3.DatabaseError) and not isinstance(exc, sqlite3.IntegrityError)):
+        # that original error. Storage failures stop the whole batch; row SQL errors do not.
+        code = getattr(exc, "sqlite_errorcode", 0) & 0xff
+        if not c.in_transaction or code in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_IOERR,
+                                            sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB,
+                                            sqlite3.SQLITE_READONLY):
             fatal = True
             raise
         c.execute("ROLLBACK TO background_row")

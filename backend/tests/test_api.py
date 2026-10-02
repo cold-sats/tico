@@ -114,10 +114,9 @@ def assign(api, r, bot, generation=0, operator="ana-test"):
                 "expected_generation": generation}, token=operator)
 
 
-def ready(api, r, bots, active_attempts=None):
+def ready(api, r, bots):
     return post(api, "runners/heartbeat", {"version": "test", "platform": "test",
-                "readiness": {bot: True for bot in bots},
-                **({"active_attempts": active_attempts} if active_attempts is not None else {})}, token=r["token"])
+                "readiness": {bot: True for bot in bots}}, token=r["token"])
 
 
 def claim(api, r, bot=None, key=None):
@@ -418,89 +417,44 @@ def test_update_status_reports_the_release_this_server_really_ran_before(api, mo
     assert [h["version"] for h in body["history"]][-2:] == ["0.2.41", "0.3.0"]
 
 
-def test_lease_expiry_releases_legacy_process_fence_after_state_loss(api):
+def test_busy_bot_stays_out_of_claims_after_lease_expiry(api):
     r, _, first = setup_attempt(api)
     post(api, f"attempts/{first['id']}/started", {"thread_id": "live-turn"}, token=r["token"])
     post(api, "chat/ops", {"text": "A separate request"})
     expire(api, first["id"])
-    replacement = claim(api, r)
-    assert replacement, "expiry releases legacy fences even after local state loss"
-    ready(api, r, ["ops"])
-    assert claim(api, r) is None, "the replacement lease still prevents duplicate work"
-    assert replacement["id"] != first["id"]
+    for _ in range(2):
+        assert post(api, "jobs/claim", {"busy_bots": ["ops"]}, token=r["token"]) == {"attempt": None}
+    # No durable fence: once the supervisor reports the process gone, work resumes.
+    replacement = post(api, "jobs/claim", {"busy_bots": []}, token=r["token"])["attempt"]
+    assert replacement and replacement["id"] != first["id"]
 
 
-def test_expired_process_report_cannot_recreate_fence_and_completion_releases_guard(api):
-    r = runner(api)
-    assign(api, r, "ops")
-    ready(api, r, ["ops"])
-    post(api, "chat/ops", {"text": "Review this"})
-    first = post(api, "jobs/claim", {"active_attempts": []}, token=r["token"])["attempt"]
+def test_old_runner_claims_without_busy_bots(api):
+    r, _, first = setup_attempt(api)
     expire(api, first["id"])
-    assert post(api, "jobs/claim", {"active_attempts": [first["id"]]}, token=r["token"])["attempt"]
-    # A legacy computer has no process field, but finishing its live turn still releases it.
-    r2, _, second = setup_attempt(api, bot="finance")
-    post(api, f"attempts/{second['id']}/started", {"thread_id": "legacy-turn"}, token=r2["token"])
-    post(api, "chat/finance", {"text": "Another request"})
-    expire(api, second["id"])
+    replacement = claim(api, r)
+    assert replacement and replacement["id"] != first["id"]
+    assert "checkout_retry" not in replacement
+    with api.app.state.store.read() as c:
+        tables = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert not tables & {"attempt_processes", "checkout_waits"}
+
+
+def test_healthy_run_keeps_its_focus_with_queued_work(api):
+    r, _, a = setup_attempt(api)
+    post(api, f"attempts/{a['id']}/started", {"thread_id": "live"}, token=r["token"])
+    post(api, "chat/ops", {"text": "Next"})
+    assert get(api, "bots/ops")["status"]["focus"] == "Responding to queued work"
+    assert get(api, "status?bot=ops")["status"]["focus"] == "Responding to queued work"
+    assert not any(i["kind"] == "checkout" for i in get(api, "operations")["issues"])
+
+
+def test_malformed_bot_config_does_not_block_other_claims(api):
+    r = runner(api)
+    for bot in ("ops", "finance"):
+        assign(api, r, bot)
+        post(api, f"chat/{bot}", {"text": "Review"})
+    ready(api, r, ["ops", "finance"])
     with api.app.state.store.transaction() as c:
-        api.app.state.execution.expire(c)
-    post(api, f"attempts/{second['id']}/complete", {"outcome": "completed", "text": "Reviewed", "last_seq": 0}, token=r2["token"])
-    assert claim(api, r2)
-
-
-def test_checkout_busy_has_backoff_and_reuses_one_attempt(api):
-    r, _, a = setup_attempt(api)
-    store = api.app.state.store
-    for retry in range(3):
-        post(api, f"attempts/{a['id']}/started", {"thread_id": "checkout-busy"}, token=r["token"])
-        result = post(api, f"attempts/{a['id']}/complete", {"outcome": "checkout_busy", "retryable": True, "last_seq": 0}, token=r["token"])
-        assert result["outcome"] == "checkout_busy"
-        assert claim(api, r) is None
-        with store.transaction() as c:
-            w = c.execute("SELECT * FROM checkout_waits").fetchone()
-            seconds = (H.parse_ts(w['retry_after']) - H.parse_ts(H.now())).total_seconds()
-            assert 30 * 2 ** retry - 2 < seconds <= 30 * 2 ** retry
-            assert c.execute("SELECT count(*) FROM attempts").fetchone()[0] == 1
-            assert c.execute("SELECT count(*) FROM turns").fetchone()[0] == 1
-            assert "sign-in" not in H.status(c, "ops")["focus"]
-            c.execute("UPDATE checkout_waits SET retry_after=?", (H.shift(H.now(), seconds=-1),))
-        again = claim(api, r)
-        assert again["id"] == a["id"] and again["checkout_retry"] == retry + 1
-        a = again
-    post(api, f"attempts/{a['id']}/started", {"thread_id": "real-thread"}, token=r["token"])
-    post(api, f"attempts/{a['id']}/complete", {"outcome": "completed", "text": "Done", "last_seq": 0}, token=r["token"])
-    with store.read() as c:
-        assert not c.execute("SELECT 1 FROM checkout_waits").fetchone()
-
-
-def test_downgrade_completion_and_startup_clear_reported_fences(api):
-    r, _, a = setup_attempt(api)
-    post(api, f"attempts/{a['id']}/started", {"thread_id": "live"}, token=r["token"])
-    ready(api, r, ["ops"], active_attempts=[a["id"]])
-    post(api, f"attempts/{a['id']}/complete", {"outcome": "completed", "text": "Done", "last_seq": 0}, token=r["token"])
-    store = api.app.state.store
-    with store.transaction() as c:
-        assert not c.execute("SELECT 1 FROM attempt_processes").fetchone()
-        # A completion under a rolled-back server left a reported fence behind.
-        c.execute("INSERT INTO attempt_processes VALUES(?,?,?,1)", (a["id"], r["runner_id"], "ops"))
-    from backend.store import Store
-    Store(store.settings).initialize()
-    with store.read() as c:
-        assert not c.execute("SELECT 1 FROM attempt_processes").fetchone()
-    post(api, "chat/ops", {"text": "Next"})
-    assert claim(api, r)
-
-
-def test_fence_deadline_and_waiting_health(api):
-    r, _, a = setup_attempt(api)
-    post(api, f"attempts/{a['id']}/started", {"thread_id": "live"}, token=r["token"])
-    post(api, "chat/ops", {"text": "Next"})
-    assert "Waiting for the previous run on" in get(api, "bots/ops")["status"]["focus"]
-    assert "Waiting for the previous run on" in get(api, "status?bot=ops")["status"]["focus"]
-    assert any("Waiting for the previous run on" in i['detail'] for i in get(api, "operations")["issues"] if i['kind'] == 'checkout')
-    store = api.app.state.store
-    with store.transaction() as c:
-        c.execute("UPDATE attempts SET started=? WHERE id=?", (H.shift(H.now(), seconds=-3600 - 2 * store.settings.lease_seconds - 1), a["id"]))
-        api.app.state.execution.clear_fences(c)
-        assert not c.execute("SELECT 1 FROM attempt_processes").fetchone()
+        c.execute("UPDATE bot_config SET config_json='{' WHERE bot='ops'")
+    assert claim(api, r)["bot"] == "finance"

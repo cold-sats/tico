@@ -668,7 +668,6 @@ class WorktreeStatus(Contract):
 class Heartbeat(Contract):
     worktrees: list[WorktreeStatus] | None = Field(default=None, max_length=1000)
     profiles: Annotated[list[Any], BeforeValidator(lambda value: value[:100] if isinstance(value, list) else value)] | None = None
-    active_attempts: list[ID] | None = Field(default=None, max_length=32)
     repositories: list[RepositoryStatus] | None = None
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
@@ -1170,7 +1169,7 @@ class Recruit(Contract):
 
 
 class Claim(Contract):
-    active_attempts: list[ID] | None = Field(default=None, max_length=32)
+    busy_bots: list[ID] | None = Field(default=None, max_length=32)
     bot: ID | None = None
     # The runner puts next-run tasks in its prompt. One that does not say so is never handed
     # any, so they wait for it rather than being marked carried and never read.
@@ -1225,7 +1224,7 @@ class SubscriptionUnavailable(Contract):
 class Completion(Contract):
     subscription_unavailable: SubscriptionUnavailable | None = None
     profile_used: str | None = Field(default=None, max_length=80)
-    outcome: Literal["completed", "failed", "interrupted", "checkout_busy"]
+    outcome: Literal["completed", "failed", "interrupted"]
     text: str = Field(default="", max_length=200_000)
     last_seq: int = Field(ge=0)
     tokens_in: int | None = Field(default=None, ge=0)

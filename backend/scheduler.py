@@ -153,7 +153,6 @@ class Scheduler:
             self.swept = at
             with self.store.transaction() as c:
                 c.execute("DELETE FROM service_health WHERE service LIKE 'background:%' AND julianday(json_extract(detail_json,'$.failed_at')) < julianday(?) - 30", (stamp(at),))
-                c.execute("DELETE FROM checkout_waits WHERE job_id IN (SELECT id FROM jobs WHERE state IN ('completed','cancelled'))")
             sweep_idempotency(self.store, stamp(at))
             sweep_mail(self.store, stamp(at))
         if self.goals_checked is None or at - self.goals_checked >= timedelta(hours=1):
