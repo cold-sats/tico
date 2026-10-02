@@ -1,0 +1,11 @@
+Registry question sets: done - load registry/questions before shipped sets; explicit roots and older runner fallbacks retain their precedence; invalid overrides raise JudgeError - focused clients/tests/test_judge.py passed.
+Listening decisions: done - use the server Settings registry even without a matching process environment; preserve id@version labels, recent-post rescoring, vetoes and inbox deduplication - focused backend/tests/test_listening.py passed.
+Listening Health: done - warn administrators about missing or non-noul destination/veto categories and invalid question sets; omit question content and parse errors from Health - focused Health and log regressions passed.
+Tool credential Health: done - verified the existing implementation names Tools and Computers, hides offline/archived assignments and respects effective vault grants/revocation without exposing values - focused Health and credential-sharing tests passed; no duplicate implementation.
+Slack issue #2: done - verified the existing 40-question batches, one-call small roster path, identical batch state/label, no routing after a later batch fails, terminal refusal and bounded retry handling - focused Slack regressions passed; no duplicate implementation.
+Cloudflare issue #3: done - verified both server and Slack pass through issuer/audience; wrong issuer, audience and expiry remain rejected - focused compose/auth regressions passed; no duplicate implementation.
+Archived assignment and mirrors: done - verified archived bots are skipped during enrollment, legacy configuration still places, repository grants migrate, old heartbeat fields remain optional and archived cleanup retains scoped write access; strengthened real local Git tests proving mirrors survive required worktrees/unpublished or broken bases - focused backend and runner regressions passed.
+Public integration and full-suite acceptance: not done - coordinator owns review, integration and the combined candidate check; no full suite or live system changes in this lane.
+
+All examples are fictional. No tests deleted, no credentials or repository grants removed, and no runner protocol fields added.
+DONE

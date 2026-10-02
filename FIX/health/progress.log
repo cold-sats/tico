@@ -1,0 +1,4 @@
+2026-10-02 Read current origin/main, local owner rules and issues #2/#3/#4 through read-only issue views; existing fixes identified.
+2026-10-02 Implemented registry question overrides and Listening log/Health diagnostics without overlapping privacy or Granola files.
+2026-10-02 Focused regressions verified overrides, version rescoring, vetoes, secret omission, scoped grants, batching, proxy configuration and archived cleanup compatibility.
+2026-10-02 Extended real local Git retention checks; no live provider calls, no test deletions, and no full suite.

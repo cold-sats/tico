@@ -64,6 +64,9 @@ def test_the_slack_gateway_gets_every_sign_in_setting_the_server_gets():
             "TICO_OIDC_CLIENT_SECRET", "TICO_OIDC_ALLOWED_DOMAINS"}
     assert auth <= set(services["server"]["environment"])
     assert auth <= set(services["slack"]["environment"])
+    for name in ("server", "slack"):
+        assert all(services[name]["environment"][key] is None for key in ("TICO_ACCESS_ISSUER", "TICO_ACCESS_AUDIENCE")), \
+            "Cloudflare issuer and audience pass through the operator's environment"
 
 
 def test_the_server_and_the_slack_gateway_get_the_decision_model_keys_but_not_other_services_secrets():
