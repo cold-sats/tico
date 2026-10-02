@@ -13,7 +13,8 @@
     "security": {
       "csp": null,
       "capabilities": [
-        "main"
+        "main",
+        "server"
       ]
     }
   },
@@ -28,7 +29,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZBOEI5QUYyMDBCNUUzRkYKUldULzQ3VUE4cHFMYXY1aVY4OHBBMnJZdkdtcXVSUEZ0QjdwTFNqVVY0cUVrUDhsN1h3SUdjdFIK",
       "endpoints": [
-        "https://runner.acme.example/download/latest.json"
+        "https://github.com/ticoteam/tico/releases/latest/download/latest.json"
       ]
     }
   },

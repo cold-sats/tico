@@ -1,6 +1,12 @@
 """The desktop app's downloads (backend/downloads.py): the manifest and the installers come from
-`releases/app/` in the bucket, are served without a sign-in, and a hub with no bucket offers none."""
+`releases/app/` in the bucket or the running GitHub release, served without a sign-in."""
 import json
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from backend.downloads import Downloads
 
 from backend.tests.test_api import api, headers  # noqa: F401
 
@@ -44,3 +50,76 @@ def test_installers_and_the_manifest_are_served_without_a_sign_in(api):
     assert described == {"available": True, "version": "2.1.0", "file": "Tico_2.1.0_universal.dmg", "size_mb": 12,
                          "url": "https://runner.test/download/file/2.1.0/Tico_2.1.0_universal.dmg", "notarized": True, "signed": True}
     assert api.get("/api/download/windows", headers=headers()).json()["notarized"] is False
+
+
+def github_fixture(version="0.3.7"):
+    base = f"https://github.com/ticoteam/tico/releases/download/v{version}/"
+    names = ["latest.json", "Tico_universal.dmg", "Tico.app.tar.gz", "Tico_x64-setup.exe", "Tico.AppImage", "Tico.deb"]
+    value = {"version": version, "pub_date": "2026-10-02T00:00:00Z",
+             "platforms": {"darwin-aarch64": {"url": base + "Tico.app.tar.gz", "signature": "sig"}},
+             "installers": {"mac": {"notarized": True, "signed": True}}}
+    release = {"tag_name": "v" + version, "assets": [
+        {"name": name, "browser_download_url": base + name, "size": 12_582_912} for name in names]}
+    return base, release, value
+
+
+def test_no_bucket_uses_running_github_release_and_caches_without_credentials(api):
+    base, release, value = github_fixture()
+    requests = []
+
+    def get(request):
+        requests.append(request)
+        assert "authorization" not in request.headers and "cookie" not in request.headers
+        if request.url.host == "api.github.com":
+            assert request.url.path.endswith("/tags/v0.3.7")
+            return httpx.Response(200, json=release)
+        assert str(request.url) == base + "latest.json"
+        return httpx.Response(200, json=value)
+
+    built = api.app.state.downloads
+    built.bucket, built.version = "", "0.3.7"
+    built._github_transport = httpx.MockTransport(get)
+    assert api.get("/download/latest.json").json()["platforms"] == value["platforms"]
+    for os_name, name in [("mac", "Tico_universal.dmg"), ("windows", "Tico_x64-setup.exe"), ("linux", "Tico.AppImage")]:
+        response = api.get("/download/" + os_name, follow_redirects=False)
+        assert response.status_code == 302 and response.headers["location"] == base + name
+        described = api.get("/api/download/" + os_name, headers=headers()).json()
+        assert described["available"] is True and described["url"] == base + name
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize("bucket_version,github_expected", [("0.3.6", True), ("0.3.7", False), ("0.3.8", False), ("0.3.10", False)])
+def test_bucket_version_selection(bucket_version, github_expected):
+    base, release, value = github_fixture()
+    requests = []
+
+    def get(request):
+        requests.append(request)
+        return httpx.Response(200, json=release if request.url.host == "api.github.com" else value)
+
+    s3 = FakeS3()
+    s3.keys["releases/app/latest.json"] = json.dumps({**MANIFEST, "version": bucket_version}).encode()
+    downloads = Downloads(SimpleNamespace(blob_bucket="b", runner_url="https://runner.example.com", public_url=""),
+                          s3, httpx.MockTransport(get))
+    downloads.version = "0.3.7"
+    assert downloads.manifest()["version"] == ("0.3.7" if github_expected else bucket_version)
+    assert bool(requests) == github_expected
+
+
+@pytest.mark.parametrize("failure", ["offline", "missing", "malformed"])
+def test_github_failure_is_unavailable_and_cached(api, failure):
+    requests = []
+
+    def get(request):
+        requests.append(request)
+        if failure == "offline":
+            raise httpx.ConnectError("offline", request=request)
+        return httpx.Response(404 if failure == "missing" else 200, json=[])
+
+    built = api.app.state.downloads
+    built.bucket, built.version = "", "0.3.7"
+    built._github_transport = httpx.MockTransport(get)
+    assert api.get("/api/download/mac", headers=headers()).json() == {"available": False}
+    assert api.get("/download/latest.json").status_code == 404
+    assert api.get("/download/mac", follow_redirects=False).status_code == 404
+    assert len(requests) == 1

@@ -1,2 +1,22 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>Tico</title></head><body></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src ipc: http://ipc.localhost">
+  <title>Tico</title>
+  <link rel="stylesheet" href="setup.css">
+  <script src="setup.js" defer></script>
+</head>
+<body>
+  <main>
+    <img src="mark.svg" alt="Tico" width="48" height="48">
+    <form>
+      <label for="address">Server address</label>
+      <input id="address" name="address" type="url" placeholder="https://tico.example.com" autocomplete="url" spellcheck="false" required autofocus>
+      <p id="error" role="alert" aria-live="polite"></p>
+      <button type="submit">Connect</button>
+    </form>
+  </main>
+</body>
+</html>

@@ -39,8 +39,9 @@ set -- ${ARGV[@]+"${ARGV[@]}"}
 
 NAME="Tico"
 BUNDLE_ID="team.tico.app"
-HUB_URL="${HUB_APP_URL:-https://hub.acme.example/}"
-UPDATE_URL="https://runner.acme.example/download/latest.json"
+HUB_URL="${HUB_APP_URL:-${TICO_HUB_URL:-}}"
+UPDATE_URL="https://github.com/ticoteam/tico/releases/latest/download/latest.json"
+if [ -n "$HUB_URL" ]; then UPDATE_URL="${TICO_APP_BASE:-${HUB_URL%/}}/download/latest.json"; fi
 ICON_SRC="${ICON_SRC:-$HUB/ui/assets/tico/tico-1024.png}"
 TRAY_SRC="$HUB/ui/assets/tico/tico-menubar@2x.png"
 LOCAL_TOKEN_FILE=""
@@ -122,7 +123,8 @@ release() {
   [ -n "$bucket" ] || { echo "TICO_APP_BUCKET (the storage bucket) is not set"; exit 1; }
   local override; override="$(config_override)"
   local version; version="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$APP_DIR/tauri.conf.json")"
-  export TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")"
+  TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")"
+  export TAURI_SIGNING_PRIVATE_KEY
   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-$(cat "$key.password" 2>/dev/null || true)}"
   local signed=false
   if [ -n "$identity" ]; then export APPLE_SIGNING_IDENTITY="$identity"; signed=true; echo "signing as $identity"

@@ -27,7 +27,7 @@ Use `releases/download/vX.Y.Z/install.sh` to pin a release. For a shared server,
 ## Team member: use it every day
 
 - [Use Tico](using-tico.md): your team's address, tasks, chats, results and Needs you.
-- [Your Assistant](assistant.md) and [External agents](connect-an-agent.md).
+- [Desktop app](desktop.md), [Your Assistant](assistant.md) and [External agents](connect-an-agent.md).
 - Knowledge and results: [Docs](docs.md), [Librarian](librarian.md), [Files](files.md), [Meetings](meetings.md), [Listening](listening.md).
 - [Goals and KPIs](goals-and-kpis.md), [Humans](people.md), [Groups](org-chart.md) and [Access](permissions.md).
 - [Glossary](glossary.md) and [Help](support.md).

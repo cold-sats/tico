@@ -61,7 +61,36 @@ the images, and a Mac runner is a git checkout that moves to the release's tag.
 The desktop app is built for every tag too (`.github/workflows/app.yml`, called from the Release workflow). If any
 desktop build fails, the GitHub release is not created and the Release run is red: servers only offer a version that
 has a release, so a failed desktop build stops the rollout. The app's version is the release's
-(v0.3.6 → app 0.3.6), stamped from the tag at build time.
+(v0.3.6 → app 0.3.6, including any prerelease suffix), stamped from the tag at build time.
+
+Tagged builds are the generic **Tico** app, even when the repository has per-environment deploy
+variables. The three build jobs upload their bundles as `app-<target>` artifacts. After those
+jobs pass, the Release workflow downloads them and attaches these assets to the GitHub release:
+
+- macOS universal `.dmg`, `.app.tar.gz` and `.app.tar.gz.sig`;
+- Windows NSIS `-setup.exe` and `-setup.exe.sig`;
+- Linux `.AppImage`, `.AppImage.sig` and `.deb`;
+- `latest.json`, the Tauri updater manifest, with both macOS architectures pointing at the
+  universal archive and every platform URL pointing at an asset of that GitHub release.
+
+`TAURI_SIGNING_PRIVATE_KEY` (and its optional password) signs the updater artifacts. Keep the
+corresponding public key in `app/tauri.conf.json`. Missing signatures or platform bundles stop
+publication. Generic apps check
+`https://github.com/ticoteam/tico/releases/latest/download/latest.json`; prereleases are not
+selected by GitHub's latest-release endpoint. See [Desktop app](desktop.md) for installation.
+
+Generate the public manifest locally from collected bundles without uploading anything:
+
+```bash
+python scripts/app_release.py --github --version X.Y.Z --tag vX.Y.Z --output latest.json bundles/
+```
+
+The optional S3 publish job remains enabled when `TICO_DEPLOY_ROLE` and `TICO_DEPLOY_BUCKET`
+are set. Manual or main-branch builds can still bake in `TICO_HUB_URL` and use `TICO_RUNNER_URL`
+(or the hub address) for their updater endpoint. `scripts/app.sh --env <slug>` retains its
+per-environment behavior. Hubs prefer a bucket manifest of their running version or newer;
+otherwise they offer assets from the GitHub release of their running version, with a ten-minute
+cache and no credentials sent to GitHub.
 
 ## What installations do
 
