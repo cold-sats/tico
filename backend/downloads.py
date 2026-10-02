@@ -5,7 +5,7 @@ bundles and manifest to each GitHub release. An optional deploy job also publish
 `releases/app/` in the storage bucket. Three routes serve them, none needing a sign-in (the app's
 updater has no browser session, and an installer is nothing to protect):
 
-- `GET /download/latest.json` — the manifest, in the shape Tauri's updater reads
+- `GET /download/latest.json` — only the environment bucket manifest, in the shape Tauri's updater reads
   (`version`, `pub_date`, `platforms[<target>].url/.signature`), plus `installers[<os>]`
   for people: the file to hand a visitor on each OS.
 - `GET /download/{os}` — `mac`, `windows` or `linux`: redirects to the current installer.
@@ -14,6 +14,7 @@ updater has no browser session, and an installer is nothing to protect):
 `GET /api/download/{os}` is the signed-in question the site asks before it offers a download.
 Without a bucket manifest, or when it predates the running server, downloads come from that
 version's public GitHub release. A bucket with the same or a newer version still wins. Public
+The updater feed never falls back to a generic GitHub build, even if the bucket build is older.
 GitHub lookups (including failures) are cached for ten minutes and never carry credentials.
 
 The no-sign-in promise holds on the runner hostname (`runner.<host>`), which the tunnel routes
@@ -164,7 +165,7 @@ def install_downloads(app, store):
 
     @app.get("/download/latest.json")
     def latest(request: Request):
-        manifest = downloads.manifest()
+        manifest = downloads.bucket_manifest()
         if not manifest:
             return JSONResponse({"error": {"code": "not_found", "detail": "No app build is published"}}, status_code=404)
         return JSONResponse(manifest, headers={"Cache-Control": "no-cache"})

@@ -58,8 +58,20 @@ impl Config {
     pub fn load(path: &Path) -> Result<Option<Config>, String> {
         let env = std::env::var("HUB_URL").ok();
         let saved = std::fs::read_to_string(path).ok();
-        resolve(env.as_deref(), option_env!("TICO_HUB_URL"), saved.as_deref())
-            .map(|hub| hub.map(Self::new))
+        Self::load_selected(path, env.as_deref(), option_env!("TICO_HUB_URL"), saved.as_deref())
+    }
+
+    fn load_selected(path: &Path, env: Option<&str>, baked: Option<&str>, saved: Option<&str>) -> Result<Option<Config>, String> {
+        let hub = resolve(env, baked, saved)?;
+        if saved.is_none() && env.filter(|s| !s.trim().is_empty()).is_none()
+            && baked.filter(|s| !s.trim().is_empty()).is_some() {
+            if let Some(hub) = &hub {
+                std::fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| std::fs::write(path, hub.as_str()))
+                    .map_err(|_| "Could not save the server address. Check free disk space and folder permissions.")?;
+            }
+        }
+        Ok(hub.map(Self::new))
     }
 
     pub fn new(hub: Url) -> Config {
@@ -106,6 +118,19 @@ mod tests {
         assert_eq!(resolve(None, Some(""), Some(saved)).unwrap().unwrap().host_str(), Some("saved.example.com"));
         assert!(resolve(None, None, None).unwrap().is_none());
         assert!(resolve(Some("invalid"), Some(baked), Some(saved)).is_err());
+    }
+
+    #[test]
+    fn built_in_server_survives_a_later_generic_build() {
+        let directory = std::env::temp_dir().join(format!("tico-config-{}", std::process::id()));
+        let path = directory.join("server.txt");
+        let _ = std::fs::remove_dir_all(&directory);
+        Config::load_selected(&path, None, Some("https://team.example.com"), None).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(Config::load_selected(&path, None, None, Some(&saved)).unwrap().unwrap().host(), "team.example.com");
+        Config::load_selected(&path, None, Some("https://other.example.com"), Some(&saved)).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

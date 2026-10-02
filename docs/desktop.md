@@ -36,3 +36,10 @@ or that build is older. A bucket build of the same or a newer version remains av
 GitHub cannot be reached, the download link waits until the next successful check; failures are
 cached for ten minutes. Source checkouts reporting `dev` need a bucket build or a download from
 GitHub directly.
+
+A built-in server address is saved to `server.txt` when no saved address exists, so a later
+generic build retains it if the bundle identifier is unchanged. CI uses `team.tico.app` for
+both generic and hub builds. `scripts/app.sh --env` uses `team.tico.env.<environment id>`:
+its config folder differs from the generic app, so installing the generic app separately
+does not inherit that environment's settings. Environment updater feeds never offer generic
+GitHub builds.

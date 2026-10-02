@@ -79,7 +79,8 @@ def test_no_bucket_uses_running_github_release_and_caches_without_credentials(ap
     built = api.app.state.downloads
     built.bucket, built.version = "", "0.3.7"
     built._github_transport = httpx.MockTransport(get)
-    assert api.get("/download/latest.json").json()["platforms"] == value["platforms"]
+    assert api.get("/download/latest.json").status_code == 404
+    assert not requests
     for os_name, name in [("mac", "Tico_universal.dmg"), ("windows", "Tico_x64-setup.exe"), ("linux", "Tico.AppImage")]:
         response = api.get("/download/" + os_name, follow_redirects=False)
         assert response.status_code == 302 and response.headers["location"] == base + name
@@ -123,3 +124,10 @@ def test_github_failure_is_unavailable_and_cached(api, failure):
     assert api.get("/download/latest.json").status_code == 404
     assert api.get("/download/mac", follow_redirects=False).status_code == 404
     assert len(requests) == 1
+
+
+def test_updater_keeps_environment_build_even_when_older_than_server(api):
+    built = api.app.state.downloads
+    built.bucket, built._s3, built.version = "b", FakeS3(), "3.0.0"
+    built._github_transport = httpx.MockTransport(lambda request: pytest.fail("Updater must not fetch GitHub"))
+    assert api.get("/download/latest.json").json()["version"] == MANIFEST["version"]

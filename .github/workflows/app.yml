@@ -118,7 +118,7 @@ jobs:
 
   publish:
     # Only for a hub that configured its release role and bucket (repository variables).
-    if: ${{ vars.TICO_DEPLOY_ROLE != '' && vars.TICO_DEPLOY_BUCKET != '' }}
+    if: ${{ github.ref_type != 'tag' && vars.TICO_DEPLOY_ROLE != '' && vars.TICO_DEPLOY_BUCKET != '' }}
     needs: build
     runs-on: ubuntu-latest
     env:

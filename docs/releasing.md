@@ -85,12 +85,14 @@ Generate the public manifest locally from collected bundles without uploading an
 python scripts/app_release.py --github --version X.Y.Z --tag vX.Y.Z --output latest.json bundles/
 ```
 
-The optional S3 publish job remains enabled when `TICO_DEPLOY_ROLE` and `TICO_DEPLOY_BUCKET`
+Tag builds never run the S3 publish job. The optional S3 publish job runs on other builds when `TICO_DEPLOY_ROLE` and `TICO_DEPLOY_BUCKET`
 are set. Manual or main-branch builds can still bake in `TICO_HUB_URL` and use `TICO_RUNNER_URL`
 (or the hub address) for their updater endpoint. `scripts/app.sh --env <slug>` retains its
 per-environment behavior. Hubs prefer a bucket manifest of their running version or newer;
 otherwise they offer assets from the GitHub release of their running version, with a ten-minute
-cache and no credentials sent to GitHub.
+cache and no credentials sent to GitHub. This fallback applies only to human download routes
+(`/download/{os}` and `/api/download/{os}`). `/download/latest.json` serves only the bucket
+manifest, including older environment builds, and returns 404 when none exists.
 
 ## What installations do
 
