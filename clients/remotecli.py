@@ -275,7 +275,20 @@ def run(args, who=None):
         if sub == "ask":
             return post(f"tasks/{args.id}/ask", {"text": args.text})
         if sub == "comment":
-            return post(f"tasks/{args.id}/comments", {"text": args.text})
+            from clients.task_review import ask_from_args, attachment
+            ask = ask_from_args(args)
+            references = []
+            for index, path in enumerate(getattr(args, "attach", None) or []):
+                made = post(f"tasks/{args.id}/files", attachment(path), suffix=f":attachment:{index}")
+                references.append(f"{made['file_id']}@{made['version']}")
+            body = {"text": args.text}
+            if references:
+                body["attachments"] = references
+            if ask is not None:
+                body["ask"] = ask
+            return post(f"tasks/{args.id}/comments", body)
+        if sub == "answers":
+            return client.get(f"tasks/{args.id}/answers")
         if sub == "link":
             return post(f"tasks/{args.id}/links", {"url": args.url, "title": args.title})
         if sub == "label":
@@ -290,13 +303,13 @@ def run(args, who=None):
                         labels.append(x.strip().lower())
             return post("tasks/" + args.id, {"version": current["version"], "labels": labels})
         if sub == "attach":
-            path = Path(args.file)
-            data = path.read_bytes()
-            body = {"name": args.name or path.name}
-            try:
-                body["text"] = data.decode("utf-8")
-            except UnicodeDecodeError:
-                body["content_base64"] = base64.b64encode(data).decode("ascii")
+            from clients.task_review import ask_from_args, attachment
+            body = attachment(args.file, args.name)
+            ask = ask_from_args(args)
+            if ask is not None:
+                body["ask"] = ask
+            if getattr(args, "note", None) is not None:
+                body["note"] = args.note
             return post(f"tasks/{args.id}/files", body)
         if sub in ("update", "close"):
             current = client.get("tasks/" + args.id)["task"]

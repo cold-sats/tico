@@ -115,3 +115,15 @@ It never substitutes the bot's description for its Instructions.
 Every version is kept: versions are immutable and nothing prunes them. The owner or a bot administrator
 removes a file from the bot's page (`PATCH /api/v2/files/{id}` with `archived: true`). That hides the row
 and keeps the bytes; the file returns when the bot publishes a changed version. A bot cannot remove a file.
+
+## Task file reviews
+
+Task attachments are versioned by name within their task, across uploaders. Reusing a name
+adds a version; an archived name starts a new file. Existing attachments are v1. Task files
+and their versions are listed by `GET /api/v2/tasks/{id}/files`, with notes, questions, all
+answers and nullable media metadata. Downloads accept `?v=<n>` for an exact version.
+The version's author can edit its note or question through
+`PATCH /api/v2/files/{id}/versions/{n}`. File bytes remain immutable. Reviews use the existing
+ask/answer messages, so their text remains readable by older Computers.
+See [Files, versions and questions](tasks.md#files-versions-and-questions) for the CLI, MCP
+and answer contracts.

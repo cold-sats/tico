@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 from clients.agent_skill import WHO_NEEDS_ME
+from clients.task_review import ASK_SCHEMA
 
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
 def release_version():
@@ -63,6 +64,7 @@ CLI_TOOL_ALIASES = {
 
 def _s(description, **extra):
     return {"type": "string", "description": description, **extra}
+
 
 
 TASK_ID = {"type": "string", "description": "Task id: the full id, or its first 8 or more characters (`short_id` in hub_task_list)"}
@@ -543,11 +545,21 @@ def task_type_delete(api, args):
     return api.post("task-types/" + args["id"] + "/delete", {}, key=_key(args))
 
 
+
 @tool("hub_task_comment", "Leave a comment on a task: progress, a question for the people on it, "
       "a link to what you found. It is on the record with your name; it is not a chat.",
-      {"id": TASK_ID, "text": _s("The comment")}, required=("id", "text"), writes=True)
+      {"id": TASK_ID, "text": _s("The comment"), "ask": ASK_SCHEMA,
+       "attachments": {"type": "array", "items": {"type": "string"}, "description": "File versions as file_id@version"}},
+      required=("id", "text"), writes=True)
 def task_comment(api, args):
-    return api.post(f"tasks/{args['id']}/comments", {"text": args["text"]}, key=_key(args))
+    return api.post(f"tasks/{args['id']}/comments",
+                    {k: args[k] for k in ("text", "ask", "attachments") if k in args}, key=_key(args))
+
+
+@tool("hub_task_answers", "List all structured answers on a task, oldest first.",
+      {"id": TASK_ID}, required=("id",))
+def task_answers(api, args):
+    return api.get(f"tasks/{args['id']}/answers")
 
 
 @tool("hub_task_label", "Add or remove labels on a task. A project is a label; so is a kind (bug, front-end).",
@@ -1017,11 +1029,12 @@ def intake_resolve(api, args):
       {"id": _s("Task id"),
        "name": _s("File name with its extension, e.g. 2026-09-15-draft-review.md"),
        "text": _s("The file's text, for a text or Markdown file"),
-       "content_base64": _s("The file's bytes, base64-encoded, for anything that is not text")},
+       "content_base64": _s("The file's bytes, base64-encoded, for anything that is not text"),
+       "note": {"type": "string", "maxLength": 500}, "ask": ASK_SCHEMA},
       required=("id", "name"), writes=True)
 def task_attach(api, args):
     body = {"name": args["name"]}
-    for field in ("text", "content_base64"):
+    for field in ("text", "content_base64", "note", "ask"):
         if args.get(field) is not None:
             body[field] = args[field]
     return api.post(f"tasks/{args['id']}/files", body, key=_key(args))

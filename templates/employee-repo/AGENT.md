@@ -51,6 +51,14 @@ it prints, never a path on this computer or an `s3://` URI. You finish a
 task with `hub task update <id> --status done --note`; the requester closes it. Never close a
 task you did not request. Never use `gh issue` for work.
 
+## Asking people
+Deliver files with `hub task attach <id> <file> --note "..." --ask ask.json`, or use
+`--choices "Approve,Request changes"` for one question. The same task and name adds a version.
+For a comment, use `hub task comment <id> "..." --attach <file> --ask ask.json` (MCP tools accept
+`ask` too). Ask once per version. Read the `answer: {...}` block in the wake, or
+`hub task answers <id>`, and act on that answer. Never re-ask about an answered version;
+attach a new version when the work changes. Answers record who replied; the bot decides its next step.
+
 ## Deciding with the decision model (`hub decision ask`)
 When a step is a decision rather than writing — which bucket, is this already covered, does this
 draft commit money, which of these forty rows to open, which branch of the playbook — ask the decision model: `hub_decision_ask` (MCP) or `hub decision ask --set <set> --state-file s.json`

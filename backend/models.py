@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BeforeValidator, BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import AfterValidator, BeforeValidator, BaseModel, ConfigDict, Field, StrictBool, StrictStr, model_serializer, model_validator
 
 Text = Annotated[str, Field(min_length=1, max_length=200_000)]
 ID = Annotated[str, Field(min_length=1, max_length=200)]
@@ -157,8 +157,69 @@ class TaskTypeUpdate(Contract):
     steps: list[TaskStepInput] | None = None
 
 
+class QuestionOption(Contract):
+    label: Annotated[StrictStr, Field(min_length=1, max_length=60)]
+    description: Annotated[StrictStr, Field(max_length=200)] = ""
+    file: Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")] | None = None
+
+
+class ReviewQuestion(Contract):
+    id: Annotated[StrictStr, Field(min_length=1, max_length=40)]
+    header: Annotated[StrictStr, Field(max_length=30)]
+    question: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+    options: list[QuestionOption] = Field(default_factory=list, max_length=6)
+    multi: StrictBool = False
+    other: StrictBool = True
+
+    @model_validator(mode="after")
+    def unique_labels(self):
+        labels = [o.label for o in self.options]
+        if len(set(labels)) != len(labels):
+            raise ValueError("Option labels must be unique")
+        return self
+
+
+class ReviewAsk(Contract):
+    questions: list[ReviewQuestion] = Field(min_length=1, max_length=4)
+    who: Annotated[StrictStr, Field(min_length=1, max_length=200)] | None = None
+
+    @model_validator(mode="after")
+    def unique_questions(self):
+        ids = [q.id for q in self.questions]
+        if len(set(ids)) != len(ids):
+            raise ValueError("Question ids must be unique")
+        return self
+
+
+class ReviewTarget(Contract):
+    comment: ID | None = None
+    file: ID | None = None
+    version: Annotated[int, Field(strict=True, ge=1)] | None = None
+
+    @model_validator(mode="after")
+    def one_target(self):
+        if not ((self.comment is not None and self.file is None and self.version is None)
+                or (self.comment is None and self.file is not None and self.version is not None)):
+            raise ValueError("Target is {comment} or {file, version}")
+        return self
+
+
+class TaskAnswer(Contract):
+    target: ReviewTarget
+    answers: dict[StrictStr, list[StrictStr]] = Field(default_factory=dict)
+    other: Annotated[StrictStr, Field(max_length=200_000)] | None = None
+    dismiss: StrictBool = False
+
+
+class FileVersionEdit(Contract):
+    note: Annotated[StrictStr, Field(max_length=500)] | None = None
+    ask: ReviewAsk | None = None
+
+
 class TaskComment(Contract):
     text: Text
+    ask: ReviewAsk | None = None
+    attachments: list[Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")]] = Field(default_factory=list, max_length=10)
 
 
 class TaskLink(Contract):

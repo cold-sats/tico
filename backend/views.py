@@ -632,10 +632,11 @@ def needs_items(c, auth, who, task_view):
                 auth.task(c, who, row["id"])
             except Problem:
                 continue
-            ask = H.unanswered_ask(c, row)
+            open_asks = H.open_task_asks(c, row)
+            ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
             items.append({**task_view(row),
                           "kind": "declined" if kind == "declined" else "question" if ask else "task",
-                          "origin_actor": H.task_origin(c, row), "ask": ask,
+                          "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
                           "first_line": (row.get("body") or "").split("\n")[0]})
     for row in raw["approvals"]:
         msg = H.message(c, row["message_id"])

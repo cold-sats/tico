@@ -51,6 +51,8 @@ class TaskFile(M.Contract):
     name: str = Field(min_length=1, max_length=200)
     text: str | None = Field(default=None, min_length=1, max_length=2_000_000)
     content_base64: str | None = Field(default=None, min_length=1, max_length=14_000_000)
+    note: str | None = Field(default=None, max_length=500)
+    ask: M.ReviewAsk | None = None
 
 
 def upload_contract(model):
@@ -358,6 +360,12 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             return result
         return await asyncio.to_thread(write, request, body, uploads, work)
 
+    @app.get("/api/v2/tasks/{tid}/files")
+    def task_files(request: Request, tid: str):
+        with store.read() as c:
+            task_id = auth.resolve_task(c, request.state.identity, tid)
+            return files.task_listing(c, request.state.identity, task_id)
+
     @app.post("/api/v2/tasks/{tid}/files")
     def task_attach(request: Request, tid: str, body: TaskFile):
         """Attach a deliverable to a task. The file is private to the task: whoever may read the
@@ -381,16 +389,23 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             except BF.Refused as exc:
                 raise Problem("file_refused", str(exc), 422) from exc
         with store.read() as c:
+            tid = auth.resolve_task(c, who, tid)
             auth.task(c, who, tid)
         digest = blobs.put(data)
         def work(c):
-            auth.task(c, who, tid)
+            from .task_review import comment_rights, edit_version
+            task = comment_rights(c, auth, who, tid) if body.ask else auth.task(c, who, tid)
             item = register(c, who, digest, len(data), body.name, content_type)
+            bot_actor = next((a for a in (who.actor, task["owner"], task["requester"]) if H.is_bot(a)), None)
+            fid, number = files.attach_task(c, who, tid, item, digest,
+                                           H.actor_id(bot_actor) if bot_actor else default_bot(c, store.settings))
             c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, item["id"]))
+            if body.note is not None or body.ask is not None:
+                edit_version(c, auth, who, tid, fid, number,
+                             M.FileVersionEdit(note=body.note, ask=body.ask))
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
-            # What a bot delivers is one of its files, listed on its page; a person's upload is not.
-            files.publish_task_deliverable(c, who, tid, item, digest)
-            return {"file": item, "link": store.settings.public_url + item["url"]}
+            return {"file": {**item, "file_id": fid, "version": number}, "file_id": fid, "version": number,
+                    "link": store.settings.public_url + f"/api/v2/files/{fid}?v={number}"}
         return mutate(request, body, work)
 
     @app.get("/api/meetings/sources")
@@ -558,20 +573,28 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         return row
 
     @app.get("/api/v2/files/{bid}/meta")
-    def file_meta(request: Request, bid: str):
+    def file_meta(request: Request, bid: str, v: int | None = None):
         """Name, size and type without the bytes (the viewer decides a
         thumbnail or a type mark from this, not by downloading the file)."""
-        if is_file_id(bid):
-            return files.serve(request.state.identity, bid, meta=True)
+        with store.read() as c:
+            stored = c.execute("SELECT 1 FROM bot_files WHERE id=?", (bid,)).fetchone()
+        if is_file_id(bid) or stored:
+            return files.serve(request.state.identity, bid, v, meta=True)
+        if v not in (None, 1):
+            raise Problem("not_found", "File version not found", 404)
         with store.read() as c:
             row = readable_blob(c, request.state.identity, bid)
             return {"id": row["id"], "name": row["name"], "size": row["size"], "content_type": row["content_type"]}
 
     @app.get("/api/v2/files/{bid}")
-    def download(request: Request, bid: str):
+    def download(request: Request, bid: str, v: int | None = None):
         who = request.state.identity
-        if is_file_id(bid):
-            return files.serve(who, bid)
+        with store.read() as c:
+            stored = c.execute("SELECT 1 FROM bot_files WHERE id=?", (bid,)).fetchone()
+        if is_file_id(bid) or stored:
+            return files.serve(who, bid, v)
+        if v not in (None, 1):
+            raise Problem("not_found", "File version not found", 404)
         with store.read() as c:
             row = readable_blob(c, who, bid)
             data = blobs.get(row["digest"])

@@ -3819,6 +3819,84 @@
       }
     },
     "/api/v2/files/{fid}/versions/{number}": {
+      "patch": {
+        "summary": "Edit a version's note or question as its author",
+        "operationId": "editFileVersion",
+        "parameters": [
+          {
+            "name": "fid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Fid"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileVersionEdit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionReview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Files"
+        ]
+      },
       "get": {
         "summary": "The bytes of one version (a download, never a storage address)",
         "operationId": "getFileVersion",
@@ -8754,7 +8832,178 @@
         ]
       }
     },
+    "/api/v2/tasks/{tid}/answers": {
+      "get": {
+        "summary": "Structured answers, oldest first",
+        "operationId": "listTaskAnswers",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskAnswers"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "post": {
+        "summary": "Answer or dismiss a comment or file version question",
+        "operationId": "answerTaskQuestion",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskAnswer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskAnswerResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
     "/api/v2/tasks/{tid}/comments": {
+      "get": {
+        "summary": "Comments and questions with their answers",
+        "operationId": "listTaskComments",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskComments"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
       "post": {
         "summary": "Comment on a task",
         "operationId": "commentOnTask",
@@ -8795,6 +9044,127 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CommentResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v2/tasks/{tid}/files": {
+      "get": {
+        "summary": "Files and versions on a task",
+        "operationId": "listTaskFiles",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskFileList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "post": {
+        "summary": "Attach a file; the same name adds a version",
+        "operationId": "attachTaskFile",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskFile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskFileResult"
                 }
               }
             }
@@ -11576,6 +11946,35 @@
         "additionalProperties": false,
         "type": "object",
         "title": "FileEdit"
+      },
+      "FileVersionEdit": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "ask": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewAsk"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FileVersionEdit"
       },
       "FileVersions": {
         "type": "object",
@@ -14796,13 +15195,26 @@
               }
             }
           },
+          "ask": {
+            "type": "object",
+            "description": "Structured questions on a task ask"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/ReviewAnswer"
+          },
           "answers": {
             "type": "array",
             "items": {
-              "type": "string",
-              "description": "A message id"
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/components/schemas/ReviewAnswer"
+                }
+              ]
             },
-            "description": "On a bot's reply: the ids of every message its run handled, the one that started it first, then those folded in. Absent on replies from before it existed"
+            "description": "On a structured ask: all review answers, oldest first. On a bot reply: handled message ids"
           }
         },
         "required": [
@@ -15282,6 +15694,40 @@
           }
         }
       },
+      "QuestionOption": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Description",
+            "default": ""
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^@]+@[1-9][0-9]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "QuestionOption"
+      },
       "Recent": {
         "type": "object",
         "properties": {
@@ -15493,6 +15939,165 @@
           "repositories"
         ],
         "additionalProperties": true
+      },
+      "ReviewAnswer": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "object"
+          },
+          "answers": {
+            "type": "object"
+          },
+          "other": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dismiss": {
+            "type": "boolean"
+          },
+          "by": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answers",
+          "at",
+          "by",
+          "dismiss",
+          "other",
+          "target"
+        ],
+        "additionalProperties": true
+      },
+      "ReviewAsk": {
+        "properties": {
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewQuestion"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Questions"
+          },
+          "who": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Who"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "questions"
+        ],
+        "title": "ReviewAsk"
+      },
+      "ReviewQuestion": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "header": {
+            "type": "string",
+            "maxLength": 30,
+            "title": "Header"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Options"
+          },
+          "multi": {
+            "type": "boolean",
+            "title": "Multi",
+            "default": false
+          },
+          "other": {
+            "type": "boolean",
+            "title": "Other",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "header",
+          "question"
+        ],
+        "title": "ReviewQuestion"
+      },
+      "ReviewTarget": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReviewTarget"
       },
       "Revoked": {
         "type": "object",
@@ -16092,6 +16697,10 @@
             "type": "string",
             "description": "Display name of requester"
           },
+          "open_asks": {
+            "type": "integer",
+            "description": "Questions on this task with no answer or dismissal"
+          },
           "type_id": {
             "type": [
               "string",
@@ -16161,6 +16770,88 @@
         ],
         "additionalProperties": true
       },
+      "TaskAnswer": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/ReviewTarget"
+          },
+          "answers": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Answers"
+          },
+          "other": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other"
+          },
+          "dismiss": {
+            "type": "boolean",
+            "title": "Dismiss",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "TaskAnswer"
+      },
+      "TaskAnswerResult": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/ReviewAnswer"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "woke": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "answer",
+          "comment",
+          "comments",
+          "woke"
+        ],
+        "additionalProperties": true
+      },
+      "TaskAnswers": {
+        "type": "object",
+        "properties": {
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewAnswer"
+            }
+          }
+        },
+        "required": [
+          "answers"
+        ],
+        "additionalProperties": true
+      },
       "TaskComment": {
         "properties": {
           "text": {
@@ -16168,6 +16859,25 @@
             "maxLength": 200000,
             "minLength": 1,
             "title": "Text"
+          },
+          "ask": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewAsk"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attachments": {
+            "items": {
+              "type": "string",
+              "pattern": "^[^@]+@[1-9][0-9]*$"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Attachments"
           }
         },
         "additionalProperties": false,
@@ -16176,6 +16886,21 @@
           "text"
         ],
         "title": "TaskComment"
+      },
+      "TaskComments": {
+        "type": "object",
+        "properties": {
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          }
+        },
+        "required": [
+          "comments"
+        ],
+        "additionalProperties": true
       },
       "TaskCreate": {
         "properties": {
@@ -16373,6 +17098,251 @@
           "has_more",
           "messages",
           "task"
+        ],
+        "additionalProperties": true
+      },
+      "TaskFile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "content_base64": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 14000000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Base64"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "ask": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewAsk"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TaskFile",
+        "description": "A deliverable a bot (or person) attaches to a task: text as-is, or bytes base64-encoded."
+      },
+      "TaskFileList": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskFileView"
+            }
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "additionalProperties": true
+      },
+      "TaskFileResult": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "file": {
+            "type": "object"
+          },
+          "link": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "file_id",
+          "link",
+          "version"
+        ],
+        "additionalProperties": true
+      },
+      "TaskFileVersion": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "comment_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ask": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewAnswer"
+            }
+          },
+          "url": {
+            "type": "string"
+          },
+          "poster_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thumb_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "media_state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "answers",
+          "ask",
+          "by",
+          "comment_id",
+          "created",
+          "duration_ms",
+          "height",
+          "media_state",
+          "mime",
+          "n",
+          "note",
+          "poster_url",
+          "sha256",
+          "size",
+          "thumb_url",
+          "url",
+          "width"
+        ],
+        "additionalProperties": true
+      },
+      "TaskFileView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "current_version": {
+            "type": "integer"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskFileVersion"
+            }
+          }
+        },
+        "required": [
+          "archived",
+          "current_version",
+          "id",
+          "mime",
+          "name",
+          "versions"
         ],
         "additionalProperties": true
       },
@@ -17400,6 +18370,42 @@
           "bots",
           "default",
           "may_edit_default"
+        ],
+        "additionalProperties": true
+      },
+      "VersionReview": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "comment_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ask": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewAnswer"
+            }
+          }
+        },
+        "required": [
+          "answers",
+          "ask",
+          "comment_id",
+          "note"
         ],
         "additionalProperties": true
       }

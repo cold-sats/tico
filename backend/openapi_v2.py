@@ -143,6 +143,11 @@ STABLE = [
     ("/api/v2/tasks/{tid}", "get", "Tasks", "getTask", "A task with its history, comments and messages", "TaskDetail"),
     ("/api/v2/tasks/{tid}", "post", "Tasks", "updateTask",
      "Change a task; send the version you read (409 version_conflict otherwise)", "TaskResult"),
+    ("/api/v2/tasks/{tid}/files", "get", "Tasks", "listTaskFiles", "Files and versions on a task", "TaskFileList"),
+    ("/api/v2/tasks/{tid}/files", "post", "Tasks", "attachTaskFile", "Attach a file; the same name adds a version", "TaskFileResult"),
+    ("/api/v2/tasks/{tid}/comments", "get", "Tasks", "listTaskComments", "Comments and questions with their answers", "TaskComments"),
+    ("/api/v2/tasks/{tid}/answers", "get", "Tasks", "listTaskAnswers", "Structured answers, oldest first", "TaskAnswers"),
+    ("/api/v2/tasks/{tid}/answers", "post", "Tasks", "answerTaskQuestion", "Answer or dismiss a comment or file version question", "TaskAnswerResult"),
     ("/api/v2/tasks/{tid}/comments", "post", "Tasks", "commentOnTask", "Comment on a task", "CommentResult"),
     ("/api/v2/updates", "get", "Updates", "listUpdates", "Daily and weekly updates", "UpdateList"),
     ("/api/v2/updates/unread", "get", "Updates", "countUnreadUpdates", "How many updates are unread", "Unread"),
@@ -174,6 +179,7 @@ STABLE = [
      "BotFileResult"),
     ("/api/v2/files/{fid}/activity", "get", "Files", "listFileActivity", "A file's append-only activity, newest first", "FileActivity"),
     ("/api/v2/files/{fid}/versions", "get", "Files", "listFileVersions", "A file's versions, newest first", "FileVersions"),
+    ("/api/v2/files/{fid}/versions/{number}", "patch", "Files", "editFileVersion", "Edit a version's note or question as its author", "VersionReview"),
     ("/api/v2/files/{fid}/versions/{number}", "get", "Files", "getFileVersion",
      "The bytes of one version (a download, never a storage address)", None),
     ("/api/v2/docs", "get", "Docs", "listInternalDocs",
@@ -352,9 +358,10 @@ SCHEMAS = {
                         "wrote it, plus a summary of what it did). Absent until a run takes the message",
                         "properties": {"job_id": {"type": "string"}, "attempt_id": {"type": "string"},
                                        "state": {"enum": ["started_run", "added_to_run"]}}},
-                   answers=items({"type": "string", "description": "A message id"}) | {
-                       "description": "On a bot's reply: the ids of every message its run handled, the one that started it "
-                                      "first, then those folded in. Absent on replies from before it existed"}),
+                   ask={"type": "object", "description": "Structured questions on a task ask"},
+                   answer=ref("ReviewAnswer"),
+                   answers=items({"oneOf": [{"type": "string"}, ref("ReviewAnswer")]}) | {
+                       "description": "On a structured ask: all review answers, oldest first. On a bot reply: handled message ids"}),
     "Execution": obj({"job_id": "s", "message_id": "s", "bot": "s", "attempt_id": "n", "state": "s", "label": "s", "text": "s"},
                      required=["job_id", "message_id", "bot", "attempt_id", "state", "label", "text", "parts"],
                      parts=items(obj({"kind": {"enum": ["progress", "reply", "tool"]}, "text": "s", "at": "s"})) | {
@@ -373,6 +380,7 @@ SCHEMAS = {
                 required=["id", "title", "body", "requester", "owner", "status", "created", "updated", "due", "version", "lane", "labels", "acceptance_criteria"],
                 owner_name={"type": "string", "description": "Display name of owner (`owner` stays the actor id)"},
                 requester_name={"type": "string", "description": "Display name of requester"},
+                open_asks={"type": "integer", "description": "Questions on this task with no answer or dismissal"},
                 type_id={"type": ["string", "null"]}, step_id={"type": ["string", "null"]},
                 type={"oneOf": [obj({"id": "s", "name": "s"}), {"type": "null"}]},
                 step={"oneOf": [ref("TaskStep"), {"type": "null"}]}),
@@ -453,6 +461,22 @@ SCHEMAS = {
     "TaskDetail": obj({"task": ref("Task"), "events": "a", "children": "a", "comments": items(ref("Message")),
                        "messages": items(ref("Message")), "has_more": "b"},
                        required=["task", "events", "children", "comments", "messages", "has_more"], actors=ACTORS),
+    "ReviewAnswer": obj({"target": "o", "answers": "o", "other": "n", "dismiss": "b", "by": "s", "at": "s"}),
+    "VersionReview": obj({"note": "n", "comment_id": "n", "ask": {"type": ["object", "null"]},
+                          "answers": items(ref("ReviewAnswer"))}),
+    "TaskFileVersion": obj({"n": "i", "size": "i", "mime": "s", "sha256": "s", "created": "s", "by": "s",
+                            "comment_id": "n", "note": "n", "ask": {"type": ["object", "null"]},
+                            "answers": items(ref("ReviewAnswer")), "url": "s", "poster_url": "n", "thumb_url": "n",
+                            **{k: {"type": ["integer", "null"]} for k in ("width", "height", "duration_ms")},
+                            "media_state": "n"}),
+    "TaskFileView": obj({"id": "s", "name": "s", "mime": "s", "current_version": "i", "archived": "b",
+                     "versions": items(ref("TaskFileVersion"))}),
+    "TaskFileList": obj({"files": items(ref("TaskFileView"))}),
+    "TaskFileResult": obj({"file_id": "s", "version": "i", "file": "o", "link": "s"}),
+    "TaskComments": obj({"comments": items(ref("Message"))}),
+    "TaskAnswers": obj({"answers": items(ref("ReviewAnswer"))}),
+    "TaskAnswerResult": obj({"comment": ref("Message"), "answer": ref("ReviewAnswer"),
+                             "comments": items(ref("Message")), "woke": "b"}),
     "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b"}),
     "UpdateList": obj({"updates": "a", "unread": "i", "next_before": "n"}, required=["updates", "unread"]),
     "Unread": obj({"unread": "i"}),
@@ -741,7 +765,7 @@ def spec(app):
                       else "`event: snapshot`, `event: expired`, and `: keepalive` comments")
             responses["200"] = {"description": "text/event-stream: " + events + ". Ends after about a minute; reconnect.",
                                 "content": {"text/event-stream": {"schema": {"type": "string"}}}}
-        if path.startswith("/api/v2/files/") and path.endswith("/versions/{number}"):
+        if method == "get" and path.startswith("/api/v2/files/") and path.endswith("/versions/{number}"):
             responses["200"] = {"description": "The file's bytes (application/octet-stream, sent as an attachment)",
                                 "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
         if path == "/auth/login":
