@@ -109,6 +109,7 @@ class GitHubApp:
         self.repository_refresh_wanted = False
         self.repository_worker = None
         self.repository_running = False
+        self.repository_stop = threading.Event()
         with store.transaction() as c:
             c.executescript(SCHEMA)
 
@@ -320,12 +321,12 @@ class GitHubApp:
             self.cache[key] = entry
         return entry["token"], entry["expires_at"]
 
-    def mint_reachable(self, repos, permissions, diagnose_empty=False):
+    def mint_reachable(self, repos, permissions, diagnose_empty=False, own=None):
         """Discard confirmed missing repositories and retry the remaining scope once."""
         from .repositories import unreachable, metadata, save_metadata
         with self.store.read() as c:
             missing = unreachable(c)
-            names = [name for name in repos if name.lower() not in missing]
+            names = [name for name in repos if name.lower() not in missing or name.lower() == str(own).lower()]
         if not names:
             return None, None, []
         try:
@@ -340,7 +341,8 @@ class GitHubApp:
                 raise
             with self.store.transaction() as c:
                 confirmed = metadata(c, 'repositories-confirmed-missing')
-                confirmed.update({name.lower(): True for name in absent})
+                confirmed = {name: stamp for name, stamp in confirmed.items() if name in unreachable(c)}
+                confirmed.update({name.lower(): time.time() for name in absent})
                 save_metadata(c, 'repositories-confirmed-missing', confirmed)
                 for name in absent:
                     c.execute('INSERT INTO repositories(id,full_name,reachable,updated) VALUES(?,?,0,?) '
@@ -353,6 +355,9 @@ class GitHubApp:
                     raise self._unreachable(self.installation(), repos, 404)
                 return None, None, []
             token, expires = self.mint(names, permissions, diagnose=False)
+        from .repositories import reachable
+        with self.store.transaction() as c:
+            reachable(c, names)
         return token, expires, names
 
     def _unreachable(self, installation, repos, status):
@@ -415,6 +420,9 @@ class GitHubApp:
                 raise Problem("github_create_failed", f"GitHub would not create {row['org']}/{name} "
                               f"(HTTP {r.status_code}). Create it manually if this persists.", 502)
             data = r.json()
+            from .repositories import reachable
+            with self.store.transaction() as c:
+                reachable(c, [data.get("full_name") or f"{row['org']}/{name}"])
             return {"repository": data.get("full_name") or f"{row['org']}/{name}", "html_url": data.get("html_url", ""),
                     "empty": True, "note": "Empty repository. Push the bot's existing history to it; if the app is "
                     "installed on selected repositories only, add this repository to the installation first."}
@@ -428,6 +436,9 @@ class GitHubApp:
             raise Problem("github_create_failed", f"GitHub would not create {row['org']}/{name} from {template} "
                           f"(HTTP {r.status_code}). Create it manually if this persists.", 502)
         data = r.json()
+        from .repositories import reachable
+        with self.store.transaction() as c:
+            reachable(c, [data.get("full_name") or f"{row['org']}/{name}"])
         return {"repository": data.get("full_name") or f"{row['org']}/{name}", "html_url": data.get("html_url", ""),
                 "note": "If the app is installed on selected repositories only, add this repository to the installation."}
 
@@ -625,7 +636,7 @@ def install_github_app(app, settings, store):
         try:
             # GitHub permissions are token-wide. Never put read grants in a write token.
             if write_repos:
-                value, expires, write_repos = service.mint_reachable(write_repos, TURN_PERMISSIONS, diagnose_empty=write_repos == [repo])
+                value, expires, write_repos = service.mint_reachable(write_repos, TURN_PERMISSIONS, diagnose_empty=write_repos == [repo], own=repo)
                 if value:
                     tokens.append({'token': value, 'expires_at': expires, 'repositories': write_repos, 'access': 'write'})
             if read_repos:

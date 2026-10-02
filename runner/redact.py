@@ -66,12 +66,21 @@ def _values(secrets):
 
 class Redactor:
     def __init__(self, secrets):
+        self.update_lock = threading.Lock()
         self.values = sorted(_values(secrets), key=len, reverse=True)
         forms = set()
         for value in self.values:
             forms |= _variants(value)
         forms.discard("")
         self.pattern = re.compile("|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))) if forms else None
+
+    def add(self, secrets):
+        with self.update_lock:
+            added = _values(secrets) - set(self.values)
+            if not added:
+                return
+            updated = Redactor([*self.values, *added])
+            self.values, self.pattern = updated.values, updated.pattern
 
     def scrub_text(self, text):
         if not isinstance(text, str) or self.pattern is None:

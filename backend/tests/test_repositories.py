@@ -422,3 +422,94 @@ def test_transient_background_failure_preserves_flags_and_uses_short_backoff(api
     monkeypatch.setattr(R.time, 'time', lambda: attempted + 3601)
     R.daily(service)
     queued.assert_called_once_with(service)
+
+
+def test_missing_marks_expire_and_success_clears_them(api, gh, monkeypatch):
+    catalog(api, gh)
+    runner_token(api, 'cpo')
+    put(api, 'repositories/Acme/docs', {'enabled': True})
+    put(api, 'bots/cpo/repositories', {'mode': 'all'})
+    gh.missing.add('docs')
+    assert turn_token(api).status_code == 200
+    with api.app_state.store.read() as c:
+        stamp = R.metadata(c, 'repositories-confirmed-missing')['acme/docs']
+    gh.missing.remove('docs')
+    monkeypatch.setattr(R.time, 'time', lambda: stamp + 301)
+    assert 'Acme/docs' in turn_token(api).json()['repositories']
+    with api.app_state.store.read() as c:
+        assert not R.metadata(c, 'repositories-confirmed-missing')
+        assert c.execute("SELECT reachable FROM repositories WHERE full_name='Acme/docs'").fetchone()[0]
+
+
+def test_own_repo_is_retried_without_refresh_and_create_clears_mark(api, gh):
+    connect(api, administration='true')
+    runner_token(api, 'cpo')
+    gh.missing.add('emp-cpo')
+    assert turn_token(api).status_code == 409
+    gh.missing.remove('emp-cpo')
+    assert turn_token(api).status_code == 200
+    with api.app_state.store.read() as c:
+        assert not R.metadata(c, 'repositories-confirmed-missing')
+    service = api.app_state.github_app
+    for empty in (True, False):
+        with service.store.transaction() as c:
+            R.save_metadata(c, 'repositories-confirmed-missing', {'acme/bot-sample': R.time.time()})
+            c.execute("INSERT OR REPLACE INTO repositories(id,full_name,reachable,updated) VALUES('sample','Acme/bot-sample',0,?)", (H.now(),))
+        assert service.create_repo('sample', 'example/template', empty=empty)['repository'] == 'Acme/bot-sample'
+        with service.store.read() as c:
+            assert not R.metadata(c, 'repositories-confirmed-missing')
+            assert c.execute("SELECT reachable FROM repositories WHERE id='sample'").fetchone()[0]
+
+
+def test_malformed_setup_preserves_command_but_removed_files_clear_it(api, gh):
+    import base64
+    import httpx
+    catalog(api, gh)
+    put(api, 'repositories/Acme/product', {'enabled': True})
+    gh.setup_files['/repos/Acme/product/contents/tico.json'] = {'setup': 'make first'}
+    service = api.app_state.github_app
+    R.sync(service)
+    original = service._call
+    def malformed(method, path, **kwargs):
+        if path == '/repos/Acme/product/contents/tico.json':
+            return httpx.Response(200, json={'content': base64.b64encode(b'{broken').decode()})
+        return original(method, path, **kwargs)
+    service._call = malformed
+    R.sync(service)
+    with service.store.read() as c:
+        assert c.execute("SELECT setup_command FROM repositories WHERE full_name='Acme/product'").fetchone()[0] == 'make first'
+    service._call = original
+    gh.setup_files.clear()
+    R.sync(service)
+    with service.store.read() as c:
+        assert c.execute("SELECT setup_command FROM repositories WHERE full_name='Acme/product'").fetchone()[0] is None
+
+
+def test_daily_does_not_queue_followup_and_shutdown_stops_worker(api, gh, monkeypatch):
+    import threading
+    catalog(api, gh)
+    service = api.app_state.github_app
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    def slow(service):
+        calls.append(1)
+        entered.set()
+        assert release.wait(timeout=5)
+        return 'not_installed'
+    monkeypatch.setattr(R, 'sync', slow)
+    with service.store.transaction() as c:
+        c.execute("DELETE FROM registry_metadata WHERE key='repositories-synced'")
+    R.daily(service)
+    assert entered.wait(timeout=5)
+    try:
+        for _ in range(5):
+            R.daily(service)
+        assert not service.repository_sync_wanted
+        R.queue_sync(service, refresh=True)
+        service.repository_stop.set()
+    finally:
+        release.set()
+        R.stop_sync(service)
+    assert not service.repository_worker.is_alive()
+    assert calls == [1]
+    assert not service.repository_running

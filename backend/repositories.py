@@ -52,10 +52,17 @@ def migrate(c):
 
 
 def unreachable(c):
-    # Older servers could clear every flag before installation discovery finished.
-    if metadata(c, 'repositories-reachability-verified').get('done'):
-        return {r[0].lower() for r in c.execute('SELECT full_name FROM repositories WHERE reachable=0')}
-    return set(metadata(c, 'repositories-confirmed-missing'))
+    marks = metadata(c, 'repositories-confirmed-missing')
+    return {name for name, stamp in marks.items()
+            if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and time.time() - stamp < 300}
+
+
+def reachable(c, names):
+    marks = metadata(c, 'repositories-confirmed-missing')
+    for name in names:
+        marks.pop(name.lower(), None)
+        c.execute('UPDATE repositories SET reachable=1 WHERE full_name=? COLLATE NOCASE', (name,))
+    save_metadata(c, 'repositories-confirmed-missing', marks)
 
 
 def access(c, bot, org):
@@ -82,7 +89,7 @@ def access(c, bot, org):
     if own:
         grants[own.lower()] = {'full_name': own, 'access': 'write'}
     missing = unreachable(c)
-    effective = [r for _, r in sorted(grants.items()) if r['full_name'].lower() not in missing and org and r['full_name'].split('/')[0].lower() == org.lower()]
+    effective = [r for _, r in sorted(grants.items()) if (r['full_name'].lower() not in missing or r['full_name'].lower() == str(own).lower()) and org and r['full_name'].split('/')[0].lower() == org.lower()]
     return {'mode': mode, 'all_access': all_access, 'chosen': chosen, 'effective': effective}
 
 
@@ -126,13 +133,19 @@ def sync(service):
 
 
 def _sync(service):
+    if service.repository_stop.is_set():
+        return 'stopped'
     row = service.row()
     if not row or not service.installation():
         return 'not_installed'
+    if service.repository_stop.is_set():
+        return 'stopped'
     token, _ = service.mint(None, {'contents': 'read', 'metadata': 'read'})
     headers = {'Authorization': 'Bearer ' + token}
     repos, page = [], 1
     while True:
+        if service.repository_stop.is_set():
+            return 'stopped'
         response = service._call('GET', '/installation/repositories', params={'per_page': 100, 'page': page}, headers=headers)
         if response.status_code >= 300:
             raise Problem('github_repositories', 'GitHub could not list repositories; retry Refresh', 502)
@@ -141,23 +154,31 @@ def _sync(service):
         if len(batch) < 100:
             break
         page += 1
+    if service.repository_stop.is_set():
+        return 'stopped'
     with service.store.read() as c:
         from .github_app import repo_of
         own = {str(repo_of(r[0], row['org']) or '').lower() for r in c.execute('SELECT repo FROM bot_config')}
         previous = {r['full_name'].lower(): dict(r) for r in c.execute('SELECT * FROM repositories')}
         overrides = {name for name, r in previous.items() if r['setup_source'] == 'settings'}
     for repo in repos:
+        if service.repository_stop.is_set():
+            return 'stopped'
         old = previous.get(repo['full_name'].lower(), {})
         repo['setup_command'], repo['setup_source'] = old.get('setup_command'), old.get('setup_source')
         if not old.get('enabled') or repo['full_name'].lower() in overrides:
             continue
+        absent_files = 0
         for filename in ('tico.json', 'conductor.json'):
+            if service.repository_stop.is_set():
+                return 'stopped'
             try:
                 response = service._call('GET', f"/repos/{repo['full_name']}/contents/{filename}", headers=headers,
                                          params={'ref': repo['default_branch']} if repo.get('default_branch') else {})
             except Problem:
                 break
             if response.status_code == 404:
+                absent_files += 1
                 continue
             if response.status_code >= 300:
                 break
@@ -172,8 +193,10 @@ def _sync(service):
                     break
             except (ValueError, KeyError, TypeError, AttributeError):
                 continue
-        else:
+        if absent_files == 2:
             repo['setup_command'], repo['setup_source'] = None, None
+    if service.repository_stop.is_set():
+        return 'stopped'
     with service.store.transaction() as c:
         c.execute('UPDATE repositories SET reachable=0')
         for repo in repos:
@@ -186,7 +209,7 @@ def _sync(service):
                       (uuid.uuid4().hex, name, int(name.split('/')[1].lower().startswith('bot-') or name.lower() in own),
                        repo.get('default_branch'), repo['setup_command'], repo['setup_source'], H.now(), H.now()))
         save_metadata(c, 'repositories-reachability-verified', {'done': True})
-        save_metadata(c, 'repositories-confirmed-missing', {})
+        save_metadata(c, 'repositories-confirmed-missing', {r['full_name'].lower(): time.time() for r in c.execute('SELECT full_name FROM repositories WHERE reachable=0')})
         save_metadata(c, 'repositories-sizes', {r['full_name'].lower(): r.get('size', 0) for r in repos if r.get('size')})
         save_metadata(c, 'repositories-synced', {'day': H.now()[:10]})
     repository_health(service)
@@ -203,7 +226,7 @@ def repository_health(service):
         confirmed = unreachable(c)
         missing = [r['full_name'] + ' is not reachable' for r in c.execute(
             'SELECT full_name,enabled FROM repositories WHERE reachable=0 ORDER BY full_name')
-            if r['full_name'].lower() in confirmed and (r['enabled'] or r['full_name'].lower() in own)]
+            if r['full_name'].lower() in confirmed and r['enabled'] and r['full_name'].lower() not in own]
     note_github_token(service.store, '; '.join(missing) or None,
                       'Refresh Settings > Repositories or check the GitHub App installation.')
 
@@ -211,6 +234,8 @@ def repository_health(service):
 def queue_sync(service, refresh=False):
     """One worker per connection; a burst requests at most one follow-up sync."""
     with service.repository_queue_lock:
+        if service.repository_stop.is_set():
+            return
         service.repository_sync_wanted = True
         service.repository_refresh_wanted |= refresh
         if service.repository_running:
@@ -218,7 +243,7 @@ def queue_sync(service, refresh=False):
         def work():
             while True:
                 with service.repository_queue_lock:
-                    if not service.repository_sync_wanted:
+                    if service.repository_stop.is_set() or not service.repository_sync_wanted:
                         service.repository_running = False
                         return
                     service.repository_sync_wanted = False
@@ -242,7 +267,15 @@ def queue_sync(service, refresh=False):
         service.repository_worker.start()
 
 
+def stop_sync(service):
+    service.repository_stop.set()
+    if service.repository_worker:
+        service.repository_worker.join(timeout=2)
+
+
 def daily(service):
+    if service.repository_running or service.repository_stop.is_set():
+        return
     with service.store.read() as c:
         if metadata(c, 'repositories-synced').get('day') == H.now()[:10] and metadata(c, 'repositories-reachability-verified').get('done'):
             return

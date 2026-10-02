@@ -7,12 +7,13 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
 import tempfile
 
-from . import git_credentials
+from . import git_credentials, isolation
 
 FETCH_INTERVAL = 15 * 60
 REMOVE_AFTER = 30 * 86400
@@ -32,6 +33,8 @@ class Repositories:
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.pending = None
         self.visible = False
+        self.stopping = threading.Event()
+        self.process = None
         try:
             saved = json.loads(self.state_file.read_text())
             self.rows = {name: row for name, row in saved.items() if valid_name(name) and isinstance(row, dict)}
@@ -39,7 +42,57 @@ class Repositories:
             self.rows = {}
 
     def close(self):
-        self.pool.shutdown(wait=True)
+        self.stopping.set()
+        with self.lock:
+            process = self.process
+        if process and process.poll() is None:
+            self.kill_git(process)
+        self.pool.shutdown(wait=False, cancel_futures=True)
+
+    @staticmethod
+    def kill_git(process):
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+            # The parent may have exited while a credential helper kept running.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=2)
+        except ProcessLookupError:
+            pass
+
+    def run_git(self, command, *, env, timeout):
+        with tempfile.TemporaryDirectory(prefix='tico-git-hooks-') as hooks:
+            command = [command[0], '-c', 'core.hooksPath=' + hooks, *command[1:]]
+            with self.lock:
+                if self.stopping.is_set():
+                    raise ValueError('Repository sync interrupted by computer shutdown')
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           text=True, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+                self.process = process
+            deadline = time.monotonic() + timeout
+            try:
+                while True:
+                    if self.stopping.is_set():
+                        self.kill_git(process)
+                        raise ValueError('Repository sync interrupted by computer shutdown')
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self.kill_git(process)
+                        raise subprocess.TimeoutExpired(command, timeout)
+                    try:
+                        out, err = process.communicate(timeout=min(.2, remaining))
+                        return subprocess.CompletedProcess(command, process.returncode, out, err)
+                    except subprocess.TimeoutExpired:
+                        continue
+            finally:
+                with self.lock:
+                    self.process = None
 
     def path(self, name):
         path = self.root / name.lower().replace('/', '__')
@@ -72,6 +125,8 @@ class Repositories:
         return {k: row.get(k) for k in ("full_name", "state", "last_fetch", "size_mb", "error") if k in row}
 
     def poll(self):
+        if self.stopping.is_set():
+            return self.report()
         # Failed requests are not an empty list: they must never start the removal clock.
         try:
             reply = self.client.get('runners/me/repositories')
@@ -143,7 +198,7 @@ class Repositories:
         try:
             path = self.path(name)
             exists = path.exists()
-            if exists and (not self.rows[name].get('managed') or not (path / '.git').is_dir() or (path / '.git').is_symlink()):
+            if exists and (not self.rows[name].get('managed') or (path / '.git').is_symlink()):
                 raise ValueError('Repository folder already exists and is not a managed base clone; left as it is')
             usage = shutil.disk_usage(self.root if self.root.exists() else self.root.parent)
             floor = max(5 * GB, usage.total * .1)
@@ -155,33 +210,56 @@ class Repositories:
             token = granted.get('token') or ''
             if not token or name not in {n.lower() for n in granted.get('repositories', [])}:
                 raise ValueError('No GitHub read token for this repository; check the GitHub connection')
-            env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_CONFIG_')}
+            from .service import Runner
+            env = Runner.credential_environment(None, None)
             env.update(git_credentials.environment(token))
-            env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
+            env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
             url = f'https://github.com/{repo["full_name"]}.git'
-            prefix = ['git', '-c', 'http.followRedirects=false', '-c', 'core.fsmonitor=false',
+            prefix = ['git', '-c', 'safe.directory=' + str(path.resolve()), '-c', 'http.followRedirects=false', '-c', 'core.fsmonitor=false',
                       '-c', 'http.proxy=', '-c', 'http.sslVerify=true', '-c', 'protocol.allow=never',
                       '-c', 'protocol.https.allow=always', '-c', 'protocol.file.allow=never']
+            timeout = max(900, min(7200, int(repo.get('size_kb') or self.rows[name].get('size_mb', 0) * 1024) // 1024))
+            if exists and not (path / '.git').is_dir():
+                shutil.rmtree(self.path(name))
+                exists = False
             if exists:
+                checked = self.run_git([*prefix, '-C', str(path), 'rev-parse', '--git-dir'], env=env, timeout=10)
+                if checked.returncode:
+                    shutil.rmtree(self.path(name))
+                    exists = False
+            if exists:
+                config = self.run_git([*prefix, '-C', str(path), 'config', '--local', '--no-includes',
+                                       '--name-only', '--get-regexp', r'^(http|include|includeif)\..*'], env=env, timeout=10)
+                if config.returncode not in (0, 1):
+                    raise ValueError('Could not inspect base clone HTTP settings; repair its Git config')
+                for key in config.stdout.splitlines():
+                    if key.lower().startswith(('include.', 'includeif.')):
+                        raise ValueError('Base clone Git config includes another file; remove the include before fetching')
+                    setting = key.rsplit('.', 1)[-1].lower()
+                    if setting in ('proxy', 'sslcainfo', 'sslverify', 'extraheader'):
+                        prefix += ['-c', key + '=' + ('true' if setting == 'sslverify' else '')]
                 branch = repo.get('default_branch') or '*'
                 command = [*prefix, '-C', str(path), 'fetch', '--quiet', '--prune', '--no-tags', '--', url,
                            f'+refs/heads/{branch}:refs/remotes/origin/{branch}']
             else:
-                self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+                isolation.mkdir(self.root, mode=0o755)
                 created = True
                 with self.lock:
                     self.rows[name].update(state="cloning", managed=True)
                     self.save()
-                command = [*prefix, 'clone', '--quiet', '--single-branch', '--filter=blob:none', '--no-checkout']
+                command = [*prefix, 'clone', '--quiet']
                 if repo.get('default_branch'):
                     command += ['--branch', repo['default_branch']]
                 command += ['--', url, str(path)]
-            # The supervisor alone holds the union token; no bot-owned hooks or fsmonitor run.
-            timeout = max(900, min(7200, int(repo.get('size_kb') or self.rows[name].get('size_mb', 0) * 1024) // 1024))
-            with tempfile.TemporaryDirectory(prefix='tico-git-hooks-') as hooks:
-                command[1:1] = ['-c', 'core.hooksPath=' + hooks]
-                done = subprocess.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                                      env=env, timeout=timeout)
+            # Supervisor Git never executes bot hooks or inherits supervisor credentials.
+            done = self.run_git(command, env=env, timeout=timeout)
+            if created:
+                isolation.chown(path, recursive=True)
+            if exists and done.returncode == 128 and not self.stopping.is_set():
+                checked = self.run_git([*prefix, '-C', str(path), 'fsck', '--connectivity-only'], env=env, timeout=timeout)
+                if checked.returncode:
+                    shutil.rmtree(self.path(name))
+                    return self.update(name, repo, now)
             if done.returncode:
                 # Git's stderr may contain credentials or local secrets; keep them out of reports.
                 raise ValueError(f'Git {"fetch" if exists else "clone"} failed (exit {done.returncode}); check GitHub access, disk space and network')

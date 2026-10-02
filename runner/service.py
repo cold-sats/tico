@@ -565,7 +565,7 @@ class Runner:
         # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
         # a turn's host process needs lives in a directory the bot user owns instead.
         self.host_state = isolation.bot_state(self.state.directory)
-        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))   # None unless isolated
+        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))
         self.warm = WarmSessions(self.host_state / "antigravity")
         self.attempt_runtimes = {}     # attempt id -> host names its turn may use
         self.tools = harness_tools.Harnesses(
@@ -1902,7 +1902,7 @@ class Runner:
                 renewal.failed(exc)
 
     def arm_credentials(self, env, attempt, bot):
-        """Register this attempt with the credential socket (isolated runners) and point the turn at it. Every
+        """Register this attempt with the supervisor credential socket and point the turn at it. Every
         isolated turn gets it, message bot or not: the Google key is not in the turn, so the mail CLI asks here,
         and a bot the hub named no mailbox for is told so instead of being told the key is missing."""
         socket_path = self.credentials.path if self.credentials else None
@@ -1935,9 +1935,12 @@ class Runner:
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.arm_credentials(env, attempt, bot)
-                git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
+                git_credentials.apply(env, self.client, bot, self.config_path if socket_path else None, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))
+                if self.credentials:
+                    redactor = redactor or redact_mod.Redactor([])
+                    self.credentials.set_redactor(attempt["token"], redactor)
                 if redactor:
                     redactor.register(aid)
                 def redact(value):

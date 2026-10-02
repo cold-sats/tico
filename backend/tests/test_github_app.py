@@ -363,14 +363,14 @@ def service_issues(api):
     return [i for i in api.get("/api/v2/operations", headers=auth()).json()["issues"] if i["kind"] == "service"]
 
 
-def test_a_bot_whose_repository_is_not_on_github_is_named_in_health(api, gh):
+def test_a_bot_whose_repository_is_not_on_github_keeps_team_health_green(api, gh):
     connect(api)
     runner_token(api, "cpo")
     gh.missing.add("emp-cpo")
     r = turn_token(api)
     assert r.status_code == 409 and "does not exist yet" in r.text
     assert "can't create repositories (Administration is off)" in r.text       # connected without Administration
-    assert token_health(api) and service_issues(api)
+    assert not token_health(api) and not service_issues(api)
 
 
 def test_repository_creation_is_only_suggested_when_the_app_can_do_it(api, gh):

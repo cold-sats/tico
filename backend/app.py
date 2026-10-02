@@ -167,6 +167,7 @@ def create_app(settings=None):
             yield
         finally:
             stop.set()
+            app.state.github_app.repository_stop.set()
             if demo_task:
                 await demo_task
             await timing_task
@@ -174,6 +175,8 @@ def create_app(settings=None):
                 await scheduler_task
             if directory_task:
                 await directory_task
+            from .repositories import stop_sync
+            await asyncio.to_thread(stop_sync, app.state.github_app)
             telemetry.close()
 
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,

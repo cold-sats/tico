@@ -20,15 +20,13 @@ def repos(tmp_path):
     client.post.return_value = {'token': 'synthetic-install-token', 'repositories': ['org/one', 'org/two']}
     manager = Repositories(tmp_path, tmp_path / 'state' / 'repositories.json', client)
     yield manager
-    manager.pool.shutdown(wait=True)
+    manager.close()
 
 
 def fake_git(args, **kwargs):
     assert kwargs['env']['GIT_TERMINAL_PROMPT'] == '0'
-    assert kwargs['timeout'] >= 900
+    assert kwargs['timeout'] >= 10
     assert 'core.fsmonitor=false' in args
-    hooks = next(a.split('=', 1)[1] for a in args if a.startswith('core.hooksPath='))
-    assert Path(hooks).is_dir() and not list(Path(hooks).iterdir())
     assert 'synthetic-install-token' not in ' '.join(args)
     if 'clone' in args:
         path = Path(args[-1])
@@ -45,7 +43,7 @@ def cycle(manager):
 
 
 def test_first_sync_is_lazy_tokens_not_saved_and_fetch_interval_survives_restart(repos):
-    with mock.patch('runner.repositories.subprocess.run', side_effect=fake_git) as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=fake_git) as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         cycle(repos)
         assert git.call_count == 1
         assert repos.path('org/one').exists()
@@ -61,7 +59,7 @@ def test_first_sync_is_lazy_tokens_not_saved_and_fetch_interval_survives_restart
         try:
             with mock.patch('runner.repositories.time.time', return_value=time.time() + FETCH_INTERVAL + 1):
                 cycle(restarted)
-                assert git.call_count == 3
+                assert git.call_count == 5
                 assert 'fetch' in git.call_args.args[0]
                 assert '+refs/heads/main:refs/remotes/origin/main' in git.call_args.args[0]
         finally:
@@ -70,7 +68,7 @@ def test_first_sync_is_lazy_tokens_not_saved_and_fetch_interval_survives_restart
 
 @pytest.mark.parametrize('total,free,needed', [(40 * GB, 3.1 * GB, '5 GB'), (100 * GB, 8 * GB, '10 GB')])
 def test_disk_floor_reports_and_does_not_mint_or_clone(repos, total, free, needed):
-    with mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(total, total-free, free)), mock.patch('runner.repositories.subprocess.run') as git:
+    with mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(total, total-free, free)), mock.patch('runner.repositories.Repositories.run_git') as git:
         cycle(repos)
         row = repos.report()[0]
         assert row['state'] == 'disk_low'
@@ -81,7 +79,7 @@ def test_disk_floor_reports_and_does_not_mint_or_clone(repos, total, free, neede
 
 
 def test_removal_waits_30_days_and_never_follows_paths_outside_repos(repos, tmp_path):
-    with mock.patch('runner.repositories.subprocess.run', side_effect=fake_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=fake_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         cycle(repos)
         cycle(repos)
     outside = tmp_path / 'bot-existing'
@@ -117,11 +115,11 @@ def test_old_server_and_transient_error_do_nothing(repos):
 
 
 def test_clone_failure_redacts_and_does_not_stall_next_repo(repos):
-    with mock.patch('runner.repositories.subprocess.run', side_effect=ValueError('synthetic-install-token was rejected')), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=ValueError('synthetic-install-token was rejected')), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         cycle(repos)
     assert repos.report()[0]['state'] == 'failed'
     assert 'synthetic-install-token' not in json.dumps(repos.report())
-    with mock.patch('runner.repositories.subprocess.run', side_effect=fake_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=fake_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         cycle(repos)
     assert repos.rows['org/two']['state'] == 'cloned'
 
@@ -156,22 +154,42 @@ def test_old_heartbeat_schema_drops_only_repository_report():
 def test_real_git_clone_keeps_token_out_of_config_and_fetches_default_branch(repos, tmp_path):
     source = tmp_path / 'source'
     subprocess.run(['git', 'init', '-q', '-b', 'main', str(source)], check=True)
+    subprocess.run(['git', '-C', str(source), 'config', 'uploadpack.allowFilter', 'true'], check=True)
     (source / 'README.md').write_text('first')
     subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
     subprocess.run(['git', '-C', str(source), '-c', 'user.name=Example', '-c', 'user.email=example@example.com', 'commit', '-qm', 'first'], check=True)
     repos.client.get.return_value['repositories'] = repos.client.get.return_value['repositories'][:1]
     real_run = subprocess.run
+    original_git = repos.run_git
 
     def local_git(args, **kwargs):
-        args = [str(source) if a.startswith('https://github.com/') else ('protocol.file.allow=always' if a == 'protocol.file.allow=never' else a) for a in args]
-        return real_run(args, **kwargs)
+        args = [source.as_uri() if a.startswith('https://github.com/') else ('protocol.file.allow=always' if a == 'protocol.file.allow=never' else a) for a in args]
+        kwargs['env']['GIT_TEST_ASSUME_DIFFERENT_OWNER'] = '1'
+        assert 'safe.directory=' + str(repos.path('org/one')) in args
+        if 'fetch' in args:
+            checked = original_git([*args[:args.index('fetch')], 'config', '--get-urlmatch', 'http', 'https://github.com/org/one.git'], **kwargs)
+            assert 'http.proxy ' in checked.stdout
+            assert 'http.sslverify true' in checked.stdout
+            assert '127.0.0.1' not in checked.stdout
+            assert 'http.https://github.com/.proxy=' in args
+            assert 'http.https://github.com/.sslverify=true' in args
+        return original_git(args, **kwargs)
 
-    with mock.patch('runner.repositories.subprocess.run', side_effect=local_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=local_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         cycle(repos)
         assert repos.report()[0]['state'] == 'cloned'
         config = (repos.path('org/one') / '.git/config').read_text()
         assert 'synthetic-install-token' not in config
         assert 'credential' not in config
+        assert 'promisor' not in config
+        assert (repos.path('org/one') / 'README.md').read_text() == 'first'
+        worktree = tmp_path / 'offline-task'
+        offline = {'PATH': __import__('os').environ['PATH'], 'GIT_NO_LAZY_FETCH': '1'}
+        real_run(['git', '-C', str(repos.path('org/one')), 'worktree', 'add', '-b', 'tico/offline', str(worktree), 'origin/main'], env=offline, check=True, capture_output=True)
+        (worktree / 'README.md').write_text('offline change')
+        real_run(['git', '-C', str(worktree), 'add', '.'], env=offline, check=True)
+        real_run(['git', '-C', str(worktree), '-c', 'user.name=Example', '-c', 'user.email=example@example.com', 'commit', '-qm', 'offline'], env=offline, check=True)
+        real_run(['git', '-C', str(repos.path('org/one')), 'worktree', 'remove', str(worktree)], check=True)
         marker = tmp_path / 'hook-ran'
         hook = repos.path('org/one') / '.git/hooks/reference-transaction'
         hook.write_text('#!/bin/sh\nprintf "%s" "$GH_TOKEN" > ' + str(marker) + '\n')
@@ -180,6 +198,8 @@ def test_real_git_clone_keeps_token_out_of_config_and_fetches_default_branch(rep
         monitor.write_text('#!/bin/sh\nprintf "%s" "$GH_TOKEN" > ' + str(marker) + '\n')
         monitor.chmod(0o755)
         real_run(['git', '-C', str(repos.path('org/one')), 'config', 'core.fsmonitor', str(monitor)], check=True)
+        real_run(['git', '-C', str(repos.path('org/one')), 'config', 'http.https://github.com/.proxy', 'http://127.0.0.1:1'], check=True)
+        real_run(['git', '-C', str(repos.path('org/one')), 'config', 'http.https://github.com/.sslVerify', 'false'], check=True)
         (source / 'README.md').write_text('second')
         subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
         subprocess.run(['git', '-C', str(source), '-c', 'user.name=Example', '-c', 'user.email=example@example.com', 'commit', '-qm', 'second'], check=True)
@@ -201,7 +221,7 @@ def test_slow_git_does_not_block_heartbeat_poll(repos):
         assert release.wait(timeout=5)
         return fake_git(args, **kwargs)
 
-    with mock.patch('runner.repositories.subprocess.run', side_effect=slow_git) as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=slow_git) as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         try:
             repos.poll()
             assert entered.wait(timeout=5)
@@ -235,7 +255,7 @@ def test_doctor_reads_current_rows_without_cloning_and_old_server_is_silent(repo
 def test_clone_timeouts_back_off_and_use_repository_size(repos):
     repos.client.get.return_value['repositories'] = [dict(full_name='org/one', size_kb=2 * 1024 * 1024)]
     now = time.time()
-    with mock.patch('runner.repositories.subprocess.run', side_effect=subprocess.TimeoutExpired('git', 2048)) as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=subprocess.TimeoutExpired('git', 2048)) as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         for advance, delay in ((0, 900), (901, 3600), (4502, 21600)):
             with mock.patch('runner.repositories.time.time', return_value=now + advance):
                 cycle(repos)
@@ -250,11 +270,71 @@ def test_clone_timeouts_back_off_and_use_repository_size(repos):
 
 def test_fetch_checks_disk_before_minting(repos):
     repos.client.get.return_value['repositories'] = repos.client.get.return_value['repositories'][:1]
-    with mock.patch('runner.repositories.subprocess.run', side_effect=fake_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+    with mock.patch('runner.repositories.Repositories.run_git', side_effect=fake_git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
         cycle(repos)
     repos.client.post.reset_mock()
-    with mock.patch('runner.repositories.time.time', return_value=time.time() + FETCH_INTERVAL + 1), mock.patch('runner.repositories.subprocess.run') as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 99 * GB, GB)):
+    with mock.patch('runner.repositories.time.time', return_value=time.time() + FETCH_INTERVAL + 1), mock.patch('runner.repositories.Repositories.run_git') as git, mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 99 * GB, GB)):
         cycle(repos)
     assert repos.rows['org/one']['state'] == 'disk_low'
     assert 'fetch' in repos.rows['org/one']['error']
     assert not git.called and not repos.client.post.called
+
+
+def test_shutdown_interrupts_git_and_its_children(repos, tmp_path):
+    import sys
+    import threading
+    pid_file = tmp_path / 'child.pid'
+    errors = []
+    def run():
+        try:
+            repos.run_git([sys.executable, '-c',
+                'import subprocess,time; p=subprocess.Popen(["sleep","60"]); '
+                'open(__import__("sys").argv[1],"w").write(str(p.pid)); time.sleep(60)', str(pid_file)],
+                env={}, timeout=7200)
+        except ValueError as exc:
+            errors.append(str(exc))
+    # This test substitutes a stalled Git executable but keeps the real process lifecycle.
+    real_popen = subprocess.Popen
+    def stalled(command, **kwargs):
+        return real_popen([command[0], *command[3:]], **kwargs)
+    with mock.patch('runner.repositories.subprocess.Popen', side_effect=stalled):
+        thread = threading.Thread(target=run)
+        thread.start()
+        deadline = time.monotonic() + 5
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert pid_file.exists()
+        process = repos.process
+        started = time.monotonic()
+        repos.close()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert time.monotonic() - started < 10
+        assert process.poll() is not None
+        assert errors or process.returncode < 0
+        child = pid_file.read_text()
+        status = real_popen(['ps', '-o', 'stat=', '-p', child], stdout=subprocess.PIPE, text=True)
+        output, _ = status.communicate(timeout=2)
+        assert not output.strip() or output.strip().startswith('Z')
+
+
+def test_broken_managed_clone_is_recloned_with_filtered_environment(repos, monkeypatch):
+    monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'synthetic-host-secret')
+    monkeypatch.setenv('GIT_CONFIG_COUNT', '99')
+    path = repos.path('org/one')
+    path.mkdir(parents=True)
+    (path / '.git').mkdir()
+    (path / 'broken').write_text('broken')
+    repos.rows['org/one'] = {'full_name': 'org/one', 'managed': True}
+    def git(args, **kwargs):
+        assert 'AWS_SECRET_ACCESS_KEY' not in kwargs['env']
+        assert kwargs['env']['GIT_CONFIG_COUNT'] == '3'
+        assert kwargs['env']['GIT_CONFIG_SYSTEM'] == '/dev/null'
+        if 'rev-parse' in args:
+            return subprocess.CompletedProcess(args, 128, '', '')
+        assert '--filter=blob:none' not in args and '--no-checkout' not in args
+        return fake_git(args, **kwargs)
+    with mock.patch.object(repos, 'run_git', side_effect=git), mock.patch('runner.repositories.shutil.disk_usage', return_value=shutil._ntuple_diskusage(100 * GB, 0, 100 * GB)):
+        cycle(repos)
+    assert repos.rows['org/one']['state'] == 'cloned'
+    assert not (path / 'broken').exists()

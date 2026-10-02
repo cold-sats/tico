@@ -487,3 +487,11 @@ def test_a_held_credential_other_than_the_google_key_needs_no_message_bot(api):
     tool = {t["id"]: t for t in tools_of(api)["tools"]}["close-crm"]
     assert tool["status"] == "ready" and "problem" not in tool and "short-lived token" not in tool["detail"]
     assert not [i for i in get(api, "fleet/check", token="ana-test")["issues"] if "nobody's message bot" in i["text"]]
+
+
+def test_tools_render_when_bot_has_no_config_row(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM bot_config WHERE bot='ops'")
+    page = tools_of(api)
+    assert page['bot'] == 'ops'
+    assert isinstance(page['tools'], list)

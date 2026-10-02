@@ -316,7 +316,7 @@ def listing(c, settings, bot):
     from .github_app import repo_of
     own = repo_of(state['row']['repo'] if state['row'] else '', settings.github_owner)
     org = app_row['org'] if app_row else settings.github_owner or (own.split('/')[0] if own else '')
-    extras = access(c, bot, org)['effective']
+    extras = access(c, bot, org)['effective'] if state['row'] else []
     represented = {str(tool.get("scope", {}).get("repo") or tool.get("identity") or "").lower()
                    for tool in tools + declared if tool["service"].lower() in ("github", "github-app")}
     for index, grant in enumerate(extras):

@@ -3,6 +3,7 @@ import io
 import os
 import shutil
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -109,3 +110,29 @@ def test_socket_preserves_repository_selection_and_attempt_identity(monkeypatch,
     finally:
         server.stop()
         shutil.rmtree(directory)
+
+
+def test_refreshed_tokens_join_attempt_redactor_and_are_released(channel):
+    from runner.redact import Redactor, MASK
+    channel.register('attempt-a', 'alpha')
+    # Publishing can ask for a token before the turn redactor has been built.
+    first = C.request(channel.path, 'attempt-a')
+    redactor = Redactor(['start-of-turn-secret'])
+    channel.set_redactor('attempt-a', redactor)
+    assert redactor.scrub_text(first) == MASK
+    channel.mint = lambda bot: 'refreshed-read-secret'
+    fresh = C.request(channel.path, 'attempt-a')
+    assert redactor.scrub_text(fresh) == MASK
+    channel.unregister('attempt-a')
+    assert not channel.redactors and not channel.issued
+
+
+def test_same_user_runner_refreshes_through_supervisor(monkeypatch):
+    monkeypatch.setattr(isolation, 'enabled', lambda: False)
+    server = C.serve(mock.Mock())
+    try:
+        assert server is not None and Path(server.path).exists()
+    finally:
+        directory = server.directory.name
+        server.stop()
+    assert not Path(directory).exists()
