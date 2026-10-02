@@ -71,6 +71,23 @@ function hlComputerHtml(machine) {
     <ul class="hl-models">${models || '<li class="muted">No models reported</li>'}</ul></div></li>`;
 }
 
+// Owners only: where files live, how much, and the copy to S3 while it runs (`storage` on GET /api/v2/health).
+function hlStorageHtml(st) {
+  if (!st || HL?.audience !== 'owner') return '';
+  const s3 = st.mode === 's3', copy = st.copy || {};
+  const total = Number(copy.total) || 0, done = Number(copy.done) || 0, failed = Number(copy.failed) || 0;
+  const files = Number(st.files) || 0;
+  const where = s3 ? `S3${st.bucket ? ' · ' + st.bucket : ''}` : 'Local disk';
+  const copying = total > 0 && done + failed < total;
+  return `<div class="hl-storage" data-hl-storage="${s3 ? 's3' : 'local'}">
+    <span class="nav-icon hl-icon" aria-hidden="true">inventory_2</span><div class="hl-storage-main"><strong>Storage</strong>
+    <span class="hl-where" title="${esc(st.region ? where + ' · ' + st.region : where)}">${esc(where)}</span>
+    <span class="muted tnum">${files.toLocaleString()} file${files === 1 ? '' : 's'} · ${esc(bytes(Number(st.bytes) || 0))}</span>
+    ${copying ? `<span class="hl-copy tnum" data-hl-copy>Copying to S3 · ${done.toLocaleString()} of ${total.toLocaleString()}</span>` : ''}
+    ${failed ? `<span class="err tnum" data-hl-copy-failed>${failed.toLocaleString()} failed</span>` : ''}
+    ${s3 ? '' : `<a class="hl-s3" href="${GH}/blob/main/docs/files.md#storage" target="_blank" rel="noopener noreferrer">Set up S3</a>`}</div></div>`;
+}
+
 function hlPageDraw() {
   const host = $('#hl-page');
   if (!host) return;
@@ -80,7 +97,7 @@ function hlPageDraw() {
   const notes = (typeof SETTINGS_DATA !== 'undefined' && SETTINGS_DATA.issues || []).filter(issue => !needsPerson(issue));
   host.innerHTML = `<p class="muted" id="hl-summary">${HL.attention ? `${HL.attention} issue${HL.attention === 1 ? '' : 's'} to look at`
     : notes.length ? `Nothing urgent. ${notes.length} note${notes.length === 1 ? '' : 's'} below.` : 'Everything looks fine.'}</p>
-    <ul class="hl-list">${HL.checks.map(hlCheckHtml).join('')}</ul>
+    <ul class="hl-list">${HL.checks.map(hlCheckHtml).join('')}</ul>${hlStorageHtml(HL.storage)}
     ${notes.length ? `<h2>Not urgent</h2><ul class="hl-notes">${notes.map(issue => `<li><strong>${esc(issue.title)}</strong> <span class="muted">${esc(issue.detail || '')}</span></li>`).join('')}</ul>` : ''}
     ${HL.computers.length ? `<h2>Computers</h2><ul class="hl-computers">${HL.computers.map(hlComputerHtml).join('')}</ul>` : ''}
     ${HL.waiting.length || HL.slow.length ? `<h2>Bots waiting</h2><ul class="hl-bots">${bots(HL.waiting)}${bots(HL.slow)}</ul>` : ''}

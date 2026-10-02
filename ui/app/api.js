@@ -2,7 +2,7 @@
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-const bytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(0)} KB` : `${(n/1048576).toFixed(1)} MB`;
+const bytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(0)} KB` : n < 1073741824 ? `${(n/1048576).toFixed(1)} MB` : `${(n/1073741824).toFixed(1)} GB`;
 const apiErrorRaw = (j, r) => j.error?.detail || (typeof j.error === 'string' ? j.error : '') || (Array.isArray(j.detail) ? j.detail.map(e => `${e.loc?.slice(1).join('.') || 'Request'}: ${e.msg}`).join('; ') : '') || r.statusText;
 const apiError = (j, r) => {
   const raw = apiErrorRaw(j, r);
