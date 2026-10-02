@@ -9,7 +9,7 @@
 // state.granola is the last GET /v2/meetings/granola; null when the server has no such route, and then the
 // Granola tile keeps opening the API-key importer as before.
 const GRANOLA = '/v2/meetings/granola';
-const GRANOLA_SYNC_POLL_MS = 2000, GRANOLA_SYNC_POLLS = 5;
+const GRANOLA_POLL_FIRST_MS = 3000, GRANOLA_POLL_MAX_MS = 15000, GRANOLA_LEGACY_POLLS = 5;
 const GRANOLA_DOTS = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
 function granolaStop(state) {
@@ -34,41 +34,58 @@ async function granolaStatus(state) {
 }
 async function granolaInit(state) {
   const s = await granolaStatus(state);
-  if (s?.connected && !s.needs_signin) granolaSync(state);
+  if (s?.syncing) granolaWatch(state);           // a sync already running (the schedule, another tab): follow it
+  else if (granolaReady(s)) granolaSync(state);
 }
+// Signed out is `needs_signin`, whatever `connected` says (the server sends connected:false then).
 const granolaReady = s => !!(s?.connected && !s.needs_signin);
 
-// Ask for a sync, then re-read the status a few times; once last_sync moves, reload the meeting list.
+// Ask for one sync, then follow it.
 async function granolaSync(state) {
   if (state.gSyncing) return;
-  const before = state.granola?.last_sync || '';
   state.gSyncing = true; state.gmsg = '';
   granolaPaint(state);
   let r;
   try { r = await post(GRANOLA + '/sync', {}); }
-  catch (e) { r = null; if (MEET === state) state.gmsg = e.message; }
+  catch (e) {
+    if (MEET !== state) return;
+    state.gSyncing = false; state.gmsg = e.message;
+    granolaPaint(state);
+    return;
+  }
   if (MEET !== state) return;
+  granolaWatch(state, true);
+}
+// Re-read the status while the server says `syncing`: every 3 s, backing off to 15 s, until it stops (or the page
+// closes: granolaStop clears the timer). Then reload the meeting list if anything came in. A server that does not
+// send `syncing` is followed a few times until last_sync moves.
+function granolaWatch(state, asked) {
+  clearTimeout(state.gSyncTimer);
+  const before = {last: state.granola?.last_sync || '', count: Number(state.granola?.imported_count) || 0};
+  state.gSyncing = true;
+  granolaPaint(state);
+  let wait = GRANOLA_POLL_FIRST_MS, tries = 0;
   const done = changed => {
-    state.gSyncing = false;
+    state.gSyncing = false; state.gSyncTimer = 0;
     granolaPaint(state); meetPaintTiles(state);
     if (changed && !state.editing && !state.open) meetLoad(state, false);
   };
-  if (!r) return done(false);
-  let tries = 0;
   const check = async () => {
     state.gSyncTimer = 0;
     const now = await granolaStatus(state);
     if (MEET !== state) return;
-    const changed = !!now?.last_sync && now.last_sync !== before;
-    if (changed || !granolaReady(now) || ++tries >= GRANOLA_SYNC_POLLS) return done(changed);
-    state.gSyncTimer = setTimeout(check, GRANOLA_SYNC_POLL_MS);
+    tries++;
+    const changed = !!now && ((now.last_sync || '') !== before.last || (Number(now.imported_count) || 0) !== before.count);
+    if (!now || !granolaReady(now)) return done(changed);
+    if (typeof now.syncing === 'boolean') {
+      if (!now.syncing && (tries > 1 || !asked || changed)) return done(changed);
+    } else if (changed || tries >= GRANOLA_LEGACY_POLLS) return done(changed);
+    state.gSyncing = true;
+    granolaPaint(state);
+    wait = Math.min(GRANOLA_POLL_MAX_MS, Math.round(wait * 1.5));
+    state.gSyncTimer = setTimeout(check, wait);
   };
-  if (r.last_sync && r.last_sync !== before && r.state !== 'running' && r.state !== 'started' && r.state !== 'queued') {
-    await granolaStatus(state);
-    if (MEET === state) done(true);
-    return;
-  }
-  state.gSyncTimer = setTimeout(check, GRANOLA_SYNC_POLL_MS);
+  state.gSyncTimer = setTimeout(check, wait);
 }
 
 async function granolaConnect(state) {
@@ -81,12 +98,21 @@ async function granolaConnect(state) {
   if (MEET !== state) return;
   if (!r?.user_code) { state.gflow = null; state.gmsg = 'Granola did not send a code. Try again.'; granolaPaint(state, 'connect'); return; }
   const every = Math.max(0.1, Number(r.interval) || 5) * 1000;
-  state.gflow = {phase: 'code', code: String(r.user_code), uri: r.verification_uri_complete || r.verification_uri || 'https://granola.ai',
+  state.gflow = {phase: 'code', code: String(r.user_code), uri: granolaSafeUri(r.verification_uri_complete) || granolaSafeUri(r.verification_uri),
+    host: granolaHost(r.verification_uri) || granolaHost(r.verification_uri_complete),
     until: Date.now() + Math.max(1, Number(r.expires_in) || 600) * 1000, every};
   granolaPaint(state, 'open');
   granolaSay(`Your code is ${r.user_code.split('').join(' ')}. Enter it in Granola.`);
   state.gTimer = setTimeout(() => granolaPoll(state), every);
 }
+// Only a https link on Granola's own host becomes "Open Granola"; anything else is shown as plain host text.
+function granolaSafeUri(value) {
+  try {
+    const u = new URL(String(value));
+    return u.protocol === 'https:' && (u.hostname === 'granola.ai' || u.hostname.endsWith('.granola.ai')) ? u.href : '';
+  } catch { return ''; }
+}
+function granolaHost(value) { try { const u = new URL(String(value)); return /^https?:$/.test(u.protocol) ? u.host : ''; } catch { return ''; } }
 async function granolaPoll(state) {
   const flow = state.gflow;
   if (MEET !== state || flow?.phase !== 'code') return;
@@ -100,6 +126,13 @@ async function granolaPoll(state) {
     granolaSay('Granola connected.');
     await granolaStatus(state);
     if (MEET === state && granolaReady(state.granola)) granolaSync(state);
+    return;
+  }
+  if (r.state === 'needs_signin') {
+    state.gflow = null;
+    state.gmsg = 'Granola sign-in failed. Try again.';
+    if (state.granola) state.granola.needs_signin = true;
+    granolaPaint(state, 'connect'); meetPaintTiles(state);
     return;
   }
   if (r.state === 'denied' || r.state === 'expired' || Date.now() > flow.until) {
@@ -121,7 +154,7 @@ async function granolaDisconnect(state) {
   try { await writeRequest('DELETE', GRANOLA + '/connect'); }
   catch (e) { if (MEET === state) { state.gmsg = e.message; granolaPaint(state, 'more'); } return; }
   if (MEET !== state) return;
-  if (state.granola) Object.assign(state.granola, {connected: false, needs_signin: false, email: '', mode: 'off'});
+  if (state.granola) Object.assign(state.granola, {connected: false, needs_signin: false, syncing: false, email: '', mode: 'off'});
   granolaPaint(state, 'connect');
   granolaSay('Granola disconnected.');
   granolaStatus(state);
@@ -136,16 +169,18 @@ function granolaFromTile(state) {
 function granolaTileState(state) {
   const s = state.granola;
   if (!s) return null;
-  if (s.connected && s.needs_signin) return {key: 'error', word: 'Sign in', when: ''};
+  if (s.needs_signin) return {key: 'error', word: 'Sign in', when: ''};
   if (s.connected) return {key: 'on', word: 'Connected', when: s.last_sync || ''};
   return null;
 }
 
 function granolaFacts(s, syncing) {
-  const n = Number(s.imported_count) || 0;
+  const n = Number(s.imported_count) || 0, skipped = Math.max(0, Number(s.skipped) || 0);
   return [s.email ? `<span class="mg-email" title="${esc(s.email)}">${esc(s.email)}</span>` : '',
-    `<span>${syncing ? 'Syncing…' : s.last_sync ? 'synced ' + esc(ago(s.last_sync)) : 'not synced yet'}</span>`,
-    `<span>${n} ${n === 1 ? 'note' : 'notes'}</span>`].filter(Boolean).join('');
+    syncing ? '<span class="mg-syncing"><i class="mg-spin" aria-hidden="true"></i>Syncing…</span>'
+      : `<span>${s.last_sync ? 'synced ' + esc(ago(s.last_sync)) : 'not synced yet'}</span>`,
+    `<span>${n} ${n === 1 ? 'note' : 'notes'}</span>`,
+    skipped ? `<span class="mg-skip" title="${skipped} ${skipped === 1 ? 'note' : 'notes'} from Granola could not be imported">${skipped} skipped</span>` : ''].filter(Boolean).join('');
 }
 function granolaPaint(state, focus) {
   const el = $('#meet-granola'); if (!el) return;
@@ -166,9 +201,10 @@ function granolaPaint(state, focus) {
     if (code) extra = `<div class="mg-code-row">
         <output class="mg-code" id="mg-code" aria-label="Granola code">${esc(flow.code)}</output>
         <button type="button" class="ghost" data-g="copy" aria-label="Copy code">Copy</button>
-        <a class="mg-open" href="${esc(flow.uri)}" target="_blank" rel="noopener" data-g="open">Open Granola</a>
+        ${flow.uri ? `<a class="mg-open" href="${esc(flow.uri)}" target="_blank" rel="noopener" data-g="open">Open Granola</a>`
+          : flow.host ? `<span class="mg-host">${esc(flow.host)}</span>` : ''}
         <span class="mg-wait muted" aria-hidden="true"><i class="dot"></i>Waiting</span></div>`;
-  } else if (s.connected && s.needs_signin) {
+  } else if (s.needs_signin) {
     line = `<b>Granola</b>${s.email ? `<span class="mg-email" title="${esc(s.email)}">${esc(s.email)}</span>` : ''}<span class="mg-bad">Signed out</span>`;
     actions = `<button type="button" class="primary small" data-g="connect">Sign in to Granola again</button>${menu('<button type="button" role="menuitem" class="danger-text" data-g="disconnect">Disconnect</button>')}`;
   } else if (s.connected) {
@@ -180,8 +216,8 @@ function granolaPaint(state, focus) {
     actions = `<button type="button" class="primary small" data-g="connect">Connect Granola</button>`;
     extra = keyLink ? `<p class="mg-sub">${keyLink}</p>` : '';
   }
-  const err = state.gmsg || (s.connected && !s.needs_signin && !flow ? s.last_error : '');
-  row.dataset.state = flow ? 'code' : s.connected && s.needs_signin ? 'signin' : s.connected ? 'on' : 'off';
+  const err = state.gmsg || ((s.connected || s.needs_signin) && !flow ? s.last_error : '');
+  row.dataset.state = flow ? 'code' : s.needs_signin ? 'signin' : s.connected ? 'on' : 'off';
   row.innerHTML = `${meetLogo('granola', 26)}<div class="mg-body"><div class="mg-line">${line}</div>${extra}
       ${err ? `<p class="mg-err" role="alert">${esc(err)}</p>` : ''}</div><div class="mg-actions">${actions}</div>`;
   granolaWire(state, row);

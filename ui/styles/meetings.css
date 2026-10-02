@@ -76,6 +76,12 @@
 .mg-line>*+*::before{content:'·';margin-right:6px;color:var(--muted)}
 .mg-email{max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mg-bad{color:var(--fail)}
+.mg-host{font-size:13px;color:var(--ink)}
+.mg-skip{color:var(--muted);cursor:help}
+.mg-syncing{display:inline-flex;align-items:center;gap:5px}
+.mg-spin{width:10px;height:10px;border:1.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:mg-turn .8s linear infinite}
+@keyframes mg-turn{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.mg-spin{animation:none}}
 .mg-sub{margin:0;font-size:12px}
 .mg-sub .linkish{font-size:12px;color:var(--accent-quiet);text-decoration:none}
 .mg-sub .linkish:hover{text-decoration:underline}

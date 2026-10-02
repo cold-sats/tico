@@ -14,10 +14,11 @@ if (shots) fs.mkdirSync(shots, {recursive: true});
 const ago = minutes => new Date(Date.now() - minutes * 6e4).toISOString();
 const meeting = (id, title, minutes) => ({id, title, source: 'granola', kind: 'meeting', status: 'done', started: ago(minutes), created: ago(minutes),
   duration_ms: 1800000, participants: [{name: 'Ana', email: 'ana@acme.example'}, {name: 'Ben'}], outbox: {doc: [], task: [], feature: []}});
-const OFF = {mode: 'off', connected: false, plan_hint: null, last_sync: null, last_error: null, imported_count: 0, needs_signin: false};
-const ON = {mode: 'account', connected: true, email: 'ana@acme.example', plan_hint: 'free', last_sync: ago(3), last_error: null, imported_count: 42, needs_signin: false};
-const CODE = {user_code: 'WDJB-MJHT', verification_uri: 'https://granola.example/device',
-  verification_uri_complete: 'https://granola.example/device?code=WDJB-MJHT', expires_in: 600, interval: 0.2};
+// Shapes as the server sends them (OpenAPI GranolaStatus / GranolaSync); `syncing` is filled in by the fake below.
+const OFF = {mode: 'off', connected: false, plan_hint: null, last_sync: null, last_error: null, imported_count: 0, skipped: 0, needs_signin: false};
+const ON = {mode: 'account', connected: true, email: 'ana@acme.example', plan_hint: 'free', last_sync: ago(3), last_error: null, imported_count: 42, skipped: 0, needs_signin: false};
+const CODE = {user_code: 'WDJB-MJHT', verification_uri: 'https://mcp-auth.granola.ai/device',
+  verification_uri_complete: 'https://mcp-auth.granola.ai/device?user_code=WDJB-MJHT', expires_in: 600, interval: 0.2};
 
 async function open(browser, viewport, w, scheme = 'dark') {
   const context = await browser.newContext({viewport, serviceWorkers: 'block', colorScheme: scheme, hasTouch: viewport.width < 760, isMobile: viewport.width < 760});
@@ -50,11 +51,12 @@ async function open(browser, viewport, w, scheme = 'dark') {
     if (p === '/api/v2/meetings/granola') {
       w.calls.push('status');
       if (w.missing) return json({error: {detail: 'Not found'}}, 404);
-      const next = w.statusQueue.length ? w.statusQueue.shift() : null;
-      if (next) w.granola = next;
-      return json(w.granola);
+      // A sync runs for `syncLeft` more status reads, then `finish` lands its result.
+      if (w.syncLeft > 0) { w.syncLeft--; return json({...w.granola, syncing: true}); }
+      if (w.finish && count(w, 'sync')) { const finish = w.finish; w.finish = null; finish(); }
+      return json({...w.granola, syncing: false});
     }
-    if (p === '/api/v2/meetings/granola/connect' && method === 'POST') { w.calls.push('connect'); return json(CODE); }
+    if (p === '/api/v2/meetings/granola/connect' && method === 'POST') { w.calls.push('connect'); return json(w.code || CODE); }
     if (p === '/api/v2/meetings/granola/connect' && method === 'DELETE') { w.calls.push('disconnect'); w.granola = {...OFF}; return json({ok: true}); }
     if (p === '/api/v2/meetings/granola/connect/status') {
       w.calls.push('poll');
@@ -64,8 +66,8 @@ async function open(browser, viewport, w, scheme = 'dark') {
     }
     if (p === '/api/v2/meetings/granola/sync' && method === 'POST') {
       w.calls.push('sync');
-      if (w.onSync) w.onSync();
-      return json({state: 'running', last_sync: w.granola.last_sync});
+      w.syncLeft = w.syncSteps;
+      return json({state: 'syncing', last_sync: w.granola.last_sync});
     }
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json({});
@@ -73,7 +75,7 @@ async function open(browser, viewport, w, scheme = 'dark') {
   await page.goto('https://tico-ui.test/#/meetings');
   return {page, errors, context};
 }
-const world = (extra = {}) => ({role: 'owner', meetings: [meeting('g1', 'Renewal call with Dana', 300)], granola: {...OFF}, statusQueue: [],
+const world = (extra = {}) => ({role: 'owner', meetings: [meeting('g1', 'Renewal call with Dana', 300)], granola: {...OFF}, syncSteps: 0, syncLeft: 0, finish: null,
   polls: [{state: 'pending'}], calls: [], listed: 0, ...extra});
 // The row's facts as read on screen: CSS puts the ' · ' between them.
 const lineText = page => page.locator('#mg-row .mg-line').evaluate(el => [...el.children].map(c => c.textContent.trim()).join(' · '));
@@ -122,7 +124,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       await context.close();
 
       // ---- expired and denied: one short line, Connect Granola again, polling stops
-      for (const [state, words] of [['expired', 'The code expired. Try again.'], ['denied', 'Granola access was denied.']]) {
+      for (const [state, words] of [['expired', 'The code expired. Try again.'], ['denied', 'Granola access was denied.'], ['needs_signin', 'Granola sign-in failed. Try again.']]) {
         w = world({polls: [{state: 'pending'}, {state}]});
         ({page, errors, context} = await open(browser, desk, w, scheme));
         await page.locator('#mg-row [data-g=connect]').click();
@@ -142,16 +144,23 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
 
       // ---- connected: sync once on open, list refreshes when last_sync moves; free plan line; Sync and Disconnect in …
       const before = ago(30);
-      w = world({granola: {...ON, last_sync: before, imported_count: 41}});
-      w.onSync = () => { w.onSync = null; w.statusQueue.push({...ON, last_sync: before, imported_count: 41}, {...ON, last_sync: ago(3), imported_count: 42});
-        w.meetings = [meeting('g2', 'Pricing review', 5), ...w.meetings]; };
+      w = world({granola: {...ON, last_sync: before, imported_count: 41}, syncSteps: 1});
+      w.finish = () => { w.granola = {...ON, last_sync: ago(3), imported_count: 42, skipped: 2}; w.meetings = [meeting('g2', 'Pricing review', 5), ...w.meetings]; };
       ({page, errors, context} = await open(browser, desk, w, scheme));
       await page.locator('#mg-row [data-g=more]').waitFor();
-      await page.waitForFunction(() => document.querySelectorAll('.meet-row').length === 2, null, {timeout: 10000});
+      await page.locator('#mg-row .mg-syncing .mg-spin').waitFor();
+      assert.match(await lineText(page), /· Syncing… · 41 notes$/);
+      await until(() => w.calls.filter(c => c === 'status').length >= 2, 'still polling while syncing', 6000);
+      assert.equal(await page.locator('.meet-row').count(), 1, 'the list waits for the sync to finish');
+      await page.waitForFunction(() => document.querySelectorAll('.meet-row').length === 2, null, {timeout: 12000});
       assert.equal(count(w, 'sync'), 1, 'one sync when the page opens');
       assert.deepEqual(await page.locator('.meet-row .note-title').allInnerTexts(), ['Pricing review', 'Renewal call with Dana']);
       await page.waitForFunction(() => /42 notes/.test(document.querySelector('#mg-row .mg-line')?.textContent || ''));
-      assert.equal(await lineText(page), 'Granola · ana@acme.example · synced 3m ago · 42 notes');
+      assert.equal(await lineText(page), 'Granola · ana@acme.example · synced 3m ago · 42 notes · 2 skipped');
+      assert.equal(await page.locator('#mg-row .mg-skip').getAttribute('title'), '2 notes from Granola could not be imported');
+      const polled = count(w, 'status');
+      await page.waitForTimeout(3500);
+      assert.equal(count(w, 'status'), polled, 'polling stops once the sync is done');
       assert.equal(await page.locator('#mg-row .mg-sub').innerText(), 'Free plan: notes from the last 30 days');
       assert.equal(await page.locator('#mg-row [data-g=connect]').count(), 0);
       assert.match(await page.locator('#meet-sources [data-msrc=granola] .mt-text').innerText(), /Connected/);
@@ -181,13 +190,15 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       await context.close();
 
       // ---- needs sign-in: no sync on open; "Sign in to Granola again" restarts the flow
-      w = world({granola: {...ON, plan_hint: 'paid', needs_signin: true}});
+      w = world({granola: {...ON, connected: false, plan_hint: 'paid', needs_signin: true, last_error: 'Granola needs sign-in again'}});
       ({page, errors, context} = await open(browser, desk, w, scheme));
       const again = page.locator('#mg-row [data-g=connect]');
       await again.waitFor();
       assert.equal(await again.innerText(), 'Sign in to Granola again');
       assert.equal(await lineText(page), 'Granola · ana@acme.example · Signed out');
       assert.equal(await page.locator('#mg-row .mg-sub').count(), 0, 'no free plan line on a paid plan');
+      assert.equal(await page.locator('#mg-row .mg-err').innerText(), 'Granola needs sign-in again');
+      assert.equal(await page.locator('#mg-row [data-g=more]').count(), 1, 'Disconnect stays reachable');
       assert.match(await page.locator('#meet-sources [data-msrc=granola] .mt-text').innerText(), /Sign in/);
       await shot(page, `granola-needs-signin-${scheme}`);
       await page.waitForTimeout(300);
@@ -229,6 +240,25 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     await page.waitForFunction(() => document.querySelector('#meet-granola')?.hidden === true);
     await page.locator('#meet-sources [data-msrc=granola]').click();
     await page.locator('dialog[aria-label="Connect Granola"]').waitFor();
+    await context.close();
+
+    // ---- a sign-in link off Granola's own https host is not a link: the code and the host as text
+    w = world({code: {...CODE, verification_uri: 'https://granola.example.net/device', verification_uri_complete: 'javascript:alert(1)'}});
+    ({page, errors, context} = await open(browser, desk, w));
+    await page.locator('#mg-row [data-g=connect]').click();
+    await page.locator('#mg-code').waitFor();
+    assert.equal(await page.locator('#mg-row a').count(), 0, 'no link');
+    assert.equal(await page.locator('#mg-row .mg-host').innerText(), 'granola.example.net');
+    assert.deepEqual(errors, []);
+    await context.close();
+
+    // ---- a sync already running when the page opens (the schedule): follow it, no second sync
+    w = world({granola: {...ON}, syncLeft: 1});
+    ({page, errors, context} = await open(browser, desk, w));
+    await page.locator('#mg-row .mg-syncing').waitFor();
+    await page.locator('#mg-row .mg-syncing').waitFor({state: 'detached', timeout: 8000});
+    assert.equal(count(w, 'sync'), 0, 'no sync asked while one runs');
+    assert.deepEqual(errors, []);
     await context.close();
 
     // ---- a phone: the code and the connected row fit with no sideways scroll
