@@ -93,7 +93,9 @@ otherwise they offer assets from the GitHub release of their running version, wi
 cache and no credentials sent to GitHub. Concurrent requests share one GitHub fetch;
 other callers use the last cached result or wait at most 100 ms on a cold cache. This fallback applies only to human download routes
 (`/download/{os}` and `/api/download/{os}`). `/download/latest.json` serves only the bucket
-manifest, including older environment builds, and returns 404 when none exists.
+manifest, including older environment builds, and returns 404 when none exists. Download
+storage uses the blob store's region, endpoint and bucket prefix; environment artifacts belong
+under `<prefix>/releases/app/` when a prefix is configured.
 
 ## What installations do
 
