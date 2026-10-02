@@ -97,7 +97,14 @@ def test_a_follow_up_says_which_run_took_it_and_the_reply_lists_both(api):
     assert stored["answers"] == [first["id"], follow["id"]] and stored["run"] == {"job_id": starter_job, "attempt_id": aid}
 
 
-def test_the_watch_stream_carries_the_same_fields(api):
+def test_the_watch_stream_carries_the_same_fields(api, monkeypatch):
+    from backend import views
+    from types import SimpleNamespace
+
+    async def no_wait(seconds):
+        return
+
+    monkeypatch.setattr(views, "asyncio", SimpleNamespace(sleep=no_wait, to_thread=views.asyncio.to_thread))
     r, first, aid = start(api)
     send_events(api, r, aid, [("message", {"text": "One.", "final": False}), ("message", {"text": "Two.", "final": False})])
     with api.stream("GET", f"/api/v2/conversations/{first['conversation_id']}/watch",

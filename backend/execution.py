@@ -241,6 +241,8 @@ class Execution:
                 row.pop('rejected_at', None), row.pop('rejected_reason', None)
             if not row.get('credential_source'):
                 row.pop('credential_source', None)
+        if readiness.get('worktrees') is None:
+            readiness.pop('worktrees', None)
         if not readiness.get('harnesses'):
             readiness.pop('harnesses', None)
         if not readiness.get('mail_key'):
