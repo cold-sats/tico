@@ -141,6 +141,8 @@ def test_legal_template_and_branch_defaults_and_verified_human_origin(api):
         company = H.task_create(c, 'human:ben', 'Review the public terms', 'Review it.', 'bot:cpo',
                                 private=False, lint=False)
         assert not company['private']
+        bot_attempt = H.task_create(c, 'bot:cpo', 'Review sensitive terms', 'Review it.', 'bot:cpo', private=False, lint=False)
+        assert bot_attempt['private']
 
 
 def test_private_reassignment_updates_thread_members_without_losing_messages(api):

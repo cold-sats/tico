@@ -898,6 +898,8 @@ def private_task_write(fn):
         row = task(conn, values.get('task_id')) if values.get('task_id') else None
         private = bool(row and task_private(conn, row) or values.get('private'))
         if fn.__name__ == 'task_create':
+            if values.get('private') is False and not is_human(actor):
+                values['private'] = None
             target = resolve_actor(conn, values.get('owner'))
             parent = task(conn, values.get('parent_id')) if values.get('parent_id') else None
             private = bool((values.get('private') if values.get('private') is not None else
@@ -1945,7 +1947,7 @@ def migrate_task_privacy(conn):
         conn.executemany('UPDATE tasks SET private=? WHERE id=?',
                          [(int(row['id'] in private), row['id']) for row in rows])
     add_column(conn, 'conversations', 'scope', "TEXT NOT NULL DEFAULT 'direct'")
-    for row in _rows(conn.execute('SELECT * FROM tasks WHERE private=1')):
+    for row in _rows(conn.execute('SELECT * FROM tasks WHERE private IS NULL OR private<>0')):
         isolate_private_task(conn, row)
 
 
@@ -2796,6 +2798,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     requester = parent["requester"] if parent and is_human(actor) and is_human(parent["requester"]) else actor
+    if private is False and not is_human(actor):
+        private = None              # a bot cannot override a sensitive default to publish
     private = bool((private if private is not None else
                     private_tasks_default(conn, actor) or private_tasks_default(conn, target))
                    or parent and task_private(conn, parent))

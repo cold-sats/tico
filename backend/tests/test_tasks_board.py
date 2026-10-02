@@ -310,7 +310,7 @@ def test_bot_tag_owner_edits_and_tag_tasks_respect_visibility(api):
     assert [task["id"] for task in get(api, "tags/" + tag["id"], token=token)["tasks"]] == [mine["id"]]
     assert {task["id"] for task in get(api, "tags/" + tag["id"])["tasks"]} == {mine["id"], other["id"]}
     sql = post(api, "sql", {"sql": "SELECT task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id WHERE tags.key='release-bot'"}, token=token)
-    assert sql["rows"] == [[mine["id"]]]
+    assert {row[0] for row in sql["rows"]} == {mine["id"], other["id"]}
     assert get(api, "tasks/labels", token=token)["tags"][0]["key"] == tag["key"]
 
 
@@ -953,9 +953,8 @@ def test_tree_visibility_query_only_reads_descendant_ids(api, monkeypatch):
     assert visibility and all('id IN (' in q and child['id'] in q and unrelated['id'] not in q for q in visibility)
 
 
-def test_a_type_opened_to_bots_is_read_or_worked_whole_and_nothing_else_is(api):
-    """A type's `bots` opens its tasks to every bot, read or worked, and only its tasks: a person's
-    own to-dos stay with the bots on them, and closing, a ready step and labels stay with people."""
+def test_a_type_grants_extra_bot_permissions_while_ordinary_tasks_are_readable(api):
+    """Ordinary reads are transparent; type settings add comments/subtasks or work, with human controls."""
     typ = post(api, 'task-types', {'name': 'Dev ticket', 'steps': [
         {'name': 'On Deck', 'status': 'open'}, {'name': 'PR Review', 'status': 'review'},
         {'name': 'Shipped', 'status': 'ready'}, {'name': 'Done', 'status': 'closed'}]})['type']
@@ -968,15 +967,16 @@ def test_a_type_opened_to_bots_is_read_or_worked_whole_and_nothing_else_is(api):
     sql = lambda: {r[0] if isinstance(r, list) else r['id'] for r in post(
         api, 'sql', {'sql': 'SELECT id FROM tasks'}, token=token)['rows']}
 
-    get(api, 'tasks/' + ticket['id'], token=token, expected=403)
-    assert ticket['id'] not in listed() and ticket['id'] not in sql()
+    assert get(api, 'tasks/' + ticket['id'], token=token)['task']['id'] == ticket['id']
+    assert ticket['id'] in listed() and ticket['id'] in sql()
+    post(api, 'tasks/' + ticket['id'] + '/comments', {'text': 'Unrelated writer.'}, token=token, expected=403)
 
     post(api, 'task-types/' + typ['id'], {'bots': 'read'}, token='priya-test', expected=403)
     assert post(api, 'task-types/' + typ['id'], {'bots': 'read'})['type']['bots'] == 'read'
     assert get(api, 'tasks/' + ticket['id'], token=token)['task']['id'] == ticket['id']
     assert ticket['id'] in listed() and ticket['id'] in sql()
-    assert todo['id'] not in listed() and todo['id'] not in sql()
-    get(api, 'tasks/' + todo['id'], token=token, expected=403)
+    assert todo['id'] in listed() and todo['id'] in sql()
+    assert get(api, 'tasks/' + todo['id'], token=token)['task']['id'] == todo['id']
     post(api, 'tasks/' + ticket['id'] + '/comments', {'text': 'The same gap shows on two more threads.'}, token=token)
     child = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the fix', 'body': 'Please.',
                                 'parent_id': ticket['id']}, token=token)
@@ -999,5 +999,6 @@ def test_a_type_opened_to_bots_is_read_or_worked_whole_and_nothing_else_is(api):
 
     post(api, 'task-types/' + typ['id'], {'bots': 'anyone'}, expected=422)
     assert post(api, 'task-types/' + typ['id'], {'bots': 'parties'})['type']['bots'] is None
-    get(api, 'tasks/' + ticket['id'], token=token, expected=403)
-    assert ticket['id'] not in listed()
+    assert get(api, 'tasks/' + ticket['id'], token=token)['task']['id'] == ticket['id']
+    assert ticket['id'] in listed()
+    post(api, 'tasks/' + ticket['id'], {'version': moved['version'], 'status': 'doing'}, token=token, expected=403)
