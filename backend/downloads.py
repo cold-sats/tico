@@ -26,7 +26,7 @@ import json
 import re
 import time
 import threading
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 
@@ -79,14 +79,55 @@ class Downloads:
         if fetched and time.time() - fetched < 60:
             return cached
         try:
-            body = self.s3.get_object(Bucket=self.bucket, Key=self.prefix + "latest.json")["Body"].read()
+            stream = self.s3.get_object(Bucket=self.bucket, Key=self.prefix + "latest.json")["Body"]
+            try:
+                body = stream.read(128 * 1024 + 1)
+            finally:
+                stream.close()
+            if len(body) > 128 * 1024:
+                raise ValueError("oversized manifest")
             value = json.loads(body)
-            if not isinstance(value, dict) or not VERSION_RE.fullmatch(str(value.get("version") or "")) or not releases.parse(value["version"]):
-                value = None
+            value = self.company_manifest(value)
         except Exception:
             value = None
         self._manifest = (time.time(), value)
         return value
+
+    def company_manifest(self, value):
+        # Older environment manifests have no app_kind. Keep those installations working,
+        # but an explicitly generic manifest must never update a company's app.
+        if (not isinstance(value, dict) or value.get("app_kind", "company") != "company"
+                or not VERSION_RE.fullmatch(str(value.get("version") or ""))
+                or not releases.parse(value["version"])):
+            return None
+        platforms, installers = value.get("platforms"), value.get("installers")
+        if not isinstance(platforms, dict) or not platforms or not isinstance(installers, dict):
+            return None
+        safe_platforms = {}
+        for target, entry in platforms.items():
+            if not isinstance(entry, dict) or not isinstance(entry.get("signature"), str) or not entry["signature"].strip():
+                return None
+            address = urlsplit(str(entry.get("url") or ""))
+            # Publish routes, including retained older-platform versions, are the only
+            # permitted updater source. Reconstruct with this hub's configured origin.
+            root = urlsplit(self.base).path.rstrip("/") + "/download/file/"
+            if not address.path.startswith(root):
+                return None
+            parts = address.path[len(root):].split("/")
+            if len(parts) != 2:
+                return None
+            version, name = map(unquote, parts)
+            if not VERSION_RE.fullmatch(version) or not FILE_RE.fullmatch(name):
+                return None
+            safe_platforms[target] = {"signature": entry["signature"],
+                                      "url": f"{self.base}/download/file/{quote(version, safe='')}/{quote(name)}"}
+        safe_installers = {}
+        for os_name, entry in installers.items():
+            if not isinstance(entry, dict) or not FILE_RE.fullmatch(str(entry.get("file") or "")):
+                return None
+            # Company human downloads also stay on the hub's authorized bucket path.
+            safe_installers[os_name] = {k: v for k, v in entry.items() if k != "url"}
+        return {**value, "platforms": safe_platforms, "installers": safe_installers, "app_kind": "company"}
 
     def github_manifest(self):
         with self._lock:

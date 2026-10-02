@@ -13,6 +13,7 @@ from . import blobs
 from .store import H, Problem, encode
 
 LIMIT = 1024 * 1024
+PIXELS = 16 * 1024 * 1024
 KEY = "team_icon"
 
 
@@ -25,10 +26,17 @@ def png(data):
             with Image.open(io.BytesIO(data)) as image:
                 if image.format not in ("PNG", "JPEG", "WEBP"):
                     raise ValueError()
+                if image.width * image.height > PIXELS:
+                    raise ValueError()
                 image.load()
+                image.thumbnail((1024, 1024))
                 image = image.convert("RGBA")
                 image.info.clear()
-                image.thumbnail((1024, 1024))
+                # Desktop icon generators require a square; retain the entire logo.
+                side = max(image.width, image.height)
+                square = Image.new("RGBA", (side, side))
+                square.paste(image, ((side - image.width) // 2, (side - image.height) // 2))
+                image = square
                 while True:
                     out = io.BytesIO()
                     image.save(out, format="PNG")
@@ -52,7 +60,8 @@ def install_team_icon(app, store):
         icon = json.loads(row[0])
         etag = '"' + icon["digest"] + '"'
         headers = {"ETag": etag, "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"}
-        if request.headers.get("if-none-match") in (etag, "*"):
+        matches = [value.strip().removeprefix("W/") for value in request.headers.get("if-none-match", "").split(",")]
+        if etag in matches or "*" in matches:
             return Response(status_code=304, headers=headers)
         return Response(storage.get(icon["digest"]), media_type="image/png", headers=headers)
 

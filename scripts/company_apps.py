@@ -35,13 +35,18 @@ def url(value):
     return value.rstrip("/")
 
 
-def parse(raw):
+def entries_from_json(raw):
     try:
         entries = json.loads(raw or "[]")
     except (ValueError, TypeError) as exc:
         raise Invalid("TICO_COMPANY_APPS must be a JSON list") from exc
     if not isinstance(entries, list):
         raise Invalid("TICO_COMPANY_APPS must be a JSON list")
+    return entries
+
+
+def parse(raw):
+    entries = entries_from_json(raw)
     seen, ids = set(), set()
     for entry in entries:
         if not isinstance(entry, dict) or any(not isinstance(entry.get(k), str) or not entry[k].strip()
@@ -100,7 +105,7 @@ class SafeRedirect(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def configure(entry):
+def configure(entry, publishing=False):
     # No company identity is passed in process arguments or artifact names.
     base = url(entry.get("runner_url") or entry["url"])
     for value in (*entry.values(), base, base + "/download/latest.json",
@@ -111,6 +116,8 @@ def configure(entry):
     with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
         for name, value in values.items():
             stream.write(f"{name}={value}\n")
+    if publishing:
+        return
     icon_url = entry["icon_url"]
     if icon_url.startswith("/"):
         icon_url = entry["url"].rstrip("/") + icon_url
@@ -135,34 +142,53 @@ def configure(entry):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("matrix", "configure", "build", "publish"))
+    parser.add_argument("action", choices=("matrix", "configure", "build", "pack", "unpack", "publish"))
     parser.add_argument("--company")
     parser.add_argument("--target")
     parser.add_argument("--bundles")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--publishing", action="store_true")
     args = parser.parse_args(argv)
     try:
-        entries = parse(os.environ.get("TICO_COMPANY_APPS", ""))
-        if not args.dry_run:
-            for company in entries:
-                for value in company.values():
-                    mask(value)
+        entries = entries_from_json(os.environ.get("TICO_COMPANY_APPS", ""))
         if args.action == "matrix":
-            value = json.dumps(matrix(entries), separators=(",", ":"))
+            if args.dry_run:
+                parse(json.dumps(entries))
+            # Validate each company in its own job: one malformed entry must not stop
+            # the other companies. Even invalid identities stay out of public output.
+            usable = [e for e in entries if isinstance(e, dict) and isinstance(e.get("slug"), str) and e["slug"]]
+            if len(usable) != len(entries):
+                print("::warning::Company entries without a slug cannot be built", file=sys.stderr)
+                if not usable:
+                    raise Invalid("Each company needs a slug")
+            value = json.dumps({"include": [{"company": k} for k in dict.fromkeys(key(e) for e in usable)]}, separators=(",", ":"))
             print(value)
             if not args.dry_run and os.environ.get("GITHUB_OUTPUT"):
                 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
                     stream.write("matrix=" + value + "\n")
-                    stream.write("enabled=" + str(bool(entries)).lower() + "\n")
+                    stream.write("enabled=" + str(bool(usable)).lower() + "\n")
             return 0
-        entry = next((e for e in entries if key(e) == args.company), None)
+        matches = [e for e in entries if isinstance(e, dict) and isinstance(e.get("slug"), str) and key(e) == args.company]
+        entry = matches[0] if len(matches) == 1 else None
         if entry is None:
             raise Invalid("Company hash was not found in the private configuration")
+        parse(json.dumps([entry]))
+        if sum(isinstance(e, dict) and e.get("id") == entry["id"] for e in entries) != 1:
+            raise Invalid("Duplicate company id")
         if args.dry_run:
             print(f"Validated {args.action} for {key(entry)}")
             return 0
         if args.action == "configure":
-            configure(entry)
+            configure(entry, args.publishing)
+        elif args.action in ("pack", "unpack"):
+            if __package__:
+                from . import company_app_artifacts as artifacts
+            else:
+                import company_app_artifacts as artifacts
+            if args.action == "pack":
+                artifacts.pack(key(entry), args.target)
+            else:
+                artifacts.unpack(key(entry))
         elif args.action == "build":
             # Build tools can print derived private paths; suppress their output entirely.
             with open(os.devnull, "w") as log:
@@ -171,7 +197,10 @@ def main(argv=None):
                 subprocess.run(["cargo", "tauri", "build", "--target", args.target, "--bundles", args.bundles,
                                 "--config", "company-config.json"], cwd="app", stdout=log, stderr=log, check=True)
         else:
-            from app_release import main as release
+            if __package__:
+                from .app_release import main as release
+            else:
+                from app_release import main as release
             flags = ["--version", os.environ["GITHUB_REF_NAME"].removeprefix("v"), "--bucket", entry["bucket"],
                      "--base", entry.get("runner_url") or entry["url"], "--prefix", entry.get("prefix", ""),
                      "--quiet", "--complete", "bundles"]

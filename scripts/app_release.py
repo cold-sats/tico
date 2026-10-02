@@ -72,7 +72,7 @@ def manifest(version, base, scans, previous, notes="", signed=False, notarized=F
                                  "url": f"{asset_base}/{quote(entry['file'])}" if github else f"{base}/download/file/{quote(version, safe='')}/{quote(entry['file'])}"}
         for os_name, entry in scan["installers"].items():
             installers[os_name] = {"file": entry["file"], "bytes": entry["bytes"],
-                                   "signed": signed, "notarized": notarized and os_name == "mac"}
+                                   "signed": signed and os_name == "mac", "notarized": signed and notarized and os_name == "mac"}
             if github:
                 installers[os_name]["url"] = f"{asset_base}/{quote(entry['file'])}"
     return {"version": version, "notes": notes, "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

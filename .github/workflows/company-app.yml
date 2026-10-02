@@ -32,6 +32,12 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Artifact encryption dependency
+        shell: bash
+        run: python -m pip install "$(grep '^cryptography==' backend/requirements.txt)"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
@@ -51,6 +57,8 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          # Keychain output can contain certificate subject names.
+          exec >/dev/null 2>&1
           [ -n "$APPLE_CERTIFICATE" ] || exit 0
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p ci build.keychain
@@ -77,18 +85,13 @@ jobs:
       - name: Build private company app
         shell: bash
         run: python scripts/company_apps.py build --company '${{ inputs.company }}' --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
-      - name: Collect bundles
+      - name: Encrypt company bundles
         shell: bash
-        run: |
-          mkdir -p out
-          if ! find app/target/${{ matrix.target }}/release/bundle -type f \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name '*-setup.exe' -o -name '*-setup.exe.sig' -o -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.deb' \) -exec cp {} out/ \; 2>/dev/null; then
-            echo '::error::Company bundle collection failed; check build output and disk space'
-            exit 1
-          fi
+        run: python scripts/company_apps.py pack --company '${{ inputs.company }}' --target '${{ matrix.target }}'
       - uses: actions/upload-artifact@v4
         with:
           name: company-${{ inputs.company }}-${{ matrix.target }}
-          path: out/
+          path: out/bundles.enc
           retention-days: 1
           if-no-files-found: error
 
@@ -97,18 +100,22 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TICO_COMPANY_APPS: ${{ secrets.TICO_COMPANY_APPS }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
       - name: Configure and mask private publish values
-        run: python scripts/company_apps.py configure --company '${{ inputs.company }}'
+        run: python scripts/company_apps.py configure --publishing --company '${{ inputs.company }}'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: company-${{ inputs.company }}-*
-          path: bundles
-          merge-multiple: true
+          path: encrypted
+      - name: Artifact encryption dependency
+        run: python -m pip install "$(grep '^cryptography==' backend/requirements.txt)"
+      - name: Decrypt this company's bundles
+        run: python scripts/company_apps.py unpack --company '${{ inputs.company }}'
       - name: Assume this company's publisher role
         uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
         with:

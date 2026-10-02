@@ -53,3 +53,27 @@ def test_failed_old_icon_cleanup_preserves_current_logo_and_retry_finishes(api, 
     monkeypatch.setattr(Path, "unlink", unlink)
     assert api.post("/api/v2/team/icon", content=image(colour="blue"), headers=retry).status_code == 200
     assert len([p for p in api.app.state.blobs.directory.rglob("*") if p.is_file()]) == 1
+
+
+def test_icon_strips_metadata_makes_square_and_weak_etag_matches(api):
+    from PIL.PngImagePlugin import PngInfo
+    source = io.BytesIO()
+    metadata = PngInfo()
+    metadata.add_text("private", "acme internal")
+    Image.new("RGB", (300, 100), "red").save(source, "PNG", pnginfo=metadata)
+    assert api.post("/api/v2/team/icon", content=source.getvalue(), headers=headers()).status_code == 200
+    response = api.get("/api/v2/team/icon")
+    assert b"acme internal" not in response.content
+    with Image.open(io.BytesIO(response.content)) as result:
+        assert result.size == (300, 300) and not result.info
+        assert result.getpixel((0, 0))[3] == 0
+    assert api.get("/api/v2/team/icon", headers={"If-None-Match": '"other", W/' + response.headers["etag"]}).status_code == 304
+
+
+def test_icon_rejects_excessive_pixels_and_chunked_bytes(api):
+    large = io.BytesIO()
+    Image.new("1", (4097, 4096)).save(large, "PNG")
+    assert len(large.getvalue()) < 1024 * 1024
+    assert api.post("/api/v2/team/icon", content=large.getvalue(), headers=headers()).status_code == 422
+    chunks = (b"x" * 65536 for _ in range(17))
+    assert api.post("/api/v2/team/icon", content=chunks, headers=headers()).status_code == 413
