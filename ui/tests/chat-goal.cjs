@@ -131,9 +131,9 @@ async function desktop(browser) {
   await box.fill('');
 
   // /goal <text> sets it; /goal pa + Tab picks a sub-command.
-  await box.pressSequentially('/goal Tidy the Acme wiki'); await box.press('Enter');
+  await box.pressSequentially('/goal Clean up the Acme wiki'); await box.press('Enter');
   await page.locator('#chat-goal .cg-bar').waitFor();
-  assert.deepEqual(api.goalPosts.at(-1), {action: 'set', objective: 'Tidy the Acme wiki'});
+  assert.deepEqual(api.goalPosts.at(-1), {action: 'set', objective: 'Clean up the Acme wiki'});
   await box.pressSequentially('/goal pa');
   assert.deepEqual(await menu.locator('.slash-name').allInnerTexts(), ['/goal pause']);
   await box.press('Tab'); assert.equal(await box.inputValue(), '/goal pause');
@@ -141,9 +141,9 @@ async function desktop(browser) {
   await page.locator('#chat-goal .cg-chip', {hasText: 'Paused'}).waitFor();
 
   // The stream says it was met: the bar folds into one line in the thread.
-  api.streamGoal = {...api.goal, status: 'met', note: 'All pages tidied', updated_at: new Date(Date.now() + 1000).toISOString(), ended_at: new Date().toISOString()};
+  api.streamGoal = {...api.goal, status: 'met', note: 'All pages cleaned up', updated_at: new Date(Date.now() + 1000).toISOString(), ended_at: new Date().toISOString()};
   await page.locator('#conv-thread .chat-goal-line').waitFor({timeout: 5000});
-  assert.match(await page.locator('#conv-thread .chat-goal-line').innerText(), /Goal met:\s*Tidy the Acme wiki\s*· All pages tidied/);
+  assert.match(await page.locator('#conv-thread .chat-goal-line').innerText(), /Goal met:\s*Clean up the Acme wiki\s*· All pages cleaned up/);
   assert.equal(await page.locator('#chat-goal').isHidden(), true);
   assert.deepEqual(api.errors, []);
   console.log('desktop: ok');
