@@ -334,7 +334,7 @@ class Settings:
             blob_bucket=os.environ.get("TICO_BLOB_BUCKET", ""),
             blob_region=os.environ.get("TICO_BLOB_REGION", ""),
             blob_endpoint=os.environ.get("TICO_BLOB_ENDPOINT", ""),
-            upload_max_bytes=int(os.environ.get("TICO_UPLOAD_MAX_BYTES", str(2 * 1024 ** 3))),
+            upload_max_bytes=int(os.environ.get("TICO_UPLOAD_MAX_BYTES") or 2 * 1024 ** 3),
             processing_operators=tuple(filter(None, os.environ.get("TICO_PROCESSING_OPERATORS", "").split(","))),
             mail_retention_days=max(1, int(os.environ.get("TICO_MAIL_RETENTION_DAYS", "180") or "180")),
             release_id=os.environ.get("TICO_RELEASE", ""),

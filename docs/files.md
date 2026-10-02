@@ -143,8 +143,11 @@ When no AWS credentials, profile or role settings are present in the server's en
 the S3 client. Otherwise credentials come from boto3's default chain: the server's AWS environment,
 shared credentials or profile, or IAM role. Without backup keys the default chain also applies.
 Keys are never exported into the server's environment or logged. Region uses `TICO_BLOB_REGION`,
-then `TICO_BACKUP_REGION` for AWS (no `TICO_BLOB_ENDPOINT`), then `AWS_REGION` or `AWS_DEFAULT_REGION`,
-then boto3's default. No separate Tico file credential is needed. The bucket script needs Python with boto3
+then `TICO_BACKUP_REGION` when both storage and backups use AWS (both endpoint settings unset),
+then `AWS_REGION` or `AWS_DEFAULT_REGION` inside the server,
+then boto3's default. Docker does not forward the operator's shell AWS credentials or regions. To use separate file keys,
+set both `TICO_BLOB_ACCESS_KEY_ID` and `TICO_BLOB_SECRET_ACCESS_KEY` in `.env`; this pair takes
+precedence for attachments and desktop downloads only. Empty settings are treated as unset. The bucket script needs Python with boto3
 and provisioning rights; it is idempotent. Use a dedicated bucket since it sets security controls.
 
 Owners receive a read-only `storage` field on `/api/v2/health`: mode (`local` or `s3`), bucket,
@@ -152,7 +155,10 @@ region, unique stored files, bytes, and copy counts (`done`, `total`, `failed`).
 storage shows one Not urgent note recommending S3; local laptop installs do not. On startup, an S3
 server checks write permission by starting and aborting an empty multipart upload under the file
 prefix. This publishes no file and needs no delete permission. A denied check shows a warning such
-as **S3 storage can't write: AccessDenied on acme-files**. Storage stays in S3 mode, new uploads
+as **S3 storage can't write: AccessDenied on acme-files**. If creation succeeds but cleanup is
+denied, Health instead names the missing `s3:AbortMultipartUpload` permission. The probe uses
+5-second connect and 10-second read timeouts with at most two retries, and shutdown does not wait
+for an in-flight probe. Storage stays in S3 mode, new uploads
 report the failure, and reads still fall back to retained local copies. After fixing credentials or
 permissions, restart the server to repeat the check. Rehearsals skip this write check.
 

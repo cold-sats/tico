@@ -9,6 +9,7 @@ import hashlib
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
 
 from .store import H, Problem
@@ -21,6 +22,7 @@ class Blobs:
         self.rehearsal = getattr(settings, "rehearsal", False)
         self.directory = settings.blob_dir or settings.db_path.parent / "blobs"
         self._s3 = s3
+        self._probe_s3 = s3
         self.settings = settings
         self._s3_failed = set()
         self.copy_status = {"done": 0, "total": 0, "running": False, "error": "", "failed": 0}
@@ -210,9 +212,10 @@ class Blobs:
             raise Problem("blob_storage", "Stored file is unavailable; check S3 access and retained local copies", 503, True) from exc
 
     def copy_local(self, store, stop, interval=0.25):
-        if not self.bucket or self.rehearsal:
+        if not self.bucket or self.rehearsal or stop.is_set():
             return
-        self.check_write(store)
+        if not self.check_write(store, stop):
+            return
         with store.read() as c:
             rows = list(c.execute("SELECT digest,MAX(content_type) AS content_type FROM blobs GROUP BY digest"))
             known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (self.location,))}
@@ -248,30 +251,71 @@ class Blobs:
         self.copy_status["running"] = False
         self._copy_health(store)
 
-    def check_write(self, store):
+    def check_write(self, store, stop=None):
+        # Socket timeouts bound the probe, but cannot interrupt an in-flight SDK call.
+        # A daemon lets shutdown leave that call without waiting for the executor.
+        if stop is None:
+            self._check_write(store)
+            return True
+        if stop.is_set():
+            return False
+        done, errors = threading.Event(), []
+        def probe():
+            try:
+                self._check_write(store, stop)
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                done.set()
+        threading.Thread(target=probe, name="tico-storage-probe", daemon=True).start()
+        while not done.wait(0.05):
+            if stop.is_set():
+                return False
+        if errors:
+            raise errors[0]
+        return not stop.is_set()
+
+    def _check_write(self, store, stop=None):
         """Check PutObject permission without publishing a file or requiring DeleteObject."""
+        from botocore.config import Config
+
+        if stop is not None and stop.is_set():
+            return
         with store.read() as c:
             row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()
         previous = json.loads(row["detail_json"] or "{}") if row else {}
         # Retain at most one unfinished probe if abort fails; retry its cleanup on the next start.
         pending = previous if previous.get("upload_id") else {}
         error = ""
+        client = None
         try:
+            client = self._probe_s3 or blob_s3.client(self.settings, config=Config(
+                connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
+            if stop is not None and stop.is_set():
+                return
             if pending:
                 try:
-                    self.s3.abort_multipart_upload(Bucket=pending["bucket"], Key=pending["key"], UploadId=pending["upload_id"])
+                    client.abort_multipart_upload(Bucket=pending["bucket"], Key=pending["key"], UploadId=pending["upload_id"])
                 except Exception as exc:
                     if getattr(exc, "response", {}).get("Error", {}).get("Code") != "NoSuchUpload":
                         raise
                 pending = {}
+            if stop is not None and stop.is_set():
+                self._write_health(store, pending, "")
+                return
             key = self.s3_key(hashlib.sha256(b"Tico storage write check").hexdigest())
-            result = self.s3.create_multipart_upload(Bucket=self.bucket, Key=key, ServerSideEncryption="AES256")
+            result = client.create_multipart_upload(Bucket=self.bucket, Key=key, ServerSideEncryption="AES256")
             pending = {"bucket": self.bucket, "key": key, "upload_id": result["UploadId"]}
             self._write_health(store, pending, "")
-            self.s3.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=pending["upload_id"])
+            if stop is not None and stop.is_set():
+                return
+            client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=pending["upload_id"])
             pending = {}
         except Exception as exc:
-            error = blob_s3.write_error(exc, pending.get("bucket", self.bucket))
+            error = blob_s3.write_error(exc, pending.get("bucket", self.bucket), cleanup=bool(pending))
+        finally:
+            if client is not None and self._probe_s3 is None:
+                client.close()
         self._write_health(store, pending, error)
 
     def _write_health(self, store, pending, error):

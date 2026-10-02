@@ -8,11 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
-- Docker installs forward attachment bucket settings and AWS credentials, automatically reuse backup keys for S3 files and downloads, and show denied S3 write checks in Health while retaining local read fallback.
+- Docker installs forward attachment bucket settings and optional dedicated file keys without importing the operator's AWS shell credentials. S3 files and downloads can reuse backup keys; non-AWS backup regions do not carry over to AWS file storage.
+- S3 startup write checks use bounded timeouts and let shutdown finish promptly. Health distinguishes missing multipart cleanup permission from denied writes while retaining local read fallback; new backup policies include multipart permissions.
 
 - Reading conversation messages no longer fails when a teammate created tasks during its turn.
 - Assistant turns on older Computers fetch the Assistant's own credentials while acting with the person's rights.
-- Jobs that repeatedly fail to start stop after ten expired leases and tell the requester to update the Computer's Tico.
+- Jobs that repeatedly fail to start stop after ten expired leases since server startup, leaving old attempts out of the upgrade retry cap. Notices tolerate missing Computer and teammate records and ask to check the Computer; only an incompatible runner is asked to update Tico.
 
 ## [0.3.10] - 2026-10-02
 

@@ -6,10 +6,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 STORAGE_KEYS = {"TICO_BLOB_BUCKET", "TICO_BLOB_REGION", "TICO_BLOB_ENDPOINT", "TICO_UPLOAD_MAX_BYTES",
-                "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION", "AWS_DEFAULT_REGION"}
+                "TICO_BLOB_ACCESS_KEY_ID", "TICO_BLOB_SECRET_ACCESS_KEY"}
 
 
-def test_server_forwards_storage_and_aws_settings_in_checkout_and_release_bundle():
+def test_server_forwards_storage_without_operator_aws_settings_in_checkout_and_release_bundle():
     import io
     import tarfile
     import yaml
@@ -25,6 +25,8 @@ def test_server_forwards_storage_and_aws_settings_in_checkout_and_release_bundle
         assert STORAGE_KEYS <= set(environment)
         assert all(environment[key] is None for key in STORAGE_KEYS)
         assert {"LITESTREAM_ACCESS_KEY_ID", "LITESTREAM_SECRET_ACCESS_KEY"} <= set(environment)
+        assert not {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+                    "AWS_REGION", "AWS_DEFAULT_REGION"}.intersection(environment)
         assert "CLOUDFLARE_TUNNEL_TOKEN" not in environment
         for name, service in services.items():
             if name != "server":

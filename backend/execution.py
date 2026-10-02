@@ -121,6 +121,7 @@ def forget_report(c, runner_id, bot):
 class Execution:
     def __init__(self, store, auth):
         self.store, self.auth = store, auth
+        self.booted = H.now()
         # Set by create_app: onboarding gives a newly enrolled machine the bots nobody placed.
         self.runner_enrolled = None
         self.served_at = None   # when this process last answered a runner (heartbeat, claim, attempt call)
@@ -423,12 +424,18 @@ class Execution:
                 c.execute("UPDATE attempts SET state='expired',finished=? WHERE id=?", (H.now(), row["id"]))
                 if row["state"] == "leased":
                     tries = c.execute("SELECT count(*) FROM attempts WHERE job_id=? AND started IS NULL "
-                                      "AND state='expired'", (row["job_id"],)).fetchone()[0]
+                                      "AND state='expired' AND finished>=?", (row["job_id"], self.booted)).fetchone()[0]
                     if tries >= PRE_START_TRIES:
                         computer = c.execute("SELECT label FROM runners WHERE id=?", (row["runner_id"],)).fetchone()
+                        label = (computer["label"] if computer else None) or "its Computer"
+                        bot = H.bot(c, row["bot"])
                         name = (self.store.settings.assistant_name if row["bot"] == self.store.settings.assistant_bot
-                                else H.bot(c, row["bot"])["display_name"])
-                        reason = f"Your {name} couldn't start on {computer['label']}: update its Tico"
+                                else (bot["display_name"] if bot else None)) or row["bot"]
+                        version = c.execute("SELECT release FROM runner_versions WHERE runner_id=?",
+                                            (row["runner_id"],)).fetchone()
+                        remedy = ("update its Tico" if version and runner_versions.incompatible(version["release"])
+                                  else "check that Computer")
+                        reason = f"Your {name} couldn't start on {label}; {remedy}"
                         state = "failed"
                         c.execute("UPDATE attempts SET state='failed',final_text=? WHERE id=?", (reason, row["id"]))
                         job = c.execute("SELECT message_id FROM jobs WHERE id=? AND attempt_id=? "
@@ -436,14 +443,15 @@ class Execution:
                         if job:
                             msg = H.message(c, job["message_id"])
                             if H.is_human(msg["from_actor"]):
-                                H.say(c, "bot:" + row["bot"], msg["from_actor"], reason, kind="notice",
+                                H.say(c, "bot:" + row["bot"] if bot else H.KEEPER, msg["from_actor"], reason, kind="notice",
                                       conversation_id=msg["conversation_id"], in_reply_to=msg["id"],
                                       refs={"turn_id": row["id"]})
                 c.execute("UPDATE jobs SET state=? WHERE attempt_id=? AND state IN ('leased','running','input')", (state, row["id"]))
                 H.turn_finish(c, H.KEEPER, row["id"], exit_code="failed" if state == "failed" else "interrupted",
                               summary=reason if state == "failed" else "Runner lease expired")
-                H.status_set(c, H.KEEPER, row["bot"], state="crashed",
-                             focus=reason if state == "failed" else "One run stopped; saved for later")
+                if H.bot(c, row["bot"]):
+                    H.status_set(c, H.KEEPER, row["bot"], state="crashed",
+                                 focus=reason if state == "failed" else "One run stopped; saved for later")
                 H.event(c, H.KEEPER, "attempt.expired", row["id"], {"job_state": state})
 
     @staticmethod

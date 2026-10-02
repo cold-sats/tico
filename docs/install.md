@@ -306,11 +306,13 @@ Attachment storage settings also go in `.env` next to `compose.yaml`:
 | Setting | Use |
 |---|---|
 | `TICO_BLOB_BUCKET` | Private attachment bucket, optionally `s3://acme-files/prefix`; unset keeps local storage. |
-| `TICO_BLOB_REGION` | Attachment region; otherwise `TICO_BACKUP_REGION` for AWS, then the AWS default. |
+| `TICO_BLOB_REGION` | Attachment region; otherwise `TICO_BACKUP_REGION` when both endpoint settings are unset, then the AWS default inside the container. |
 | `TICO_BLOB_ENDPOINT` | Endpoint URL for an S3-compatible attachment store; unset uses AWS. |
 | `TICO_UPLOAD_MAX_BYTES` | Upload limit in bytes; default `2147483648` (2 GiB). |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Optional AWS credentials; the session token is for temporary keys. Without AWS credentials, profile or role settings, the backup `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY` pair is reused automatically. Grant it the attachment bucket permissions too. Without either pair, boto3 uses its default chain, including IAM roles. |
-| `AWS_REGION`, `AWS_DEFAULT_REGION` | Default attachment region, in that order, after the attachment and AWS backup regions. |
+| `TICO_BLOB_ACCESS_KEY_ID`, `TICO_BLOB_SECRET_ACCESS_KEY` | Optional separate keys for attachments and desktop downloads; set both. Otherwise AWS credentials, profiles or role settings inside the container use boto3's default chain; without those settings, the backup `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY` pair is reused. Grant it the attachment bucket permissions too. Without backup keys, the default chain applies, including IAM roles. |
+
+Docker does not forward AWS credentials or regions from the operator's shell. Empty storage
+settings are treated as unset.
 
 See [File storage](files.md#storage) for bucket permissions and Health warnings.
 

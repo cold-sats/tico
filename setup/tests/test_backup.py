@@ -80,6 +80,8 @@ def test_the_iam_user_can_only_reach_that_bucket_and_is_tagged():
     statements = json.loads(iam.called("put_user_policy")[0]["PolicyDocument"])["Statement"]
     resources = {r for st in statements for r in ([st["Resource"]] if isinstance(st["Resource"], str) else st["Resource"])}
     assert resources == {"arn:aws:s3:::tico-backup-tico-example-com-123456789012", "arn:aws:s3:::tico-backup-tico-example-com-123456789012/*"}
+    objects = next(st for st in statements if st["Resource"].endswith("/*"))
+    assert {"s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"} <= set(objects["Action"])
     assert not any("iam:" in a or a == "s3:*" for st in statements for a in st["Action"])
 
 

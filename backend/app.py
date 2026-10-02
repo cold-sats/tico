@@ -184,6 +184,7 @@ def create_app(settings=None):
             copy_stop.set()
             app.state.file_metadata.stop.set()
             app.state.file_metadata.wake.set()
+            # The storage probe observes copy_stop even while its bounded SDK call is in flight.
             await copy_task
             await media_task
             app.state.github_app.repository_stop.set()

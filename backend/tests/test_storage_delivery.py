@@ -257,6 +257,7 @@ def test_copy_verified_and_fallback_keeps_local(api):
         digest = c.execute('SELECT digest FROM blobs WHERE id=?', (bid,)).fetchone()[0]
     s3 = S3()
     blobs.bucket, blobs._s3 = 'private', s3
+    blobs._probe_s3 = s3
     blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
     assert blobs.copy_status == {'done': 1, 'total': 1, 'running': False, 'error': '', 'failed': 0}
     with api.app.state.store.read() as c:
@@ -283,7 +284,7 @@ def test_health_warns_about_s3_write_check_even_with_no_files(api, failure):
     blobs = api.app.state.blobs
     settings = api.app.state.store.settings
     blobs.bucket = settings.blob_bucket = 'acme-files'
-    blobs._s3 = s3 = S3()
+    blobs._s3 = blobs._probe_s3 = s3 = S3()
     def denied(**kw):
         if failure == 'NoCredentialsError':
             raise NoCredentialsError()
@@ -309,7 +310,7 @@ def test_denied_writes_keep_s3_mode_and_local_read_fallback(api):
     blobs = api.app.state.blobs
     settings = api.app.state.store.settings
     blobs.bucket = settings.blob_bucket = 'acme-files'
-    blobs._s3 = s3 = S3()
+    blobs._s3 = blobs._probe_s3 = s3 = S3()
     def denied(**kw):
         raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'PutObject')
     s3.create_multipart_upload = s3.put_object = s3.head_object = denied
@@ -329,7 +330,7 @@ def test_s3_write_probe_retries_abort_without_accumulating_uploads(api):
     blobs = api.app.state.blobs
     blobs.bucket = api.app.state.store.settings.blob_bucket = 'acme-files'
     blobs.settings.blob_prefix = 'team/files'
-    blobs._s3 = s3 = S3()
+    blobs._s3 = blobs._probe_s3 = s3 = S3()
     def denied(**kw):
         raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'AbortMultipartUpload')
     s3.abort_multipart_upload = denied
@@ -339,6 +340,10 @@ def test_s3_write_probe_retries_abort_without_accumulating_uploads(api):
     assert s3.calls[0]['Key'].startswith('team/files/blobs/')
     assert s3.calls[0]['ServerSideEncryption'] == 'AES256'
     assert not s3.objects
+    response = api.get('/api/v2/health', headers=headers()).json()
+    check = next(check for check in response['checks'] if check['id'] == 'blob_storage')
+    assert check['summary'] == 'S3 storage cleanup permission missing: s3:AbortMultipartUpload on acme-files'
+    assert "can't write" not in check['summary']
     def already_aborted(**kw):
         raise ClientError({'Error': {'Code': 'NoSuchUpload'}}, 'AbortMultipartUpload')
     # Cleanup may have succeeded just before a previous process exited.
@@ -356,7 +361,7 @@ def test_rehearsal_skips_s3_write_probe(api):
     blobs = api.app.state.blobs
     blobs.bucket = 'acme-files'
     blobs.rehearsal = True
-    blobs._s3 = s3 = S3()
+    blobs._s3 = blobs._probe_s3 = s3 = S3()
     blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
     assert not s3.calls
 
@@ -555,6 +560,7 @@ def test_copy_aborts_its_multipart_upload(api):
         raise RuntimeError('interrupted upload')
     s3.upload_part = broken
     blobs.bucket, blobs._s3 = 'private', s3
+    blobs._probe_s3 = s3
     blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
     assert s3.aborted and blobs.copy_status['failed'] == 1
     assert blobs.copy_status['done'] == 0
@@ -654,3 +660,71 @@ def test_metadata_loop_survives_cleanup_and_database_failures(api, monkeypatch):
     monkeypatch.setattr(worker.stop, 'wait', lambda _: False)
     worker.loop()
     assert len(calls) == 2
+
+
+def test_write_probe_uses_a_separate_bounded_client(api, monkeypatch):
+    from backend import blob_s3
+
+    blobs = api.app.state.blobs
+    blobs.bucket = blobs.settings.blob_bucket = 'acme-files'
+    normal, probe = S3(), S3()
+    probe.close = lambda: None
+    blobs._s3 = normal
+    options = []
+    monkeypatch.setattr(blob_s3, 'client', lambda settings, **kw: options.append(kw) or probe)
+    blobs.check_write(api.app.state.store)
+    config = options[0]['config']
+    assert config.connect_timeout == 5 and config.read_timeout == 10
+    assert config.retries == {'max_attempts': 2}
+    assert not normal.calls and len(probe.calls) == 1 and probe.aborted
+    assert blobs.s3 is normal
+
+
+def test_stopped_copy_skips_write_probe_and_copy(api):
+    blobs = api.app.state.blobs
+    blobs.bucket = 'acme-files'
+    blobs._probe_s3 = s3 = S3()
+    stop = threading.Event()
+    stop.set()
+    blobs.copy_local(api.app.state.store, stop)
+    assert not s3.calls
+
+
+@pytest.mark.parametrize('blocked', ['create', 'abort'])
+def test_shutdown_does_not_wait_for_in_flight_write_probe(tmp_path, blocked):
+    from fastapi.testclient import TestClient
+    from backend.app import create_app
+
+    app = create_app(Settings(db_path=tmp_path / 'probe.db', scheduler_enabled=False, blob_bucket='acme-files'))
+    blobs = app.state.blobs
+    blobs._probe_s3 = s3 = S3()
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    original = getattr(s3, blocked + '_multipart_upload')
+    def blocked_call(**kw):
+        entered.set()
+        assert release.wait(5), 'test did not release the probe'
+        return original(**kw)
+    setattr(s3, blocked + '_multipart_upload', blocked_call)
+    check_write = blobs._check_write
+    def checked(*args):
+        try:
+            return check_write(*args)
+        finally:
+            finished.set()
+    blobs._check_write = checked
+    try:
+        with TestClient(app) as client:
+            assert entered.wait(2)
+            assert client.get('/healthz').status_code == 200
+        # Lifespan completed while the network call is still blocked.
+        assert not release.is_set() and not finished.is_set()
+    finally:
+        release.set()
+        assert finished.wait(2)
+    with app.state.store.read() as c:
+        detail = json.loads(c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()[0])
+    if blocked == 'create':
+        assert detail['upload_id'] == 'upload'  # retained for cleanup on next startup
+        assert not hasattr(s3, 'aborted')
+    else:
+        assert 'upload_id' not in detail and s3.aborted

@@ -76,7 +76,7 @@ def test_assistant_pre_start_failures_stop_retrying_and_explain_in_the_persons_r
         if n < PRE_START_TRIES - 1:
             assert attempt is not None
     assert attempt is None
-    reason = "Your Assistant couldn't start on Test Mac: update its Tico"
+    reason = "Your Assistant couldn't start on Test Mac; check that Computer"
     with api.app.state.store.read() as c:
         assert c.execute("SELECT state FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "failed"
         assert c.execute("SELECT count(*) FROM attempts WHERE job_id=?", (job_id,)).fetchone()[0] == PRE_START_TRIES

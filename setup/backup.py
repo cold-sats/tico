@@ -35,7 +35,9 @@ def policy(bucket: str) -> dict:
     return {"Version": "2012-10-17", "Statement": [
         {"Effect": "Allow", "Action": ["s3:ListBucket", "s3:GetBucketLocation"], "Resource": f"arn:aws:s3:::{bucket}"},
         # Litestream deletes what its retention expires; versioning keeps those deletes recoverable.
-        {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], "Resource": f"arn:aws:s3:::{bucket}/*"}]}
+        {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+                                      "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+         "Resource": f"arn:aws:s3:::{bucket}/*"}]}
 
 
 def aws_plan_lines(domain: str, region: str, account_id: str = "<account>") -> list[str]:
