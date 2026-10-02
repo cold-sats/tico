@@ -40,8 +40,10 @@ function safeMd(s, options = {}) {
       if (/^s3:\/\//i.test(src)) src = s3url(src);
       try {
         const url = new URL(src, location.href);
-        if (!['http:','https:'].includes(url.protocol) || (url.origin !== location.origin && !(options.documentImages && url.protocol === 'https:'))) throw new Error('unsafe image');
-        el.setAttribute('src', src); el.setAttribute('loading', 'lazy');
+        // Linked images show by default (not proxied): any https picture, or one of this server's files.
+        if (!['http:','https:'].includes(url.protocol) || (url.origin !== location.origin && url.protocol !== 'https:')) throw new Error('unsafe image');
+        el.setAttribute('src', src); el.setAttribute('loading', 'lazy'); el.setAttribute('decoding', 'async');
+        if (url.origin !== location.origin) el.setAttribute('referrerpolicy', 'no-referrer');
       } catch { el.remove(); }
     }
   }
