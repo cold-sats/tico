@@ -47,11 +47,6 @@
 .mobile-nav-item{position:relative}
 .mobile-nav-item .nav-badge{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
 .upd-switch{display:flex;align-items:center;gap:8px;padding:4px 0}
-.bot-update{margin:0 0 10px;padding:10px 14px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:12px;background:var(--surface)}
-.bot-update-meta{display:flex;align-items:center;gap:6px;font-size:13px}.bot-update-meta .spacer{flex:1}
-.bot-update-meta .nav-icon{font-size:18px;width:18px;height:18px;color:var(--accent)}
-.bot-update-x{padding:2px 8px;font-size:14px}
-.bot-update .upd-body{margin-top:4px}
 .bot-history{display:flex;flex-direction:column}
 .bot-history-item{padding:10px 0;border-top:1px solid var(--line)}.bot-history-item:first-child{border-top:0;padding-top:0}
 .bot-history-item .upd-meta{font-size:12.5px}

@@ -1,6 +1,7 @@
 """Outbound local runner with independent lease renewal and persistent output buffering."""
 
 import concurrent.futures
+from contextlib import nullcontext
 import difflib
 import hashlib
 import json
@@ -9,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -20,6 +22,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
+from . import goals, repositories, worktrees, safe_git
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -29,6 +32,7 @@ from .outage import RECENT, Outage, describe, log
 from .state import BOT_THREAD, State, session_key
 from .warm import WarmSessions
 from .watchers import Watchers
+from .profiles import SubscriptionUnavailable
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -261,9 +265,9 @@ def pull_repo(path, env=None, timeout=45):
     path = Path(path)
     if not (path / ".git").exists():
         return ""
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     def git(*args, timeout=15):
-        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     try:
         dirty = git("status", "--porcelain")
@@ -317,13 +321,8 @@ def clone_shared(path, config, env=None, timeout=120):
     url = shared_repository_url(config)
     if not url:
         return "The original repository's address is unknown"
-    slug = re.sub(r"^(?:https?://|ssh://git@|git@)github\.com[:/]", "", url).rstrip("/").removesuffix(".git")
-    github = slug != url.rstrip("/").removesuffix(".git")
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
-    commands = []
-    if github and shutil.which("gh"):
-        commands.append(["gh", "repo", "clone", slug, str(path), "--", "--quiet"])
-    commands.append(["git", "clone", "--quiet", url, str(path)])
+    env = safe_git.environment(env)
+    commands = [[*safe_git.PREFIX, "clone", "--quiet", url, str(path)]]
     for command in commands:
         try:
             result = isolation.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL,
@@ -333,7 +332,7 @@ def clone_shared(path, config, env=None, timeout=120):
             problem = (result.stderr.strip().splitlines() or [f"exit {result.returncode}"])[-1][:200]
         except (OSError, subprocess.SubprocessError) as exc:
             problem = type(exc).__name__
-        # Git credentials can still work when gh is installed but not signed in. Never overwrite leftovers.
+        # Never overwrite leftovers from a failed clone.
         if path.exists() and (not path.is_dir() or any(path.iterdir())):
             break
     return problem
@@ -349,9 +348,9 @@ def sync_shared(path, env=None, timeout=45):
     path = Path(path)
     if not (path / ".git").exists():
         return "the checkout is missing"
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     def git(*args, timeout=15):
-        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     try:
         dirty = git("status", "--porcelain")
@@ -410,9 +409,9 @@ def push_repo(path, env=None, timeout=60):
     path = Path(path)
     if not (path / ".git").exists():
         return 0, ""
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     def git(*args, timeout=10):
-        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     ahead = 0
     try:
@@ -549,21 +548,26 @@ class Runner:
         self.publish_notes = {}         # bot -> why its local history has not reached GitHub yet
         self.client = client or Client(config["url"], config["token"], timeout=10, retries=1)
         self.state = State(state_dir)
+        self.repositories = repositories.Repositories(config["projects_dir"], self.state.directory / "repositories.json", self.client)
+        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda bot: bot.removeprefix("bot:") not in self.active_bots.values(), vault_values=lambda bot: self.worktree_vault.get(bot.removeprefix("bot:"), []), retain_vault=self.retain_worktree_vault, refresh=self.repositories.refresh_mirror, environment=lambda bot: self.credential_environment(bot.removeprefix("bot:")))
         self.follower = Follower(config, self.state.directory, self.client, supervised=supervised)
         self.capacity = int(config.get("capacity", 4))
         self.host_factory = host_factory or self.make_host
         self.stop = threading.Event()
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.capacity)
         self.active = {}
+        self.attempt_bots = {}
         self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
+        self.worktree_vault = {}
+        self.active_bots = {}
         self.vault_names = {}             # attempt id -> the variable names its vault grants put in the run
         # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
         # a turn's host process needs lives in a directory the bot user owns instead.
         self.host_state = isolation.bot_state(self.state.directory)
-        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))   # None unless isolated
+        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config), refresh=self.repositories.refresh_mirror)
         self.warm = WarmSessions(self.host_state / "antigravity")
         self.attempt_runtimes = {}     # attempt id -> host names its turn may use
         self.tools = harness_tools.Harnesses(
@@ -672,8 +676,8 @@ class Runner:
         origin = ""
         if (path / ".git").exists():
             try:
-                result = isolation.run(["git", "-C", str(path), "remote", "get-url", "origin"],
-                                        capture_output=True, text=True, timeout=5)
+                result = isolation.run([*safe_git.prefix(path), "-C", str(path), "remote", "get-url", "origin"],
+                                        env=safe_git.clean_environment(), capture_output=True, text=True, timeout=5)
                 url = (result.stdout.strip() if result.returncode == 0 else "")
                 if url.endswith(".git"):
                     url = url[:-4]
@@ -691,9 +695,9 @@ class Runner:
             if not origin:
                 continue
             try:
-                isolation.run(["git", "clone", "--quiet", origin + "/" + sibling.name + ".git", str(sibling)],
+                isolation.run([*safe_git.PREFIX, "clone", "--quiet", origin + "/" + sibling.name + ".git", str(sibling)],
                                capture_output=True, text=True, timeout=60, check=True,
-                               env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+                               env=safe_git.machine_environment())
             except (OSError, subprocess.SubprocessError) as exc:
                 log(f"Tico runner: could not clone {sibling.name} for reads ({type(exc).__name__})")
 
@@ -717,7 +721,56 @@ class Runner:
     def profile(self, bot):
         """The subscription profile this bot's provider logins come from, or None when the
         registration names none and the operator's own logins run everything."""
-        return profiles.select(self.config, bot)
+        requested = next((row.get("profile") for row in getattr(self, "assignments_seen", [])
+                          if row["bot"] == bot), None)
+        return profiles.select(self.config, bot, requested)
+
+    def subscription_problem(self, name, signed_out=False, computer=None):
+        label = (computer or self.config.get("label") or next((row.get("computer_label") for row in
+                 getattr(self, "assignments_seen", []) if row.get("computer_label")), None) or "this computer")
+        return f"Subscription {name} isn't signed in on {label}" if signed_out else f"Subscription {name} isn't on {label}"
+
+    def turn_profile(self, attempt):
+        requested = attempt.get("profile")
+        profile = profiles.select(self.config, attempt["bot"], requested)
+        if requested:
+            runtime = (attempt.get("config") or {}).get("runtime") or ""
+            if not profiles.covers(attempt.get("config") or {}):
+                raise SubscriptionUnavailable(f"Subscription {requested} doesn't cover {runtime}", requested, runtime)
+            if profile is None:
+                raise SubscriptionUnavailable(self.subscription_problem(requested, computer=attempt.get("computer_label")), requested, runtime)
+            row = (getattr(self, "runtime_rows", None) or {}).get(runtime) or {}
+            status = (row.get("profiles") or {}).get(profile.name) or {}
+            cached = self.__dict__.get("_profile_report_cache")
+            login = next((row["runtimes"].get(runtime) for row in cached[1]
+                          if row["name"] == profile.name), None) if cached else None
+            signed_out = (login.get("signed_in") is False if login is not None else
+                          status.get("authenticated") in ("missing", "rejected"))
+            if signed_out or self.rejection(runtime, profile.name):
+                raise SubscriptionUnavailable(self.subscription_problem(requested, signed_out=True,
+                                              computer=attempt.get("computer_label")), requested, runtime)
+        return profile
+
+    def add_profile(self, name):
+        """Persist a UI-created login without changing existing local assignments."""
+        config_path = getattr(self, "config_path", None)
+        root = Path(config_path).parent / "profiles" if config_path else (self.state.directory.parent if isolation.enabled() else self.state.directory) / "profiles"
+        entry = profiles.create(root, name)
+        if config_path:
+            path = Path(config_path)
+            stored = json.loads(path.read_text())
+            stored.setdefault("profiles", {})[name] = entry
+            fd, temporary = tempfile.mkstemp(prefix=".runner-profile-", dir=path.parent)
+            try:
+                with os.fdopen(fd, "w") as output:
+                    json.dump(stored, output, indent=2)
+                os.replace(temporary, path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        self.config.setdefault("profiles", {})[name] = entry
+        self._profile_report_cache = None
+        return entry
 
     def names(self):
         """This installation's own names, read from the server once and kept.
@@ -974,9 +1027,7 @@ class Runner:
 
     def credential_environment(self, bot, config=None):
         """Process settings only. Credentials arrive through this bot's live vault grants."""
-        settings = {"HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "TERM", "COLORTERM",
-                    "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"}
-        return {k: v for k, v in os.environ.items() if k in settings or k.startswith("LC_")}
+        return safe_git.process_environment()
 
     def migrate_credentials(self, assignments):
         """Once per existing bot, preserve the legacy credentials it could read (its own file, `_shared.env`, declared
@@ -1097,6 +1148,7 @@ class Runner:
         return mcp_servers.supported(servers, runtime, harness)
 
     def environment(self, attempt, granted=None):
+        profile = self.turn_profile(attempt)
         # Credentials come from live grants; the machine credential is never included.
         # --projects selects the operator's actual layout, which need not be the
         # parent of this checkout. Never fall back to another operator's secrets.
@@ -1146,11 +1198,11 @@ class Runner:
         # The subscription this bot runs on. Claude and Grok key their login to HOME, so it has
         # to be the turn's own environment, not something the host sets: this is the same dict
         # the host process and the turn's shell commands get.
-        profile = self.profile(attempt["bot"])
         if profile:
             env = profile.environment((attempt.get("config") or {}).get("runtime") or "", env)
         env.update({"HUB_API_URL": self.config["url"], "HUB_TOKEN": attempt["token"],
-                    "HUB_BOT": attempt["bot"], "HUB_EMPLOYEE": attempt["bot"], "HUB_DIR": str(ROOT),
+                    "HUB_BOT": attempt["bot"], "HUB_EMPLOYEE": attempt["bot"],
+                    "HUB_TASK_ID": str((attempt.get("task") or {}).get("id") or ""), "HUB_DIR": str(ROOT),
                     # Where this company's bot repositories live. BotOps sets a new bot up here
                     # with `hub bot create`; every other bot reads it to find a sibling's work.
                     "HUB_WORKSPACE": str(self.config["projects_dir"]),
@@ -1177,34 +1229,84 @@ class Runner:
         for runtime in sorted(set(RUNTIMES) | assigned):
             used = {}
             for entry in assignments:
-                profile = self.profile(entry["bot"])
-                if profile and entry["config"].get("runtime") == runtime:
-                    used.setdefault(profile.name, profile)
-            if not used:
+                profile = profiles.select(self.config, entry["bot"], entry.get("profile"))
+                if entry["config"].get("runtime") == runtime and (profile or not entry.get("profile")):
+                    used.setdefault(profile.name if profile else "", profile)
+            if not used or set(used) == {""}:
                 report[runtime] = self.runtime_readiness(runtime, assignments)
                 continue
-            rows = {name: self.runtime_readiness(runtime, assignments, used[name]) for name in sorted(used)}
+            rows = {name: dict(self.runtime_readiness(runtime, assignments, used[name])) for name in sorted(used)}
             worst = min(rows, key=lambda name: (profiles.SIGN_IN_ORDER.index(rows[name]["authenticated"]), name))
             report[runtime] = {**rows[worst], "profiles": rows,
-                               "detail": "; ".join(f"{name}: {row['detail']}" for name, row in rows.items())[:500]}
+                               "detail": "; ".join((f"{name}: {row['detail']}" if name else row["detail"]) for name, row in rows.items())[:500]}
         for runtime, row in report.items():
-            rejected = self.rejection(runtime)
-            if rejected and row.get("installed"):
-                report[runtime] = {**row, "authenticated": "rejected", "rejected_at": rejected["at"],
-                                   "rejected_reason": rejected["reason"],
-                                   "credential_source": "credentials" if not row.get("profiles") and self.team_key_only(runtime) else "computer",
-                                   "detail": ("Sign-in rejected: " + rejected["reason"])[:500]}
+            targets = row.get("profiles") or {"": row}
+            for name, status in targets.items():
+                rejected = self.rejection(runtime, name)
+                if rejected and status.get("installed"):
+                    status.update(authenticated="rejected", rejected_at=rejected["at"],
+                                  rejected_reason=rejected["reason"],
+                                  credential_source="credentials" if not name and self.team_key_only(runtime) else "computer",
+                                  detail=("Sign-in rejected: " + rejected["reason"])[:500])
+            if row.get("profiles"):
+                worst = min(targets, key=lambda name: (targets[name]["authenticated"] != "rejected",
+                            profiles.SIGN_IN_ORDER.index(targets[name]["authenticated"])
+                            if targets[name]["authenticated"] != "rejected" else -1))
+                report[runtime] = {**targets[worst], "profiles": targets,
+                                   "detail": "; ".join((f"{name}: {status['detail']}" if name else status["detail"]) for name, status in targets.items())[:500]}
         return report
+
+    def profile_report(self):
+        """Cached provider sign-in probes with a ten-second budget for the entire report."""
+        cached = self.__dict__.get("_profile_report_cache")
+        if cached and time.monotonic() - cached[0] < 60:
+            return cached[1]
+        deadline = time.monotonic() + 10
+        result = []
+        entries = list((self.config.get("profiles") or {}).items())
+        for name, entry in sorted((name, entry) for name, entry in entries if isinstance(name, str)):
+            if (not isinstance(name, str) or not profiles.NAME_RE.fullmatch(name) or len(name) > 80
+                    or not isinstance(entry, dict) or not entry.get("dir")):
+                continue
+            profile = profiles.Profile(name, entry["dir"], entry.get("share_operator"))
+            runtimes = {runtime: {"signed_in": None} for runtime in profiles.RUNTIMES}
+            for runtime in ("codex", "claude"):
+                signed = None
+                budget = deadline - time.monotonic()
+                executable = shutil.which(runtime)
+                if executable and budget > 0:
+                    argv = [executable, "login", "status"] if runtime == "codex" else [executable, "auth", "status", "--json"]
+                    env = profile.environment(runtime)
+                    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"):
+                        env.pop(key, None)
+                    try:
+                        probe = isolation.run(argv, capture_output=True, text=True, timeout=min(3, budget), env=env)
+                        if runtime == "codex":
+                            signed = probe.returncode == 0 and "logged in" in (probe.stdout + probe.stderr).lower()
+                        else:
+                            signed = json.loads(probe.stdout).get("loggedIn") is True
+                    except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
+                        pass
+                runtimes[runtime] = {"signed_in": False if self.rejection(runtime, name) else signed}
+            result.append({"name": name, "runtimes": runtimes})
+            if len(result) == 100:
+                break
+        self._profile_report_cache = (time.monotonic(), result)
+        return result
 
     # A provider that refused the key or sign-in on a real turn. Retrying cannot help, so the
     # runtime stops taking work (a not-ready bot is never claimed) until a credential changes, a
     # sign-in succeeds, or REJECT_RECHECK_S passes and one turn is allowed to find out again.
-    def credential_fingerprint(self):
+    def credential_fingerprint(self, profile=""):
         """Changes when a key or sign-in might have: never reads a secret into the report."""
         seen = [(k, v) for k, v in sorted(os.environ.items()) if "API_KEY" in k or "OAUTH_TOKEN" in k]
         home = Path.home()
         files = [Path(os.environ.get("CODEX_HOME") or home / ".codex") / "auth.json", home / ".claude.json",
                  home / ".claude" / ".credentials.json", *sorted((Path(self.config["projects_dir"]) / "secrets").glob("*.env"))]
+        selected = profiles.select(self.config, requested=profile) if profile else None
+        if selected:
+            files = [selected.directory / "codex" / "auth.json", selected.directory / "claude" / ".claude.json",
+                     selected.directory / "claude" / ".claude" / ".credentials.json"]
         for path in files:
             try:
                 stat = path.stat()
@@ -1213,22 +1315,24 @@ class Runner:
                 pass
         return hashlib.sha256(repr(seen).encode()).hexdigest()
 
-    def rejection(self, runtime):
+    def rejection(self, runtime, profile=""):
         rows = self.__dict__.setdefault("_rejected", {})
-        row = rows.get(runtime)
-        if row and (time.monotonic() - row["mono"] >= REJECT_RECHECK_S or row["fingerprint"] != self.credential_fingerprint()):
-            del rows[runtime]
+        row = rows.get((runtime, profile))
+        if row and (time.monotonic() - row["mono"] >= REJECT_RECHECK_S or row["fingerprint"] != self.credential_fingerprint(profile)):
+            del rows[runtime, profile]
             row = None
         return row
 
-    def reject(self, runtime, text):
-        self.__dict__.setdefault("_rejected", {})[runtime] = {
+    def reject(self, runtime, text, profile=""):
+        self.__dict__.setdefault("_rejected", {})[runtime, profile] = {
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "mono": time.monotonic(),
-            "reason": rejection_reason(text), "fingerprint": self.credential_fingerprint()}
+            "reason": rejection_reason(text), "fingerprint": self.credential_fingerprint(profile)}
+        self._profile_report_cache = None
         self.last_heartbeat = float("-inf")     # tell the server now, before another bot claims work
 
-    def clear_rejection(self, runtime):
-        self.__dict__.setdefault("_rejected", {}).pop(runtime, None)
+    def clear_rejection(self, runtime, profile=""):
+        self.__dict__.setdefault("_rejected", {}).pop((runtime, profile), None)
+        self._profile_report_cache = None
         self.last_heartbeat = float("-inf")
 
     def preflight(self, assignments, runtimes=None):
@@ -1239,12 +1343,17 @@ class Runner:
             bot = entry["bot"]
             runtime = entry["config"].get("runtime") or ""
             path = self.local_path(bot, entry.get("config"))
-            profile = self.profile(bot)
+            profile = profiles.select(self.config, bot, entry.get("profile"))
             # This bot's own subscription, not the worst of the machine's: a signed-out profile
             # blocks its own bots only.
-            status = (runtimes[runtime].get("profiles", {}).get(profile.name) if profile and runtime in runtimes
+            status = (runtimes[runtime].get("profiles", {}).get(profile.name if profile else "") if runtime in runtimes
                       else None) or runtimes.get(runtime, {})
             problems, warnings = [], []
+            missing_profile = profiles.missing(self.config, entry.get("profile"))
+            if entry.get("profile") and not profiles.covers(entry["config"]):
+                problems.append(f"Subscription {entry['profile']} doesn't cover {runtime}")
+            if missing_profile:
+                problems.append(self.subscription_problem(entry["profile"], computer=entry.get("computer_label")))
             repository_present = (path / "AGENT.md").is_file()
             materialized, failure = "", ""
             if not repository_present:
@@ -1278,10 +1387,12 @@ class Runner:
                     problems.append("Antigravity CLI is not on PATH")
             elif not runtimes[runtime]["installed"]:
                 problems.append("Runtime executable is not on PATH")
-            elif runtimes[runtime].get("authenticated") == "rejected":
-                problems.append(runtimes[runtime]["detail"])
+            elif status.get("authenticated") == "rejected":
+                problems.append(self.subscription_problem(entry["profile"], signed_out=True, computer=entry.get("computer_label")) if entry.get("profile")
+                                else status["detail"])
             elif status["authenticated"] in ("missing", "failed"):
-                problems.append((f"{profile.name}: " if profile else "")
+                problems.append(self.subscription_problem(entry["profile"], signed_out=True, computer=entry.get("computer_label")) if entry.get("profile")
+                                else (f"{profile.name}: " if profile else "")
                                 + (status["detail"] or "Runtime sign-in is not ready"))
             model = str(entry["config"].get("model") or "")
             # Codex's cache is the model-picker catalog, not an exhaustive list of
@@ -1326,14 +1437,14 @@ class Runner:
             published = None
             if repository_present and (path / ".git").exists():
                 try:
-                    result = isolation.run(["git", "-C", str(path), "rev-parse", "--short=12", "HEAD"],
-                                            capture_output=True, text=True, timeout=5)
+                    result = isolation.run([*safe_git.prefix(path), "-C", str(path), "rev-parse", "--short=12", "HEAD"],
+                                            env=safe_git.clean_environment(), capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
                         revision = result.stdout.strip()[:100]
                     # Whether GitHub holds this checkout's history: a checkout with no upstream exists only here,
                     # so no other computer could clone it if the bot moved.
-                    published = isolation.run(["git", "-C", str(path), "rev-parse", "--abbrev-ref", "@{u}"],
-                                              capture_output=True, text=True, timeout=5).returncode == 0
+                    published = isolation.run([*safe_git.prefix(path), "-C", str(path), "rev-parse", "--abbrev-ref", "@{u}"],
+                                              env=safe_git.clean_environment(), capture_output=True, text=True, timeout=5).returncode == 0
                 except (OSError, subprocess.SubprocessError):
                     pass
                 if published is False and self.assigned_here(entry):
@@ -1496,7 +1607,7 @@ class Runner:
                 else:
                     detail = "Codex login required"
             except subprocess.TimeoutExpired:
-                authenticated, detail = "failed", "Codex sign-in check timed out"
+                authenticated, detail = "unknown" if profile else "failed", "Codex sign-in check timed out"
             except OSError:
                 authenticated, detail = "failed", "Codex sign-in could not be checked"
         elif runtime == "claude":
@@ -1510,7 +1621,7 @@ class Runner:
                 signed = isinstance(status, dict) and status.get("loggedIn") is True
                 if not signed and profile is None:
                     self.team_model_keys("claude")
-                token = self.headless_login("claude")
+                token = self.headless_login("claude") if profile is None else None
                 if signed:
                     authenticated, detail = "ready", "Signed in with " + str(status.get("authMethod") or "Claude")
                 elif token:
@@ -1522,7 +1633,7 @@ class Runner:
                 else:
                     authenticated, detail = "missing", "Claude login required"
             except subprocess.TimeoutExpired:
-                authenticated, detail = "failed", "Claude sign-in check timed out"
+                authenticated, detail = "unknown" if profile else "failed", "Claude sign-in check timed out"
             except OSError:
                 authenticated, detail = "failed", "Claude sign-in could not be checked"
         elif runtime == "gemini":
@@ -1575,7 +1686,7 @@ class Runner:
                   list(CURSOR_MODELS) if runtime == "cursor" else [])
         return {"installed": bool(executable), "authenticated": authenticated, "version": version,
                 "models": models, "controls": ["interrupt", "new-session"] if executable else [],
-                "detail": detail}
+                "detail": detail, **goals.capabilities(runtime, executable, version)}
 
     def readiness(self, assignments, checks=None, runtimes=None):
         runtimes = runtimes or self.runtime_report(assignments)
@@ -1588,9 +1699,16 @@ class Runner:
         for row in checks:
             bots[row["bot"]] = {k: row[k] for k in (
                 "ready", "runtime", "model", "repository", "repository_present", "repository_revision",
-                "configuration_valid", "problems") if k in row}
+                "configuration_valid", "problems", "profile", "sign_in") if k in row}
+            if bots[row["bot"]].get("sign_in") == "rejected":
+                bots[row["bot"]]["sign_in"] = "failed"
+            if time.monotonic() < self.__dict__.get("_bot_profiles_after", 0):
+                bots[row["bot"]].pop("profile", None)
+                bots[row["bot"]].pop("sign_in", None)
             if time.monotonic() < self.__dict__.get("_repository_after", 0):
                 bots[row["bot"]].pop("repository", None)
+            capability = runtimes.get(row.get("runtime"), {})
+            bots[row["bot"]].update({key: capability[key] for key in ("goals", "commands") if key in capability})
             if row.get("published") is not None:
                 bots[row["bot"]]["published"] = row["published"]
             if row.get("tools"):
@@ -1599,7 +1717,7 @@ class Runner:
             note = getattr(self, "publish_notes", {}).get(row["bot"])
             if note:
                 bots[row["bot"]]["warnings"].append(PUBLISH_WARNING + note)
-        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots}
+        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": True}
         try:
             usage = shutil.disk_usage("/" if self.follower.kind == "docker" else self.state.directory)
             document["disk"] = {"total_bytes": usage.total, "free_bytes": usage.free}
@@ -1661,7 +1779,7 @@ class Runner:
         runtime = config.get("runtime") or ""
         # `env` already carries the profile's HOME / CODEX_HOME (see `environment`); what is left
         # is the knobs that are not environment variables.
-        profile = self.profile(attempt["bot"])
+        profile = self.turn_profile(attempt)
         if runtime == "grok":
             from .hosts.grok import GrokHost
             return GrokHost(bot=attempt["bot"], model=config.get("model"),
@@ -1692,6 +1810,9 @@ class Runner:
         raise RuntimeError(NO_RUNTIME if not runtime else f"Unsupported local runtime: {runtime}")
 
     def prompt(self, attempt, after=None, *, resumed=False):
+        message = attempt.get("message") or {}
+        if (message.get("refs") or {}).get("command"):
+            return message.get("body") or ""
         conversation = attempt.get("conversation") or {}
         names = self.names()
         app = names["app_name"]
@@ -1766,6 +1887,8 @@ class Runner:
                 lines.append(stale)
         if attempt.get("task"):
             lines.append("Assigned task:\n" + json.dumps(attempt["task"], ensure_ascii=False))
+            lines.append("Check this task’s worktree links before code work. If detail_json has setup_pending=true, "
+                         "run `hub task worktree setup <repo>` in this turn; restored worktrees need setup.")
             requester = str((attempt["task"] or {}).get("requester") or "")
             if requester:
                 lines.append(f"This task was requested by {requester}.")
@@ -1895,7 +2018,7 @@ class Runner:
                 renewal.failed(exc)
 
     def arm_credentials(self, env, attempt, bot):
-        """Register this attempt with the credential socket (isolated runners) and point the turn at it. Every
+        """Register this attempt with the supervisor credential socket and point the turn at it. Every
         isolated turn gets it, message bot or not: the Google key is not in the turn, so the mail CLI asks here,
         and a bot the hub named no mailbox for is told so instead of being told the key is missing."""
         socket_path = self.credentials.path if self.credentials else None
@@ -1903,6 +2026,12 @@ class Runner:
             self.credentials.register(attempt["token"], bot, attempt.get("mailboxes") or ())
             env[credential_socket.SOCKET_ENV] = str(socket_path)
         return socket_path
+
+    def retain_worktree_vault(self, owners):
+        keep = owners | {row['bot'] for row in self.assignments_seen} | set(self.active_bots.values())
+        for bot in list(self.worktree_vault):
+            if bot not in keep:
+                self.worktree_vault.pop(bot, None)
 
     def execute(self, attempt):
         aid, bot = attempt["id"], attempt["bot"]
@@ -1918,17 +2047,28 @@ class Runner:
         reply, outcome, tokens, limited, retryable, fallback = "", "interrupted", {}, False, False, None
         unavailable, base_env, execution_path, drive = False, None, None, None
         auth_rejected = {}
+        subscription_unavailable = None
+        goal_controlled = [False]
+        goal_failure = [None]
         redactor, started_at, tree = None, "", {}
         meter, ran = [usage.Meter()], [config.get("model") or "", config.get("runtime") or ""]
+        bot_lock, acquired = self.worktrees.bot_lock(bot), False
         try:
             try:
+                while not acquired and not lost.is_set():
+                    acquired = bot_lock.acquire(timeout=1)
+                if lost.is_set():
+                    raise RuntimeError('Attempt lease lost while waiting for worktree maintenance')
                 self.local_path(bot, config)
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.arm_credentials(env, attempt, bot)
-                git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
+                git_credentials.apply(env, self.client, bot, self.config_path if not socket_path else None, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))
+                if self.credentials:
+                    redactor = redactor or redact_mod.Redactor([])
+                    self.credentials.set_redactor(attempt["token"], redactor)
                 if redactor:
                     redactor.register(aid)
                 def redact(value):
@@ -1939,6 +2079,9 @@ class Runner:
                 if persistent:
                     runtime += ":antigravity"
                 conv = session_key(config, attempt)
+                if attempt.get("profile"):
+                    selected = profiles.select(self.config, bot, attempt["profile"])
+                    conv += ":profile:" + (selected.name if selected else "computer")
                 execution_path = self.local_path(bot, config)
                 if is_shared(config):
                     attempt["branch_sync_problem"] = sync_shared(execution_path, env)
@@ -1957,15 +2100,27 @@ class Runner:
                     """Drain the host until the turn ends: (outcome, reply, tokens, limited, retryable)."""
                     reply, tokens, outcome, limited, retryable = "", {}, "interrupted", False, False
                     acted, last_flush, complete = False, 0, False
+                    goal = attempt.get("chat_goal")
+                    goal_running = bool(goal and goal["status"] == "active")
+                    revision = goal["updated_at"] if goal else None
                     meter[0] = usage.Meter()           # a fallback harness counts its own turn
                     while not complete:
                         if self.stop.is_set() or lost.is_set() or time.monotonic() >= limit:
+                            goal_failure[0] = ("Run time limit reached" if time.monotonic() >= limit else
+                                               "The computer stopped" if self.stop.is_set() else "The execution lease expired")
                             host.interrupt(thread, turn)
                             raise RuntimeError("Execution interrupted after stop, run-time limit, or loss of ownership")
                         for event in host.drain():
-                            if event.get("turn_id") and event["turn_id"] != turn:
+                            if event.get("thread_id") and event["thread_id"] != thread:
+                                continue
+                            if goal_running and event["kind"] == "status" and event.get("turn_id"):
+                                turn = event["turn_id"]
+                            if event.get("turn_id") and event["turn_id"] != turn and not goal_running:
                                 continue
                             kind = event["kind"]
+                            if kind == "goal" and goal:
+                                self.state.append(aid, "goal", {**redact(event), "goal_id": goal["id"], "revision": revision})
+                                goal_running = event.get("status") == "active"
                             if kind in ("message", "tool"):
                                 # Proof the turn reached the model and may have changed something
                                 # outside this Mac. A retry is only safe before this is true.
@@ -1980,9 +2135,10 @@ class Runner:
                                     meter[0].add(event)
                             if kind == "turn_completed":
                                 outcome = "interrupted" if event.get("status") == "interrupted" else "completed"
-                                complete = True
+                                complete = not (goal_running and runtime == "codex" and outcome == "completed")
                             elif kind == "turn_failed" or kind == "error" and event.get("host_restart"):
                                 outcome = "failed"
+                                goal_failure[0] = redact(event.get("error") or "The harness stopped")
                                 limited = bool(event.get("limit"))
                                 # A sign-in the runtime could not renew refuses the turn before
                                 # it starts, so nothing happened and the job can simply go back
@@ -1996,13 +2152,23 @@ class Runner:
                                 complete = True
                         if time.monotonic() - last_flush >= 1:
                             try:
+                                host.poll_goal(thread)
                                 self.flush(aid)
+                                if goal_running:
+                                    latest = self.client.get(f"attempts/{aid}/goal").get("goal")
+                                    if not latest or latest["id"] != goal["id"] or latest["updated_at"] != revision:
+                                        goal_controlled[0] = True
+                                        host.interrupt(thread, turn)
+                                        # An explicit goal control settles this run so its queued successor can claim.
+                                        goal_running, complete, outcome = False, True, "completed"
                                 if not complete and host.supports_steer:
                                     self.receive_inputs(aid, host, thread, turn)
                             except APIError as exc:
                                 if not exc.retryable:
                                     raise
                             last_flush = time.monotonic()
+                        if not goal_running and outcome == "completed":
+                            complete = True
                         if not host.alive() and not complete:
                             raise RuntimeError("Local runtime exited unexpectedly")
                         done.wait(0.1)
@@ -2035,27 +2201,54 @@ class Runner:
                 self.state.phase(aid, "running")
                 prompt = self.prompt(attempt, after=self.state.cursor(thread) if resumed else None,
                                       resumed=resumed)
+                refs = (attempt.get("message") or {}).get("refs") or {}
+                def start_turn():
+                    if refs.get("goal_action"):
+                        latest = self.client.get(f"attempts/{aid}/goal").get("goal")
+                        if not latest or latest["id"] != refs["goal_id"] or latest["updated_at"] != refs["goal_revision"]:
+                            # A control superseded after leasing settles without touching the native objective.
+                            attempt["chat_goal"] = None
+                            goal_controlled[0] = True
+                            turn_id = "goal-control-" + aid
+                            host.emit("turn_completed", thread, turn_id, status="completed")
+                            return turn_id
+                        return host.start_goal(thread, refs["goal_action"], refs["goal_objective"],
+                                               effort=config.get("reasoning_effort"))
+                    if refs.get("command"):
+                        return host.start_command(thread, prompt, effort=config.get("reasoning_effort"))
+                    return host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
                 cold = runtime == "claude" and self.claude_token_cold(bot)
                 if cold:
                     # Held only until the sign-in this turn triggers has landed, not for the
                     # length of the turn: the others follow a few seconds behind, warm.
                     with self.claude_cold_start:
-                        turn = host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
+                        turn = start_turn()
                         warm_by = time.monotonic() + CLAUDE_COLD_START_HOLD_S
                         while time.monotonic() < warm_by and self.claude_token_cold(bot):
                             if self.stop.is_set() or lost.is_set():
                                 break
                             time.sleep(0.5)
                 else:
-                    turn = host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
+                    turn = start_turn()
                 outcome, reply, tokens, limited, retryable = drive(host, thread, turn)
+                self.state.save_session(bot, conv, runtime, host.session_id(thread))
                 # A runtime that cannot sign itself in is as unavailable as one out of quota:
                 # if the bot has a fallback harness, run the turn there instead of losing it.
                 unavailable = limited or retryable
             except Exception as exc:
-                self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted; inspect local runner"})
-                unavailable = not own_interrupt(exc)
-            hop = configured_fallback(config) if unavailable else None
+                if isinstance(exc, SubscriptionUnavailable):
+                    reply, outcome, limited, retryable = str(exc), "failed", False, True
+                    auth_rejected.clear()
+                    self.state.append(aid, "diagnostic", {"text": reply, "detail": {"runtime": exc.detail["runtime"]}})
+                    subscription_unavailable = exc.detail
+                    self.last_heartbeat = float("-inf")
+                    unavailable = False
+                else:
+                    self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted; inspect local runner"})
+                    unavailable = not own_interrupt(exc)
+            native_control = bool(((attempt.get("message") or {}).get("refs") or {}).get("command") or
+                                  (attempt.get("chat_goal") or {}).get("status") == "active")
+            hop = configured_fallback(config) if unavailable and not native_control else None
             if hop and drive and base_env is not None:
                 if conv and runtime and thread:
                     self.state.forget_session(bot, conv, runtime, thread)
@@ -2073,14 +2266,18 @@ class Runner:
                 ran[:] = [hop["model"] or "", hop["runtime"] or ""]
                 reply, outcome, tokens, limited, retryable = "", "interrupted", {}, False, False
                 primary = config.get("harness") or runtime
-                self.state.append(aid, "diagnostic",
-                                  {"text": f"{primary} unavailable; running this turn on {fallback}"})
                 try:
-                    host = self.host_factory({**attempt, "config": hop_config, "fallback": fallback}, base_env)
+                    hop_attempt = {**attempt, "config": hop_config, "fallback": fallback}
+                    profile = self.turn_profile(hop_attempt)
+                    hop_env = profile.environment(hop["runtime"], base_env) if profile else base_env
+                    env = hop_env
+                    self.state.append(aid, "diagnostic",
+                                      {"text": f"{primary} unavailable; running this turn on {fallback}"})
+                    host = self.host_factory(hop_attempt, hop_env)
                     host.start()
                     settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
-                                             effort=hop["reasoning_effort"], env=base_env, slug=bot,
-                                             mcp_servers=self.mcp_for_run(attempt, execution_path, base_env, hop["runtime"],
+                                             effort=hop["reasoning_effort"], env=hop_env, slug=bot,
+                                             mcp_servers=self.mcp_for_run(attempt, execution_path, hop_env, hop["runtime"],
                                                                           hop["harness"], diagnose))
                     thread = host.start_thread(bot, settings)
                     turn = host.start_turn(thread, self.prompt(attempt, resumed=False),
@@ -2089,12 +2286,21 @@ class Runner:
                     log(f"Tico runner: {bot}: {primary} unavailable; ran the turn on {fallback}"
                         + ("" if outcome == "completed" else f" ({outcome})"))
                 except Exception as exc:
-                    self.state.append(aid, "diagnostic",
-                                      {"text": type(exc).__name__ + ": fallback harness interrupted; inspect local runner"})
+                    if isinstance(exc, SubscriptionUnavailable):
+                        reply, outcome, limited, retryable = str(exc), "failed", False, True
+                        auth_rejected.clear()
+                        self.state.append(aid, "diagnostic", {"text": reply, "detail": {"runtime": exc.detail["runtime"]}})
+                        subscription_unavailable = exc.detail
+                        self.last_heartbeat = float("-inf")
+                    else:
+                        self.state.append(aid, "diagnostic",
+                                          {"text": type(exc).__name__ + ": fallback harness interrupted; inspect local runner"})
             if auth_rejected and outcome == "failed":
-                self.reject(auth_rejected["runtime"], auth_rejected["reason"])
+                self.reject(auth_rejected["runtime"], auth_rejected["reason"],
+                            (profiles.select(self.config, bot, attempt.get("profile")).name
+                             if profiles.select(self.config, bot, attempt.get("profile")) else ""))
                 log(f"Tico runner: {bot}: {auth_rejected['runtime']} sign-in was rejected; this computer takes no "
-                    f"{auth_rejected['runtime']} work until the key or sign-in changes")
+                    f"{auth_rejected['runtime']} work on this profile until the key or sign-in changes")
             if limited:
                 log(f"Tico runner: {bot} hit a {fallback or runtime} usage limit; the cloud will retry later")
             elif retryable:
@@ -2109,7 +2315,7 @@ class Runner:
                         host.stop()
             except Exception:
                 pass
-            if outcome != "completed" and runtime == "codex" and conv and thread:
+            if outcome != "completed" and runtime == "codex" and conv and thread and not goal_controlled[0]:
                 # The Codex app-server loads an interrupted thread and then aborts its next turn
                 # at once, so a retry there must start fresh. Every other runtime resumes an
                 # interrupted session as it is; the session is the bot's, not the runner's.
@@ -2130,13 +2336,23 @@ class Runner:
                 if scrubbed != reply:
                     log(f"Tico runner: {bot}: took local file links or other repositories' paths out of the reply")
                     reply = scrubbed
+            goal = attempt.get("chat_goal")
+            if goal and goal["status"] == "active" and outcome != "completed" and not limited and not retryable:
+                self.state.append(aid, "goal", {"goal_id": goal["id"], "revision": goal["updated_at"],
+                                              "status": "stopped", "note": goal_failure[0] or "The harness run " + outcome})
             spent = meter[0].report(ran[0], ran[1], self.billing(bot, ran[1]))
+            selected_profile = profiles.select(self.config, bot, attempt.get("profile"))
+            profile_used = selected_profile.name if selected_profile and host is not None else None
+            if spent and profile_used:
+                spent["profile_used"] = profile_used
             completion = self.state.finish(aid, {"outcome": outcome, "text": reply,
+                                                **({"profile_used": profile_used} if profile_used else {}),
                                                 "tokens_in": tokens.get("input"), "tokens_out": tokens.get("output"),
                                                 **({"usage": spent} if spent else {}),
                                                 **({"limited": True} if limited else {}),
                                                 **({"retryable": True} if retryable and not limited else {}),
                                                 **({"fallback": fallback} if fallback else {}),
+                                                **({"subscription_unavailable": subscription_unavailable} if subscription_unavailable else {}),
                                                 **({"auth_rejected": {"runtime": auth_rejected["runtime"],
                                                                       "reason": rejection_reason(auth_rejected["reason"])}}
                                                    if auth_rejected and outcome == "failed" else {})})
@@ -2177,23 +2393,39 @@ class Runner:
                 if self.credentials:
                     self.credentials.unregister(attempt["token"])
                 redact_mod.release(aid)
+                self.worktree_vault[attempt["bot"]] = self.vault_values.get(aid, [])
                 self.vault_values.pop(aid, None)
                 self.vault_names.pop(aid, None)
                 for filename in self.vault_files.pop(aid, []):
                     Path(filename).unlink(missing_ok=True)
                 done.set()
                 renewer.join(timeout=2)
+                if acquired:
+                    bot_lock.release()
 
     def complete(self, aid, completion):
         """Send a result. A server from before usage refuses the field outright (422): the result must not
         be lost over it, so it goes again without, and the same for a result kept across a restart."""
-        try:
-            return self.client.post(f"attempts/{aid}/complete", completion, key=f"complete:{aid}")
-        except APIError as exc:
-            if exc.status != 422 or "usage" not in completion:
-                raise
-            return self.client.post(f"attempts/{aid}/complete", {k: v for k, v in completion.items() if k != "usage"},
-                                    key=f"complete:{aid}:no-usage")
+        key = f"complete:{aid}"
+        pending = dict(completion)
+        if not pending.get("profile_used"):
+            pending.pop("profile_used", None)
+        for compat in range(5):
+            try:
+                return self.client.post(f"attempts/{aid}/complete", pending, key=key if compat == 0 else key + f":compat-{compat}")
+            except APIError as exc:
+                if exc.status != 422:
+                    raise
+                if "subscription_unavailable" in pending:
+                    pending.pop("subscription_unavailable", None)
+                elif "profile_used" in pending and ("profile_used" in str(exc.detail) or "extra" in str(exc.detail).lower() and "body." not in str(exc.detail)):
+                    pending.pop("profile_used", None)
+                    if pending.get("usage"):
+                        pending["usage"] = {k: v for k, v in pending["usage"].items() if k != "profile_used"}
+                elif "usage" in pending:
+                    pending.pop("usage")
+                else:
+                    raise
 
     def billing(self, bot, runtime):
         """`subscription` when the runtime this bot runs on is signed in with a plan (ChatGPT, Claude), else `api`."""
@@ -2232,6 +2464,7 @@ class Runner:
                 log(f"Tico runner: could not recover {row.get('id')} ({type(exc).__name__}); will retry")
 
     def maintain(self):
+        repository_rows = self.repositories.poll()
         assignments = self.client.get("runners/assignments")
         self.migrate_credentials(assignments)
         self.bot_credential_names = self.client.get("runner-credential-grants")["bots"]
@@ -2273,6 +2506,12 @@ class Runner:
                 "agent_instructions": agent_instructions,
                 **({"checkout": self._checkout} if getattr(self, "_checkout", None) and not self.follower.following else {}),
                 **self.follower.fields()}
+        if repository_rows is not None and time.monotonic() >= getattr(self, "_repositories_after", 0):
+            body["repositories"] = repository_rows
+        if time.monotonic() >= getattr(self, "_profiles_after", 0):
+            body["profiles"] = self.profile_report()
+        if hasattr(self, "worktrees") and time.monotonic() >= getattr(self, "_worktrees_after", 0):
+            body["worktrees"] = self.worktrees.poll()
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
@@ -2286,6 +2525,8 @@ class Runner:
             for row in runtime_rows:
                 row.pop("credential_source", None)
             beat = self.report_heartbeat(body)
+        if hasattr(self, "worktrees"):
+            self.worktrees.poll((beat or {}).get("worktree_actions", []))
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
@@ -2304,20 +2545,54 @@ class Runner:
         self.recover_output()
 
     def report_heartbeat(self, body):
+        return self._report_heartbeat(body)
+
+    def _report_heartbeat(self, body):
         readiness = body["readiness"]
-        optional = ("disk", "harnesses", "mail_key", "shared_env", "recent_errors")
+        optional = ("worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors")
         unsupported = self.__dict__.setdefault("_readiness_unsupported", {})
         for field, until in list(unsupported.items()):
             if time.monotonic() < until:
                 readiness.pop(field, None)
+        def drop_goal_fields():
+            for section in ("runtimes", "bots", "harnesses"):
+                for row in readiness.get(section, {}).values():
+                    row.pop("goals", None)
+                    row.pop("commands", None)
+        if time.monotonic() < self.__dict__.get("_goal_readiness_after", 0):
+            drop_goal_fields()
         while True:
             try:
                 return self.client.post("runners/heartbeat", body)
             except APIError as exc:
+                detail = str(exc.detail or "Heartbeat validation failed")
+                extra = exc.status == 422 and "extra" in detail.lower()
+                root_fields = ("worktrees", "profiles", "repositories")
+                field = next((name for name in root_fields if name in body and re.search(
+                    r"(?:^|[ ;])(?:body\.)?" + name + r"(?:[.: ;]|$)", detail)), None)
+                if field and exc.status != 422 and field != "worktrees":
+                    field = None
+                if not field and extra and not re.search(r"(?:body\.|readiness\.)", detail):
+                    field = next((name for name in root_fields if name in body), None)
+                if field:
+                    body.pop(field)
+                    setattr(self, "_" + field + "_after", time.monotonic() + 600)
+                    continue
                 if exc.status != 422:
                     raise
-                detail = str(exc.detail or "Heartbeat validation failed")
                 log("Tico runner: heartbeat rejected: " + detail[:1000])
+                if ("goals" in detail or "commands" in detail) and "Extra inputs" in detail and any(
+                        "goals" in row or "commands" in row for section in ("runtimes", "bots", "harnesses")
+                        for row in readiness.get(section, {}).values()):
+                    drop_goal_fields()
+                    self._goal_readiness_after = time.monotonic() + 600
+                    continue
+                if "extra" in detail.lower() and re.search(r"readiness\.(?:StructuredReadiness\.)?bots\.[^. :;]+\.(?:profile|sign_in)(?:[.: ;]|$)", detail):
+                    for row in readiness.get("bots", {}).values():
+                        row.pop("profile", None)
+                        row.pop("sign_in", None)
+                    self._bot_profiles_after = time.monotonic() + 600
+                    continue
                 # A validation path names the affected bot; preserve every other bot's tools.
                 bad = re.findall(r"readiness\.(?:StructuredReadiness\.)?bots\.([^. :;]+)\.tools(?:\.(\d+))?", detail)
                 affected = {bot for bot, _ in bad if bot in readiness.get("bots", {})
@@ -2350,7 +2625,7 @@ class Runner:
                               re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
                 generic = extra and "readiness." not in detail
                 if not field and generic:
-                    field = next((name for name in ("harnesses", "mail_key", "shared_env", "recent_errors", "disk")
+                    field = next((name for name in ("worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "disk")
                                   if name in readiness), None)
                 if field:
                     readiness.pop(field, None)
@@ -2387,6 +2662,8 @@ class Runner:
         for aid, future in list(self.active.items()):
             if future.done():
                 del self.active[aid]
+                self.active_bots.pop(aid, None)
+                self.attempt_bots.pop(aid, None)
                 self.next_claim = 0         # capacity came free: look for the next job now
                 self.attempt_runtimes.pop(aid, None)
                 try:
@@ -2421,20 +2698,42 @@ class Runner:
         if self.follower.blocks_claims(bool(self.active)):
             return
         while len(self.active) < self.capacity and time.monotonic() >= getattr(self, "next_claim", 0):
-            result = self.client.post("jobs/claim", {"next_run": True})   # prompt() carries them
+            result = self.claim_next()
+            if result.get("attempt"):
+                attempt = result["attempt"]
+                self.state.record(attempt)
+                config = attempt.get("config") or {}
+                self.attempt_bots[attempt["id"]] = attempt["bot"]
+                self.active_bots[attempt["id"]] = attempt["bot"]
+                self.attempt_runtimes[attempt["id"]] = {config.get("runtime") or "",
+                                                        (configured_fallback(config) or {}).get("runtime") or ""} - {""}
+                self.active[attempt["id"]] = self.pool.submit(self.execute, attempt)
             self.next_claim = time.monotonic() + self.claim_wait(bool(result.get("attempt")))
             if result.get("paused") and result["paused"] != getattr(self, "_paused_note", None):
                 self._paused_note = result["paused"]
                 log(f"Tico runner: the server is not giving this computer work: {result['paused']}")
             if not result["attempt"]:
                 break
-            attempt = result["attempt"]
             self.next_claim = 0             # one job often means more: ask again at once
-            self.state.record(attempt)
-            config = attempt.get("config") or {}
-            self.attempt_runtimes[attempt["id"]] = {config.get("runtime") or "",
-                                                    (configured_fallback(config) or {}).get("runtime") or ""} - {""}
-            self.active[attempt["id"]] = self.pool.submit(self.execute, attempt)
+
+    def claim_next(self):
+        manager = getattr(self, "worktrees", None)
+        with manager.lock if manager else nullcontext():
+            return self._claim_next(manager.maintaining if manager else set())
+
+    def _claim_next(self, maintaining):
+        body = {"next_run": True}
+        # Lease expiry does not mean this supervisor's worker has stopped.
+        if time.monotonic() >= getattr(self, "_busy_bots_after", 0):
+            body["busy_bots"] = sorted(set(maintaining) | {self.attempt_bots[aid] for aid, future in self.active.items()
+                                        if not future.done() and aid in self.attempt_bots})
+        try:
+            return self.client.post("jobs/claim", body)
+        except APIError as exc:
+            if exc.status != 422 or "busy_bots" not in body:
+                raise
+            self._busy_bots_after = time.monotonic() + 600
+            return self.client.post("jobs/claim", {"next_run": True})
 
     def step_harnesses(self):
         """Owner actions, installs and updates. An update is switched in only at a moment no running
@@ -2543,4 +2842,6 @@ class Runner:
                 self.credentials.stop()
             self.pool.shutdown(wait=True)
             self.maintenance_pool.shutdown(wait=True)
+            self.repositories.close()
+            self.worktrees.close()
             self.warm.prune(close=True)

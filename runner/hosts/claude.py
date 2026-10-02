@@ -104,6 +104,7 @@ class ClaudeHost(Host):
         self._limited = set()              # turn ids Claude reported as rate limited
         self._interrupted = set()
         self._done_turns = set()
+        self._goal_offsets = {}
 
     # ------------------------------------------------------------------ process
     def start(self):
@@ -180,7 +181,7 @@ class ClaudeHost(Host):
         if t["fork_from"]:
             argv += ["--resume", t["fork_from"], "--fork-session", "--session-id", thread_id]
         elif t["started"]:
-            argv += ["--resume", thread_id]
+            argv += ["--resume", t.get("session_id") or thread_id]
         else:
             argv += ["--session-id", thread_id]
         return argv
@@ -199,6 +200,45 @@ class ClaudeHost(Host):
         return env
 
     # ------------------------------------------------------------------ turns
+    def start_goal(self, thread_id, action, objective, effort=None):
+        return self.start_turn(thread_id, "/goal clear" if action in ("pause", "clear") else "/goal " + objective,
+                               effort=effort)
+
+    def session_id(self, thread_id):
+        return self._threads.get(thread_id, {}).get("session_id") or thread_id
+
+    def _transcript(self, thread_id):
+        settings = self._threads.get(thread_id, {}).get("settings") or {}
+        env = self._env(settings) or os.environ
+        directory = Path(env.get("CLAUDE_CONFIG_DIR") or str(Path(env.get("HOME") or Path.home()) / ".claude"))
+        # Only this exact session is read; other bots' and people's transcripts stay private.
+        return next((directory / "projects").glob("*/" + self.session_id(thread_id) + ".jsonl"), None)
+
+    def poll_goal(self, thread_id):
+        from ..goals import claude_status
+        transcript = self._transcript(thread_id)
+        if not transcript:
+            return
+        try:
+            with transcript.open() as stream:
+                stream.seek(self._goal_offsets.get(thread_id, 0))
+                while True:
+                    start = stream.tell()
+                    line = stream.readline()
+                    if not line or not line.endswith("\n"):
+                        stream.seek(start)
+                        break
+                    try:
+                        message = json.loads(line)
+                    except ValueError:
+                        continue
+                    status = claude_status(message)
+                    if status and not message.get("isSidechain"):
+                        self.emit("goal", thread_id, None, **status)
+                self._goal_offsets[thread_id] = stream.tell()
+        except OSError:
+            pass
+
     def start_turn(self, thread_id, text, effort=None):
         with self._lock:
             if not self._up:
@@ -209,6 +249,9 @@ class ClaudeHost(Host):
             if t is None:
                 raise HostError(f"unknown claude thread {thread_id}")
             turn = str(uuid.uuid4())
+            transcript = self._transcript(thread_id)
+            if transcript:
+                self._goal_offsets[thread_id] = transcript.stat().st_size
             stderr = tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
             try:
                 proc = self._spawn(self._argv(thread_id, t, effort), stdin=subprocess.PIPE,
@@ -283,6 +326,11 @@ class ClaudeHost(Host):
         """Map one stream-json line to keeper events. True when it is the turn's result."""
         if not isinstance(msg, dict) or msg.get("parent_tool_use_id"):
             return False                         # subagent traffic is not the bot's reply
+        from ..goals import claude_status
+        status = claude_status(msg)
+        if status:
+            self.emit("goal", tid, None, **status)
+            return False
         kind = msg.get("type")
         if kind == "stream_event":
             ev = msg.get("event") or {}
@@ -301,7 +349,7 @@ class ClaudeHost(Host):
         elif kind == "system" and msg.get("subtype") == "init":
             t = self._threads.get(tid)
             if t:                                # Claude owns the id now: resume from here on
-                t.update(started=True, fork_from=None)
+                t.update(started=True, fork_from=None, session_id=msg.get("session_id") or tid)
         elif kind == "rate_limit_event":
             info = msg.get("rate_limit_info") or {}
             if info.get("status") == "rejected":
@@ -333,6 +381,7 @@ class ClaudeHost(Host):
                 self.emit("tokens", tid, turn, input=inp, output=out, total=total,
                           cost_usd=result.get("total_cost_usd"),
                           usage={"input": inp, "cached": cached_tokens(result.get("usage")), "output": out})
+        self.poll_goal(tid)
         if interrupted:
             self.emit("turn_completed", tid, turn, status="interrupted")
         elif result and not result.get("is_error") and rc == 0:

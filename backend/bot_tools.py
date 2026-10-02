@@ -311,15 +311,20 @@ def listing(c, settings, bot):
             matching["detail"] += "; own repository: instructions and memory"
         else:
             tools.append(repo)
-    from .github_app import extra_repos
-    extras = extra_repos(c, bot)
+    from .repositories import access
+    app_row = c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
+    from .github_app import repo_of
+    own = repo_of(state['row']['repo'] if state['row'] else '', settings.github_owner)
+    org = app_row['org'] if app_row else settings.github_owner or (own.split('/')[0] if own else '')
+    extras = access(c, bot, org)['effective'] if state['row'] else []
     represented = {str(tool.get("scope", {}).get("repo") or tool.get("identity") or "").lower()
                    for tool in tools + declared if tool["service"].lower() in ("github", "github-app")}
-    for index, name in enumerate(extras):
+    for index, grant in enumerate(extras):
+        name = grant['full_name']
         if name.lower() in represented:
             continue
         tools.append({"id": f"github-extra-{index}", "service": "github", "name": "GitHub", "logo_key": "github",
-                      "identity": name, "can": ["read", "write", "issues", "pull_requests"], "scope": {"repo": name},
+                      "identity": name, "can": ["read", "write", "issues", "pull_requests"] if grant["access"] == "write" else ["read"], "scope": {"repo": name},
                       "note": "", "url": "https://github.com/" + name, "status": "unknown",
                       "detail": "Granted repository. Token capabilities are separate from declared tool policy."})
     agent = state["agent"]

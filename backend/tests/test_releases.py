@@ -140,8 +140,10 @@ def test_update_is_forwarded_to_the_updater_with_the_token(environment, monkeypa
     assert seen[0] == ("POST", "/update", "Bearer s3cret", {"version": "0.2.0", "from": "0.1.9"})
     assert seen[1][:3] == ("GET", "/status", "Bearer s3cret")
     got = api.get("/api/v2/system/update", headers=signed_in()).json()
-    assert got == {"configured": True, "state": "pulling", "from": "0.1.0", "to": "0.2.0", "message": "",
-                   "snapshot": "", "restored": False}
+    assert {k: got[k] for k in ("configured", "state", "from", "to", "message", "snapshot", "restored")} == {
+        "configured": True, "state": "pulling", "from": "0.1.0", "to": "0.2.0", "message": "", "snapshot": "",
+        "restored": False}
+    assert got["running"] == "0.1.9"                       # the server's own record, beside the updater's view
 
 
 def test_bad_version_and_dead_updater(environment, monkeypatch):

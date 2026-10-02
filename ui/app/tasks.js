@@ -1,17 +1,14 @@
-/* ui/app/tasks.js — Tasks: columns, filters, cards, rows, and the goal pickers
+/* ui/app/tasks.js — Tasks: columns, the status icon, rows and cards, the board, and the goal pickers
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
 // ----------------------------------------------------------------- tasks (#/tasks)
-// One page for every piece of work the team owes: Tico's tasks, shown as a **List**, as a
-// **Board**, as **Done**, or as **Routines** (the routines themselves, one row each).
-// Board and Issues used to be two sidebar entries; they are one, and the view
-// is a toggle that is remembered. `#/board`, `#/issues` and `#/recurring` open the matching view.
-// No priority, every task has a rank
-// in its owner's queue. Labels stand in for projects. A task's thread is comments, not chat:
-// one flat list with the author on every line.
-// The Product lane (its board, columns and lane switch) is retired; the page
-// shows team tasks only.
+// One page for every piece of work the team owes: Tico's tasks, shown as **Needs you**, **Open** (a list),
+// a **Board**, **Recurring** (the routines, one row each) and **Done**. `#/board`, `#/issues` and `#/recurring`
+// open the matching view. No priority: every task has a rank in its owner's queue. Labels stand in for projects.
+// A task's thread is comments, not chat: one flat list with the author on every line.
+// The list (ui/app/task-list.js) draws one line per task; this file holds what the list, the board, the
+// task's header and the subtask rows share, so a task reads the same wherever it shows.
 const COMPANY_COLS = [
   ['needs',   'Needs a human', 'Waiting on a human, blocked, or declined back'],
   ['waiting', 'Waiting', 'Waiting on the dependency shown in the task'],
@@ -21,12 +18,8 @@ const COMPANY_COLS = [
 const STATUS_WORD = {open: 'Open', doing: 'Doing', waiting: 'Waiting', review: 'In review', ready: 'Ready to ship',
                      done: 'Done', closed: 'Closed', declined: 'Declined'};
 const BOARD_COLS = [...COMPANY_COLS, ['done', 'Done', 'Finished in the last 7 days']];   // legacy name, kept for the routine rows
-// "I like my 'for you' view of tasks, but IMO it should be a person icon to the
-// left of the list view. and we still want list and kanban views in the tasks menu bar." For you
-// is who needs you, grouped by bot; List and Board are every open task by column.
-const TASK_VIEWS = [['foryou', 'Needs you'], ['list', 'List'], ['board', 'Board'], ['recurring', 'Routines'], ['done', 'Done']];
-const TASK_VIEW_ICONS = {foryou: 'person', list: 'view_list', board: 'view_kanban', recurring: 'replay', done: 'check_circle'};
-const TASK_FILTERS = [['all', 'Everything'], ['mine', 'Mine'], ['asked', 'Asked by me']];
+// The view tabs: labelled, with counts. The keys are the routes' and the saved preference's.
+const TASK_VIEWS = [['foryou', 'Needs you'], ['list', 'Open'], ['board', 'Board'], ['recurring', 'Recurring'], ['done', 'Done']];
 const DONE_CAP = 20;                // The Done list shows 20 at a time
 const ACTIVE_TASK_STATUSES = 'open,doing,waiting,review,ready,declined';
 let TASKS_ST = null;
@@ -34,6 +27,7 @@ const teamOf = slug => S.emps.find(e => e.name === slug)?.team || '';
 const isRecurringIssue = i => (i.labels || []).some(l => /^type:recurring$/i.test(l)) || /_Created by dispatcher from schedule/.test(i.body || '');
 const hasFiles = i => /s3:\/\//.test(i.body || '');
 const canMove = () => !!S.me?.mover;
+const taskFinished = t => ['done', 'closed'].includes(String(t?.status || ''));
 function taskAskToPerson(t) {
   return !!(t?.ask?.body && actorPerson(t.ask.to_actor));
 }
@@ -56,15 +50,42 @@ function hubColumn(t) {
   if (status === 'waiting' || t.blocked_by) return 'waiting';
   return 'doing';
 }
-// the small word on a card when the column alone does not say it
+// The person an open task waits on: you (myActor()), another person ('human:sam'), someone who cannot be told
+// ('' — an unknown id, or a declined task with no person to send it back to), or null when it waits on no person.
+function taskWaitsOn(t) {
+  if (!t || taskFinished(t)) return null;
+  if (taskNeedsViewer(t)) return myActor();
+  if (hubColumn(t) !== 'needs') return null;
+  const pid = actorPerson(t.ask?.to_actor) || actorPerson(t.owner) || (t.status === 'declined' ? actorPerson(taskRequester(t)) : '');
+  return pid && (S.people || []).some(p => p.id === pid) ? 'human:' + pid : '';
+}
+// "Needs you", "Needs Sam" or "Needs someone": the approved words for who a task waits on
+function needsWords(who) {
+  if (who && who === myActor()) return 'Needs you';
+  const pid = actorPerson(who);
+  return pid ? `Needs ${personShortName(pid)}` : 'Needs someone';
+}
+// A person's first name, unless someone else here has it too: then as much of the last name as tells them apart
+// ("Sam O.", "Sam Le." and "Sam Lo.", or the whole last name), else the address's local part ("sam.lee").
+function personShortName(pid) {
+  const name = personDisplay(pid), first = firstName(name);
+  const others = (S.people || []).filter(p => p.id !== pid && firstName(p.name || titleCase(p.id)) === first);
+  if (!others.length) return first;
+  const lastOf = n => { const parts = String(n || '').trim().split(/\s+/); return parts.length > 1 ? parts.at(-1) : ''; };
+  const last = lastOf(name), theirs = others.map(p => lastOf(p.name).toLowerCase());
+  for (let n = 1; last && n <= last.length; n++) {
+    const pre = last.slice(0, n).toLowerCase();
+    if (!theirs.some(o => o.slice(0, n) === pre)) return n === last.length ? `${first} ${last}` : `${first} ${last.slice(0, n)}.`;
+  }
+  const person = (S.people || []).find(p => p.id === pid);
+  return String(person?.email || pid).split('@')[0];
+}
 const needsWho = t => {
-  const pid = actorPerson(t?.ask?.to_actor) || actorPerson(t?.owner);
-  return !pid || pid === S.me?.id ? 'Needs you' : `Needs ${firstName(personDisplay(pid))}`;
+  const who = taskWaitsOn(t);
+  if (who != null) return needsWords(who);
+  const pid = actorPerson(t?.ask?.to_actor) || actorPerson(t?.owner);   // a partial row (a person's page passes only the owner)
+  return needsWords(pid ? 'human:' + pid : '');
 };
-const hubTag = t => (taskAskToPerson(t) || (t.status === 'open' && actorPerson(t.owner))) && !['done', 'closed'].includes(String(t.status)) ? needsWho(t)
-  : t.blocked_by && !['done', 'closed'].includes(String(t.status)) ? 'blocked'
-  : ['waiting', 'declined'].includes(String(t.status || '')) ? t.status
-  : t.status === 'open' && !actorPerson(t.owner) ? 'starting' : '';
 // One shape for the list, the sort and the columns.
 const issueItem = i => ({kind: 'issue', key: `i${i.number}`, n: i.number, title: i.title || '',
   slug: i.owner, actor: `bot:${i.owner}`, team: teamOf(i.owner), needs: !!i.needs_human,
@@ -75,7 +96,7 @@ const taskItem = t => {
   return {kind: 'hub', key: `t${t.id}`, id: t.id, title: t.title || '', slug, actor: t.owner,
           team: slug ? teamOf(slug) : 'people', needs: !!actorPerson(t.owner),
           rank: t.rank == null ? null : Number(t.rank), lane: t.lane || 'company', labels: t.labels || [],
-          updated: t.updated || t.created, closed: t.done_at || t.closed_at || '', task: t, col: hubColumn(t), tag: hubTag(t)};
+          updated: t.updated || t.created, closed: t.done_at || t.closed_at || '', task: t, col: hubColumn(t)};
 };
 // Rank is the order (no priority): ranked first, low to high, then the newest unranked.
 const byRank = (a, b) => (a.rank == null ? 1 : 0) - (b.rank == null ? 1 : 0)
@@ -89,91 +110,234 @@ const searchIncludes = (fields, query) => {
 };
 function taskMatches(it, query) {
   const person = actorPerson(it.actor);
-  return searchIncludes([it.title, ...(it.labels || []), actorLabel(it.actor),
-    person && personDisplay(person), it.slug && botDisplayName(it.slug), it.tag, taskWaitLine(it.task)], query);
+  return searchIncludes([it.title, ...(it.labels || []), actorLabel(it.actor), actorLabel(taskRequester(it.task)),
+    person && personDisplay(person), it.slug && botDisplayName(it.slug), taskStatusLabel(it.task), taskWaitLine(it.task)], query);
 }
-function taskItems(state) {
+
+// ---- the status icon: one small shape per state, the same in rows, cards, group headers, a task's header and its subtasks.
+//  dashed circle  open and needs a human (amber when that human is you)
+//  pie            doing: a quarter while it starts, half while it runs, three quarters in review
+//  clock          waiting or scheduled
+//  check          done
+//  slash          closed
+// A task has one status, named the same everywhere (its icon's label, the header, the Status property). Being blocked
+// by another task is not a status: it is the Blocked by property, drawn with the small stop mark.
+const STATUS_KIND_WORD = {needsme: 'Needs you', needs: 'Needs someone', starting: 'Starting', doing: 'Doing', review: 'In review',
+  waiting: 'Waiting', scheduled: 'Scheduled', blocked: 'Blocked', done: 'Done', closed: 'Closed', declined: 'Declined'};
+// Waits on you: you own it, it asks you, or a bot declined it back to you.
+function taskNeedsViewer(t) {
   const me = myActor();
-  return (state.tasks || []).map(taskItem).filter(it => {
-    if (it.lane !== 'company') return false;
-    if (state.filter === 'mine' && it.actor !== me) return false;
-    if (state.filter === 'asked' && taskRequester(it.task) !== me) return false;
-    if (state.bot) {
-      if (state.bot.startsWith('human:')) { if (it.actor !== state.bot) return false; }
-      else if (it.slug !== state.bot) return false;
-    }
-    if (!taskPipelineMatches(it.task, state)) return false;
-    if (state.label && !it.labels.includes(state.label)) return false;
-    if (state.q && !taskMatches(it, state.q)) return false;
-    return state.view === 'board' && pipelineSelectedType(state) ? true : state.view === 'done' ? it.col === 'done' : it.col !== 'done';
-  });
+  return !!me && !!t && !taskFinished(t) && (t.owner === me || t.ask?.to_actor === me
+    || (t.status === 'declined' && taskRequester(t) === me && !actorPerson(t.owner)));
 }
-const labelChips = (labels, tags) => tagChips(labels, tags, false, false);
-const linkChips = t => (t.links || []).filter(l => l.kind === 'pr').map(l =>
-  `<span class="tlink pr ${esc(l.state || '')}" title="${esc(l.url)}">${esc(l.title || 'PR')}${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}</span>`).join('');
-const partsChip = t => t.parts?.total ? `<span class="tparts" title="Parts of this task">${t.parts.done}/${t.parts.total}</span>` : '';
-function taskWaitingReason(it) {
-  const t = it.task;
-  if (!t || (t.status !== 'waiting' && !t.blocked_by && !taskAskToPerson(t))) return '';
-  const text = clipLine(plainMd(taskWaitLine(t)), 140) || 'Waiting — the reason was not recorded.';
-  return `<span class="wait-why">${esc(text)}</span>`;
+function taskStatusKind(t) {
+  const status = String(t?.status || 'open');
+  if (status === 'done') return 'done';
+  if (status === 'closed') return 'closed';
+  const col = hubColumn(t);
+  if (col === 'needs') return taskNeedsViewer(t) ? 'needsme' : 'needs';
+  if (col === 'waiting') return 'waiting';
+  if (status === 'review' || status === 'ready') return 'review';
+  if (status === 'open') return 'starting';
+  return 'doing';
 }
-// the same item as one row of the list; a tap opens the same modal
+// The name of a task's status: its step when its type has steps, else the status (Open, Doing, Waiting, In review…).
+function taskStatusLabel(t) {
+  if (!t) return '';
+  if (t.step?.name && pipelineTypeId(t) !== 'general') return t.step.name;
+  return STATUS_WORD[t.status] || String(t.status || '');
+}
+const SI_RING = '<circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>';
+const SI_SHAPES = {
+  needs: '<circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 1.92"/>',
+  starting: SI_RING + '<path d="M7 7V3.4A3.6 3.6 0 0 1 10.6 7Z" fill="currentColor"/>',
+  doing: SI_RING + '<path d="M7 3.4A3.6 3.6 0 0 1 7 10.6Z" fill="currentColor"/>',
+  review: SI_RING + '<path d="M7 7V3.4A3.6 3.6 0 1 1 3.4 7Z" fill="currentColor"/>',
+  waiting: SI_RING + '<path d="M7 4.4V7l1.8 1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  blocked: '<circle cx="7" cy="7" r="6.2" fill="currentColor"/><path class="si-cut" d="M4.3 7h5.4" fill="none" stroke-width="1.8" stroke-linecap="round"/>',
+  done: '<circle cx="7" cy="7" r="6.2" fill="currentColor"/><path class="si-cut" d="M4.3 7.2l1.8 1.8 3.6-3.7" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+  closed: SI_RING + '<path d="M4.7 9.3l4.6-4.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+};
+SI_SHAPES.declined = SI_RING + '<path d="M5.2 5.2l3.6 3.6M8.8 5.2l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>';
+SI_SHAPES.needsme = SI_SHAPES.needs; SI_SHAPES.scheduled = SI_SHAPES.waiting;
+function statusIcon(kind, label = STATUS_KIND_WORD[kind] || '') {
+  const shape = SI_SHAPES[kind] || SI_SHAPES.starting;
+  return `<span class="si si-${esc(kind)}" data-status-kind="${esc(kind)}" role="img" aria-label="${esc(label)}" title="${esc(label)}"><svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false">${shape}</svg></span>`;
+}
+const taskStatusIcon = t => statusIcon(taskStatusKind(t), taskStatusLabel(t));
+
+// ---- the small things a row and a card carry
+// Ages read short on a row: 5m, 3h, 2d, then the date.
+function ageShort(iso) {
+  const t = Date.parse(iso || '');
+  if (!t) return '';
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  if (s < 86400) return `${Math.round(s / 3600)}h`;
+  if (s < 86400 * 7) return `${Math.round(s / 86400)}d`;
+  return new Date(t).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+}
+// Subtask progress: "1/3" beside a ring that fills as they finish (children_summary from the server, else parts).
+function taskSubProgress(t) {
+  const s = t?.children_summary;
+  if (s?.total) return {done: Number(s.done) || 0, total: Number(s.total)};
+  if (t?.parts?.total) return {done: Number(t.parts.done) || 0, total: Number(t.parts.total)};
+  return null;
+}
+function progressRing(done, total) {
+  const c = 2 * Math.PI * 4.6, f = total ? Math.min(1, done / total) : 0;
+  return `<svg class="ring" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><circle class="ring-bg" cx="7" cy="7" r="4.6"/>${f ? `<circle class="ring-fg" cx="7" cy="7" r="4.6" stroke-dasharray="${(f * c).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 7 7)"/>` : ''}</svg>`;
+}
+function subProgressChip(t) {
+  const p = taskSubProgress(t); if (!p) return '';
+  const words = `${p.done} of ${p.total} subtask${p.total === 1 ? '' : 's'} done`;
+  return `<span class="tl-sub${p.done === p.total ? ' all' : ''}" role="img" aria-label="${esc(words)}" title="${esc(words)}">${progressRing(p.done, p.total)}<span class="tnum">${p.done}/${p.total}</span></span>`;
+}
+// A task's PR state: the server's pr_state (the worst across its PRs); an older server sends only the links.
+function taskPRState(t) {
+  if (t?.pr_state) return t.pr_state;
+  const prs = (t?.links || []).filter(l => l.kind === 'pr');
+  if (!prs.length) return '';
+  return prs.every(l => ['merged', 'shipped'].includes(l.state)) ? 'merged' : prs.some(l => !['merged', 'shipped', 'closed'].includes(l.state)) ? 'open' : '';
+}
+const taskHasPR = t => !!taskPRState(t) || (t?.links || []).some(l => l.kind === 'pr');
+// A time from the server. One without an offset is a legacy value the server reads as Pacific (backend/hubdb.py
+// not_yet_due), so it is read the same way here: the day shown never slips by one.
+function parseServerTime(value) {
+  const s = String(value || '').trim();
+  if (!s) return NaN;
+  if (/(?:[zZ]|[+-]\d\d:?\d\d)$/.test(s)) return Date.parse(s);
+  const naive = Date.parse((s.length <= 10 ? s + 'T00:00:00' : s.replace(' ', 'T')) + 'Z');
+  if (!naive) return NaN;
+  let offset = -480;
+  try {
+    const name = new Intl.DateTimeFormat('en-US', {timeZone: 'America/Los_Angeles', timeZoneName: 'shortOffset'})
+      .formatToParts(new Date(naive)).find(p => p.type === 'timeZoneName')?.value || '';
+    const m = /GMT([+-]\d+)(?::(\d+))?/.exec(name);
+    if (m) offset = Number(m[1]) * 60 + Math.sign(Number(m[1])) * Number(m[2] || 0);
+  } catch {}
+  return naive - offset * 60000;
+}
+// A task's due date is one of two things. For a bot's task it is when the bot looks again (the scheduler wakes it
+// then: a parked task), shown as a muted "Wakes Oct 2". For a person's open task it is a deadline, red once passed.
+function taskDueInfo(t) {
+  if (!t?.due || taskFinished(t)) return null;
+  const at = parseServerTime(t.due); if (!at) return null;
+  const day = new Date(at).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+  if (actorSlug(t.owner)) return {at, day, kind: 'wake', late: false, words: at > Date.now() ? `Wakes ${day}` : `Woke ${day}`};
+  const late = at < Date.now();
+  return {at, day, kind: 'deadline', late, words: `${late ? 'Overdue' : 'Due'} ${day}`};
+}
+function dueChip(t) {
+  const due = taskDueInfo(t); if (!due) return '';
+  return `<span class="tl-due${due.late ? ' late' : ''}${due.kind === 'wake' ? ' wake' : ''}" title="${esc(due.kind === 'wake' ? 'Looks again' : 'Due')} ${esc(fmt(new Date(due.at).toISOString()))}">${esc(due.words)}</span>`;
+}
+// Tags on a row: two, then "+N" (the rest are in the tooltip).
+function rowTagChips(t, max = 2) {
+  const keys = t?.labels || [];
+  if (!keys.length) return '';
+  const shown = keys.slice(0, max).map(key => {
+    const tag = (t.tags || []).find(x => x.key === key) || {key, label: key};
+    return `<span class="tlabel tl-tag" style="--hue:${tagHue(key)}" title="${esc(key)}"><i aria-hidden="true"></i>${esc(tagSummary(tag))}</span>`;
+  }).join('');
+  const rest = keys.length - max;
+  return shown + (rest > 0 ? `<span class="tlabel more" title="${esc(keys.slice(max).join(', '))}">+${rest}</span>` : '');
+}
+function taskChipsHTML(t, opts = {}) {
+  return (opts.tags === false ? '' : rowTagChips(t, opts.maxTags)) + prStateBadge(taskPRState(t)) + subProgressChip(t) + dueChip(t);
+}
+// A face for an actor: a bot's avatar, a person's photo or initials.
+function actorFace(actor, size = 18) {
+  const slug = actorSlug(actor), pid = actorPerson(actor);
+  if (slug) return avatar(slug, size, stateOf(slug));
+  if (pid) {
+    const person = pid === S.me?.id ? (mePerson() || {id: pid, name: S.me?.name || 'You'}) : (S.people || []).find(p => p.id === pid) || {id: pid, name: actorLabel(actor)};
+    return personAvatar(person, size);
+  }
+  return personCircle(actorLabel(actor) || '?', size);
+}
+// The row's tooltip: who added it, who has it, and the note in full.
+function taskRowTip(t) {
+  const lines = [t.title || ''];
+  const meta = [taskStatusLabel(t), `Owner: ${actorLabel(t.owner)}`, taskSourceLine(t)];
+  if (t.parent?.title) meta.push(`Part of ${t.parent.title}`);
+  lines.push(meta.filter(Boolean).join(' · '));
+  const note = taskWaitLine(t);
+  if (note) lines.push(plainMd(note));
+  return lines.join('\n');
+}
+// The note a row shows: what a waiting, blocked or asking task waits on. Amber only when it waits on you.
+function taskRowNote(t) {
+  if (!t || taskFinished(t) || (t.status !== 'waiting' && !t.blocked_by && !taskAskToPerson(t) && t.status !== 'declined')) return null;
+  const text = clipLine(plainMd(taskWaitLine(t)), 220);
+  if (!text) return null;
+  return {text, mine: taskNeedsViewer(t)};
+}
+
+// ---- the board: one column per state; an empty column folds to a thin strip with its name and count
+// The same card the list's peek opens: the title, its chips, the owner's face and the age. Nothing else.
 function taskCard(it) {
-  const who = it.slug ? avatar(it.slug, 16, stateOf(it.slug)) : personCircle(actorLabel(it.actor), 16);
-  const from = it.task ? taskSourceLine(it.task) : '';
-  const extras = it.task ? labelChips(it.labels, it.task.tags) + linkChips(it.task) + partsChip(it.task) : '';
-  return `<button class="bcard" type="button" data-open-task="${esc(it.key)}">
-    <div class="bcard-top">${who}<span class="who">${esc(it.slug ? empName(it.slug) : actorLabel(it.actor))}</span><span class="spacer"></span>${it.tag && it.tag !== 'starting' ? `<span class="tag">${esc(it.tag)}</span>` : ''}</div>
-    <div class="bcard-title">${esc(it.title)}${taskWaitingReason(it)}</div>
-    ${extras ? `<div class="bcard-extras">${extras}</div>` : ''}
-    <div class="bcard-foot">${from ? `<span class="from">${esc(from)}</span><span class="spacer"></span>` : ''}<span class="age tnum">${esc(it.kind === 'schedule' ? fmt(it.updated) : ago(it.updated))}</span></div>
-  </button>`;
+  const t = it.task, st = TASKS_ST;
+  const chips = t ? taskChipsHTML(t, {maxTags: 2}) : '';
+  void st;   // selection, cursor and peek are painted on (task-list.js), so the card's signature only changes with its content
+  return tasksSigned(`<div class="bcard" data-task-key="${esc(it.key)}">
+    <button class="bcard-open" type="button" data-open-task="${esc(it.key)}" title="${esc(t ? taskRowTip(t) : it.title)}" tabindex="-1">
+      ${t ? taskStatusIcon(t) : ''}<span class="bcard-title">${esc(it.title)}</span></button>
+    <div class="bcard-foot">${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>
+      <span class="tl-face" aria-hidden="true">${actorFace(it.actor, 16)}</span>
+      <span class="age tnum" title="${esc(fmt(it.updated))}">${esc(ageShort(it.updated))}</span></div>
+  </div>`);
 }
-function taskBuckets(items) {
-  const out = Object.fromEntries(COMPANY_COLS.map(([k]) => [k, []]));
-  for (const it of items) if (out[it.col]) out[it.col].push(it);
-  for (const k of Object.keys(out)) out[k].sort(k === 'scheduled' ? (a, b) => String(a.updated).localeCompare(String(b.updated)) : byRank);
-  return out;
+// The status a task is grouped by: 'needsme', 'needs:human:sam', 'needs-someone', 'waiting', 'doing', 'scheduled'.
+function taskStatusGroup(it) {
+  const who = taskWaitsOn(it.task);
+  if (who != null) return who === myActor() ? 'needsme' : who ? 'needs:' + who : 'needs-someone';
+  return it.col === 'needs' ? 'needs-someone' : it.col;
 }
-// Board: every open task in its column (the filters and the owner picker above still apply).
-function tasksBoardHTML(items, state) {
-  const pipeline = taskPipelineBoard(items, state);
-  if (pipeline !== null) return pipeline;
-  const buckets = taskBuckets(items);
-  const anyWork = COMPANY_COLS.some(([k]) => buckets[k].length);   // phones skip empty columns, unless every column is empty
-  return `<div class="board work">${COMPANY_COLS.map(([k, label, hint]) => {
-    const list = buckets[k];
-    return `<section class="bcol${anyWork && !list.length ? ' is-empty' : ''}" data-col="${k}" aria-label="${esc(label)}: ${esc(hint)}">
-      <header title="${esc(hint)}"><h2>${esc(label)}</h2><span class="cnt">${list.length}</span></header>
-      <div class="bcol-body">${list.map(taskCard).join('') || '<div class="empty">Nothing here</div>'}</div>
+// The status groups in order: Needs you, Needs <each person> (by name), Needs someone, Waiting, Doing, Scheduled.
+function taskStatusGroups(items, {always = []} = {}) {
+  const buckets = new Map();
+  for (const it of items) {
+    const key = taskStatusGroup(it);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(it);
+  }
+  const people = [...buckets.keys()].filter(k => k.startsWith('needs:'))
+    .sort((a, b) => needsWords(a.slice(6)).localeCompare(needsWords(b.slice(6))));
+  const keys = ['needsme', ...people, 'needs-someone', 'waiting', 'doing', 'scheduled'].filter(k => buckets.has(k) || always.includes(k));
+  return keys.map(key => ({key, items: (buckets.get(key) || []).sort(key === 'scheduled' ? (a, b) => String(a.updated).localeCompare(String(b.updated)) : byRank),
+    label: key === 'needsme' ? 'Needs you' : key === 'needs-someone' ? 'Needs someone' : key.startsWith('needs:') ? needsWords(key.slice(6))
+      : COMPANY_COLS.find(([k]) => k === key)?.[1] || key,
+    kind: key === 'needsme' ? 'needsme' : key.startsWith('needs') ? 'needs' : key,
+    owner: key === 'needsme' ? myActor() : key.startsWith('needs:') ? key.slice(6) : ''}));
+}
+// columns: [{id, name, hint, kind, items}] — columns with work share the width evenly; an empty one is a 34px strip.
+function boardColumnsHTML(columns) {
+  const anyWork = columns.some(c => c.items.length);
+  const sizes = columns.map(c => anyWork && !c.items.length ? '34px' : 'minmax(0,1fr)').join(' ');
+  return `<div class="board work" style="--board-cols:${esc(sizes)}">${columns.map(column => {
+    const empty = anyWork && !column.items.length;
+    const icon = column.kind ? statusIcon(column.kind, column.name) : '';
+    return `<section class="bcol${empty ? ' is-empty' : ''}" data-col="${esc(column.id)}" aria-label="${esc(column.name)}${column.hint ? `: ${esc(column.hint)}` : ''}">
+      <header${column.hint ? ` title="${esc(column.hint)}"` : ''}>${icon}<h2>${esc(column.name)}</h2><span class="cnt tnum">${column.items.length}</span></header>
+      ${empty ? '' : `<div class="bcol-body">${column.items.map(taskCard).join('') || '<div class="empty">Nothing here</div>'}</div>`}
     </section>`;
   }).join('')}</div>`;
 }
-// List: the same tasks as rows, grouped by column.
-function tasksListHTML(items) {
-  const buckets = taskBuckets(items);
-  const groups = COMPANY_COLS.filter(([k]) => buckets[k].length);
-  if (!groups.length) return '<section class="card"><div class="empty">Nothing open. Finished work is under Done.</div></section>';
-  return '<section class="card">' + groups.map(([k, label]) =>
-    `<div class="v2-group" data-col="${k}"><h3>${esc(label)} <span class="muted">${buckets[k].length}</span></h3>
-      ${buckets[k].map(taskRow).join('')}</div>`).join('') + '</section>';
+// Board: every open task in its column (the filters above still apply).
+function tasksBoardHTML(items, state) {
+  const pipeline = taskPipelineBoard(items, state);
+  if (pipeline !== null) return pipeline;
+  const hints = Object.fromEntries(COMPANY_COLS.map(([k, , hint]) => [k, hint]));
+  return boardColumnsHTML(taskStatusGroups(items, {always: ['needsme', 'waiting', 'doing', 'scheduled']}).map(g =>
+    ({id: g.key, name: g.label, hint: hints[g.key] || '', kind: g.kind, items: g.items})));
 }
 // When a task was done, in the Done list's quiet right-hand column: "2h ago" today, then "Sep 26".
 function doneWhen(when) {
   const t = Date.parse(when || '');
   if (!t) return '';
-  return Date.now() - t < 86400000 ? ago(when) : new Date(t).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
-}
-function taskRow(it) {
-  const when = it.col === 'done' ? (it.closed || it.updated) : it.updated;
-  const who = it.kind === 'issue' ? `${avatar(it.slug, 18, stateOf(it.slug))}` : (it.slug ? avatar(it.slug, 18, stateOf(it.slug)) : personCircle(actorLabel(it.actor), 18));
-  const from = it.task ? `<span class="from"> · ${esc(taskSourceLine(it.task))}</span>` : '';
-  const extras = it.task ? labelChips(it.labels, it.task.tags) + linkChips(it.task) + partsChip(it.task) : '';
-  return `<button class="trow-btn" type="button" data-open-task="${esc(it.key)}">
-      <span class="trow-who">${who}</span>
-      <span class="ttl">${esc(it.title)}${from}${it.tag && it.tag !== 'starting' ? ` <span class="tag">${esc(it.tag)}</span>` : ''}${extras ? `<span class="trow-extras">${extras}</span>` : ''}${taskWaitingReason(it)}</span>
-      <span class="muted tnum"${it.col === 'done' ? ` title="Done ${esc(fmt(when))}"` : ''}>${esc(it.kind === 'schedule' ? fmt(when) : it.col === 'done' ? doneWhen(when) : ago(when))}</span></button>`;
+  return ageShort(when);
 }
 // The goal a task serves is a link with the goal's title; the row only carries the id.
 const GOAL_TITLES = {};

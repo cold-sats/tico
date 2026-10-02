@@ -28,8 +28,10 @@ Do each fix as the human, with their rights. Do not ask first.
 | A computer is offline | nothing you can do: say which one, and that its bots wait for it |
 | Stopped after refusing something | `hub api POST /api/v2/bots/<bot>/quarantine/clear` only after you read why |
 
-A tool with too few verbs (a mail bot that cannot send, a read-only GitHub) is changed in place with
+A Tool with too few verbs (a mail bot that cannot send) is changed in place with
 `hub tool update <tool-id> --bot <bot> --can ...`, never removed and added again.
+For missing GitHub repository access, use `hub_bot_repos_set` / `hub bot repos` and verify
+`effective` before reporting success. Tool declarations and repository grants are separate.
 
 A fix the server refuses for their rights is not a failure: name it in the list with who can do it.
 

@@ -482,6 +482,7 @@ function renderTree() {
       ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(e.display_name)}">›</button>` : ''}
       <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${helper ? ' data-helper' : ''}${!flat && !helper && orgMayDrag(key) ? ' draggable="true"' : ''}>
         ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${runtimeTag(e)}${frTreeMark(e)}
+        ${e.goal_active ? '<span class="nav-icon tree-goal" role="img" aria-label="Goal" title="Goal">target</span>' : ''}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
         ${treeBadge(n, st)}</a></div>
       ${own ? `<ul class="inbox-list node-sources" aria-label="${esc(e.display_name || e.name)}: mailboxes and channels">${own.map(inboxNavLink).join('')}</ul>` : ''}
@@ -521,7 +522,7 @@ function renderTree() {
     const isCurrent = (a.dataset.nav === 'welcome' && S.route === WELCOME) ||
       (a.dataset.nav === 'meetings' && (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?'))) ||
       (a.dataset.nav === 'mail' && (S.route === MAIL || S.route.startsWith(MAIL + '?') || S.route.startsWith(MESSAGING))) ||
-      (a.dataset.nav === 'tasks' && ([TASKS, BOARD, ISSUES, RECURRING].includes(S.route) || S.route.startsWith('#/task/'))) ||
+      (a.dataset.nav === 'tasks' && (isTasksRoute(S.route) || S.route.startsWith('#/task/'))) ||
       (a.dataset.nav === 'settings' && S.route === SETTINGS) ||
       (a.dataset.nav === 'help' && S.route === HELP) ||
       (a.dataset.nav === 'credentials' && S.route === CREDENTIALS) ||

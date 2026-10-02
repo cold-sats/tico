@@ -64,7 +64,7 @@ AUTH_RETRY_RE = re.compile(r"failed to refresh oauth token|another claude code p
                            r"|unexpected status 401 unauthorized", re.I)
 
 KINDS = ("delta", "message", "turn_completed", "turn_failed", "status", "tokens",
-         "rate_limits", "error", "tool", "diagnostic")
+         "rate_limits", "error", "tool", "diagnostic", "goal")
 
 
 class HostError(RuntimeError):
@@ -134,6 +134,18 @@ class Host:
     def start_turn(self, thread_id, text, effort=None):
         """Begin a turn with `text` as the user input. Returns the turn id."""
         raise NotImplementedError
+
+    def start_goal(self, thread_id, action, objective, effort=None):
+        raise HostError("This harness does not support native goals")
+
+    def start_command(self, thread_id, text, effort=None):
+        return self.start_turn(thread_id, text, effort=effort)
+
+    def poll_goal(self, thread_id):
+        pass
+
+    def session_id(self, thread_id):
+        return thread_id
 
     def steer(self, thread_id, turn_id, text):
         """Add `text` to the turn that is already running."""

@@ -393,6 +393,21 @@
    "template": "engineering-lead"
   },
   {
+   "business_only": false,
+   "department": "engineering",
+   "icon": "developer_board",
+   "lead": false,
+   "name": "Engineering Manager",
+   "suggest": "common",
+   "summary": "Plans changes, assigns child tasks to engineer bots, tracks pull requests and reports progress.",
+   "tags": [
+    "github",
+    "delivery",
+    "developer-tools"
+   ],
+   "template": "engineering-manager"
+  },
+  {
    "business_only": true,
    "department": "support",
    "icon": "crisis_alert",
@@ -1808,5 +1823,5 @@
    "software_only": true
   }
  ],
- "version": "4ff009e43970"
+ "version": "d3f8d35b3c6c"
 }

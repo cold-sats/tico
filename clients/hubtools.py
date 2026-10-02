@@ -53,6 +53,12 @@ INSTRUCTIONS = ("Tico: tasks, messages, Decisions, status. "
                 "Every rule is enforced server-side; a refusal says which.\n\n" + WHO_NEEDS_ME)
 
 TOOLS = []
+CLI_TOOL_ALIASES = {
+    "hub_task_child": ("hub_task_child_create",),
+    "hub_task_parent": ("hub_task_reparent",),
+    "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
+    "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
+}
 
 
 def _s(description, **extra):
@@ -119,6 +125,7 @@ def whoami(api, args):
                "description": "An fyi: it expects no reply, and takes no conversation or references"},
        "conversation_id": _s("Continue this conversation instead of opening a pair conversation"),
        "in_reply_to": _s("The message this corrects or answers"),
+       "command": {"type": "boolean", "description": "Send the text verbatim as a harness command"},
        "steer": {"type": "boolean", "description": "Apply a correction to your active request"},
        "refs": {"type": "array", "items": {"type": "string"},
                 "description": "References like `task:<id>` or `approval:<id>`"}},
@@ -132,7 +139,29 @@ def message_send(api, args):
     return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "steer" if args.get("steer") else "say",
                                  "conversation_id": args.get("conversation_id"),
                                  "in_reply_to": args.get("in_reply_to"),
-                                 "refs": _refs(args.get("refs"))}, key=_key(args))
+                                 "refs": _refs(args.get("refs")),
+                                 **({"command": True} if args.get("command") else {})}, key=_key(args))
+
+
+@tool("hub_chat_goal", "Read or change the native goal pinned to a bot conversation. Read also returns its supported commands.",
+      {"conversation_id": _s("The bot conversation"),
+       "action": {"type": "string", "enum": ["get", "set", "edit", "pause", "resume", "clear"], "default": "get"},
+       "objective": _s("The goal, 1–4,000 characters for set or edit")}, required=("conversation_id",), writes=True)
+def chat_goal(api, args):
+    path = "conversations/" + quote(args["conversation_id"], safe="") + "/goal"
+    action = args.get("action") or "get"
+    if action == "get":
+        return api.get(path)
+    return api.post(path, {"action": action, **({"objective": args["objective"]} if "objective" in args else {})},
+                    key=_key(args))
+
+
+@tool("hub_chat_send", "Send a message or a headless slash command to a bot.",
+      {"to": _s("The bot"), "text": _s("The message or command"),
+       "conversation_id": _s("Continue this conversation"),
+       "command": {"type": "boolean", "default": False}}, required=("to", "text"), writes=True)
+def chat_send(api, args):
+    return message_send(api, args)
 
 
 @tool("hub_assistant_read", "Read your private Assistant chat and its pending Decisions. Uses only your own room.", {})
@@ -241,6 +270,16 @@ def answer(api, args):
 
 
 # ----------------------------------------------------------------------------- meetings
+@tool("hub_meeting_granola_status", "Read your own Granola connection status. To connect, open #/meetings in Tico in your browser and choose Connect Granola; sign-in must be completed by the person.", {})
+def granola_status(api, args):
+    return _as_person(api).get("meetings/granola")
+
+
+@tool("hub_meeting_granola_sync", "Start a background sync of your own Granola notes. Recent syncs are reused. Connect your account in Tico's Meetings page (#/meetings) in your browser; a bot cannot complete sign-in.", {})
+def granola_sync(api, args):
+    return _as_person(api).post("meetings/granola/sync", {})
+
+
 @tool("hub_meeting_search", "Search meeting history and transcripts, with excerpts and available speaker timestamps. Bots see explicitly shared team meetings, never personal notes or private meetings. Empty q lists recent accessible meetings.",
       {"q": _s("Words to search for; omit for recent history"), "person": _s("Owner, participant, or speaker"),
        "since": _s("Inclusive meeting date, YYYY-MM-DD; creation date when no start is recorded"), "until": _s("Inclusive meeting date, YYYY-MM-DD"),
@@ -365,6 +404,39 @@ def task_create(api, args):
     if args.get("dry_run"):
         return api.post("tasks/dry-run", body)
     return api.post("tasks", body, key=_key(args))
+
+
+@tool("hub_task_child_create", "Create a subtask carrying its parent's requester rights.",
+      {"parent_id": TASK_ID, "owner": _s("Bot slug or human id"), "title": _s("What to do"),
+       "body": _s("Details", default="")}, required=("parent_id", "owner", "title"), writes=True)
+def task_child_create(api, args):
+    return task_create(api, {**args, "body": args.get("body") or args["title"]})
+
+
+@tool("hub_task_tree", "The nested subtasks with status, owner and worst PR state.",
+      {"id": TASK_ID}, required=("id",))
+def task_tree(api, args):
+    return api.get(f"tasks/{args['id']}/tree")
+
+
+@tool("hub_task_reparent", "Move a task and its subtree under another parent; empty parent_id clears it.",
+      {"id": TASK_ID, "parent_id": _s("New parent id; an explicit empty string clears it", minLength=0)},
+      required=("id", "parent_id"), writes=True)
+def task_reparent(api, args):
+    current = api.get(f"tasks/{args['id']}")["task"]
+    return api.post(f"tasks/{args['id']}", {"version": current["version"], "parent_id": args["parent_id"]}, key=_key(args))
+@tool("hub_task_worktree_add", "Create a task worktree from a repository this bot may write.",
+      {"repo": _s("Repository owner/name"), "task": TASK_ID}, required=("repo",), writes=True, local=True)
+def task_worktree_add(api, args):
+    from runner.worktrees import command
+    return command(api, 'add', args['repo'], args.get('task'))
+
+
+@tool("hub_task_worktree_attach", "Attach a Git worktree inside the team workspace to this task.",
+      {"path": _s("Path inside the team workspace"), "task": TASK_ID}, required=("path",), writes=True, local=True)
+def task_worktree_attach(api, args):
+    from runner.worktrees import command
+    return command(api, 'attach', args['path'], args.get('task'))
 
 
 @tool("hub_task_show", "One task with its history and conversation.", {"id": TASK_ID}, required=("id",))
@@ -1752,7 +1824,7 @@ tool("hub_bot_resume", "Resume a paused bot, as the person who asked you; one wi
 
 
 @tool("hub_computer_list", "The computers a bot may go on, as the person who asked you: label, whether it is online, whether it "
-      "takes members' bots, which bots run there, installed and wanted releases, update state, last error and service readiness.", {})
+      "takes members' bots, which bots run there, release (Tico), version (runner software), wanted release, update state, last error and service readiness.", {})
 def computers(api, args):
     return _as_person(api).get("computers")
 
@@ -2210,6 +2282,37 @@ def calendar_status(api, args):
     return api.get("calendar/actions/" + args["id"])
 
 
+@tool("hub_repo_list", "List the team’s repositories and new bot default.", {})
+def repo_list(api, args):
+    return _as_person(api).get("repositories")
+
+
+@tool("hub_repo_update", "Tick a repository or set its setup command (owner or admin).",
+      {"full_name": _s("owner/repo"), "enabled": {"type": "boolean"}, "setup_command": _s("Setup command")},
+      required=("full_name",), writes=True)
+def repo_update(api, args):
+    return _as_person(api).call("PUT", "repositories/" + args["full_name"],
+        {k: args[k] for k in ("enabled", "setup_command") if k in args}, key=_key(args))
+
+
+@tool("hub_bot_repos_get", "Read a bot’s own, all or chosen repository access.",
+      {"bot": _s("Bot slug")}, required=("bot",))
+def bot_repos_get(api, args):
+    return _as_person(api).get(f"bots/{args['bot']}/repositories")
+
+
+@tool("hub_bot_repos_set", "Set a bot’s repository access (owner or admin).",
+      {"bot": _s("Bot slug"), "mode": _s("Access mode", enum=["own", "all", "chosen"]),
+       "all_access": _s("Default access for all repos", enum=["read", "write"]),
+       "chosen": {"type": "array", "items": {"type": "object", "properties": {
+           "full_name": _s("owner/repo"), "access": _s("Access", enum=["read", "write"])},
+           "required": ["full_name", "access"], "additionalProperties": False}}},
+      required=("bot", "mode"), writes=True)
+def bot_repos_set(api, args):
+    return _as_person(api).call("PUT", f"bots/{args['bot']}/repositories",
+        {k: args[k] for k in ("mode", "all_access", "chosen") if k in args}, key=_key(args))
+
+
 @tool("hub_bot_repo_create", "Owner or the BotOps bot: create the private repository bot-<slug> in the "
       "connected GitHub organization from a template (default ticoteam/botops), or empty when the bot's "
       "repository already exists on a computer. Answers with how to create it by hand when the team's "
@@ -2478,7 +2581,7 @@ def docs_fetch(api, args):
 # the hub cannot reach, so BotOps runs them in a shell. Everything else is in both doors.
 # `hub_db` runs where the database credential is, on the runner; the server's MCP endpoint
 # has neither the credential nor any business connecting to a team database.
-SHELL_ONLY = {"hub_bot_check", "hub_db"}
+SHELL_ONLY = {"hub_task_worktree_setup", "hub_bot_check", "hub_db"}
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 
@@ -2506,9 +2609,10 @@ REQUESTER = PEOPLE + BOTOPS
 REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
-ASSISTANT_WRITES = {"hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
+ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
                     "hub_update_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
+    **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,
     "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
@@ -2520,7 +2624,7 @@ AUDIENCE = {
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
-    **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete")},
+    **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,
@@ -2719,7 +2823,9 @@ class Protocol:
         kind = self.kind()
         if kind and kind not in offered_to(entry):
             return self._tool_error(rid, {"error": "forbidden", "detail": f"{name} is not available to you", "retryable": False})
-        missing = [k for k in entry["inputSchema"].get("required", []) if args.get(k) in (None, "")]
+        properties = entry["inputSchema"].get("properties", {})
+        missing = [k for k in entry["inputSchema"].get("required", [])
+                   if args.get(k) is None or args.get(k) == "" and properties.get(k, {}).get("minLength") != 0]
         if missing:
             return self._tool_error(rid, {"error": "usage", "detail": f"{name} needs {', '.join(missing)}",
                                           "retryable": False})

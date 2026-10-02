@@ -12,7 +12,8 @@ function route() {
   document.body.classList.toggle('bot-page', !!botHere);   // a phone gives the bot page the whole screen
   window.TicoObservability?.route(S.route);
   document.body.classList.remove('mobile-composer-focus');
-  $('#main').classList.remove('chat-layout', 'bot-chat-layout', 'mail-layout', 'messaging-layout', 'docs-layout', 'market-layout');
+  $('#main').classList.remove('chat-layout', 'bot-chat-layout', 'mail-layout', 'messaging-layout', 'docs-layout', 'market-layout', 'tasks-layout');
+  document.body.classList.remove('task-peek-open');
   if (!(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) window.marketStop?.();
   taskChatStop(); $('#task-modal')?.close();
   if (!S.route.startsWith(DOCS)) DOC_LOAD++;
@@ -20,7 +21,7 @@ function route() {
   // its accumulated page, so returning re-reads the server instead of drawing a stale list.
   if (!S.route.startsWith(MAIL)) { MAIL_LOAD++; clearTimeout(MAIL_SEARCH); mailForget(); }
   if (!S.route.startsWith(MESSAGING)) { MESSAGING_LOAD++; MESSAGING_LIST = null; }
-  convStop(); meetStop(); onbStop(); TASKS_ST = null; // page-local work never outlives its page
+  convStop(); meetStop(); onbStop(); TASKS_ST?.layoutAbort?.abort(); TASKS_ST = null; // page-local work never outlives its page
   if (S.route !== '#/usage') USE = null;
   if (UPD && !(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; }
   if (!S.route.startsWith('#/bot/')) botStopped();
@@ -43,14 +44,17 @@ function route() {
     const parts = S.route.slice(9).split('/').map(decodeURIComponent);
     pagePerson(parts[0], parts[1]);
   }
-  else if ([TASKS, BOARD, ISSUES, RECURRING].includes(S.route)) {
-    pageTasks(S.route === BOARD ? 'board' : S.route === ISSUES ? 'list' : S.route === RECURRING ? 'recurring' : '');
+  else if (isTasksRoute(S.route)) {
+    // #/tasks?owner=bot:eng&tag=bug: the filters ride in the query (ui/app/task-list.js)
+    const base = S.route.split('?')[0];
+    pageTasks(base === BOARD ? 'board' : base === ISSUES ? 'list' : base === RECURRING ? 'recurring' : '');
   }
   else if (S.route === UPDATES || S.route.startsWith(UPDATES + '?')) pageUpdates();
   else if (S.route === GOALS || S.route.startsWith(GOALS + '/') || S.route.startsWith(GOALS + '?')) pageGoals();
   else if (S.route === SETTINGS) pageSettings();
   else if (S.route === HELP) pageHelp();
   else if (S.route === '#/getting-started') { location.replace(TASKS); return; }   // the checklist is gone
+  else if (S.route === '#/repositories') { SETTINGS_TAB = 'repos'; location.replace(SETTINGS); return; }   // Settings > Repositories
   else if (S.route === '#/health') { SETTINGS_TAB = 'health'; location.replace(SETTINGS); return; }   // Health moved into Settings
   else if (S.route === CREDENTIALS) pageCredentials();
   else if (S.route === SQL_PAGE) pageSql();

@@ -1,23 +1,19 @@
-/* The Files card on a bot's page (docs/files.md): what the bot created, revised or delivered, newest
-   activity first, as a plain list of icon and name. Three rows; "Show all" opens the rest inline, a
-   page at a time. A stored file opens in Tico's own viewer (deps.openFile), a linked document at its
+/* The Files section of a bot's right rail (docs/files.md): what the bot created, revised or delivered,
+   newest activity first, as a plain list of names. Three rows; a small "+N" opens the rest inline, a
+   page at a time, and "Less" folds them back. No files, no section. A stored file opens in Tico's own viewer (deps.openFile), a linked document at its
    provider in a new tab (the provider decides who may open it). Adding a link, promoting and removing
    are the API and the bot's own tools (PATCH /api/v2/files/{id}), not buttons here.
    ui/app/bot-page.js calls window.botFiles.mount(host, deps) once per bot page; deps keeps this file free
    of the page's globals (get, esc, openFile). */
 (function () {
-  const FILE_ICONS = {document: 'article', spreadsheet: 'view_list', slides: 'view_kanban', image: 'auto_awesome',
-    data: 'api', design: 'link', link: 'link', file: 'article'};
   const SHORT = 3, PAGE = 20;
 
   const css = `
-.bot-files{margin:0 0 var(--s3,12px)}
-.bot-files .bf-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
-.bot-files .bf-row:first-of-type{border-top:0}
-.bot-files .bf-icon{font-size:20px;width:20px;height:20px;color:var(--muted)}
-.bot-files .bf-name{min-width:0;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.bot-files a.bf-name:hover{text-decoration:underline}
-.bot-files .bf-foot{display:flex;gap:10px;align-items:center;padding-top:8px;border-top:1px solid var(--line)}
+.bot-files .bf-row{display:block;padding:3px 0;min-height:24px;font-size:13px;line-height:18px}
+.bot-files .bf-name{min-width:0;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.bot-files a.bf-name{color:var(--accent-quiet)}
+.bot-files a.bf-name:hover{color:var(--accent);text-decoration:underline}
+.bot-files .bf-foot{display:flex;gap:10px;align-items:center;padding-top:2px}
 .bot-files .bf-err{color:var(--fail);font-size:12.5px}`;
 
   const httpsOnly = url => { try { return new URL(url).protocol === 'https:' ? url : ''; } catch { return ''; } };
@@ -49,25 +45,26 @@
     function row(f) {
       const link = f.locator === 'remote_link';
       const url = link ? httpsOnly(f.open?.url) : f.open?.url;
-      const icon = `<span class="nav-icon bf-icon" aria-hidden="true">${FILE_ICONS[f.kind] || FILE_ICONS.file}</span>`;
       const name = esc(f.title);
       // A file that never synced has nothing to open: its name is plain text.
       const label = !url ? `<span class="bf-name" title="${esc(f.title)}">${name}</span>` : link
         ? `<a class="bf-name" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-bf-open="external" title="${esc(f.title)}">${name}</a>`
         : `<a class="bf-name" href="${esc(url)}" data-bf-open="tico" data-bf-id="${esc(f.id)}" data-bf-file="${esc(f.name || f.title)}" title="${esc(f.title)}">${name}</a>`;
-      return `<div class="bf-row" data-file="${esc(f.id)}">${icon}${label}</div>`;
+      return `<div class="bf-row" data-file="${esc(f.id)}">${label}</div>`;
     }
 
     function render() {
       const shown = state.expanded ? state.rows : state.rows.slice(0, SHORT);
       const hasMore = state.expanded && state.cursor;
-      host.hidden = false;
-      host.innerHTML = `<header><h2>Files</h2></header>
+      const left = Math.max(0, state.total - shown.length);
+      // Nothing to list is no section at all; an error still says so.
+      host.hidden = !shown.length && !state.error;
+      host.innerHTML = `<h2 class="rail-h">Files</h2>
         ${state.error ? `<div class="bf-err" role="alert">${esc(state.error)}</div>` : ''}
-        ${shown.length ? shown.map(row).join('') : state.error ? '' : '<div class="empty">No files yet.</div>'}
+        ${shown.map(row).join('')}
         ${state.total > SHORT || hasMore ? `<div class="bf-foot">${state.expanded
-          ? `${hasMore ? '<button class="ghost" type="button" data-bf-more>Show more</button>' : ''}<button class="ghost" type="button" data-bf-less>Show less</button>`
-          : `<button class="ghost" type="button" data-bf-all>Show all ${state.total}</button>`}</div>` : ''}`;
+          ? `${hasMore ? `<button class="rail-more" type="button" data-bf-more aria-label="Show ${left} more">+${left}</button>` : ''}<button class="rail-more" type="button" data-bf-less aria-label="Show fewer">Less</button>`
+          : `<button class="rail-more" type="button" data-bf-all aria-label="Show all ${state.total}">+${left}</button>`}</div>` : ''}`;
     }
 
     host.onclick = async event => {

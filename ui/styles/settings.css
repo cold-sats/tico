@@ -240,9 +240,104 @@ p:empty{display:none}
 .transition-dialog{width:min(580px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .transition-body{padding:16px 18px 18px}.transition-progress{margin:12px 0;padding:10px;border-radius:7px;background:var(--bg)}
 .transition-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-@media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input,.tcontrols select,.tcontrols input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
+@media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
 /* Settings header: Dark, Light or System for this browser (ui/theme.js) */
 .theme-seg{display:inline-flex;flex:none;background:var(--surface2);border-radius:999px;padding:3px}
 .theme-seg button{border:0;background:none;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
 .theme-seg button:hover{color:var(--ink)}
 .theme-seg button[aria-checked=true]{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+/* Settings > Repositories (ui/app/settings-repositories.js): one 28px row per repository, thin dividers */
+.repos-card>header{align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
+.repos-card .spacer{flex:1}
+.repos-bots{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap}
+button.repos-small{padding:3px 9px;font-size:12px}
+.repos-line{margin:0;font-size:13px;color:var(--muted)}
+.repos-line a{color:var(--accent)}
+.repos-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;padding:0 0 var(--s2);border-bottom:1px solid var(--line)}
+.repos-k,.brepo-k{font-size:12px;color:var(--muted);white-space:nowrap}
+input[type=search].repos-filter{flex:0 1 220px;margin-left:auto;padding:4px 10px 4px 30px;font-size:12.5px;background-position:9px center}
+.repos-list,.brepo-list{list-style:none;margin:0;padding:0}
+.repos-list>.empty,.brepo-list>.empty{padding:var(--s2) 0}
+.repo-row{display:grid;grid-template-columns:minmax(0,1.1fr) 84px minmax(0,1.5fr) 92px;align-items:center;gap:10px;min-height:28px;padding:1px 0;border-bottom:1px solid var(--line);font-size:13px}
+.repo-row:last-child{border-bottom:0}
+.repo-name{display:flex;align-items:center;gap:4px;min-width:0;color:var(--ink);cursor:pointer}
+.repo-name>span:not(.repo-tag){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repo-name input:disabled+span{cursor:default}
+.repo-org{color:var(--muted)}
+.repo-row:not(.on) .repo-name>span:not(.repo-tag){color:var(--muted)}
+.repo-row:not(.on) .repo-org{opacity:.8}
+.repo-tag{flex:none;font-size:10.5px;padding:0 5px;border-radius:8px;background:var(--surface2);color:var(--muted)}
+.repo-branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:12px;font-family:var(--mono)}
+.repo-setup{display:flex;align-items:center;gap:6px;min-width:0}
+.repo-setup input{flex:1;min-width:0;height:24px;padding:2px 6px;border-color:transparent;background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px}
+.repo-setup input:hover:not([readonly]){border-color:var(--line)}
+.repo-setup input:focus{color:var(--ink);background:var(--surface)}
+.repo-setup input::placeholder{font-family:var(--sans);opacity:.45}
+.repo-setup input:hover::placeholder,.repo-setup input:focus::placeholder{opacity:.8}
+.repo-setup input[readonly]{background:transparent;cursor:default}
+.repo-src{flex:none;font-size:10.5px;color:var(--muted);opacity:.8;font-family:var(--mono)}
+.repo-state{display:flex;justify-content:flex-end;min-width:0}
+.repo-warn{font-size:11.5px;color:var(--wait);white-space:nowrap}
+/* Two or three choices as one strip of radios (New bots get, a bot's mode, Read or Write) */
+.repo-seg{display:inline-flex;flex:none;background:var(--surface2);border-radius:7px;padding:2px;gap:2px}
+.repo-seg label{position:relative;display:inline-flex;margin:0;cursor:pointer}
+.repo-seg input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.repo-seg span{padding:3px 10px;border-radius:5px;font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+.repo-seg label:hover span{color:var(--ink)}
+.repo-seg input:checked+span{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.repo-seg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:1px}
+.repo-seg input:disabled+span{cursor:default}
+.repo-seg label:has(input:disabled){cursor:default}
+.repo-seg label:has(input:disabled):hover span{color:var(--muted)}
+.repo-seg label:has(input:disabled:checked):hover span{color:var(--ink)}
+.repo-seg-sm span{padding:1px 8px;font-size:11.5px}
+/* A bot's Repositories, in the bot editor */
+fieldset.brepo{display:grid;gap:6px;position:relative;margin:0;padding:var(--s2) 0 0;border:0;border-top:1px solid var(--line);min-width:0}
+fieldset.brepo[hidden]{display:none}
+.brepo-h{padding:0 0 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.brepo-status{position:absolute;right:0;top:var(--s2);font-size:12px}
+.brepo-mode{justify-self:start;max-width:100%}
+.brepo-all{display:flex}
+.brepo-row{display:flex;align-items:center;gap:10px;min-height:28px;border-bottom:1px solid var(--line);font-size:13px}
+.brepo-row:last-child{border-bottom:0}
+.brepo-row .repo-name,.brepo .repo-seg label{display:flex;font-size:13px;color:var(--ink)}
+.brepo-row .repo-name{flex:1;gap:4px}
+.brepo-row:has([data-brepo-pick]:not(:checked)) .repo-seg{visibility:hidden}
+.brepo-eff{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--muted);min-width:0}
+.brepo-eff>span:last-child{display:flex;flex-wrap:wrap;gap:2px 10px;min-width:0}
+.brepo-eff-item{overflow-wrap:anywhere;font-family:var(--mono);font-size:11.5px}
+.brepo-acc{font-family:var(--sans);opacity:.75}
+@media (max-width:760px){
+  .repos-card>header{flex-wrap:wrap}
+  .repo-row{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"name branch state" "setup setup setup";gap:0 8px;padding:4px 0}
+  .repo-name{grid-area:name}.repo-branch{grid-area:branch}.repo-state{grid-area:state}
+  .repo-setup{grid-area:setup;padding-left:20px}
+  .repo-setup input{height:30px}
+  input[type=search].repos-filter{flex:1 1 100%;margin-left:0}
+  .repo-seg span{padding:5px 10px}
+  .brepo-mode{display:flex;justify-self:stretch}.brepo-mode label{flex:1 1 auto;justify-content:center}.brepo-mode span{padding:5px 6px;text-align:center}
+  .repo-seg-sm span{padding:3px 9px}
+  .brepo-row{min-height:36px}
+}
+/* Subscriptions (ui/app/subscriptions.js): Settings > Computers lists each computer's subscriptions and their sign-in,
+   the groups' choice and a one-line add; the bot editor has its own choice and the line under Model. */
+.subs-card #set-subs{display:grid;gap:10px}
+.subs-h{margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.subs-pc+.subs-pc{border-top:1px solid var(--line);padding-top:8px}
+.subs-list{list-style:none;margin:0;padding:0}
+.subs-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:30px;padding:2px 0;font-size:13px}
+.subs-name{flex:0 0 140px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.subs-rt{display:inline-flex;align-items:center;gap:4px}
+.subs-rt .subs-signin{padding:2px 8px;font-size:12px}
+.subs-row .subs-select{width:auto;min-width:160px;max-width:240px;font-size:12.5px;padding:3px 6px}
+.subs-add{display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.subs-add input{flex:1 1 160px;max-width:220px;font-size:12.5px;padding:4px 7px}
+.subs-add select{width:auto;font-size:12.5px;padding:4px 6px}
+.subs-add-msg{font-size:11.5px}
+.sb-sub{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:-4px 0 0 104px;font-size:11.5px;color:var(--muted);min-width:0}
+.sb-sub[hidden]{display:none}
+.sb-sub .pill{font-size:10.5px}
+@media (max-width:760px){
+  .subs-name{flex-basis:100%}
+  .sb-sub{margin-left:0}
+}

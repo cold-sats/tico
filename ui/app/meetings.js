@@ -9,6 +9,7 @@ let MEET = null;
 function meetStop() {
   if (!MEET) return;
   clearInterval(MEET.poll); clearInterval(MEET.sourcesPoll);
+  granolaStop(MEET);   // ui/app/meetings-granola.js
   MEET = null;
 }
 async function pageNotes() {
@@ -19,6 +20,7 @@ async function pageNotes() {
   $('#main').innerHTML = `<div class="notes-head"><h1>Meetings</h1>
       <input type="search" id="notes-search" autocomplete="off" aria-label="Search meetings" placeholder="Search meetings">
       <button class="primary" type="button" id="notes-manual">Add notes</button></div>
+    <section class="meet-granola" id="meet-granola" aria-label="Granola" hidden></section>
     <section class="meet-sources" id="meet-sources" aria-label="Sources"></section>
     <div class="notes" id="notes">
       <section class="notes-list"><div class="notes-filters" id="notes-filters" hidden><select id="notes-when" aria-label="When"><option value="all">Any time</option><option value="today">Today</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="older">Older than 30 days</option></select><select id="notes-person" aria-label="Participant"><option value="">All participants</option></select><select id="notes-source" aria-label="Source"><option value="">All sources</option></select><select id="notes-status" aria-label="Status"><option value="all">All statuses</option><option value="unsent">Not sent</option><option value="sent">Sent</option><option value="sending">Sending</option><option value="failed">Failed</option></select><span class="notes-count muted" id="notes-count"></span></div><div class="notes-rows" id="notes-rows"><div class="notes-empty">Loading…</div></div></section>
@@ -48,6 +50,7 @@ async function pageNotes() {
     clearTimeout(searchTimer); searchTimer = setTimeout(() => meetLoad(state, true), 250);
   };
   meetSources(state);
+  granolaInit(state);   // the viewer's own Granola account: status, then one sync (ui/app/meetings-granola.js)
   await meetLoad(state, true);
   if (MEET !== state) return;
   const query = new URLSearchParams(S.route.split('?')[1] || '');
@@ -95,10 +98,13 @@ function meetSourceState(row, id) {
 function meetTile(state, source, big) {
   const row = (state.sourceRows || []).find(r => r.id === source.id);
   const known = Array.isArray(state.sourceRows);
-  const st = known ? meetSourceState(row, source.id) : {key: '', word: ''};
-  const when = st.key === 'on' ? ago(row.last_import || row.last_success) : '';
-  const label = `${source.name}: ${st.word || 'Connect'}${when ? ', last import ' + when : ''}`;
-  const attrs = source.id === 'close' ? `href="${INTEGRATIONS}/close-crm"` : `type="button" data-msrc="${esc(source.id)}"${S.me?.role === 'owner' ? '' : ' disabled title="The owner connects sources"'}`;
+  // Granola with account sign-in is per person: the tile shows the viewer's own connection and anyone can use it.
+  const account = source.id === 'granola' && !!state.granola;
+  const mine = account ? granolaTileState(state) : null;
+  const st = mine || (known ? meetSourceState(row, source.id) : {key: '', word: ''});
+  const when = mine ? (mine.when ? ago(mine.when) : '') : st.key === 'on' ? ago(row.last_import || row.last_success) : '';
+  const label = `${source.name}: ${st.word || 'Connect'}${when ? (mine ? ', synced ' : ', last import ') + when : ''}`;
+  const attrs = source.id === 'close' ? `href="${INTEGRATIONS}/close-crm"` : `type="button" data-msrc="${esc(source.id)}"${S.me?.role === 'owner' || account ? '' : ' disabled title="The owner connects sources"'}`;
   return `<${source.id === 'close' ? 'a' : 'button'} class="meet-tile${big ? ' big' : ''}" data-state="${st.key}" ${attrs} aria-label="${esc(label)}">
       ${meetLogo(source.id, big ? 40 : 30)}<span class="mt-text"><b>${esc(source.name)}</b><span class="mt-status">${st.key && st.key !== 'off' ? '<i class="dot" aria-hidden="true"></i>' : ''}${esc(st.word)}${when ? ` <span class="mt-when">${esc(when)}</span>` : ''}</span></span></${source.id === 'close' ? 'a' : 'button'}>`;
 }
@@ -106,6 +112,7 @@ const meetTilesHTML = (state, big) => MEET_SOURCES.map(s => meetTile(state, s, b
 function meetWireTiles(state, root) {
   root.querySelectorAll('[data-msrc]').forEach(b => b.onclick = () => {
     const source = MEET_SOURCES.find(s => s.id === b.dataset.msrc);
+    if (source.id === 'granola' && state.granola) return granolaFromTile(state);
     if (window.openMeetingImporter) window.openMeetingImporter(source.id, source.name, () => meetSources(state));
   });
 }

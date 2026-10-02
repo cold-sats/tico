@@ -1,7 +1,6 @@
 /* ui/styles/task-modal.css — Task modal: labels, links, comments, conversation shortcut, Ask this doc.
    The cascade runs in the order index.html links these files; keep rules in order. */
-/* tasks board: labels, links, comments */
-.board.cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+/* tasks: labels, links, comments */
 .tfilters{display:flex;gap:6px;align-items:center}
 .tlabel{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);white-space:nowrap}
 .tlabel .x,.tlink .x{border:0;background:none;color:inherit;cursor:pointer;padding:0 0 0 2px;font-size:12px;line-height:1}
@@ -11,19 +10,10 @@
 .tlink.pr.merged,.tlink.pr.shipped{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ok)}
 .tlink.pr.closed{color:var(--muted);border-color:var(--line)}
 .tparts{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-.bcard-extras{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;align-items:center}
-.trow-extras{display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle}
-.trow-btn.small{font-size:12.5px;padding:5px 2px;grid-template-columns:22px 1fr auto}
 [draggable="true"]{cursor:grab}
 .dragging{opacity:.4}
-.bcard.drop-before,.trow-btn.drop-before{box-shadow:0 -2px 0 0 var(--accent)}
-.bcard.drop-after,.trow-btn.drop-after{box-shadow:0 2px 0 0 var(--accent)}
-.bcol.drop-col{outline:2px dashed var(--accent);outline-offset:-2px}
-.v2-group.drop-col{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
 .tmeta .linkish{font:inherit;font-size:inherit}
 .tsection{margin:12px 0}
-.trow2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media (max-width:640px){.trow2{grid-template-columns:1fr}}
 .tlabels,.tlinks{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .tlabels form.inline,.tlinks form.inline{display:inline-flex;margin:0}
 .tlabels form.inline input,.tlinks form.inline input{font-size:12px;padding:2px 6px;width:auto}
@@ -39,9 +29,6 @@
 #task-modal:has(.task-file-preview:not([hidden])){width:min(1000px,calc(100vw - 32px))}
 .tcriteria{margin:4px 0 0 18px;padding:0}
 .tchildren{display:flex;flex-direction:column}
-.tcontrols{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:12.5px;color:var(--muted);padding:10px;background:var(--surface2);border-radius:8px}
-.tcontrols label{display:inline-flex;align-items:center;gap:6px}
-.tcontrols select{width:auto;max-width:220px;font-size:12.5px;padding:3px 6px}
 .task-comments{max-height:320px;overflow:auto;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:8px;padding:4px 0}
 /* comments read like the chat column: a person's in a bubble, a bot's on the page */
 .tcomment{background:var(--bubble);border-radius:12px;padding:8px 12px;font-size:var(--read-size);line-height:var(--read-leading)}
@@ -58,27 +45,3 @@
 .chat-btn svg{width:17px;height:17px;display:block}
 .chat-btn:hover{color:var(--accent);background:var(--surface2)}
 .issue-actions .chat-btn{border:1px solid var(--line);border-radius:6px;width:30px;height:30px}
-@media (max-width:900px){.board,.board.work,.board.cols-5{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.bcard-open{display:block;color:var(--ink)}
-.bcard-open:hover{text-decoration:none}
-.bcard:hover{background:var(--surface2)}
-.bcard-top{display:flex;align-items:center;gap:5px;min-width:0;color:var(--muted);font-size:11.5px}
-.bcard-top .who{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:11ch}
-.bcard-top .spacer{flex:1}
-.bcard-top .gl{flex:none;font-size:11px;opacity:.7}
-.bcard-title{margin-top:4px;color:var(--ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.bcard-foot{display:flex;align-items:center;gap:var(--s2);margin-top:6px;color:var(--muted);font-size:11.5px}
-.bcard-foot .spacer{flex:1}
-.bcard-foot .from,.trow-btn .from{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-weight:400}
-.bcard-foot .linkish{font-size:11.5px}
-.bcard .issue-compose{margin-top:var(--s2)}
-.bcard .issue-compose textarea{min-height:56px;font-size:12.5px}
-@media (max-width:1100px){.board,.board.work{grid-template-columns:repeat(4,minmax(0,1fr))}.board.cols-5{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media (max-width:760px){
-  .board{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:var(--s2);margin:0 -12px;padding:0 12px 6px}
-  .bcol{flex:0 0 82vw;scroll-snap-align:start}
-  .bcol.is-empty{display:none}   /* an empty first column would otherwise fill the whole first screen */
-  .bcol>header{position:sticky;top:0;z-index:2;background:var(--surface);border-radius:var(--radius) var(--radius) 0 0}
-  .bcol-body{max-height:none}
-  .board-tools select{max-width:none;flex:1}
-}

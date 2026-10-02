@@ -131,15 +131,23 @@ def sync_shared_room(c, auth, bot, actor=None, create=False):
                                scope=SHARED, room_key=bot)
 
 
-def chat_room(c, auth, who, bot):
+def chat_room(c, auth, who, bot, subject=None):
     from .shared_bots import route
     bot = H.actor_id(route(c, who.actor, "bot:" + bot))
     mode = thread_mode(c, bot)
     # Someone who is not a member of the shared room (a person who may write to the bot but is
     # not one of the people it works for) talks to it in a room of their own.
     if mode == SHARED and shared_member(c, auth, who.actor, bot):
-        return sync_shared_room(c, auth, bot, actor=who.actor, create=True)
-    return personal_room(c, who.actor, bot, "Private " + auth.settings.assistant_name + " control room")
+        room = sync_shared_room(c, auth, bot, actor=who.actor, create=True)
+    else:
+        title = "Private " + auth.settings.assistant_name + " control room" if bot == "coo" else (
+            "Chat with " + ((H.bot(c, bot) or {}).get("display_name") or bot))
+        room = personal_room(c, who.actor, bot, subject or title)
+        if room["subject"] == "Private " + auth.settings.assistant_name + " control room" and bot != "coo":
+            c.execute("UPDATE conversations SET subject=? WHERE id=?", (subject or title, room["id"]))
+        if subject and room["subject"] in (title, "Private " + auth.settings.assistant_name + " control room"):
+            c.execute("UPDATE conversations SET subject=? WHERE id=?", (subject, room["id"]))
+    return H.conversation(c, room["id"])
 
 
 def work_room(c, auth, bot, requester):
@@ -164,7 +172,7 @@ def work_room(c, auth, bot, requester):
     if not human:
         return None
     subject = ("Private " + auth.settings.assistant_name + " control room") if bot == "coo" else (
-        "Private " + ((H.bot(c, bot) or {}).get("display_name") or bot) + " room")
+        "Chat with " + ((H.bot(c, bot) or {}).get("display_name") or bot))
     return personal_room(c, human, bot, subject)
 
 

@@ -612,7 +612,16 @@ class Auth:
         clear = ("NOT (owner IN %s OR requester IN %s)" % ((A.qlist(hidden),) * 2)) if hidden else "1"
         me = A.q(who.actor)
         if who.role == "bot":
-            return (f"({me} IN (owner,requester) OR ({clear} AND id IN (SELECT task_id FROM {delegations} "
+            # Materialize ancestry before SQL installs its guarded views: a recursive view
+            # would otherwise need access to the unfiltered tasks table during execution.
+            managed = [r[0] for r in c.execute("WITH RECURSIVE managed(id) AS ("
+                "SELECT child.id FROM tasks child JOIN tasks parent ON child.parent_id=parent.id "
+                "WHERE ? IN (parent.owner,parent.requester) UNION "
+                "SELECT child.id FROM tasks child JOIN managed ON child.parent_id=managed.id) "
+                "SELECT managed.id FROM managed JOIN tasks t ON t.id=managed.id WHERE ? NOT IN (t.owner,t.requester)",
+                (who.actor, who.actor))]
+            return (f"({me} IN (owner,requester) OR ({clear} AND id IN {A.qlist(managed)}) OR "
+                    f"({clear} AND id IN (SELECT task_id FROM {delegations} "
                     f"WHERE delegate={me} AND expires>{A.q(H.now())})))")
         return f"({clear} OR {me} IN (owner,requester))"
 
@@ -805,6 +814,7 @@ class Auth:
         if who.role == "owner":
             return row
         participants = (row["owner"], row["requester"])
+        ancestor_party = who.role == "bot" and H.task_ancestor_party(c, who.actor, row)
         if who.actor not in participants:
             # A party to a task always sees it; anyone else needs Read on every bot it involves.
             bots = [H.actor_id(a) for a in participants if str(a).startswith("bot:")]
@@ -813,10 +823,10 @@ class Auth:
                     raise Problem("not_found", "Task not found", 404)
                 if not level["read"]:
                     raise Problem("forbidden", f"This task involves {slug}, whose activity you cannot read", 403)
-        if who.role == "bot" and who.actor not in participants:
+        if who.role == "bot" and who.actor not in participants and not ancestor_party:
             delegated = c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
                                   (row["id"], who.actor, H.now())).fetchone()
-            if not delegated:
+            if not delegated and not H.task_ancestor_party(c, who.actor, row):
                 raise Problem("forbidden", "This task is not assigned or delegated to you", 403)
         return row
 
@@ -850,7 +860,7 @@ class Auth:
 
         number = re.fullmatch(r"#(\d{1,18})", ident)
         if number:
-            rows = readable(H._rows(c.execute("SELECT id,title,owner,requester FROM tasks WHERE number=? AND ("
+            rows = readable(H._rows(c.execute("SELECT id,title,owner,requester,parent_id FROM tasks WHERE number=? AND ("
                                               + visible + ")", (int(number.group(1)),))))
             if rows:
                 return rows[0]["id"]
@@ -858,7 +868,7 @@ class Auth:
 
         if TASK_PREFIX_MIN <= len(ident) < 36:
             rows = readable(H._rows(c.execute(
-                "SELECT id,title,owner,requester FROM tasks WHERE substr(id,1,?)=? AND (" + visible + ") "
+                "SELECT id,title,owner,requester,parent_id FROM tasks WHERE substr(id,1,?)=? AND (" + visible + ") "
                 "ORDER BY created LIMIT 50", (len(ident), ident.lower()))))
             if len(rows) == 1:
                 return rows[0]["id"]
@@ -868,7 +878,7 @@ class Auth:
                                                              for r in rows[:10])), 409)
         if len(ident) >= 34:
             near = []
-            for row in H._rows(c.execute("SELECT id,title,owner,requester FROM tasks WHERE length(id) BETWEEN ? AND ? "
+            for row in H._rows(c.execute("SELECT id,title,owner,requester,parent_id FROM tasks WHERE length(id) BETWEEN ? AND ? "
                                          "AND (" + visible + ")", (len(ident) - 2, len(ident) + 2))):
                 distance = _edit_distance(ident.lower(), row["id"], 2)
                 if distance is not None:

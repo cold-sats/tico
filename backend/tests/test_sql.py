@@ -125,7 +125,8 @@ def test_owner_sees_everything_but_other_peoples_rooms(api, world):
         jobs = c.execute("SELECT count(*) FROM jobs").fetchone()[0]
     # Every queued job but the one Ben's private room raised.
     assert jobs == 5 and len(column(api, "SELECT id FROM jobs")) == 4
-    assert column(api, "SELECT key FROM registry_metadata") == ["access", "access_bot_limit", "bot_access", "credential-file-migration-v1", "credential-file-migration-v2-hub", "docs_migrated", "librarian_wording35", "librarian_wording36", "onboarding", "owner", "people", "usage-count"]
+    # Clone and subscription profile reports have per-computer keys; the rest are fixed.
+    assert column(api, "SELECT key FROM registry_metadata WHERE key NOT LIKE 'computer-repositories:%' AND key NOT LIKE 'computer-profiles:%'") == ["access", "access_bot_limit", "bot_access", "credential-file-migration-v1", "credential-file-migration-v2-hub", "docs_migrated", "librarian_wording35", "librarian_wording36", "onboarding", "owner", "people", "release-history", "repositories-access-migrated", "usage-count"]
 
 
 def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, world):

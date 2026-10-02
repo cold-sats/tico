@@ -21,6 +21,8 @@ COPY = Path(__file__).resolve().parents[1] / "docs" / "openapi" / "v2.json"
 TAGS = {
     "Session": "Who is calling, and how a frontend signs in (docs/custom-frontend.md).",
     "Team": "This installation's names and settings.",
+    "Repositories": "Team repositories and bot repository access.",
+    "Subscriptions": "Named provider logins on Computers and defaults for groups and bots.",
     "Team chart": "Humans and bots, and who reports to whom.",
     "Bots": "The bots a person can see, and their live status.",
     "Conversations": "Chats with bots: send, list, and stream replies.",
@@ -41,6 +43,17 @@ TAGS = {
 
 # Path, method, tag, operationId, summary, name of the 200 answer in ANSWERS.
 STABLE = [
+    ("/api/v2/subscriptions", "get", "Subscriptions", "listSubscriptions", "Profiles and assignments", "SubscriptionList"),
+    ("/api/v2/subscriptions", "put", "Subscriptions", "assignSubscription", "Assign or clear a subscription", "SubscriptionAssignmentResult"),
+    ("/api/v2/bots/{bot}/subscription", "get", "Subscriptions", "getBotSubscription", "Effective bot subscription", "BotSubscription"),
+    ("/api/v2/repositories", "get", "Repositories", "listRepositories", "Team repositories", "RepositoryList"),
+    ("/api/v2/repositories/refresh", "post", "Repositories", "refreshRepositories", "Refresh from GitHub", "RepositoryList"),
+    ("/api/v2/repositories/settings", "put", "Repositories", "setRepositoryDefaults", "New bot repository default", None),
+    ("/api/v2/repositories/{owner}/{repo}", "put", "Repositories", "updateRepository", "Tick or edit a repository", None),
+    ("/api/v2/bots/{bot}/repositories", "get", "Repositories", "getBotRepositories", "Bot repository access", "BotRepositories"),
+    ("/api/v2/bots/{bot}/repositories", "put", "Repositories", "setBotRepositories", "Set bot repository access", "BotRepositories"),
+    ("/api/v2/bots/{bot}/github-repos", "get", "Repositories", "getExtraRepositories", "Chosen write repositories (legacy alias)", None),
+    ("/api/v2/bots/{bot}/github-repos", "put", "Repositories", "setExtraRepositories", "Set chosen write repositories (legacy alias)", None),
     ("/api/v2/me", "get", "Session", "getMe", "The signed-in caller", "Me"),
     ("/auth/login", "get", "Session", "startSignIn",
      "Start browser sign-in (redirects); a frontend passes next and code_challenge", None),
@@ -113,6 +126,8 @@ STABLE = [
      "Server-sent events: bot output deltas with a resumable cursor (after=<id>) and message lists", None),
     ("/api/v2/chat/{bot}", "post", "Conversations", "chatWithBot", "Send a message to a bot (opens the chat if needed)", "ChatResult"),
     ("/api/v2/chat/{bot}/new", "post", "Conversations", "startNewChat", "Archive the current personal chat and start fresh", None),
+    ("/api/v2/conversations/{cid}/goal", "get", "Conversations", "getChatGoal", "Read the pinned goal and commands", "ChatGoalResult"),
+    ("/api/v2/conversations/{cid}/goal", "post", "Conversations", "setChatGoal", "Set, edit, pause, resume or clear a native goal", "ChatGoalResult"),
     ("/api/v2/messages", "post", "Conversations", "sendMessage", "Send a message to a person or bot", "Message"),
     ("/api/v2/messages/{mid}", "get", "Conversations", "getMessage", "One message", "Message"),
     ("/api/v2/task-types", "get", "Tasks", "listTaskTypes", "Task types and their ordered steps", "TaskTypeList"),
@@ -141,6 +156,11 @@ STABLE = [
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
     ("/api/v2/approvals/{aid}", "get", "Needs you", "getApproval", "One approval request", None),
     ("/api/v2/approvals/{aid}", "post", "Needs you", "decideApproval", "Approve or reject", None),
+    ("/api/v2/meetings/granola", "get", "Meetings", "getGranolaStatus", "Your Granola connection", "GranolaStatus"),
+    ("/api/v2/meetings/granola/connect", "post", "Meetings", "connectGranola", "Start personal Granola browser sign-in", "GranolaDevice"),
+    ("/api/v2/meetings/granola/connect/status", "get", "Meetings", "pollGranolaSignIn", "Poll personal sign-in at the provider interval", "GranolaSignIn"),
+    ("/api/v2/meetings/granola/connect", "delete", "Meetings", "disconnectGranola", "Delete your encrypted Granola tokens", "GranolaDisconnect"),
+    ("/api/v2/meetings/granola/sync", "post", "Meetings", "syncGranola", "Start a background sync; reuse the last two minutes", "GranolaSync"),
     ("/api/v2/meetings/search", "get", "Meetings", "searchMeetings", "Search or list recorded meetings", "MeetingSearch"),
     ("/api/v2/meetings/transcript", "get", "Meetings", "getMeetingTranscript", "A meeting's transcript", None),
     ("/api/v2/bots/{bot}/files", "get", "Files", "listBotFiles",
@@ -313,6 +333,16 @@ ACTORS = {"type": "object", "additionalProperties": {"type": "string"},
           "description": "On reads: display names for every actor id in the answer, {\"human:ana\": \"Ana Alvarez\"}"}
 
 SCHEMAS = {
+    "SubscriptionList": obj({"profiles_by_computer": items(obj({"runner_id": "s", "label": "s", "profiles": items(
+        obj({"name": "s", "runtimes": "o"}))})), "assignments": items(obj({"scope": "s", "target": "s", "profile": "s", "updated": "s", "updated_by": "s"}))}),
+    "SubscriptionAssignmentResult": obj({"scope": {"enum": ["group", "bot"]}, "target": "s", "profile": "n"}),
+    "BotSubscription": obj({"profile": "n", "source": "s", "computer": {"anyOf": [obj({"runner_id": "s", "label": "s"}), {"type": "null"}]},
+                            "signed_in": {"type": ["boolean", "null"]}, "problem": "s"}),
+    "ChatGoal": obj({"id": "s", "conversation_id": "s", "bot": "s", "objective": "s", "status": "s",
+                     "note": "s", "set_by": "s", "set_at": "s", "updated_at": "s", "ended_at": "n"},
+                    required=["id", "conversation_id", "bot", "objective", "status", "note", "set_by", "set_at", "updated_at", "ended_at"]),
+    "ChatGoalResult": obj({"goal": {"anyOf": [ref("ChatGoal"), {"type": "null"}]}}, required=["goal"],
+                          supported={"type": "boolean"}, commands=items({"type": "object"})),
     "Message": obj({"id": "s", "conversation_id": "s", "from_actor": "s", "to_actor": "s", "kind": "s", "body": "s",
                     "created": "s", "in_reply_to": "n", "refs": "o"}, required=["id", "conversation_id", "from_actor", "to_actor", "kind", "body", "created", "in_reply_to", "refs"],
                    from_name={"type": "string", "description": "Display name of from_actor, when it is a person or a bot"},
@@ -437,6 +467,15 @@ SCHEMAS = {
         "type": "object", "required": ["id", "kind", "title"], "additionalProperties": True,
         "properties": {"id": {"type": "string"}, "kind": {"enum": ["task", "question", "declined", "approval"]},
                        "title": {"type": "string"}}})}), obj({"actor": "s", "count": "i"})]},
+    "GranolaStatus": obj({"mode": {"type": "string", "enum": ["account", "api_key", "off"]},
+                          "connected": "b", "email": "n", "plan_hint": {"type": ["string", "null"], "enum": ["free", "paid", None]},
+                          "last_sync": "n", "last_error": "n", "imported_count": "i", "needs_signin": "b", "syncing": "b", "skipped": "i"}),
+    "GranolaSignIn": obj({"state": "s", "mode": "s", "connected": "b", "email": "n", "plan_hint": "n",
+                          "last_sync": "n", "last_error": "n", "imported_count": "i", "needs_signin": "b", "syncing": "b", "skipped": "i"}),
+    "GranolaDevice": obj({"user_code": "s", "verification_uri": "s", "verification_uri_complete": "s",
+                          "expires_in": "i", "interval": "i"}, required=["user_code", "verification_uri", "expires_in", "interval"]),
+    "GranolaSync": obj({"state": {"type": "string", "enum": ["syncing", "recent", "off", "needs_signin"]}, "last_sync": "n"}),
+    "GranolaDisconnect": obj({"ok": "b"}),
     "MeetingSearch": obj({"results": "a", "next_offset": {"type": ["integer", "null"]}, "mode": "s"}),
     "InternalDocRow": obj({"id": "s", "path": "s", "title": "s", "updated": "s", "updated_by": "s", "locked": "b", "version": "i"},
                           updated_by_name={"type": "string", "description": "Display name of updated_by"}),
@@ -647,6 +686,15 @@ SCHEMAS.update({
 })
 SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
 
+SCHEMAS.update({
+    "Repository": obj({"full_name": "s", "enabled": "b", "bot_repo": "b", "default_branch": "n",
+                       "setup_command": "n", "setup_source": "n", "reachable": "b", "last_seen": "n"}),
+    "RepositoryList": obj({"repositories": items(ref("Repository")), "new_bot_default": {"enum": ["own", "all"]},
+                           "github_connected": "b"}),
+    "RepositoryGrant": obj({"full_name": "s", "access": {"enum": ["read", "write"]}}),
+    "BotRepositories": obj({"mode": {"enum": ["own", "all", "chosen"]}, "all_access": {"enum": ["read", "write"]},
+                            "chosen": items(ref("RepositoryGrant")), "effective": items(ref("RepositoryGrant"))}),
+})
 ANSWERS = SCHEMAS
 
 # Documentation for the two sign-in routes whose bodies the handlers read by hand.
@@ -666,7 +714,7 @@ PROBLEM = {"type": "object", "required": ["error"], "properties": {"error": {
 DESCRIPTION = (
     "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, "
     "never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. "
-    "Every write needs an `Idempotency-Key` header (1-200 characters; a retry with the same key and body "
+    "Granola connection and sync writes do not require an idempotency key. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body "
     "returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md.")
 
 
@@ -718,8 +766,10 @@ def spec(app):
         op["responses"] = dict(sorted(responses.items()))
         if method in ("post", "patch", "delete") and path.startswith("/api/v2/"):
             op.setdefault("parameters", []).append({
-                "name": "Idempotency-Key", "in": "header", "required": True, "schema": {"type": "string"},
-                "description": "1-200 characters. Reusing a key with the same body replays the first answer."})
+                "name": "Idempotency-Key", "in": "header", "required": not path.startswith("/api/v2/meetings/granola"), "schema": {"type": "string"},
+                "description": ("Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+                                if path.startswith("/api/v2/meetings/granola") else
+                                "1-200 characters. Reusing a key with the same body replays the first answer.")})
         paths.setdefault(path, {})[method] = op
     used = set()
     _refs(paths, used)

@@ -27,6 +27,8 @@ The operation groups below are generated from the committed spec's tags. After r
 |---|---|
 | Session | Who is calling, and how a frontend signs in ([guide](custom-frontend.md)). |
 | Team | This installation's names and settings. |
+| Repositories | Team repositories and bot repository access. |
+| Subscriptions | Named provider logins on Computers and defaults for groups and bots. |
 | Team chart | Humans and bots, and who reports to whom. |
 | Bots | The bots a person can see, and their live status. |
 | Conversations | Chats with bots: send, list, and stream replies. |
@@ -136,8 +138,9 @@ pass an imported ticket's own `number` (`422 duplicate` when it is taken), and `
 in a URL) works wherever a task id does. `step_rank` is a task's place within its step.
 `GET /api/v2/tasks` takes `type`, `step` and `number` filters and `sort=step` for a board in column
 order. A client that polls asks `updated_since=<ISO 8601 with a timezone>` for only the tasks
-changed after that instant (closing, reopening, comments, questions, links and attachments count),
-and `brief=true` to leave out bodies and acceptance criteria.
+changed after that instant (closing, reopening, comments, questions, links and attachments count;
+what only shows in `children_summary` or `pr_state`, such as a subtask moving or a pull request's
+checks and reviews, does not), and `brief=true` to leave out bodies and acceptance criteria.
 
 ## Branches
 

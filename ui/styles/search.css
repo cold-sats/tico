@@ -37,4 +37,3 @@
 .task-orig{margin:8px 0}
 .task-orig>summary{cursor:pointer;color:var(--muted);font-size:12px;padding:4px 0}
 .task-orig>summary:hover{color:var(--ink)}
-.wait-why{display:block;font-size:12px;color:var(--wait);font-weight:600;margin-top:4px;white-space:normal;line-height:1.35}

@@ -690,6 +690,7 @@ class Harnesses:
                     "authenticated": (row.get("authenticated") if path else "missing") or "unknown",
                     "update_available": bool(source == "tools" and newer(latest, installed)),
                     "latest": latest[:100], "wanted": ident in wanted, "state": state, "detail": detail,
+                    **{key: row[key] for key in ("goals", "commands") if key in row},
                 }
         return out
 

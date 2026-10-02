@@ -15,6 +15,9 @@
   --bubble:#2d333c;
   /* The teal, lifted a little so it reads on the neutral ramp: 8.1:1 on --bg, 6.9:1 on --surface2. */
   --accent:#45c09c;--accent-ink:#0b1a15;
+  /* Links in a dense list (a bot's right rail): the accent, a step quieter. Mixed from --accent and --muted, so
+     it follows the theme without a value of its own. */
+  --accent-quiet:color-mix(in srgb,var(--accent) 68%,var(--muted));
   --run:#7fb3f0;--wait:#e2b25a;--fail:#f08080;--idle:#6f7d8b;--ok:#6cc48f;
   --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:var(--g2);
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;

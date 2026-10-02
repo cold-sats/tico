@@ -15,7 +15,7 @@ curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh 
 sh install.sh --version vX.Y.Z --dir "$PWD"
 ```
 
-Replace `vX.Y.Z` with the target release (for this fix release, `v0.2.42`). Update the server first;
+Replace `vX.Y.Z` with the target release (for this release, `v0.3.2`). Update the server first;
 computers follow over the next few minutes. A pinned or offline computer keeps its version until
 unpinned or reconnected; existing bot Credential grants remain in place during that mixed-version window.
 New one-time Credential migrations wait for a runner version that can perform them.
@@ -58,6 +58,11 @@ Health warns when a computer reports that its disk is over 85% full. Free space 
 need to be pulled again if you later roll back. Disk-space update failures say what ran out and retry when free space
 increases, including while the server and computers are on different releases. Older computers that do not report disk
 space keep working; they show the warning after their runner updates.
+
+New base clones need at least 5 GB free or 10% of the workspace volume's capacity, whichever is
+greater. Below that floor the computer reports `disk_low`, with the free space and space needed.
+Free space on that volume to retry. Base clones absent from the computer's repository list for
+30 days are removed; bot folders are left in place.
 
 ## A Mac (or Linux checkout)
 
@@ -116,6 +121,9 @@ services that need a compose change reach existing installs. `.env` is never rep
 The previous files are kept in `.bundle-previous/`. A download or checksum failure refuses the update before anything
 changes; a release that does not turn healthy is rolled back, image and bundle together. Slack and the front door are
 recreated from the new file when it changes them.
+
+`GET /api/v2/system/update` also says which release the server is `running`, the one it ran `previous`ly and a short
+`history`. The server writes these itself at startup, so they stay right after an update done outside the updater.
 
 Before it switches the server image, the updater takes a consistent SQLite snapshot (`sqlite3` backup API, run in the
 server container) into `/data/snapshots/pre-update-<version>-<time>.sqlite` and keeps the last three. A new version can
@@ -215,7 +223,7 @@ bot had before is kept in the repository's history. The bot's own notes, knowled
   run once in `/opt/tico-runner`:
 
   ```
-  sed -i 's/^TICO_UPDATER_TAG=.*/TICO_UPDATER_TAG=v0.2.42/' .env && docker compose -f runner.compose.yaml up -d updater
+  sed -i 's/^TICO_UPDATER_TAG=.*/TICO_UPDATER_TAG=v0.3.2/' .env && docker compose -f runner.compose.yaml up -d updater
   ```
 
 - **v0.2.16 to v0.2.18:** the update is in the app, with no manual steps. Browser tabs left open show "New version · Reload".

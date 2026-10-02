@@ -36,7 +36,7 @@ button.linkish{border:0;background:none;padding:0;color:var(--accent);cursor:poi
    and the goal folds to one line under it that opens on a tap. */
 .bot-top{display:flex;align-items:stretch;gap:var(--s3);margin:0 0 var(--s3);flex:none}
 .bot-back-arrow{display:none}
-.bot-ident{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;max-width:260px;order:1}
+.bot-ident{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;max-width:340px;order:1}
 .bot-ident .botid{min-width:0;flex:1}
 .bot-ident h1{font-size:15px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-ident .meta{margin-top:2px;min-width:0}.bot-ident .meta:empty{display:none}
@@ -58,7 +58,7 @@ button.linkish{border:0;background:none;padding:0;color:var(--accent);cursor:poi
 .bot-goal-main{display:flex;align-items:center;gap:7px;min-width:0;color:inherit}
 a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title{color:var(--accent)}
 .bot-goal-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:600}
-.bot-goal-set{flex:none}
+.bot-goal-set{flex:none;color:var(--accent-quiet)}.bot-goal-set:hover{color:var(--accent)}
 .bot-goal-row{padding:8px 0;border-top:1px solid var(--line)}.bot-goal-row:first-child{border-top:0;padding-top:0}
 .person-edit-btn{font-size:13px;font-weight:400;margin-left:8px;vertical-align:middle}
 .person-notify{display:inline-flex;align-items:center;gap:10px;cursor:pointer}
@@ -73,32 +73,62 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .bot-switch button{flex:none;border:0;border-radius:7px;background:none;padding:5px 10px;color:var(--muted);font-weight:600;font-size:13px;cursor:pointer}
 .bot-switch button.cur{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .bot-back{display:inline-block;margin:0 0 var(--s3);font-size:13px}
-.bot-recurring>header{display:flex;align-items:center;gap:8px;margin-bottom:var(--s2)}
-.bot-recurring>header .linkish{margin-left:auto;font-size:12.5px;text-decoration:none}
+/* The right rail (#pane-tasks), after BotDesk: plain sections split by 1px lines, small muted headings,
+   rows about 28px tall, one short muted line or no section at all when empty, and a small "+N" instead of
+   a button. On a desktop it runs the full height of the page beside the top bar and chat (chat.css). */
+.rail-sec{padding:var(--s2) 0 10px;border-top:1px solid var(--line)}
+.rail-sec:first-child{border-top:0}
+.rail-h{display:flex;align-items:center;gap:6px;min-height:22px;margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.rail-h .cnt{font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums}
+.rail-head{display:flex;align-items:center;gap:6px;min-height:22px;margin:0 0 2px}
+.rail-head .rail-h{margin:0;min-height:0}
+.rail-head .spacer{flex:1}
+.rail-head .upd-dot{margin-left:0;width:6px;height:6px}
+.rail-age{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.rail-ico{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;margin:-2px -4px -2px 0;border-radius:5px;color:var(--muted);opacity:.7}
+.rail-ico:hover,.rail-ico:focus-visible{opacity:1;color:var(--ink);background:var(--surface2);text-decoration:none}
+.rail-ico .nav-icon{font-size:16px;width:16px;height:16px;color:inherit}
+.rail-empty{font-size:12.5px;color:var(--muted);padding:1px 0}
+.rail-more{border:0;background:none;padding:1px 0;margin:0;font:inherit;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;font-variant-numeric:tabular-nums}
+.rail-more:hover{color:var(--ink)}
+.rail-more:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.bot-rail a{color:var(--accent-quiet)}
+.bot-rail a:hover{color:var(--accent)}
+.rail-fold:not([open]){padding-bottom:var(--s2)}
+.rail-fold>summary{cursor:pointer;list-style:none;margin:0}
+.rail-fold>summary::-webkit-details-marker{display:none}
+.rail-fold>summary::before{content:"";flex:none;border-left:4px solid currentColor;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform .12s}
+.rail-fold[open]>summary::before{transform:rotate(90deg)}
+.rail-fold>summary:hover{color:var(--ink)}
+.rail-fold>summary:focus:not(:focus-visible){outline:none}
+/* Updates: the latest one's text in small type; a long one folds behind "More". */
+.bot-latest .upd-body{margin:0;font-size:12.5px;line-height:1.5;cursor:auto;max-height:9em;overflow:hidden}
+.bot-latest .upd-body.open{max-height:none}
+.bot-latest .upd-body ul{padding-left:16px}.bot-latest .upd-body li{margin:1px 0}.bot-latest .upd-body p{margin:0 0 4px}
+.bot-latest .upd-body h1,.bot-latest .upd-body h2,.bot-latest .upd-body h3{font-size:12.5px}
+/* Recurring: one line a routine, its name, how often, and when it runs next. */
 .bot-recurring-list{list-style:none;margin:0;padding:0}
-.bot-recurring-list li{display:flex;align-items:center;gap:var(--s3);padding:7px 0;border-top:1px solid var(--line);font-size:13px}
-.bot-recurring-list li:first-child{border-top:0}
+.bot-recurring-list li{display:flex;align-items:baseline;gap:8px;min-height:24px;padding:3px 0;font-size:13px;line-height:18px}
+.bot-recurring-list .ttl{flex:0 1 auto;max-width:62%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bot-recurring-list .when{flex:1 1 0;min-width:0;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-recurring-list li.paused .ttl{color:var(--muted)}
-.bot-recurring-what{flex:1;min-width:0;display:flex;flex-direction:column}
-.bot-recurring-what .ttl{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bot-recurring-what .when{color:var(--muted);font-size:12px}
-.bot-recurring-next{flex:none;font-size:12px;text-align:right}
-/* the bot's tasks: one flat Active list, a title of up to two lines with the other party beside it,
-   and the state as a small muted word under the title, never over it */
-#pane-tasks .card.tasks>header h2 .cnt{margin-left:4px;color:var(--muted);font-weight:400;font-size:12px}
-#pane-tasks .trow[data-task-version] summary{grid-template-columns:18px minmax(0,1fr) auto;grid-template-areas:"ic ttl who";gap:0 10px;align-items:center}
+.bot-recurring-next{flex:none;font-size:12px;color:var(--muted)}
+/* The bot's tasks: one flat list, the state as a small icon, the title, and the avatar of whoever holds it;
+   no lines between rows */
+#pane-tasks .trow{border-bottom:0}
+#pane-tasks .trow summary{padding:4px;margin:0 -4px;min-height:28px;font-size:13px;line-height:18px}
+#pane-tasks .trow[data-task-version] summary{grid-template-columns:16px minmax(0,1fr) auto;grid-template-areas:"ic ttl who";gap:0 8px;align-items:center}
 #pane-tasks .trow[data-task-version] summary .pill,#pane-tasks .trow[data-task-version] summary .tnum,#pane-tasks .trow[data-task-version] summary .tags{display:none!important}
-#pane-tasks .trow[data-task-version] summary .st-ic{grid-area:ic;display:inline-flex}
+#pane-tasks .trow[data-task-version] summary .st-ic{grid-area:ic;display:inline-flex;width:16px;height:16px;font-size:11px}
+#pane-tasks .trow[data-task-version] summary .st-ic .nav-icon{font-size:15px}
 #pane-tasks .trow[data-task-version] summary .who-av{grid-area:who;display:inline-flex}
-#pane-tasks .trow[data-task-version] summary .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.35}
-#pane-tasks .trow[data-task-version] summary .pill{grid-area:st;justify-self:start;padding:0;background:none;color:var(--muted);font-size:11.5px;font-weight:400}
-#pane-tasks .trow[data-task-version] summary .tnum{grid-area:tm;display:block;font-size:11.5px}
-#pane-tasks .trow[data-task-version] summary .tags{grid-area:who;align-self:center;min-width:0;max-width:130px;overflow:hidden}
-#pane-tasks .trow[data-task-version] summary .tags .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
-.bot-done{margin:0 0 var(--s4);padding:0 var(--s4)}
-.bot-done>summary{cursor:pointer;color:var(--muted);font-size:12.5px;padding:4px 0}
-.bot-done>summary:focus:not(:focus-visible){outline:none}
-.bot-done[open]{padding-bottom:var(--s2)}
+#pane-tasks .trow summary .who-av .av{width:18px!important;height:18px!important;font-size:8px!important}
+#pane-tasks .trow[data-task-version] summary .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}
+#pane-tasks .trow .tbody{padding:2px 0 10px 24px;font-size:12.5px}
+#main.bot-split-layout #pane-tasks .trow[data-task-version] summary .ttl{display:block;white-space:nowrap;text-overflow:ellipsis}
+/* the top bar: the bot's name, its runtime mark and up to three tool icons on one line */
+.bot-nameline{display:flex;align-items:center;min-width:0}
+.bot-nameline h1{min-width:0;flex:0 1 auto}
 @media (min-width:1100px){.bot-top .bot-switch{display:none}}
 @media (max-width:1099px){
   .bot-back,.bot-more-btn{display:none}   /* Chat · Tasks · More in the top line is the way around */
@@ -119,6 +149,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 @media (max-width:760px){
   .bot-top{flex-wrap:nowrap}
   .bot-top>.bot-goal{display:none}            /* the goal lives in More on a phone */
+  #bot-tool-strip{display:none}               /* no room beside the name; the Tools card under More has them */
   #pane-more>.bot-goal{margin:0 0 12px}
   .bot-top .bot-switch{margin-left:auto;border:0;background:none;padding:0;gap:0}
   .bot-switch button{display:inline-flex;align-items:center;justify-content:center;width:38px;height:36px;padding:0;border-radius:8px}

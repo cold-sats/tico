@@ -2,7 +2,7 @@
 
 Your team gets GitHub access through a GitHub App that the owner creates in the team's own
 GitHub organization. Tico holds no shared token: for every run Tico asks GitHub for a token that
-works on that one bot's repository (and any extra ones the owner allowed) and expires within the hour. Without a connected app nothing
+works on that bot's own repository and its effective repository grants and expires within the hour. Without a connected app nothing
 changes; bots keep using whatever git access their computer already has.
 
 ## Permissions and why
@@ -15,14 +15,11 @@ changes; bots keep using whatever git access their computer already has.
 | Metadata | read | required by GitHub for every app |
 | Administration | write, optional | create bot repositories and delete repositories the Owner requests; omit it by leaving the box unchecked |
 
-The app is private, has no webhook (nothing here needs GitHub to call Tico), and requests no
+The app is private, receives installation change webhooks to refresh the repository list when its webhook is active, and requests no
 workflow permission, so a bot cannot change `.github/workflows` files. Add Workflows: write on the
 app's GitHub settings page if a bot's repository needs that.
 
-Run tokens ask for exactly the four non-administration permissions and only the bot's own repository
-plus the extra repositories the owner listed for it.
-The runner cannot pick the repository: Tico reads it from the bot's configuration, and refuses a
-bot the caller does not run or a repository outside the connected organization.
+Run tokens carry write permissions for write grants and contents read for read grants. Mixed grants use separate tokens; see [Repositories](repositories.md). Tico checks the bot's own repository and effective grants, and refuses a bot the caller does not run or a repository outside the connected organization.
 
 ## Set up
 
@@ -32,7 +29,7 @@ bot the caller does not run or a repository outside the connected organization.
    credentials and sends you to install the app on the organization.
 3. On the install page, choose **All repositories** (recommended). Bots then get new repositories
    automatically, with nothing to add each time a bot is created. This does not widen what a bot can
-   touch: each bot's token names its own repository plus any extra repositories you allow (below), and
+   touch: each bot's token names its own repository plus its repository access (below), and
    nothing else. Choosing selected repositories works too, but every new bot repository, and every
    extra repository, must be added to the installation by hand. Settings then shows the app as installed.
 
@@ -44,15 +41,9 @@ the per-bot limit is enforced by Tico when it asks GitHub for a token.
 Bots' repositories must live in the connected organization. A bare repository name is completed by
 `TICO_GITHUB_OWNER`, then by the connected organization.
 
-## Extra repositories for one bot
+## Bot repository access
 
-A bot sometimes needs a second repository, such as shared documentation or a design system. Whoever manages the
-bot (the owner, an admin, its owners, the people it reports up to) adds it in Settings, Bots, the bot's settings, Extra GitHub
-repositories (one per line, in the connected organization), or asks BotOps to. From then on that bot's token covers its own
-repository and those, with the same four permissions. Other bots are unaffected, and each change is an audit
-event (`github.bot_repos_changed`, with the list before and after). The API is
-`GET` and `PUT /api/v2/bots/{bot}/github-repos`. A repository outside the connected organization is
-refused. Remove a repository from the list to take it back out; tokens already issued expire within the hour.
+Tick the team's repositories in Settings → Repositories, then choose own only, all ticked, or chosen repositories for each bot. Grants can be read or write. Existing extra repositories become chosen write access automatically. See [Repositories](repositories.md) for settings, tokens, tools and the legacy API alias.
 
 ## Creating bot repositories
 
@@ -117,3 +108,33 @@ app and reconnect, so Tico stores a key GitHub still accepts. Cached tokens keep
 Disconnect in Tico only forgets the app locally; bots fall back to their computers' git access. To
 revoke access on GitHub, uninstall the app from the organization's installed apps page, or delete the
 app from its settings page.
+
+## Task PR events
+
+New GitHub Apps include the task events and read permissions automatically. For an existing
+App, enable webhook events for Pull requests, Pull request reviews,
+Pull request review comments, Check runs, Check suites and Commit statuses, plus Push for
+release tracking. The webhook remains `POST /api/v2/github/webhook` with signature verification.
+Checks need read access to Checks and commit statuses need read access to Commit statuses in
+the GitHub App. Existing installations without these events keep their last known PR states;
+opening a task refreshes reachable PRs, cached for three minutes.
+
+A PR event updates every task linked to that PR. Checks record passing, failing or pending;
+PR updates record clean, conflict or unknown mergeability. Reviews record approved, changes
+requested or commented; review comment creation/deletion updates the pending count. Commit
+statuses are matched to the PR's last reported head commit. The owner receives the specific
+failed check, new conflict, request for changes, comment from someone else or PR closed without
+merging, with events per task grouped into one wake within three minutes. Passing and pending
+checks and the bot's own comments never wake it. Requests for changes always wake it. A
+reviewer who pushes to a bot's PR remains a reviewer; only a pusher matching the PR author
+counts as the bot. New heads reset mergeability to Unknown, and conflicts wake once per head
+until a clean result clears the marker. Check suites are tracked separately by App.
+The grouping survives server restarts and keeps at most 50 distinct notice items per burst.
+
+Several PRs can belong to one task. Automatic Ready requires every tracked PR merged or
+closed and at least one merge. Tracking applies to repositories in the connected org that are
+reachable, ticked or have received a PR webhook on any task. Without a GitHub App, a new repository counts as tracked only after its first PR webhook. Until then, the first task linking that repository can reach Ready before all of its PRs finish. Abandoning every PR returns Review or Ready to Doing. A human can always move
+a task to Ready or Done, and GitHub preserves their choice for one hour. A release completes
+it only after all merged PRs are included; merged PRs in another repository remain Ready.
+Automatic completion waits for open subtasks.
+Apps created before v0.3.1 may have Webhook → Active turned off in GitHub App settings. Their repository list refreshes daily and on Refresh in Settings → Repositories. The App webhook API does not expose the Active switch; enable it in GitHub to receive installation events.

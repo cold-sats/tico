@@ -93,3 +93,19 @@ behaviour is in [environments](environments.md#sign-in-options).
   reachable only from the load balancer's security group; anything that can reach it directly can send that header.
 
 Tico does not build or manage the load balancer, Cognito or the network around them.
+
+
+## Run recovery
+
+Each claim includes `busy_bots`: bots with a live turn process on that computer. A turn that
+outlives its lease stays busy until its process exits, so the server skips new work for that
+bot on that computer. The list is kept by the runner supervisor, with no checkout lock files
+or durable server fence. Older runners omit the field. When an older server refuses it,
+the runner retries the original claim request. No upgrade order is required; both updated
+parts are needed for this protection. Separate runner installs sharing a workspace and
+harness processes surviving a supervisor crash are outside this protection.
+
+Background row failures appear in Health with their reason; logs repeat a short line at most
+hourly for each row, with a traceback on the first failure. A refused due reminder is recorded
+once rather than retried on every check. Row-specific SQL errors roll back that row; disk,
+I/O, corruption and read-only database failures stop the batch and keep the original error.

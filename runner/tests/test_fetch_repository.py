@@ -171,17 +171,16 @@ class FetchRepository(unittest.TestCase):
         self.assertEqual(cloud.asked, 1)
         personal.assert_not_called()
 
-    def test_personal_github_clone_prefers_gh_and_falls_back_to_git_credentials(self):
+    def test_personal_github_clone_uses_safe_git_with_computer_login(self):
         target = self.projects / "bot-original"
         config = {"repo": "Acme/bot-original", "repo_url": "https://github.com/Acme/old-repo"}
-        with mock.patch.object(service.shutil, "which", return_value="/bin/gh"), \
-                mock.patch.object(service.isolation, "run", side_effect=[
-                    subprocess.CompletedProcess([], 1, "", "not signed in"),
-                    subprocess.CompletedProcess([], 0, "", "")]) as run:
+        with mock.patch.object(service.isolation, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
             self.assertEqual(service.clone_shared(target, config), "")
-        self.assertEqual(run.call_args_list[0].args[0][:4], ["gh", "repo", "clone", "Acme/bot-original"])
-        self.assertEqual(run.call_args_list[1].args[0],
-                         ["git", "clone", "--quiet", "https://github.com/Acme/bot-original", str(target)])
+        command = run.call_args.args[0]
+        self.assertEqual(command[-4:], ["clone", "--quiet", "https://github.com/Acme/bot-original", str(target)])
+        self.assertIn("--no-optional-locks", command)
+        self.assertIn("core.fsmonitor=false", command)
+        self.assertTrue(any(arg.startswith('core.hooksPath=') for arg in command))
         self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
 
     def test_personal_clone_never_overwrites_an_existing_folder(self):

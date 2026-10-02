@@ -101,7 +101,9 @@ def computer_details(c, row, who, auth):
                          if bot in assigned and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
     update = runner_versions.view(runner_versions.load(c).get(row["id"]))
     update["wanted_release"] = runner_versions.desired()["version"]
-    return {"version": value.get("version") or "", "last_seen": value.get("last_seen"),
+    from .repositories import metadata
+    return {"repositories": metadata(c, "computer-repositories:" + row["id"]).get("repositories", "unknown"),
+            "version": value.get("version") or "", "release": update.get("release") or "", "last_seen": value.get("last_seen"),
             "readiness": readiness, "update": update, "fix": "Open Settings > Computers to retry the update" if update.get("error") else "Open Settings > Computers",
             "services": [], "services_scope": "team"}
 
@@ -420,11 +422,12 @@ def snapshot_mark(c, cid):
     """What changes when a conversation's snapshot does, in one cheap read: its newest message and
     count, and its latest job with that job's attempt (state, lease, steps written)."""
     return tuple(c.execute(
-        "SELECT (SELECT max(rowid) FROM messages WHERE conversation_id=?),"
+        "SELECT (SELECT coalesce(updated_at,'')||status FROM chat_goals WHERE conversation_id=?),"
+        " (SELECT max(rowid) FROM messages WHERE conversation_id=?),"
         " (SELECT count(*) FROM messages WHERE conversation_id=?),"
         " (SELECT j.id||'|'||j.state||'|'||coalesce(a.state,'')||'|'||coalesce(a.last_seq,0)||'|'||coalesce(a.lease_until,'')"
         "  FROM jobs j JOIN messages m ON m.id=j.message_id LEFT JOIN attempts a ON a.id=j.attempt_id"
-        "  WHERE m.conversation_id=? ORDER BY m.rowid DESC LIMIT 1)", (cid, cid, cid)).fetchone())
+        "  WHERE m.conversation_id=? ORDER BY m.rowid DESC LIMIT 1)", (cid, cid, cid, cid)).fetchone())
 
 
 def conversation_snapshot(c, cid):
@@ -481,7 +484,8 @@ def conversation_snapshot(c, cid):
                      "text": "\n\n".join(p["text"] for p in parts if p["kind"] != "tool"), "parts": parts, **location}
         if readiness_reason:
             execution["readiness_reason"] = readiness_reason
-    return {**page, "execution": execution}
+    from .chat_goals import current
+    return {**page, "execution": execution, "goal": current(c, cid)}
 
 
 # What needs a person, in the order they work it. Bot requests rank above inbox items from mail, since helping the bots matters more. A request
@@ -800,6 +804,8 @@ def install_views(app, store, auth, mutate, task_view):
             return str(config.get("template") or "") in helpers
         for bot in H.bots(c):
             slug = bot["slug"]
+            from .chat_goals import readable_active
+            bot["goal_active"] = readable_active(c, auth, who, slug)
             level = access.get(slug, auth.FULL)
             if bot.get("state") == "archived" or not level["see"]:
                 continue
@@ -852,6 +858,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "operator": registry["operator"] if registry else None,
                          "revision": registry["revision"] if registry else None,
                          "goals": (registry["goals"] if registry else "") or "",
+                         "goal_active": bot["goal_active"],
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                          "icon": icon_of(config), "helper": helper(config),
@@ -904,12 +911,14 @@ def install_views(app, store, auth, mutate, task_view):
         human_only(who)
         with store.read() as c:
             r, configs = roster(c), entries(c)
+            from . import people_photos
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
             view = P.org_view(r, configs, archived)
             access = auth.bot_accesses(c, who)
             return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "people": [{
                 **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
-                "photo_url": "/api/humans/" + p["id"] + "/photo",
+                **({"photo_url": "/api/humans/" + p["id"] + "/photo"}
+                   if people_photos.may_have(store.settings, p.get("email"), p.get("photo")) else {}),
                 "bots": [b for b in P.bots_of(p["id"], r, configs)
                          if access.get(b, auth.FULL)["see"] and b not in archived]}
                 for p in r["people"]]}
@@ -959,8 +968,11 @@ def install_views(app, store, auth, mutate, task_view):
                     continue
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))]
                 value = dict(row)
+                value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
+                from .repositories import metadata
+                value["repositories"] = metadata(c, "computer-repositories:" + row["id"]).get("repositories", "unknown")
                 assigned_here = {a[0] for a in c.execute(
                     "SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot "
                     "WHERE a.runner_id=? AND b.state<>'archived'", (row["id"],))}
@@ -1293,7 +1305,9 @@ def install_views(app, store, auth, mutate, task_view):
         initial = await asyncio.to_thread(read_snapshot)
         async def generate():
             previous, mark = initial, await asyncio.to_thread(read_mark)
+            previous_goal = json.loads(initial).get("goal")
             yield f"event: snapshot\ndata: {initial}\n\n"
+            yield f"event: goal\ndata: {encode({'type': 'goal', 'goal': previous_goal})}\n\n"
             for tick in range(55):
                 await asyncio.sleep(1)
                 if await request.is_disconnected():
@@ -1313,6 +1327,10 @@ def install_views(app, store, auth, mutate, task_view):
                     return
                 if current != previous:
                     yield f"event: snapshot\ndata: {current}\n\n"
+                    goal = json.loads(current).get("goal")
+                    if goal != previous_goal:
+                        yield f"event: goal\ndata: {encode({'type': 'goal', 'goal': goal})}\n\n"
+                        previous_goal = goal
                     previous = current
                 else:
                     yield ': keepalive\n\n'

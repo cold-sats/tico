@@ -17,6 +17,13 @@ it through Tico's MCP. Each task shows who added it: you, another human, or a bo
 run and a box to ask it to change a goal. **Docs** and **Market** have **Ask the Librarian** on the right (a button on a
 phone). All four are managed in **Settings > Bots**; they stay out of the team chart and the goal owner list.
 
+**What is on a bot's page?**
+Its name, the mark for the harness it runs on, up to three tool icons and its goal across the top, the chat below,
+and a rail down the right: **Active** tasks first, then its latest **Updates** (all of them behind the small icon),
+**Files** and **Recurring** routines, with **Assigned to others** and **Done** folded at the foot. A section with
+nothing in it is left out. **More** holds its setup, Tools, goals, access, routines and runs. On a phone, Chat and
+Tasks are one tab each.
+
 **How do I ask a bot a question?**
 Open the bot's page and use its **Chat** tab; the reply comes back into the same conversation.
 For anything across the team, ask your own external agent: **Connect an external agent** (the plug button beside

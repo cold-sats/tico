@@ -235,8 +235,9 @@ def test_how_to_wording_preserves_installation_software_and_source_literals():
     for kept in ('He wrote "Hub docs and\nstanding instructions".', "~~~text\nHub docs and standing instructions\n~~~",
                  "``a `Hub docs` b``", "[Hub docs][source]", "'Hub docs\ncontain standing instructions'",
                  "````a ``` Hub docs b````", "~~~~\nHub docs\n~~~\nstanding instructions\n~~~~",
-                 "    Hub docs in indented code\n"):
+                 "    Hub docs in indented code\n", "~~~~\n~~~~`\nHub docs and standing instructions\n~~~~"):
         assert H.librarian_text(kept) == kept
+    assert H.librarian_text("~~~~\n~~~~`\nHub docs\n~~~~\nRead Hub docs.") == "~~~~\n~~~~`\nHub docs\n~~~~\nRead Tico docs."
     assert H.librarian_text("The runner syncs `AGENT.md` before work.") == "The Computer syncs `AGENT.md` before work."
     assert (H.librarian_text("The runner pulls [updates](https://example.com/u). Read Hub docs.")
             == "The Computer pulls [updates](https://example.com/u). Read Tico docs.")

@@ -55,3 +55,12 @@ def test_health_issues_is_the_snapshot_for_the_assistant_and_the_checks_for_ever
     assert set(snapshot) <= set(seen.json())
     assert seen.json()["checks"] == get(api, "health")["checks"]
     assert "issues" in api.get("/api/v2/health/issues", headers=headers()).json()
+
+
+def test_a_person_without_a_photo_gets_no_photo_link(api, monkeypatch):
+    """No roster photo and no Workspace key: the page shows initials and asks for nothing that would 404."""
+    monkeypatch.delenv("GOOGLE_SA_KEY", raising=False)
+    people = api.get("/api/humans", headers=headers()).json()["people"]
+    assert people and all("photo_url" not in p for p in people if not p.get("photo"))
+    from backend import people_photos
+    assert people_photos.may_have(None, "ana@acme.example", "https://example.com/a.png")

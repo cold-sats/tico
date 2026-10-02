@@ -151,6 +151,17 @@ class FakeHost(Host):
         self.emit("turn_completed", thread_id, turn, status="completed")
         return turn
 
+    def start_goal(self, thread_id, action, objective, effort=None):
+        self.emit("goal", thread_id, None,
+                  status={"pause": "paused", "clear": "cleared"}.get(action, "active"),
+                  objective=objective, note="")
+        turn = self.start_turn(thread_id, "/goal clear" if action in ("pause", "clear") else "/goal " + objective,
+                               effort=effort)
+        return turn
+
+    def goal_met(self, thread_id, note="The condition holds."):
+        self.emit("goal", thread_id, None, status="met", note=note)
+
     def steer(self, thread_id, turn_id, text):
         self._require_alive()
         self.steers.append((thread_id, turn_id, text))

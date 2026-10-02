@@ -314,92 +314,120 @@ def install_imports(app, store, auth, execution, mutate):
         """File a meeting of the caller's (or of `owner_email`, from a machine), or update the one
         this source and id already made."""
         machine = request.state.identity
-        person_call = machine.role in ("owner", "human")
         body, uploads = await form(request, MeetingImport, app.state.blobs)
-        turns = segments_of(body)
 
         def work(c):
-            runner = None
-            if person_call:
-                who = machine
-                if body.owner_email and body.owner_email != (who.email or "").lower():
-                    raise Problem("forbidden", "Only an importer machine files a meeting for someone else", 403)
-            else:
-                runner = importer(c, machine)
-                # Filing for someone is the importer's job; handing work to a bot in their name is not.
-                if body.send_to:
-                    raise Problem("forbidden", "An importer machine files meetings; a person sends them", 403)
-                person = c.execute("SELECT id,email FROM humans WHERE email IS NOT NULL AND lower(email)=?",
-                                   (body.owner_email,)).fetchone() if body.owner_email else None
-                if not person:
-                    raise Problem("not_found", "owner_email must name a person on the Tico roster", 404)
-                who = Identity("human:" + person["id"], "human", person["email"])
-            key = (body.source, "meeting", f"{who.actor}:{body.external_id}") if body.external_id else None
-            ref = c.execute("SELECT meeting_id FROM recording_source_refs WHERE source=? AND resource_type=? "
-                            "AND external_id=?", key).fetchone() if key else None
-            existing = bool(ref)
-            if ref and deleted(c, ref[0]):
-                # Somebody threw this meeting away. Say so, so an importer stops offering it
-                # rather than bringing back what a person deleted.
-                return {"id": ref[0], "status": "deleted", "existing": True, "changed": False}
-            if ref:
-                meta = dict(authorized(c, who, ref[0], write=True)["metadata"])
-            else:
-                meta = new_note(c, who, Note(text=body.title or "Imported meeting"), [])
-                meta.update(note="", preview="", private=False)
-            rid = meta["id"]
-            people = listed_participants(c, body.participants)
-            fingerprint = hashlib.sha256(encode({
-                "turns": turns, "notes": body.notes, "title": body.title, "started_at": body.started_at,
-                "duration": body.duration_seconds, "participants": people, "media_url": body.media_url,
-                "context": body.context, "private": body.private}).encode()).hexdigest()
-            known = {(a.get("name"), a.get("size")) for a in meta.get("attachments") or []}
-            fresh = [u for u in uploads if (u["name"], u["size"]) not in known]
-            if existing and meta.get("import_hash") == fingerprint and not fresh:
-                return {"id": rid, "status": "done", "existing": True, "changed": False,
-                        "link": "#/meetings?meeting=" + rid}
-            started = body.started_at or meta.get("started") or H.now()
-            duration_ms = (int(body.duration_seconds * 1000) if body.duration_seconds is not None
-                           else TF.duration_ms(turns) if turns else meta.get("duration_ms") or 0)
-            meta.update(kind="meeting", status="done", started=started, ended=end_of(started, duration_ms, meta.get("ended")),
-                        duration_ms=duration_ms, source=body.source, source_type="meeting",
-                        source_context=body.context, transcript_provider=body.source, import_hash=fingerprint,
-                        recorded_by=who.email, uploaded_by=runner["id"] if runner else who.email,
-                        warning=None, error=None)
-            if body.title or not existing:
-                meta["title"] = body.title or meta.get("title") or "Imported meeting"
-            if body.private is not None:
-                meta["private"] = body.private
-            if people or not existing:
-                meta.update(participants=people, confirmed_attendees=[p["email"] for p in people if p["email"]])
-            if body.media_url or not existing:
-                meta["media_url"] = body.media_url
-            if turns:
-                meta.update(transcript_meta(turns))
-            elif not meta.get("preview"):
-                meta["preview"] = body.notes.strip()[:160]
-            if fresh:
-                meta["attachments"] = (meta.get("attachments") or []) + attachments(c, who, rid, fresh)
-            transcript = raw_transcript(turns)
-            save(c, meta, transcript=transcript or None, readable=transcript.replace("\n", "\n\n") if transcript else None,
-                 notes=body.notes or None)
-            if key and not existing:
-                c.execute("INSERT INTO recording_source_refs(source,resource_type,external_id,meeting_id,created) "
-                          "VALUES(?,?,?,?,?)", (*key, rid, H.now()))
-            H.event(c, machine.actor, "meeting.imported", rid,
-                    {"source": body.source, "owner": who.email, "turns": len(turns), "notes": bool(body.notes),
-                     "existing": existing})
-            if not existing and not meta.get("private") and turns:
-                announce(c, rid, meta)
-            result = {"id": rid, "title": meta["title"], "kind": "meeting", "status": "done", "turns": len(turns),
-                      "existing": existing, "changed": True, "link": "#/meetings?meeting=" + rid}
-            if body.send_to:
-                # The same Send a person presses: the bot's task carries the transcript and notes.
-                sent = deliver(c, auth, who, rid, Send(slug=body.send_to), [])
-                result["sent"] = {"slug": sent["slug"], "task": sent.get("task")}
-            return result
+            return file_meeting(c, machine, body, uploads)
 
         return await asyncio.to_thread(write_upload, store, request, body, uploads, work)
+
+    def file_meeting(c, machine, body, uploads, *, fill_empty=False):
+        person_call = machine.role in ("owner", "human")
+        turns = segments_of(body)
+        runner = None
+        if person_call:
+            who = machine
+            if body.owner_email and body.owner_email != (who.email or "").lower():
+                raise Problem("forbidden", "Only an importer machine files a meeting for someone else", 403)
+        else:
+            runner = importer(c, machine)
+            # Filing for someone is the importer's job; handing work to a bot in their name is not.
+            if body.send_to:
+                raise Problem("forbidden", "An importer machine files meetings; a person sends them", 403)
+            person = c.execute("SELECT id,email FROM humans WHERE email IS NOT NULL AND lower(email)=?",
+                               (body.owner_email,)).fetchone() if body.owner_email else None
+            if not person:
+                raise Problem("not_found", "owner_email must name a person on the Tico roster", 404)
+            who = Identity("human:" + person["id"], "human", person["email"])
+        key = (body.source, "meeting", f"{who.actor}:{body.external_id}") if body.external_id else None
+        ref = c.execute("SELECT meeting_id FROM recording_source_refs WHERE source=? AND resource_type=? "
+                        "AND external_id=?", key).fetchone() if key else None
+        if fill_empty and not ref and body.media_url:
+            # Scope the URL fallback to this person's Granola source references, including deleted meetings.
+            ref = c.execute("SELECT m.id FROM meetings m JOIN recording_source_refs r ON r.meeting_id=m.id "
+                            "WHERE r.source=? AND r.resource_type='meeting' "
+                            "AND substr(r.external_id,1,?)=? AND json_extract(m.metadata_json,'$.media_url')=? LIMIT 1",
+                            (body.source, len(who.actor) + 1, who.actor + ":", body.media_url)).fetchone()
+        existing = bool(ref)
+        if fill_empty and ref and key:
+            c.execute("INSERT INTO recording_source_refs(source,resource_type,external_id,meeting_id,created) "
+                      "VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING", (*key, ref[0], H.now()))
+        if ref and deleted(c, ref[0]):
+            # Somebody threw this meeting away. Say so, so an importer stops offering it
+            # rather than bringing back what a person deleted.
+            return {"id": ref[0], "status": "deleted", "existing": True, "changed": False}
+        if ref:
+            meta = dict(authorized(c, who, ref[0], write=True)["metadata"])
+        else:
+            meta = new_note(c, who, Note(text=body.title or "Imported meeting"), [])
+            meta.update(note="", preview="", private=False)
+        rid = meta["id"]
+        if fill_empty and existing:
+            stored = meeting(rid, c)
+            body = body.model_copy(update={
+                "title": "" if meta.get("title") else body.title,
+                "started_at": meta.get("started") or body.started_at,
+                "duration_seconds": meta["duration_ms"] / 1000 if meta.get("duration_ms") else body.duration_seconds,
+                "participants": [] if meta.get("participants") else body.participants,
+                "notes": "" if stored.get("notes") else body.notes,
+                "transcript": "" if meta.get("turns") else body.transcript,
+                "media_url": "" if meta.get("media_url") else body.media_url,
+                "private": None if "private" in meta else body.private,
+                "context": meta.get("source_context") or body.context})
+            turns = segments_of(body)
+        people = listed_participants(c, body.participants)
+        fingerprint = hashlib.sha256(encode({
+            "turns": turns, "notes": body.notes, "title": body.title, "started_at": body.started_at,
+            "duration": body.duration_seconds, "participants": people, "media_url": body.media_url,
+            "context": body.context, "private": body.private}).encode()).hexdigest()
+        known = {(a.get("name"), a.get("size")) for a in meta.get("attachments") or []}
+        fresh = [u for u in uploads if (u["name"], u["size"]) not in known]
+        if existing and meta.get("import_hash") == fingerprint and not fresh:
+            return {"id": rid, "status": "done", "existing": True, "changed": False,
+                    "link": "#/meetings?meeting=" + rid}
+        started = body.started_at or meta.get("started") or H.now()
+        duration_ms = (int(body.duration_seconds * 1000) if body.duration_seconds is not None
+                       else TF.duration_ms(turns) if turns else meta.get("duration_ms") or 0)
+        meta.update(kind="meeting", status="done", started=started, ended=end_of(started, duration_ms, meta.get("ended")),
+                    duration_ms=duration_ms, source=body.source, source_type="meeting",
+                    source_context=body.context, transcript_provider=body.source, import_hash=fingerprint,
+                    recorded_by=who.email, uploaded_by=runner["id"] if runner else who.email,
+                    warning=None, error=None)
+        if body.title or not existing:
+            meta["title"] = body.title or meta.get("title") or "Imported meeting"
+        if body.private is not None:
+            meta["private"] = body.private
+        if people or not existing:
+            meta.update(participants=people, confirmed_attendees=[p["email"] for p in people if p["email"]])
+        if body.media_url or not existing:
+            meta["media_url"] = body.media_url
+        if turns:
+            meta.update(transcript_meta(turns))
+        elif not meta.get("preview"):
+            meta["preview"] = body.notes.strip()[:160]
+        if fresh:
+            meta["attachments"] = (meta.get("attachments") or []) + attachments(c, who, rid, fresh)
+        transcript = raw_transcript(turns)
+        save(c, meta, transcript=transcript or None, readable=transcript.replace("\n", "\n\n") if transcript else
+             stored["transcript_readable"] if fill_empty and existing else None,
+             notes=body.notes or None)
+        if key and not existing:
+            c.execute("INSERT INTO recording_source_refs(source,resource_type,external_id,meeting_id,created) "
+                      "VALUES(?,?,?,?,?)", (*key, rid, H.now()))
+        H.event(c, machine.actor, "meeting.imported", rid,
+                {"source": body.source, "owner": who.email, "turns": len(turns), "notes": bool(body.notes),
+                 "existing": existing})
+        if not existing and not meta.get("private") and turns:
+            announce(c, rid, meta)
+        result = {"id": rid, "title": meta["title"], "kind": "meeting", "status": "done", "turns": len(turns),
+                  "existing": existing, "changed": True, "link": "#/meetings?meeting=" + rid}
+        if body.send_to:
+            # The same Send a person presses: the bot's task carries the transcript and notes.
+            sent = deliver(c, auth, who, rid, Send(slug=body.send_to), [])
+            result["sent"] = {"slug": sent["slug"], "task": sent.get("task")}
+        return result
+
+    app.state.import_meeting = file_meeting
 
     def announce(c, rid, meta):
         """A company meeting is readable by everyone signed in, so a routine may run on it. The

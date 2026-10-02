@@ -416,8 +416,8 @@ The key can act as any mailbox in the team, so bots must not be able to read it.
   mailbox in its instructions or its `gmail` identity, and the person whose email it is (or the only person on the roster).
   Changing it later is an owner's or admin's call, or BotOps's as the requester (a card for their click):
   `hub api POST access/people/<person> '{"inbox_bot": "<bot>", "mailbox": "ana@acme.example"}'`. Without the link the runner holds the key
-  but gives the bot no token, and the mail tool says "this bot has no mailbox" (the bot's Tools row shows a problem; it is not "ready").
-  Because the key is not in the bot's environment, the Tools row shows `GOOGLE_SA_KEY` as "present (held by the computer)" when the
+  but gives the bot no token, and the mail tool says "this bot has no mailbox" (the bot's Tools list shows a problem; it is not "ready").
+  Because the key is not in the bot's environment, the Tools list shows `GOOGLE_SA_KEY` as "present (held by the computer)" when the
   computer has the key and runs the `connectors` job, and as missing only when the computer has no key. The `mail.db` and
   `audit.jsonl` files in `workspace/runtime/mail` are group-writable so the bot's `mail.sh` and the job can both write them.
 - **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >

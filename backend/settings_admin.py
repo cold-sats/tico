@@ -191,6 +191,20 @@ class SettingsAdmin:
             hint = " Closest: " + ", ".join(closest) + "." if closest else ""
             raise Problem("template", f"Unknown template {template}. Use hub_template_list.{hint}", 422)
 
+    def template_repo_defaults(self, template):
+        from pathlib import Path
+        import yaml
+        if not template:
+            return {}
+        try:
+            manifest = yaml.safe_load((Path(self.settings.catalog_dir) / template / "card.yaml").read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            return {}
+        if not isinstance(manifest, dict):
+            return {}
+        mode, access = manifest.get("repo_access_mode"), manifest.get("repo_all_access", "read")
+        return {"repo_access_mode": mode, "repo_all_access": access} if mode in ("own", "all") and access in ("read", "write") else {}
+
     def create_bot(self, c, who, body):
         self.validate_template(body.template)
         if body.template and "shared" not in body.model_fields_set:
@@ -264,6 +278,10 @@ class SettingsAdmin:
                   "runtime": runtime_of(harness) or choice["runtime"], "model": choice["id"],
                   "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode, "shared": body.shared,
                   "model_managed_by": "cloud"}
+        if body.template:
+            config["template"] = body.template
+            if privileged:
+                config.update(self.template_repo_defaults(body.template))
         team = self._team(c, body.slug, config)
         now = H.now()
         c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
@@ -323,7 +341,7 @@ class SettingsAdmin:
         payload = M.BotDefinitionCreate(
             slug=body.slug, display_name=body.display_name or body.slug.replace("-", " ").title(),
             description=body.description, reports_to=body.reports_to or who.actor, status="planned", repo="",
-            model=choice["id"], effort=self._effort(choice, None), harness=None, owners=[])
+            model=choice["id"], effort=self._effort(choice, None), harness=None, owners=[], template=body.template)
         result = self.create_bot(c, who, payload)
         if body.template:
             row = self._config(c, body.slug)

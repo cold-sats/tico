@@ -424,12 +424,19 @@ def test_external_tool_request_goes_to_the_profile_and_its_report_completes_it(a
 
 
 def test_tools_show_extra_repository_capabilities_and_custom_team_connections(api):
-    from backend.github_app import save_extra_repos
+    from backend import repositories as R
     configure(api)
     with api.app.state.store.transaction() as c:
-        save_extra_repos(c, "ops", ["example/product"])
+        c.execute("INSERT INTO repositories(id,full_name,enabled) VALUES('product','acme-co/product',1)")
+        R.set_access(c, 'ops', R.RepoAccessUpdate(mode='chosen', chosen=[R.Grant(full_name='acme-co/product', access='read')]), 'acme-co', 'human:ana')
     page = tools_of(api)
-    assert any(tool["scope"].get("repo") == "example/product" and "read" in tool["can"] for tool in page["tools"])
+    assert next(tool for tool in page['tools'] if tool['scope'].get('repo') == 'acme-co/product')['can'] == ['read']
+    with api.app.state.store.transaction() as c:
+        R.set_access(c, 'ops', R.RepoAccessUpdate(mode='all', all_access='read'), 'acme-co', 'human:ana')
+    assert next(tool for tool in tools_of(api)['tools'] if tool['scope'].get('repo') == 'acme-co/product')['can'] == ['read']
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE repositories SET enabled=0 WHERE full_name='acme-co/product'")
+    assert not any(tool['scope'].get('repo') == 'acme-co/product' for tool in tools_of(api)['tools'])
     machine = runner(api)
     assign(api, machine, "ops")
     assert report(api, machine, "ops", [{"service": "example-tool", "can": ["read"], "credential": "not-declared",
@@ -480,3 +487,11 @@ def test_a_held_credential_other_than_the_google_key_needs_no_message_bot(api):
     tool = {t["id"]: t for t in tools_of(api)["tools"]}["close-crm"]
     assert tool["status"] == "ready" and "problem" not in tool and "short-lived token" not in tool["detail"]
     assert not [i for i in get(api, "fleet/check", token="ana-test")["issues"] if "nobody's message bot" in i["text"]]
+
+
+def test_tools_render_when_bot_has_no_config_row(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM bot_config WHERE bot='ops'")
+    page = tools_of(api)
+    assert page['bot'] == 'ops'
+    assert isinstance(page['tools'], list)

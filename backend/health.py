@@ -338,6 +338,12 @@ def view(c, who, settings, auth, github, config):
     waiting, slow = _waiting(c, online_ids)
     failed, failures = _failed(c)
     checks = []
+    # Connection health belongs to the person; only the Team owner may see another person's.
+    for row in c.execute("SELECT actor,metadata_json FROM granola_connections"):
+        meta = json.loads(row["metadata_json"])
+        if meta.get("needs_signin") and (row["actor"] == who.actor or who.role == "owner"):
+            checks.append(_check("granola:" + row["actor"], "Granola", "warn",
+                                 "Granola needs sign-in again", [_fix("Open Meetings", "#/meetings")]))
 
     if full:
         notice = config.get("update") or {}
@@ -361,6 +367,20 @@ def view(c, who, settings, auth, github, config):
                              "Some bots' history is not on GitHub yet: " + "; ".join(f"{bot} ({why})" for bot, why in unpublished[:3])
                              + ("." if len(unpublished) <= 3 else f"; and {len(unpublished) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
+    if full:
+        from .worktrees import supported
+        if supported(c):
+            usage, errors = {}, []
+            for row in c.execute("SELECT t.owner,l.state,l.detail_json FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND l.state<>'removed'"):
+                detail = json.loads(row['detail_json'] or '{}')
+                bot = H.actor_id(row['owner'])
+                usage[bot] = usage.get(bot, 0) + detail.get('size_mb', 0)
+                if detail.get('error'):
+                    errors.append(bot + ': ' + detail['error'])
+            if usage:
+                checks.append(_check('worktrees', 'Task worktrees', 'warn' if errors else 'ok',
+                                     '; '.join(errors[:3]) if errors else '; '.join(f'{bot}: {size:g} MB' for bot, size in sorted(usage.items())),
+                                     [_fix('Open tasks', '#/tasks')]))
     lacking = missing_repositories(c, online_ids) if full else []
     if lacking:
         checks.append(_check("repositories", "Bot repositories", "bad",
@@ -369,6 +389,21 @@ def view(c, who, settings, auth, github, config):
                                          for bot, label, why in lacking[:3])
                              + ("." if len(lacking) <= 3 else f"; and {len(lacking) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
+    from .subscriptions import bot_subscription, effective, context
+    subscription_context = context(c, settings)
+    subscription_problems = []
+    subscription_access = auth.bot_accesses(c, who)
+    for row in c.execute("SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot WHERE b.state<>'archived'"):
+        if not full and not (subscription_access.get(row['bot']) or {}).get('see'):
+            continue
+        if effective(c, row['bot'], subscription_context)[0] is None:
+            continue
+        subscription = bot_subscription(c, row['bot'], settings, subscription_context)
+        if subscription['problem']:
+            subscription_problems.append(row['bot'] + ': ' + subscription['problem'])
+    if subscription_problems:
+        checks.append(_check("subscriptions", "Subscriptions", "warn", "; ".join(subscription_problems[:5]),
+                             [_fix("Open Computers", "#/settings", "devices")]))
     fixes = [_fix("Add a computer", "#/settings", "devices")] if full else []
     if not computers:
         checks.append(_check("computers", "Computers", "bad", "No computer is set up. Bots need one to run.", fixes))

@@ -65,11 +65,14 @@ off) happen at once, and each can be undone from Settings > Bots history.
 ## Other things a human asks, done the same way
 
 - "Use a cheaper model on X": `hub bot model <bot> <model>` (`hub bot model <bot>` lists them).
-- "Make X read-only on GitHub": `hub tool update <tool-id> --bot <bot> --can read` (the id from
-  `hub tool list --bot <bot>`; never remove and add it again), and in its repository set the github entry in `tools:` to
-  `can: [read]`, add "never push, merge or comment" under `## Boundaries` in its
-  `AGENT.md`, run `hub bot check <slug>` and commit. Say plainly that this is its rules and declared
-  access, not a narrower credential, unless they gave it a separate read-only token.
+- "Make X read-only on GitHub" or "Give X access to another repository": read `hub bot repos <bot>`
+  (`hub_bot_repos_get`), then set repository access with `hub_bot_repos_set` or `hub bot repos`.
+  Use `mode: chosen` with `chosen: [{full_name: "org/repo", access: "read"}]` for Chosen read,
+  or `mode: all, all_access: read` for all ticked repositories. Preserve other requested grants.
+  Read back `effective` and verify each requested repository and access level before reporting success.
+  The bot's own repository stays write. If a requested repository is not ticked, tick it with
+  `hub_repo_update` as the requester, then verify again. A Tool declaration (`hub tool update`,
+  `tools:`) describes allowed actions separately; changing it does not grant repository access.
 - "Turn off the Monday routine": `hub routine update <key> --disable --bot <bot>`.
 - "Pause X": `hub bot pause <bot>`. "Why isn't X live?": `hub health check`, then fix or explain.
 - "Delete X" or "remove X": `hub bot archive <bot>`. Say that its history stays. A repository is

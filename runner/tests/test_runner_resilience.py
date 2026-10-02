@@ -533,3 +533,114 @@ def test_the_runner_keeps_its_last_trouble_lines_for_a_support_bundle():
         outage.log(f"Tico runner: failed {n}")
     assert len(outage.RECENT) == 50 and outage.RECENT[-1].endswith("failed 79")
     outage.RECENT.clear()
+
+
+def test_busy_bots_follow_live_turn_processes_until_they_exit(tmp_path):
+    client = FakeClient()
+    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
+                    tmp_path / "state", client=client)
+    future = Future()
+    runner.active["att-1"] = future
+    runner.attempt_bots["att-1"] = "ops"
+    # Even after a lost lease, the supervisor tracks the live worker.
+    runner.claim_next()
+    runner.claim_next()
+    assert client.posts == [("jobs/claim", {"next_run": True, "busy_bots": ["ops"]})] * 2
+    future.set_result(None)
+    runner.claim_next()
+    assert client.posts[-1] == ("jobs/claim", {"next_run": True, "busy_bots": []})
+
+
+def test_busy_bots_fall_back_to_one_claim_on_an_old_server(tmp_path):
+    client = FakeClient()
+    original = client.post
+    seen = []
+    def old(path, body=None, key=None):
+        seen.append(body)
+        if "busy_bots" in body:
+            raise APIError("validation", "Extra inputs: busy_bots", 422, False)
+        return original(path, body, key)
+    client.post = old
+    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
+                    tmp_path / "state", client=client)
+    runner.assignments_seen = [{"bot": "ops"}, {"bot": "finance"}]
+    assert runner.claim_next() == {"attempt": None}
+    assert runner.claim_next() == {"attempt": None}
+    assert seen == [{"next_run": True, "busy_bots": []}, {"next_run": True}, {"next_run": True}]
+    # Re-probe after an old server updates, without restarting the computer.
+    runner._busy_bots_after = 0
+    assert runner.claim_next() == {"attempt": None}
+    assert seen[-2:] == [{"next_run": True, "busy_bots": []}, {"next_run": True}]
+    # Heartbeats keep the original contract, with no process report.
+    assert runner.report_heartbeat({"readiness": {}}) == {}
+
+
+def test_started_and_saved_completion_keep_original_idempotency_keys(tmp_path):
+    client, host = FakeClient(), FakeHost(replies=['done'])
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)},
+                    tmp_path / 'state', client=client, host_factory=lambda *args: host,
+                    push=lambda *args, **kw: (0, ''))
+    keys, original = [], client.post
+    def post(path, body=None, key=None):
+        keys.append(key)
+        return original(path, body, key)
+    client.post = post
+    (tmp_path / 'emp-coo').mkdir()
+    runner.execute(attempt())
+    runner.complete('att-1', client.completion())
+    assert 'started:att-1' in keys
+    assert keys.count('complete:att-1') == 2
+    assert not any(key and key.startswith(('started:att-1:', 'complete:att-1:')) for key in keys)
+
+def test_combined_heartbeat_reports_retry_only_the_named_field(tmp_path):
+    from clients.tico import APIError
+    client = FakeClient()
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)}, tmp_path / 'state', client=client)
+    calls = []
+    fields = ['profiles', 'worktrees', 'repositories']
+    def post(path, body):
+        calls.append(json.loads(json.dumps(body)))
+        if len(calls) <= len(fields):
+            raise APIError('validation', 'body.' + fields[len(calls) - 1] + ': Extra inputs', 422)
+        return {'ok': True}
+    client.post = post
+    body = {'readiness': {'bots': {'coo': {'ready': True}}}, 'profiles': [], 'worktrees': [], 'repositories': []}
+    assert runner.report_heartbeat(body) == {'ok': True}
+    for before, after, field in zip(calls, calls[1:], fields):
+        assert set(before) - set(after) == {field}
+        assert before['readiness'] == after['readiness']
+
+
+def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    client, host = FakeClient(), FakeHost(replies=['done'])
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)},
+                    tmp_path / 'state', client=client, host_factory=lambda *args: host,
+                    push=lambda *args, **kw: (0, ''))
+    runner.renew_interval = 0.01
+    (tmp_path / 'emp-coo').mkdir()
+    renewed = threading.Event()
+    original = client.post
+    def post(path, body=None, key=None):
+        result = original(path, body, key)
+        if path.endswith('/renew'):
+            renewed.set()
+        return result
+    client.post = post
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with runner.worktrees.bot_lock('coo'):
+            future = pool.submit(runner.execute, attempt())
+            assert renewed.wait(2)
+            assert not host.replies == [] and not future.done()
+        future.result(timeout=5)
+    assert client.completion()['outcome'] == 'completed'
+
+
+def test_busy_bots_include_worktree_maintenance(tmp_path):
+    client = FakeClient()
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)},
+                    tmp_path / 'state', client=client)
+    runner.worktrees.maintaining.add('coo')
+    runner.claim_next()
+    assert client.posts == [('jobs/claim', {'next_run': True, 'busy_bots': ['coo']})]
+

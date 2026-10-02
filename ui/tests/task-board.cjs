@@ -1,7 +1,8 @@
 // Run with Playwright available: NODE_PATH=/path/to/node_modules node ui/tests/task-board.cjs
 // Every request is intercepted; this test never contacts the hub, Slack, or a bot.
 // Labels and PR links, a comment thread
-// with the author on every line (not a chat), and mover-only controls.
+// with the author on every line (not a chat), and mover-only controls. The list itself (rows, groups, chips, the peek,
+// bulk changes, the keys) is ui/tests/tasks-page.cjs.
 // The Product lane is retired: no lane switch, no product board, and the page
 // only asks the hub for company tasks (the product rows below must never show).
 const {chromium} = require('playwright');
@@ -160,83 +161,85 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(tasksStartedBeforePreference, true, 'task loading starts before the saved preference returns');
     assert.equal(await page.evaluate(() => TASKS_ST.tasks.some(t => t.lane === 'product')), false, 'product tasks are never loaded');
     assert.equal(await page.locator('#task-lane, [data-lane]').count(), 0, 'no lane switch');
-    const checkDesktopToolbar = async width => {
+    const checkDesktopToolbar = async (width, oneLine = true) => {
       await page.setViewportSize({width, height: 900});
       const result = await page.evaluate(() => {
-        const head = document.querySelector('.tasks-head.find');
-        const items = ['h1', '.task-find', '#task-new', '#task-view'].map(s => head.querySelector(s).getBoundingClientRect());
+        const head = document.querySelector('.tl-head');
+        const items = ['h1', '.tl-search', '#task-new', '#task-view'].map(s => head.querySelector(s).getBoundingClientRect());
         return {tops: items.map(r => Math.round(r.top)), right: Math.max(...items.map(r => r.right)), edge: head.getBoundingClientRect().right,
           search: items[1].width, overflow: head.scrollWidth > head.clientWidth + 1};
       });
-      assert(Math.max(...result.tops) - Math.min(...result.tops) <= 8, `${width}px toolbar wraps: ${JSON.stringify(result)}`);
+      if (oneLine) assert(Math.max(...result.tops) - Math.min(...result.tops) <= 8, `${width}px toolbar wraps: ${JSON.stringify(result)}`);
       assert(result.right <= result.edge + 1 && !result.overflow, `${width}px toolbar overflows: ${JSON.stringify(result)}`);
       assert(result.search >= 60, `${width}px search is too narrow: ${JSON.stringify(result)}`);
     };
-    for (const width of [1280, 900, 768]) await checkDesktopToolbar(width);
+    for (const width of [1280, 1000]) await checkDesktopToolbar(width);
+    await checkDesktopToolbar(768, false);    // a narrow window puts the tabs on their own line, never off the edge
     await page.setViewportSize({width: 1200, height: 900});
-    assert.deepEqual(await page.locator('#task-view button').evaluateAll(buttons => buttons.map(b => [b.getAttribute('aria-label'), b.getAttribute('title'), b.getAttribute('aria-pressed')])),
-      [['Needs you', 'Needs you', 'true'], ['List', 'List', 'false'], ['Board', 'Board', 'false'], ['Routines', 'Routines', 'false'], ['Done', 'Done', 'false']]);
-    // For you is a person icon, left of List.
-    assert.equal(await page.locator('#task-view [data-view="foryou"] .nav-icon').innerText(), 'person');
+    // Labelled tabs (no icon-only buttons), the selected one marked for screen readers.
+    assert.deepEqual(await page.locator('#task-view [role=tab]').evaluateAll(tabs => tabs.map(b => [b.firstChild.textContent, b.getAttribute('aria-selected')])),
+      [['Needs you', 'true'], ['Open', 'false'], ['Board', 'false'], ['Recurring', 'false'], ['Done', 'false']]);
+    assert.equal(await page.locator('#task-view .nav-icon').count(), 0);
     await page.locator('#task-q').focus();
-    await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement.id), 'task-filter');
     await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(() => document.activeElement.id), 'task-new');
     await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement.dataset.view), 'foryou');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'task-filter');
+    await page.locator('#task-q').focus();
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.view), 'foryou', 'one tab stop for the tabs: the selected one');
     if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-toolbar-desktop.png')});
 
     // List and Board are every open task again, by column; For you stays who needs me.
     await page.locator('#task-view [data-view="list"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('#task-body .trow-btn').length === 3);
-    assert.deepEqual(await page.locator('#task-body .v2-group h3').evaluateAll(hs => hs.map(h => h.firstChild.textContent.trim())).then(x => x.length > 0), true);
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 3);
+    assert.ok((await page.locator('#task-body .tl-gname').count()) > 0, 'grouped');
     await page.locator('#task-view [data-view="board"]').click();
     await page.waitForFunction(() => document.querySelectorAll('#task-body .bcol').length === 4 && document.querySelectorAll('#task-body .bcard').length === 3);
     if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-board-kanban.png')});
     await page.locator('#task-body .bcard').first().click();
-    await page.locator('#task-modal').waitFor();
-    await page.locator('#task-modal [data-modal-close]').click();
-    // Company is one row per bot/person who needs me and opens that bot's chat.
+    await page.locator('#task-peek[open]').waitFor();
+    assert.equal(await page.locator('#task-modal[open]').count(), 0, 'a card opens beside the board, not over it');
+    await page.locator('#task-peek [data-modal-close]').click();
+    // Needs you: the tasks that wait on me, grouped by who asks, with a way into that bot's chat.
     await page.locator('#task-view [data-view="foryou"]').click();
-    await page.locator('.company-need-actor').waitFor();
-    assert.equal(await page.locator('.company-need-actor').count(), 1);
-    assert.match(await page.locator('.company-need-name').innerText(), /Assistant\s+1 task/);
-    assert.match(await page.locator('.company-need-titles').innerText(), /Approve the budget/);
-    assert.equal(await page.locator('.company-need-actor').getAttribute('href'), '#/bot/coo');
-    // A bare chevron instead of "Open chat", and no count summary in the header.
-    assert.equal((await page.locator('.company-need-go').innerText()).trim(), 'chevron_right');
-    assert.doesNotMatch(await page.locator('.company-needs').innerText(), /Open chat|bots and people|bot or person/);
-    assert.equal(await page.locator('.company-needs>header .sub').count(), 0);
+    await page.locator('#task-body .tl-row').first().waitFor();
+    assert.equal(await page.locator('#task-body .tl-row').count(), 1);
+    assert.match(await page.locator('#task-body .tl-gname').innerText(), /Assistant/i);
+    assert.match(await page.locator('#task-body .tl-row').innerText(), /Approve the budget/);
+    assert.equal(await page.locator('#task-body .tl-ghead a.tl-gchat').getAttribute('href'), '#/bot/coo');
+    assert.doesNotMatch(await page.locator('#task-body').innerText(), /Open chat|bots and people|bot or person/);
     if (screenshotDir) { fs.mkdirSync(screenshotDir, {recursive: true}); await page.screenshot({path: path.join(screenshotDir, 'task-board-company.png')}); }
 
-    // Filters: Mine shows only my task; the label filter narrows
-    await page.locator('#task-filter').click();
-    assert.equal(await page.locator('#task-filter-pop').evaluate(el => el.matches(':popover-open')), true);
-    await page.locator('#task-filters [data-filter="mine"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('.company-need-actor').length === 1);
-    assert.match(await page.locator('.company-need-titles').innerText(), /Approve the budget/);
-    assert.equal(await page.locator('#task-filter').innerText(), 'Filter · 1');
-    await page.locator('#task-filters [data-filter="all"]').click();
-    await page.selectOption('#board-label', 'finance');
-    await page.waitForFunction(() => document.querySelectorAll('.company-need-actor').length === 1);
-    assert.equal(await page.locator('#task-filter').innerText(), 'Filter · 1');
-    await page.selectOption('#board-bot', 'cmo');
-    assert.equal(await page.locator('#task-filter').innerText(), 'Filter · 2');
+    // Filters are chips: Owner "You" shows only my task; a tag narrows; Clear removes them all.
+    const pickFilter = async (field, value) => {
+      await page.locator('#task-filter').click();
+      assert.equal(await page.locator('#task-filter-pop').evaluate(el => el.matches(':popover-open')), true);
+      await page.locator(`#task-filter-pop [data-pick-field="${field}"]`).click();
+      await page.locator(`#task-filter-pop input[value="${value}"]`).check();
+      await page.keyboard.press('Escape');
+    };
+    await pickFilter('owner', 'me');
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
+    assert.match(await page.locator('#task-body .tl-row').innerText(), /Approve the budget/);
+    assert.match(await page.locator('[data-chip="owner"]').innerText(), /Owner\s*You/);
+    await pickFilter('tag', 'finance');
+    assert.equal(await page.locator('#task-chips [data-chip]').count(), 2);
     await page.locator('#task-filter-clear').click();
-    assert.equal(await page.locator('#task-filter').innerText(), 'Filter');
-    await page.locator('#task-filter').click();
+    assert.equal(await page.locator('#task-chips [data-chip]').count(), 0);
 
     // Search reaches task titles, requester names, waiting lines and recurring routines, then clears.
     await page.locator('#task-q').fill('  BuDgEt  ');
-    await page.waitForFunction(() => document.querySelectorAll('.company-need-actor').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
     await page.locator('#task-q').fill('COO');
-    await page.waitForFunction(() => document.querySelectorAll('.company-need-actor').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
     await page.locator('#task-q').fill('finance approval');
-    await page.waitForFunction(() => document.querySelectorAll('.company-need-actor').length === 1);
-    assert.match(await page.locator('.company-need-actor').innerText(), /Approve the budget/);
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
+    assert.match(await page.locator('#task-body .tl-row').innerText(), /Approve the budget/);
+    await page.locator('#task-q').fill('unmatched phrase');
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 0);
     await page.locator('#task-q').press('Escape');
-    await page.waitForFunction(() => document.querySelectorAll('.company-need-actor').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
     await page.locator('#task-view [data-view="recurring"]').click();
     await page.waitForFunction(() => document.querySelectorAll('.rrow').length === 3);
     assert.deepEqual((await page.locator('.rrow').allInnerTexts()).map(s => s.match(/Review (?:customer signals|release readiness|build health)/)?.[0]).sort(),
@@ -261,23 +264,21 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-q').fill('finance');
     await page.waitForFunction(() => document.querySelector('#task-body')?.textContent.includes('Closed invoice'));
     // When it was done, quietly on the right.
-    assert.match(await page.locator('#task-body .trow-btn .tnum').first().getAttribute('title'), /^Done /);
+    assert.match(await page.locator('#task-body .tl-row .tl-age').first().getAttribute('title'), /^Done /);
     await page.locator('#task-q').fill('newsletter');
     await page.waitForFunction(() => !document.querySelector('#task-body')?.textContent.includes('Closed invoice'));
     await page.locator('#task-q').press('Escape');
     await page.locator('#task-view [data-view="foryou"]').click();
 
-    await page.locator('#task-filter').click();
-    await page.selectOption('#board-label', 'copy');
-    await page.locator('#task-filter').click();
+    await pickFilter('tag', 'copy');
     await page.locator('#task-q').fill('Write');
+    await page.waitForFunction(() => location.hash.includes('tag=copy'));
     await page.reload();
     await page.waitForFunction(() => TASKS_ST?.tasks.length === 3);
     assert.equal(await page.locator('#task-q').inputValue(), '', 'search is not remembered');
-    assert.equal(await page.locator('#task-filter').innerText(), 'Filter · 1', 'label filter is remembered');
-    await page.locator('#task-filter').click();
-    await page.locator('#task-filter-clear').click();
-    await page.locator('#task-filter').click();
+    assert.match(await page.locator('[data-chip="tag"]').innerText(), /Tag\s*copy/, 'the tag filter lives in the address');
+    await page.locator('[data-chip-drop="tag"]').click();
+    await page.waitForFunction(() => location.hash === '#/tasks');
 
     // The modal: comments with authors, state changes inline, one box; the mover controls are there
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Draft the newsletter')));
@@ -285,7 +286,8 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /ben/i, 'the author is on the comment');
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /moved it to Doing/);
     assert.equal(await page.getByRole('heading', {name: 'Comments'}).count(), 1);
-    assert.equal(await page.locator('#task-modal [data-modal-status]').count(), 1, 'a mover sees the status control');
+    assert.equal(await page.locator('#task-modal button[data-prop="status"]').count(), 1, 'a mover can change the status');
+    assert.equal(await page.locator('#task-modal select').count(), 0, 'properties, not a form of selects');
     assert.equal(await page.locator('#task-modal [data-modal-lane]').count(), 0, 'no lane control');
     await page.locator('#task-modal .tlinks [data-preview-file="doc"]').click();
     await page.getByText(/Script one.*Approve the storyboard/s).waitFor();
@@ -302,9 +304,9 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.evaluate(() => {
       const link = document.createElement('a');
       link.href = '/api/v2/files/doc'; link.textContent = 'review-packet.md';
-      document.querySelector('#task-modal .q').appendChild(link);
+      document.querySelector('#task-modal .tdesc').appendChild(link);
     });
-    await page.locator('#task-modal .q a[href="/api/v2/files/doc"]').click();
+    await page.locator('#task-modal .tdesc a[href="/api/v2/files/doc"]').click();
     await page.getByText(/Script one.*Approve the storyboard/s).waitFor();
     await page.getByRole('textbox', {name: 'Add a comment'}).fill('Add the promo line.');
     await page.getByRole('button', {name: 'Comment', exact: true}).click();
@@ -312,9 +314,11 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/Draft%20the%20newsletter/comments', body: {text: 'Add the promo line.'}});
     assert.equal(await page.locator('#task-modal').getByText(/Send to/).count(), 0, 'no chat framing');
     if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-modal-comments.png')});
-    // a label added from the modal posts the new label set with the version
-    await page.locator('#task-modal [data-modal-labels] input').fill('promo');
-    await page.locator('#task-modal [data-modal-labels] input').press('Enter');
+    // a tag added from the properties posts the new tag set with the version
+    await page.locator('#task-modal [data-prop="tags"]').click();
+    await page.keyboard.type('promo');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-prop-row="tags"]')?.textContent.includes('promo'));
     await page.waitForFunction(() => window.__posted !== 'never');
     const labelPost = posted.find(x => x.body.labels);
     assert.deepEqual(labelPost.body, {version: 3, labels: ['newsletter', 'promo']});
@@ -323,14 +327,19 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
 
     // Finishing a request from a bot records a result; cancel leaves the task open.
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Approve the budget')));
-    const finishButton = page.locator('#task-modal [data-modal-task="done"]');
+    // Done is a status like any other: the Status menu, then Done.
+    const finish = async () => {
+      await page.locator('#task-modal [data-prop="status"]').click();
+      await page.locator('#task-modal .prop-pop [data-prop-pick="done"]').click();
+    };
     const beforeFinish = posted.length;
-    await finishButton.click();
+    await finish();
     await page.locator('dialog.task-outcome textarea').waitFor();
+    assert.equal(await page.locator('dialog.task-outcome .task-outcome-title').innerText(), 'Approve the budget', 'the prompt names the request');
     await page.locator('dialog.task-outcome [data-cancel]').click();
     assert.equal(posted.length, beforeFinish, 'cancel does not finish the request');
     assert.equal(await page.locator('#task-modal').evaluate(el => el.open), true, 'the task stays open after cancel');
-    await finishButton.click();
+    await finish();
     await page.locator('dialog.task-outcome textarea').fill('Keep the budget on hold.');
     await page.locator('dialog.task-outcome button[type="submit"]').click();
     await page.waitForFunction(() => !TASKS_ST.tasks.some(t => t.id === 'Approve the budget'), null,
@@ -338,12 +347,14 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const resultPost = posted.find(x => x.path === '/api/v2/tasks/Approve%20the%20budget' && x.body.status === 'done');
     assert.equal(resultPost.body.note, 'Keep the budget on hold.');
 
-    // A non-mover: no status control, but the comment box
+    // Someone who may not move tasks (here the one who asked): no tag +, no Part of or Blocked by pickers, but the comment box
     me = {...me, role: 'viewer', mover: false};
     await page.evaluate(() => { S.me = {...S.me, mover: false}; taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Draft the newsletter')); });
     await page.waitForTimeout(50);
     await page.locator('#task-modal .task-comments').waitFor();
-    assert.equal(await page.locator('#task-modal [data-modal-status]').count(), 0);
+    await page.locator('#task-modal [data-task-props]').waitFor();
+    assert.equal(await page.locator('#task-modal [data-prop="tags"], #task-modal [data-prop="parent"], #task-modal [data-prop="blocked"]').count(), 0);
+    assert.equal(await page.locator('#task-modal [data-prop-row="blocked"] .prop-v.ro').count(), 1, 'shown, read-only');
     assert.equal(await page.getByRole('textbox', {name: 'Add a comment'}).count(), 1);
     await page.locator('#task-modal [data-modal-close]').click();
     tasks.find(t => t.id === 'Approve the budget').status = 'open';
@@ -353,34 +364,35 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.setViewportSize({width: 375, height: 844});
     await page.waitForTimeout(250); // allow the sidebar's drawer transition to finish
     await page.locator('#task-view [data-view="foryou"]').click();
-    await page.locator('.company-needs').waitFor();
+    await page.locator('#task-body .tl').waitFor();
     const mobile = await page.evaluate(() => {
-      const head = document.querySelector('.tasks-head.find');
+      const head = document.querySelector('.tl-head');
       const rect = s => head.querySelector(s).getBoundingClientRect();
-      return {top: [rect('h1').top, rect('.task-find').top, rect('#task-new').top], strip: rect('.task-strip').top,
+      return {top: [rect('h1').top, rect('.tl-search').top, rect('#task-new').top], strip: rect('#task-view').top,
         right: rect('#task-new').right, edge: head.getBoundingClientRect().right};
     });
     assert(Math.max(...mobile.top) - Math.min(...mobile.top) <= 8, 'phone primary controls share a line');
     assert(mobile.strip > mobile.top[0] && mobile.right <= mobile.edge + 1, 'phone view switch is on its own line');
     await page.locator('#task-filter').click();
+    await page.waitForTimeout(50);
     assert.equal(await page.locator('#task-filter-pop').evaluate(el => Math.round(el.getBoundingClientRect().bottom)), 844, 'filter is a bottom sheet');
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#task-filter-pop').evaluate(el => el.matches(':popover-open')), false);
     await page.locator('#task-filter').click();
-    await page.locator('.tasks-head h1').click();
+    await page.locator('.tl-head h1').click();
     assert.equal(await page.locator('#task-filter-pop').evaluate(el => el.matches(':popover-open')), false, 'outside tap closes the sheet');
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
       if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, `task-toolbar-mobile-${theme}.png`)});
     }
     if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-board-mobile.png')});
-    assert(await page.locator('.company-needs').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no sideways scroll on a phone');
     for (const [route, view] of [['#/board', 'board'], ['#/issues', 'list'], ['#/recurring', 'recurring']]) {
       await page.goto('http://tico-ui.test/' + route);
       const activeCount = tasks.filter(task => task.lane === 'company' && !['done', 'closed'].includes(task.status)).length;
       await page.waitForFunction(({view, activeCount}) => TASKS_ST?.view === view && TASKS_ST.tasks.length === activeCount,
         {view, activeCount});
-      assert.equal(await page.locator(`#task-view [data-view="${view}"]`).getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.locator(`#task-view [data-view="${view}"]`).getAttribute('aria-selected'), 'true');
     }
     // Links copied into chat or email do not depend on clients preserving a URL fragment.
     await page.goto('http://tico-ui.test/?task=Approve%20the%20budget');
@@ -405,22 +417,22 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.goto('http://tico-ui.test/#/tasks');
     await page.locator('#task-view [data-view="list"]').click();
     await page.locator('#task-filter').click();
-    assert.equal(await page.locator('#board-label option[value="newsletter"]').innerText(), 'release · Oct 2');
-    assert.equal(await page.locator('#board-label').getAttribute('aria-label'), 'Filter by tag');
-    await page.selectOption('#board-label', '');
+    await page.locator('#task-filter-pop [data-pick-field="tag"]').click();
+    assert.equal(await page.locator('#task-filter-pop input[value="newsletter"]').locator('xpath=..').innerText(), 'release · Oct 2');
+    assert.equal(await page.locator('#task-filter-pop .tl-menu').getAttribute('aria-label'), 'Tag');
     await page.keyboard.press('Escape');
-    const richRow = page.locator('#task-body [data-open-task="tDraft the newsletter"]');
+    const richRow = page.locator('#task-body [data-task-key="tDraft the newsletter"]');
     assert.equal(await richRow.locator('.tlabel').first().innerText(), 'release · Oct 2');
-    assert.equal(await richRow.locator('[data-tag-key]').count(), 0, 'button rows have no nested links');
-    await richRow.click();
-    const richChip = page.locator('#task-modal [data-tag-key="newsletter"]');
+    assert.equal(await richRow.locator('[data-tag-key]').count(), 0, 'rows have no nested links');
+    await richRow.locator('.tl-title').click();
+    const richChip = page.locator('#task-peek [data-tag-key="newsletter"]');
     await richChip.waitFor();
     assert.equal(await richChip.innerText(), 'release · Oct 2');
-    assert(!(await page.locator('#task-modal .tlabels').innerText()).includes('||'), 'empty-tag fallback is rendered');
+    assert(!(await page.locator('#task-peek .tlabels').innerText()).includes('||'), 'empty-tag fallback is rendered');
     await richChip.click();
     await page.locator('[data-tag-notes] input').first().waitFor();
     assert.equal(new URL(page.url()).hash, '#/tag/newsletter');
-    assert.equal(await page.locator('#task-modal[open]').count(), 0, 'a chip opens its tag, not its task');
+    assert.equal(await page.locator('#task-modal[open], #task-peek[open]').count(), 0, 'a chip opens its tag, not its task');
     assert.equal(await page.locator('[data-tag-notes] input').count(), 2, 'code examples are never tickable');
     assert.equal(await page.evaluate(() => window.tagUnsafe), undefined, 'tag Markdown is sanitized');
     assert.equal(await page.locator('[data-tag-tasks] a').count(), 2);

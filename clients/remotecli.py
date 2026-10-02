@@ -35,6 +35,23 @@ def run(args, who=None):
     # A query may run for 20 s on the server before it is stopped; leave room for that.
     client = Client(os.environ["HUB_API_URL"], os.environ.get("HUB_TOKEN", ""), timeout=30 if args.cmd == "sql" else 120 if args.cmd == "listening" else 15)
     fn = args.fn
+    if fn in ("task worktree add", "task worktree attach", "task worktree setup"):
+        from runner.worktrees import command
+        return command(client, args.worktree_sub, getattr(args, 'repo', None) or getattr(args, 'path', None), args.task)
+    if args.cmd == "repo":
+        from clients import hubtools
+        if args.sub == "list":
+            return hubtools.repo_list(client, {})
+        return hubtools.repo_update(client, {"full_name": args.full_name, "enabled": args.sub == "tick"})
+    if fn == "bot repos":
+        from clients import hubtools
+        if not args.all and not args.own and args.chosen is None:
+            return hubtools.bot_repos_get(client, {"bot": args.bot})
+        body = {"bot": args.bot, "mode": "all" if args.all else "own" if args.own else "chosen"}
+        if args.chosen is not None:
+            body["chosen"] = [{"full_name": r.removesuffix(":read").removesuffix(":write"),
+                               "access": "read" if r.endswith(":read") else "write"} for r in args.chosen]
+        return hubtools.bot_repos_set(client, body)
     if fn in ("tool list", "tool show", "tool query-search") and not (fn == "tool list" and args.bot):
         # Reads a runner credential may make outside a turn; /me would refuse a runner.
         return integrations(client, args)
@@ -68,6 +85,10 @@ def run(args, who=None):
                 more["enabled"] = bool(args.enable)
             return via_tool(client, args, **more)
         return via_tool(client, args)
+    if fn in ("task child create", "task tree", "task reparent"):
+        return via_tool(client, args)
+    if args.cmd == "chat":
+        return via_tool(client, args)
     if args.cmd in ("api", "computer", "credential", "support", "health") or fn == "message redact":
         return botops_tools(client, args)
     if args.cmd == "classify":
@@ -79,6 +100,7 @@ def run(args, who=None):
     if args.cmd == "meeting":
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields.pop("granola_action", None)
         if fn == "meeting import":
             return hubtools.meetings_import_file(client, fields)
         return hubtools.BY_NAME[tool_name(fn)]["fn"](client, fields)

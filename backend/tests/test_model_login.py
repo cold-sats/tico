@@ -1,4 +1,4 @@
-"""Signing a model in from the browser: owner-only, a small state machine, and no secrets kept."""
+"""Signing a model in from the browser: operator access, a small state machine, and no secrets kept."""
 
 import json
 
@@ -24,14 +24,14 @@ def stored(api):
         return [dict(row) for row in c.execute("SELECT * FROM model_logins")]
 
 
-def test_only_the_owner_starts_reads_or_cancels_a_login(api):
+def test_other_members_cannot_start_read_or_cancel_a_login(api):
     r = online(api)
     base = f"runners/{r['runner_id']}/logins"
-    post(api, base, {"runtime": "codex"}, token="ben-test", expected=403)
+    post(api, base, {"runtime": "codex"}, token="cara-test", expected=403)
     lid = start(api, r)["id"]
-    get(api, f"{base}/{lid}", token="ben-test", expected=403)
-    post(api, f"{base}/{lid}/cancel", {}, token="ben-test", expected=403)
-    post(api, f"{base}/{lid}/code", {"code": "abcdef#ghijkl"}, token="ben-test", expected=403)
+    get(api, f"{base}/{lid}", token="cara-test", expected=403)
+    post(api, f"{base}/{lid}/cancel", {}, token="cara-test", expected=403)
+    post(api, f"{base}/{lid}/code", {"code": "abcdef#ghijkl"}, token="cara-test", expected=403)
     # A runner cannot drive the owner's endpoints, nor another runner's login.
     post(api, base, {"runtime": "codex"}, token=r["token"], expected=403)
     other = online(api)
@@ -55,3 +55,18 @@ def test_nothing_token_like_is_stored_or_shown(api):
     assert shown["url"] == "" and shown["code"] == ""            # http and free text are refused
     assert "Enter code AB12-CD345" in shown["lines"]
     assert "\x1b" not in dump
+
+
+def test_operator_and_admin_can_manage_signin_on_allowed_computers(api):
+    r = runner(api, operator="cara")
+    ready(api, r, [])
+    base = f"runners/{r['runner_id']}/logins"
+    lid = post(api, base, {"runtime": "claude", "profile": "engineering"}, token="cara-test")["id"]
+    assert get(api, f"{base}/{lid}", token="cara-test")["profile"] == "engineering"
+    report(api, r, lid, state="waiting")
+    post(api, f"{base}/{lid}/code", {"code": "example-code"}, token="cara-test")
+    post(api, f"{base}/{lid}/cancel", {}, token="cara-test")
+    admin_login = post(api, base, {"runtime": "codex", "profile": "admin-profile"}, token="ben-test")
+    assert get(api, f"{base}/{admin_login['id']}", token="ben-test")["state"] == "requested"
+    other = online(api)
+    post(api, f"runners/{other['runner_id']}/logins", {"runtime": "codex"}, token="cara-test", expected=403)
