@@ -20,6 +20,7 @@ STALL_MAX = 900
 # A failed turn whose only events are these produced nothing and touched nothing.
 SILENT_KINDS = {"error", "diagnostic", "status"}
 NO_EFFECT_TRIES = 3
+PRE_START_TRIES = 10        # lapsed leases before start: a broken computer must not retry forever
 NO_EFFECT_WITHIN = 120       # seconds from start; a longer silent run may have used unreported tools
 # A deploy drains every bot while it waits for runs to finish (at most 30 minutes) and then
 # activates. A drain it left behind for longer than this is a leak, not a deploy in progress.
@@ -420,9 +421,29 @@ class Execution:
             with isolated(c, "expire", row["id"]):
                 state = "queued" if row["state"] == "leased" else "uncertain"
                 c.execute("UPDATE attempts SET state='expired',finished=? WHERE id=?", (H.now(), row["id"]))
+                if row["state"] == "leased":
+                    tries = c.execute("SELECT count(*) FROM attempts WHERE job_id=? AND started IS NULL "
+                                      "AND state='expired'", (row["job_id"],)).fetchone()[0]
+                    if tries >= PRE_START_TRIES:
+                        computer = c.execute("SELECT label FROM runners WHERE id=?", (row["runner_id"],)).fetchone()
+                        name = (self.store.settings.assistant_name if row["bot"] == self.store.settings.assistant_bot
+                                else H.bot(c, row["bot"])["display_name"])
+                        reason = f"Your {name} couldn't start on {computer['label']}: update its Tico"
+                        state = "failed"
+                        c.execute("UPDATE attempts SET state='failed',final_text=? WHERE id=?", (reason, row["id"]))
+                        job = c.execute("SELECT message_id FROM jobs WHERE id=? AND attempt_id=? "
+                                        "AND state='leased'", (row["job_id"], row["id"])).fetchone()
+                        if job:
+                            msg = H.message(c, job["message_id"])
+                            if H.is_human(msg["from_actor"]):
+                                H.say(c, "bot:" + row["bot"], msg["from_actor"], reason, kind="notice",
+                                      conversation_id=msg["conversation_id"], in_reply_to=msg["id"],
+                                      refs={"turn_id": row["id"]})
                 c.execute("UPDATE jobs SET state=? WHERE attempt_id=? AND state IN ('leased','running','input')", (state, row["id"]))
-                H.turn_finish(c, H.KEEPER, row["id"], exit_code="interrupted", summary="Runner lease expired")
-                H.status_set(c, H.KEEPER, row["bot"], state="crashed", focus="One run stopped; saved for later")
+                H.turn_finish(c, H.KEEPER, row["id"], exit_code="failed" if state == "failed" else "interrupted",
+                              summary=reason if state == "failed" else "Runner lease expired")
+                H.status_set(c, H.KEEPER, row["bot"], state="crashed",
+                             focus=reason if state == "failed" else "One run stopped; saved for later")
                 H.event(c, H.KEEPER, "attempt.expired", row["id"], {"job_state": state})
 
     @staticmethod

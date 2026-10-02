@@ -21,14 +21,74 @@ def jobs(api):
         return c.execute("SELECT count(*) FROM jobs").fetchone()[0]
 
 
-def assistant_turn(api, person, text="Please plan my week around the launch"):
+def assistant_turn(api, person, text="Please plan my week around the launch", busy_bots=None):
     """The assistant bot's runner turn for a message this person sent in their Assistant room."""
     r = runner(api)
     assign(api, r, "coo")
     ready(api, r, ["coo"])
     said = say(api, text, person)
     assert said["fast"] is False
-    return r, claim(api, r)
+    body = {} if busy_bots is None else {"busy_bots": busy_bots}
+    return r, post(api, "jobs/claim", body, token=r["token"])["attempt"]
+
+
+@pytest.mark.parametrize("person", ["ana-test", "ben-test"])
+@pytest.mark.parametrize("busy_bots", [None, []])
+def test_assistant_fetches_only_its_own_credentials_before_start(api, person, busy_bots):
+    from backend.tests.test_credentials import create, setup
+
+    setup(api)
+    own = create(api, name="Assistant tool", env="ASSISTANT_TOOL_KEY")
+    personal = create(api, name="Personal tool", env="PERSONAL_TOOL_KEY")
+    other = create(api, name="Other teammate tool", env="OTHER_TOOL_KEY")
+    post(api, f"credentials/{own['id']}/grants", {"subject": "bot:coo"})
+    post(api, f"credentials/{personal['id']}/grants", {"subject": "human:" + person.removesuffix("-test")})
+    post(api, f"credentials/{other['id']}/grants", {"subject": "bot:ops"})
+    r, attempt = assistant_turn(api, person, busy_bots=busy_bots)
+    token = attempt["token"]
+    # v0.2.35 claims without busy_bots, then fetches credentials before acknowledging start.
+    granted = get(api, "credential-runtime", token)["credentials"]
+    assert [value["id"] for value in granted] == [own["id"]]
+    assert get(api, "me", token)["actor"] == "human:" + person.removesuffix("-test")
+    get(api, "credential-runtime", person, expected=403)
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "assistant-start"}, token=r["token"])
+    assert [value["id"] for value in get(api, "credential-runtime", token)["credentials"]] == [own["id"]]
+    made = post(api, "tasks", {"owner": "human:" + person.removesuffix("-test"),
+                               "title": "Draft my week", "body": "Monday first."}, token=token)
+    assert made["requester"] == "human:" + person.removesuffix("-test")
+    post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "last_seq": 0}, token=r["token"])
+    get(api, "credential-runtime", token, expected=409)
+
+
+def test_assistant_pre_start_failures_stop_retrying_and_explain_in_the_persons_room(api):
+    from backend.execution import PRE_START_TRIES
+    from backend.tests.test_api import expire
+
+    r, attempt = assistant_turn(api, "ben-test")
+    job_id = attempt["job_id"]
+    for n in range(PRE_START_TRIES):
+        assert attempt["job_id"] == job_id
+        get(api, "credential-runtime", attempt["token"])   # old runner's fetch, before start
+        expire(api, attempt["id"])
+        ready(api, r, ["coo"])
+        previous = attempt
+        attempt = post(api, "jobs/claim", {}, token=r["token"])["attempt"]
+        if n < PRE_START_TRIES - 1:
+            assert attempt is not None
+    assert attempt is None
+    reason = "Your Assistant couldn't start on Test Mac: update its Tico"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "failed"
+        assert c.execute("SELECT count(*) FROM attempts WHERE job_id=?", (job_id,)).fetchone()[0] == PRE_START_TRIES
+        last = c.execute("SELECT state,final_text FROM attempts WHERE id=?", (previous["id"],)).fetchone()
+        assert (last["state"], last["final_text"]) == ("failed", reason)
+    messages = room(api, "ben-test")["messages"]
+    assert [m["body"] for m in messages if m["from_actor"] == "bot:coo"] == [reason]
+    get(api, f"conversations/{messages[0]['conversation_id']}/messages", "ana-test", expected=403)
+    assert post(api, "jobs/claim", {}, token=r["token"])["attempt"] is None
+    post(api, f"attempts/{previous['id']}/started", {"thread_id": "too-late"}, token=r["token"], expected=409)
+    say(api, "Please draft the launch plan", "ben-test")
+    assert post(api, "jobs/claim", {}, token=r["token"])["attempt"]["job_id"] != job_id
 
 
 def test_only_the_owner_of_an_assistant_room_reads_or_posts_in_it(api):

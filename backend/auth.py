@@ -370,9 +370,11 @@ class Auth:
                     if attempt:
                         who = Identity("bot:" + attempt["bot"], "bot", runner_id=attempt["runner_id"],
                                        attempt_id=attempt["id"])
-                        # The lease turns of the runner itself stay the bot's; everything else the
-                        # assistant's chat turn asks for is asked as the person it works for.
-                        if path and not path.startswith(("/api/v2/attempts/", "/api/v2/jobs/")):
+                        # The runner's lease calls and credential fetch stay the bot's; the
+                        # assistant's tools otherwise act as the person it works for. Older
+                        # runners fetch the bot's credentials before acknowledging start.
+                        own_credentials = method == "GET" and path == "/api/v2/credential-runtime"
+                        if path and not own_credentials and not path.startswith(("/api/v2/attempts/", "/api/v2/jobs/")):
                             validate_identity(c, who)
                             who = self.assistant_principal(c, attempt) or who
                     elif not (who := self.identity_from_personal_token(c, token)):

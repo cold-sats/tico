@@ -12,6 +12,33 @@ def interrupted(api):
     return machine, message, attempt
 
 
+@pytest.mark.parametrize("acknowledge_start", [False, True])
+def test_pre_start_retry_limit_fails_unstarted_jobs_and_preserves_running_work(api, monkeypatch, acknowledge_start):
+    from backend import execution
+
+    monkeypatch.setattr(execution, "PRE_START_TRIES", 2)
+    machine, message, first = setup_attempt(api)
+    get(api, "credential-runtime", first["token"])
+    expire(api, first["id"])
+    ready(api, machine, ["ops"])
+    second = post(api, "jobs/claim", {}, token=machine["token"])["attempt"]
+    assert second["job_id"] == first["job_id"]
+    get(api, "credential-runtime", second["token"])
+    if acknowledge_start:
+        post(api, f"attempts/{second['id']}/started", {"thread_id": "started-work"}, token=machine["token"])
+    expire(api, second["id"])
+    ready(api, machine, ["ops"])
+    assert post(api, "jobs/claim", {}, token=machine["token"])["attempt"] is None
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE id=?", (first["job_id"],)).fetchone()[0] == (
+            "uncertain" if acknowledge_start else "failed")
+        assert c.execute("SELECT state FROM attempts WHERE id=?", (second["id"],)).fetchone()[0] == (
+            "expired" if acknowledge_start else "failed")
+    messages = get(api, f"conversations/{message['conversation_id']}/messages")
+    replies = [m["body"] for m in messages if m["from_actor"] == "bot:ops"]
+    assert replies == ([] if acknowledge_start else ["Your ops couldn't start on Test Mac: update its Tico"])
+
+
 def test_review_is_private_and_exposes_saved_output_without_credentials(api):
     machine, message, attempt = interrupted(api)
     get(api, 'bots/ops/execution-review', token='ben-test', expected=403)

@@ -65,6 +65,11 @@ running a task now. The owner may turn **Assistant acts without asking** off (Se
 direct, and a task, message or comment involving a bot is a card again. An assistant run's credential works only while its
 lease is live.
 
+The Computer fetches the Assistant's own granted credentials to start the run, including on older versions of Tico.
+It never fetches your personal credentials for that run; its Tico tools still act with your rights. If a job's lease
+expires before start ten times, Tico marks it failed and leaves a message in your private Assistant chat naming the
+Computer and asking you to update its Tico. Later messages can start new jobs.
+
 **Every proposal is shown for what it is.** The card carries the server's own one-line description (route kind and target
 name, never the bot's words), the request body as a key: value list (a long value is folded behind "Show more", never cut), for an approval its kind, requester and subject, and the exact field changes for a task update. Only routes
 on an allowlist can be proposed (never tokens, sign-in, runner enrollment, this assistant or anything that returns a credential);

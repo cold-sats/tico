@@ -213,7 +213,7 @@ def annotate(c, auth, who, messages):
     for row in c.execute(f"SELECT * FROM tasks WHERE requester IN ({who_marks}) AND created BETWEEN ? AND ?",
                          (*actors, lo, hi)):
         aid = owner_of(row["requester"], row["created"])
-        if aid and readable(lambda: auth.task_row(c, who, row)):
+        if aid and readable(lambda: auth.task_row(c, who, dict(row))):
             did[aid].append({"kind": "task", "task_id": row["id"], "title": row["title"], "owner": row["owner"],
                              "at": row["created"]})
     for row in c.execute(f"SELECT l.*,t.owner,t.requester,t.id AS tid FROM task_links l JOIN tasks t ON t.id=l.task_id "

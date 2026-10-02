@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Reading conversation messages no longer fails when a teammate created tasks during its turn.
+- Assistant turns on older Computers fetch the Assistant's own credentials while acting with the person's rights.
+- Jobs that repeatedly fail to start stop after ten expired leases and tell the requester to update the Computer's Tico.
+
 ## [0.3.10] - 2026-10-02
 
 ### Fixed
