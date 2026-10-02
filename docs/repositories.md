@@ -49,11 +49,6 @@ Changes are audited as `repositories.changed` or `bot.repos_changed`, with befor
 
 GitHub applies permissions to a whole installation token, so mixed bot grants use separate write and read tokens. `POST /api/v2/github/token` keeps the existing `token` field for the write repositories (including the bot's own), and adds `tokens` entries containing `token`, `expires_at`, `repositories`, and `access`. Callers can also send `repository` with `bot` to obtain a token for one effective repository. This never expands access. Computers select the corresponding token for each Git remote through an environment-only credential helper. GitHub CLI commands select it from `--repo`/`-R`, a `gh repo view/clone/fork owner/repo` argument, a GitHub URL, a `repos/owner/repo` API path, `GH_REPO`, or the current checkout’s origin. Commands without a repository use the write token; for a read repository, specify the repository or run from its checkout. Tokens stay in memory and are never saved in Git config. Older Computers retain access to the bot's own repository and existing chosen write repositories.
 
-After an upgrade, the server starts a repository refresh immediately and retries on its next
-scheduler tick if the GitHub installation is not ready. A temporary installation lookup failure
-preserves reachability and does not consume the daily sync backoff. Disconnecting the App marks
-repositories unreachable.
-
 Computer answers (`GET /api/v2/computers`, Operations and `hub_computer_list`) include `release`
 for the installed Tico release. The legacy `version` field is the runner software version.
 A Computer that does not report its release returns an empty `release`.

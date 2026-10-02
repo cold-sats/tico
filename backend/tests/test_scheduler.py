@@ -70,3 +70,26 @@ def test_idle_claims_do_not_take_the_write_lock_and_never_starve_leases(api):
     assert len([a for a in got if a]) == 1
     with store.read() as c:
         assert c.execute("SELECT count(*) FROM attempts WHERE state='expired'").fetchone()[0] == 0
+
+
+def test_legacy_done_parent_with_open_child_and_one_failed_close_do_not_stop_tick(api, monkeypatch):
+    store = api.app.state.store
+    with store.transaction() as c:
+        parent = H.task_create(c, 'bot:ops', 'Accept existing work', 'x', 'bot:cpo', lint=False)
+        child = H.task_create(c, 'bot:ops', 'Finish child work', 'x', 'bot:cpo', parent_id=parent['id'], lint=False)
+        poisoned = H.task_create(c, 'bot:ops', 'Accept another delivery', 'x', 'bot:cpo', lint=False)
+        for task in (parent, poisoned):
+            c.execute("UPDATE tasks SET status='done',done_at='2026-01-01T00:00:00Z' WHERE id=?", (task['id'],))
+    real = H.task_close
+    def close(c, actor, task_id, *args, **kw):
+        if task_id == poisoned['id']:
+            c.execute("UPDATE tasks SET note='partial' WHERE id=?", (task_id,))
+            raise RuntimeError('bad row')
+        return real(c, actor, task_id, *args, **kw)
+    monkeypatch.setattr(H, 'task_close', close)
+    Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, 10, 17, tzinfo=timezone.utc))
+    with store.read() as c:
+        assert H.task(c, parent['id'])['status'] == 'closed'
+        assert H.task(c, child['id'])['status'] == 'open'
+        assert H.task(c, poisoned['id'])['note'] == ''
+        assert c.execute("SELECT last_success FROM service_health WHERE service='scheduler'").fetchone()[0]

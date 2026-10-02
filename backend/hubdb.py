@@ -2034,7 +2034,7 @@ def _unblock(conn, done_task):
             _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} is finished.")
 
 
-PR_URL = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)/?$")
+PR_URL = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)/?$", re.IGNORECASE)
 ISSUE_URL = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/issues/(\d+)/?$")
 
 
@@ -2080,9 +2080,6 @@ def task_link(conn, actor, task_id, url, title=None, kind=None):
     _task_event(conn, task_id, actor, "link", None, url, title)
     conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
     event(conn, actor, "task.link", task_id, {"url": url, "kind": kind})
-    if kind == "pr" and row["status"] == "ready":
-        task_update(conn, KEEPER, task_id, status="review", mover=True)
-        conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
     return link
 
 
@@ -2131,27 +2128,32 @@ def descendants(conn, task_id):
         "SELECT t.* FROM tasks t JOIN tree ON t.id=tree.id ORDER BY t.created,t.id", (task_id,)))
 
 
-def children_summaries(conn, task_ids):
+def children_summaries(conn, task_ids, visible_sql="1"):
     if not task_ids:
         return {}
     marks = ",".join("?" * len(task_ids))
-    rows = conn.execute("WITH RECURSIVE tree(root,id) AS ("
-        f"SELECT parent_id,id FROM tasks WHERE parent_id IN ({marks}) UNION "
-        "SELECT tree.root,t.id FROM tasks t JOIN tree ON t.parent_id=tree.id), "
+    rows = conn.execute("WITH RECURSIVE visible AS (SELECT * FROM tasks WHERE " + visible_sql + "), "
+        "tree(root,id,live,direct) AS ("
+        f"SELECT parent_id,id,1,1 FROM visible WHERE parent_id IN ({marks}) UNION "
+        "SELECT tree.root,t.id,tree.live AND parent.status NOT IN ('done','closed','declined'),0 "
+        "FROM visible t JOIN tree ON t.parent_id=tree.id JOIN visible parent ON parent.id=tree.id), "
         "prs AS (SELECT task_id,count(*) total,sum(state IN ('merged','shipped')) merged "
-        "FROM task_links WHERE kind='pr' AND task_id IN (SELECT id FROM tree) GROUP BY task_id) "
+        "FROM task_links WHERE kind='pr' AND coalesce(state,'open')!='closed' "
+        "AND task_id IN (SELECT id FROM tree) GROUP BY task_id) "
         "SELECT tree.root,count(*) total,sum(t.status IN ('done','closed','declined')) done,"
+        "sum(tree.live AND t.status NOT IN ('done','closed','declined')) open,"
+        "sum(tree.direct) direct_total,sum(tree.direct AND t.status IN ('done','closed','declined')) direct_done,"
         "sum(coalesce(prs.total,0)) prs_total,sum(coalesce(prs.merged,0)) prs_merged "
-        "FROM tree JOIN tasks t ON t.id=tree.id LEFT JOIN prs ON prs.task_id=t.id GROUP BY tree.root", task_ids)
-    result = {tid: {"total": 0, "open": 0, "done": 0, "prs_total": 0, "prs_merged": 0} for tid in task_ids}
+        "FROM tree JOIN visible t ON t.id=tree.id LEFT JOIN prs ON prs.task_id=t.id GROUP BY tree.root", task_ids)
+    keys = ("total", "open", "done", "prs_total", "prs_merged", "direct_total", "direct_done")
+    result = {tid: dict.fromkeys(keys, 0) for tid in task_ids}
     for row in rows:
-        result[row["root"]] = {"total": row["total"], "open": row["total"] - row["done"],
-                               "done": row["done"], "prs_total": row["prs_total"], "prs_merged": row["prs_merged"]}
+        result[row["root"]] = {key: row[key] for key in keys}
     return result
 
 
-def children_summary(conn, task_id):
-    return children_summaries(conn, [task_id])[task_id]
+def children_summary(conn, task_id, visible_sql="1"):
+    return children_summaries(conn, [task_id], visible_sql)[task_id]
 
 
 def pr_state(links):
@@ -2175,19 +2177,33 @@ def pr_state(links):
                  if state in states), None)
 
 
-def task_tree(conn, task_id):
+def task_tree(conn, task_id, visible_ids=None):
     rows = descendants(conn, task_id)
     nodes = {r["id"]: {k: r[k] for k in ("id", "title", "status", "owner")} for r in rows}
+    links = {}
+    if nodes:
+        marks = ",".join("?" * len(nodes))
+        for link in _rows(conn.execute(f"SELECT * FROM task_links WHERE task_id IN ({marks})", list(nodes))):
+            links.setdefault(link["task_id"], []).append(link)
     for row in rows:
         node = nodes[row["id"]]
-        node.update(pr_state=pr_state(task_links(conn, row["id"])), children=[])
+        node.update(pr_state=pr_state(links.get(row["id"], [])), children=[])
     roots = []
     for row in rows:
         (nodes[row["parent_id"]]["children"] if row["parent_id"] in nodes else roots).append(nodes[row["id"]])
+    if visible_ids is not None:
+        def visible(items):
+            result = []
+            for node in items:
+                if node["id"] in visible_ids:
+                    node["children"] = visible(node["children"])
+                    result.append(node)
+            return result
+        roots = visible(roots)
     return roots
 
 
-def _parent_finished(conn, row, previous):
+def _parent_finished(conn, row, previous, actor=None):
     terminal = ("done", "closed", "declined")
     if previous in terminal or row["status"] not in terminal or not row.get("parent_id"):
         return
@@ -2198,7 +2214,7 @@ def _parent_finished(conn, row, previous):
         parent = task(conn, parent_id)
         if not parent or children_summary(conn, parent_id)["open"]:
             break
-        if parent["status"] not in terminal:
+        if parent["status"] not in terminal and parent["owner"] != actor:
             _wake(conn, parent, parent["owner"], "All subtasks done")
         parent_id = parent.get("parent_id")
 
@@ -2273,7 +2289,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     owner = route(conn, actor, owner)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
-    requester = parent["requester"] if parent else actor
+    requester = parent["requester"] if parent and is_human(actor) else actor
     title = str(title or "").strip()
     body = str(body or "")
     severity = classify(f"{title}\n{body}", to_actor=target, actor=actor, conn=conn)
@@ -2361,8 +2377,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
-    `lane`, `labels`, `blocked_by` and `parent_id` are a mover's to change (`mover` says whether
-    this actor is one; the keeper always is). Pass `blocked_by=""` or `parent_id=""` to clear.
+    `lane`, `labels` and `blocked_by` are a mover's to change (`mover` says whether
+    this actor is one; the keeper always is). The owner/requester may re-parent under a task
+    they participate in. Pass `blocked_by=""` or `parent_id=""` to clear.
     `rank` is the position in the owner's queue: a participant may rank its own tasks.
     `goal_id` names the goal the task serves; "" takes it off (backend/goals.py).
     """
@@ -2392,10 +2409,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if status is not None and not closing_step:
         if status not in TASK_STATUSES:
             refuse(conn, actor, "kind", f"a status is {'|'.join(TASK_STATUSES)}, not {status}")
-        if status == "ready" and any(link["kind"] == "pr" and link["state"] not in ("merged", "closed", "shipped")
-                                     for link in task_links(conn, task_id)):
-            refuse(conn, actor, "pr", "Wait until every pull request is merged or closed")
-        if status == "done" and children_summary(conn, task_id)["open"]:
+        if status == "done" and not is_human(actor) and children_summary(conn, task_id)["open"]:
             refuse(conn, actor, "children", "Finish the open subtasks before marking this task done")
         if status == "closed":
             refuse(conn, actor, "close", "close a task with task_close; the requester closes it")
@@ -2422,7 +2436,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         refuse(conn, actor, "blocked_by", "a task cannot wait on itself")
     wanted = {k: v for k, v in (("lane", lane), ("labels", labels),
                                 ("blocked_by", None if own_blocker else blocked_by),
-                                ("parent_id", None if mine else parent_id)) if v is not None}
+                                ("parent_id", None if actor in (row["owner"], row["requester"]) else parent_id)) if v is not None}
     if wanted and not mover:
         refuse(conn, actor, "identity",
                f"{', '.join(wanted)} on a task {'is' if len(wanted) == 1 else 'are'} changed by a person on "
@@ -2456,7 +2470,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if parent_id is not None:
         parent = str(parent_id or "").strip() or None
         if parent:
-            _task_parent(conn, actor, task_id, parent)
+            target_parent = _task_parent(conn, actor, task_id, parent)
+            if not mover and actor not in (target_parent["owner"], target_parent["requester"]) and not task_ancestor_party(conn, actor, target_parent):
+                refuse(conn, actor, "identity", "Re-parent under a task you own or requested")
         sets.append("parent_id=:parent_id")
         args["parent_id"] = parent
         _task_event(conn, task_id, actor, "parent_id", row.get("parent_id"), parent, note or "")
@@ -2499,6 +2515,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     # spare a bot the run was to withhold the notice.
     notify_requester = (status in ("done", "declined") and actor != row["requester"]
                         and (status == "declined" or tasks_only(conn, after["requester"])
+                             or after.get("parent_id") and is_bot(after["requester"])
                              or _owed_the_news(conn, after)))
     if note is not None and not notify_requester and not quiet:
         _mirror_task_note(conn, actor, after, note)
@@ -2532,15 +2549,17 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
               + (f"\n{note}" if note and not quiet else ""), refs=refs, quiet_bots=True)
     if (status == "open" or owner is not None and owner != row["owner"]) and actor != after["owner"]:
         _wake(conn, after, after["owner"], f"Open: {after['title']}")
+    if parent_id is not None and row.get("parent_id") and row["parent_id"] != after.get("parent_id") and row["status"] not in ("done", "closed", "declined"):
+        _parent_finished(conn, {**row, "status": "closed"}, row["status"], actor)
     _recount(conn, after["owner"])
     _recount(conn, after["requester"])
     if not closing_step:
-        _parent_finished(conn, after, row["status"])
+        _parent_finished(conn, after, row["status"], actor)
     return after
 
 
 def _task_close_allowed(conn, actor, row, note):
-    if not is_human(actor) and row["status"] != "closed" and children_summary(conn, row["id"])["open"]:
+    if actor != KEEPER and not is_human(actor) and row["status"] != "closed" and children_summary(conn, row["id"])["open"]:
         refuse(conn, actor, "children", "Finish the open subtasks before closing this task")
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
                      (row["id"], actor, now()))
@@ -2584,7 +2603,10 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
     told = [who for who in dict.fromkeys([after["owner"], after["requester"]]) if who != actor]
     for who in told:   # everyone but whoever tapped
         _wake(conn, after, who, said, quiet_bots=True, quiet=accepted)
-    _parent_finished(conn, after, row["status"])
+    parent = task(conn, after["parent_id"]) if after.get("parent_id") else None
+    if parent and parent["owner"] != actor and parent["owner"] not in told:
+        _wake(conn, after, parent["owner"], f"Child closed: {after['title']}", quiet_bots=True, quiet=True)
+    _parent_finished(conn, after, row["status"], actor)
     _recount(conn, after["owner"])
     _recount(conn, after["requester"])
     return after
@@ -2678,8 +2700,16 @@ def auto_close_done(conn, at=None):
     # listing cap silently stopped closing them.
     for row in _rows(conn.execute("SELECT * FROM tasks WHERE status='done' AND requester LIKE 'bot:%' "
                                   "AND done_at IS NOT NULL AND done_at<=? ORDER BY done_at,id", (cutoff,))):
-        closed.append(task_close(conn, KEEPER, row["id"],
-                                 f"closed automatically after {AUTO_CLOSE_DAYS} days"))
+        conn.execute("SAVEPOINT auto_close_row")
+        try:
+            after = task_close(conn, KEEPER, row["id"], f"closed automatically after {AUTO_CLOSE_DAYS} days")
+            conn.execute("RELEASE auto_close_row")
+            closed.append(after)
+        except Exception:
+            conn.execute("ROLLBACK TO auto_close_row")
+            conn.execute("RELEASE auto_close_row")
+            import logging
+            logging.getLogger("tico.scheduler").exception("Auto-close failed for task %s", row["id"])
     return closed
 
 

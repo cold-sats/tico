@@ -431,12 +431,13 @@ def test_three_level_tree_requester_rules_cycles_and_last_child_wake(api):
     assert child['requester'] == leaf['requester'] == parent['requester']
     post(api, 'tasks/' + leaf['id'] + '/links', {'url': 'https://github.com/example/service/pull/1'})
     summary = get(api, 'tasks/' + parent['id'])['task']['children_summary']
-    assert summary == {'total': 2, 'open': 2, 'done': 0, 'prs_total': 1, 'prs_merged': 0}
+    assert summary == {'total': 2, 'open': 2, 'done': 0, 'prs_total': 1, 'prs_merged': 0, 'direct_total': 1, 'direct_done': 0}
     tree = get(api, 'tasks/' + parent['id'] + '/tree')
     assert tree[0]['id'] == child['id'] and tree[0]['children'][0]['pr_state'] == 'open'
     post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'parent_id': leaf['id']}, expected=422)
-    post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'status': 'done'}, expected=422)
-    post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'}, expected=422)
+    token = bot_token(api)
+    post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'status': 'done'}, token=token, expected=422)
+    post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'}, token=token, expected=422)
     leaf = post(api, 'tasks/' + leaf['id'], {'version': leaf['version'], 'close': True})
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == 1
@@ -459,6 +460,17 @@ def test_ordinary_chat_keeps_subject_and_assistant_room_name(api):
     named = post(api, 'conversations', {'participants': ['ops'], 'kind': 'chat', 'subject': 'Feature planning'})
     assert named['id'] == conversation['id'] and named['subject'] == 'Feature planning'
     assert post(api, 'conversations', {'participants': ['ops'], 'kind': 'chat'})['subject'] == 'Feature planning'
+
+    # A named personal room is never renamed by another create call.
+    assert post(api, 'conversations', {'participants': ['ops'], 'kind': 'chat', 'subject': 'Another name'})['subject'] == 'Feature planning'
+    shared = post(api, 'conversations', {'participants': ['cpo'], 'kind': 'chat'})
+    assert shared['scope'] == 'shared'
+    assert post(api, 'conversations', {'participants': ['cpo'], 'kind': 'chat', 'subject': 'Another name'})['subject'] == shared['subject']
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,state) VALUES('coo','Assistant','active')")
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('coo',?, 'ana')", (encode({'name': 'coo', 'runtime': 'fake', 'status': 'active'}),))
+    assistant = post(api, 'conversations', {'participants': ['coo'], 'kind': 'chat'})
+    assert assistant['subject'] == 'Private ' + api.app.state.store.settings.assistant_name + ' control room'
 
 
 def test_nested_task_mcp_and_cli_use_shared_routes(api, monkeypatch):
@@ -497,7 +509,7 @@ def test_parent_owner_bot_can_track_and_reparent_inherited_subtasks(api):
     parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Manage the feature', 'body': 'x'})
     token = bot_token(api)
     child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Implement the feature', 'body': 'x', 'parent_id': parent['id']}, token=token)
-    assert child['requester'] == 'human:ana'
+    assert child['requester'] == 'bot:ops'
     assert get(api, 'tasks/' + child['short_id'], token=token)['task']['id'] == child['id']
     assert get(api, 'tasks/' + parent['short_id'] + '/tree', token=token)[0]['id'] == child['id']
     assert child['id'] in {row['id'] for row in get(api, 'tasks', token=token)['tasks']}
@@ -508,3 +520,111 @@ def test_parent_owner_bot_can_track_and_reparent_inherited_subtasks(api):
     post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'status': 'done'}, token=token, expected=422)
     moved = post(api, 'tasks/' + child['short_id'], {'version': child['version'], 'parent_id': ''}, token=token)
     assert moved['parent_id'] is None
+
+
+def test_bot_created_children_keep_bot_requester_and_notify_and_close_for_the_manager(api):
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Manage delivery', 'body': 'x'})
+    token = bot_token(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET request_id='human-request' WHERE id=?", (parent['id'],))
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Implement delivery', 'body': 'x', 'parent_id': parent['id']}, token=token)
+    assert child['requester'] == 'bot:ops' and child['request_id'] is None
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, 'bot:cpo', child['id'], status='done')
+        notices = H._rows(c.execute("SELECT * FROM messages WHERE json_extract(refs_json,'$.task')=? AND body LIKE 'Finished:%'", (child['id'],)))
+        assert notices and {m['to_actor'] for m in notices} == {'bot:ops'}
+    child = get(api, 'tasks/' + child['id'], token=token)['task']
+    assert post(api, 'tasks/' + child['id'], {'version': child['version'], 'close': True}, token=token)['status'] == 'closed'
+    # The bot filed another ordinary subtask; it auto-closes without asking the human.
+    with api.app.state.store.transaction() as c:
+        other = H.task_create(c, 'bot:ops', 'Finish another delivery', 'x', 'bot:cpo', parent_id=parent['id'], lint=False)
+        c.execute("UPDATE tasks SET status='done',done_at='2026-01-01T00:00:00Z' WHERE id=?", (other['id'],))
+        assert other['id'] in {t['id'] for t in H.auto_close_done(c)}
+
+
+def test_delegate_cannot_turn_temporary_access_into_ancestor_access(api):
+    token = bot_token(api)
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Own the plan', 'body': 'x'})
+    unrelated = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review other work', 'body': 'x'})
+    with api.app.state.store.transaction() as c:
+        c.execute('INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)',
+                  (unrelated['id'], 'bot:ops', 'human:ana', c.execute('SELECT id FROM messages LIMIT 1').fetchone()[0], H.shift(H.now(), days=1)))
+    get(api, 'tasks/' + unrelated['id'], token=token)
+    post(api, 'tasks/' + unrelated['id'], {'version': unrelated['version'], 'parent_id': parent['id']}, token=token, expected=403)
+    # Direct ownership of the child still does not permit hanging it under a parent it merely reads.
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, 'human:ana', unrelated['id'], owner='bot:ops', mover=True)
+        alien_parent = H.task_create(c, 'human:ana', 'Coordinate unrelated work', 'x', 'bot:cpo', lint=False)
+        with pytest.raises(H.Refused):
+            H.task_update(c, 'bot:ops', unrelated['id'], parent_id=alien_parent['id'])
+
+
+def test_hidden_descendants_stay_hidden_in_details_lists_trees_sql_and_counts(api):
+    from backend.tests.test_api import restrict
+    token = bot_token(api)
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Coordinate visible work', 'body': 'x'})
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Keep private work private', 'body': 'x', 'parent_id': parent['id']})
+    with api.app.state.store.transaction() as c:
+        restrict(c, 'cpo', people=['ana'])
+    get(api, 'tasks/' + child['id'], token=token, expected=404)
+    assert get(api, 'tasks/' + parent['id'] + '/tree', token=token) == []
+    detail = get(api, 'tasks/' + parent['id'], token=token)['task']
+    assert detail['children_summary']['total'] == detail['parts']['total'] == 0
+    assert child['id'] not in {t['id'] for t in get(api, 'tasks', token=token)['tasks']}
+    assert [child['id']] not in post(api, 'sql', {'sql': 'SELECT id FROM tasks'}, token=token)['rows']
+
+
+def test_closed_middle_task_stops_open_rollup_and_reparenting_wakes_previous_parent(api):
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Coordinate nested work', 'body': 'x'})
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Coordinate service work', 'body': 'x', 'parent_id': parent['id']})
+    post(api, 'tasks', {'owner': 'cmo', 'title': 'Finish nested work', 'body': 'x', 'parent_id': child['id']})
+    child = post(api, 'tasks/' + child['id'], {'version': child['version'], 'close': True})
+    summary = get(api, 'tasks/' + parent['id'])['task']['children_summary']
+    assert summary['total'] == 2 and summary['open'] == 0 and summary['direct_done'] == 1
+    token = bot_token(api)
+    parent = post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'status': 'done'}, token=token)
+    # Humans can mark Done even when a child is open.
+    next_parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Track another piece', 'body': 'x'})
+    open_child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Finish another piece', 'body': 'x', 'parent_id': next_parent['id']})
+    with api.app.state.store.read() as c:
+        before = c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done' AND to_actor='bot:ops'").fetchone()[0]
+    post(api, 'tasks/' + open_child['id'], {'version': open_child['version'], 'parent_id': ''})
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done' AND to_actor='bot:ops'").fetchone()[0] == before + 1
+    another = post(api, 'tasks', {'owner': 'cpo', 'title': 'Finish remaining piece', 'body': 'x', 'parent_id': next_parent['id']})
+    post(api, 'tasks/' + next_parent['id'], {'version': next_parent['version'], 'status': 'done'})
+    # An explicit empty parent is allowed; an omitted parent is refused by MCP.
+    from backend.tests.test_mcp import call
+    error, result = call(api, 'hub_task_reparent', {'id': another['id']})
+    assert error and result['error'] == 'usage'
+    assert api.delete('/api/v2/tasks/' + parent['id'] + '/links/' + 'x' * 201, headers=headers()).status_code == 422
+    with api.app.state.store.transaction() as c:
+        self_parent = H.task_create(c, 'bot:ops', 'Manage remaining work', 'x', 'bot:ops', lint=False)
+        self_child = H.task_create(c, 'bot:ops', 'Cancel remaining work', 'x', 'bot:cpo', parent_id=self_parent['id'], lint=False)
+        before = c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0]
+        H.task_close(c, 'bot:ops', self_child['id'])
+        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == before
+
+
+
+def test_tree_visibility_and_link_reads_are_batched(api, monkeypatch):
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Track a large plan', 'body': 'x'})
+    with api.app.state.store.transaction() as c:
+        for n in range(25):
+            child = H.task_create(c, 'human:ana', 'Implement component ' + str(n), 'x', 'bot:cpo', parent_id=parent['id'], lint=False)
+            H.task_link(c, 'human:ana', child['id'], 'https://github.com/example/service/pull/' + str(n + 1))
+    auth = api.app.state.auth
+    real = auth.bot_accesses
+    calls = []
+    def accesses(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(auth, 'bot_accesses', accesses)
+    tree = get(api, 'tasks/' + parent['id'] + '/tree', token='ben-test')
+    assert len(tree) == 25 and all(node['pr_state'] == 'open' for node in tree)
+    assert len(calls) <= 6
+    with api.app.state.store.read() as c:
+        queries = []
+        c.set_trace_callback(queries.append)
+        assert len(H.task_tree(c, parent['id'])) == 25
+        assert len([q for q in queries if q.startswith('SELECT') or q.startswith('WITH')]) == 2

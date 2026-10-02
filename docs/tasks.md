@@ -73,12 +73,21 @@ using `tasks.type_id` and `tasks.step_id`; the task visibility rules still apply
 
 ## Subtasks and PRs
 
-Subtasks can nest to any depth. They inherit the parent's requester, so work delegated by a bot
-keeps the original requester's rights. A parent owner can read and move its descendants,
-including through the task tools and SQL, without gaining access to unrelated tasks. Moving a task to a new parent moves its whole subtree;
-a task cannot become its own ancestor. A parent with unfinished descendants cannot become Done.
-A human can still close it to cancel the work. Finishing the last subtask wakes the parent's
-owner with “All subtasks done”. Done, Closed and Declined count as finished.
+Subtasks can nest to any depth. A human-created subtask keeps the parent's requester for
+notices; a bot-created subtask is requested by the filing bot, which receives its completion
+notice and may close it. It auto-closes after three quiet days like other bot-requested tasks.
+Subtasks never inherit a human's delegation anchor from a bot's request. BotOps acts with the
+filing bot's rights when that bot asks it to work on a subtask.
+
+Parent owners can track descendants they can read, without gaining Read on hidden bots.
+Only the task's owner or requester, or a human mover, can re-parent it; bots must also own,
+request or manage the new parent. Moving a task moves its whole subtree, and cycles are refused.
+Bots finish open subtasks before marking a parent Done. Humans can always choose Ready or Done,
+or close a parent to cancel work. The keeper accepts completed routine work and old bot deliveries
+even when they have open subtasks. Finishing or moving away the last open subtask wakes the
+parent's owner with “All subtasks done”, unless that owner made the change.
+Done, Closed and Declined count as finished. Open descendants under a finished subtask do not
+block its parent.
 
 ```sh
 hub task child <parent-id> --owner engineer --title "Build the service" --body "Use the plan."
@@ -91,16 +100,26 @@ The corresponding MCP tools are `hub_task_child_create`, `hub_task_tree` and `hu
 Task create accepts `parent_id`; task update accepts `parent_id` with the current `version`.
 `GET /api/v2/tasks/{id}/tree` returns nested subtasks with `id`, `title`, `status`, `owner`,
 `pr_state` and `children`. Task detail and list answers include `children_summary` with descendant
-counts: `total`, `open`, `done`, `prs_total` and `prs_merged`.
+counts: `total`, `open`, `done`, `prs_total` and `prs_merged`, plus `direct_total` and
+`direct_done` for direct children. Counts include only visible subtrees. Totals include all
+visible descendants; `open` ignores work below finished subtasks. Closed, unmerged PRs are
+excluded from the PR totals.
 
 Attach as many PRs as the task needs with `hub task link`. `GET/POST /api/v2/tasks/{id}/links`
 list or attach links; `DELETE /api/v2/tasks/{id}/links/{link_id}` removes one. The older POST
 with `remove` still works. PR links include repository, number, branch, checks, mergeability,
 review state and pending review comments. The task's `pr_state` shows the worst active PR:
 Failing, Conflict, Changes requested, Open, then Merged. Closed PRs are excluded; shipped PRs
-count as merged. A task becomes Ready only after every attached PR is merged or closed.
-Automatic PR moves retain the existing custom-type and legacy product-lane behavior.
+count as merged. Automatic Ready requires at least one merged PR and every attached PR
+merged or closed. Abandoning every PR returns a task in Review or Ready to Doing. Adding a PR
+keeps a Ready task in Ready. Automatic PR moves retain the existing custom-type and legacy
+product-lane behavior and preserve a human's status choice for one hour.
 
-GitHub events wake the owner with specific PR items, grouped into one notice within three
-minutes. Automatic shipping waits until every merged PR is included in the configured release;
+Opening a task refreshes each tracked PR from GitHub, cached for three minutes. If GitHub is
+unavailable or the App cannot reach that repository, the last known state remains. People
+can still move tasks without webhooks or a successful refresh.
+
+Failing checks, new conflicts, requests for changes, review comments from others and PRs
+closed without merging wake the owner with the specific item, grouped into one notice within
+three minutes. Pending or passing checks and the bot's own comments do not wake it. Automatic shipping waits until every merged PR is included in the configured release;
 PRs in another repository remain Ready for their release or a human's completion.

@@ -567,3 +567,28 @@ def test_botops_closing_its_own_task_for_the_person_keeps_their_close_and_its_ow
         note = c.execute("SELECT from_actor FROM messages WHERE body='Cleanup complete; folder kept.'").fetchall()
     assert row["closed_by"] == "human:ana"
     assert note and {r["from_actor"] for r in note} == {"bot:botops"}
+
+
+@pytest.mark.parametrize('legacy_anchor', [False, True])
+def test_bot_filed_subtask_never_borrows_its_parents_human_rights(api, botops, legacy_anchor):
+    from backend.store import H
+    from fastapi import Request
+    owner = turn(api, botops, person='ana-test')
+    origin = owner['message']['id']
+    finish(api, botops, owner)
+    with api.app.state.store.transaction() as c:
+        parent = H.task_create(c, 'human:ana', 'Manage the QA feature', 'x', 'bot:ops', lint=False)
+        c.execute('UPDATE tasks SET request_id=? WHERE id=?', (origin, parent['id']))
+        child = H.task_create(c, 'bot:ops', 'Review the QA child', 'x', 'bot:botops', parent_id=parent['id'], lint=False)
+        assert child['requester'] == 'bot:ops' and child.get('request_id') is None
+        if legacy_anchor:
+            c.execute("UPDATE tasks SET requester='human:ana',request_id=? WHERE id=?", (origin, child['id']))
+    attempt = claim(api, botops, 'botops')
+    def identity(request: Request):
+        who = request.state.identity
+        return {'actor': who.actor, 'role': who.role}
+    api.app.add_api_route('/api/v2/qa-child-requester', identity, methods=['GET'])
+    api.app.router.routes.insert(0, api.app.router.routes.pop())
+    assert get(api, 'qa-child-requester', attempt['token']) == {'actor': 'bot:ops', 'role': 'bot'}
+    assert api.get('/api/v2/credentials', headers=headers(attempt['token'])).status_code == 403
+    assert act(api, attempt, 'GET', 'credentials', ref=origin).status_code == 403

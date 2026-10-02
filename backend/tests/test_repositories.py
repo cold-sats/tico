@@ -204,25 +204,6 @@ def test_chosen_unticked_grants_survive_settings_saves_and_reticking(api, gh):
         {'full_name': 'Acme/unlisted', 'access': 'read'}]}, headers=auth()).status_code == 422
 
 
-def test_installation_not_ready_preserves_repos_and_retries_next_tick(api, gh, monkeypatch):
-    catalog(api, gh)
-    service = api.app_state.github_app
-    real = service.installation
-    monkeypatch.setattr(service, 'installation', lambda: None)
-    service.repository_sync_attempt = 0
-    with service.store.transaction() as c:
-        c.execute("DELETE FROM registry_metadata WHERE key='repositories-synced'")
-    R.daily(service)
-    with service.store.read() as c:
-        assert c.execute('SELECT count(*) FROM repositories WHERE reachable=1').fetchone()[0] == 4
-    assert service.repository_sync_attempt == 0
-    monkeypatch.setattr(service, 'installation', real)
-    gh.repositories.append({'full_name': 'Acme/new-repo', 'default_branch': 'main'})
-    R.daily(service)
-    assert service.repository_sync_attempt > 0
-    with service.store.read() as c:
-        assert c.execute("SELECT reachable FROM repositories WHERE full_name='Acme/new-repo'").fetchone()[0] == 1
-
 
 def test_computer_release_is_separate_from_runner_software(api):
     runner_token(api, 'cpo')

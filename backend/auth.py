@@ -614,10 +614,12 @@ class Auth:
             # Materialize ancestry before SQL installs its guarded views: a recursive view
             # would otherwise need access to the unfiltered tasks table during execution.
             managed = [r[0] for r in c.execute("WITH RECURSIVE managed(id) AS ("
-                "SELECT id FROM tasks WHERE ? IN (owner,requester) UNION "
+                "SELECT child.id FROM tasks child JOIN tasks parent ON child.parent_id=parent.id "
+                "WHERE ? IN (parent.owner,parent.requester) UNION "
                 "SELECT child.id FROM tasks child JOIN managed ON child.parent_id=managed.id) "
-                "SELECT id FROM managed", (who.actor,))]
-            return (f"({me} IN (owner,requester) OR id IN {A.qlist(managed)} OR "
+                "SELECT managed.id FROM managed JOIN tasks t ON t.id=managed.id WHERE ? NOT IN (t.owner,t.requester)",
+                (who.actor, who.actor))]
+            return (f"({me} IN (owner,requester) OR ({clear} AND id IN {A.qlist(managed)}) OR "
                     f"({clear} AND id IN (SELECT task_id FROM {delegations} "
                     f"WHERE delegate={me} AND expires>{A.q(H.now())})))")
         return f"({clear} OR {me} IN (owner,requester))"
@@ -812,7 +814,7 @@ class Auth:
             return row
         participants = (row["owner"], row["requester"])
         ancestor_party = who.role == "bot" and H.task_ancestor_party(c, who.actor, row)
-        if who.actor not in participants and not ancestor_party:
+        if who.actor not in participants:
             # A party to a task always sees it; anyone else needs Read on every bot it involves.
             bots = [H.actor_id(a) for a in participants if str(a).startswith("bot:")]
             for slug, level in (self.bot_accesses(c, who, bots).items() if bots else ()):

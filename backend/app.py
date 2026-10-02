@@ -91,11 +91,6 @@ def create_app(settings=None):
         from concurrent.futures import ThreadPoolExecutor
         asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=64, thread_name_prefix="tico"))
         store.initialize()
-        try:
-            from .repositories import daily
-            await asyncio.to_thread(daily, app.state.github_app)
-        except Exception as exc:
-            telemetry.capture("repositories", exc)
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
         # A company from before the Librarian was built in gets it on update, once it can run it.
         try:
@@ -140,6 +135,9 @@ def create_app(settings=None):
             while not stop.is_set():
                 try:
                     await asyncio.to_thread(github_wakes)
+                except Exception as exc:
+                    telemetry.capture("github_wakes", exc)
+                try:
                     await asyncio.to_thread(scheduler.tick)
                     # The release check (and the anonymous count that rides on it) runs even when nobody has the
                     # page open; it is a no-op until its six hours are up.
@@ -608,7 +606,7 @@ def create_app(settings=None):
             raise Problem(refusal["code"], refusal["detail"], refusal["status"])
         return result
 
-    def task_view(row, c=None, parts=None, pipelines=None):
+    def task_view(row, c=None, parts=None, pipelines=None, visible_sql="1"):
         if c is not None:
             H.hydrate_task_tags(c, [row])
         value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
@@ -635,19 +633,19 @@ def create_app(settings=None):
             value["attachments"] = [brief(r) for r in c.execute(
                 "SELECT b.* FROM blobs b JOIN task_assets a ON a.blob_id=b.id WHERE a.task_id=?", (row["id"],))]
             value["links"] = H.task_links(c, row["id"])
-            value["children_summary"] = H.children_summary(c, row["id"])
+            value["children_summary"] = H.children_summary(c, row["id"], visible_sql)
             value["pr_state"] = H.pr_state(value["links"])
             if row.get("blocked_by"):
                 blocker = H.task(c, row["blocked_by"])
                 value["blocker"] = {"id": blocker["id"], "title": blocker["title"], "status": blocker["status"]} if blocker else None
             if parts is None:
-                counts = c.execute("SELECT COUNT(*), SUM(status IN ('done','closed')) FROM tasks WHERE parent_id=?",
+                counts = c.execute("SELECT COUNT(*), SUM(status IN ('done','closed')) FROM tasks WHERE parent_id=? AND (" + visible_sql + ")",
                                    (row["id"],)).fetchone()
                 parts = {"total": counts[0] or 0, "done": counts[1] or 0}
             value["parts"] = parts
         return value
 
-    def task_views(rows, c):
+    def task_views(rows, c, visible_sql="1"):
         """Hydrate one task-list page with a fixed number of relation queries."""
         if not rows:
             return []
@@ -658,13 +656,13 @@ def create_app(settings=None):
         parts = {row["parent_id"]: {"total": row["total"] or 0, "done": row["done"] or 0}
                  for row in c.execute(
                      f"SELECT parent_id,COUNT(*) total,SUM(status IN ('done','closed')) done FROM tasks "
-                     f"WHERE parent_id IN ({marks}) GROUP BY parent_id", ids)}
+                     f"WHERE parent_id IN ({marks}) AND ({visible_sql}) GROUP BY parent_id", ids)}
         routines_by_task = {row["task_id"]: row["schedule_id"] for row in c.execute(
             f"SELECT task_id,schedule_id FROM schedule_occurrences WHERE task_id IN ({marks})", ids)}
 
         links = {tid: [] for tid in ids}
         for link in c.execute(f"SELECT * FROM task_links WHERE task_id IN ({marks}) ORDER BY created", ids):
-            links[link["task_id"]].append(dict(link))
+            links[link["task_id"]].append({k: v for k, v in dict(link).items() if k not in ("detail_json", "pr_sha")})
 
         attachments = {tid: [] for tid in ids}
         from .blobs import brief
@@ -715,7 +713,7 @@ def create_app(settings=None):
         if any(row.get("requester") == H.KEEPER and H.is_human(row.get("owner")) for row in rows):
             legacy_owner = H.human_actor(H.default_human(c))
         pipelines = H.type_list(c)
-        summaries = H.children_summaries(c, ids)
+        summaries = H.children_summaries(c, ids, visible_sql)
         result = []
         for row in rows:
             value = task_view(row, pipelines=pipelines)
@@ -750,10 +748,11 @@ def create_app(settings=None):
     def visible_tasks(c, who, owner=None, requester=None, status=None, lane=None, label=None,
                       limit=500, offset=0, order="queue"):
         auth.domain(who)
+        visible_sql = auth.task_sql(c, who)
         rows = H.tasks(c, owner=owner, requester=requester, status=status, lane=lane, label=label,
-                       limit=limit + 1, offset=offset, order=order, visible=auth.task_sql(c, who))
+                       limit=limit + 1, offset=offset, order=order, visible=visible_sql)
         page, has_more = rows[:limit], len(rows) > limit
-        return task_views(page, c), offset + limit if has_more else None
+        return task_views(page, c, visible_sql), offset + limit if has_more else None
 
     def check_refs(c, who, refs):
         # Validate referenced objects rather than trusting an arbitrary ID in a payload.
@@ -1984,6 +1983,10 @@ def create_app(settings=None):
     def task(request: Request, tid: str):
         with store.read() as c:
             tid = auth.resolve_task(c, request.state.identity, tid)
+            auth.task(c, request.state.identity, tid)
+        from .github import refresh_task_prs
+        refresh_task_prs(app.state.github_app, tid)
+        with store.read() as c:
             row = auth.task(c, request.state.identity, tid)
             # A bot task now lives in the bot's chat room. Only this task's messages
             # come back here; the rest of that room stays on Chat.
@@ -1998,7 +2001,7 @@ def create_app(settings=None):
                     auth.task_row(c, who, parent)
                 except Problem:
                     parent = None
-            return {"task": task_view(row, c), "events": H.task_history(c, tid),
+            return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who)), "events": H.task_history(c, tid),
                     "children": children,
                     "parent": {"id": parent["id"], "title": parent["title"], "status": parent["status"]} if parent else None,
                     "comments": H.task_comments(c, tid),
@@ -2032,16 +2035,17 @@ def create_app(settings=None):
             raise Problem("not_found", "Unknown goal", 404)
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, body.parent_id,
                             conversation_id=rooms.task_conversation_id(c, auth, owner,
-                                H.task(c, body.parent_id)["requester"] if body.parent_id else who.actor),
+                                H.task(c, body.parent_id)["requester"] if body.parent_id and H.is_human(who.actor) else who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
-        inherited_request = H.task(c, body.parent_id).get("request_id") if body.parent_id else None
-        if request_id or inherited_request:
+        parent = H.task(c, body.parent_id) if body.parent_id else None
+        inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
+        if H.is_human(who.actor) and (request_id or inherited_request):
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))
         for url in body.links:
             H.task_link(c, who.actor, row["id"], url)
-        return {"task": task_view(H.task(c, row["id"]), c)}
+        return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who))}
 
     @app.post("/api/v2/tasks")
     def create_task(request: Request, body: M.TaskCreate):
@@ -2101,7 +2105,7 @@ def create_app(settings=None):
                 if (body.status == "done" or body.step is not None and H.task(c, task_id)["status"] == "done") and row["owner"] == row["requester"] == who.actor:
                     H.task_close(c, who.actor, task_id, note=body.note or "", quiet=body.quiet)
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
-            return {"task": task_view(H.task(c, task_id), c)}
+            return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/run-now")
@@ -2128,7 +2132,7 @@ def create_app(settings=None):
                 if str(row["owner"]).startswith("bot:") and who.actor != row["owner"]:
                     auth.require_write(c, who, H.actor_id(row["owner"]))
             after, queued = H.task_run_now(c, who.actor, task_id)
-            return {"task": task_view(after, c), "queued": queued}
+            return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who)), "queued": queued}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/ask")
@@ -2168,18 +2172,8 @@ def create_app(settings=None):
             who = request.state.identity
             task_id = auth.resolve_task(c, who, tid)
             auth.task(c, who, task_id)
-            # The tree must not expose tasks the caller cannot read.
-            def visible(nodes):
-                result = []
-                for node in nodes:
-                    try:
-                        auth.task(c, who, node["id"])
-                    except Problem:
-                        continue
-                    node["children"] = visible(node["children"])
-                    result.append(node)
-                return result
-            return visible(H.task_tree(c, task_id))
+            visible_ids = {r[0] for r in c.execute("SELECT id FROM tasks WHERE " + auth.task_sql(c, who))}
+            return H.task_tree(c, task_id, visible_ids)
 
     @app.get("/api/v2/tasks/{tid}/links")
     def get_task_links(request: Request, tid: str):
@@ -2189,14 +2183,14 @@ def create_app(settings=None):
             return {"links": H.task_links(c, task_id)}
 
     @app.delete("/api/v2/tasks/{tid}/links/{link_id}")
-    def delete_task_link(request: Request, tid: str, link_id: str):
+    def delete_task_link(request: Request, tid: str, link_id: M.ID):
         def work(c):
             who = request.state.identity
             task_id = auth.resolve_task(c, who, tid)
             auth.task(c, who, task_id)
             H.task_unlink(c, who.actor, task_id, link_id)
             return {"links": H.task_links(c, task_id)}
-        return mutate(request, M.TaskLink(remove=link_id), work)
+        return mutate(request, M.Empty(), work)
 
     @app.post("/api/v2/tasks/{tid}/links")
     def task_links(request: Request, tid: str, body: M.TaskLink):
@@ -2365,6 +2359,11 @@ def create_app(settings=None):
             task_id = H.message_task_id(initial) if initial else None
             task = H.task(c, task_id) if task_id else None
             requester = task["requester"] if task else (initial or {}).get("from_actor", "")
+            if task and H.is_human(requester):
+                creator = c.execute("SELECT actor FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
+                                    (task_id,)).fetchone()
+                if creator and H.is_bot(creator["actor"]):
+                    requester = creator["actor"]
             if task and initial:
                 refs = initial.get("refs") or {}
                 if any(refs.get(key) for key in ("comment", "via", "assistant", "slack", "routing")):
@@ -2396,7 +2395,9 @@ def create_app(settings=None):
                     return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
-                if origin and origin["from_actor"] == task["requester"]:
+                made = c.execute("SELECT 1 FROM events WHERE action='task.create' AND target=? AND actor=? LIMIT 1",
+                                 (task_id, task["requester"])).fetchone()
+                if made and origin and origin["from_actor"] == task["requester"]:
                     message_id = task["request_id"]
                     c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, origin["conversation_id"]))
         msg = H.message(c, message_id)

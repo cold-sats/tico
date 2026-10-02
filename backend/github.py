@@ -4,7 +4,7 @@ A task carries its pull request as a link (`hub task link`). The repository's we
 signed with `TICO_GITHUB_WEBHOOK_SECRET`; nothing else on this path is trusted:
 
 - a pull request opened for review  -> the link is `open`,   the task is `review`
-- the pull request merged or closed -> the task is `ready` once every PR is finished
+- the pull request merged or closed -> `ready` once every PR is finished and at least one merged
 - checks, conflicts and reviews     -> specific owner notices grouped within three minutes
 - a push to main                    -> the commits are recorded, in order, in `main_pushes`
 
@@ -16,7 +16,10 @@ this release came from ships that way; a merged link in another repository stays
 import hashlib
 import hmac
 import json
+import logging
 import re
+import time
+from urllib.parse import quote
 
 from fastapi import Request, Response
 
@@ -24,7 +27,7 @@ from . import hubdb as H
 from .store import Problem
 
 PATH = "/api/v2/github/webhook"   # under /api/v2: the runner hostname routes only that prefix
-PR_LINK = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)/?$")
+PR_LINK = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)/?$", re.IGNORECASE)
 
 
 def verify(secret, headers, body):
@@ -37,12 +40,19 @@ def verify(secret, headers, body):
 
 
 def _links_for(c, url):
-    return H._rows(c.execute("SELECT * FROM task_links WHERE kind='pr' AND url=?", (url,)))
+    match = PR_LINK.match(str(url).split("?")[0].rstrip("/"))
+    if not match:
+        return []
+    return H._rows(c.execute("SELECT * FROM task_links WHERE kind='pr' AND lower(repo)=? AND number=?",
+                            ((match.group(1) + "/" + match.group(2)).lower(), int(match.group(3)))))
 
 
 def _move(c, task, status, note):
     """The keeper moves the task; a mover's rights, a version bump like the API's."""
     if task["status"] == status or task["status"] in ("done", "closed"):
+        return task
+    if c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field IN ('status','step','type') "
+                 "AND old IS NOT NULL AND actor LIKE 'human:%' AND ts>? LIMIT 1", (task["id"], H.shift(H.now(), seconds=-3600))).fetchone():
         return task
     H.task_update(c, H.KEEPER, task["id"], status=status, note=note, mover=True)
     c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task["id"],))
@@ -67,10 +77,17 @@ def flush_wakes(c):
         burst = metadata(c, row["key"])
         if burst.get("due", "") > H.now():
             continue
-        task = H.task(c, row["key"].split(":", 1)[1])
-        if task and task["status"] in H.ACTIVE_STATUSES:
-            H._wake(c, task, task["owner"], "\n".join(burst.get("items", [])))
-            sent.append(task["id"])
+        c.execute("SAVEPOINT github_wake")
+        try:
+            task = H.task(c, row["key"].split(":", 1)[1])
+            if task and task["status"] in H.ACTIVE_STATUSES:
+                H._wake(c, task, task["owner"], "\n".join(burst.get("items", [])))
+                sent.append(task["id"])
+            c.execute("RELEASE github_wake")
+        except Exception:
+            c.execute("ROLLBACK TO github_wake")
+            c.execute("RELEASE github_wake")
+            logging.getLogger("tico.github").exception("PR wake failed for %s", row["key"])
         c.execute("DELETE FROM registry_metadata WHERE key=?", (row["key"],))
     return sent
 
@@ -81,16 +98,19 @@ def _pr_status(c, task, note):
     if not product or task["status"] not in H.ACTIVE_STATUSES:
         return None
     links = [l for l in H.task_links(c, task["id"]) if l["kind"] == "pr"]
-    if links and all(l["state"] in ("merged", "closed", "shipped") for l in links):
+    finished = links and all(l["state"] in ("merged", "closed", "shipped") for l in links)
+    if finished and any(l["state"] in ("merged", "shipped") for l in links):
         status = "ready"
     elif any(l["state"] == "open" for l in links):
         status = "review"
     else:
         status = "doing"
-    if status == task["status"]:
+    if (status == task["status"]
+            or status == "review" and task["status"] not in ("open", "doing", "waiting")
+            or status == "doing" and task["status"] not in ("review", "ready")):
         return None
-    _move(c, task, status, note)
-    return (task["id"], status)
+    after = _move(c, task, status, note)
+    return (task["id"], status) if after["status"] == status else None
 
 
 def pull_request(c, payload):
@@ -105,6 +125,8 @@ def pull_request(c, payload):
             continue
         state = "merged" if pr.get("merged") else ("closed" if pr.get("state") == "closed" or action == "closed"
                 else "draft" if pr.get("draft") or action == "converted_to_draft" else "open")
+        if link["state"] == "shipped" and state == "merged":
+            state = "shipped"
         mergeable = "conflict" if pr.get("mergeable") is False or pr.get("mergeable_state") == "dirty" else (
                     "clean" if pr.get("mergeable") is True else "unknown")
         match = PR_LINK.match(url)
@@ -125,13 +147,27 @@ def pull_request(c, payload):
         item = f"{link['title']} {state}" if state != "closed" else f"{link['title']} was closed without merging"
         if mergeable == "conflict":
             item += ": Merge conflict"
-        if link["state"] != state or link.get("mergeable") != mergeable:
+        if (state == "closed" and link["state"] != state
+                or mergeable == "conflict" and link.get("mergeable") != mergeable):
             queue_wake(c, task, item)
-        move = _pr_status(c, task, f"Pull request {item}.")
+        move = None
+        if link["state"] != state or action in ("opened", "reopened", "ready_for_review"):
+            move = _pr_status(c, task, f"Pull request {item}.")
         if move:
             moved.append(move)
         H.event(c, H.KEEPER, "github.pull_request", task["id"], {"action": action, "url": url})
     return {"pr": url, "action": action, "tasks": len(links), "moved": moved}
+
+
+def _own_comment(c, task, payload, key):
+    login = str(((payload.get(key) or {}).get("user") or {}).get("login") or "").lower()
+    if not login:
+        return False
+    author = str(((payload.get("pull_request") or {}).get("user") or {}).get("login") or "").lower()
+    app = c.execute("SELECT slug FROM github_app LIMIT 1").fetchone()
+    config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(task["owner"]),)).fetchone()
+    bot_login = (H._json(config[0], {}) or {}).get("github_login", "") if config else ""
+    return login in {author, str(bot_login).lower(), (str(app[0]) + "[bot]").lower() if app else ""}
 
 
 def pr_signal(c, event, payload):
@@ -140,7 +176,11 @@ def pr_signal(c, event, payload):
     pr = payload.get("pull_request") or {}
     signal = payload.get("check_run") or payload.get("check_suite") or payload
     prs = signal.get("pull_requests") or ([pr] if pr else [])
-    urls = {p.get("html_url") or f"https://github.com/{repo}/pull/{p['number']}" for p in prs if p.get("number") or p.get("html_url")}
+    def base_repo(p):
+        base = ((p.get("base") or {}).get("repo") or {})
+        return base.get("full_name") or (repo.rsplit("/", 1)[0] + "/" + base["name"] if base.get("name") and "/" in repo else repo)
+    urls = {p.get("html_url") or f"https://github.com/{base_repo(p)}/pull/{p['number']}"
+            for p in prs if p.get("number") or p.get("html_url")}
     links = []
     for url in urls:
         links.extend(_links_for(c, url))
@@ -156,6 +196,7 @@ def pr_signal(c, event, payload):
         detail = H._json(link.get("detail_json"), {}) or {}
         fields = {}
         label = link["title"]
+        wake = False
         if event in ("check_run", "check_suite", "status"):
             if signal.get("head_sha") and detail.get("head_sha") and signal["head_sha"] != detail["head_sha"]:
                 continue
@@ -163,7 +204,9 @@ def pr_signal(c, event, payload):
             state = "passing" if result in ("success", "neutral", "skipped") else (
                     "pending" if result in ("pending", "queued", "in_progress", "requested", "waiting") else "failing")
             checks = detail.get("checks", {})
-            name = str(signal.get("name") or signal.get("context") or "Checks")[:200]
+            name = str("suite:" + str((signal.get("app") or {}).get("slug") or signal.get("id") or "Checks")
+                       if event == "check_suite" else signal.get("name") or signal.get("context") or "Checks")[:200]
+            wake = state == "failing" and checks.get(name) != "failing"
             checks[name] = state
             detail["checks"] = dict(list(checks.items())[-100:])
             fields["checks"] = "failing" if "failing" in checks.values() else "pending" if "pending" in checks.values() else "passing"
@@ -174,7 +217,17 @@ def pr_signal(c, event, payload):
                 state = "commented"
             if state not in ("approved", "changes_requested", "commented"):
                 continue
+            review = payload.get("review") or {}
+            review_id = str(review.get("id") or "")
+            reviews = detail.get("reviews", {})
+            signature = str(payload.get("action") or "") + ":" + state
+            fresh = reviews.get(review_id) != signature if review_id else link.get("review_state") != state
+            if review_id:
+                reviews[review_id] = signature
+                detail["reviews"] = dict(list(reviews.items())[-100:])
             fields["review_state"] = state
+            wake = fresh and payload.get("action") != "dismissed" and not _own_comment(c, task, payload, "review") and (
+                state == "changes_requested" or state == "commented")
             item = f"Review {state.replace('_', ' ')} on {label}"
         else:
             action = payload.get("action")
@@ -190,13 +243,44 @@ def pr_signal(c, event, payload):
                 comments[comment_id] = action
                 detail["comments"] = dict(list(comments.items())[-100:])
             fields["pending_comments"] = max(0, (link.get("pending_comments") or 0) + (1 if action == "created" else -1))
+            wake = action == "created" and not _own_comment(c, task, payload, "comment")
             item = f"{fields['pending_comments']} review comments on {label}"
         fields.update(detail_json=json.dumps(detail), updated=H.now())
         c.execute("UPDATE task_links SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?",
                   (*fields.values(), link["id"]))
-        if any(link.get(k) != v for k, v in fields.items() if k != "updated"):
+        if wake:
             queue_wake(c, task, item)
     return {"tasks": len({l["task_id"] for l in links})}
+
+
+def refresh_task_prs(service, task_id):
+    """Refresh only on opening a task, bounded and cached; failures keep the last known state."""
+    with service.store.read() as c:
+        if not service.row(c):
+            return
+        links = [l for l in H.task_links(c, task_id) if l["kind"] == "pr" and l.get("repo") and l.get("number")]
+    for link in links:
+        key = (link["repo"].lower(), link["number"])
+        with service.lock:
+            cache = getattr(service, "pr_refresh_cache", {})
+            if cache.get(key, 0) > time.monotonic() - 180:
+                continue
+            if len(cache) >= 512:
+                cache.pop(next(iter(cache)))
+            cache[key] = time.monotonic()
+            service.pr_refresh_cache = cache
+        try:
+            token, _ = service.mint([link["repo"]], {"pull_requests": "read"})
+            response = service._call("GET", f"/repos/{quote(link['repo'], safe='/')}/pulls/{link['number']}",
+                                     headers={"Authorization": "Bearer " + token})
+            if response.status_code != 200:
+                continue
+            pr = response.json()
+            pr["html_url"] = link["url"]
+            with service.store.transaction() as c:
+                pull_request(c, {"action": "refresh", "pull_request": pr})
+        except Exception:
+            logging.getLogger("tico.github").exception("PR refresh failed for %s #%s", *key)
 
 
 def push(c, payload):
@@ -225,30 +309,59 @@ def ship_deployed(c, settings):
         return []
     here = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (commit,)).fetchone()
     shipped = []
-    for task in H._rows(c.execute("SELECT * FROM tasks WHERE status='ready'")):
-        if H.children_summary(c, task["id"])["open"]:
-            continue
-        links = [l for l in H.task_links(c, task["id"]) if l["kind"] == "pr"]
+    tasks = H._rows(c.execute("SELECT DISTINCT t.* FROM tasks t JOIN task_links l ON l.task_id=t.id "
+                                "WHERE t.status='ready' AND l.kind='pr' AND l.state='merged' AND l.pr_sha IS NOT NULL"))
+
+    ids = [t["id"] for t in tasks]
+    summaries = H.children_summaries(c, ids)
+    links_by_task = {tid: [] for tid in ids}
+    pushes = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for link in H._rows(c.execute(f"SELECT * FROM task_links WHERE kind='pr' AND task_id IN ({marks})", ids)):
+            links_by_task[link["task_id"]].append(link)
+        shas = list({l["pr_sha"] for links in links_by_task.values() for l in links if l.get("pr_sha")})
+        if shas:
+            marks = ",".join("?" * len(shas))
+            pushes = {r["sha"]: r["seq"] for r in c.execute(f"SELECT sha,seq FROM main_pushes WHERE sha IN ({marks})", shas)}
+    def ship(task):
+        if summaries[task["id"]]["open"]:
+            return False
+        links = links_by_task[task["id"]]
         merged_links = [l for l in links if l["state"] == "merged"]
         if not merged_links or any(l["state"] not in ("merged", "closed", "shipped") for l in links):
-            continue
+            return False
         included = True
         for link in merged_links:
             match = PR_LINK.match(link["url"])
             if not match or f"{match.group(1)}/{match.group(2)}".lower() != repo.lower():
                 included = False
                 break
-            merged = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (link["pr_sha"],)).fetchone()
-            if not (link["pr_sha"] == commit or here and merged and merged["seq"] <= here["seq"]):
+            merged = pushes.get(link["pr_sha"])
+            if not (link["pr_sha"] == commit or here and merged and merged <= here["seq"]):
                 included = False
                 break
         if not included:
-            continue
-        _move(c, task, "done", f"Shipped in release {commit[:12]} ({', '.join(l['title'] for l in merged_links)}).")
+            return False
+        after = _move(c, task, "done", f"Shipped in release {commit[:12]} ({', '.join(l['title'] for l in merged_links)}).")
+        if after["status"] != "done":
+            return False
         for link in merged_links:
             c.execute("UPDATE task_links SET state='shipped',updated=? WHERE id=?", (H.now(), link["id"]))
             H.event(c, H.KEEPER, "github.shipped", task["id"], {"release": commit, "url": link["url"]})
-        shipped.append(task["id"])
+        return True
+
+    for task in tasks:
+        c.execute("SAVEPOINT ship_task")
+        try:
+            changed = ship(task)
+            c.execute("RELEASE ship_task")
+            if changed:
+                shipped.append(task["id"])
+        except Exception:
+            c.execute("ROLLBACK TO ship_task")
+            c.execute("RELEASE ship_task")
+            logging.getLogger("tico.github").exception("Shipping failed for task %s", task["id"])
     return shipped
 
 

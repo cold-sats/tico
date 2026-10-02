@@ -135,11 +135,16 @@ def test_many_prs_wait_for_every_link_and_roll_up_worst_state(api):
     task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ship both pieces', 'body': 'x', 'links': [PR, second]})
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET lane='product' WHERE id=?", (task['id'],))
-    hook(api, 'pull_request', pr_event('opened', head={'sha': 'head1'}))
+    hook(api, 'pull_request', pr_event('opened', draft=True, head={'sha': 'head1'}))
+    draft = get(api, 'tasks/' + task['id'])['task']
+    assert draft['status'] == 'review' and draft['links'][0]['state'] == 'draft' and draft['pr_state'] == 'open'
+    hook(api, 'pull_request', pr_event('ready_for_review', head={'sha': 'head1'}))
     hook(api, 'pull_request', pr_event('closed', merged=True, merge_commit_sha='abc123'))
     detail = get(api, 'tasks/' + task['id'])['task']
     assert detail['status'] == 'review' and detail['pr_state'] == 'open'
     assert detail['links'][0]['repo'] == 'ticoteam/tico' and detail['links'][0]['number'] == 412
+    hook(api, 'pull_request', pr_event('converted_to_draft', html_url=second, draft=True))
+    assert get(api, 'tasks/' + task['id'])['task']['status'] == 'doing'
     hook(api, 'pull_request', pr_event('synchronize', html_url=second, mergeable=False, number=413))
     assert get(api, 'tasks/' + task['id'])['task']['pr_state'] == 'conflict'
     hook(api, 'check_run', {'repository': {'full_name': 'ticoteam/tico'}, 'check_run': {
@@ -228,3 +233,109 @@ def test_task_link_upgrade_preserves_legacy_pr_rows(api):
         assert link['path'] is None and link['computer_id'] is None and link['checks'] is None
         assert c.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=51').fetchone()
+
+
+@pytest.mark.parametrize('event', ['check_run', 'status', 'pull_request_review'])
+def test_new_events_require_a_valid_signature(api, event):
+    hook(api, event, {}, secret='wrong', expected=403)
+    assert api.post(G.PATH, json={}, headers={'X-GitHub-Event': event}).status_code == 403
+
+
+def test_green_pushes_and_own_reviews_do_not_wake_but_failures_and_external_comments_do(api):
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Check wake rules', 'body': 'x', 'links': [PR]})
+    for mergeable in (None, True, None):
+        hook(api, 'pull_request', pr_event('synchronize', mergeable=mergeable, head={'sha': 'current'}))
+    for conclusion in (None, 'success'):
+        hook(api, 'check_run', {'repository': {'full_name': 'ticoteam/tico'}, 'check_run': {
+            'name': 'Tests', 'conclusion': conclusion, 'pull_requests': [{'number': 412}]}})
+    for event, key, extra in [('pull_request_review', 'review', {'state': 'commented'}),
+                              ('pull_request_review_comment', 'comment', {'id': 1})]:
+        hook(api, event, {'action': 'created' if key == 'comment' else 'submitted',
+             'pull_request': {'html_url': PR, 'user': {'login': 'engineer[bot]'}},
+             key: {'user': {'login': 'engineer[bot]'}, **extra}})
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchone()
+    for slug, conclusion in [('actions', 'failure'), ('preview', 'success')]:
+        hook(api, 'check_suite', {'repository': {'full_name': 'ticoteam/tico'}, 'check_suite': {
+             'app': {'slug': slug}, 'conclusion': conclusion, 'pull_requests': [{'number': 412}]}})
+    assert get(api, 'tasks/' + task['id'])['task']['links'][0]['checks'] == 'failing'
+    hook(api, 'pull_request_review_comment', {'action': 'created', 'pull_request': {'html_url': PR},
+         'comment': {'id': 2, 'user': {'login': 'reviewer'}}})
+    with api.app.state.store.read() as c:
+        from backend.repositories import metadata
+        burst = metadata(c, 'github-task-wake:' + task['id'])
+        assert len(burst['items']) == 2 and 'actions' in burst['items'][0]
+    board_link = get(api, 'tasks')['tasks'][0]['links'][0]
+    assert 'detail_json' not in board_link and 'pr_sha' not in board_link
+
+
+def test_abandoned_pr_returns_to_doing_and_manual_moves_survive_events(api):
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Handle abandoned work', 'body': 'x', 'links': [PR]})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET lane='product',status='review' WHERE id=?", (task['id'],))
+    hook(api, 'pull_request', pr_event('closed'))
+    task = get(api, 'tasks/' + task['id'])['task']
+    assert task['status'] == 'doing'
+    # Human Ready and Done stay available even with an untracked open PR.
+    post(api, 'tasks/' + task['id'] + '/links', {'url': PR.replace('/412', '/413')})
+    task = post(api, 'tasks/' + task['id'], {'version': task['version'], 'status': 'ready'})
+    post(api, 'tasks/' + task['id'] + '/links', {'url': PR.replace('/412', '/414')})
+    assert get(api, 'tasks/' + task['id'])['task']['status'] == 'ready'
+    hook(api, 'pull_request', pr_event('reopened'))
+    assert get(api, 'tasks/' + task['id'])['task']['status'] == 'ready'
+    task = post(api, 'tasks/' + task['id'], {'version': task['version'], 'status': 'waiting'})
+    hook(api, 'pull_request', pr_event('synchronize'))
+    hook(api, 'pull_request', pr_event('closed', merged=True))
+    task = get(api, 'tasks/' + task['id'])['task']
+    assert task['status'] == 'waiting'
+    post(api, 'tasks/' + task['id'], {'version': task['version'], 'status': 'done'})
+
+
+def test_failed_wake_is_discarded_without_losing_the_next_burst(api, monkeypatch):
+    from backend.repositories import save_metadata
+    tasks = [post(api, 'tasks', {'owner': 'cpo', 'title': 'Repair checks ' + str(n), 'body': 'x'}) for n in range(2)]
+    real = H._wake
+    def wake(c, task, *args, **kw):
+        if task['id'] == tasks[0]['id']:
+            c.execute("UPDATE tasks SET note='partial write' WHERE id=?", (task['id'],))
+            raise RuntimeError('failed wake')
+        return real(c, task, *args, **kw)
+    monkeypatch.setattr(H, '_wake', wake)
+    with api.app.state.store.transaction() as c:
+        for task in tasks:
+            save_metadata(c, 'github-task-wake:' + task['id'], {'due': H.shift(H.now(), seconds=-1), 'items': ['Checks failed']})
+        assert G.flush_wakes(c) == [tasks[1]['id']]
+        assert not c.execute("SELECT 1 FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchone()
+        assert H.task(c, tasks[0]['id'])['note'] == ''
+
+
+def test_pr_matching_preserves_shipped_and_uses_base_repo_for_checks(api):
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Match PR identities', 'body': 'x',
+                             'links': [PR.replace('ticoteam/tico', 'TicoTeam/Tico') + '/']})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='shipped' WHERE task_id=?", (task['id'],))
+    hook(api, 'pull_request', pr_event('edited', merged=True))
+    assert get(api, 'tasks/' + task['id'])['task']['links'][0]['state'] == 'shipped'
+    hook(api, 'check_run', {'repository': {'full_name': 'ticoteam/fork'}, 'check_run': {
+        'name': 'Tests', 'conclusion': 'failure', 'pull_requests': [{'number': 412,
+        'base': {'repo': {'full_name': 'ticoteam/tico'}}}]}})
+    assert get(api, 'tasks/' + task['id'])['task']['links'][0]['checks'] == 'failing'
+
+
+def test_task_open_refreshes_each_pr_once_and_keeps_last_known_on_failure(api, monkeypatch):
+    from types import SimpleNamespace
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Refresh without webhooks', 'body': 'x', 'links': [PR, PR.replace('/412', '/413')]})
+    service = api.app.state.github_app
+    monkeypatch.setattr(service, 'row', lambda c=None: {'slug': 'test-app'})
+    monkeypatch.setattr(service, 'mint', lambda *args: ('test-token', 'later'))
+    calls = []
+    def fetch(method, path, **kw):
+        calls.append(path)
+        if path.endswith('/413'):
+            raise RuntimeError('offline')
+        return SimpleNamespace(status_code=200, json=lambda: {'state': 'closed', 'merged': True, 'merge_commit_sha': 'merged'})
+    monkeypatch.setattr(service, '_call', fetch)
+    for _ in range(2):
+        links = get(api, 'tasks/' + task['id'])['task']['links']
+        assert [l['state'] for l in links] == ['merged', 'open']
+    assert len(calls) == 2

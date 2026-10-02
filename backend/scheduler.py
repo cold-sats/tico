@@ -118,20 +118,30 @@ class Scheduler:
             for task in closed:
                 c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task["id"],))
             for row in H.tasks_due_for_bots(c, stamp(at + timedelta(days=1))[:10]):
-                due = H.parse_ts(row.get("due"))
-                if due and due.tzinfo is None:
-                    # Legacy rows allowed dates/local timestamps. New API writes require an
-                    # offset; preserve the old machine's Pacific interpretation on migration.
-                    due = due.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
-                if not due or due > at or not row["owner"].startswith("bot:"):
-                    continue
-                if c.execute("SELECT 1 FROM task_reminders WHERE task_id=? AND due=?", (row["id"], row["due"])).fetchone():
-                    continue
-                if H.bot(c, H.actor_id(row["owner"]))["state"] != "active":
-                    continue
-                H.say(c, H.KEEPER, row["owner"], "Due: " + row["title"], kind="notice",
-                      conversation_id=row["conversation_id"], refs={"task": row["id"], "wake": "due"})
-                c.execute("INSERT INTO task_reminders VALUES(?,?,?)", (row["id"], row["due"], stamp(at)))
+                c.execute("SAVEPOINT reminder_row")
+                try:
+                    due = H.parse_ts(row.get("due"))
+                    if due and due.tzinfo is None:
+                        # Legacy rows allowed dates/local timestamps. New API writes require an
+                        # offset; preserve the old machine's Pacific interpretation on migration.
+                        due = due.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+                    if not due or due > at or not row["owner"].startswith("bot:"):
+                        c.execute("RELEASE reminder_row")
+                        continue
+                    if c.execute("SELECT 1 FROM task_reminders WHERE task_id=? AND due=?", (row["id"], row["due"])).fetchone():
+                        c.execute("RELEASE reminder_row")
+                        continue
+                    if H.bot(c, H.actor_id(row["owner"]))["state"] != "active":
+                        c.execute("RELEASE reminder_row")
+                        continue
+                    H.say(c, H.KEEPER, row["owner"], "Due: " + row["title"], kind="notice",
+                          conversation_id=row["conversation_id"], refs={"task": row["id"], "wake": "due"})
+                    c.execute("INSERT INTO task_reminders VALUES(?,?,?)", (row["id"], row["due"], stamp(at)))
+                    c.execute("RELEASE reminder_row")
+                except Exception as exc:
+                    c.execute("ROLLBACK TO reminder_row")
+                    c.execute("RELEASE reminder_row")
+                    failures.append({"task": row["id"], "error": type(exc).__name__})
             c.execute("INSERT INTO service_health VALUES('scheduler',?,?,?) ON CONFLICT(service) DO UPDATE SET "
                       "last_success=excluded.last_success,last_error=excluded.last_error,detail_json=excluded.detail_json",
                       (stamp(at), "schedule errors" if failures else None,

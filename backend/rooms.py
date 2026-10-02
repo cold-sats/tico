@@ -145,8 +145,8 @@ def chat_room(c, auth, who, bot, subject=None):
         room = personal_room(c, who.actor, bot, subject or title)
         if room["subject"] == "Private " + auth.settings.assistant_name + " control room" and bot != "coo":
             c.execute("UPDATE conversations SET subject=? WHERE id=?", (subject or title, room["id"]))
-    if subject:
-        c.execute("UPDATE conversations SET subject=? WHERE id=?", (subject, room["id"]))
+        if subject and room["subject"] in (title, "Private " + auth.settings.assistant_name + " control room"):
+            c.execute("UPDATE conversations SET subject=? WHERE id=?", (subject, room["id"]))
     return H.conversation(c, room["id"])
 
 

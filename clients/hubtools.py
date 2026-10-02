@@ -54,6 +54,8 @@ INSTRUCTIONS = ("Tico: tasks, messages, Decisions, status. "
 
 TOOLS = []
 CLI_TOOL_ALIASES = {
+    "hub_task_child": ("hub_task_child_create",),
+    "hub_task_parent": ("hub_task_reparent",),
     "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
     "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
 }
@@ -406,11 +408,11 @@ def task_tree(api, args):
 
 
 @tool("hub_task_reparent", "Move a task and its subtree under another parent; empty parent_id clears it.",
-      {"id": TASK_ID, "parent_id": _s("New parent id; omit or use an empty string to clear", default="")},
-      required=("id",), writes=True)
+      {"id": TASK_ID, "parent_id": _s("New parent id; an explicit empty string clears it", minLength=0)},
+      required=("id", "parent_id"), writes=True)
 def task_reparent(api, args):
     current = api.get(f"tasks/{args['id']}")["task"]
-    return api.post(f"tasks/{args['id']}", {"version": current["version"], "parent_id": args.get("parent_id", "")}, key=_key(args))
+    return api.post(f"tasks/{args['id']}", {"version": current["version"], "parent_id": args["parent_id"]}, key=_key(args))
 
 
 @tool("hub_task_show", "One task with its history and conversation.", {"id": TASK_ID}, required=("id",))
@@ -2783,7 +2785,9 @@ class Protocol:
         kind = self.kind()
         if kind and kind not in offered_to(entry):
             return self._tool_error(rid, {"error": "forbidden", "detail": f"{name} is not available to you", "retryable": False})
-        missing = [k for k in entry["inputSchema"].get("required", []) if args.get(k) in (None, "")]
+        properties = entry["inputSchema"].get("properties", {})
+        missing = [k for k in entry["inputSchema"].get("required", [])
+                   if args.get(k) is None or args.get(k) == "" and properties.get(k, {}).get("minLength") != 0]
         if missing:
             return self._tool_error(rid, {"error": "usage", "detail": f"{name} needs {', '.join(missing)}",
                                           "retryable": False})
