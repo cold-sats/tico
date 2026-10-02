@@ -27,6 +27,12 @@ Categories are question ids in `questions/listening-item.json`. Optional `reader
 or the Team owner can resolve it. An optional `unless: {category: vendor_pitch, threshold: 0.70}` excludes posts that clear
 that second threshold. Changes affect future decisions; existing inbox rows remain.
 
+To use your company's categories, put a validated question set in the server's
+`registry/questions/listening-item.json` (`TICO_REGISTRY_DIR` selects the registry). It takes precedence over the shipped
+copy. Both destination and `unless` categories must name `noul` questions; missing or differently typed categories appear
+in Health and the server log. An invalid custom set is refused. Increase its `version` when changing questions: the
+`id@version` label makes recent saved posts eligible for a new decision without duplicating existing inbox rows.
+
 ## Save, decide and resolve
 
 These are internal v2 APIs and may change between releases. Only the Listening bot (`bot:listening`) and the Team owner can save

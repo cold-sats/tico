@@ -12,6 +12,11 @@ the `label` on each call (`id@version`) is what groups them in the audit.
 JSON, not YAML, so the `hub` CLI on a bare Python, a bot's own script, the mail venv and the
 cloud service all read the same file with nothing installed.
 
+`load_set` checks `TICO_REGISTRY_DIR/questions/<name>.json` before the shipped copy, so a company can keep its own
+versioned questions outside the release image. Custom sets pass the same validation; an invalid override is refused.
+An explicit `root` still selects that directory. When neither registry nor shipped copies exist, installed runners retain
+the `TICO_QUESTIONS_DIR`, `HUB_DIR/questions` and bot checkout fallbacks.
+
 ```json
 {
   "id": "mail-triage",            // the file name

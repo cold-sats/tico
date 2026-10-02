@@ -121,6 +121,25 @@ def missing_repositories(c, online_ids):
     return out
 
 
+def _listening(settings):
+    from . import listening
+    from clients.judge import JudgeError
+    dests = listening.destinations(settings, check_questions=False)
+    if not dests:
+        return None
+    try:
+        problems = listening.category_problems(dests, listening.question_set(settings))
+    except JudgeError:
+        problems = ["The listening-item question set could not be loaded. Check registry/questions/listening-item.json."]
+    if not problems:
+        return None
+    summary = "; ".join(problems[:5])
+    if len(problems) > 5:
+        summary += f"; and {len(problems) - 5} more"
+    return _check("listening", "Listening", "warn", summary,
+                  [_fix("Listening settings", "https://github.com/ticoteam/tico/blob/main/docs/listening.md")])
+
+
 def repository_fix(c, bot, label, github_owner=""):
     """The original repository and the clone command on the computer that is missing it."""
     from .shared_bots import declared, follow
@@ -376,6 +395,8 @@ def view(c, who, settings, auth, github, config):
     waiting, slow = _waiting(c, online_ids)
     failed, failures = _failed(c)
     checks = []
+    if full and (listening := _listening(settings)):
+        checks.append(listening)
     if full and settings.blob_bucket:
         health = c.execute("SELECT * FROM service_health WHERE service='blob-copy'").fetchone()
         detail = json.loads(health["detail_json"] or "{}") if health else {}

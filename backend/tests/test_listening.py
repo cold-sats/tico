@@ -1,6 +1,8 @@
 """Listening's observation store and the shared intake (backend/listening.py): save what a sweep
 saw, score it with the judge, route it, and let each receiver accept or reject what it was sent."""
 
+import json
+
 from backend import listening as L
 from backend.store import H
 from backend.tests.test_api import api, get, headers, post, setup_attempt  # noqa: F401
@@ -122,3 +124,44 @@ def test_hub_sql_shows_posts_only_to_listening_the_owner_and_their_receivers(api
     assert rows("SELECT count(*) FROM listen_items", listening)[0][0] == 2
     assert rows("SELECT count(*) FROM listen_items", "ana-test")[0][0] == 2
 
+
+def test_registry_question_versions_rescore_recent_posts_and_keep_vetoes(api):
+    _bots(api)
+    settings = api.app.state.store.settings
+    (settings.registry_dir / L.LISTENING_FILE).write_text("""
+destinations:
+  leads: {category: custom_lead, threshold: 0.75, receiver: sales-ops, unless: {category: custom_veto, threshold: 0.70}}
+""")
+    qset = {"id": "listening-item", "version": 9, "summary": "Company questions", "questions": {
+        "custom_lead": {"type": "noul", "instructions": "A team lead wants help"},
+        "custom_veto": {"type": "noul", "instructions": "A vendor is pitching"}}}
+    directory = settings.registry_dir / "questions"
+    directory.mkdir()
+    path = directory / "listening-item.json"
+    path.write_text(json.dumps(qset))
+    api.app.state.judge = engine = FakeJudge()
+    saved = post(api, "listening/runs", {"source": "x", "query": "q", "status": "ok", "items": [
+        _post("custom-1", "[custom_lead]"), _post("custom-2", "[custom_lead] [custom_veto]")]})
+    result = post(api, "listening/judge", {})
+    assert (result["question_set"], result["judged"], result["routed"]) == ("listening-item@9", 2, 1)
+    assert [i["post"]["id"] for i in get(api, "intake")["items"]] == [saved["items"][0]["id"]]
+    assert all(label == "listening-item@9" for _, label in engine.calls)
+    assert post(api, "listening/judge", {})["judged"] == 0
+    qset["version"] = 10
+    path.write_text(json.dumps(qset))
+    result = post(api, "listening/judge", {})
+    assert (result["question_set"], result["judged"]) == ("listening-item@10", 2)
+    assert len(get(api, "intake")["items"]) == 1, "rescoring does not duplicate an inbox row"
+
+
+def test_missing_destination_and_veto_categories_are_logged(api, caplog):
+    settings = api.app.state.store.settings
+    (settings.registry_dir / L.LISTENING_FILE).write_text("""
+destinations:
+  lead: {category: unknown, threshold: 0.75, receiver: sales-ops, unless: {category: wrong_type, threshold: 0.70}}
+""")
+    qset = {"questions": {"wrong_type": {"type": "choice"}}}
+    dests = L.destinations(settings, qset=qset)
+    assert dests["lead"]["receiver"] == "bot:sales-ops"
+    assert len(caplog.records) == 2
+    assert "unknown" in caplog.text and "unless category 'wrong_type'" in caplog.text

@@ -264,6 +264,36 @@ def test_missing_tool_credentials_name_the_tool_and_current_computer(environment
     assert "tool_credentials" not in health_of(api)[1]
 
 
+def test_listening_health_checks_custom_categories_without_question_text(environment):
+    import json
+    api = environment()
+    settings = api.app.state.store.settings
+    (settings.registry_dir / "listening.yaml").write_text("""
+destinations:
+  leads: {category: custom, threshold: 0.75, receiver: bot:ana, unless: {category: veto, threshold: 0.70}}
+""")
+    directory = settings.registry_dir / "questions"
+    directory.mkdir()
+    path = directory / "listening-item.json"
+    secret = "private-question-fixture-value"
+    qset = {"id": "listening-item", "version": 9, "summary": secret, "questions": {
+        "custom": {"type": "choice", "instructions": secret, "criteria": {"yes": secret, "no": None}}}}
+    path.write_text(json.dumps(qset))
+    body, checks = health_of(api)
+    assert checks["listening"]["status"] == "warn"
+    assert "category 'custom'" in checks["listening"]["summary"] and "unless category 'veto'" in checks["listening"]["summary"]
+    assert secret not in json.dumps(body)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO humans(id,name,email) VALUES('sam','Sam','sam@example.com')")
+    assert "listening" not in health_of(api, as_person(api, "sam"))[1]
+    path.write_text('{"private-question-fixture-value": [}')
+    body, checks = health_of(api)
+    assert "could not be loaded" in checks["listening"]["summary"] and secret not in json.dumps(body)
+    qset["questions"] = {qid: {"type": "noul", "instructions": secret} for qid in ("custom", "veto")}
+    path.write_text(json.dumps(qset))
+    assert "listening" not in health_of(api)[1]
+
+
 def test_owner_storage_counts_and_local_server_note(environment):
     api = environment()
     body, checks = health_of(api)

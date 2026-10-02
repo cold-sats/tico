@@ -5,6 +5,7 @@ response; the hub transport through a fake client. The question sets in `questio
 loaded for real, because a set that does not load is a broken release.
 """
 import io
+import json
 import unittest
 import urllib.error
 from pathlib import Path
@@ -67,6 +68,36 @@ class Contract(unittest.TestCase):
 
 
 class Sets(unittest.TestCase):
+    def test_registry_overrides_are_validated_and_explicit_roots_stay_authoritative(self):
+        import os, tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as registry:
+            directory = Path(registry) / "questions"
+            directory.mkdir()
+            for name in ("listening-item", "mail-triage"):
+                original = J.load_set(name, root=J.QUESTIONS_DIR)
+                custom = {k: v for k, v in original.items() if k != "label"}
+                custom["version"] += 1
+                path = directory / (name + ".json")
+                path.write_text(json.dumps(custom))
+                with mock.patch.dict(os.environ, {"TICO_REGISTRY_DIR": registry}):
+                    self.assertEqual(J.load_set(name)["label"], f"{name}@{custom['version']}")
+                    self.assertEqual(J.load_set(name, root=J.QUESTIONS_DIR)["label"], original["label"])
+                self.assertEqual(J.load_set(name, registry_dir=registry)["questions"], custom["questions"])
+                path.write_text('{"id":"wrong"}')
+                with self.assertRaises(J.JudgeError) as bad:
+                    J.load_set(name, registry_dir=registry)
+                self.assertEqual(bad.exception.code, "invalid")
+                path.unlink()
+                self.assertEqual(J.load_set(name, registry_dir=registry)["label"], original["label"])
+            base = {"id": "listening-item", "version": 1, "summary": "fixture",
+                    "questions": {"lead": {"type": "noul", "instructions": "A lead"}}}
+            for invalid in ([], {**base, "questions": []}, {**base, "state": 3}, {**base, "questions": {
+                    "lead": {"type": "choice", "dynamic": True, "instructions": "A lead", "criteria": []}}}):
+                (directory / "listening-item.json").write_text(json.dumps(invalid))
+                with self.assertRaises(J.JudgeError):
+                    J.load_set("listening-item", registry_dir=registry)
+
     def test_the_triage_set_the_inbox_template_ships_is_the_release_s_own(self):
         shipped = ROOT / "templates/catalog/inbox/questions/mail-triage.json"
         self.assertEqual(shipped.read_text(), (ROOT / "questions/mail-triage.json").read_text())

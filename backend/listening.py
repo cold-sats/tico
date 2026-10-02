@@ -65,13 +65,31 @@ def _actor(value):
     return value if not value or ":" in value else "bot:" + value
 
 
-def destinations(settings):
+def question_set(settings):
+    return J.load_set(QUESTION_SET, registry_dir=settings.registry_dir)
+
+
+def category_problems(dests, qset):
+    """Configuration names only; question text and other registry content stay private."""
+    questions = qset["questions"]
+    problems = []
+    for name, cfg in dests.items():
+        for field, category in (("category", cfg["category"]), ("unless category", (cfg.get("unless") or {}).get("category"))):
+            if category is not None and (questions.get(category) or {}).get("type") != "noul":
+                problems.append(f"{name}: {field} {category!r} needs a noul question in {QUESTION_SET}")
+    return problems
+
+
+def destinations(settings, *, qset=None, check_questions=True):
     """The company's destinations, from its registry; a malformed entry is skipped and logged."""
     try:
         document = yaml.safe_load((settings.registry_dir / LISTENING_FILE).read_text()) or {}
     except (OSError, yaml.YAMLError):
         return {}
     found = document.get("destinations") if isinstance(document, dict) else None
+    if found is not None and not isinstance(found, dict):
+        logging.getLogger("tico.listening").warning("%s: destinations must be a map", LISTENING_FILE)
+        return {}
     out = {}
     for name, cfg in (found or {}).items():
         try:
@@ -87,6 +105,13 @@ def destinations(settings):
             logging.getLogger("tico.listening").warning("%s: destination %r skipped (%s)", LISTENING_FILE, name, exc)
             continue
         out[str(name)] = entry
+    if out and check_questions:
+        try:
+            problems = category_problems(out, qset or question_set(settings))
+        except J.JudgeError:
+            problems = [f"{QUESTION_SET} question set could not be loaded; check registry/questions"]
+        for problem in problems:
+            logging.getLogger("tico.listening").warning("%s: %s", LISTENING_FILE, problem)
     return out
 
 
@@ -409,11 +434,11 @@ def scores_from(answers, questions):
 
 
 def judge_pending(store, engine, who, limit=MAX_JUDGE, item_ids=None):
-    dests = destinations(store.settings)
     """Score posts that have no judgment from the current set and route them. One decision call a post,
     each audited as a `judge.call` the way `/api/v2/decisions` audits, so the caller's budget counts it."""
     from .judge import DAILY_CALLS, used_today
-    qset = J.load_set(QUESTION_SET)
+    qset = question_set(store.settings)
+    dests = destinations(store.settings, qset=qset)
     questions = qset["questions"]
     with store.read() as c:
         if item_ids:

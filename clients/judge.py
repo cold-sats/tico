@@ -362,13 +362,22 @@ def question_dirs(env=None, cwd=None):
     return [Path(d) for d in found if d]
 
 
-def load_set(name, root=None):
-    """One question set from `questions/<name>.json`, validated, with its `label`."""
+def load_set(name, root=None, *, registry_dir=None):
+    """A validated question set: an explicit root, or the company's registry before the shipped copy.
+
+    An invalid override is refused rather than silently using different questions. The installed
+    runner's existing question-directory fallbacks still apply when neither copy is present.
+    """
     if not isinstance(name, str) or not name or any(ch in name for ch in "/\\.") :
         raise JudgeError("invalid", f"{name!r} is not a question set name")
     path = Path(root or QUESTIONS_DIR) / (name + ".json")
-    if not root and not path.is_file():
-        path = next((d / (name + ".json") for d in question_dirs() if (d / (name + ".json")).is_file()), path)
+    if not root:
+        registry = registry_dir if registry_dir is not None else os.environ.get("TICO_REGISTRY_DIR")
+        custom = Path(registry) / "questions" / (name + ".json") if registry else None
+        if custom and custom.is_file():
+            path = custom
+        elif not path.is_file():
+            path = next((d / (name + ".json") for d in question_dirs() if (d / (name + ".json")).is_file()), path)
     try:
         data = json.loads(path.read_text())
     except OSError:
@@ -379,6 +388,8 @@ def load_set(name, root=None):
 
 
 def check_set(data, name):
+    if not isinstance(data, dict):
+        raise JudgeError("invalid", f"{name}: question set is a map")
     for key in ("id", "version", "summary", "questions"):
         if key not in data:
             raise JudgeError("invalid", f"{name}: question set is missing `{key}`")
@@ -387,19 +398,27 @@ def check_set(data, name):
     if not isinstance(data["version"], int) or data["version"] < 1:
         raise JudgeError("invalid", f"{name}: `version` is a positive integer")
     questions = data["questions"]
+    if not isinstance(questions, dict):
+        raise JudgeError("invalid", f"{name}: questions is a map of id -> question")
     static = {qid: q for qid, q in questions.items() if not (isinstance(q, dict) and q.get("dynamic"))}
     # A dynamic question's options are completed by the caller; check the fixed ones alone.
     for qid, q in questions.items():
         if isinstance(q, dict) and q.get("dynamic"):
             if q.get("type") != "choice":
                 raise JudgeError("invalid", f"{name}: {qid}: only a choice can be dynamic")
+            if q.get("criteria") is not None and not isinstance(q["criteria"], dict):
+                raise JudgeError("invalid", f"{name}: {qid}: dynamic criteria is a map")
             static[qid] = {**q, "criteria": {**(q.get("criteria") or {}), "_a": "", "_b": ""}}
     validate({}, static)
     thresholds = data.get("thresholds") or {}
     if not isinstance(thresholds, dict) or not all(isinstance(v, (int, float)) for v in thresholds.values()):
         raise JudgeError("invalid", f"{name}: thresholds is a map of name -> number")
+    try:
+        state = list(data.get("state") or [])
+    except TypeError:
+        raise JudgeError("invalid", f"{name}: state must list the expected fields") from None
     return {**data, "label": f"{data['id']}@{data['version']}", "thresholds": thresholds,
-            "state": list(data.get("state") or [])}
+            "state": state}
 
 
 def with_options(question, options):
