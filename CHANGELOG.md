@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-10-02
+
 ### Added
 - Task files keep versions by name, with notes, questions and every answer.
 - Tasks show file tiles, version previews and comparisons; board cards show covers and open questions.
