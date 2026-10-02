@@ -53,7 +53,7 @@ async function open(browser, {role = 'owner', connected = true, viewport = {widt
   const bot = {name: 'release-captain', display_name: 'Release Captain', status: 'active', state: 'active', operator: 'ana',
     repo: 'bot-release-captain', can_manage: true, revision: 3, users: [{id: 'ana', name: 'Ana'}], bot_owners: [{id: 'sam', name: 'Sam'}],
     my_access: {see: true, read: true, write: true}, access_policy: {}};
-  await page.route('**/*', route => {
+  await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
     const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
     if (url.origin !== 'https://tico-ui.test') return route.abort();
@@ -88,8 +88,17 @@ async function open(browser, {role = 'owner', connected = true, viewport = {widt
       return json(row);
     }
     if (p === '/api/v2/bots/release-captain/repositories') {
-      if (method === 'PUT') { const body = req.postDataJSON(); writes.push({p, body}); data.bot = {...data.bot, ...body}; }
-      return json({...data.bot, effective: effective(data)});
+      if (method === 'PUT') {
+        const body = req.postDataJSON(); writes.push({p, body});
+        if (data.refuse) return json({error: {code: 'forbidden', detail: data.refuse}}, 403);
+        if (data.refuseOnce) { const why = data.refuseOnce; data.refuseOnce = ''; return json({error: {code: 'forbidden', detail: why}}, 403); }
+        data.inflight = (data.inflight || 0) + 1; data.maxInflight = Math.max(data.maxInflight || 0, data.inflight);
+        if (data.delay) { const wait = data.delay; data.delay = 0; await new Promise(done => setTimeout(done, wait)); }
+        data.inflight -= 1;
+        data.bot = {...data.bot, ...body};
+      }
+      if (method === 'GET' && data.slowGet) { const wait = data.slowGet; data.slowGet = 0; await new Promise(done => setTimeout(done, wait)); }
+      return json({...data.bot, effective: effective(data)});         // GET and PUT both answer the whole access (backend access())
     }
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json({});
@@ -196,6 +205,75 @@ async function owner(browser) {
   await page.close();
 }
 
+// LOCAL-2: a refused save shows what the server holds, with the reason; LOCAL-4: saves go one at a time and the latest
+// choice is the one that lands.
+async function saves(browser) {
+  const {page, errors, writes, data} = await open(browser);
+  data.bot = {mode: 'all', all_access: 'write', chosen: []};
+  await page.evaluate(() => settingsEditBot('release-captain'));
+  const box = page.locator('#bot-editor [data-bot-repos]');
+  await box.locator('.brepo-all').waitFor();
+  const status = () => box.locator('[data-brepo-status]').innerText();
+  // A refused mode change: back to All ticked repos, the reason kept.
+  data.refuse = 'Only owners and admins change this';
+  await box.locator('label:has(input[type=radio][value=own])').click();
+  await page.waitForFunction(() => document.querySelector('#bot-editor input[type=radio][value=all]')?.checked);
+  assert.equal(await box.locator('input[type=radio][value=own]').isChecked(), false);
+  assert.equal(await status(), 'Only owners and admins change this');
+  assert.equal(await box.locator('[data-brepo-status] .err').count(), 1);
+  // A refused Read: Write stays selected.
+  await box.locator('.brepo-all label:has(input[value=read])').click();
+  await page.waitForFunction(() => document.querySelector('#bot-editor .brepo-all input[value=write]')?.checked);
+  assert.equal(await status(), 'Only owners and admins change this');
+  // A refused tick in Chosen repos.
+  data.refuse = '';
+  await box.locator('label:has(input[type=radio][value=chosen])').click();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved');
+  await box.locator('[data-brepo="acme/web"] [data-brepo-pick]').click();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved');
+  data.refuse = 'Repository access is locked';
+  await box.locator('[data-brepo="acme/mobile"] [data-brepo-pick]').click();
+  await page.waitForFunction(() => /locked/.test(document.querySelector('#bot-editor [data-brepo-status]')?.textContent || ''));
+  assert.equal(await box.locator('[data-brepo="acme/mobile"] [data-brepo-pick]').isChecked(), false);
+  assert.equal(await box.locator('[data-brepo="acme/web"] [data-brepo-pick]').isChecked(), true);
+  // A slow save, then a newer choice: the newer one is sent after it, and it is what stays.
+  data.refuse = ''; data.delay = 700; data.maxInflight = 0;
+  const before = writes.length;
+  await box.locator('label:has(input[type=radio][value=all])').first().click();
+  await box.locator('.brepo-all').waitFor();
+  await box.locator('label:has(input[type=radio][value=own])').click();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: 5000});
+  assert.equal(data.maxInflight, 1, 'one save at a time');
+  assert.deepEqual(writes.slice(before).map(w => w.body.mode), ['all', 'own']);
+  assert.equal(data.bot.mode, 'own', 'the latest choice wins on the server');
+  assert.equal(await box.locator('input[type=radio][value=own]').isChecked(), true);
+  // Three quick changes while one is on its way: only the last is sent next.
+  data.delay = 500;
+  const mark = writes.length;
+  await box.locator('label:has(input[type=radio][value=all])').first().click();
+  await box.locator('.brepo-all').waitFor();
+  await box.locator('.brepo-all label:has(input[value=read])').click();
+  await box.locator('label:has(input[type=radio][value=chosen])').click();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: 5000});
+  assert.deepEqual(writes.slice(mark).map(w => [w.body.mode, w.body.all_access]), [['all', 'write'], ['chosen', 'read']]);
+  assert.equal(data.bot.mode, 'chosen');
+  assert.equal(await box.locator('input[type=radio][value=chosen]').isChecked(), true);
+  // A change made while a refused save reads the server's copy back is still sent, and wins.
+  data.refuseOnce = 'Try again in a moment'; data.slowGet = 800;
+  const from = writes.length;
+  await box.locator('label:has(input[type=radio][value=own])').click();
+  await page.waitForTimeout(150);                                   // the PUT was refused; the read-back is on its way
+  assert.equal(writes.length, from + 1);
+  await box.locator('label:has(input[type=radio][value=all])').first().click();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: 5000});
+  assert.deepEqual(writes.slice(from).map(w => w.body.mode), ['own', 'all']);
+  assert.equal(data.bot.mode, 'all', 'the newer choice is saved');
+  assert.equal(await box.locator('input[type=radio][value=all]').isChecked(), true);
+  assert.deepEqual(errors, []);
+  console.log('saves: ok');
+  await page.close();
+}
+
 async function member(browser) {
   const {page, errors, writes} = await open(browser, {role: 'member'});
   await page.locator('#set-repos .repo-row').first().waitFor();
@@ -253,6 +331,7 @@ async function phone(browser) {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
     await owner(browser);
+    await saves(browser);
     await member(browser);
     await notConnected(browser);
     await phone(browser);

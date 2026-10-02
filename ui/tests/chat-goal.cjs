@@ -19,9 +19,10 @@ const COMMANDS = [
   {name: 'model', args: '<name>', help: 'Switch model', kind: 'harness'},
 ];
 
-async function open(browser, viewport, touch = false) {
+async function open(browser, viewport, touch = false, {empty = false, messages = null, goal = null, theme = '', supported = true, readiness = {ready: true, goals: true}} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block', ...(touch ? {hasTouch: true, isMobile: true} : {})});
-  const api = {errors: [], goalPosts: [], sends: [], goal: null, streamGoal: null, page};
+  if (theme) await page.addInitScript(t => { try { localStorage.setItem('tico.theme', t); } catch {} }, theme);
+  const api = {errors: [], goalPosts: [], sends: [], created: [], goal, streamGoal: null, page, room: !empty};
   page.on('pageerror', e => api.errors.push(e.message));
   const now = () => new Date().toISOString();
   await page.route('**/*', async route => {
@@ -33,18 +34,26 @@ async function open(browser, viewport, touch = false) {
     if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json({id: 'ana', name: 'Ana', role: 'owner', cloud: true});
-    if (p === '/api/employees') return json([{name: 'ops', display_name: 'Ops', host: 'keeper', status: 'active', can_chat: true, schedules: [], goal_active: false}]);
+    if (p === '/api/employees') return json([{name: 'ops', display_name: 'Ops', host: 'keeper', status: 'active', can_chat: true, schedules: [], goal_active: false, resolved_runtime: 'codex',
+      machine: {runner_id: 'r1', label: 'Acme box', operator: 'ana'}, readiness}]);
+    if (p.startsWith('/vendor/fonts/') && fs.existsSync(uiFile(p.slice(1)))) return route.fulfill({contentType: 'font/woff2', body: fs.readFileSync(uiFile(p.slice(1)))});
     if (p === '/api/issues') return json([]);
+    const room = {id: 'c1', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:ops']};
+    if (p === '/api/v2/conversations' && req.method() === 'POST') {   // the bot's own room, made by the first goal
+      api.created.push(req.postDataJSON()); api.room = true; return json(room);
+    }
     if (p === '/api/v2/conversations')
-      return json({conversations: url.searchParams.get('chat_with') ? [{id: 'c1', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:ops']}] : []});
-    if (p.endsWith('/snapshot')) return json({messages: [{id: 'm0', from_actor: 'bot:ops', body: 'Ready when you are.', created: '2026-10-01T09:00:00Z'}], execution: null});
+      return json({conversations: url.searchParams.get('chat_with') && api.room ? [room] : []});
+    if (p.endsWith('/snapshot')) return json({messages: messages || (empty && !api.created.length ? [] : [{id: 'm0', from_actor: 'bot:ops', body: 'Ready when you are.', created: '2026-10-01T09:00:00Z'}]), execution: null});
     if (p.endsWith('/watch')) {
       const g = api.streamGoal; api.streamGoal = null;
       return route.fulfill({contentType: 'text/event-stream', body: 'retry: 200\n\n' + (g ? `event: goal\ndata: ${JSON.stringify({type: 'goal', goal: g})}\n\n` : '')});
     }
     if (p === '/api/v2/conversations/c1/goal') {
-      if (req.method() === 'GET') return json({goal: api.goal, supported: true, commands: COMMANDS});
+      if (req.method() === 'GET') return json({goal: api.goal, supported, commands: supported ? COMMANDS : COMMANDS.filter(c => c.name !== 'goal')});
       const body = req.postDataJSON(); api.goalPosts.push(body);
+      if (!supported) return json({error: {code: 'goal_unsupported', detail: "This bot's harness doesn't support goals"}}, 409);
+      if (api.slowGoal) await new Promise(done => setTimeout(done, api.slowGoal));
       const status = {set: 'active', edit: api.goal?.status || 'active', pause: 'paused', resume: 'active', clear: 'cleared'}[body.action];
       api.goal = {id: 'g1', conversation_id: 'c1', bot: 'ops', objective: body.objective || api.goal?.objective, status, note: '',
                   set_by: 'human:ana', set_at: api.goal?.set_at || now(), updated_at: now(), ended_at: status === 'cleared' ? now() : null};
@@ -175,8 +184,106 @@ async function phone(browser) {
   await page.close();
 }
 
+// LOCAL-1: the server's notice for a met goal (refs.chat_goal, refs.goal_status) is the compact goal line, not a "Task"
+// line, and the /goal messages the goal controls sent are not bubbles.
+async function serverNotice(browser) {
+  const t = (m, s) => `2026-10-01T09:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}Z`;
+  const messages = [
+    {id: 'm1', kind: 'say', from_actor: 'human:ana', body: '/goal Produce the revised Acme summary', created: t(1, 0),
+     refs: {command: true, goal_action: 'set', goal_id: 'g9', goal_revision: t(1, 0), goal_objective: 'Produce the revised Acme summary'}},
+    {id: 'm2', kind: 'say', from_actor: 'human:ana', body: '/goal clear', created: t(2, 0), refs: {command: true, goal_action: 'pause', goal_id: 'g9'}},
+    {id: 'm3', kind: 'say', from_actor: 'human:ana', body: '/goal Produce the revised Acme summary', created: t(3, 0), refs: {command: true, goal_action: 'resume', goal_id: 'g9'}},
+    {id: 'm4', kind: 'say', from_actor: 'bot:ops', body: 'Summary revised and posted.', created: t(9, 0), refs: {}},
+    // As backend/chat_goals.py writes it: refs {chat_goal, goal_status}; a two-line objective, then the note.
+    {id: 'm5', kind: 'notice', from_actor: 'bot:ops', body: 'Goal met: Produce the revised Acme summary\nwith the Q3 numbers\nThe condition holds.', created: t(9, 5),
+     refs: {chat_goal: 'g9', goal_status: 'met'}},
+  ];
+  const goal = {id: 'g9', conversation_id: 'c1', bot: 'ops', objective: 'Produce the revised Acme summary\nwith the Q3 numbers', status: 'met',
+    note: 'The condition holds.', set_at: t(1, 0), updated_at: t(9, 5), ended_at: t(9, 5)};
+  for (const [viewport, touch, name] of [[{width: 1280, height: 860}, false, 'desktop'], [{width: 390, height: 844}, true, 'phone']]) {
+    const api = await open(browser, viewport, touch, {messages, goal, theme: 'dark'}), {page} = api;
+    await page.locator('#conv-thread .chat-goal-line').waitFor();
+    const thread = page.locator('#conv-thread');
+    assert.equal(await thread.locator('.chat-goal-line').count(), 1, 'one line, not the notice and a line');
+    // The objective's second line is not taken for the note.
+    assert.match(await thread.locator('.chat-goal-line').innerText(), /Goal met:\s*Produce the revised Acme summary\s+with the Q3 numbers\s*· The condition holds\./);
+    assert.doesNotMatch(await thread.innerText(), /\bTask\b/);
+    assert.doesNotMatch(await thread.innerText(), /\/goal/, 'no raw /goal bubbles');
+    assert.equal(await thread.locator('.bubble').count(), 1, 'only the bot\'s reply is a bubble');
+    assert.equal(await page.locator('#chat-goal').isHidden(), true, 'an ended goal has no bar');
+    const box = await thread.locator('.chat-goal-line').boundingBox();
+    assert.ok(box.height < 40 && box.x >= 0 && box.x + box.width <= viewport.width, `${name}: one compact line`);
+    if (process.env.CHAT_GOAL_SHOTS) {
+      fs.mkdirSync(process.env.CHAT_GOAL_SHOTS, {recursive: true});
+      await page.screenshot({path: require('node:path').join(process.env.CHAT_GOAL_SHOTS, `chat-goal-met-${name}-dark.png`)});
+    }
+    assert.deepEqual(api.errors, []);
+    await page.close();
+  }
+  console.log('server notice: ok');
+}
+
+// LOCAL-3: an empty chat with a Codex bot offers the goal; the first /goal makes the room, then sets the goal there.
+async function emptyChat(browser) {
+  const api = await open(browser, {width: 1280, height: 860}, false, {empty: true}), {page} = api;
+  const target = page.locator('#chat-composer .p-goal');
+  await target.waitFor();
+  const box = page.locator('#chat-composer textarea');
+  await box.click(); await box.pressSequentially('/');
+  const menu = page.locator('#chat-composer .slash-menu');
+  await menu.waitFor();
+  assert.ok((await menu.locator('.slash-name').allInnerTexts()).includes('/goal'), '/goal is offered before the first message');
+  await box.fill('');
+  await box.pressSequentially('/goal First thing I want done');
+  await box.press('Escape');                                      // the menu, if open
+  await box.press('Enter');
+  await page.locator('#chat-goal .cg-bar').waitFor();
+  assert.deepEqual(api.created, [{participants: ['bot:ops'], kind: 'chat'}]);
+  assert.deepEqual(api.goalPosts, [{action: 'set', objective: 'First thing I want done'}]);
+  assert.deepEqual(api.sends, [], 'the goal is not sent as plain text');
+  assert.equal(await page.locator('#chat-goal .cg-text').innerText(), 'First thing I want done');
+  await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
+  assert.deepEqual(api.errors, []);
+  await page.close();
+  // The target works the same way, and Return twice sets it once.
+  const again = await open(browser, {width: 1280, height: 860}, false, {empty: true});
+  again.slowGoal = 300;
+  await again.page.locator('#chat-composer .p-goal').click();
+  const form = again.page.locator('#chat-goal textarea');
+  await form.fill('Tidy the Acme wiki'); await form.press('Enter'); await form.press('Enter').catch(() => {});
+  await again.page.locator('#chat-goal .cg-bar').waitFor();
+  assert.equal(again.created.length, 1);
+  assert.deepEqual(again.goalPosts, [{action: 'set', objective: 'Tidy the Acme wiki'}]);
+  assert.deepEqual(again.errors, []);
+  await again.page.close();
+
+  // Its computer said goals do not work there: nothing is offered.
+  const no = await open(browser, {width: 1280, height: 860}, false, {empty: true, readiness: {ready: true, goals: false}});
+  await no.page.waitForTimeout(400);
+  assert.equal(await no.page.locator('#chat-composer .p-goal').isHidden(), true);
+  await no.page.close();
+
+  // It said nothing, so the goal is offered, and the server refuses it: the typed goal stays with the reason.
+  const refused = await open(browser, {width: 1280, height: 860}, false, {empty: true, supported: false, readiness: {ready: true}});
+  await refused.page.locator('#chat-composer .p-goal').click();
+  const box2 = refused.page.locator('#chat-goal textarea');
+  await box2.fill('Ship the Acme pricing page');
+  await refused.page.locator('#chat-goal [type=submit]').click();
+  await refused.page.locator('#chat-goal .cg-why', {hasText: "doesn't support goals"}).waitFor();
+  assert.equal(await box2.inputValue(), 'Ship the Acme pricing page', 'the typed goal is kept');
+  assert.equal(refused.created.length, 1, "the bot's own room, the one its first message will use");
+  assert.deepEqual(refused.goalPosts, [], 'not set where it is refused');
+  assert.equal(await refused.page.locator('#chat-goal [type=submit]').isDisabled(), false);
+  await refused.page.locator('#chat-goal [data-goal="cancel"]').click();
+  await refused.page.locator('#chat-goal').waitFor({state: 'hidden'});
+  assert.equal(await refused.page.locator('#chat-composer .p-goal').isHidden(), true, 'no longer offered');
+  assert.deepEqual(refused.errors, []);
+  await refused.page.close();
+  console.log('empty chat: ok');
+}
+
 (async () => {
   const browser = await launch();
-  try { await desktop(browser); await phone(browser); }
+  try { await desktop(browser); await phone(browser); await serverNotice(browser); await emptyChat(browser); }
   finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

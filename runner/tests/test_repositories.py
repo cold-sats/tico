@@ -65,8 +65,8 @@ def test_first_sync_is_lazy_tokens_not_saved_and_fetch_interval_survives_restart
             with mock.patch('runner.repositories.time.time', return_value=time.time() + FETCH_INTERVAL + 1):
                 cycle(restarted)
                 assert git.call_count > both_count
-                assert 'fetch' in git.call_args.args[0]
-                assert '+refs/heads/main:refs/remotes/origin/main' in git.call_args.args[0]
+                fetches = [call.args[0] for call in git.call_args_list[both_count:] if 'fetch' in call.args[0]]
+                assert any('+refs/heads/main:refs/remotes/origin/main' in args for args in fetches)
         finally:
             restarted.pool.shutdown(wait=True)
 

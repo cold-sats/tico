@@ -697,3 +697,34 @@ def test_persistent_host_does_not_keep_checkout_locked_between_runs(tmp_path):
         runner.execute(a)
         assert not runner.warm.entries
     assert len(hosts) == 2 and all(not host.alive() for host in hosts)
+
+
+def test_combined_heartbeat_reports_retry_only_the_named_field(tmp_path):
+    from clients.tico import APIError
+    client = FakeClient()
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)}, tmp_path / 'state', client=client)
+    runner._reports_attempts = True
+    calls = []
+    fields = ['profiles', 'worktrees', 'repositories', 'active_attempts']
+    def post(path, body):
+        calls.append(json.loads(json.dumps(body)))
+        if len(calls) <= len(fields):
+            raise APIError('validation', 'body.' + fields[len(calls) - 1] + ': Extra inputs', 422)
+        return {'ok': True}
+    client.post = post
+    body = {'readiness': {'bots': {'coo': {'ready': True}}}, 'profiles': [], 'worktrees': [], 'repositories': []}
+    assert runner.report_heartbeat(body) == {'ok': True}
+    for before, after, field in zip(calls, calls[1:], fields):
+        assert set(before) - set(after) == {field}
+        assert before['readiness'] == after['readiness']
+    assert runner._reports_attempts is False
+
+
+def test_process_aware_claim_skips_worktree_maintenance(tmp_path):
+    client = FakeClient()
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)}, tmp_path / 'state', client=client)
+    runner._reports_attempts = True
+    runner.assignments_seen = [{'bot': 'coo'}, {'bot': 'finance'}]
+    runner.worktrees.maintaining.add('coo')
+    assert runner.claim_next() == {'attempt': None}
+    assert client.posts == [('jobs/claim', {'next_run': True, 'active_attempts': [], 'bot': 'finance'})]

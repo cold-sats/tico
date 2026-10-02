@@ -13,8 +13,10 @@ function settingsBotEditorRows(e) {
     <div class="sb-row"><span>Owners</span><div class="settings-owner-list" data-bot-owners>${chips(e.bot_owners) || '<span class="muted">Its owner</span>'}</div>${change('data-edit-bot-owners', 'owners')}</div>
     ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>`
       : `<div class="sb-row"><span>Model</span>${settingsChoiceCombo(e, 'model')}<span></span></div>
+    <div class="sb-sub" data-bot-sub-line hidden></div>
     <div class="sb-row"><span>Fallback</span>${settingsChoiceCombo(e, 'fallback')}<span></span></div>
-    <div class="sb-row"><span>Computer</span>${settingsMachineSelect(e)}<span></span></div>`}`;
+    <div class="sb-row"><span>Computer</span>${settingsMachineSelect(e)}<span></span></div>
+    <div class="sb-row" data-bot-sub-row hidden><span>Subscription</span><select class="settings-inline-select" data-bot-sub="${esc(e.name)}" aria-label="Subscription for ${esc(e.display_name)}"></select><span></span></div>`}`;
 }
 function settingsEditBot(slug = '') {
   const editing = !!slug, e = editing ? S.emps.find(row => row.name === slug) : null;
@@ -75,7 +77,7 @@ function settingsEditBot(slug = '') {
   let rev = e?.revision, touched = false;
   const rows = dialog.querySelector('[data-bot-people]');
   if (rows) {
-    const paint = () => { rows.innerHTML = settingsBotEditorRows(S.emps.find(row => row.name === slug) || e); settingsWireCombos(rows); };
+    const paint = () => { rows.innerHTML = settingsBotEditorRows(S.emps.find(row => row.name === slug) || e); settingsWireCombos(rows); void subsBotMount(rows, slug); };
     const refresh = () => { if (!dialog.open) return; if (touched) rev = (S.emps.find(row => row.name === slug) || e).revision; paint(); };
     paint();
     document.addEventListener('tico:settings-loaded', refresh);

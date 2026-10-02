@@ -415,15 +415,11 @@ def ship_deployed(c, settings):
     tasks = [H.task(c, tid) for tid in ids]
     summaries = H.children_summaries(c, ids)
     links_by_task = {tid: [] for tid in ids}
-    pushes = {}
+    pushes = {link["pr_sha"]: link["merge_seq"] for link in candidates}
     if ids:
         marks = ",".join("?" * len(ids))
         for link in H._rows(c.execute(f"SELECT * FROM task_links WHERE kind='pr' AND task_id IN ({marks})", ids)):
             links_by_task[link["task_id"]].append(link)
-        shas = list({l["pr_sha"] for links in links_by_task.values() for l in links if l.get("pr_sha")})
-        if shas:
-            marks = ",".join("?" * len(shas))
-            pushes = {r["sha"]: r["seq"] for r in c.execute(f"SELECT sha,seq FROM main_pushes WHERE sha IN ({marks})", shas)}
     def ship(task):
         if summaries[task["id"]]["open"]:
             return False

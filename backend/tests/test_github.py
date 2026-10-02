@@ -291,7 +291,7 @@ def test_abandoned_pr_returns_to_doing_and_manual_moves_survive_events(api):
     post(api, 'tasks/' + task['id'], {'version': task['version'], 'status': 'done'})
 
 
-def test_failed_wake_is_discarded_without_losing_the_next_burst(api, monkeypatch):
+def test_failed_wake_is_retained_without_losing_the_next_burst(api, monkeypatch):
     from backend.repositories import save_metadata
     tasks = [post(api, 'tasks', {'owner': 'cpo', 'title': 'Repair checks ' + str(n), 'body': 'x'}) for n in range(2)]
     real = H._wake
@@ -305,8 +305,12 @@ def test_failed_wake_is_discarded_without_losing_the_next_burst(api, monkeypatch
         for task in tasks:
             save_metadata(c, 'github-task-wake:' + task['id'], {'due': H.shift(H.now(), seconds=-1), 'items': ['Checks failed']})
         assert G.flush_wakes(c) == [tasks[1]['id']]
-        assert not c.execute("SELECT 1 FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchone()
+        saved = c.execute("SELECT key FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchall()
+        assert [r['key'] for r in saved] == ['github-task-wake:' + tasks[0]['id']]
         assert H.task(c, tasks[0]['id'])['note'] == ''
+        monkeypatch.setattr(H, '_wake', real)
+        assert G.flush_wakes(c) == [tasks[0]['id']]
+        assert not c.execute("SELECT 1 FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchone()
 
 
 def test_pr_matching_preserves_shipped_and_uses_base_repo_for_checks(api):

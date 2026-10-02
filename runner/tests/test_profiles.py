@@ -209,6 +209,8 @@ class Readiness(unittest.TestCase):
             self.assertEqual([r['name'] for r in self.runner.profile_report()], ['one', 'two'])
 
     def test_completion_profiles_are_optional_for_old_servers(self):
+        from runner.state import State
+        self.runner.state = State(self.runner.state.directory)
         from clients.tico import APIError
         calls = []
         class Client:
@@ -309,6 +311,8 @@ class Readiness(unittest.TestCase):
         self.assertEqual(Path(entry['dir']).stat().st_mode & 0o777, 0o700)
 
     def test_completion_omits_empty_profile_used(self):
+        from runner.state import State
+        self.runner.state = State(self.runner.state.directory)
         from unittest import mock
         self.runner.client = mock.Mock()
         self.runner.complete('attempt', {'outcome': 'completed', 'profile_used': None})

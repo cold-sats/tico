@@ -95,6 +95,7 @@ function taskOutcomeNote(task, action) {
     const closing = !!action.close;
     dialog.innerHTML = `<form class="tmodal-body">
       <h2>${closing ? 'Close this request' : 'Finish this request'}</h2>
+      ${task.title ? `<p class="task-outcome-title">${esc(task.title)}</p>` : ''}
       <p class="muted">${closing ? 'Why close it?' : 'What did you decide or do?'}</p>
       <textarea required maxlength="4000" aria-label="Result or decision" placeholder="State the result or decision explicitly."></textarea>
       <div class="row"><button class="ghost" type="button" data-cancel>Cancel</button>

@@ -40,6 +40,7 @@ function pageSettings() {
     </div>
     <div class="settings-pane" id="settings-devices" role="tabpanel">
       <section class="card"><div id="set-machines"><div class="empty">Loading…</div></div></section>
+      <section class="card subs-card" id="settings-subs" aria-labelledby="settings-subs-h" hidden><header><h2 id="settings-subs-h">Subscriptions</h2></header><div id="set-subs"></div></section>
       ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
@@ -161,6 +162,7 @@ async function loadSettings() {
     renderTree();
     if (S.route !== SETTINGS) return;
     renderSettingsIssues(); renderSettingsBots(); renderSettingsMachines(); renderSettingsServices(); renderSettingsHistory();
+    void renderSettingsSubs();
     if (!formBusy($('#set-recurring'))) renderSettingsRecurring();   // not while its search box has the cursor
     void renderSettingsTokens();
     const add = $('#settings-add-bot');

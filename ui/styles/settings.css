@@ -240,7 +240,7 @@ p:empty{display:none}
 .transition-dialog{width:min(580px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .transition-body{padding:16px 18px 18px}.transition-progress{margin:12px 0;padding:10px;border-radius:7px;background:var(--bg)}
 .transition-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-@media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input,.tcontrols select,.tcontrols input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
+@media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
 /* Settings header: Dark, Light or System for this browser (ui/theme.js) */
 .theme-seg{display:inline-flex;flex:none;background:var(--surface2);border-radius:999px;padding:3px}
 .theme-seg button{border:0;background:none;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
@@ -318,4 +318,26 @@ fieldset.brepo[hidden]{display:none}
   .brepo-mode{display:flex;justify-self:stretch}.brepo-mode label{flex:1 1 auto;justify-content:center}.brepo-mode span{padding:5px 6px;text-align:center}
   .repo-seg-sm span{padding:3px 9px}
   .brepo-row{min-height:36px}
+}
+/* Subscriptions (ui/app/subscriptions.js): Settings > Computers lists each computer's subscriptions and their sign-in,
+   the groups' choice and a one-line add; the bot editor has its own choice and the line under Model. */
+.subs-card #set-subs{display:grid;gap:10px}
+.subs-h{margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.subs-pc+.subs-pc{border-top:1px solid var(--line);padding-top:8px}
+.subs-list{list-style:none;margin:0;padding:0}
+.subs-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:30px;padding:2px 0;font-size:13px}
+.subs-name{flex:0 0 140px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.subs-rt{display:inline-flex;align-items:center;gap:4px}
+.subs-rt .subs-signin{padding:2px 8px;font-size:12px}
+.subs-row .subs-select{width:auto;min-width:160px;max-width:240px;font-size:12.5px;padding:3px 6px}
+.subs-add{display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.subs-add input{flex:1 1 160px;max-width:220px;font-size:12.5px;padding:4px 7px}
+.subs-add select{width:auto;font-size:12.5px;padding:4px 6px}
+.subs-add-msg{font-size:11.5px}
+.sb-sub{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:-4px 0 0 104px;font-size:11.5px;color:var(--muted);min-width:0}
+.sb-sub[hidden]{display:none}
+.sb-sub .pill{font-size:10.5px}
+@media (max-width:760px){
+  .subs-name{flex-basis:100%}
+  .sb-sub{margin-left:0}
 }

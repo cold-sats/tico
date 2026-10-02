@@ -276,6 +276,8 @@ function v2MessageHTML(m) {
   // A bot asking for a secret: the card takes it here and it goes straight to Credentials (ui/credential-card.js).
   if (m.refs?.credential_request) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-credential-host="${esc(m.refs.credential_request)}"><div class="asst-state">Loading the card…</div></div></div>`;
   if (m.refs?.action) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-action-host="${esc(m.refs.action)}"><div class="asst-state">Loading the card…</div></div></div>`;
+  // A met or stopped goal's notice from the server is the compact goal line (ui/app/chat-goal.js), not a Task line.
+  if (m.refs?.chat_goal) return chatGoalNoticeHTML(m);
   if (m.kind === 'notice' || m.refs?.note) {
     const when = `<div class="chat-meta"><time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>`;
     return `<div class="chat-system"><b>${m.refs?.note ? 'Note' : 'Task'}</b> ${esc(plainActors(m.body))}${when}</div>`;
@@ -370,7 +372,8 @@ function v2ChatRender(state) {
   }
   const atEnd = !state.rendered || state.followLatest;
   const wasTop = thread.scrollTop, wasHeight = thread.scrollHeight;
-  const shown = state.messages.filter(m => m.refs?.maintenance !== 'checkpoint'), rows = shown.map(v2MessageHTML);
+  // A goal's controls (the /goal messages the server sends for Set, Pause, Clear) are the bar above, not bubbles.
+  const shown = state.messages.filter(m => m.refs?.maintenance !== 'checkpoint' && !chatGoalControl(m)), rows = shown.map(v2MessageHTML);
   const goalLine = chatGoalLine(state, shown);
   if (goalLine) rows.splice(goalLine.at, 0, goalLine.html);
   const groups = rows.join('');

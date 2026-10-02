@@ -2558,7 +2558,7 @@ class Runner:
         self.recover_output()
 
     def report_heartbeat(self, body):
-        with self.claim_lock:
+        with getattr(self, "claim_lock", None) or nullcontext():
             if getattr(self, "_reports_attempts", False):
                 body["active_attempts"] = list(self.active)
         return self._report_heartbeat(body)
