@@ -206,7 +206,7 @@ def test_bucket_manifest_reads_are_bounded_closed_and_failures_cached(failure):
 
 
 @pytest.mark.parametrize('warm', [False, True])
-def test_bucket_manifest_fetch_is_single_flight_without_holding_lock(warm):
+def test_bucket_manifest_fetch_is_single_flight_without_holding_lock(warm, monkeypatch):
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
@@ -216,22 +216,26 @@ def test_bucket_manifest_fetch_is_single_flight_without_holding_lock(warm):
         def get_object(self, **options):
             calls.append(options)
             entered.set()
-            assert release.wait(2)
+            assert release.wait(10)
             body = io.BytesIO(json.dumps(MANIFEST).encode())
             bodies.append(body)
             return {'Body': body}
     downloads = Downloads(SimpleNamespace(blob_bucket='acme-files', runner_url='https://runner.test', public_url=''), S3())
     stale = {'version': '0.3.6'} if warm else None
-    downloads._manifest = (1.0, stale)
+    monkeypatch.setattr('backend.downloads.time', SimpleNamespace(monotonic=lambda: 1000.0))
+    downloads._manifest = (939.0, stale)
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(downloads.bucket_manifest)
         try:
-            assert entered.wait(1)
-            assert pool.submit(downloads.bucket_manifest).result(timeout=1) == stale
+            assert entered.wait(10)
+            waits = []
+            monkeypatch.setattr(downloads._manifest_ready, 'wait', lambda timeout: waits.append(timeout) or False)
+            assert pool.submit(downloads.bucket_manifest).result(timeout=10) == stale
+            assert waits == ([] if warm else [0.1]), 'only cold callers take the bounded wait'
             assert len(calls) == 1
         finally:
             release.set()
-        assert first.result(timeout=1) == {**MANIFEST, 'app_kind': 'company'}
+        assert first.result(timeout=10) == {**MANIFEST, 'app_kind': 'company'}
     assert downloads.bucket_manifest() == {**MANIFEST, 'app_kind': 'company'} and len(calls) == 1
     assert bodies[0].closed
 
