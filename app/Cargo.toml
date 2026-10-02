@@ -1,6 +1,6 @@
 [package]
 name = "tico-app"
-version = "2.0.5"
+version = "0.3.6"
 edition = "2021"
 description = "Tico: one window on the hub and a tray item with its status"
 default-run = "tico-app"

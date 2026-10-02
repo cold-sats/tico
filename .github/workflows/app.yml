@@ -53,6 +53,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpulse-dev
+      - name: The app's version is the release's
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          PY=$(command -v python3 || command -v python)
+          "$PY" -c "import json,os; p='app/tauri.conf.json'; d=json.load(open(p)); d['version']=os.environ['GITHUB_REF_NAME'].lstrip('v').split('-')[0]; json.dump(d, open(p,'w'), indent=2)"
       - name: Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
       - name: Apple signing identity
@@ -120,6 +126,12 @@ jobs:
           aws-region: us-west-2
           role-session-name: tico-app-${{ github.run_id }}
       - run: pip install "$(grep '^boto3==' backend/requirements.txt)"
+      - name: The app's version is the release's
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          PY=$(command -v python3 || command -v python)
+          "$PY" -c "import json,os; p='app/tauri.conf.json'; d=json.load(open(p)); d['version']=os.environ['GITHUB_REF_NAME'].lstrip('v').split('-')[0]; json.dump(d, open(p,'w'), indent=2)"
       - name: Publish
         run: |
           version=$(python3 -c 'import json;print(json.load(open("app/tauri.conf.json"))["version"])')

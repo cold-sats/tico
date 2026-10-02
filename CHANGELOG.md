@@ -8,7 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
-- Every release builds the desktop app first; if it fails, the release isn't published. Desktop app 2.0.5 carries the current Tico icon.
+- Every release builds the desktop app first; if it fails, the release isn't published. The desktop app now carries the release's version (0.3.6, not 2.0.x) and the current Tico icon; an installed 2.0.x app needs one reinstall from the download page, then it updates itself with each release.
 
 ## [0.3.5] - 2026-10-02
 

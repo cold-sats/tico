@@ -60,8 +60,8 @@ the images, and a Mac runner is a git checkout that moves to the release's tag.
 
 The desktop app is built for every tag too (`.github/workflows/app.yml`, called from the Release workflow). If any
 desktop build fails, the GitHub release is not created and the Release run is red: servers only offer a version that
-has a release, so a failed desktop build stops the rollout. Bump `app/tauri.conf.json` and `app/Cargo.toml` when the
-app itself changes; installed apps update only to a higher app version.
+has a release, so a failed desktop build stops the rollout. The app's version is the release's
+(v0.3.6 → app 0.3.6), stamped from the tag at build time.
 
 ## What installations do
 
