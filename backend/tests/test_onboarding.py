@@ -399,3 +399,19 @@ def test_the_config_says_when_the_server_is_a_container_so_first_run_offers_a_li
     assert onboarding.running_in_docker() is False
     monkeypatch.setenv("TICO_IN_DOCKER", "1")
     assert onboarding.running_in_docker() is True
+
+
+def test_enrollment_does_not_auto_assign_archived_or_draining_bots(environment):
+    api = environment(seed={"ana": {"name": "Ana", "status": "active", "template": "assistant"},
+                            "sam": {"name": "Sam", "status": "archived", "template": "assistant"},
+                            "waiting": {"name": "Waiting", "status": "active", "template": "assistant"}})
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bot_control(bot,draining) VALUES('waiting',1)")
+    computer = machine(api)
+    placement = api.app.state.execution.runner_enrolled.__self__
+    with api.app.state.store.transaction() as c:
+        assert placement.assign_pending(c, computer["runner_id"]) == ["ana"]
+        rows = c.execute("SELECT bot,runner_id FROM assignments").fetchall()
+        assert [(row["bot"], row["runner_id"]) for row in rows] == [("ana", computer["runner_id"])]
+        assert c.execute("SELECT state FROM bots WHERE slug='sam'").fetchone()[0] == "archived"
+        assert c.execute("SELECT draining FROM bot_control WHERE bot='waiting'").fetchone()[0] == 1
