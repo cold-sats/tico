@@ -119,7 +119,7 @@ def test_a_late_result_never_overrides_the_attempt_that_took_the_work_over(api):
     tool_reporting(api)
     aged(api, attempt['id'])
     assert [d['state'] for d in sweep(api)] == ['queued']
-    ready(api, machine, ['ops'], active_attempts=[])
+    ready(api, machine, ['ops'])
     second = claim(api, machine)
     assert second and second['id'] != attempt['id']
     filed = post(api, f"attempts/{attempt['id']}/complete",
@@ -213,7 +213,7 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     assert claim(api, machine) is None and job_state(api, attempt['job_id']) == 'uncertain'
     aged(api, attempt['id'])
     assert [d['state'] for d in sweep(api)] == ['queued']
-    ready(api, machine, ['ops'], active_attempts=[])
+    ready(api, machine, ['ops'])
     again = claim(api, machine)
     body = again['message']['body']
     assert 'finish only what is left' in body and 'Archived both bots; telling Priya next.' in body
@@ -234,3 +234,23 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     assert task and task['owner'] == H.bot_actor(H.FLEET_MAINTAINER)
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
+
+
+def test_reconcile_is_not_reported_decided_when_maintainer_notice_fails(api, monkeypatch):
+    from backend.store import H
+    machine, _, first = interrupted(api)
+    store, execution = api.app.state.store, api.app.state.execution
+    with store.transaction() as c:
+        c.execute("UPDATE jobs SET state='queued' WHERE id=?", (first['job_id'],))
+    again = claim(api, machine)
+    post(api, f"attempts/{again['id']}/started", {'thread_id': 'second'}, machine['token'])
+    expire(api, again['id'])
+    assert claim(api, machine) is None
+    aged(api, again['id'])
+    def fail(*args):
+        raise RuntimeError('Cannot notify maintainer')
+    monkeypatch.setattr(execution, '_tell_maintainer', fail)
+    with store.transaction() as c:
+        assert execution.auto_reconcile(c) == []
+        assert c.execute('SELECT state FROM jobs WHERE id=?', (first['job_id'],)).fetchone()[0] == 'uncertain'
+        assert not c.execute('SELECT 1 FROM job_recovery WHERE attempt_id=?', (again['id'],)).fetchone()

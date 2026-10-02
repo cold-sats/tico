@@ -77,6 +77,9 @@ class State:
 
     def record(self, attempt):
         with self.connect() as c:
+            if attempt.get("checkout_retry"):
+                c.execute("UPDATE attempts SET payload=?,phase='claimed',completion=NULL WHERE id=? AND payload<>?",
+                          (json.dumps(attempt), attempt["id"], json.dumps(attempt)))
             c.execute("INSERT OR IGNORE INTO attempts(id,payload,phase) VALUES(?,?,'claimed')",
                       (attempt["id"], json.dumps(attempt)))
 

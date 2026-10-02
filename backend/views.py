@@ -240,6 +240,13 @@ def updating(c):
     return {"since": min(stamps), "bots": len(stamps)} if stamps else None
 
 
+def checkout_wait(c, bot):
+    row = c.execute("SELECT r.label FROM attempt_processes p JOIN assignments x ON x.runner_id=p.runner_id AND x.bot=p.bot "
+                    "JOIN runners r ON r.id=p.runner_id WHERE p.bot=? "
+                    "AND EXISTS(SELECT 1 FROM jobs j WHERE j.bot=p.bot AND j.state='queued') LIMIT 1", (bot,)).fetchone()
+    return f"Waiting for the previous run on {row[0]} to finish" if row else None
+
+
 def operation_issues(c, who, auth):
     """Human-facing failures derived from durable state; no external alarm service.
 
@@ -305,6 +312,9 @@ def operation_issues(c, who, auth):
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime} usage limit; retrying automatically", bot=slug,
                         severity="warning", needs_person=False)
+        waiting = checkout_wait(c, slug)
+        if waiting:
+            add("checkout", bot["display_name"] + " is waiting", waiting, bot=slug, severity="warning", needs_person=False)
         queued = c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='queued'", (slug,)).fetchone()[0]
         if location.get("agent"):
             queued = c.execute("SELECT count(*) FROM messages WHERE to_actor=? AND read_at IS NULL "
@@ -596,6 +606,9 @@ def recent_bots(c, auth, who, since, limit, needs):
         # The bot's status is its activity: a person who may only write to it hears what it said
         # to them, not what it is doing.
         status = (H.status(c, slug) or {}) if access.get(slug, auth.FULL)["read"] else {}
+        waiting = checkout_wait(c, slug) if access.get(slug, auth.FULL)["read"] else None
+        if waiting:
+            status = {**status, "focus": waiting}
         actor = H.bot_actor(slug)
         mine = c.execute("SELECT body, created, conversation_id FROM messages WHERE from_actor=? AND to_actor=? "
                          "ORDER BY created DESC LIMIT 1", (me, actor)).fetchone()
@@ -685,6 +698,9 @@ def fleet_snapshot(c, auth, identity, task_view):
                          "active_attempt": None})
             continue
         status = H.status(c, slug) or {}
+        waiting = checkout_wait(c, slug)
+        if waiting:
+            status = {**status, "focus": waiting}
         location = machine(c, slug)
         attempt = c.execute(
             "SELECT id,state,started,lease_until FROM attempts WHERE bot=? "

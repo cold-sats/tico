@@ -128,8 +128,11 @@ class Scheduler:
                         continue
                     if H.bot(c, H.actor_id(row["owner"]))["state"] != "active":
                         continue
-                    H.say(c, H.KEEPER, row["owner"], "Due: " + row["title"], kind="notice",
-                          conversation_id=row["conversation_id"], refs={"task": row["id"], "wake": "due"})
+                    try:
+                        H.say(c, H.KEEPER, row["owner"], "Due: " + row["title"], kind="notice",
+                              conversation_id=row["conversation_id"], refs={"task": row["id"], "wake": "due"})
+                    except H.Refused as exc:
+                        H.event(c, H.KEEPER, "task.reminder-refused", row["id"], {"reason": str(exc)[:300]})
                     c.execute("INSERT INTO task_reminders VALUES(?,?,?)", (row["id"], row["due"], stamp(at)))
             c.execute("INSERT INTO service_health VALUES('scheduler',?,?,?) ON CONFLICT(service) DO UPDATE SET "
                       "last_success=excluded.last_success,last_error=excluded.last_error,detail_json=excluded.detail_json",
@@ -148,6 +151,9 @@ class Scheduler:
             # Outside the scheduling transaction: the sweep takes its own short write
             # locks. Marked first so a failing sweep retries hourly, not every tick.
             self.swept = at
+            with self.store.transaction() as c:
+                c.execute("DELETE FROM service_health WHERE service LIKE 'background:%' AND julianday(json_extract(detail_json,'$.failed_at')) < julianday(?) - 30", (stamp(at),))
+                c.execute("DELETE FROM checkout_waits WHERE job_id IN (SELECT id FROM jobs WHERE state IN ('completed','cancelled'))")
             sweep_idempotency(self.store, stamp(at))
             sweep_mail(self.store, stamp(at))
         if self.goals_checked is None or at - self.goals_checked >= timedelta(hours=1):

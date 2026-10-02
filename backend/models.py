@@ -1184,7 +1184,7 @@ class UsageDefault(UsageLimit):
 
 
 class Completion(Contract):
-    outcome: Literal["completed", "failed", "interrupted"]
+    outcome: Literal["completed", "failed", "interrupted", "checkout_busy"]
     text: str = Field(default="", max_length=200_000)
     last_seq: int = Field(ge=0)
     tokens_in: int | None = Field(default=None, ge=0)

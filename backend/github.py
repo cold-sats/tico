@@ -60,10 +60,11 @@ def flush_wakes(c):
             if burst.get("due", "") > H.now():
                 continue
             task = H.task(c, row["key"].split(":", 1)[1])
-            if task and task["status"] not in ("done", "closed"):
+            if task and task["status"] in (*H.ACTIVE_STATUSES, "blocked"):
                 H._wake(c, task, task["owner"], "\n".join(burst.get("items", [])))
-                sent.append(task["id"])
             c.execute("DELETE FROM registry_metadata WHERE key=?", (row["key"],))
+            if task and task["status"] in (*H.ACTIVE_STATUSES, "blocked"):
+                sent.append(task["id"])
     return sent
 
 
@@ -126,6 +127,12 @@ def push(c, payload):
     return {"ref": ref, "commits": n}
 
 
+DEPLOY_QUERY = ("SELECT l.*,p.seq AS merge_seq FROM task_links l JOIN tasks t ON t.id=l.task_id "
+               "LEFT JOIN main_pushes p ON p.sha=l.pr_sha "
+               "WHERE l.kind='pr' AND l.state='merged' AND l.url LIKE ? ESCAPE '\\' "
+               "AND l.pr_sha IS NOT NULL AND t.status='ready'")
+
+
 def ship_deployed(c, settings):
     """Every `ready` task whose merged pull request is in the running release is shipped."""
     commit, repo = settings.release_commit, settings.release_repo
@@ -134,10 +141,7 @@ def ship_deployed(c, settings):
     here = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (commit,)).fetchone()
     shipped = []
     for link in H._rows(c.execute(
-            "SELECT l.*,p.seq AS merge_seq FROM task_links l JOIN tasks t ON t.id=l.task_id "
-            "LEFT JOIN main_pushes p ON p.sha=l.pr_sha "
-            "WHERE l.kind='pr' AND l.state='merged' AND l.url LIKE ? ESCAPE '\\' "
-            "AND l.pr_sha IS NOT NULL AND t.status='ready'",
+            DEPLOY_QUERY,
             ("https://github.com/" + repo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/pull/%",))):
         with isolated(c, "ship_deployed", link["id"]):
             m = PR_LINK.match(link["url"])

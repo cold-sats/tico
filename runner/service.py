@@ -1914,15 +1914,15 @@ class Runner:
         return socket_path
 
     def execute(self, attempt):
-        with checkout_lock.hold(self.local_path(attempt["bot"], attempt.get("config"))) as acquired:
+        with checkout_lock.hold(self.local_path(attempt["bot"], attempt.get("config")), self.state.directory) as acquired:
             if acquired:
                 return self._execute(attempt)
             # An older server may redeliver after lease expiry, or another runner process
             # may share this checkout. Settle this attempt without touching the checkout.
             aid = attempt["id"]
             self.state.record(attempt)
-            self.client.post(f"attempts/{aid}/started", {"thread_id": "checkout-busy"}, key=f"started:{aid}")
-            completion = self.state.finish(aid, {"outcome": "interrupted", "text": "The bot's checkout is still in use",
+            self.client.post(f"attempts/{aid}/started", {"thread_id": "checkout-busy"}, key=f"started:{aid}:{attempt.get('checkout_retry', 0)}")
+            completion = self.state.finish(aid, {"outcome": "checkout_busy", "text": "The bot's checkout is still in use",
                                                   "retryable": True})
             self.complete(aid, completion)
             self.state.phase(aid, "synced")
@@ -2079,7 +2079,7 @@ class Runner:
                 if lost.is_set() or time.monotonic() >= deadline[0]:
                     raise RuntimeError("Lease expired while preparing runtime")
                 # Acknowledge before execution. Any later crash is explicitly uncertain.
-                self.client.post(f"attempts/{aid}/started", {"thread_id": thread}, key=f"started:{aid}")
+                self.client.post(f"attempts/{aid}/started", {"thread_id": thread}, key=f"started:{aid}:{attempt.get('checkout_retry', 0)}")
                 self.state.phase(aid, "running")
                 prompt = self.prompt(attempt, after=self.state.cursor(thread) if resumed else None,
                                       resumed=resumed)
@@ -2244,7 +2244,9 @@ class Runner:
                             pass
             finally:
                 if persistent and host:
-                    self.warm.release(host, outcome == "completed")
+                    # A cached process would keep the inherited checkout lock while idle.
+                    # Its saved provider conversation still resumes on the next turn.
+                    self.warm.release(host, outcome == "completed" and not checkout_lock.inherited_fds())
                 if self.credentials:
                     self.credentials.unregister(attempt["token"])
                 redact_mod.release(aid)
@@ -2258,13 +2260,19 @@ class Runner:
     def complete(self, aid, completion):
         """Send a result. A server from before usage refuses the field outright (422): the result must not
         be lost over it, so it goes again without, and the same for a result kept across a restart."""
+        with self.state.connect() as c:
+            row = c.execute("SELECT payload FROM attempts WHERE id=?", (aid,)).fetchone()
+        retry = json.loads(row[0]).get("checkout_retry", 0) if row else 0
+        key = f"complete:{aid}:{retry}"
         try:
-            return self.client.post(f"attempts/{aid}/complete", completion, key=f"complete:{aid}")
+            return self.client.post(f"attempts/{aid}/complete", completion, key=key)
         except APIError as exc:
+            if exc.status == 422 and completion.get("outcome") == "checkout_busy":
+                return self.client.post(f"attempts/{aid}/complete", {**completion, "outcome": "interrupted"}, key=key + ":legacy")
             if exc.status != 422 or "usage" not in completion:
                 raise
             return self.client.post(f"attempts/{aid}/complete", {k: v for k, v in completion.items() if k != "usage"},
-                                    key=f"complete:{aid}:no-usage")
+                                    key=key + ":no-usage")
 
     def billing(self, bot, runtime):
         """`subscription` when the runtime this bot runs on is signed in with a plan (ChatGPT, Claude), else `api`."""
@@ -2382,7 +2390,7 @@ class Runner:
         with self.claim_lock:
             if getattr(self, "_reports_attempts", False):
                 body["active_attempts"] = list(self.active)
-            return self._report_heartbeat(body)
+        return self._report_heartbeat(body)
 
     def _report_heartbeat(self, body):
         readiness = body["readiness"]
@@ -2546,15 +2554,20 @@ class Runner:
         body = {"next_run": True}
         if getattr(self, "_reports_attempts", False):
             body["active_attempts"] = list(self.active)
-        elif self.active and self.attempt_bots:
-            # An old server has no process reports: ask only for a bot without a local turn.
+        elif getattr(self, "assignments_seen", []):
+            # An old server has no process reports: probe every available bot in this
+            # poll so an empty queue cannot hide another bot's work for many seconds.
             busy = set(self.attempt_bots.values())
-            available = [row["bot"] for row in getattr(self, "assignments_seen", []) if row["bot"] not in busy]
-            if not available:
-                return {"attempt": None}
-            offset = getattr(self, "_claim_bot_offset", 0) % len(available)
-            body["bot"] = available[offset]
-            self._claim_bot_offset = offset + 1
+            for row in getattr(self, "assignments_seen", []):
+                if row["bot"] in busy:
+                    continue
+                with checkout_lock.hold(self.local_path(row["bot"], row.get("config")), self.state.directory) as available:
+                    if not available:
+                        continue
+                result = self.client.post("jobs/claim", {**body, "bot": row["bot"]})
+                if result.get("attempt") or result.get("paused"):
+                    return result
+            return {"attempt": None}
         try:
             return self.client.post("jobs/claim", body)
         except APIError as exc:

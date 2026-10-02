@@ -130,7 +130,8 @@ def test_webhook_and_deploy_map_custom_steps_and_preserve_status_without_a_step(
     assert get(api, 'tasks/' + general['id'])['task']['status'] == 'open'
 
 
-def test_grouped_wakes_retry_bad_rows_and_send_blocked_tasks(api, monkeypatch):
+@pytest.mark.parametrize("finished_status", ["closed", "declined", "done"])
+def test_grouped_wakes_retry_bad_rows_and_send_blocked_tasks(api, monkeypatch, finished_status):
     from backend.repositories import save_metadata
     tasks = [post(api, "tasks", {"owner": "cpo", "title": title, "body": "Review work"})
              for title in ("Broken notice", "Blocked task", "Finished task")]
@@ -139,7 +140,7 @@ def test_grouped_wakes_retry_bad_rows_and_send_blocked_tasks(api, monkeypatch):
         for task in tasks:
             save_metadata(c, "github-task-wake:" + task["id"], {"due": H.shift(H.now(), seconds=-1), "items": ["Checks failed"]})
         c.execute("UPDATE tasks SET status='blocked' WHERE id=?", (tasks[1]["id"],))
-        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tasks[2]["id"],))
+        c.execute("UPDATE tasks SET status=? WHERE id=?", (finished_status, tasks[2]["id"]))
     wake = H._wake
     def broken(c, task, *args):
         if task["id"] == tasks[0]["id"]:
@@ -167,9 +168,29 @@ def test_deploy_query_uses_repository_index_and_ignores_other_repos(api):
     with store.transaction() as c:
         c.execute("UPDATE tasks SET status='ready' WHERE id IN (?,?)", (own["id"], other["id"]))
         c.execute("UPDATE task_links SET state='merged',pr_sha='release-sha'")
-        plan = c.execute("EXPLAIN QUERY PLAN SELECT l.id FROM task_links l JOIN tasks t ON t.id=l.task_id "
-                         "WHERE l.kind='pr' AND l.state='merged' AND l.url LIKE ? AND t.status='ready'",
+        plan = c.execute("EXPLAIN QUERY PLAN " + G.DEPLOY_QUERY,
                          ("https://github.com/ticoteam/tico/pull/%",)).fetchall()
         assert any("task_links_repo_url" in r[3] and "url>?" in r[3] for r in plan)
         assert G.ship_deployed(c, store.settings) == [own["id"]]
         assert H.task(c, other["id"])["status"] == "ready"
+
+
+def test_wake_is_not_reported_sent_when_the_final_write_fails(api):
+    from backend.repositories import save_metadata
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review', 'body': 'Review work'})
+    key = 'github-task-wake:' + task['id']
+    class FailingDelete:
+        def __init__(self, c):
+            self.c = c
+        def __getattr__(self, name):
+            return getattr(self.c, name)
+        def execute(self, sql, args=()):
+            if sql == 'DELETE FROM registry_metadata WHERE key=?':
+                raise RuntimeError('Cannot remove saved wake')
+            return self.c.execute(sql, args)
+    with api.app.state.store.transaction() as c:
+        save_metadata(c, key, {'due': H.shift(H.now(), seconds=-1), 'items': ['Checks failed']})
+        before = c.execute('SELECT count(*) FROM messages').fetchone()[0]
+        assert G.flush_wakes(FailingDelete(c)) == []
+        assert c.execute('SELECT count(*) FROM messages').fetchone()[0] == before
+        assert c.execute('SELECT 1 FROM registry_metadata WHERE key=?', (key,)).fetchone()
