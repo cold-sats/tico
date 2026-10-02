@@ -145,6 +145,9 @@ PRs in another repository remain Ready for their release or a human's completion
 Attach a file to the task so anyone who can read the task can open it. Uploading the same name
 on the same task adds a new version, even when another teammate uploads it. Another task or an
 archived file starts a separate file. Older attachments appear as v1 without rewriting existing data.
+An existing attachment URL without `?v` keeps opening its original v1 bytes after adoption.
+Use `?v=N` to open a later version of that legacy ID. Newly minted versioned file IDs open
+their latest version without `?v`.
 Each version records who uploaded it, when, its size and type, an optional note (up to 500 characters),
 and a question with its answers. Media metadata can be null until processing finishes.
 

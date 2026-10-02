@@ -644,7 +644,8 @@ class Files:
         """The bytes of one version through Tico, never a storage address."""
         with self.store.read() as c:
             row = self.visible_file(c, who, fid)
-            number = row["current_version"] if version is None else version
+            # Adopted legacy blob IDs keep their original bytes at an unversioned URL.
+            number = (row["current_version"] if is_file_id(fid) else 1) if version is None else version
             v = c.execute("SELECT v.*,b.digest AS blob_digest,b.content_type FROM bot_file_versions v "
                           "JOIN blobs b ON b.id=v.blob_id WHERE v.file_id=? AND v.version=?", (fid, number)).fetchone()
             if not v or row["locator"] != "tico_blob":
