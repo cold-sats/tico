@@ -183,3 +183,20 @@ def test_bot_acting_for_human_cannot_publish_in_domain(api):
         finally:
             H.VIA.reset(token)
         assert H.task_private(c, H.task(c, task['id']))
+
+
+def test_task_read_snapshot_cannot_mix_old_access_with_new_private_comment(api):
+    from backend.auth import Identity
+    from backend.store import Problem
+    task = post(api, 'tasks', {'owner': 'priya', 'title': 'Review the packet', 'body': 'Public draft.'})
+    store, auth = api.app.state.store, api.app.state.auth
+    outsider = Identity('human:ben', 'human')
+    with store.read() as before:
+        assert auth.task(before, outsider, task['id'])['private'] == 0
+        with store.transaction() as writer:
+            H.task_update(writer, 'human:ana', task['id'], private=True)
+            H.task_comment(writer, 'human:ana', task['id'], 'Added after revocation.', wake=False)
+        assert all(m['body'] != 'Added after revocation.' for m in H.task_comments(before, task['id']))
+    with store.read() as after:
+        with pytest.raises(Problem):
+            auth.task(after, outsider, task['id'])

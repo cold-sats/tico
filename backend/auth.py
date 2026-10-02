@@ -634,12 +634,21 @@ class Auth:
             return set()
         return {slug for slug, level in self.bot_accesses(c, who).items() if not level["read"]}
 
+    @staticmethod
+    def task_snapshot(c):
+        # A detail response must not mix pre-revocation authorization with later private comments/files.
+        if not c.in_transaction:
+            c.execute('BEGIN')
+            return True
+        return False
+
     def task_sql(self, c, who, delegations="task_delegations"):
         """Company tasks are readable subject to bot activity controls; private tasks have two parties.
 
         Ownership, type-wide work, ancestry and delegation never widen private visibility.
         `delegations` stays accepted for compatibility with the guarded SQL caller.
         """
+        self.task_snapshot(c)
         if who.role not in ("owner", "human", "bot"):
             return "0"
         hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who))]
@@ -837,6 +846,8 @@ class Auth:
         return Identity(actor, role, email=email, task_actor=who.actor)
 
     def task_row(self, c, who, row):
+        if self.task_snapshot(c) and row:
+            row = H.task(c, row["id"])
         self.domain(who)
         if not row:
             raise Problem("not_found", "Task not found", 404)
@@ -856,6 +867,7 @@ class Auth:
         return row
 
     def task(self, c, who, task_id):
+        self.task_snapshot(c)
         return self.task_row(c, who, H.task(c, task_id))
 
     def resolve_task(self, c, who, ident, visible=None):
@@ -865,6 +877,7 @@ class Auth:
         suggested, never used; for the same reason bare digits, which a cut-short id can be, are
         never read as a number. Only tasks `visible` (default: what this caller may read) are
         matched, so a refusal never names a task the caller cannot see."""
+        self.task_snapshot(c)
         if not isinstance(ident, str) or not ident.strip():
             return ident
         ident = ident.strip()
