@@ -138,7 +138,9 @@ class GranolaMCP:
             response = await self.http("POST", AUTH + "/oauth2/register", json={
                 "client_name": "Tico", "token_endpoint_auth_method": "none",
                 "grant_types": ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
-                "response_types": []})
+                # Granola rejects a registration without redirect_uris, even for a device-code client that never
+                # redirects ("redirect_uris must be an array"); a loopback address is never used.
+                "redirect_uris": ["http://127.0.0.1/callback"]})
             if response.status_code >= 400:
                 raise GranolaError()
             client_id = self.payload(response).get("client_id")

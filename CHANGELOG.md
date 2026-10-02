@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-02
+
+### Fixed
+- Connecting a Granola account works: Granola requires a redirect address when Tico registers, even for the code-based sign-in.
+
 ## [0.3.2] - 2026-10-02
 
 ### Added

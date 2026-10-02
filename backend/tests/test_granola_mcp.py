@@ -40,7 +40,12 @@ class Provider:
         path = request.url.path
         self.calls.append((path, request))
         if path == "/oauth2/register":
-            assert json.loads(request.content)["token_endpoint_auth_method"] == "none"
+            body = json.loads(request.content)
+            assert body["token_endpoint_auth_method"] == "none"
+            # Granola's real server refuses a registration without a redirect_uris array (verified live).
+            if not isinstance(body.get("redirect_uris"), list):
+                return httpx.Response(400, json={"error": "invalid_client_metadata",
+                                                 "error_description": "redirect_uris must be an array"})
             return httpx.Response(200, json={"client_id": "public-client"})
         if path == "/oauth2/device_authorization":
             if self.registration_rejected:
