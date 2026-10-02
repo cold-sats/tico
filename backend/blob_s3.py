@@ -1,6 +1,33 @@
 """S3 settings shared by attachments and desktop downloads."""
 
 import os
+import threading
+
+
+class Sources:
+    """One process's selected attachment identity, shared with desktop downloads."""
+    def __init__(self, settings):
+        self.settings = settings
+        self.selected = None
+        self._clients = {}
+        self._lock = threading.Lock()
+
+    @property
+    def kind(self):
+        return self.selected or kinds(self.settings)[0]
+
+    def client_for(self, kind):
+        with self._lock:
+            if kind not in self._clients:
+                self._clients[kind] = client(self.settings, kind=kind)
+            return self._clients[kind]
+
+    @property
+    def s3(self):
+        return self.client_for(self.kind)
+
+    def read_s3(self, operation, **options):
+        return read(self.client_for, self.kind, kinds(self.settings, reads=True), operation, **options)
 
 
 def region(settings, env=None):
@@ -10,23 +37,53 @@ def region(settings, env=None):
             env.get("AWS_REGION") or env.get("AWS_DEFAULT_REGION") or None)
 
 
-def client(settings, config=None):
+def kinds(settings, env=None, reads=False):
+    env = os.environ if env is None else env
+    mode = getattr(settings, "blob_credentials", "auto") or "auto"
+    if mode != "auto" and not reads:
+        return [mode]
+    candidates = []
+    for kind, prefix in (("keys", "TICO_BLOB"), ("backup", "LITESTREAM")):
+        if ((kind == "keys" or settings.blob_bucket) and env.get(prefix + "_ACCESS_KEY_ID")
+                and env.get(prefix + "_SECRET_ACCESS_KEY")):
+            candidates.append(kind)
+    return candidates + ["role"]
+
+
+def client(settings, config=None, kind=None):
     import boto3
     options = {"region_name": region(settings), "endpoint_url": settings.blob_endpoint or None}
     if config is not None:
         options["config"] = config
-    # Keep explicit AWS credentials, profiles and role providers on boto3's default chain.
-    aws_credentials = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_SECURITY_TOKEN",
-                       "AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE",
-                       "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_CREDENTIALS_FULL_URI")
-    key, secret = os.environ.get("TICO_BLOB_ACCESS_KEY_ID"), os.environ.get("TICO_BLOB_SECRET_ACCESS_KEY")
-    if key and secret:
+    kind = kind or kinds(settings)[0]
+    if kind != "role":
+        prefix = "TICO_BLOB" if kind == "keys" else "LITESTREAM"
+        key, secret = os.environ.get(prefix + "_ACCESS_KEY_ID"), os.environ.get(prefix + "_SECRET_ACCESS_KEY")
+        if not key or not secret:
+            from botocore.exceptions import NoCredentialsError
+            raise NoCredentialsError()
         options.update(aws_access_key_id=key, aws_secret_access_key=secret)
-    elif settings.blob_bucket and not any(os.environ.get(key) for key in aws_credentials):
-        key, secret = os.environ.get("LITESTREAM_ACCESS_KEY_ID"), os.environ.get("LITESTREAM_SECRET_ACCESS_KEY")
-        if key and secret:
-            options.update(aws_access_key_id=key, aws_secret_access_key=secret)
     return boto3.client("s3", **options)
+
+
+def read(client_for, selected, candidates, operation, **options):
+    """Retry other identities only after access denial; return the signing client too."""
+    try:
+        s3 = client_for(selected)
+        return getattr(s3, operation)(**options), s3
+    except Exception as exc:
+        if getattr(exc, "response", {}).get("Error", {}).get("Code") not in ("AccessDenied", "403"):
+            raise
+        denied = exc
+    for kind in candidates:
+        if kind == selected:
+            continue
+        try:
+            s3 = client_for(kind)
+            return getattr(s3, operation)(**options), s3
+        except Exception:
+            continue
+    raise denied
 
 
 def write_error(exc, bucket, cleanup=False):
@@ -39,4 +96,5 @@ def write_error(exc, bucket, cleanup=False):
         return f"S3 storage cleanup permission missing: s3:AbortMultipartUpload on {bucket}"
     if cleanup:
         return f"S3 storage can't clean up its write check: {reason} on {bucket}"
-    return f"S3 storage can't write: {reason} on {bucket}"
+    action = " (s3:PutObject)" if code == "AccessDenied" else ""
+    return f"S3 storage can't write: {reason} on {bucket}{action}"

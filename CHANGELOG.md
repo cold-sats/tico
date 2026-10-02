@@ -12,6 +12,9 @@ All notable changes to Tico are recorded here. The format follows
 - New support requests include editable, redacted diagnostics by default. Replies can attach a fresh capture; rejected attachments are never silently dropped.
 - Support diagnostics group repeated server failures, include safe exception locations, runner heartbeat/recovery context and bounded browser failure counts, and report missing capture coverage without verbose logging.
 
+### Fixed
+- S3 attachments and desktop downloads share the first credential source that passes a bounded write check, with optional explicit selection. Health reports the source and denied permission; failed checks retry every 30 minutes, and denied reads try other sources before retained local copies.
+
 ## [0.3.11] - 2026-10-02
 
 ### Fixed

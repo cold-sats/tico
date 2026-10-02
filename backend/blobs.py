@@ -24,14 +24,19 @@ class Blobs:
         self._s3 = s3
         self._probe_s3 = s3
         self.settings = settings
+        self._sources = blob_s3.Sources(settings)
+        self._write_failed = False
         self._s3_failed = set()
         self.copy_status = {"done": 0, "total": 0, "running": False, "error": "", "failed": 0}
 
     @property
     def s3(self):
-        if self._s3 is None:
-            self._s3 = blob_s3.client(self.settings)
-        return self._s3
+        return self._s3 if self._s3 is not None else self._sources.s3
+
+    def read_s3(self, operation, **options):
+        if self._s3 is not None:
+            return getattr(self._s3, operation)(**options), self._s3
+        return self._sources.read_s3(operation, **options)
 
     @staticmethod
     def key(digest):
@@ -131,7 +136,7 @@ class Blobs:
 
     def _matches_s3(self, digest, size):
         try:
-            head = self.s3.head_object(Bucket=self.bucket, Key=self.s3_key(digest), ChecksumMode="ENABLED")
+            head, _ = self.read_s3("head_object", Bucket=self.bucket, Key=self.s3_key(digest), ChecksumMode="ENABLED")
         except Exception as exc:
             if getattr(exc, "response", {}).get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
                 return False
@@ -165,7 +170,8 @@ class Blobs:
             os.unlink(temporary)
 
     def verify_s3(self, digest, rate_limit=0, stop=None):
-        stream = self.s3.get_object(Bucket=self.bucket, Key=self.s3_key(digest))["Body"]
+        response, _ = self.read_s3("get_object", Bucket=self.bucket, Key=self.s3_key(digest))
+        stream = response["Body"]
         try:
             sha = hashlib.sha256()
             paced = PacedReader(stream, rate_limit, stop)
@@ -184,7 +190,8 @@ class Blobs:
                 args = dict(Bucket=self.bucket, Key=self.s3_key(digest))
                 if start or end is not None:
                     args["Range"] = f"bytes={start}-{end if end is not None else ''}"
-                stream = self.s3.get_object(**args)["Body"]
+                response, _ = self.read_s3("get_object", **args)
+                stream = response["Body"]
             except Exception:
                 stream = self._open_local(key, start)
         else:
@@ -210,6 +217,11 @@ class Blobs:
             return stream
         except OSError as exc:
             raise Problem("blob_storage", "Stored file is unavailable; check S3 access and retained local copies", 503, True) from exc
+
+    def storage_loop(self, store, stop, retry_interval=30 * 60):
+        self.copy_local(store, stop)
+        while self._write_failed and not stop.wait(retry_interval):
+            self.copy_local(store, stop)
 
     def copy_local(self, store, stop, interval=0.25):
         if not self.bucket or self.rehearsal or stop.is_set():
@@ -284,42 +296,50 @@ class Blobs:
         with store.read() as c:
             row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()
         previous = json.loads(row["detail_json"] or "{}") if row else {}
-        # Retain at most one unfinished probe if abort fails; retry its cleanup on the next start.
+        # Retain at most one unfinished probe; retry cleanup before creating another.
         pending = previous if previous.get("upload_id") else {}
         error = ""
-        client = None
-        try:
-            client = self._probe_s3 or blob_s3.client(self.settings, config=Config(
-                connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
+        candidates = [self._sources.kind] if self._probe_s3 is not None else blob_s3.kinds(self.settings)
+        for kind in candidates:
             if stop is not None and stop.is_set():
                 return
-            if pending:
-                try:
-                    client.abort_multipart_upload(Bucket=pending["bucket"], Key=pending["key"], UploadId=pending["upload_id"])
-                except Exception as exc:
-                    if getattr(exc, "response", {}).get("Error", {}).get("Code") != "NoSuchUpload":
-                        raise
-                pending = {}
-            if stop is not None and stop.is_set():
+            client = None
+            try:
+                client = self._probe_s3 or blob_s3.client(self.settings, kind=kind, config=Config(
+                    connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
+                if stop is not None and stop.is_set():
+                    return
+                if pending:
+                    try:
+                        client.abort_multipart_upload(Bucket=pending["bucket"], Key=pending["key"], UploadId=pending["upload_id"])
+                    except Exception as exc:
+                        if getattr(exc, "response", {}).get("Error", {}).get("Code") != "NoSuchUpload":
+                            raise
+                    pending = {}
+                if stop is not None and stop.is_set():
+                    self._write_health(store, pending, "")
+                    return
+                key = self.s3_key(hashlib.sha256(b"Tico storage write check").hexdigest())
+                result = client.create_multipart_upload(Bucket=self.bucket, Key=key, ServerSideEncryption="AES256")
+                pending = {"bucket": self.bucket, "key": key, "upload_id": result["UploadId"]}
                 self._write_health(store, pending, "")
-                return
-            key = self.s3_key(hashlib.sha256(b"Tico storage write check").hexdigest())
-            result = client.create_multipart_upload(Bucket=self.bucket, Key=key, ServerSideEncryption="AES256")
-            pending = {"bucket": self.bucket, "key": key, "upload_id": result["UploadId"]}
-            self._write_health(store, pending, "")
-            if stop is not None and stop.is_set():
-                return
-            client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=pending["upload_id"])
-            pending = {}
-        except Exception as exc:
-            error = blob_s3.write_error(exc, pending.get("bucket", self.bucket), cleanup=bool(pending))
-        finally:
-            if client is not None and self._probe_s3 is None:
-                client.close()
+                if stop is not None and stop.is_set():
+                    return
+                client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=pending["upload_id"])
+                pending = {}
+                self._sources.selected = kind
+                error = ""
+                break
+            except Exception as exc:
+                error = blob_s3.write_error(exc, pending.get("bucket", self.bucket), cleanup=bool(pending))
+            finally:
+                if client is not None and self._probe_s3 is None:
+                    client.close()
+        self._write_failed = bool(error)
         self._write_health(store, pending, error)
 
     def _write_health(self, store, pending, error):
-        detail = {**pending, "location": self.location, "error": error}
+        detail = {**pending, "location": self.location, "error": error, "credentials": self._sources.kind}
         with store.transaction() as c:
             c.execute("INSERT INTO service_health(service,last_success,last_error,detail_json) VALUES(?,?,?,?) "
                       "ON CONFLICT(service) DO UPDATE SET last_success=excluded.last_success,last_error=excluded.last_error,detail_json=excluded.detail_json",

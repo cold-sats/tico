@@ -43,13 +43,14 @@ VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-
 
 
 class Downloads:
-    def __init__(self, settings, s3=None, github_transport=None):
+    def __init__(self, settings, s3=None, github_transport=None, s3_source=None):
         self.settings = settings
         self.bucket = settings.blob_bucket
         prefix = getattr(settings, "blob_prefix", "")
         self.prefix = (prefix + "/" if prefix else "") + PREFIX
         self.base = settings.runner_url or settings.public_url
         self._s3 = s3
+        self._s3_source = s3_source or blob_s3.Sources(settings)
         self._manifest = (0.0, None)
         self.version = releases.version()
         self._github = (0.0, None)
@@ -60,9 +61,12 @@ class Downloads:
 
     @property
     def s3(self):
-        if self._s3 is None:
-            self._s3 = blob_s3.client(self.settings)
-        return self._s3
+        return self._s3 if self._s3 is not None else self._s3_source.s3
+
+    def read_s3(self, operation, **options):
+        if self._s3 is not None:
+            return getattr(self._s3, operation)(**options), self._s3
+        return self._s3_source.read_s3(operation, **options)
 
     def manifest(self):
         """Prefer a current bucket build; otherwise offer the running release's generic app."""
@@ -80,7 +84,12 @@ class Downloads:
         if fetched and time.time() - fetched < 60:
             return cached
         try:
-            body = self.s3.get_object(Bucket=self.bucket, Key=self.prefix + "latest.json")["Body"].read()
+            response, _ = self.read_s3("get_object", Bucket=self.bucket, Key=self.prefix + "latest.json")
+            stream = response["Body"]
+            try:
+                body = stream.read()
+            finally:
+                stream.close()
             value = json.loads(body)
             if not isinstance(value, dict) or not VERSION_RE.fullmatch(str(value.get("version") or "")) or not releases.parse(value["version"]):
                 value = None
@@ -165,8 +174,8 @@ class Downloads:
             return None
         key = f"{self.prefix}{version}/{name}"
         try:
-            self.s3.head_object(Bucket=self.bucket, Key=key)
-            return self.s3.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=600)
+            _, s3 = self.read_s3("head_object", Bucket=self.bucket, Key=key)
+            return s3.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=600)
         except Exception:
             return None
 
@@ -183,7 +192,7 @@ class Downloads:
 
 
 def install_downloads(app, store):
-    downloads = Downloads(store.settings)
+    downloads = Downloads(store.settings, s3_source=app.state.blobs)
     app.state.downloads = downloads
 
     @app.get("/download/latest.json")

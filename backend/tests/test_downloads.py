@@ -1,5 +1,6 @@
 """The desktop app's downloads (backend/downloads.py): the manifest and the installers come from
 `releases/app/` in the bucket or the running GitHub release, served without a sign-in."""
+import io
 import json
 from types import SimpleNamespace
 
@@ -22,7 +23,7 @@ class FakeS3:
                      "releases/app/2.1.0/Tico_2.1.0_universal.dmg": b"dmg"}
 
     def get_object(self, Bucket, Key):
-        return {"Body": type("B", (), {"read": lambda _self: self.keys[Key]})()}
+        return {"Body": io.BytesIO(self.keys[Key])}
 
     def head_object(self, Bucket, Key):
         if Key not in self.keys:
