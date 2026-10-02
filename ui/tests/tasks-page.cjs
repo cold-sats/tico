@@ -292,7 +292,7 @@ async function filters(browser) {
   await page.locator('#task-filter-pop [data-pick-field="owner"]').click();
   await page.locator('#task-filter-pop input[value="bot:engineer"]').check();
   await page.waitForFunction(() => location.hash.includes('owner=bot:engineer'));
-  assert.equal(new URL(page.url()).hash, '#/issues?owner=bot:engineer&view=list');
+  assert.equal(new URL(page.url()).hash, '#/tasks?owner=bot:engineer&view=list', 'one address per view');
   const owners = await page.locator('#task-body .tl-row .tl-face').evaluateAll(fs => fs.map(f => f.title));
   assert.ok(owners.length === 4 && owners.every(o => o === 'Engineer'), 'only Engineer: ' + owners);
   // ↑/↓ move through a menu's values.
@@ -329,7 +329,7 @@ async function filters(browser) {
   await page.locator('#task-filter-pop [data-pick-field="tag"]').click();
   await page.locator('#task-filter-pop input[value="pricing"]').check();
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => location.hash === '#/board?tag=pricing&view=foryou');
+  await page.waitForFunction(() => location.hash === '#/tasks?tag=pricing&view=foryou');
   await page.reload();
   await page.waitForFunction(() => TASKS_ST?.view === 'foryou' && !TASKS_ST.loading);
   // A shared address opens with its filters.
@@ -343,7 +343,7 @@ async function filters(browser) {
   await page.locator('#task-body .tl-empty').waitFor();
   assert.match(await page.locator('#task-body .tl-empty').innerText(), /No tasks match\.\s*Clear filters/);
   await page.locator('[data-clear-filters]').click();
-  await page.waitForFunction(n => location.hash === '#/tasks' && document.querySelectorAll('#task-body .tl-row').length === n, OPEN_COUNT);
+  await page.waitForFunction(n => location.hash === '#/tasks?view=list' && document.querySelectorAll('#task-body .tl-row').length === n, OPEN_COUNT);
   assert.equal(await page.locator('#task-q').inputValue(), '');
   assert.deepEqual(errors, []);
   console.log('filter chips and the address: ok');
