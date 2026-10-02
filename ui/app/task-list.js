@@ -76,7 +76,7 @@ const tasksPinValid = p => p && typeof p.hash === 'string' && p.hash.startsWith(
 let TASK_PINS = (() => { try { return (JSON.parse(localStorage.getItem(TASK_PINS_KEY) || '[]') || []).filter(tasksPinValid); } catch { return []; } })();
 const tasksPinHash = state => TASKS + tasksQueryText(tasksQuery(state));
 function tasksPinName(state) {
-  const type = state.type ? (TASK_TYPES || []).find(t => t.id === state.type)?.name || state.type : '';
+  const type = state.type ? (TASK_TYPES || []).find(t => t.id === state.type)?.name || (state.type === 'general' ? 'General' : state.type) : '';
   const view = TASK_VIEWS.find(([k]) => k === state.view)?.[1] || 'Tasks';
   const words = TASK_FILTER_FIELDS.filter(([k]) => state.filters[k]?.length).map(([k]) => {
     const opts = new Map(tasksFilterOptions(state, k).map(o => [o.value, o.label]));
