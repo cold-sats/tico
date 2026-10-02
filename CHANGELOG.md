@@ -18,6 +18,7 @@ All notable changes to Tico are recorded here. The format follows
 - A computer that enrolls again keeps its Google key for Mail and Calendar. Removing the key afterwards stays removed.
 - Enrolling a computer no longer puts archived bots on it.
 - Health warns when a Tool on an online computer is missing its credential.
+- Close: one meeting deleted in Close no longer stops every later transcript pull.
 
 ## [0.3.4] - 2026-10-02
 
