@@ -22,6 +22,7 @@ TAGS = {
     "Session": "Who is calling, and how a frontend signs in (docs/custom-frontend.md).",
     "Team": "This installation's names and settings.",
     "Repositories": "Team repositories and bot repository access.",
+    "Subscriptions": "Named provider logins on Computers and defaults for groups and bots.",
     "Team chart": "Humans and bots, and who reports to whom.",
     "Bots": "The bots a person can see, and their live status.",
     "Conversations": "Chats with bots: send, list, and stream replies.",
@@ -42,6 +43,9 @@ TAGS = {
 
 # Path, method, tag, operationId, summary, name of the 200 answer in ANSWERS.
 STABLE = [
+    ("/api/v2/subscriptions", "get", "Subscriptions", "listSubscriptions", "Profiles and assignments", "SubscriptionList"),
+    ("/api/v2/subscriptions", "put", "Subscriptions", "assignSubscription", "Assign or clear a subscription", "SubscriptionAssignmentResult"),
+    ("/api/v2/bots/{bot}/subscription", "get", "Subscriptions", "getBotSubscription", "Effective bot subscription", "BotSubscription"),
     ("/api/v2/repositories", "get", "Repositories", "listRepositories", "Team repositories", "RepositoryList"),
     ("/api/v2/repositories/refresh", "post", "Repositories", "refreshRepositories", "Refresh from GitHub", "RepositoryList"),
     ("/api/v2/repositories/settings", "put", "Repositories", "setRepositoryDefaults", "New bot repository default", None),
@@ -322,6 +326,11 @@ ACTORS = {"type": "object", "additionalProperties": {"type": "string"},
           "description": "On reads: display names for every actor id in the answer, {\"human:ana\": \"Ana Alvarez\"}"}
 
 SCHEMAS = {
+    "SubscriptionList": obj({"profiles_by_computer": items(obj({"runner_id": "s", "label": "s", "profiles": items(
+        obj({"name": "s", "runtimes": "o"}))})), "assignments": items(obj({"scope": "s", "target": "s", "profile": "s", "updated": "s", "updated_by": "s"}))}),
+    "SubscriptionAssignmentResult": obj({"scope": {"enum": ["group", "bot"]}, "target": "s", "profile": "n"}),
+    "BotSubscription": obj({"profile": "n", "source": "s", "computer": {"anyOf": [obj({"runner_id": "s", "label": "s"}), {"type": "null"}]},
+                            "signed_in": {"type": ["boolean", "null"]}, "problem": "s"}),
     "ChatGoal": obj({"id": "s", "conversation_id": "s", "bot": "s", "objective": "s", "status": "s",
                      "note": "s", "set_by": "s", "set_at": "s", "updated_at": "s", "ended_at": "n"},
                     required=["id", "conversation_id", "bot", "objective", "status", "note", "set_by", "set_at", "updated_at", "ended_at"]),

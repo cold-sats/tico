@@ -19,6 +19,10 @@
       "description": "Team repositories and bot repository access."
     },
     {
+      "name": "Subscriptions",
+      "description": "Named provider logins on Computers and defaults for groups and bots."
+    },
+    {
       "name": "Team chart",
       "description": "Humans and bots, and who reports to whom."
     },
@@ -1381,6 +1385,58 @@
         },
         "tags": [
           "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/subscription": {
+      "get": {
+        "summary": "Effective bot subscription",
+        "operationId": "getBotSubscription",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotSubscription"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
         ]
       }
     },
@@ -7246,6 +7302,96 @@
         ]
       }
     },
+    "/api/v2/subscriptions": {
+      "get": {
+        "summary": "Profiles and assignments",
+        "operationId": "listSubscriptions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
+        ]
+      },
+      "put": {
+        "summary": "Assign or clear a subscription",
+        "operationId": "assignSubscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionAssignment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionAssignmentResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
+        ]
+      }
+    },
     "/api/v2/tags": {
       "get": {
         "summary": "Tags and templates",
@@ -10041,6 +10187,60 @@
           "chosen",
           "effective",
           "mode"
+        ],
+        "additionalProperties": true
+      },
+      "BotSubscription": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "computer": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "runner_id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label",
+                  "runner_id"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signed_in": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "problem": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "computer",
+          "problem",
+          "profile",
+          "signed_in",
+          "source"
         ],
         "additionalProperties": true
       },
@@ -14999,6 +15199,150 @@
           "has_more",
           "messages",
           "next_before"
+        ],
+        "additionalProperties": true
+      },
+      "SubscriptionAssignment": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "group",
+              "bot"
+            ],
+            "title": "Scope"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Target"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scope",
+          "target"
+        ],
+        "title": "SubscriptionAssignment"
+      },
+      "SubscriptionAssignmentResult": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "enum": [
+              "group",
+              "bot"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "profile",
+          "scope",
+          "target"
+        ],
+        "additionalProperties": true
+      },
+      "SubscriptionList": {
+        "type": "object",
+        "properties": {
+          "profiles_by_computer": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runner_id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "profiles": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "runtimes": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "runtimes"
+                    ],
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "label",
+                "profiles",
+                "runner_id"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "profile": {
+                  "type": "string"
+                },
+                "updated": {
+                  "type": "string"
+                },
+                "updated_by": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "scope",
+                "target",
+                "updated",
+                "updated_by"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "assignments",
+          "profiles_by_computer"
         ],
         "additionalProperties": true
       },

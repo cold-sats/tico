@@ -125,6 +125,15 @@ class Login(unittest.TestCase):
         self.assertEqual(self.runner.last_heartbeat, 0)            # readiness is re-reported now
         self.assertTrue((self.root / "codex-home" / "auth.json").is_file())
 
+    def test_named_profile_is_created_and_login_stays_in_its_home(self):
+        self.stub("codex", CODEX)
+        self.runner.client.wanted = [{"id": "named", "runtime": "codex", "profile": "engineering"}]
+        self.drive(lambda: "signed_in" in self.states())
+        home = self.logins.profile("engineering").home("codex")
+        self.assertTrue((home / "auth.json").is_file())
+        self.assertFalse((self.root / "codex-home" / "auth.json").exists())
+        self.assertNotIn("default_profile", self.runner.config)
+
     def test_nothing_secret_leaves_the_machine(self):
         self.stub("codex", CODEX)
         self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": ""}]

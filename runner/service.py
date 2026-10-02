@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -719,7 +720,38 @@ class Runner:
     def profile(self, bot):
         """The subscription profile this bot's provider logins come from, or None when the
         registration names none and the operator's own logins run everything."""
-        return profiles.select(self.config, bot)
+        requested = next((row.get("profile") for row in getattr(self, "assignments_seen", [])
+                          if row["bot"] == bot), None)
+        return profiles.select(self.config, bot, requested)
+
+    def add_profile(self, name):
+        """Persist a UI-created login without changing existing local assignments."""
+        root = Path(self.config["projects_dir"]) / ".profiles"
+        directory = root / name
+        if not profiles.NAME_RE.fullmatch(name or ""):
+            raise ValueError("A profile name is lowercase letters, digits, and single hyphens")
+        paths = [root, directory, directory / "profile.json"]
+        paths.extend(directory / runtime for runtime in profiles.RUNTIMES)
+        paths.extend(directory / runtime / ".gitconfig" for runtime in ("claude", "grok"))
+        if any(path.is_symlink() for path in paths):
+            raise ValueError("Subscription profile paths must not be symbolic links")
+        entry = profiles.create(root, name)
+        isolation.chown(entry["dir"], recursive=True)
+        if self.config_path:
+            path = Path(self.config_path)
+            stored = json.loads(path.read_text())
+            stored.setdefault("profiles", {})[name] = entry
+            fd, temporary = tempfile.mkstemp(prefix=".runner-profile-", dir=path.parent)
+            try:
+                with os.fdopen(fd, "w") as output:
+                    json.dump(stored, output, indent=2)
+                os.replace(temporary, path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        self.config.setdefault("profiles", {})[name] = entry
+        self._profile_report_cache = None
+        return entry
 
     def names(self):
         """This installation's own names, read from the server once and kept.
@@ -1148,7 +1180,7 @@ class Runner:
         # The subscription this bot runs on. Claude and Grok key their login to HOME, so it has
         # to be the turn's own environment, not something the host sets: this is the same dict
         # the host process and the turn's shell commands get.
-        profile = self.profile(attempt["bot"])
+        profile = profiles.select(self.config, attempt["bot"], attempt.get("profile"))
         if profile:
             env = profile.environment((attempt.get("config") or {}).get("runtime") or "", env)
         env.update({"HUB_API_URL": self.config["url"], "HUB_TOKEN": attempt["token"],
@@ -1179,7 +1211,7 @@ class Runner:
         for runtime in sorted(set(RUNTIMES) | assigned):
             used = {}
             for entry in assignments:
-                profile = self.profile(entry["bot"])
+                profile = profiles.select(self.config, entry["bot"], entry.get("profile"))
                 if profile and entry["config"].get("runtime") == runtime:
                     used.setdefault(profile.name, profile)
             if not used:
@@ -1197,6 +1229,28 @@ class Runner:
                                    "credential_source": "credentials" if not row.get("profiles") and self.team_key_only(runtime) else "computer",
                                    "detail": ("Sign-in rejected: " + rejected["reason"])[:500]}
         return report
+
+    def profile_report(self):
+        """All named logins, including profiles no bot currently uses."""
+        cached = self.__dict__.get("_profile_report_cache")
+        if cached and time.monotonic() - cached[0] < 60:
+            return cached[1]
+        result = []
+        for name, entry in sorted((self.config.get("profiles") or {}).items()):
+            if not isinstance(entry, dict) or not entry.get("dir"):
+                continue
+            profile = profiles.Profile(name, entry["dir"], entry.get("share_operator"))
+            runtimes = {}
+            for runtime in profiles.RUNTIMES:
+                row = getattr(self, "runtime_rows", {}).get(runtime, {}).get("profiles", {}).get(name)
+                if row is None:
+                    row = self.runtime_readiness(runtime, [], profile)
+                state = row.get("authenticated")
+                runtimes[runtime] = {"signed_in": True if state == "ready" else
+                                     False if state in ("missing", "failed", "rejected") else None}
+            result.append({"name": name, "runtimes": runtimes})
+        self._profile_report_cache = (time.monotonic(), result)
+        return result
 
     # A provider that refused the key or sign-in on a real turn. Retrying cannot help, so the
     # runtime stops taking work (a not-ready bot is never claimed) until a credential changes, a
@@ -1241,12 +1295,15 @@ class Runner:
             bot = entry["bot"]
             runtime = entry["config"].get("runtime") or ""
             path = self.local_path(bot, entry.get("config"))
-            profile = self.profile(bot)
+            profile = profiles.select(self.config, bot, entry.get("profile"))
             # This bot's own subscription, not the worst of the machine's: a signed-out profile
             # blocks its own bots only.
             status = (runtimes[runtime].get("profiles", {}).get(profile.name) if profile and runtime in runtimes
                       else None) or runtimes.get(runtime, {})
             problems, warnings = [], []
+            missing_profile = profiles.missing(self.config, entry.get("profile"))
+            if missing_profile:
+                warnings.append(missing_profile)
             repository_present = (path / "AGENT.md").is_file()
             materialized, failure = "", ""
             if not repository_present:
@@ -1590,7 +1647,12 @@ class Runner:
         for row in checks:
             bots[row["bot"]] = {k: row[k] for k in (
                 "ready", "runtime", "model", "repository", "repository_present", "repository_revision",
-                "configuration_valid", "problems") if k in row}
+                "configuration_valid", "problems", "profile", "sign_in") if k in row}
+            if bots[row["bot"]].get("sign_in") == "rejected":
+                bots[row["bot"]]["sign_in"] = "failed"
+            if time.monotonic() < self.__dict__.get("_bot_profiles_after", 0):
+                bots[row["bot"]].pop("profile", None)
+                bots[row["bot"]].pop("sign_in", None)
             if time.monotonic() < self.__dict__.get("_repository_after", 0):
                 bots[row["bot"]].pop("repository", None)
             capability = runtimes.get(row.get("runtime"), {})
@@ -1665,7 +1727,7 @@ class Runner:
         runtime = config.get("runtime") or ""
         # `env` already carries the profile's HOME / CODEX_HOME (see `environment`); what is left
         # is the knobs that are not environment variables.
-        profile = self.profile(attempt["bot"])
+        profile = profiles.select(self.config, attempt["bot"], attempt.get("profile"))
         if runtime == "grok":
             from .hosts.grok import GrokHost
             return GrokHost(bot=attempt["bot"], model=config.get("model"),
@@ -1948,6 +2010,9 @@ class Runner:
                 if persistent:
                     runtime += ":antigravity"
                 conv = session_key(config, attempt)
+                if attempt.get("profile"):
+                    selected = profiles.select(self.config, bot, attempt["profile"])
+                    conv += ":profile:" + (selected.name if selected else "computer")
                 execution_path = self.local_path(bot, config)
                 if is_shared(config):
                     attempt["branch_sync_problem"] = sync_shared(execution_path, env)
@@ -2331,6 +2396,8 @@ class Runner:
                 **self.follower.fields()}
         if repository_rows is not None and time.monotonic() >= getattr(self, "_repositories_after", 0):
             body["repositories"] = repository_rows
+        if time.monotonic() >= getattr(self, "_profiles_after", 0):
+            body["profiles"] = self.profile_report()
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
@@ -2386,12 +2453,22 @@ class Runner:
                     body.pop("repositories", None)
                     self._repositories_after = time.monotonic() + 600
                     continue
+                if "profiles" in body and "extra" in detail.lower() and ("profiles" in detail or "readiness." not in detail):
+                    body.pop("profiles", None)
+                    self._profiles_after = time.monotonic() + 600
+                    continue
                 log("Tico runner: heartbeat rejected: " + detail[:1000])
                 if ("goals" in detail or "commands" in detail) and "Extra inputs" in detail and any(
                         "goals" in row or "commands" in row for section in ("runtimes", "bots", "harnesses")
                         for row in readiness.get(section, {}).values()):
                     drop_goal_fields()
                     self._goal_readiness_after = time.monotonic() + 600
+                    continue
+                if "extra" in detail.lower() and re.search(r"readiness\.(?:StructuredReadiness\.)?bots\.[^. :;]+\.(?:profile|sign_in)(?:[.: ;]|$)", detail):
+                    for row in readiness.get("bots", {}).values():
+                        row.pop("profile", None)
+                        row.pop("sign_in", None)
+                    self._bot_profiles_after = time.monotonic() + 600
                     continue
                 # A validation path names the affected bot; preserve every other bot's tools.
                 bad = re.findall(r"readiness\.(?:StructuredReadiness\.)?bots\.([^. :;]+)\.tools(?:\.(\d+))?", detail)

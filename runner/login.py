@@ -305,8 +305,13 @@ class Logins:
     def begin(self, work):
         session = Session(self, work)
         if session.profile and not self.profile(session.profile):
-            session.finish("failed", "This computer has no profile called " + session.profile)
-        elif session.runtime not in COMMANDS:
+            try:
+                self.runner.add_profile(session.profile)
+            except (OSError, ValueError) as exc:
+                session.finish("failed", "Could not create subscription profile: " + str(exc))
+                self.sessions[session.id] = session
+                return
+        if session.runtime not in COMMANDS:
             session.finish("failed", "Browser sign-in is not available for " + session.runtime)
         elif any(other.live and other.key() == session.key() for other in self.sessions.values()):
             session.finish("failed", "Another sign-in is already running for " + session.runtime)
@@ -346,6 +351,7 @@ class Logins:
                 with session.lock:
                     session.taken = session.taken and not body.get("code_taken")
                 if body["state"] == "signed_in":
+                    self.runner._profile_report_cache = None
                     self.runner.last_heartbeat = 0     # let readiness show it now
             if session.finished and not session.dirty:
                 del self.sessions[lid]

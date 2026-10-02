@@ -635,7 +635,23 @@ class RepositoryStatus(Contract):
     error: str | None = None
 
 
+class SubscriptionRuntime(Contract):
+    signed_in: bool | None = None
+
+
+class ComputerProfile(Contract):
+    name: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
+    runtimes: dict[str, SubscriptionRuntime] = Field(default_factory=dict, max_length=20)
+
+
+class SubscriptionAssignment(Contract):
+    scope: Literal["group", "bot"]
+    target: str = Field(min_length=1, max_length=100)
+    profile: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
+
+
 class Heartbeat(Contract):
+    profiles: list[ComputerProfile] | None = Field(default=None, max_length=100)
     repositories: list[RepositoryStatus] | None = None
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)

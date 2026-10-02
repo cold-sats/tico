@@ -53,17 +53,21 @@ class Profile:
         home = self.home(runtime)
         if home and runtime in HOME_VAR:
             env[HOME_VAR[runtime]] = str(home)
+        if home and runtime == "claude":
+            env["CLAUDE_CONFIG_DIR"] = str(home / ".claude")
         return env
 
 
-def select(config, bot=None):
-    """The profile a bot runs under: its own assignment, else the registration's default.
+def select(config, bot=None, requested=None):
+    """The server-requested profile if present, else the bot's local assignment and default.
 
     None means this registration names no profiles at all, so the operator's own logins run
     every bot exactly as they did before.
     """
     profiles = config.get("profiles") or {}
     name = (config.get("bot_profiles") or {}).get(bot) if bot else None
+    if requested in profiles and isinstance(profiles[requested], dict) and profiles[requested].get("dir"):
+        name = requested
     entry = profiles.get(name or config.get("default_profile") or "")
     if not isinstance(entry, dict) or not entry.get("dir"):
         return None
@@ -89,3 +93,8 @@ def create(root, name, share_operator=False):
             if source.is_file() and not target.exists():
                 shutil.copyfile(source, target)
     return {"dir": str(directory), "share_operator": bool(share_operator)}
+
+
+def missing(config, requested):
+    entry = (config.get("profiles") or {}).get(requested)
+    return f"profile {requested} not on this computer" if requested and (not isinstance(entry, dict) or not entry.get("dir")) else ""

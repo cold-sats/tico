@@ -369,6 +369,18 @@ def view(c, who, settings, auth, github, config):
                                          for bot, label, why in lacking[:3])
                              + ("." if len(lacking) <= 3 else f"; and {len(lacking) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
+    if full:
+        from .subscriptions import bot_subscription, effective
+        subscription_problems = []
+        for row in c.execute("SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot WHERE b.state<>'archived'"):
+            if effective(c, row['bot'])[0] is None:
+                continue
+            subscription = bot_subscription(c, row['bot'], settings)
+            if subscription['problem']:
+                subscription_problems.append(row['bot'] + ': ' + subscription['problem'])
+        if subscription_problems:
+            checks.append(_check("subscriptions", "Subscriptions", "warn", "; ".join(subscription_problems[:5]),
+                                 [_fix("Open Computers", "#/settings", "devices")]))
     fixes = [_fix("Add a computer", "#/settings", "devices")] if full else []
     if not computers:
         checks.append(_check("computers", "Computers", "bad", "No computer is set up. Bots need one to run.", fixes))

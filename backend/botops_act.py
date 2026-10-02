@@ -50,6 +50,7 @@ DO = _routes(
     ("POST", rf"bots/{_S}/access"), ("PUT", rf"bots/{_S}/access"),
     ("PUT", rf"bots/{_S}/repositories"), ("PUT", rf"repositories/{_S}/{_S}"),
     ("PUT", "repositories/settings"), ("POST", "repositories/refresh"),
+    ("PUT", "subscriptions"),
     ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
     ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),
     ("POST", rf"settings/history/{_S}/undo"),
@@ -198,6 +199,8 @@ def default_delegable(method, path, body=None):
     """Whether a BotOps call with no explicit `on_behalf_of` acts as the person who asked: only the routes BotOps
     may do or propose for a person, and never its own plumbing or its own messages."""
     path = normalize(path)
+    if path and str(method).upper() in ("GET", "POST") and re.fullmatch(API + rf"(?:runners|computers)/{_S}/logins(?:/{_S}(?:/cancel)?)?", path):
+        return classify(method, path, body) == "do"
     if not path or OWN.fullmatch(path):
         return False
     return classify(method, path, body) in ("do", "confirm")
