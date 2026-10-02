@@ -209,7 +209,7 @@ def test_a_preview_expires_and_nothing_is_sent_without_one(environment, hq, monk
     assert file(api, diagnostics=answer["id"]).status_code == 409
 
 
-def test_an_hq_from_before_diagnostics_gets_the_ticket_without_them(environment, hq, monkeypatch):
+def test_an_hq_rejection_never_silently_drops_the_attachment(environment, hq, monkeypatch):
     import httpx
     api = environment()
     answer, _ = bundle_of(api)
@@ -224,8 +224,10 @@ def test_an_hq_from_before_diagnostics_gets_the_ticket_without_them(environment,
         return hq(request)
     monkeypatch.setattr(support, "TRANSPORT", httpx.MockTransport(older))
     r = file(api, diagnostics=answer["id"])
-    assert r.status_code == 200 and "diagnostics" not in r.json()["sent"]
-    assert calls == [["diagnostics", "install_id", "message", "version"], ["install_id", "message", "version"]]
+    assert r.status_code == 422 and r.json()["error"]["code"] == "diagnostics_rejected"
+    assert calls == [["diagnostics", "install_id", "message", "version"]]
+    assert not hq.tickets
+    assert file(api).status_code == 200  # an explicit message-only send is still possible
 
 
 def test_the_heartbeat_contract_takes_a_runners_recent_errors_and_keeps_them_bounded():
@@ -246,3 +248,80 @@ def test_the_runner_never_sends_an_error_line_over_300_characters():
     outage.log("Tico runner: failed " + "y" * 400)
     assert outage.RECENT and all(len(line) <= 300 for line in outage.RECENT)
     outage.RECENT.clear()
+
+
+def test_edits_are_validated_redacted_and_bound_to_the_person(environment, hq):
+    api = environment()
+    answer, original = bundle_of(api)
+    edited = {"format": 1, "logs": {"server": ["contact stranger@elsewhere.org sk-abcdEFGH1234567890xyz"]}}
+    # A sender can shorten a section, but cannot create extra log entries in an empty capture.
+    logging.getLogger("tico.test").warning("A failure occurred")
+    answer, original = bundle_of(api)
+    body = {"id": answer["id"], "text": json.dumps(edited)}
+    r = api.post("/api/v2/support/diagnostics", headers=signed_in(), json=body)
+    assert r.status_code == 200, r.text
+    final = r.json()
+    assert "stranger@" not in final["text"] and "sk-abcd" not in final["text"]
+    assert "[email]" in final["text"] and json.loads(final["text"])["capture"]["edited"]
+    assert file(api, diagnostics=final["id"]).status_code == 200
+    assert D.canonical(json.loads(hq.seen[-1].content)["diagnostics"]) == final["text"]
+    assert api.post("/api/v2/support/diagnostics", headers=as_person(api, "riley"), json=body).status_code == 409
+    for text in ('{', '{"format":1,"secret":"new field"}', '{"format":"1"}'):
+        assert api.post("/api/v2/support/diagnostics", headers=signed_in(), json={**body, "text": text}).status_code == 422
+
+
+def test_followup_carries_only_the_selected_preview(environment, hq):
+    api = environment()
+    ticket = file(api).json()
+    preview, bundle = bundle_of(api)
+    r = api.post(f"/api/v2/support/tickets/{ticket['id']}/messages", headers=signed_in(),
+                 json={"message": "Still failing", "diagnostics": preview["id"]})
+    assert r.status_code == 200, r.text
+    sent = next(json.loads(r.content) for r in reversed(hq.seen) if r.method == "POST")
+    assert sent["diagnostics"] == bundle
+
+
+def test_failure_ring_is_bounded_and_groups_repeats_without_exception_values():
+    ring = D.LogRing(size=2)
+    for _ in range(100):
+        ring.handle(logging.LogRecord("tico.request", logging.ERROR, "", 0, "GET /api/v2/tasks/{id} HTTP 500", (), None))
+    lines, capture = ring.snapshot()
+    assert len(lines) == 1 and "x100" in lines[0] and capture["server_repeats"] == 99
+    for name in ("second", "third"):
+        ring.handle(logging.LogRecord("tico.request", logging.ERROR, "", 0, name, (), None))
+    assert len(ring.snapshot()[0]) == 2 and ring.snapshot()[1]["server_evicted"] == 1
+
+
+def test_browser_capture_never_accepts_messages_or_private_filenames(environment):
+    api = environment()
+    event = {"kind": "error", "at": "2026-10-02T12:00:00Z", "file": "/private/company/secret.js", "line": 42, "count": 2}
+    url = "/api/v2/support/diagnostics/capture"
+    r = api.post(url, headers=signed_in(), json={"browser": [event]})
+    assert r.status_code == 200, r.text
+    assert json.loads(r.json()["text"])["browser"][0]["file"] == ""
+    assert api.post(url, headers=signed_in(), json={"browser": [{**event, "message": "private content"}]}).status_code == 422
+    assert api.post(url, headers=signed_in(), json={"browser": [event] * 21}).status_code == 422
+
+
+def test_request_failures_keep_only_route_templates_and_safe_exception_locations(monkeypatch, caplog):
+    from types import SimpleNamespace
+    ring = D.LogRing()
+    monkeypatch.setattr(D, "RING", ring)
+    request = SimpleNamespace(method="POST", scope={"route": SimpleNamespace(path="/api/v2/tasks/{task_id}")})
+    try:
+        raise ValueError("private customer body and secret")
+    except ValueError as exc:
+        D.request_failure(request, 500, exc)
+    line = ring.snapshot()[0][0]
+    assert "POST /api/v2/tasks/{task_id} HTTP 500" in line and "ValueError" in line
+    assert "private customer" not in line and "secret" not in line
+    assert not caplog.records  # no extra process log line for every failing request
+
+
+def test_editing_a_fleet_preserves_different_log_lengths_and_optional_fields():
+    original = {"format": 1, "runners": [{"label": "runner-1", "log": ["failure"], "runtimes": [{"name": "codex"}]},
+                                          {"label": "runner-2", "log": [], "runtimes": []}]}
+    D.validate_edit(original, original)
+    D.validate_edit({"format": 1, "runners": [{"log": ["edited failure"]}]}, original)
+    with pytest.raises(ValueError):
+        D.validate_edit({"format": 1, "runners": [{"log": [{"unexpected": "content"}]}]}, original)

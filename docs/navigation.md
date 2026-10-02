@@ -20,6 +20,7 @@ Controls appear when your rights allow the action.
 | Review message work | Message bots → mailbox or channel |
 | Read or write team knowledge | Docs → Internal docs; outside sources are Linked docs |
 | Review goals and KPIs | Goals |
+| Contact support or continue a support conversation | Help (?) → Support rail |
 
 All four system bots appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries
 (Assistant opens your private chat, `#/assistant`);

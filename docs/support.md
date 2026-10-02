@@ -7,26 +7,37 @@ is sent and kept.
 
 ## For a human
 
-Help (the `?` at the bottom of the sidebar) > **Contact support**.
+Help (the `?` at the bottom of the sidebar) has the app overview on the left and **Support** in the right rail, using the
+same sizing and resize controls as the rest of the app. On a narrow screen, Support follows the overview; the top Support
+link jumps there. **Your requests** selects an existing conversation; **New request** starts another.
 
 | Field | |
 |---|---|
 | Message | Required, up to 4000 characters. Plain text. |
-| Email for a reply | Optional. Prefilled with your email; clear it to get the reply in the app only. |
-| Include version and install ID | On by default. Untick it to send neither. |
-| Attach diagnostics | On by default. **Preview** shows the exact JSON that will be sent; untick it to send none. |
+| Reply email and install details | Expand to change the optional reply email and inclusion of version/install ID. |
+| @diagnostics | On by default for a new request. Uncheck to send none. Follow-up replies start with it off. |
+| Review and edit | Inspect the exact JSON, remove sections, or edit fields. **Check edits** validates and redacts again; **Use diagnostics** attaches the reviewed result. |
 
-Diagnostics are a redacted bundle of versions, Health check names and statuses, each computer's runtimes and problems, and the
-latest warning and error log lines: no task, message, doc or ticket text, and bots and humans as labels. Every field, the redactor
-and a sample are in [PRIVACY.md](../PRIVACY.md#support-diagnostics). Preview builds it and the ticket sends that same bundle. The
-Docker updater reports each container's state and restarts (`GET /diagnostics` on its own port); a computer reports its last
-warning lines in its heartbeat.
+The composer lists what Send will send and the destination. No ticket or attachment leaves for HQ until Send. If a capture
+expires, the message stays intact and sending fails visibly; use Review and edit → Refresh capture to explicitly replace it.
+If HQ refuses an attachment, remove it yourself to send just the message; it is never silently omitted. A reply can include
+its own fresh, edited diagnostics without replacing the first report.
 
-The line under the form lists exactly what **Send** will send, and to which host. Nothing is sent before Send. It is never
-automatic, and the anonymous usage count switch does not turn it off: this is a message you chose to send. **Your requests**
-lists each ticket with its status (Open, Answered, Closed) and the whole thread. A small notice and a dot on the `?` appear when
-the team replies; opening the request clears them. You can write back on a ticket that is not closed, and **Delete** removes it
-from HQ and from your Tico.
+Diagnostics contain redacted versions, health, computer readiness and last heartbeat, capped server/runner/updater failures,
+and capture coverage. The server groups adjacent repeated failures; failed HTTP requests record only their registered route
+pattern and status in the bounded diagnostics buffer. Unexpected exceptions include their type and up to three application
+module/line locations, never values, locals or a raw traceback. Browser errors contribute up to 20 groups containing only
+kind, time, known script filename, line/column and count. No console text, request bodies, prompts or model output is captured.
+These browser groups remain in memory until explicitly captured for an attachment.
+
+The buffers are small and reset on process/page restart. A bundle says when server capture started, how many repeats were
+grouped, and how many entries were evicted or omitted. Computer heartbeat time distinguishes old evidence from current health.
+This is redacted technical evidence, not an anonymous ticket: the message and optional email/install ID may identify you.
+The allowlist and examples are in [PRIVACY.md](../PRIVACY.md#support-diagnostics).
+
+Replies appear in the selected thread and raise the existing notice and sidebar dot. Selecting a request or pressing
+**Mark read** clears its unread state. Background refresh preserves your draft, focus and scroll position. **Delete** removes
+the request and all its attachments at HQ and its local ticket record. Closed requests remain readable.
 
 - Any signed-in human may file a ticket. A personal API token, the Assistant acting for a human, and a bot may not.
 - Demo mode has no Contact support: nothing leaves a demo. Neither does a rehearsal (`TICO_REHEARSAL=1`), which reports "rehearsal" as the reason it is off.
@@ -42,7 +53,7 @@ the times, and the thread. It keeps no IP address and no log of a request. Ticke
 with **Delete**, or the team when you ask (put "delete this request" in the ticket, or open an issue). The 13 month rule is for
 the anonymous install rows only. The reference for HQ's routes is in [telemetry.md](telemetry.md#support-tickets).
 
-Your Tico asks HQ about your tickets only when the app asks: when you open Help, and about every 5 minutes while the app is open
+Your Tico asks HQ about your tickets only when the app asks: when you open Help, and every 30 seconds while the support rail is open, or about every 5 minutes elsewhere while the app is open
 and you have a ticket that is not closed (at most once every 30 seconds for any one ticket). It has no timer of its own.
 
 ## How the project team works tickets
@@ -108,3 +119,9 @@ Without `HQ_STAFF_KEY` the watcher does nothing. To watch GitHub, list the repos
 `GET /v1/staff/tickets?status=open`, `POST /v1/staff/tickets/{id}/reply` with `{"body": "..."}`, `POST .../status` with
 `{"status": "closed"}`, `DELETE /v1/staff/tickets/{id}` to delete on request, `GET /v1/staff/tickets?status=held` for what the
 spam check held, `POST /v1/staff/tickets/{id}/verdict` to correct it.
+
+## Compatibility
+
+Deploy the HQ update before the client update to enable follow-up attachments. Older HQs reject that optional field; the app
+shows the failure and keeps the draft, allowing an explicit message-only retry. The attachment limit remains 256 KiB. There is
+no new continuous export, persistent log journal, or verbose logging mode.

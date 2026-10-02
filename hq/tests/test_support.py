@@ -322,3 +322,19 @@ def test_an_older_database_gets_the_column_once_and_starting_again_changes_nothi
         Tickets(old)
         assert [r[1] for r in old.conn.execute("PRAGMA table_info(tickets)")].count("diagnostics") == 1
     assert old.conn.execute("SELECT body, diagnostics FROM tickets").fetchone()[:] == ("kept", None)
+
+
+def test_followup_diagnostics_stay_with_the_message_and_delete_with_the_ticket(client, db):
+    made = file(client, diagnostics=BUNDLE).json()
+    tid = made["ticket_id"]
+    mine = {"X-Ticket-Secret": made["secret"]}
+    followup = {"format": 1, "created": "2026-10-02T12:00:00Z", "logs": {"server": ["recovered"]}}
+    r = client.post(f"/v1/support/{tid}/messages", headers=mine, json={"message": "After retry", "diagnostics": followup})
+    assert r.status_code == 201, r.text
+    visible = client.get(f"/v1/support/{tid}", headers=mine).json()["messages"][0]
+    assert visible["has_diagnostics"] and "diagnostics" not in visible
+    full = client.get(f"/v1/staff/tickets/{tid}", headers=staff()).json()
+    assert full["diagnostics"] == BUNDLE and full["messages"][0]["diagnostics"] == followup
+    assert client.post(f"/v1/support/{tid}/messages", headers=mine, json={"message": "Bad", "diagnostics": {"format": 999}}).status_code == 422
+    assert client.delete(f"/v1/support/{tid}", headers=mine).status_code == 200
+    assert db.conn.execute("SELECT count(*) FROM ticket_replies WHERE ticket_id=?", (tid,)).fetchone()[0] == 0

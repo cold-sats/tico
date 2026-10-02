@@ -83,3 +83,42 @@
   .help-tool-groups{grid-template-columns:1fr}.help-tool-head,.help-tool-row{grid-template-columns:minmax(0,1fr)}.help-tool-head span:last-child{display:none}
   .help-tool-row code:last-child{padding-left:10px;font-size:10.5px}
 }
+
+/* The overview and Support follow the Goals page: shared rail width, borders and independent scrolling. */
+.help-actions{display:flex;align-items:center;gap:16px;margin-top:14px;flex-wrap:wrap}
+.help-team-description{color:var(--muted);font-size:13px;line-height:1.55}
+.help-team-description strong,.help-platforms strong{color:var(--ink)}
+.help-platforms{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px;border-block:1px solid var(--line);margin-top:18px}
+.help-platforms p{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.help-glossary dl{padding:0 18px}.help-glossary dt{font-weight:600;margin-top:12px}.help-glossary dd{margin:4px 0;color:var(--muted);font-size:13px}
+.help-glossary>p{padding:0 18px 12px;font-size:13px}
+#help-open[data-support-unread]{position:relative}
+#help-open[data-support-unread]::after{content:"";position:absolute;top:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:2px solid var(--surface)}
+.support-rail{font-size:13px;min-width:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--radius);margin-top:20px;background:var(--surface)}
+.support-rail .rail-sec{padding:12px 14px}
+.support-head{display:flex;align-items:center;gap:8px}.support-head h2{margin:0;font-size:14px}
+.support-rail select{width:100%;min-width:0;margin:12px 0 6px}
+.support-thread{overflow-y:auto;min-height:140px;max-height:55vh;padding:12px 14px;overscroll-behavior:contain;overflow-wrap:anywhere}
+.support-msg{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px 10px;border-radius:8px;background:var(--surface2);font-size:13px;margin-bottom:10px}
+.support-msg.staff{border-left:2px solid var(--accent)}
+.support-who{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+.support-empty,.support-sent{font-size:12px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere;margin:6px 0}
+.support-write{display:grid;gap:8px;margin-top:auto}
+.support-write textarea{width:100%;min-height:80px;max-height:180px;resize:vertical;box-sizing:border-box}
+.support-diag,.support-row,.support-check{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.support-row{justify-content:flex-end}.support-diag{font-size:12px}.support-diag label{display:flex;gap:6px;align-items:center}
+.support-options{font-size:12px}.support-options summary{color:var(--muted);cursor:pointer}.support-options label{margin-top:8px}.support-options input[type=email]{width:100%;box-sizing:border-box}
+.support-connection{padding:8px 14px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);gap:8px}
+.support-modal{width:min(760px,calc(100vw - 32px));max-height:90vh}.support-modal .tmodal-body{display:grid;gap:10px;overflow:auto}
+.support-modal p{margin:0;font-size:13px}.support-json{width:100%;min-height:280px;box-sizing:border-box;font:12px/1.5 var(--mono);white-space:pre;resize:vertical}
+.support-sections{display:flex;gap:8px 16px;flex-wrap:wrap}.support-sections label{display:flex;align-items:center;gap:5px;font-size:12px}
+@media(min-width:1100px){
+  #main.help-layout{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) var(--rail-right);padding:0;height:100%;overflow:hidden;position:relative}
+  #main.help-layout>.help-page{width:100%;min-width:0;min-height:0;box-sizing:border-box;overflow-y:auto;padding:18px 28px 60px}
+  #main.help-layout>.support-rail{margin:0;border:0;border-left:1px solid var(--line);border-radius:0;min-height:0;overflow:hidden}
+  .support-thread{flex:1;max-height:none}.support-write{flex:none}
+  #main.help-layout>.rail-edge[data-rail="right"]{display:block;position:absolute;left:auto;right:calc(var(--rail-right) - 4px)}
+  body:has(#main.help-layout) #topbar:not(:has(#app-nudge:not([hidden]))){display:none}
+  .help-actions .help-support-link{display:none}
+}
+@media(max-width:760px){.support-write textarea,.support-json{font-size:16px}.help-platforms{grid-template-columns:1fr}}

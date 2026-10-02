@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import secrets
+from typing import Literal
 
 import httpx
 
@@ -58,6 +59,25 @@ class SupportTicket(Contract):
 
 class SupportMessage(Contract):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE)
+    diagnostics: str = Field(default="", max_length=64)
+
+
+class BrowserFailure(Contract):
+    kind: Literal["error", "unhandledrejection"]
+    at: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$")
+    file: str = Field(default="", max_length=80)
+    line: int = Field(default=0, ge=0, le=10000000)
+    column: int = Field(default=0, ge=0, le=10000000)
+    count: int = Field(default=1, ge=1, le=1000000)
+
+
+class DiagnosticsCapture(Contract):
+    browser: list[BrowserFailure] = Field(default_factory=list, max_length=20)
+
+
+class DiagnosticsEdit(Contract):
+    id: str = Field(min_length=64, max_length=64)
+    text: str = Field(max_length=diagnostics.MAX_BYTES)
 
 
 def off_reason(settings):
@@ -109,7 +129,8 @@ def _ask_hq(method, path, *, body=None, secret=""):
         with httpx.Client(timeout=HQ_WAIT, transport=TRANSPORT, follow_redirects=False) as http:
             return http.request(method, hq_url() + path, json=body, headers=headers)
     except httpx.HTTPError as exc:
-        log.info("Support: HQ did not answer (%s)", type(exc).__name__)
+        diagnostics.RING.handle(logging.LogRecord("tico.support", logging.WARNING, "", 0,
+            "HQ did not answer (%s)", (type(exc).__name__,), None))
         raise Problem("support_unreachable", "Could not reach Tico support. Try again in a moment.", 502,
                       retryable=True) from None
 
@@ -141,7 +162,8 @@ def _messages(value):
         if isinstance(item, dict) and isinstance(item.get("id"), int):
             out.append({"id": item["id"], "created": str(item.get("created") or "")[:30],
                         "from": "person" if item.get("from") == "person" else "staff",
-                        "body": str(item.get("body") or "")[:8000]})
+                        "body": str(item.get("body") or "")[:8000],
+                        "has_diagnostics": item.get("has_diagnostics") is True})
     return out
 
 
@@ -167,13 +189,50 @@ class Support:
                 "install_id": self.census.install_id(), "to": hq_url().split("://", 1)[-1].split("/", 1)[0],
                 "max": MAX_MESSAGE, "diagnostics": True}
 
-    def preview(self, who, app):
+    def preview(self, who, app, browser=None):
         """Build the diagnostics bundle and keep it for this person, so the request that files the ticket sends these
         very bytes. Returns its digest and the text the page shows."""
         bundle = diagnostics.build(self.store, self.settings, app.state.auth, who, self.census,
                                    github=getattr(app.state, "github_app", None))
+        if browser:
+            from pathlib import Path
+            ui = Path(__file__).resolve().parent.parent / "ui"
+            files = {p.name for p in ui.glob("*.js")} | {p.name for p in (ui / "app").glob("*.js")} | {"app.bundle.js"}
+            bundle["browser"] = [{**event.model_dump(), "file": event.file if event.file in files else ""} for event in browser]
+            bundle = diagnostics.fit(bundle)
         text = diagnostics.canonical(bundle)
         return {"id": self.previews.keep(who.actor, bundle), "bytes": len(text.encode()), "text": text}
+
+    def edit_preview(self, who, body):
+        original = self.previews.take(who.actor, body.id)
+        if original is None:
+            raise Problem("diagnostics_stale", "This preview expired. Refresh diagnostics and review again.", 409)
+        try:
+            value = json.loads(body.text, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Invalid number")))
+            diagnostics.validate_edit(value, original)
+            if value.get("format") != diagnostics.FORMAT:
+                raise ValueError("Keep the diagnostics format field unchanged.")
+            with self.store.read() as c:
+                from .views import roster
+                people = roster(c).get("people") or []
+                redactor = diagnostics.Redactor(diagnostics._domains(self.settings, {"people": people}),
+                    [(b["slug"], [b.get("display_name")]) for b in H.bots(c)],
+                    [(p.get("id", ""), [p.get("name"), p.get("email")]) for p in people])
+            value = redactor.clean(diagnostics.allowed(value))
+            value.setdefault("capture", {})["edited"] = True
+            text = diagnostics.canonical(value)
+            if len(text.encode()) > diagnostics.MAX_BYTES:
+                raise ValueError("Keep diagnostics under 256 KB.")
+        except (ValueError, TypeError, RecursionError) as exc:
+            detail = str(exc) if not isinstance(exc, json.JSONDecodeError) else "Enter valid JSON before saving."
+            raise Problem("validation", detail, 422) from None
+        return {"id": self.previews.keep(who.actor, value), "bytes": len(text.encode()), "text": text}
+
+    def attachment(self, who, key):
+        bundle = self.previews.take(who.actor, key)
+        if bundle is None:
+            raise Problem("diagnostics_stale", "This preview expired. Refresh diagnostics and review again.", 409)
+        return bundle
 
     def file(self, who, body, key=""):
         """Send the ticket to HQ, then keep HQ's id and secret. Nothing is kept when HQ refuses or cannot be reached."""
@@ -197,14 +256,10 @@ class Support:
             sent = {k: details[k] for k in ("version", "install_id") if details[k]}
             payload.update(sent)
         if body.diagnostics:
-            bundle = self.previews.take(who.actor, body.diagnostics)
-            if bundle is None:
-                raise Problem("diagnostics_stale", "Preview the diagnostics again.", 409)
-            payload["diagnostics"] = bundle
+            payload["diagnostics"] = self.attachment(who, body.diagnostics)
         answer = _ask_hq("POST", "/v1/support", body=payload)
-        if answer.status_code == 422 and "diagnostics" in payload:       # an HQ from before diagnostics: send the rest
-            payload.pop("diagnostics")
-            answer = _ask_hq("POST", "/v1/support", body=payload)
+        if answer.status_code == 422 and "diagnostics" in payload:
+            raise Problem("diagnostics_rejected", "Support could not accept this attachment. Review it or remove diagnostics to send just the message.", 422)
         made = _answer(answer, (201, 200))
         if "diagnostics" in payload:
             sent["diagnostics"] = len(diagnostics.canonical(payload["diagnostics"]).encode())
@@ -220,12 +275,17 @@ class Support:
                                                               "diagnostics": "diagnostics" in sent})
             return view(c.execute("SELECT * FROM support_tickets WHERE id=?", (ticket_id,)).fetchone())
 
-    def write(self, who, ticket_id, text):
+    def write(self, who, ticket_id, text, attachment=""):
         """Add a message to one of the caller's tickets."""
         text = clean_message(text)
         row = self._own(who, ticket_id)
-        _answer(_ask_hq("POST", f"/v1/support/{row['hq_id']}/messages", body={"message": text},
-                        secret=row["hq_secret"]), (201, 200))
+        payload = {"message": text}
+        if attachment:
+            payload["diagnostics"] = self.attachment(who, attachment)
+        answer = _ask_hq("POST", f"/v1/support/{row['hq_id']}/messages", body=payload, secret=row["hq_secret"])
+        if answer.status_code == 422 and attachment:
+            raise Problem("diagnostics_rejected", "Support could not accept this attachment. Review it or remove diagnostics to send just the message.", 422)
+        _answer(answer, (201, 200))
         self._pull(row)
         return self.one(who, ticket_id)
 
@@ -286,13 +346,17 @@ class Support:
         with self.store.read() as c:
             rows = c.execute("SELECT * FROM support_tickets WHERE actor=? AND status!='gone' "
                              "ORDER BY created DESC LIMIT 20", (who.actor,)).fetchall()
+        failed = False
         for row in rows:
             wait = CLOSED_FRESH_S if row["status"] == "closed" else FRESH_S
             if row["checked"] and row["checked"] > H.shift(now, seconds=-wait):
                 continue
             if not self._pull(row):
+                failed = True
                 break                                  # HQ is down: do not ask again for every ticket
-        return self.listing(who)
+        result = self.listing(who)
+        result["refresh_failed"] = failed
+        return result
 
     def read(self, who, ticket_id):
         row = self._own(who, ticket_id)
@@ -332,6 +396,18 @@ def install(app, store, settings, census):
         require_on(settings)
         return support.preview(who, request.app)
 
+    @app.post("/api/v2/support/diagnostics/capture")
+    def support_capture_diagnostics(request: Request, body: DiagnosticsCapture):
+        who = person(request)
+        require_on(settings)
+        return support.preview(who, request.app, body.browser)
+
+    @app.post("/api/v2/support/diagnostics")
+    def support_edit_diagnostics(request: Request, body: DiagnosticsEdit):
+        who = person(request)
+        require_on(settings)
+        return support.edit_preview(who, body)
+
     @app.post("/api/v2/support/tickets")
     def support_file(request: Request, body: SupportTicket):
         who = person(request)
@@ -348,7 +424,7 @@ def install(app, store, settings, census):
     def support_write(request: Request, ticket_id: str, body: SupportMessage):
         who = person(request)
         require_on(settings)
-        return support.write(who, ticket_id, body.message)
+        return support.write(who, ticket_id, body.message, body.diagnostics)
 
     @app.post("/api/v2/support/tickets/{ticket_id}/read")
     def support_read(request: Request, ticket_id: str):

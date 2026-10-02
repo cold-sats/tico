@@ -404,6 +404,9 @@ def create_app(settings=None):
                     if via_reset is None:
                         via_reset = H.VIA.set("botops")
             response = early or await call_next(request)
+            if response.status_code >= 500:
+                from .diagnostics import request_failure
+                request_failure(request, response.status_code)
             if response.status_code >= 500 and not getattr(request.state, "telemetry_captured", False):
                 telemetry.capture("request", status=response.status_code)
             # The page and its files (StaticFiles sends an ETag) may be kept by the browser and
@@ -458,6 +461,8 @@ def create_app(settings=None):
                                         status_code=302)
             return await problem_handler(request, exc)
         except Exception as exc:
+            from .diagnostics import request_failure
+            request_failure(request, 500, exc)
             telemetry.capture("request", exc, 500)
             raise
         finally:
