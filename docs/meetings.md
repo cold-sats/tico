@@ -410,7 +410,8 @@ Transcript failures still import shared notes. Unmappable meetings are skipped, 
 and do not block later notes. Transcript access is checked again on each sync after a plan change.
 The plan hint uses account details when available, or stays free until a transcript is successfully
 read; an advertised transcript tool alone does not indicate a paid plan. Account details are fetched
-once per connection, and a failure does not interrupt the import. A paid-tier denial stops further
+once after a successful read, or omitted when unsupported or malformed. A transient failure can retry
+on the next sync; rate limits and sign-in failures pause the import. A paid-tier denial stops further
 transcript requests for that sync.
 Granola's XML-like responses accept introductory text, bare participant emails and markdown containing `<` and `&`;
 shared summaries retain their markdown. Dates such as `Feb 4, 2026 7:30 PM` and `Feb 4, 2026` are

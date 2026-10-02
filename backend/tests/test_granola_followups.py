@@ -91,6 +91,53 @@ def test_refresh_rate_limit_keeps_token_and_honors_provider_deadline(api):
     assert saved[1]["retry_after"] == provider.now + 900
 
 
+@pytest.mark.parametrize("kind", ["tool", "rpc", "http"])
+def test_optional_account_info_rate_limit_stops_calls_and_retries_metadata_later(api, kind):
+    provider = NotesProvider(api)
+    provider.account_result = rate_limit(kind, retry_after="900")
+    provider.connect()
+    provider.sync()
+    saved = provider.service.load("human:ana")
+    assert saved[1]["last_error"] == "rate_limited: get_account_info"
+    assert saved[1]["retry_after"] == provider.now + 900
+    assert not saved[1].get("account_info_checked")
+    assert not provider.notes_calls and not provider.ranges
+    assert saved[2]["refresh_token"] == "fake-refresh-sensitive"
+    before = provider.account_calls
+    provider.account_result = httpx.Response(200, json={"result": {"structuredContent": {
+        "email": "account@example.com", "plan": "business"}}})
+    provider.now = saved[1]["retry_after"]
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert provider.account_calls == before + 1
+    assert meta["account_info_checked"] and meta["email"] == "account@example.com"
+    assert meta["plan_hint"] == "paid" and meta["last_sync"] and meta["imported_count"] == 2
+
+
+@pytest.mark.parametrize("failure", ["server", "network"])
+def test_optional_account_info_transient_failure_can_retry_next_sync(api, failure):
+    provider = NotesProvider(api)
+    provider.account_result = httpx.Response(503, json={})
+    provider.connect()
+    original = provider.handle
+
+    def handle(request):
+        response = original(request)
+        if request.url.path == "/mcp" and json.loads(request.content).get("params", {}).get("name") == "get_account_info" and failure == "network":
+            raise httpx.ConnectError("fake-provider-sensitive", request=request)
+        return response
+
+    provider.service.transport = httpx.MockTransport(handle)
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert not meta.get("account_info_checked") and meta["last_sync"] and meta["imported_count"] == 2
+    provider.account_result = httpx.Response(200, json={"result": {"structuredContent": {"plan": "paid"}}})
+    provider.service.transport = httpx.MockTransport(original)
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert provider.account_calls == 2 and meta["account_info_checked"] and meta["plan_hint"] == "paid"
+
+
 def test_transcript_rejected_refresh_preserves_needs_signin_reason(api):
     provider = Provider(api)
     provider.paid = True

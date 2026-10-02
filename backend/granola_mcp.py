@@ -484,6 +484,9 @@ class GranolaMCP:
                 # Read only to classify; never save/return/log the tool's free-form error message.
                 if self.rate_limited(result):
                     raise GranolaError("rate_limited", retry_after=self.retry_delay(response))
+                if (params or {}).get("name") == "get_account_info":
+                    # A completed optional-tool refusal is different from a transient HTTP/network failure.
+                    raise GranolaError("feature_unavailable")
                 message = encode(result).lower()
                 if (params or {}).get("name") == "get_meeting_transcript" and any(word in message for word in
                         ("paid", "upgrade", "business", "enterprise")):
@@ -769,17 +772,20 @@ class GranolaMCP:
                 if not all(name in tools for name in ("list_meetings", "get_meetings")):
                     raise GranolaError("feature_unavailable")
                 if "get_account_info" in tools and not meta.get("account_info_checked"):
-                    meta["account_info_checked"] = True
+                    step = "get_account_info"
                     try:
                         result = await self.rpc(row, meta, secret, session, "tools/call", {
                             "name": "get_account_info", "arguments": self.arguments(tools["get_account_info"], {})})
                         meta.update(self.account_details(result))
+                        meta["account_info_checked"] = True
                         meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else meta.get("account_plan_hint", "free")
                     except GranolaError as exc:
-                        if exc.code == "needs_signin":
+                        if exc.code in ("needs_signin", "rate_limited"):
                             raise
+                        if exc.code in ("forbidden", "feature_unavailable", "bad_response"):
+                            meta["account_info_checked"] = True
                     except (TypeError, ValueError, AttributeError):
-                        pass
+                        meta["account_info_checked"] = True
                 until = datetime.fromtimestamp(self.clock(), timezone.utc)
                 since = meta.get("cursor") or (until - timedelta(days=30)).isoformat()
                 if meta.get("cursor"):

@@ -213,6 +213,7 @@ def test_account_info_is_optional_and_called_once_per_connection(api, caplog, re
     assert provider.ranges[0]["time_range"] == ("custom" if plan == "paid" else "last_30_days")
     provider.sync()
     assert provider.account_calls == 1
+    assert provider.service.load("human:ana")[1]["account_info_checked"]
     assert not [record for record in caplog.records if record.name == "backend.granola_mcp"]
     assert "fake-access-sensitive" not in caplog.text
 
