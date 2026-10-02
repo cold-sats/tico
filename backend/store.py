@@ -961,7 +961,7 @@ class Store:
                     H._apply(c, H.NUMBERS_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(56,?)", (H.now(),))
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=57").fetchone():
-                    H._apply(c, H.TASK_PRIVACY_SCHEMA)
+                    H.migrate_task_privacy(c)
                     c.execute("INSERT INTO cloud_migrations VALUES(57,?)", (H.now(),))
                 c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
                     AFTER INSERT ON bot_config

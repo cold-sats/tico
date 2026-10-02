@@ -790,7 +790,10 @@ def migrate(conn, adopt_legacy=False):
     for i in range(version, len(MIGRATIONS)):
         conn.execute("BEGIN IMMEDIATE")
         try:
-            _apply(conn, MIGRATIONS[i])
+            if i == 23:
+                migrate_task_privacy(conn)
+            else:
+                _apply(conn, MIGRATIONS[i])
             conn.execute(f"PRAGMA user_version={i + 1}")
             conn.execute("COMMIT")
         except Exception:
@@ -1851,6 +1854,57 @@ def private_tasks_default(conn, actor):
     if source_of(config):
         config = declared(conn, source_of(config))
     return config.get("private_tasks_default", config.get("template") == "general-counsel") is True
+
+
+
+def migrate_task_privacy(conn):
+    """Classify pre-privacy rows from stored roster/config identities; keep ambiguity private."""
+    had_privacy = 'private' in {row[1] for row in conn.execute('PRAGMA table_info(tasks)')}
+    _apply(conn, TASK_PRIVACY_SCHEMA)
+    if not had_privacy:
+        humans = {row[0] for row in conn.execute('SELECT id FROM humans')}
+        bots = {row[0] for row in conn.execute('SELECT slug FROM bots')}
+        configs = {row[0]: _json(row[1]) for row in conn.execute('SELECT bot,config_json FROM bot_config')} \
+            if _has_table(conn, 'bot_config') else {}
+        def sensitive_or_unknown(actor):
+            if is_human(actor):
+                return actor_id(actor) not in humans
+            if not is_bot(actor) or actor_id(actor) not in bots:
+                return True
+            slug, seen = actor_id(actor), set()
+            while slug not in seen:
+                seen.add(slug)
+                config = configs.get(slug)
+                if not isinstance(config, dict):
+                    return True
+                if config.get('shared_from'):
+                    slug = str(config['shared_from'])
+                    continue
+                setting = config.get('private_tasks_default')
+                if 'private_tasks_default' in config and not isinstance(setting, bool):
+                    return True
+                return setting if setting is not None else config.get('template') == 'general-counsel'
+            return True
+        rows = _rows(conn.execute('SELECT id,requester,owner,parent_id FROM tasks'))
+        private = {row['id'] for row in rows if sensitive_or_unknown(row['requester'])
+                   or sensitive_or_unknown(row['owner'])}
+        ids = {row['id'] for row in rows}
+        children = {}
+        for row in rows:
+            children.setdefault(row['parent_id'], []).append(row['id'])
+            if row['parent_id'] and row['parent_id'] not in ids:
+                private.add(row['id'])
+        pending = list(private)
+        while pending:
+            for child in children.get(pending.pop(), []):
+                if child not in private:
+                    private.add(child)
+                    pending.append(child)
+        conn.executemany('UPDATE tasks SET private=? WHERE id=?',
+                         [(int(row['id'] in private), row['id']) for row in rows])
+    add_column(conn, 'conversations', 'scope', "TEXT NOT NULL DEFAULT 'direct'")
+    for row in _rows(conn.execute('SELECT * FROM tasks WHERE private=1')):
+        isolate_private_task(conn, row)
 
 
 def isolate_private_task(conn, row):

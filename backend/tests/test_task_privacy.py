@@ -94,17 +94,25 @@ def test_cached_comment_response_cannot_bypass_reassignment(api):
     assert response.status_code == 404 and 'Sensitive response.' not in response.text
 
 
-def test_cloud_upgrade_keeps_legacy_tasks_private_and_files_intact(api):
+def test_cloud_upgrade_classifies_legacy_identity_and_keeps_files_intact(api):
+    ordinary = post(api, 'tasks', {'owner': 'cmo', 'title': 'Review ordinary work', 'body': 'Ordinary content.'})
     task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review the older work', 'body': 'Older content.'})
+    child = post(api, 'tasks', {'owner': 'ben', 'title': 'Review related work', 'body': 'Related content.', 'parent_id': task['id']})
+    orphan = post(api, 'tasks', {'owner': 'priya', 'title': 'Review orphaned work', 'body': 'Orphan content.'})
     post(api, 'tasks/' + task['id'] + '/files', {'name': 'legacy-brief.md', 'text': 'Legacy attachment bytes.'})
     with api.app.state.store.transaction() as c:
         counts = {name: c.execute('SELECT count(*) FROM ' + name).fetchone()[0]
                   for name in ('tasks', 'blobs', 'task_assets', 'bot_files')}
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='cpo'", (json.dumps({'template': 'general-counsel'}),))
+        c.execute("UPDATE tasks SET requester='human:missing' WHERE id=?", (orphan['id'],))
         c.execute('ALTER TABLE tasks DROP COLUMN private')
         c.execute('DELETE FROM cloud_migrations WHERE version=57')
     api.app.state.store.initialize(seed_market=False)
     with api.app.state.store.read() as c:
         assert H.task(c, task['id'])['private'] == 1
+        assert H.task(c, child['id'])['private'] == 1
+        assert H.task(c, orphan['id'])['private'] == 1
+        assert H.task(c, ordinary['id'])['private'] == 0
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=57').fetchone()
         assert all(c.execute('SELECT count(*) FROM ' + name).fetchone()[0] == count for name, count in counts.items())
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=53').fetchone()

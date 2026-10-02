@@ -327,12 +327,20 @@ by default; Tico does not guess from names. A human may clear the create checkbo
 company visibility explicitly. Bot execution on a private task cannot bypass that privacy. A private parent's subtasks are private and have
 their own two participants. Publishing a child requires detaching it from a private parent.
 
-Upgrade retains every task and attachment. All tasks made before this privacy migration become
-private because the old records cannot distinguish sensitive work from work intended for the
-company. The human requester may publish the ordinary ones after review. Old clients omit the
+Upgrade retains every task, message and attachment. Existing tasks whose requester and assignee
+have known ordinary roster/config identities stay company-visible. Legal-template and sensitive
+default bots, their branches and private descendants become private. Missing roster/config
+identities, malformed sensitive defaults, unresolved branch sources and missing parents fail
+closed as private. Any already stored privacy is preserved. No names or task text determine
+privacy. The remaining participant retains access to orphaned private work; restore the original
+roster identity or use separately approved offline recovery when neither participant exists.
+There is no owner, manager or service-key recovery bypass. Old clients omit the
 new optional fields and keep working; new tasks created through an old runner receive the same
 server defaults. Direct legacy database inserts that omit privacy stay private.
 
 Future reads, task context, files, links, counts and notices enforce current access. Content
 already downloaded or delivered to a bot, an external service or a person cannot be recalled.
 Persistent bot sessions and copies made outside tracked task routes are not an erasure system.
+
+Task numbers, queue order and import numbering retain their existing semantics. Opaque number
+and rank gaps may remain; they do not disclose hidden task content or participants.
