@@ -10205,7 +10205,7 @@
     },
     "/api/v2/tasks/{tid}/comments/{mid}/delete": {
       "post": {
-        "summary": "Delete a comment you wrote; it is never listed again or handed to a bot",
+        "summary": "Delete a comment you wrote from future comment reads and bot context; existing delivered copies remain",
         "operationId": "deleteTaskComment",
         "parameters": [
           {
