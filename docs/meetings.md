@@ -342,12 +342,20 @@ with backoff. Meetings and your Health page say
 **Granola needs sign-in again** when the grant is rejected; connect again to continue.
 Transcript failures still import shared notes. Unmappable meetings are skipped, counted in status,
 and do not block later notes. Transcript access is checked again on each sync after a plan change.
-The plan hint stays free until a transcript is successfully read; an advertised transcript tool
-alone does not indicate a paid plan. A paid-tier denial stops further transcript requests for that sync.
-Granola's XML-like responses accept bare participant emails and markdown containing `<` and `&`;
+The plan hint uses account details when available, or stays free until a transcript is successfully
+read; an advertised transcript tool alone does not indicate a paid plan. Account details are fetched
+once per connection, and a failure does not interrupt the import. A paid-tier denial stops further
+transcript requests for that sync.
+Granola's XML-like responses accept introductory text, bare participant emails and markdown containing `<` and `&`;
 shared summaries retain their markdown. Dates such as `Feb 4, 2026 7:30 PM` and `Feb 4, 2026` are
 treated as UTC. Unknown dates do not prevent importing a meeting's notes.
 Calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
+Notes are fetched in batches of up to ten, at least six seconds apart per connection, including
+individual requests used to recover from a failed batch. Rate limits allow up to four attempts at
+the same request, using Granola's `Retry-After` when supplied or waits of 15, 30 and 60 seconds. If the limit
+persists, the sync stops with `rate_limited: get_meetings`, retains its checkpoint and does not count
+the blocked meetings as skipped. The next sync resumes from that checkpoint. The first free-plan
+sync requests `last_30_days` when supported; otherwise it uses a custom date range.
 Disconnect cancels an active sync and removes the stored token promptly; revocation is attempted in
 background when Granola advertises a trusted endpoint. Connections are removed when a person leaves
 or loses sign-in. A pending reconnect retains the working token until success or expiry; a successful
@@ -357,8 +365,9 @@ new sign-in starts a fresh 30-day backfill.
 sync. `POST /api/v2/meetings/granola/sync` returns `state: "syncing"` when a job is running
 (or `recent`, `off`, `needs_signin`). `GET /api/v2/meetings/granola` includes `syncing: bool`
 and `skipped` for the last attempt. The account email comes only from display claims supplied by
-Granola's token endpoint (including userinfo or ID-token claims), unless marked unverified, and is
-null when absent. These claims never change the person's Tico rights; the ID token is not retained.
+Granola's token endpoint (including userinfo or ID-token claims), unless marked unverified, or from
+its account information tool, and is null when absent. These details never change the person's
+Tico rights; the ID token is not retained.
 Sync failures show and log a fixed code with the failed step, such as `bad_response: list_meetings`,
 without provider content or tokens. Skipped notes also name the step while retaining their count.
 The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use the caller's person

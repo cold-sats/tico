@@ -7,11 +7,13 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import re
 import time
 import uuid
 import weakref
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from html import unescape
 
 import httpx
@@ -26,13 +28,15 @@ AUTH = "https://mcp-auth.granola.ai"
 SCOPES = "openid profile email offline_access mcp"
 SCHEDULE = 25 * 60
 DEBOUNCE = 120
+GET_MEETINGS_INTERVAL = 6
 log = logging.getLogger(__name__)
 
 
 class GranolaError(Exception):
-    def __init__(self, code="provider_error", step=None):
+    def __init__(self, code="provider_error", step=None, retry_after=None):
         self.code = code
         self.step = step
+        self.retry_after = retry_after
         super().__init__(code)
 
 
@@ -49,12 +53,15 @@ class GranolaMCP:
         self.starts = {}
         self.revocations = set()
 
-    async def pace(self):
+    async def pace(self, meeting_meta=None):
         async with self.pace_lock:
-            wait = self.next_call - self.clock()
+            next_call = max(self.next_call, meeting_meta.get("next_meetings_call", 0)) if meeting_meta is not None else self.next_call
+            wait = next_call - self.clock()
             if wait > 0:
                 await self.sleep(wait)
             self.next_call = self.clock() + 1.05
+            if meeting_meta is not None:
+                meeting_meta["next_meetings_call"] = self.clock() + GET_MEETINGS_INTERVAL
 
     @staticmethod
     def seconds(value, default):
@@ -108,8 +115,11 @@ class GranolaMCP:
             c.execute("UPDATE granola_connections SET ciphertext=?,nonce=?,metadata_json=? WHERE actor=? AND id=?",
                       (ciphertext, nonce, encode(meta), row["actor"], row["id"]))
 
-    async def http(self, method, url, **kwargs):
-        await self.pace()
+    async def http(self, method, url, meeting_meta=None, **kwargs):
+        if meeting_meta is None:
+            await self.pace()
+        else:
+            await self.pace(meeting_meta)
         try:
             async with httpx.AsyncClient(transport=self.transport, timeout=45, follow_redirects=False) as client:
                 async with client.stream(method, url, **kwargs) as response:
@@ -361,6 +371,22 @@ class GranolaMCP:
                 self.queue_revoke(saved[2])
         return {"ok": True}
 
+    @staticmethod
+    def rate_limited(value):
+        # Provider text is used only for classification, never diagnostics or stored metadata.
+        return bool(re.search(r"rate[\s_-]*limit|slow[\s_-]+down|too many requests", encode(value), re.I))
+
+    def retry_delay(self, response):
+        value = response.headers.get("Retry-After")
+        try:
+            delay = float(value)
+        except (TypeError, ValueError):
+            try:
+                delay = parsedate_to_datetime(value).timestamp() - self.clock()
+            except (TypeError, ValueError, OverflowError):
+                return None
+        return max(0, delay) if math.isfinite(delay) else None
+
     async def rpc(self, row, meta, secret, session, method, params=None, notification=False):
         if secret.get("expiry", 0) <= self.clock() + 30:
             await self.refresh_for_sync(row, meta, secret)
@@ -372,18 +398,20 @@ class GranolaMCP:
             body = {"jsonrpc": "2.0", "method": method, "params": params or {}}
             if not notification:
                 body["id"] = uuid.uuid4().hex
-            response = await self.http("POST", MCP, headers=headers, json=body)
+            meetings = method == "tools/call" and (params or {}).get("name") == "get_meetings"
+            response = await self.http("POST", MCP, headers=headers, json=body, meeting_meta=meta if meetings else None)
             if response.status_code == 401 and not session.get("refreshed"):
                 session["refreshed"] = True
                 await self.refresh_for_sync(row, meta, secret)
                 continue
             if response.status_code == 429:
-                try:
-                    delay = float(response.headers.get("Retry-After", 2 ** (attempt + 1)))
-                except ValueError:
-                    delay = 2 ** (attempt + 1)
-                await self.sleep(max(1, min(delay, 120)))
+                delay = self.retry_delay(response)
+                if meetings:
+                    raise GranolaError("rate_limited", retry_after=delay)
+                await self.sleep(delay if delay is not None else 2 ** (attempt + 1))
                 continue
+            if response.status_code >= 400 and self.rate_limited(response.text):
+                raise GranolaError("rate_limited", retry_after=self.retry_delay(response))
             if response.status_code == 403:
                 raise GranolaError("forbidden")
             if response.status_code >= 400:
@@ -410,6 +438,8 @@ class GranolaMCP:
                 value = self.payload(response)
             if value.get("error"):
                 error = value["error"]
+                if self.rate_limited(error):
+                    raise GranolaError("rate_limited", retry_after=self.retry_delay(response))
                 code = error.get("code") if isinstance(error, dict) else None
                 raise GranolaError("forbidden" if code in (403, -32003) else "provider_error")
             result = value.get("result", {})
@@ -417,6 +447,8 @@ class GranolaMCP:
                 raise GranolaError("bad_response")
             if result.get("isError"):
                 # Read only to classify; never save/return/log the tool's free-form error message.
+                if self.rate_limited(result):
+                    raise GranolaError("rate_limited", retry_after=self.retry_delay(response))
                 message = encode(result).lower()
                 if (params or {}).get("name") == "get_meeting_transcript" and any(word in message for word in
                         ("paid", "upgrade", "business", "enterprise")):
@@ -444,10 +476,9 @@ class GranolaMCP:
                     return json.loads(block.get("text", ""))
                 except ValueError:
                     raw = block.get("text", "")
-                    if raw.lstrip().startswith("<"):
-                        parsed = GranolaMCP.xml_content(raw)
-                        if parsed is not None:
-                            return parsed
+                    parsed = GranolaMCP.xml_content(raw)
+                    if parsed is not None:
+                        return parsed
                     if allow_text:
                         return {"transcript": raw}
         raise GranolaError("bad_response")
@@ -457,6 +488,10 @@ class GranolaMCP:
         """Granola's XML-like text contains bare emails and markdown, so never parse it as XML."""
         if "<!DOCTYPE" in raw.upper() or "<!ENTITY" in raw.upper():
             raise GranolaError("bad_response")
+        start = re.search(r"<(meetings_data|meetings|notes|meeting|note|transcript)\b", raw)
+        if start is None:
+            return None
+        raw = raw[start.start():]
 
         def attributes(value):
             return {m[1]: unescape(m[3]) for m in re.finditer(
@@ -566,8 +601,55 @@ class GranolaMCP:
         return out
 
     async def call(self, row, meta, secret, session, tool, values):
-        return self.content(await self.rpc(row, meta, secret, session, "tools/call", {
-            "name": tool["name"], "arguments": self.arguments(tool, values)}), allow_text=tool["name"] == "get_meeting_transcript")
+        params = {"name": tool["name"], "arguments": self.arguments(tool, values)}
+        for attempt in range(4):
+            try:
+                return self.content(await self.rpc(row, meta, secret, session, "tools/call", params),
+                                    allow_text=tool["name"] == "get_meeting_transcript")
+            except GranolaError as exc:
+                if tool["name"] != "get_meetings" or exc.code != "rate_limited" or attempt == 3:
+                    raise
+                await self.sleep(exc.retry_after if exc.retry_after is not None else 15 * 2 ** attempt)
+
+    @staticmethod
+    def account_details(result):
+        """Keep only display email and a recognized plan from optional account information."""
+        from runner.importers.base import email_of
+        try:
+            value = GranolaMCP.content(result)
+        except GranolaError:
+            value = "\n".join(block.get("text", "") for block in result.get("content", [])
+                              if block.get("type") == "text")
+        details, pending = {}, [value]
+        for _ in range(100):
+            if not pending:
+                break
+            part = pending.pop()
+            if isinstance(part, dict):
+                email = GranolaMCP.account_email(part)
+                if email:
+                    details["email"] = email
+                for key in ("plan", "plan_name", "tier", "subscription_plan"):
+                    plan = part.get(key)
+                    if isinstance(plan, dict):
+                        plan = plan.get("name") or plan.get("tier")
+                    if isinstance(plan, str):
+                        plan = plan.lower().strip()
+                        if plan in ("free", "basic"):
+                            details["account_plan_hint"] = "free"
+                        elif plan in ("paid", "pro", "business", "enterprise"):
+                            details["account_plan_hint"] = "paid"
+                pending.extend(v for v in part.values() if isinstance(v, (dict, list)))
+            elif isinstance(part, list):
+                pending.extend(part[:100])
+            elif isinstance(part, str):
+                email = re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", part)
+                if email and email_of(email[0]):
+                    details["email"] = email_of(email[0])
+                plan = re.search(r"\b(?:plan|tier)\s*[:=]\s*(free|basic|paid|pro|business|enterprise)\b", part, re.I)
+                if plan:
+                    details["account_plan_hint"] = "free" if plan[1].lower() in ("free", "basic") else "paid"
+        return details
 
     @staticmethod
     def rows(value):
@@ -627,9 +709,10 @@ class GranolaMCP:
             await asyncio.to_thread(self.save, row, meta, secret)
             step = "initialize"
             skipped_error = None
+            previous_skipped = meta.get("skipped", 0)
             try:
                 meta["transcripts_unavailable"] = False
-                meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else "free"
+                meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else meta.get("account_plan_hint", "free")
                 meta["skipped"] = 0
                 transcript_errors = 0
                 session = {}
@@ -650,6 +733,15 @@ class GranolaMCP:
                     raise GranolaError("import_limit")
                 if not all(name in tools for name in ("list_meetings", "get_meetings")):
                     raise GranolaError("feature_unavailable")
+                if "get_account_info" in tools and not meta.get("account_info_checked"):
+                    meta["account_info_checked"] = True
+                    try:
+                        result = await self.rpc(row, meta, secret, session, "tools/call", {
+                            "name": "get_account_info", "arguments": self.arguments(tools["get_account_info"], {})})
+                        meta.update(self.account_details(result))
+                        meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else meta.get("account_plan_hint", "free")
+                    except (GranolaError, TypeError, ValueError, AttributeError):
+                        pass
                 until = datetime.fromtimestamp(self.clock(), timezone.utc)
                 since = meta.get("cursor") or (until - timedelta(days=30)).isoformat()
                 if meta.get("cursor"):
@@ -658,12 +750,14 @@ class GranolaMCP:
                 if meta["plan_hint"] == "free":
                     since = max(datetime.fromisoformat(since), until - timedelta(days=30)).isoformat()
                 cursor, listed = None, []
+                ranges = (tools["list_meetings"].get("inputSchema") or {}).get("properties", {}).get("time_range", {}).get("enum", [])
+                time_range = "last_30_days" if not meta.get("cursor") and meta["plan_hint"] == "free" and "last_30_days" in ranges else "custom"
                 step = "list_meetings"
                 for _ in range(100):
                     value = await self.call(row, meta, secret, session, tools["list_meetings"], {
                         "since": since, "start_date": since, "after": since, "created_after": since,
                         "end_date": until.isoformat(), "until": until.isoformat(), "before": until.isoformat(),
-                        "time_range": "custom", "custom_start": since, "custom_end": until.isoformat(),
+                        "time_range": time_range, "custom_start": since, "custom_end": until.isoformat(),
                         "date_range": {"start": since, "end": until.isoformat(), "start_date": since,
                                        "end_date": until.isoformat(), "from": since, "to": until.isoformat()},
                         "involvement": {"captured_by_me": True}, "captured_by_me": True,
@@ -692,7 +786,7 @@ class GranolaMCP:
                 if len(ids) > 5000:
                     raise GranolaError("import_limit")
                 id_properties = (tools["get_meetings"].get("inputSchema") or {}).get("properties", {})
-                batch_size = max(1, min([20] + [v["maxItems"] for k, v in id_properties.items()
+                batch_size = max(1, min([10] + [v["maxItems"] for k, v in id_properties.items()
                                                 if k in ("meeting_ids", "ids", "note_ids") and isinstance(v.get("maxItems"), int)]))
                 for offset in range(0, len(ids), batch_size):
                     batch = ids[offset:offset + batch_size]
@@ -741,7 +835,7 @@ class GranolaMCP:
                                     meta.pop("transcript_succeeded", None)
                                 elif transcript_errors >= 3:
                                     meta["transcripts_unavailable"] = True
-                                meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else "free"
+                                meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else meta.get("account_plan_hint", "free")
                         step = "import_meeting"
                         try:
                             item = self.item(note, transcript)
@@ -782,6 +876,9 @@ class GranolaMCP:
                 if exc.code == "needs_signin":
                     return
                 meta["last_error"] = failure
+                if exc.code == "rate_limited" and step == "get_meetings" and not meta["skipped"]:
+                    # An attempt blocked by throttling has no new skipped-meeting count to report.
+                    meta["skipped"] = previous_skipped
                 meta["failures"] = min(meta.get("failures", 0) + 1, 4)
                 meta["retry_after"] = self.clock() + SCHEDULE * 2 ** (meta["failures"] - 1)
             except Exception:

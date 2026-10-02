@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Granola account sync reads notes preceded by provider text, fetches meetings in paced batches of ten, and retries rate limits without skipping meetings or losing sync progress.
+
 ## [0.3.6] - 2026-10-02
 
 ### Fixed
