@@ -4,7 +4,7 @@ Handlers keep registering under the paths they always had. `install(app)` runs o
 registered, and for each route whose path is in RENAMES it makes the NEW path the canonical route (same endpoint,
 methods and response model, in the same position in the route order) and keeps the OLD path as a second route,
 marked `deprecated` in OpenAPI. The old spellings answer for one release; then the old routes and this table's
-old column go.
+old column go. New routes use the app's route class so its response handling applies to every spelling.
 
 Beyond the renames, three routes are new doors onto an existing answer: `GET /health/issues` (the live snapshot
 for the Assistant, what is wrong for everyone else), `GET /messages?unread=1` (the inbox) and `GET /archives?source=`
@@ -72,12 +72,12 @@ def old_paths(path):
     return found
 
 
-def _copy(route, path):
+def _copy(route, path, route_class):
     """A route like `route` on another path: the same endpoint, methods, response model and options."""
     accepted = inspect.signature(APIRoute.__init__).parameters
     options = {name: getattr(route, name) for name in accepted
                if name not in ("self", "path", "endpoint") and hasattr(route, name)}
-    return APIRoute(path, route.endpoint, **options)
+    return route_class(path, route.endpoint, **options)
 
 
 def _find(routes, path, method):
@@ -90,6 +90,8 @@ def _put_before(routes, anchor, route):
 
 def install(app):
     routes = app.router.routes
+    # Direct construction must keep the app's response handling on every spelling.
+    route_class = app.router.route_class
     # The renames: new path first (canonical), old path kept right behind it, deprecated.
     for route in list(routes):
         if not isinstance(route, APIRoute):
@@ -97,7 +99,7 @@ def install(app):
         path = new_path(route.path)
         if path is None:
             continue
-        _put_before(routes, route, _copy(route, path))
+        _put_before(routes, route, _copy(route, path, route_class))
         route.deprecated = True
 
     # /health/issues: the Assistant's live snapshot, or what /fleet/check says for everyone else.
@@ -110,7 +112,7 @@ def install(app):
             if getattr(who, "via", None) == "assistant":
                 return {**snapshot.endpoint(request), **{key: checked[key] for key in ("checks", "issues", "services", "counts")}}
             return checked
-        _put_before(routes, check, APIRoute(V2 + "/health/issues", health_issues, methods=["GET"]))
+        _put_before(routes, check, route_class(V2 + "/health/issues", health_issues, methods=["GET"]))
         check.deprecated = snapshot.deprecated = True
 
     # /messages?unread=1: the inbox.
@@ -121,7 +123,7 @@ def install(app):
             if not unread:
                 raise Problem("unread_only", "Only unread messages are listed: pass unread=1", 422)
             return inbox.endpoint(request)
-        _put_before(routes, inbox, APIRoute(V2 + "/messages", messages_unread, methods=["GET"],
+        _put_before(routes, inbox, route_class(V2 + "/messages", messages_unread, methods=["GET"],
                                              name="messages_unread"))
         inbox.deprecated = True
 
@@ -131,6 +133,6 @@ def install(app):
         def archives(request: Request, source: str | None = None):
             """The archives this account may read, or with `source` that one archive's content."""
             return read.endpoint(request, source) if source else listing.endpoint(request)
-        _put_before(routes, listing, APIRoute(V2 + "/archives", archives, methods=["GET"], name="archives"))
+        _put_before(routes, listing, route_class(V2 + "/archives", archives, methods=["GET"], name="archives"))
         routes.remove(listing)
         read.deprecated = True

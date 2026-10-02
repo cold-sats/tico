@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-10-02
+
+### Fixed
+- Messages and some task lists showed people and bots by id instead of name since 0.3.9.
+
 ## [0.3.9] - 2026-10-02
 
 ### Fixed
