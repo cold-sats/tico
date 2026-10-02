@@ -128,7 +128,15 @@ def create_app(settings=None):
         async def schedule_loop():
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
+            def github_wakes():
+                from .github import flush_wakes
+                with store.transaction() as c:
+                    flush_wakes(c)
             while not stop.is_set():
+                try:
+                    await asyncio.to_thread(github_wakes)
+                except Exception as exc:
+                    telemetry.capture("github_wakes", exc)
                 try:
                     await asyncio.to_thread(scheduler.tick)
                     # The release check (and the anonymous count that rides on it) runs even when nobody has the
@@ -3267,11 +3275,19 @@ def create_app(settings=None):
     def claim(request: Request, body: M.Claim):
         # A read first: an idle runner asks every fraction of a second and must not take the write lock.
         with store.read() as c:
+            selected = []
+            version = c.execute("PRAGMA data_version").fetchone()[0]
             idle = execution.idle_claim(c, request.state.identity, body,
-                                        request.headers.get("idempotency-key"))
-        if idle is not None:
-            return idle
-        return mutate(request, body, lambda c: execution.claim(c, request.state.identity, body))
+                                        request.headers.get("idempotency-key"), selected)
+            if idle is not None:
+                return idle
+            # Under the write lock, reuse the read result only if no other connection
+            # committed since that read began. A changed queue is selected afresh.
+            def work(write):
+                unchanged = c.execute("PRAGMA data_version").fetchone()[0] == version
+                return execution.claim(write, request.state.identity, body,
+                                       selected=selected[0] if unchanged and selected else None)
+            return mutate(request, body, work)
 
     @app.post("/api/v2/attempts/{aid}/renew")
     def renew(request: Request, aid: str, body: M.Empty):

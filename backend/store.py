@@ -948,11 +948,18 @@ class Store:
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,
                 # so no migration number to collide with another branch's.
                 for name, spec in (("tasks_goal", "tasks(goal_id, status)"),
+                                   ("jobs_state_bot_created", "jobs(state, bot, created, id)"),
+                                   ("task_links_repo_url", "task_links(kind, state, url COLLATE NOCASE)"),
                                    ("attempts_bot_created", "attempts(bot, created)"),
                                    ("attempts_job", "attempts(job_id)"),
                                    ("attempts_runner_state", "attempts(runner_id, state)"),
                                    ("events_action_target", "events(action, target, ts)")):
                     c.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}")
+                # A lease is server ownership, not proof the checkout's process stopped.
+                c.execute("CREATE TABLE IF NOT EXISTS attempt_processes("
+                          "attempt_id TEXT PRIMARY KEY REFERENCES attempts(id), runner_id TEXT NOT NULL, bot TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0)")
+                c.execute("CREATE INDEX IF NOT EXISTS attempt_processes_runner_bot ON attempt_processes(runner_id,bot)")
+                c.execute("INSERT OR IGNORE INTO attempt_processes(attempt_id,runner_id,bot) SELECT id,runner_id,bot FROM attempts WHERE state='running'")
                 R.ensure_task_sweep(c)
                 # The Assistant's pending actions (backend/assistant.py) and the "via" of a task-history row.
                 from .assistant import ensure_schema as ensure_assistant_schema

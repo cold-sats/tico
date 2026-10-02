@@ -114,9 +114,10 @@ def assign(api, r, bot, generation=0, operator="ana-test"):
                 "expected_generation": generation}, token=operator)
 
 
-def ready(api, r, bots):
+def ready(api, r, bots, active_attempts=None):
     return post(api, "runners/heartbeat", {"version": "test", "platform": "test",
-                "readiness": {bot: True for bot in bots}}, token=r["token"])
+                "readiness": {bot: True for bot in bots},
+                **({"active_attempts": active_attempts} if active_attempts is not None else {})}, token=r["token"])
 
 
 def claim(api, r, bot=None, key=None):
@@ -415,3 +416,34 @@ def test_update_status_reports_the_release_this_server_really_ran_before(api, mo
     body = r.json()
     assert body["running"] == "0.3.0" and body["previous"] == "0.2.41"
     assert [h["version"] for h in body["history"]][-2:] == ["0.2.41", "0.3.0"]
+
+
+def test_expired_live_process_fences_the_bot_until_finished_or_reported_gone(api):
+    r, _, first = setup_attempt(api)
+    post(api, f"attempts/{first['id']}/started", {"thread_id": "live-turn"}, token=r["token"])
+    post(api, "chat/ops", {"text": "A separate request"})
+    expire(api, first["id"])
+    assert claim(api, r) is None, "an older runner's started process is fenced too"
+    ready(api, r, ["ops"])
+    assert claim(api, r) is None, "omitting process reports is not proof the process stopped"
+    replacement = post(api, "jobs/claim", {"active_attempts": []}, token=r["token"])["attempt"]
+    assert replacement and replacement["id"] != first["id"]
+
+
+def test_reported_unstarted_process_is_fenced_and_legacy_completion_releases_guard(api):
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    post(api, "chat/ops", {"text": "Review this"})
+    first = post(api, "jobs/claim", {"active_attempts": []}, token=r["token"])["attempt"]
+    expire(api, first["id"])
+    assert post(api, "jobs/claim", {"active_attempts": [first["id"]]}, token=r["token"])["attempt"] is None
+    assert post(api, "jobs/claim", {"active_attempts": []}, token=r["token"])["attempt"]
+    # A legacy computer has no process field, but finishing its live turn still releases it.
+    r2, _, second = setup_attempt(api, bot="finance")
+    post(api, f"attempts/{second['id']}/started", {"thread_id": "legacy-turn"}, token=r2["token"])
+    post(api, "chat/finance", {"text": "Another request"})
+    expire(api, second["id"])
+    assert claim(api, r2) is None
+    post(api, f"attempts/{second['id']}/complete", {"outcome": "completed", "text": "Reviewed", "last_seq": 0}, token=r2["token"])
+    assert claim(api, r2)

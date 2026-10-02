@@ -119,7 +119,7 @@ def test_a_late_result_never_overrides_the_attempt_that_took_the_work_over(api):
     tool_reporting(api)
     aged(api, attempt['id'])
     assert [d['state'] for d in sweep(api)] == ['queued']
-    ready(api, machine, ['ops'])
+    ready(api, machine, ['ops'], active_attempts=[])
     second = claim(api, machine)
     assert second and second['id'] != attempt['id']
     filed = post(api, f"attempts/{attempt['id']}/complete",
@@ -213,7 +213,7 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     assert claim(api, machine) is None and job_state(api, attempt['job_id']) == 'uncertain'
     aged(api, attempt['id'])
     assert [d['state'] for d in sweep(api)] == ['queued']
-    ready(api, machine, ['ops'])
+    ready(api, machine, ['ops'], active_attempts=[])
     again = claim(api, machine)
     body = again['message']['body']
     assert 'finish only what is left' in body and 'Archived both bots; telling Priya next.' in body

@@ -66,4 +66,11 @@ def sweep(c, execution):
     """Place the active bots that still have no computer (one arrived, a runner came back). Cheap when there are none."""
     rows = c.execute("SELECT b.slug FROM bots b JOIN bot_config bc ON bc.bot=b.slug LEFT JOIN assignments a ON a.bot=b.slug "
                      "WHERE b.state='active' AND a.bot IS NULL ORDER BY b.slug LIMIT ?", (SWEEP_LIMIT,)).fetchall()
-    return [(r["slug"], placed) for r in rows if (placed := auto_place(c, execution, r["slug"]))]
+    from .batch_work import isolated
+    result = []
+    for row in rows:
+        with isolated(c, "placement", row["slug"]):
+            placed = auto_place(c, execution, row["slug"])
+            if placed:
+                result.append((row["slug"], placed))
+    return result

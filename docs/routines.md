@@ -47,8 +47,10 @@ list is `clients/routines.py EVENTS`.
 
 ## What happens when one is due
 
-The scheduler ticks every ten seconds and reads the table. A due routine opens one task owned by
-the bot, body = the routine's text. Missed occurrences coalesce into the latest due one. An
+The scheduler ticks every ten seconds and reads the table. Each row runs independently: a failed
+routine, task reminder or PR notice is logged and retried without rolling back other work.
+A due routine opens one task owned by the bot, body = the routine's text. Missed occurrences
+coalesce into the latest due one. An
 unfinished task absorbs later occurrences of the same routine, each of which reminds the bot in
 that task; a task waiting on a human is left alone; a task marked done is closed before the
 next occurrence opens a fresh one. Editing the text reaches the next occurrence, never a task

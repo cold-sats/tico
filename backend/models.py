@@ -636,6 +636,7 @@ class RepositoryStatus(Contract):
 
 
 class Heartbeat(Contract):
+    active_attempts: list[ID] | None = Field(default=None, max_length=32)
     repositories: list[RepositoryStatus] | None = None
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
@@ -1137,6 +1138,7 @@ class Recruit(Contract):
 
 
 class Claim(Contract):
+    active_attempts: list[ID] | None = Field(default=None, max_length=32)
     bot: ID | None = None
     # The runner puts next-run tasks in its prompt. One that does not say so is never handed
     # any, so they wait for it rather than being marked carried and never read.

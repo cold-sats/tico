@@ -533,3 +533,62 @@ def test_the_runner_keeps_its_last_trouble_lines_for_a_support_bundle():
         outage.log(f"Tico runner: failed {n}")
     assert len(outage.RECENT) == 50 and outage.RECENT[-1].endswith("failed 79")
     outage.RECENT.clear()
+
+
+def test_checkout_lock_excludes_another_process_and_releases_after_close(tmp_path):
+    import sys
+    from runner.checkout_lock import hold
+    code = "from runner.checkout_lock import hold; import sys\nwith hold(sys.argv[1]) as ok: sys.exit(0 if ok else 7)"
+    checkout = tmp_path / "nested" / "bot-ops"
+    with hold(checkout) as acquired:
+        assert acquired
+        assert subprocess.run([sys.executable, "-c", code, str(checkout)], check=False).returncode == 7
+    assert subprocess.run([sys.executable, "-c", code, str(checkout)], check=False).returncode == 0
+
+
+def test_busy_checkout_never_starts_a_harness_and_can_run_after_release(tmp_path):
+    from runner.checkout_lock import hold
+    checkout = tmp_path / "emp-coo"
+    checkout.mkdir()
+    client, host = FakeClient(), FakeHost(replies=["done"])
+    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
+                    tmp_path / "state", client=client, host_factory=lambda *args: host,
+                    push=lambda *args, **kw: (0, ""))
+    with hold(checkout):
+        runner.execute(attempt())
+        assert not host.prompts
+        assert client.completion()["outcome"] == "interrupted"
+    runner.execute(attempt("att-2"))
+    assert len(host.prompts) == 1
+
+
+def test_old_server_claims_only_bots_without_local_turns(tmp_path):
+    client = FakeClient()
+    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
+                    tmp_path / "state", client=client)
+    runner.active["att-1"] = Future()
+    runner.attempt_bots["att-1"] = "ops"
+    runner.assignments_seen = [{"bot": "ops"}, {"bot": "finance"}]
+    runner.claim_next()
+    assert client.posts == [("jobs/claim", {"next_run": True, "bot": "finance"})]
+    runner.assignments_seen = [{"bot": "ops"}]
+    assert runner.claim_next() == {"attempt": None}
+    assert len(client.posts) == 1
+
+
+def test_process_reports_fall_back_on_an_old_server(tmp_path):
+    client = FakeClient()
+    original = client.post
+    def old(path, body=None, key=None):
+        if "active_attempts" in body:
+            raise APIError("validation", "Extra inputs: active_attempts", 422, False)
+        return original(path, body, key)
+    client.post = old
+    runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
+                    tmp_path / "state", client=client)
+    runner._reports_attempts = True
+    assert runner.claim_next() == {"attempt": None}
+    assert not runner._reports_attempts
+    runner._reports_attempts = True
+    assert runner.report_heartbeat({"readiness": {}}) == {}
+    assert not runner._reports_attempts

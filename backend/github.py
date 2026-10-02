@@ -21,6 +21,7 @@ import re
 from fastapi import Request, Response
 
 from . import hubdb as H
+from .batch_work import isolated
 from .store import Problem
 
 PATH = "/api/v2/github/webhook"   # under /api/v2: the runner hostname routes only that prefix
@@ -47,6 +48,23 @@ def _move(c, task, status, note):
     H.task_update(c, H.KEEPER, task["id"], status=status, note=note, mover=True)
     c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task["id"],))
     return H.task(c, task["id"])
+
+
+def flush_wakes(c):
+    """Send each due PR burst independently; keep a failed or blocked notice for retry."""
+    from .repositories import metadata
+    sent = []
+    for row in c.execute("SELECT key FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchall():
+        with isolated(c, "github_wake", row["key"]):
+            burst = metadata(c, row["key"])
+            if burst.get("due", "") > H.now():
+                continue
+            task = H.task(c, row["key"].split(":", 1)[1])
+            if task and task["status"] not in ("done", "closed"):
+                H._wake(c, task, task["owner"], "\n".join(burst.get("items", [])))
+                sent.append(task["id"])
+            c.execute("DELETE FROM registry_metadata WHERE key=?", (row["key"],))
+    return sent
 
 
 def pull_request(c, payload):
@@ -116,22 +134,25 @@ def ship_deployed(c, settings):
     here = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (commit,)).fetchone()
     shipped = []
     for link in H._rows(c.execute(
-            "SELECT l.* FROM task_links l JOIN tasks t ON t.id=l.task_id "
-            "WHERE l.kind='pr' AND l.state='merged' AND l.pr_sha IS NOT NULL AND t.status='ready'")):
-        m = PR_LINK.match(link["url"])
-        if not m or f"{m.group(1)}/{m.group(2)}".lower() != repo.lower():
-            continue
-        merged = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (link["pr_sha"],)).fetchone()
-        included = link["pr_sha"] == commit or (here and merged and merged["seq"] <= here["seq"])
-        if not included:
-            continue
-        task = H.task(c, link["task_id"])
-        if not task or task["status"] != "ready":
-            continue
-        _move(c, task, "done", f"Shipped in release {commit[:12]} ({link['title']}).")
-        c.execute("UPDATE task_links SET state='shipped' WHERE id=?", (link["id"],))
-        H.event(c, H.KEEPER, "github.shipped", task["id"], {"release": commit, "url": link["url"]})
-        shipped.append(task["id"])
+            "SELECT l.*,p.seq AS merge_seq FROM task_links l JOIN tasks t ON t.id=l.task_id "
+            "LEFT JOIN main_pushes p ON p.sha=l.pr_sha "
+            "WHERE l.kind='pr' AND l.state='merged' AND l.url LIKE ? ESCAPE '\\' "
+            "AND l.pr_sha IS NOT NULL AND t.status='ready'",
+            ("https://github.com/" + repo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/pull/%",))):
+        with isolated(c, "ship_deployed", link["id"]):
+            m = PR_LINK.match(link["url"])
+            if not m or f"{m.group(1)}/{m.group(2)}".lower() != repo.lower():
+                continue
+            included = link["pr_sha"] == commit or (here and link["merge_seq"] and link["merge_seq"] <= here["seq"])
+            if not included:
+                continue
+            task = H.task(c, link["task_id"])
+            if not task or task["status"] != "ready":
+                continue
+            _move(c, task, "done", f"Shipped in release {commit[:12]} ({link['title']}).")
+            c.execute("UPDATE task_links SET state='shipped' WHERE id=?", (link["id"],))
+            H.event(c, H.KEEPER, "github.shipped", task["id"], {"release": commit, "url": link["url"]})
+            shipped.append(task["id"])
     return shipped
 
 

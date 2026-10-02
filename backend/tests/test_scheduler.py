@@ -70,3 +70,87 @@ def test_idle_claims_do_not_take_the_write_lock_and_never_starve_leases(api):
     assert len([a for a in got if a]) == 1
     with store.read() as c:
         assert c.execute("SELECT count(*) FROM attempts WHERE state='expired'").fetchone()[0] == 0
+
+
+def test_path_like_titles_and_a_failed_reminder_do_not_stop_other_rows(api, monkeypatch):
+    store = api.app.state.store
+    tasks = [post(api, "tasks", {"owner": "coo", "title": title, "body": "Review access",
+                                   "due": "2026-09-10T15:00:00Z"})
+             for title in ("Review secrets/prod access", "Review emp-ops/reports", "Broken reminder")]
+    original = H.say
+    def say(c, actor, target, body, **kw):
+        if body == "Due: Broken reminder":
+            H.event(c, H.KEEPER, "reminder.partial", tasks[-1]["id"])
+            raise RuntimeError("broken row")
+        return original(c, actor, target, body, **kw)
+    monkeypatch.setattr(H, "say", say)
+    with store.transaction() as c:
+        c.execute("INSERT INTO registry_metadata VALUES('deployment-drain:broken','invalid json')")
+        c.execute("INSERT INTO schedules(id,bot,cron,title,playbook,next_due) "
+                  "VALUES('healthy','coo','0 9 * * *','Review daily work','Review work',?)",
+                  ('2026-09-09T16:00:00Z',))
+    result = Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, 10, 17, tzinfo=timezone.utc))
+    assert len(result["fired"]) == 1
+    assert result["failures"] == [{"reminder": tasks[-1]["id"], "error": "RuntimeError"}]
+    with store.read() as c:
+        assert {r[0] for r in c.execute("SELECT task_id FROM task_reminders")} == {t["id"] for t in tasks[:2]}
+        assert not c.execute("SELECT 1 FROM events WHERE action='reminder.partial'").fetchone()
+        assert c.execute("SELECT count(*) FROM schedule_occurrences").fetchone()[0] == 1
+
+
+def test_claim_query_skips_unready_queue_and_reuses_unchanged_selection(api, monkeypatch):
+    from backend.tests.test_api import assign, ready, runner
+    r = runner(api)
+    assign(api, r, "ops")
+    assign(api, r, "finance")
+    ready(api, r, ["finance"])
+    store, execution = api.app.state.store, api.app.state.execution
+    with store.transaction() as c:
+        for _ in range(40):
+            H.say(c, H.KEEPER, "bot:ops", "Review queued work", kind="notice")
+        expected = H.say(c, "human:ana", "bot:finance", "Review this first")
+    calls = []
+    candidate = execution.candidate
+    def select(*args):
+        calls.append(1)
+        return candidate(*args)
+    monkeypatch.setattr(execution, "candidate", select)
+    result = post(api, "jobs/claim", {}, token=r["token"])["attempt"]
+    assert result["message"]["id"] == expected["id"] and calls == [1]
+
+
+def test_claim_reselects_when_database_changes_after_the_read(api, monkeypatch):
+    from backend.tests.test_api import assign, ready, runner
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    post(api, "chat/ops", {"text": "Review work"})
+    store, execution = api.app.state.store, api.app.state.execution
+    idle = execution._idle_claim
+    def drain_after_read(*args):
+        result = idle(*args)
+        with store.transaction() as c:
+            c.execute("INSERT INTO bot_control(bot,draining) VALUES('ops',1) "
+                      "ON CONFLICT(bot) DO UPDATE SET draining=1")
+        return result
+    monkeypatch.setattr(execution, "_idle_claim", drain_after_read)
+    assert post(api, "jobs/claim", {}, token=r["token"])["attempt"] is None
+
+
+def test_claim_sql_preserves_python_task_refs_and_unrelated_human_chats(api):
+    from backend.tests.test_api import assign, ready, runner
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    store = api.app.state.store
+    with store.transaction() as c:
+        held = H.say(c, "human:ana", "bot:ops", "Interrupted request", refs={"task": "held-task"})
+        c.execute("UPDATE jobs SET state='uncertain' WHERE message_id=?", (held["id"],))
+        blocked = H.say(c, "human:ana", "bot:ops", "Continue that request",
+                        conversation_id=held["conversation_id"], refs={"task": [None, "\u00a0held-task\u3000"]})
+        unrelated = H.say(c, "human:ana", "bot:ops", "An unrelated request",
+                          conversation_id=held["conversation_id"], refs={"task": 42})
+    result = post(api, "jobs/claim", {}, token=r["token"])["attempt"]
+    assert result["message"]["id"] == unrelated["id"]
+    with store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE message_id=?", (blocked["id"],)).fetchone()[0] == 'queued'
