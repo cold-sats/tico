@@ -179,6 +179,8 @@ def _waiting(c, online_ids):
     assigned = {r["bot"]: (r["runner_id"], r["label"]) for r in c.execute(
         "SELECT a.bot, a.runner_id, r.label FROM assignments a JOIN runners r ON r.id=a.runner_id "
         "WHERE r.revoked_at IS NULL")}
+    # A starter bot still waiting for its first setup holds its work on purpose: not slow.
+    parked = {r["bot"] for r in c.execute("SELECT bot FROM bot_config WHERE onboarding_state IN ('needs_setup','needs_onboarding')")}
     waiting, slow = [], []
     for bot in c.execute("SELECT slug,display_name FROM bots WHERE state='active' ORDER BY slug"):
         slug = bot["slug"]
@@ -190,8 +192,8 @@ def _waiting(c, online_ids):
             waiting.append({**row, "reason": "computer_offline"})
         elif not where and count and not online_ids:
             waiting.append({**row, "reason": "no_computer"})
-        elif where and count and oldest and oldest < cutoff:
-            slow.append(row)
+        elif where and count and oldest and oldest < cutoff and slug not in parked:
+            slow.append({**row, "reason": "slow"})
     return waiting, slow
 
 

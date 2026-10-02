@@ -75,7 +75,7 @@ function hlPageDraw() {
   const host = $('#hl-page');
   if (!host) return;
   if (!HL) { host.innerHTML = '<div class="empty">Nothing to show yet.</div>'; return; }
-  const bots = list => list.map(row => `<li><a href="#/bot/${esc(row.bot)}">${esc(row.name)}</a> <span class="muted">${row.reason === 'no_computer' ? 'no computer is online' : row.computer ? esc(row.computer) + ' is offline' : 'waiting ' + esc(ago(row.oldest))}${row.queued ? ', ' + row.queued + ' waiting' : ''}</span></li>`).join('');
+  const bots = list => list.map(row => `<li><a href="#/bot/${esc(row.bot)}">${esc(row.name)}</a> <span class="muted">${row.reason === 'no_computer' ? 'no computer is online' : row.reason === 'computer_offline' ? esc(row.computer) + ' is offline' : 'waiting since ' + esc(ago(row.oldest))}${row.queued ? ', ' + row.queued + ' waiting' : ''}</span></li>`).join('');
   // Settings' own checks that need nobody (ui/app/settings.js shows only the ones that do).
   const notes = (typeof SETTINGS_DATA !== 'undefined' && SETTINGS_DATA.issues || []).filter(issue => !needsPerson(issue));
   host.innerHTML = `<p class="muted" id="hl-summary">${HL.attention ? `${HL.attention} issue${HL.attention === 1 ? '' : 's'} to look at`

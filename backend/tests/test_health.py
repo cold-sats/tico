@@ -201,3 +201,29 @@ def test_health_tool_includes_watcher_and_queue_failures(environment):
     assert checks["watchers"] == settings_checks["watchers"]
     assert checks["queue"] == settings_checks["queue"]
     assert {"watchers", "queue"} <= {issue["kind"] for issue in tool["issues"]}
+
+
+def test_old_work_on_a_computer_that_is_up_is_not_called_offline(environment):
+    api = environment()
+    rid = enrolled(api)
+    add_bot(api, "helper")
+    heartbeat(api, rid, runtimes=SIGNED_IN)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('helper',?,1,?,'test')", (rid, H.now()))
+        queue(c, "helper", 20, "old-work")
+    body, checks = health_of(api)
+    assert body["waiting"] == [] and body["slow"][0]["reason"] == "slow"
+    assert checks["waiting"]["status"] == "ok" and checks["queue"]["status"] == "warn"
+
+
+def test_a_bot_waiting_for_its_first_setup_is_not_slow(environment):
+    api = environment()
+    rid = enrolled(api)
+    add_bot(api, "helper")
+    heartbeat(api, rid, runtimes=SIGNED_IN)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('helper',?,1,?,'test')", (rid, H.now()))
+        c.execute("INSERT INTO bot_config(bot,config_json,operator,onboarding_state) VALUES('helper','{}','ana','needs_setup')")
+        queue(c, "helper", 20, "held-work")
+    body, checks = health_of(api)
+    assert body["slow"] == [] and checks["queue"]["status"] == "ok"
