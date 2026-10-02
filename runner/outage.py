@@ -17,7 +17,8 @@ def log(line):
     line = scrub_log(line)
     print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
     if TROUBLE.search(line):
-        RECENT.append(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + " " + line.replace("\n", " ")[:280])
+        # The server keeps at most 300 characters per line; the timestamp and space are 21 of them.
+        RECENT.append((time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + " " + line.replace("\n", " "))[:300])
 
 
 def span(seconds):

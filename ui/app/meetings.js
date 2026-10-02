@@ -108,7 +108,8 @@ function meetTile(state, source, big) {
   return `<${source.id === 'close' ? 'a' : 'button'} class="meet-tile${big ? ' big' : ''}" data-state="${st.key}" ${attrs} aria-label="${esc(label)}">
       ${meetLogo(source.id, big ? 40 : 30)}<span class="mt-text"><b>${esc(source.name)}</b><span class="mt-status">${st.key && st.key !== 'off' ? '<i class="dot" aria-hidden="true"></i>' : ''}${esc(st.word)}${when ? ` <span class="mt-when">${esc(when)}</span>` : ''}</span></span></${source.id === 'close' ? 'a' : 'button'}>`;
 }
-const meetTilesHTML = (state, big) => MEET_SOURCES.map(s => meetTile(state, s, big)).join('');
+// With the viewer's own Granola row above the strip (ui/app/meetings-granola.js), the strip leaves Granola out: one place for it.
+const meetTilesHTML = (state, big) => MEET_SOURCES.filter(s => big || s.id !== 'granola' || !state.granola).map(s => meetTile(state, s, big)).join('');
 function meetWireTiles(state, root) {
   root.querySelectorAll('[data-msrc]').forEach(b => b.onclick = () => {
     const source = MEET_SOURCES.find(s => s.id === b.dataset.msrc);
@@ -342,6 +343,7 @@ const meetSourceLabel = s => ({...IMPORT_SOURCES, manual: 'Typed', close: 'Close
 function meetPaint(state, rec) {
   const el = $('#notes-detail'); if (!el) return;
   const id = rec.id, turns = rec.turns || [], sent = rec.sent, typed = rec.kind === 'note';
+  const outcome = rec.outcome && rec.outcome.status !== 'not_sent' ? rec.outcome : null;   // "Not sent" is said once, by the send bar
   // The server decides who may change a meeting; `can_edit: false` is somebody else's, open here to read.
   const mayEdit = rec.can_edit !== false;
   const transcript = turns.length ? `<div class="note-transcript">${turns.map(t => `<p><span class="muted mono">[${mmss(t.start_ms)}]</span> ${t.speaker ? `<strong>${esc(t.speaker)}</strong> ` : ''}${esc(t.text)}</p>`).join('')}</div>`
@@ -396,7 +398,7 @@ function meetPaint(state, rec) {
     ${rec.error ? `<div class="err" style="margin-top:12px">${esc(rec.error)}</div>` : ''}
     ${rec.warning ? `<div class="muted" style="font-size:12.5px;margin-top:8px">${esc(rec.warning)}</div>` : ''}
     ${rec.meeting_context ? `<details class="note-content"><summary>Meeting context</summary><div class="md">${safeMd(rec.meeting_context)}</div></details>` : ''}
-    ${rec.outcome || sent ? `<section class="note-content note-outcome"><h3>Outcome</h3>${noteOutcomeHTML(rec, true)}</section>` : ''}
+    ${outcome || sent ? `<section class="note-content note-outcome"><h3>Outcome</h3>${noteOutcomeHTML(rec, true)}</section>` : ''}
     ${rec.delivery?.status === 'pending' ? '<p class="hint">Saved. Delivery continues in the background.</p>' : ''}
     ${rec.delivery?.error ? `<p class="err">Delivery failed: ${esc(rec.delivery.error)}. Press Send to retry.</p>` : ''}
     ${body}
@@ -410,7 +412,7 @@ function meetPaint(state, rec) {
         <button class="linkish" type="button" id="meet-more" style="font-size:12.5px;text-decoration:none">Add instructions</button>
         <span class="spacer"></span>${delBtn}
         <textarea id="meet-instructions" aria-label="Anything else for the bot" placeholder="Anything else the bot should know" hidden></textarea>
-        <span class="hint" id="meet-msg">${rec.outcome || sent ? '' : 'Not sent to a bot yet.'}</span></div>`}`;
+        <span class="hint" id="meet-msg">${outcome || sent ? '' : 'Not sent to a bot yet.'}</span></div>`}`;
   if (mayEdit && !state.editing) meetRenameable(state, rec, $('#meet-heading'), () => meetPaint(state, rec));
   if (!typed) meetComments(state, rec);
 
@@ -599,7 +601,11 @@ const meetAuthor = a => a === 'brain' ? 'Tico' : actorLabel(a);
 // One line under the text: who owns a task and when, which document, which side of a feature.
 const meetItemLine = it => {
   const d = it.detail || {};
-  if (it.section === 'task') return [d.owner ? actorLabel(d.owner) : 'No owner yet', d.due ? 'due ' + String(d.due).slice(0, 10) : '', d.priority || ''].filter(Boolean).join(' · ');
+  // A bare "ana" or "support" is a person's id or a bot's name: show the name, as everywhere else.
+  const who = o => String(o).includes(':') ? actorLabel(o) : (S.people || []).find(p => p.id === o)?.name
+    || (S.emps.some(e => e.name === o) ? botDisplayName(o) : o);
+  if (it.section === 'task') return [d.owner ? who(d.owner) : 'No owner yet', d.due ? 'due ' + String(d.due).slice(0, 10) : '',
+    /^p\d$/i.test(d.priority || '') ? 'priority ' + d.priority.toUpperCase() : d.priority || ''].filter(Boolean).join(' · ');
   if (it.section === 'doc') return [d.document || 'No document named', d.change].filter(Boolean).join(' — ');
   if (it.section === 'feature') return [({B: 'Backend', F: 'Frontend', 'B/F': 'Backend and frontend'})[d.side] || d.side, ({CA: 'Client app', PA: 'Pro app'})[d.app] || d.app, d.area, d.bug ? 'bug' : ''].filter(Boolean).join(' · ');
   return '';

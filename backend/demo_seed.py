@@ -371,10 +371,11 @@ class Builder:
                 self.call("POST", f"/api/meetings/{result['id']}/comments", {"text": text, "at_ms": at})
 
     def updates(self):
-        """A week of daily updates and Friday's review, posted mid-morning Pacific. Older ones are read."""
+        """A week of daily updates and Friday's review, posted mid-morning Pacific. Older ones are read. Eight days, so
+        a Friday morning before the review is posted still has last Friday's on the Weekly tab."""
         def work(c):
             posted = []
-            for back in range(6, -1, -1):
+            for back in range(7, -1, -1):
                 day = updates.local_now(self.ago(days=back)).date()
                 when = datetime.combine(day, datetime.min.time(), updates.ZONE).replace(hour=7, minute=10)
                 kind = updates.kind_for(day.isoformat())
@@ -407,9 +408,9 @@ class Builder:
                 routine = c.execute("SELECT id,title FROM schedules WHERE bot=? ORDER BY id LIMIT 1", (bot,)).fetchone() if trigger == "routine" else None
                 if routine:
                     task = hubdb.task_create(c, hubdb.KEEPER, routine["title"], summary, "bot:" + bot, deduplicate=False)
-                request = hubdb.say(c, "human:ana", "bot:" + bot, "Demo run: " + summary,
-                                   refs={"task": task["id"]} if task else {})
-                turn = hubdb.turn_start(c, hubdb.KEEPER, bot, trigger=trigger, message_id=request["id"])
+                # The run's note is the bot's own words, never a message from a person; Runs finds the run by it.
+                note = hubdb.say(c, "bot:" + bot, "human:ana", summary, refs={"task": task["id"]} if task else {})
+                turn = hubdb.turn_start(c, hubdb.KEEPER, bot, trigger=trigger, message_id=note["id"])
                 self.clock.at += timedelta(minutes=4)
                 model, provider, billing = D.USAGE[bot]
                 cached = tokens_in * 2 // 3

@@ -26,6 +26,23 @@ All notable changes to Tico are recorded here. The format follows
 - A task's `updated` time moves when a file is attached to it or archived, a link is removed, a linked pull request
   changes state, or a question on it is asked or answered, as it already did for its fields, comments and new links.
 
+## [0.3.4] - 2026-10-02
+
+### Fixed
+- Connecting a Granola account no longer fails as "unreachable": Granola's compressed answers were decoded twice.
+
+## [0.3.3] - 2026-10-02
+
+### Fixed
+- Pages opened after a bot page (Docs, Meetings, Goals, Settings, Help) no longer keep the bot page's two-column layout.
+- Goals: the Goal Manager has its own right rail beside the goals tree. The Assistant page uses the bot-page layout.
+- "Set goal" replaces "No goal · Set goal". Tool icons show the account or repository, access and state on hover.
+- Market reads well in the light theme and labels its graph. Tools names bots and credentials in words. The Assistant
+  is never shown as "Tico". Model names, routine schedules, Health notes, GitHub status and many Settings, Docs, Runs
+  and Meetings labels are clearer, and Settings fits a phone.
+- A computer whose recent error lines ran past 300 characters had its whole status report refused and could not become ready. Computers now cut each line to 300 characters and the server trims instead of refusing.
+- Connecting a Granola account works: Granola requires a redirect address when Tico registers, even for the code-based sign-in.
+
 ## [0.3.2] - 2026-10-02
 
 ### Added

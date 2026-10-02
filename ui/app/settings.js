@@ -127,14 +127,14 @@ async function renderSettingsPrivacy() {
   try { v = await get('/v2/system/usage-count'); } catch (e) { host.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   const forced = v.off_by && v.off_by !== 'setting';
   host.innerHTML = `<label class="privacy-row"><input type="checkbox" id="privacy-count"${v.enabled ? ' checked' : ''}${forced ? ' disabled' : ''}> Help count active installs</label>
-    <p class="settings-cell-note">${forced ? 'Off by ' + esc(v.off_by === 'demo' ? 'demo mode' : v.off_by) + '. ' : ''}A random ID, the version and two yes/no activity flags. <a href="${esc(v.doc)}" target="_blank" rel="noopener noreferrer">What is sent</a></p>
-    <p class="settings-cell-note">Install ID: <code>${esc(v.install_id || 'not made yet')}</code> <button class="ghost" type="button" id="privacy-reset">Reset install ID</button></p>`;
+    <p class="settings-cell-note">${forced ? (v.off_by === 'demo' ? 'Always off in the demo. ' : `Turned off by ${esc(v.off_by)}. `) : ''}A random ID, the version and two yes/no activity flags. <a href="${esc(v.doc)}" target="_blank" rel="noopener noreferrer">What is sent</a></p>
+    <p class="settings-cell-note">${v.install_id ? `Install ID: <code>${esc(v.install_id)}</code> <button class="ghost" type="button" id="privacy-reset">Reset install ID</button>` : 'No install ID yet: one is made the first time the count is sent.'}</p>`;
   $('#privacy-count').onchange = async ev => {
     try { await put('/v2/system/usage-count', {enabled: ev.target.checked}); toast(ev.target.checked ? 'Counting is on' : 'Counting is off'); }
     catch (e) { toast(e.message, true); }
     void renderSettingsPrivacy();
   };
-  $('#privacy-reset').onclick = async () => {
+  if ($('#privacy-reset')) $('#privacy-reset').onclick = async () => {
     try { await post('/v2/system/usage-count/reset'); toast('New install ID made'); } catch (e) { toast(e.message, true); }
     void renderSettingsPrivacy();
   };
@@ -177,8 +177,9 @@ async function loadSettings() {
 }
 function renderSettingsIssues() {
   const el = $('#settings-issues'); if (!el) return;
-  const issues = SETTINGS_DATA.issues || [];
-  const urgent = issues.some(needsPerson);
+  // Only what needs a person heads Settings; the rest is listed under Health, so the two never disagree.
+  const issues = (SETTINGS_DATA.issues || []).filter(needsPerson);
+  const urgent = issues.length > 0;
   el.innerHTML = issues.length ? `<details class="card settings-issues"><summary><span class="dot ${urgent ? 'failed' : ''}" aria-hidden="true"></span><strong>System checks <span class="tnum">${issues.length}</span></strong></summary>
     <div>${issues.map(issue => `<div class="settings-issue"><div><strong>${esc(issue.title)}</strong>${needsPerson(issue) ? '' : ` <span class="tag">${issue.kind === 'uncertain_work' ? 'review later' : 'not urgent'}</span>`}<p>${esc(issue.detail)}</p>${issue.action && issue.action !== 'review' ? `<p>${esc(issue.action)}</p>` : ''}</div>${issue.kind === 'uncertain_work' ? `<button class="ghost" data-execution-review="${esc(issue.bot)}">Review stopped runs</button>` : ''}${runnerRestartButton(issue)}${issue.bot ? `<a class="ghost" href="#/bot/${esc(issue.bot)}/more">Open bot</a>` : ''}</div>`).join('')}</div></details>` : '';
   el.querySelectorAll('[data-execution-review]').forEach(button => {

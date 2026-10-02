@@ -54,7 +54,7 @@ function messagingEvidence(data) {
 function messagingRuns(data) {
   const routines = (data.routines || []).map(r => `<div class="msg-run">
     <div class="msg-run-top"><strong>${esc(r.title)}</strong><span class="spacer"></span><span class="pill">${r.enabled ? 'Active' : 'Paused'}</span></div>
-    <div class="msg-run-meta"><span>${esc(r.on ? 'On ' + r.on : r.cron + ' · ' + r.timezone)}</span><span>Last ${r.last_fired ? esc(ago(r.last_fired)) : 'never'}</span><span>Next ${r.next_due && r.active ? esc(fmt(r.next_due)) : '—'}</span></div>
+    <div class="msg-run-meta"><span>${esc(cadenceZoned(r).replace(/^./, c => c.toUpperCase()))}</span><span>Last ${r.last_fired ? esc(ago(r.last_fired)) : 'never'}</span><span>Next ${r.next_due && r.active ? esc(fmt(r.next_due)) : '—'}</span></div>
     ${data.bot.can_manage ? `<div class="row" style="gap:6px;margin-top:8px"><button class="ghost" type="button" data-msg-toggle="${esc(r.id)}" data-msg-enabled="${r.enabled ? '1' : '0'}">${r.enabled ? 'Pause' : 'Resume'}</button>${r.kind === 'cron' && r.active ? `<button class="ghost" type="button" data-msg-run="${esc(r.id)}">Run now</button>` : ''}</div>` : ''}
     <details><summary>Instructions and ${r.occurrences?.length || 0} recent runs</summary><pre class="mail-body">${esc(r.text || '')}</pre>
       ${(r.occurrences || []).map(o => `<div class="msg-run-occ">${esc(o.occurrence)} · ${esc(o.status || o.outcome)}${o.exit ? ' · ' + esc(o.exit) : ''}${o.task_id ? ` · <a href="#/task/${encodeURIComponent(o.task_id)}">Task</a>` : ''}</div>`).join('') || '<div class="muted">No runs recorded.</div>'}</details>

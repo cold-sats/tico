@@ -668,7 +668,7 @@ function recruitFor({department, briefing, share}) {
     assert.deepEqual(await page.locator('#fr-tools [data-fr-link]').evaluateAll(els => els.map(el => el.dataset.frLink)),
       ['credentials', 'integrations']);
     assert.equal(await page.locator('[data-fr-link=credentials]').getAttribute('href'), '#/credentials');
-    assert.match(await page.locator('[data-fr-secrets]').textContent(), /Enter credentials in those fields, never in a chat with a bot/);
+    assert.match(await page.locator('[data-fr-secrets]').textContent(), /Enter credentials on the Credentials page, never in a chat with a bot/);
     // What was typed survives the progress poll (only the rows are redrawn).
     await page.locator('#fr-admin-form [name=name]').fill('Half typed');
     await page.evaluate(() => onbRenderDone(ONB));

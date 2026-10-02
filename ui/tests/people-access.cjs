@@ -106,7 +106,8 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     assert.equal(await page.locator('#member-bot-limit').inputValue(), '25');
     assert.equal(await page.locator('#people-proxy-note').count(), 0);
     assert.equal(await row('ana').locator('[data-person-role]').count(), 0);
-    assert.equal(await row('ana').locator('[data-person-signin]').isDisabled(), true);
+    assert.equal(await row('ana').locator('[data-person-signin]').count(), 0, 'the owner can always sign in: words, not a switch');
+    assert.equal((await row('ana').locator('.people-cell-signin').innerText()).trim(), 'Always');
 
     // Add a person inline; Cloudflare Access is not changed by Tico, so one line says so.
     await page.locator('#people-add [name=email]').fill('cy@acme.example');

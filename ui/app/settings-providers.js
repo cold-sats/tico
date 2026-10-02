@@ -8,7 +8,7 @@
 function providersModels(view, models, enabled) {
   const labels = Object.fromEntries((view.providers || []).map(row => [row.id, row.label]));
   return (models || []).filter(model => !model.deprecated && enabled.includes(model.provider))
-    .map(model => ({id: model.id, label: `${labels[model.provider] || model.provider} · ${model.label}`,
+    .map(model => ({id: model.id, label: modelWords(model.id) || `${labels[model.provider] || model.provider} · ${model.label}`,
                     recommended: (view.providers || []).some(row => row.recommended === model.id)}));
 }
 // One line per provider: box, name, a few muted words. The vendors that run through OpenRouter share one line.
@@ -85,7 +85,7 @@ function providersNextHTML(view, owner) {
       ? ` <button class="ghost" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(runtime)}" data-machine="${esc(machine.label)}">Sign in</button>`
       : ' · <a href="#/settings" data-provider-computers>Open computer</a>'}</li>`;
   }));
-  return `<div class="provider-next"><p>Sign in on each computer, or <a href="${CREDENTIALS}">use an API key</a> in Credentials and grant it to Every computer.</p>
+  return `<div class="provider-next"><p>Sign in on each computer, or <a href="${CREDENTIALS}">use an API key</a> in Credentials and share it with every computer.</p>
     ${machines.length ? (rows.length ? `<ul>${rows.join('')}</ul>` : '<p class="muted">Computers are signed in.</p>') : '<p><a href="#/settings" data-provider-computers>Add computer</a></p>'}</div>`;
 }
 document.addEventListener('click', event => {
