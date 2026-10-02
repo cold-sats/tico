@@ -158,6 +158,16 @@ def page(c, who, cid, *, before=None, since=None, limit=200, task_id=None):
             "next_before": messages[0]["id"] if more and messages else None}
 
 
+def deleted_comment_ack(c, principal, payload):
+    """Only the canonical, empty deletion receipt may survive message withdrawal."""
+    current = H.message(c, payload.get("id"), include_deleted=True)
+    if (not current or not current.get("deleted_at") or current.get("body") != ""
+            or not H.is_comment(current) or set(current.get("refs", {})) != {"task", "comment"}
+            or payload != current):
+        return False
+    return readable(c, principal, message_tasks(c, current))
+
+
 def require_payload(c, who, payload, principal=None):
     """Cached writes are reads too; a stored response cannot restore revoked access."""
     principal = principal or actor(who)
@@ -190,8 +200,9 @@ def require_payload(c, who, payload, principal=None):
                 require_payload(c, who, H._json(payload[key], {}) or {}, principal)
         if payload.get("attempt_id") and not attempt_readable(c, principal, payload["attempt_id"]):
             raise Problem("privacy", "This execution is no longer available", 403)
-        if payload.get("conversation_id") and payload.get("id") and not message_readable(c, principal, payload):
-            raise Problem("privacy", "This message is no longer available", 403)
+        if payload.get("conversation_id") and payload.get("id"):
+            if not message_readable(c, principal, payload) and not deleted_comment_ack(c, principal, payload):
+                raise Problem("privacy", "This message is no longer available", 403)
         for value in payload.values():
             if isinstance(value, (dict, list)):
                 require_payload(c, who, value, principal)
