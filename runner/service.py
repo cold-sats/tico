@@ -20,7 +20,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
-from . import goals, repositories
+from . import goals, repositories, worktrees
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -551,6 +551,7 @@ class Runner:
         self.client = client or Client(config["url"], config["token"], timeout=10, retries=1)
         self.state = State(state_dir)
         self.repositories = repositories.Repositories(config["projects_dir"], self.state.directory / "repositories.json", self.client)
+        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda: not self.active)
         self.follower = Follower(config, self.state.directory, self.client, supervised=supervised)
         self.capacity = int(config.get("capacity", 4))
         self.host_factory = host_factory or self.make_host
@@ -1152,7 +1153,8 @@ class Runner:
         if profile:
             env = profile.environment((attempt.get("config") or {}).get("runtime") or "", env)
         env.update({"HUB_API_URL": self.config["url"], "HUB_TOKEN": attempt["token"],
-                    "HUB_BOT": attempt["bot"], "HUB_EMPLOYEE": attempt["bot"], "HUB_DIR": str(ROOT),
+                    "HUB_BOT": attempt["bot"], "HUB_EMPLOYEE": attempt["bot"],
+                    "HUB_TASK_ID": str((attempt.get("task") or {}).get("id") or ""), "HUB_DIR": str(ROOT),
                     # Where this company's bot repositories live. BotOps sets a new bot up here
                     # with `hub bot create`; every other bot reads it to find a sibling's work.
                     "HUB_WORKSPACE": str(self.config["projects_dir"]),
@@ -1603,7 +1605,7 @@ class Runner:
             note = getattr(self, "publish_notes", {}).get(row["bot"])
             if note:
                 bots[row["bot"]]["warnings"].append(PUBLISH_WARNING + note)
-        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots}
+        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": True}
         try:
             usage = shutil.disk_usage("/" if self.follower.kind == "docker" else self.state.directory)
             document["disk"] = {"total_bytes": usage.total, "free_bytes": usage.free}
@@ -2331,6 +2333,8 @@ class Runner:
                 **self.follower.fields()}
         if repository_rows is not None and time.monotonic() >= getattr(self, "_repositories_after", 0):
             body["repositories"] = repository_rows
+        if hasattr(self, "worktrees") and time.monotonic() >= getattr(self, "_worktrees_after", 0):
+            body["worktrees"] = self.worktrees.poll()
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
@@ -2344,6 +2348,8 @@ class Runner:
             for row in runtime_rows:
                 row.pop("credential_source", None)
             beat = self.report_heartbeat(body)
+        if hasattr(self, "worktrees") and not self.active:
+            self.worktrees.poll((beat or {}).get("worktree_actions", []))
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
@@ -2363,7 +2369,7 @@ class Runner:
 
     def report_heartbeat(self, body):
         readiness = body["readiness"]
-        optional = ("disk", "harnesses", "mail_key", "shared_env", "recent_errors")
+        optional = ("worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors")
         unsupported = self.__dict__.setdefault("_readiness_unsupported", {})
         for field, until in list(unsupported.items()):
             if time.monotonic() < until:
@@ -2382,6 +2388,10 @@ class Runner:
                 if exc.status != 422:
                     raise
                 detail = str(exc.detail or "Heartbeat validation failed")
+                if "worktrees" in body and "extra" in detail.lower() and ("worktrees" in detail or "readiness." not in detail):
+                    body.pop("worktrees", None)
+                    self._worktrees_after = time.monotonic() + 600
+                    continue
                 if "repositories" in body and "extra" in detail.lower() and ("repositories" in detail or "readiness." not in detail):
                     body.pop("repositories", None)
                     self._repositories_after = time.monotonic() + 600
@@ -2425,7 +2435,7 @@ class Runner:
                               re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
                 generic = extra and "readiness." not in detail
                 if not field and generic:
-                    field = next((name for name in ("harnesses", "mail_key", "shared_env", "recent_errors", "disk")
+                    field = next((name for name in ("worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "disk")
                                   if name in readiness), None)
                 if field:
                     readiness.pop(field, None)
@@ -2619,4 +2629,5 @@ class Runner:
             self.pool.shutdown(wait=True)
             self.maintenance_pool.shutdown(wait=True)
             self.repositories.close()
+            self.worktrees.close()
             self.warm.prune(close=True)

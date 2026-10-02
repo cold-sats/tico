@@ -3409,6 +3409,8 @@ def create_app(settings=None):
     # GitHub App per company: manifest setup, installation tokens for runners (docs/github-app.md).
     from .github_app import install_github_app
     install_github_app(app, settings, store)
+    from . import worktrees
+    worktrees.install(app, store, auth, mutate)
     # Slack tokens for the gateway container/process: sealed here, opened only there (docs/slack.md).
     from .slack_app import install_slack_app
     install_slack_app(app, settings, store)

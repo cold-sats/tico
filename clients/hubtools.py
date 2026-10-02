@@ -392,6 +392,20 @@ def task_create(api, args):
     return api.post("tasks", body, key=_key(args))
 
 
+@tool("hub_task_worktree_add", "Create a task worktree from a repository this bot may write.",
+      {"repo": _s("Repository owner/name"), "task": TASK_ID}, required=("repo",), writes=True, local=True)
+def task_worktree_add(api, args):
+    from runner.worktrees import command
+    return command(api, 'add', args['repo'], args.get('task'))
+
+
+@tool("hub_task_worktree_attach", "Attach a Git worktree inside the team workspace to this task.",
+      {"path": _s("Path inside the team workspace"), "task": TASK_ID}, required=("path",), writes=True, local=True)
+def task_worktree_attach(api, args):
+    from runner.worktrees import command
+    return command(api, 'attach', args['path'], args.get('task'))
+
+
 @tool("hub_task_show", "One task with its history and conversation.", {"id": TASK_ID}, required=("id",))
 def task_show(api, args):
     return api.get("tasks/" + args["id"])

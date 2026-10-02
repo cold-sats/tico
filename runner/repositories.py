@@ -119,6 +119,9 @@ class Repositories:
             try:
                 path = self.path(name)
                 if self.rows[name].get('managed') and path.exists():
+                    linked = path / '.git' / 'worktrees'
+                    if linked.is_symlink() or linked.exists() and any(linked.iterdir()):
+                        continue
                     shutil.rmtree(path)
                 with self.lock:
                     self.rows[name].update(state='removed', size_mb=0)
@@ -142,7 +145,7 @@ class Repositories:
         try:
             path = self.path(name)
             exists = path.exists()
-            if exists and (not self.rows[name].get('managed') or not (path / '.git').is_dir() or (path / '.git').is_symlink()):
+            if exists and (not (self.rows[name].get('managed') or (path / '.git' / 'tico-managed').is_file()) or not (path / '.git').is_dir() or (path / '.git').is_symlink()):
                 raise ValueError('Repository folder already exists and is not a managed base clone; left as it is')
             if not exists:
                 usage = shutil.disk_usage(self.root if self.root.exists() else self.root.parent)
@@ -176,6 +179,8 @@ class Repositories:
             if done.returncode:
                 # Git's stderr may contain credentials or local secrets; keep them out of reports.
                 raise ValueError(f'Git {"fetch" if exists else "clone"} failed (exit {done.returncode}); check GitHub access, disk space and network')
+            (path / '.git' / 'tico-managed').touch()
+            isolation.chown(path / '.git' / 'tico-managed')
             size = sum(p.stat().st_size for root, dirs, files in os.walk(path, followlinks=False)
                        for p in (Path(root) / f for f in files) if not p.is_symlink()) / (1024 ** 2)
             with self.lock:
@@ -199,3 +204,44 @@ class Repositories:
                 error = 'Could not sync base clone; check GitHub connection, network, disk space and folder permissions'
             with self.lock:
                 self.rows[name].update(state='failed', error=error)
+
+
+def worktree_base(workspace, repo, env):
+    """Fetch a managed base using this bot's own credentials, also usable inside a turn."""
+    name = repo['full_name']
+    if not valid_name(name):
+        raise ValueError('Invalid repository name')
+    root = Path(workspace) / 'repos'
+    path = root / name.lower().replace('/', '__')
+    if root.is_symlink() or path.is_symlink() or path.resolve().parent != root.resolve():
+        raise ValueError('Base clone points outside repos')
+    isolation.mkdir(root, mode=0o755)
+    if path.exists():
+        if not (path / '.git').is_dir() or (path / '.git').is_symlink():
+            raise ValueError('Base clone folder is not a Git repository')
+        current = isolation.run(['git', '-C', str(path), 'config', '--get', 'remote.origin.url'], capture_output=True, text=True, timeout=15)
+        if not git_credentials._same_repository(current.stdout.strip(), name):
+            raise ValueError('Base clone remote does not match this repository')
+    else:
+        command = ['git', 'clone', '--quiet', '--single-branch']
+        if repo.get('default_branch'):
+            command += ['--branch', repo['default_branch']]
+        done = isolation.run([*command, '--', f'https://github.com/{name}.git', str(path)], env=env, capture_output=True, text=True, timeout=120)
+        if done.returncode:
+            if path.exists():
+                shutil.rmtree(path)
+            raise ValueError('Git clone failed; check repository access, network and disk space')
+        (path / '.git' / 'tico-managed').touch()
+        isolation.chown(path / '.git' / 'tico-managed')
+    branch = repo.get('default_branch')
+    if not branch:
+        result = isolation.run(['git', '-C', str(path), 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], capture_output=True, text=True, timeout=15)
+        branch = result.stdout.strip().removeprefix('origin/')
+    if not branch or branch.startswith('-'):
+        raise ValueError('Repository default branch is missing; refresh Repositories')
+    done = isolation.run(['git', '-C', str(path), 'fetch', '--quiet', '--no-tags', 'origin',
+                         f'+refs/heads/{branch}:refs/remotes/origin/{branch}'], env=env, capture_output=True, text=True, timeout=120)
+    if done.returncode:
+        raise ValueError('Git fetch failed; check repository access, network and disk space')
+    path.touch()
+    return path, branch

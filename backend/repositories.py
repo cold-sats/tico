@@ -288,7 +288,21 @@ def install(app, store, service):
 
     @app.get('/api/v2/runners/me/repositories')
     def computer_get(request: Request):
-        return computer(request)
+        who = request.state.identity
+        if who.role != 'bot':
+            return computer(request)
+        with store.read() as c:
+            validate_identity(c, who)
+            row = service.row(c)
+            bot = H.actor_id(who.actor)
+            grants = access(c, bot, row['org'] if row else store.settings.github_owner)['effective']
+            result = []
+            for grant in grants:
+                repo = c.execute('SELECT full_name,default_branch,setup_command FROM repositories WHERE full_name=?',
+                                 (grant['full_name'],)).fetchone()
+                result.append({**(dict(repo) if repo else {'full_name': grant['full_name'], 'default_branch': None,
+                                                          'setup_command': None}), 'access': grant['access']})
+            return {'repositories': result}
 
     @app.post('/api/v2/runners/me/repositories/token')
     def computer_token(request: Request):

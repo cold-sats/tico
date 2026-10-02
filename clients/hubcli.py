@@ -575,6 +575,12 @@ def parser():
     s.set_defaults(fn="tag update")
 
     task = sub.add_parser("task").add_subparsers(dest="sub")
+    worktree = task.add_parser("worktree", help="create or attach this task's worktree").add_subparsers(dest="worktree_sub")
+    for operation, argument in (("add", "repo"), ("attach", "path")):
+        s = worktree.add_parser(operation)
+        s.add_argument(argument)
+        s.add_argument("--task", help="task id; defaults to this run's task")
+        s.set_defaults(fn="task worktree " + operation)
     s = task.add_parser("create")
     s.add_argument("--owner", required=True)
     s.add_argument("--title", required=True)

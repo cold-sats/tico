@@ -274,11 +274,13 @@ class Execution:
                           "bot_agent_instructions.content<>excluded.content OR "
                           "bot_agent_instructions.runner_id<>excluded.runner_id",
                           (bot, content, who.runner_id, now))
+        from . import worktrees
+        worktree_actions = worktrees.heartbeat(c, who, body.worktrees, readiness.get('worktrees', False))
         # A Restart a person pressed goes to the runner once; it restarts when no turn is running.
         restart = c.execute("SELECT restart_requested FROM runners WHERE id=?", (who.runner_id,)).fetchone()
         if restart and restart["restart_requested"]:
             c.execute("UPDATE runners SET restart_requested=NULL WHERE id=?", (who.runner_id,))
-        return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True,
+        return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True, "worktree_actions": worktree_actions,
                 **({"restart": True} if restart and restart["restart_requested"] else {})}
 
     def assigned(self, c, who):
