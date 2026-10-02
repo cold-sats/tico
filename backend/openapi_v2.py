@@ -154,6 +154,11 @@ STABLE = [
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
     ("/api/v2/approvals/{aid}", "get", "Needs you", "getApproval", "One approval request", None),
     ("/api/v2/approvals/{aid}", "post", "Needs you", "decideApproval", "Approve or reject", None),
+    ("/api/v2/meetings/granola", "get", "Meetings", "getGranolaStatus", "Your Granola connection", "GranolaStatus"),
+    ("/api/v2/meetings/granola/connect", "post", "Meetings", "connectGranola", "Start personal Granola browser sign-in", "GranolaDevice"),
+    ("/api/v2/meetings/granola/connect/status", "get", "Meetings", "pollGranolaSignIn", "Poll personal sign-in at the provider interval", "GranolaSignIn"),
+    ("/api/v2/meetings/granola/connect", "delete", "Meetings", "disconnectGranola", "Delete your encrypted Granola tokens", "GranolaDisconnect"),
+    ("/api/v2/meetings/granola/sync", "post", "Meetings", "syncGranola", "Start a background sync; reuse the last two minutes", "GranolaSync"),
     ("/api/v2/meetings/search", "get", "Meetings", "searchMeetings", "Search or list recorded meetings", "MeetingSearch"),
     ("/api/v2/meetings/transcript", "get", "Meetings", "getMeetingTranscript", "A meeting's transcript", None),
     ("/api/v2/bots/{bot}/files", "get", "Files", "listBotFiles",
@@ -455,6 +460,15 @@ SCHEMAS = {
         "type": "object", "required": ["id", "kind", "title"], "additionalProperties": True,
         "properties": {"id": {"type": "string"}, "kind": {"enum": ["task", "question", "declined", "approval"]},
                        "title": {"type": "string"}}})}), obj({"actor": "s", "count": "i"})]},
+    "GranolaStatus": obj({"mode": {"type": "string", "enum": ["account", "api_key", "off"]},
+                          "connected": "b", "email": "n", "plan_hint": {"type": ["string", "null"], "enum": ["free", "paid", None]},
+                          "last_sync": "n", "last_error": "n", "imported_count": "i", "needs_signin": "b"}),
+    "GranolaSignIn": obj({"state": "s", "mode": "s", "connected": "b", "email": "n", "plan_hint": "n",
+                          "last_sync": "n", "last_error": "n", "imported_count": "i", "needs_signin": "b"}),
+    "GranolaDevice": obj({"user_code": "s", "verification_uri": "s", "verification_uri_complete": "s",
+                          "expires_in": "i", "interval": "i"}, required=["user_code", "verification_uri", "expires_in", "interval"]),
+    "GranolaSync": obj({"state": "s", "last_sync": "n"}),
+    "GranolaDisconnect": obj({"ok": "b"}),
     "MeetingSearch": obj({"results": "a", "next_offset": {"type": ["integer", "null"]}, "mode": "s"}),
     "InternalDocRow": obj({"id": "s", "path": "s", "title": "s", "updated": "s", "updated_by": "s", "locked": "b", "version": "i"},
                           updated_by_name={"type": "string", "description": "Display name of updated_by"}),
@@ -693,7 +707,7 @@ PROBLEM = {"type": "object", "required": ["error"], "properties": {"error": {
 DESCRIPTION = (
     "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, "
     "never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. "
-    "Every write needs an `Idempotency-Key` header (1-200 characters; a retry with the same key and body "
+    "Granola connection and sync writes do not require an idempotency key. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body "
     "returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md.")
 
 
@@ -745,8 +759,10 @@ def spec(app):
         op["responses"] = dict(sorted(responses.items()))
         if method in ("post", "patch", "delete") and path.startswith("/api/v2/"):
             op.setdefault("parameters", []).append({
-                "name": "Idempotency-Key", "in": "header", "required": True, "schema": {"type": "string"},
-                "description": "1-200 characters. Reusing a key with the same body replays the first answer."})
+                "name": "Idempotency-Key", "in": "header", "required": not path.startswith("/api/v2/meetings/granola"), "schema": {"type": "string"},
+                "description": ("Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+                                if path.startswith("/api/v2/meetings/granola") else
+                                "1-200 characters. Reusing a key with the same body replays the first answer.")})
         paths.setdefault(path, {})[method] = op
     used = set()
     _refs(paths, used)

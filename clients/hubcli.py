@@ -379,6 +379,9 @@ def parser():
 
     meeting = sub.add_parser("meeting",
                              help="search meetings, read transcripts, import a transcript from another tool").add_subparsers(dest="sub")
+    granola = meeting.add_parser("granola", help="your Granola account; connect in Meetings in your browser").add_subparsers(dest="granola_action")
+    for action in ("status", "sync"):
+        granola.add_parser(action).set_defaults(fn="meeting granola " + action)
     s = meeting.add_parser("search")
     s.add_argument("q", nargs="?", default="")
     s.add_argument("--person", default="")

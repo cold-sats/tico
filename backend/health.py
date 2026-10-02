@@ -338,6 +338,12 @@ def view(c, who, settings, auth, github, config):
     waiting, slow = _waiting(c, online_ids)
     failed, failures = _failed(c)
     checks = []
+    # Connection health belongs to the person; only the Team owner may see another person's.
+    for row in c.execute("SELECT actor,metadata_json FROM granola_connections"):
+        meta = json.loads(row["metadata_json"])
+        if meta.get("needs_signin") and (row["actor"] == who.actor or who.role == "owner"):
+            checks.append(_check("granola:" + row["actor"], "Granola", "warn",
+                                 "Granola needs sign-in again", [_fix("Open Meetings", "#/meetings")]))
 
     if full:
         notice = config.get("update") or {}

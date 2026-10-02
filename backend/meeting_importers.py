@@ -21,7 +21,7 @@ IMPORTERS = {
              "keys": ["ZOOM_ACCOUNT_ID", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"], "interval": 600},
     "google-meet": {"name": "Google Meet", "file": "secrets/google-meet.env",
                     "keys": ["GOOGLE_MEET_USERS", "GOOGLE_SERVICE_ACCOUNT_FILE"], "interval": 600},
-    "granola": {"name": "Granola", "file": "secrets/granola.env", "keys": ["GRANOLA_API_KEY"], "interval": 300},
+    "granola": {"name": "Granola API key (Business/Enterprise)", "file": "secrets/granola.env", "keys": ["GRANOLA_API_KEY"], "interval": 300},
 }
 ERROR_TEXT = {
     "missing_credentials": "The credential file on that computer is missing or incomplete.",

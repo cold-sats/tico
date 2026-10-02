@@ -270,6 +270,16 @@ def answer(api, args):
 
 
 # ----------------------------------------------------------------------------- meetings
+@tool("hub_meeting_granola_status", "Read your own Granola connection status. To connect, open #/meetings in Tico in your browser and choose Connect Granola; sign-in must be completed by the person.", {})
+def granola_status(api, args):
+    return _as_person(api).get("meetings/granola")
+
+
+@tool("hub_meeting_granola_sync", "Start a background sync of your own Granola notes. Recent syncs are reused. Connect your account in Tico's Meetings page (#/meetings) in your browser; a bot cannot complete sign-in.", {})
+def granola_sync(api, args):
+    return _as_person(api).post("meetings/granola/sync", {})
+
+
 @tool("hub_meeting_search", "Search meeting history and transcripts, with excerpts and available speaker timestamps. Bots see explicitly shared team meetings, never personal notes or private meetings. Empty q lists recent accessible meetings.",
       {"q": _s("Words to search for; omit for recent history"), "person": _s("Owner, participant, or speaker"),
        "since": _s("Inclusive meeting date, YYYY-MM-DD; creation date when no start is recorded"), "until": _s("Inclusive meeting date, YYYY-MM-DD"),
@@ -2598,7 +2608,7 @@ AUDIENCE = {
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
-    **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete")},
+    **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,

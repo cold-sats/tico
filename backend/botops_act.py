@@ -64,7 +64,7 @@ DO = _routes(
     ("POST", rf"tasks/{_S}/(comments|links|ask|run-now)"),
     ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", rf"docs/{_S}/restore"),
     ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
-    ("POST", rf"meetings/{_S}/delete"),
+    ("POST", rf"meetings/{_S}/delete"), ("POST", "meetings/granola/sync"),
     ("POST", rf"(integrations|tools)/{_S}/learnings"), ("POST", rf"(integrations|tools)/{_S}/learnings/{_S}/delete"),
     ("POST", r"health/bot-access/dismiss"),
     # People and access. The route asks for the click on what needs it.

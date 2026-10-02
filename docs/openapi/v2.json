@@ -3,7 +3,7 @@
   "info": {
     "title": "Tico API (v2)",
     "version": "2.0.0",
-    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Every write needs an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
+    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Granola connection and sync writes do not require an idempotency key. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
   },
   "tags": [
     {
@@ -6270,6 +6270,242 @@
         },
         "tags": [
           "Session"
+        ]
+      }
+    },
+    "/api/v2/meetings/granola": {
+      "get": {
+        "summary": "Your Granola connection",
+        "operationId": "getGranolaStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
+    "/api/v2/meetings/granola/connect": {
+      "post": {
+        "summary": "Start personal Granola browser sign-in",
+        "operationId": "connectGranola",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaDevice"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete your encrypted Granola tokens",
+        "operationId": "disconnectGranola",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaDisconnect"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+          }
+        ]
+      }
+    },
+    "/api/v2/meetings/granola/connect/status": {
+      "get": {
+        "summary": "Poll personal sign-in at the provider interval",
+        "operationId": "pollGranolaSignIn",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaSignIn"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
+    "/api/v2/meetings/granola/sync": {
+      "post": {
+        "summary": "Start a background sync; reuse the last two minutes",
+        "operationId": "syncGranola",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaSync"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+          }
         ]
       }
     },
@@ -12637,6 +12873,182 @@
         "required": [
           "actor",
           "items"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaDevice": {
+        "type": "object",
+        "properties": {
+          "user_code": {
+            "type": "string"
+          },
+          "verification_uri": {
+            "type": "string"
+          },
+          "verification_uri_complete": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "interval": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expires_in",
+          "interval",
+          "user_code",
+          "verification_uri"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaDisconnect": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaSignIn": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_sync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imported_count": {
+            "type": "integer"
+          },
+          "needs_signin": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connected",
+          "email",
+          "imported_count",
+          "last_error",
+          "last_sync",
+          "mode",
+          "needs_signin",
+          "plan_hint",
+          "state"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaStatus": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "account",
+              "api_key",
+              "off"
+            ]
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "free",
+              "paid",
+              null
+            ]
+          },
+          "last_sync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imported_count": {
+            "type": "integer"
+          },
+          "needs_signin": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connected",
+          "email",
+          "imported_count",
+          "last_error",
+          "last_sync",
+          "mode",
+          "needs_signin",
+          "plan_hint"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaSync": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "last_sync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "last_sync",
+          "state"
         ],
         "additionalProperties": true
       },

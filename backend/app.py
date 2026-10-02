@@ -166,6 +166,7 @@ def create_app(settings=None):
         timers = settings.scheduler_enabled and not settings.rehearsal
         scheduler_task = asyncio.create_task(schedule_loop()) if timers else None
         directory_task = asyncio.create_task(directory_loop()) if timers else None
+        granola_task = asyncio.create_task(app.state.granola.loop(stop)) if timers else None
         # A demo runs no scheduler: nothing fires, and nothing waits for a bot that will never run.
         demo_task = None
         if settings.demo:
@@ -183,6 +184,10 @@ def create_app(settings=None):
                 await scheduler_task
             if directory_task:
                 await directory_task
+            if granola_task:
+                await granola_task
+            else:
+                await app.state.granola.close()
             from .repositories import stop_sync
             await asyncio.to_thread(stop_sync, app.state.github_app)
             telemetry.close()
@@ -3461,6 +3466,8 @@ def create_app(settings=None):
     install_connectors(app, store, execution, mutate)
     from .imports import install_imports
     install_imports(app, store, auth, execution, mutate)
+    from .granola_mcp import install_granola
+    install_granola(app)
     from .credentials import install_credentials
     install_credentials(app, store, delegate=delegated_identity, propose=propose_card)
     install_credential_cards(app, store, app.state.vault, auth, BOTOPS, delegated_identity, settings_admin._manager)

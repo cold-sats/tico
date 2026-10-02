@@ -327,7 +327,27 @@ here but not run against a Workspace.
 
 ### Granola
 
-**Granola has an official public API, so that is what is used.** Nothing reads Granola's local cache or
+**Connect your own Granola account in Meetings (default).** Choose **Connect Granola**, open the
+verification link and enter the code if asked. Each person connects their own account through
+Granola's official remote MCP at `https://mcp.granola.ai/mcp`. Tico stores tokens encrypted in the
+server credential vault; bots and Computers cannot read them. Disconnect in Meetings to delete them.
+
+The free plan imports your own notes and AI summaries from the last 30 days, without transcripts or
+folders. Paid plans can also import transcripts when Granola permits them. Private notes typed by
+the note-taker are never imported. Imported meetings default to private. Tico syncs in the background
+every 25 minutes and when you open Meetings, reusing a sync from the last two minutes. Recent meetings
+are revisited for late summaries. If Granola rejects a refresh, Meetings and your Health page say
+**Granola needs sign-in again**; connect again to continue.
+
+`hub meetings granola status` shows your connection and `hub meetings granola sync` starts a background
+sync. The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use the caller's person
+rights; BotOps can give the Meetings link but cannot complete the browser sign-in.
+
+**Granola API key (Business/Enterprise)** remains an alternative for a Computer importer. Both
+connections use the same source and external meeting ID, so the same person's meeting updates in
+place when both are enabled.
+
+The API-key importer uses Granola's official public API. Nothing reads Granola's local cache or
 app files, and nothing needs to run on the Mac where Granola is installed.
 
 1. In Granola (Business or Enterprise plan) open **Settings > Workspaces > API** and **Generate API Key**.
@@ -339,7 +359,7 @@ app files, and nothing needs to run on the Mac where Granola is installed.
    GRANOLA_API_KEY=grn_...
    ```
    A comma-separated list takes several humans' personal keys.
-3. Enable **Granola** in Settings and choose that computer.
+3. Enable **Granola API key (Business/Enterprise)** in Tools > Meeting importers and choose that Computer.
 
 The importer lists notes (`GET https://public-api.granola.ai/v1/notes`, `created_after` and
 `created_before`, `page_size` at most 30, cursor pagination), then reads each note with its transcript
