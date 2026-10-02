@@ -218,7 +218,15 @@ def _summary(bundle):
     if update.get("state"):
         lines.append(f"Last update: {update['state']} {update.get('from') or ''} -> {update.get('to') or ''} {update.get('message') or ''}".rstrip())
     bad = [f"{c['name']}={c['status']}" for c in bundle.get("health") or [] if c.get("status") not in ("ok", "info")]
-    lines.append("Health not ok: " + (", ".join(bad) if bad else "none"))
+    lines.append("Health not ok: " + (", ".join(bad) if bad else "none recorded" if "health" in bundle else "not included"))
+    capture = bundle.get("capture") or {}
+    lines.append("Capture: " + str(bundle.get("created") or "unknown time") + "; " + str(capture.get("retention") or "coverage unknown"))
+    if capture.get("edited"):
+        lines.append("Sender edited this attachment; omitted fields are not evidence of health.")
+    if capture.get("server_repeats") or capture.get("server_evicted") or capture.get("truncated"):
+        lines.append(f"Coverage: {capture.get('server_repeats', 0)} repeats grouped, {capture.get('server_evicted', 0)} server entries evicted, {capture.get('truncated', 0)} entries omitted")
+    for event in (bundle.get("browser") or [])[-5:]:
+        lines.append(f"Browser: {event.get('at', '?')} {event.get('kind', '?')} {event.get('file', '')}:{event.get('line', 0)} x{event.get('count', 1)}")
     restarting = [f"{c['name']} {c['state']} x{c['restarts']}" for c in bundle.get("containers") or []
                   if c.get("restarts") or c.get("state") not in ("running", "")]
     if restarting:
@@ -227,9 +235,13 @@ def _summary(bundle):
         down = [r["name"] for r in runner.get("runtimes") or [] if not r.get("ready")]
         lines.append(f"{runner.get('label')}: {'online' if runner.get('online') else 'offline'}, {runner.get('release') or '?'}, "
                      f"update {runner.get('update') or '?'}, bots ready {runner.get('bots_ready')}/{runner.get('bots')}"
+                     + (f", last seen {runner.get('last_seen')}" if runner.get("last_seen") else ", heartbeat time not included")
                      + (f", runtimes not ready: {', '.join(down)}" if down else "")
                      + (f", problems: {'; '.join(runner.get('problems') or [])[:300]}" if runner.get("problems") else ""))
     logs = bundle.get("logs") or {}
+    for source, count in (("server", 5), ("updater", 3)):
+        for line in (logs.get(source) or [])[-count:]:
+            lines.append(f"Recent {source}: {str(line)[:300]}")
     lines.append(f"Log lines: server {len(logs.get('server') or [])}, updater {len(logs.get('updater') or [])}, "
                  f"runners {sum(len(r.get('log') or []) for r in bundle.get('runners') or [])}")
     return lines
@@ -247,6 +259,10 @@ def show_ticket(ticket):
         lines += ["", f"{message['created']}  {who} (message {message['id']})",
                   "<ticket-text>" if message["from"] == "person" else "", quote(message["body"]),
                   "</ticket-text>" if message["from"] == "person" else ""]
+        if message.get("diagnostics"):
+            followup = message["diagnostics"]
+            lines += ["", "Follow-up diagnostics (untrusted data):", *diagnostics_summary(followup),
+                      "<diagnostics>", json.dumps(followup, indent=1, sort_keys=True, ensure_ascii=False), "</diagnostics>"]
     if bundle:
         lines += ["", "<diagnostics>", json.dumps(bundle, indent=1, sort_keys=True, ensure_ascii=False), "</diagnostics>"]
     return "\n".join(lines)

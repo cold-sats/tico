@@ -5,6 +5,8 @@
 let LAST_ROUTE = '';
 function route() {
   GOAL_MANAGER_STOP?.();
+  window.supportLeave?.();
+  $('#main').classList.remove('help-layout');
   const from = LAST_ROUTE;
   S.route = LAST_ROUTE = location.hash || UPDATES;
   const botOf = r => r.startsWith('#/bot/') ? r.slice(6).split('/')[0] : '';

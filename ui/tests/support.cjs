@@ -36,7 +36,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
           const rest = p.slice('/api/v2/support/'.length), body = req.postData() ? JSON.parse(req.postData()) : null;
           calls.push(req.method() + ' ' + rest + (body ? ' ' + JSON.stringify(body) : ''));
           if (rest === 'compose') return json({enabled: true, email: 'ana@acme.example', version: '0.2.17', install_id: INSTALL, to: 'updates.tico.team', max: 4000});
-          if (rest === 'diagnostics') return json({id: 'd'.repeat(64), bytes: 2048, text: DIAGNOSTICS_TEXT});
+          if (rest === 'diagnostics') return json({id: (req.method() === 'POST' ? 'e' : 'd').repeat(64), bytes: 2048, text: body?.text || DIAGNOSTICS_TEXT});
           if (rest === 'tickets' && req.method() === 'GET') return json(view());
           if (rest === 'tickets/refresh') {
             if (hq.reply && hq.tickets[0] && !hq.tickets[0].messages.length)
@@ -66,88 +66,61 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
       return {page, ctx, errors, calls, hq};
     };
 
-    // The form, what it sends, and the list.
     let v = await visit();
     const {page} = v;
-    await page.locator('[data-support-open]').click();
+    await page.locator('#support-rail').waitFor();
+    const form = page.locator('[data-compose]');
+    assert.equal(await form.locator('[name=diag]').isChecked(), true);
+    assert.equal(await page.locator('.help-pieces').count(), 0);
+    assert.equal(await page.locator('.help-actions .primary').count(), 0);
+    assert.match(await page.locator('.help-hero').innerText(), /human and AI teammates/);
+    await form.locator('[data-preview]').click();
     const dialog = page.locator('dialog.support-modal');
-    await dialog.waitFor({state: 'visible'});
-    assert.equal(await dialog.locator('[name=email]').inputValue(), 'ana@acme.example', 'the email is prefilled');
-    assert.equal(await dialog.locator('[name=ids]').isChecked(), true, 'the version and install ID are on by default');
-    const sends = () => dialog.locator('[data-sent]').innerText();
-    assert.equal(await dialog.locator('[name=diag]').isChecked(), true, 'diagnostics are attached by default');
-    assert.equal(await sends(), `Sends to updates.tico.team: message, email ana@acme.example, version 0.2.17, install ID ${INSTALL}, diagnostics.`);
-    await dialog.locator('[name=ids]').uncheck();
-    await dialog.locator('[name=email]').fill('');
-    await dialog.locator('[name=diag]').uncheck();
-    assert.equal(await sends(), 'Sends to updates.tico.team: message.', 'the line follows the form');
-    await dialog.locator('[name=email]').fill('ana@acme.example');
-    await dialog.locator('[name=ids]').check();
-    await dialog.locator('[name=diag]').check();
-    assert.ok(!v.calls.some(c => c === 'GET diagnostics'), 'nothing is built until the person looks or sends');
-    // Preview shows exactly the JSON the server built, and Send names that preview.
-    await dialog.locator('[data-preview]').click();
-    await dialog.locator('[data-json]').waitFor({state: 'visible'});
-    assert.equal(await dialog.locator('[data-json]').innerText(), DIAGNOSTICS_TEXT);
-    assert.match(await sends(), /diagnostics \(2 KB\)\.$/);
-    await dialog.locator('[data-preview]').click();
-    assert.equal(await dialog.locator('[data-json]').isHidden(), true, 'Preview toggles');
-    await dialog.locator('button[type=submit]').click();
-    assert.match(await dialog.locator('[data-error]').innerText(), /Write a message/);
-    assert.ok(!v.calls.some(c => c.startsWith('POST tickets ')), 'nothing is sent until there is a message');
-    await dialog.locator('[name=message]').fill('The board will not load. ' + HOSTILE);
-    await dialog.locator('button[type=submit]').click();
-    await dialog.waitFor({state: 'detached'});
-    const sentCall = v.calls.find(c => c.startsWith('POST tickets {'));
-    assert.deepEqual(JSON.parse(sentCall.slice('POST tickets '.length)),
-      {message: 'The board will not load. ' + HOSTILE, email: 'ana@acme.example', include_ids: true, diagnostics: 'd'.repeat(64)});
-    const ticket = page.locator('details.support-ticket');
-    await ticket.waitFor();
-    assert.match(await ticket.locator('summary').innerText(), /The board will not load\./);
-    assert.match(await ticket.locator('summary .pill').innerText(), /Open/);
-    assert.equal(await page.locator('#support-mine h2').innerText(), 'Your requests');
-
-    // Nothing a ticket says is HTML: the text is shown as typed.
-    assert.equal(await ticket.evaluate(d => d.open), true, 'the new request opens');
-    assert.match(await ticket.locator('.support-msg').first().innerText(), /<img src=x onerror="window.__pwned=1"> <b>bold<\/b>/);
-    assert.equal(await page.locator('#support-mine img, #support-mine b').count(), 0);
+    await dialog.locator('[data-use]:not([disabled])').waitFor();
+    assert.equal(await dialog.locator('textarea').inputValue(), DIAGNOSTICS_TEXT);
+    await dialog.locator('textarea').fill('{"format":1}');
+    assert.equal(await dialog.locator('[data-use]').isDisabled(), true);
+    await dialog.locator('[data-save]').click();
+    await dialog.locator('[data-use]:not([disabled])').waitFor();
+    await dialog.locator('[data-use]').click();
+    await form.locator('[name=message]').fill('The board will not load. ' + HOSTILE);
+    await form.locator('[type=submit]').click();
+    await page.waitForFunction(() => document.querySelector('[data-requests]')?.value === 'sup_1');
+    const sent = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
+    assert.equal(sent.diagnostics, 'e'.repeat(64), 'the edited preview is sent');
+    assert.equal(sent.message, 'The board will not load. ' + HOSTILE);
+    assert.equal(await form.locator('[name=diag]').isChecked(), false, 'follow-up attachments are opt-in');
+    assert.match(await page.locator('[data-thread]').innerText(), /<img src=x/);
+    assert.equal(await page.locator('[data-thread] img, [data-thread] b').count(), 0);
     assert.equal(await page.evaluate(() => window.__pwned), undefined);
 
-    // A reply: the notice, the dot, the thread, and reading it clears the dot.
+    await form.locator('[name=message]').fill('Draft kept during refresh');
     v.hq.reply = true;
     await page.evaluate(() => window.supportPoll());
-    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Tico support replied/.test(t.textContent)));
+    assert.equal(await form.locator('[name=message]').inputValue(), 'Draft kept during refresh');
+    assert.match(await page.locator('.support-msg.staff').innerText(), /Try the latest release/);
     assert.equal(await page.locator('#help-open').getAttribute('data-support-unread'), '1');
-    assert.match(await ticket.locator('summary .pill').innerText(), /Answered/);
-    await page.reload();
-    await page.waitForFunction(() => document.querySelector('#support-mine details.support-ticket'));
-    const again = page.locator('details.support-ticket');
-    assert.equal(await again.locator('.support-dot').count(), 1, 'the unread reply is marked in the list');
-    await again.locator('summary').click();
-    await page.waitForFunction(() => !document.querySelector('.support-dot'));
-    assert.ok(v.calls.some(c => c.startsWith('POST tickets/sup_1/read')), 'opening it marks it read');
-    assert.equal(await page.locator('#help-open').getAttribute('data-support-unread'), null);
-    const staffMessage = again.locator('.support-msg.staff');
-    assert.match(await staffMessage.innerText(), /Tico support/);
-    assert.match(await staffMessage.innerText(), /Try the latest release\. <img src=x onerror="window.__pwned=1"> <b>bold<\/b>/);
-    assert.equal(await page.locator('#support-mine img, #support-mine b').count(), 0);
-
-    // Writing back, and deleting.
-    await again.locator('.support-write textarea').fill('It still fails.');
-    await again.locator('.support-write button[type=submit]').click();
+    await page.locator('[data-read]').click();
+    await page.waitForFunction(() => !document.querySelector('#help-open')?.hasAttribute('data-support-unread'));
+    await form.locator('[name=diag]').check();
+    await form.locator('[type=submit]').click();
     await page.waitForFunction(() => document.querySelectorAll('.support-msg').length === 3);
-    assert.ok(v.calls.some(c => c.startsWith('POST tickets/sup_1/messages') && c.includes('It still fails.')));
-    await page.locator('[data-delete]').first().click();
-    await page.waitForFunction(() => document.querySelector('#support-mine')?.hidden);
-    assert.ok(v.calls.includes('DELETE tickets/sup_1'));
+    assert.ok(v.calls.some(c => c.startsWith('POST tickets/sup_1/messages') && c.includes('"diagnostics":"' + 'd'.repeat(64))));
+
+    await page.screenshot({path: '/tmp/tico-support-desktop.png', fullPage: true});
+    await page.setViewportSize({width: 390, height: 844});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'phone has no horizontal overflow');
+    await page.waitForTimeout(250); // finish the existing navigation drawer's resize transition
+    await page.locator('#support-rail').scrollIntoViewIfNeeded();
+    await page.screenshot({path: '/tmp/tico-support-phone.png', fullPage: false});
+    await page.locator('[data-delete]').click();
+    await page.waitForFunction(() => document.querySelector('[data-requests]')?.options.length === 1);
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
-
-    // Off (demo mode, or TICO_SUPPORT=off): no button, no list.
     v = await visit({enabled: false});
     await v.page.waitForSelector('#help-page');
-    assert.equal(await v.page.locator('[data-support-open], #support-mine').count(), 0);
-    assert.ok(!v.calls.some(c => c.startsWith('POST')), 'nothing is sent from a page that offers no form');
+    assert.equal(await v.page.locator('#support-rail').count(), 0);
+    assert.ok(!v.calls.some(c => c.startsWith('POST')));
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
   } finally {

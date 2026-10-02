@@ -12,11 +12,11 @@ TROUBLE = re.compile(r"error|fail|unavailable|refused|rejected|interrupted|canno
 RECENT = collections.deque(maxlen=50)
 
 
-def log(line):
+def log(line, *, diagnostic=False):
     from .redact import scrub_log            # a running turn's secrets never reach the log
     line = scrub_log(line)
     print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
-    if TROUBLE.search(line):
+    if diagnostic or TROUBLE.search(line):
         # The server keeps at most 300 characters per line; the timestamp and space are 21 of them.
         RECENT.append((time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + " " + line.replace("\n", " "))[:300])
 
@@ -79,5 +79,9 @@ class Outage:
     def recovered(self):
         if self.since is None:
             return
-        self.out(f"{self.prefix}: {self.up} after {span(self.clock() - self.since)} ({self.failures} failures)")
+        line = f"{self.prefix}: {self.up} after {span(self.clock() - self.since)} ({self.failures} failures)"
+        if self.out is log:
+            log(line, diagnostic=True)
+        else:
+            self.out(line)
         self.failures, self.since, self.last_line, self.shown = 0, None, None, None

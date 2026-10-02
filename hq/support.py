@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS ticket_verdicts(
  note TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS ticket_replies(
  id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, created TEXT NOT NULL, body TEXT NOT NULL,
- author TEXT NOT NULL DEFAULT 'staff');
+ author TEXT NOT NULL DEFAULT 'staff', diagnostics TEXT);
 CREATE INDEX IF NOT EXISTS ticket_replies_ticket ON ticket_replies(ticket_id, id);
 """
 
@@ -173,6 +173,9 @@ class Tickets:
                                  ("held", "INTEGER NOT NULL DEFAULT 0")):
                 if column not in have:
                     db.conn.execute(f"ALTER TABLE tickets ADD COLUMN {column} {spec}")
+            reply_columns = {row[1] for row in db.conn.execute("PRAGMA table_info(ticket_replies)")}
+            if "diagnostics" not in reply_columns:
+                db.conn.execute("ALTER TABLE ticket_replies ADD COLUMN diagnostics TEXT")
         # In memory, as the request limit is: a salted hash of the address, or of the install id, forgotten on restart.
         self.per_address = Limiter(limit=5, window=3600, clock=clock)         # tickets an hour from one address
         self.per_install = Limiter(limit=10, window=86400, clock=clock)       # tickets a day from one install id
@@ -218,7 +221,7 @@ class Tickets:
         return {"ticket_id": ticket_id, "status": row["status"], "created": row["created"],
                 "updated": row["updated"], "messages": messages}
 
-    def add_message(self, ticket_id, secret, body):
+    def add_message(self, ticket_id, secret, body, diagnostics=None):
         """The person writes again. The ticket reopens if it was answered. Returns the new state, None for an unknown
         ticket or wrong secret, False for a closed or full one."""
         moment = stamp(self.now())
@@ -229,8 +232,8 @@ class Tickets:
             count = self.db.conn.execute("SELECT count(*) FROM ticket_replies WHERE ticket_id=?", (ticket_id,)).fetchone()[0]
             if row["status"] == "closed" or count >= MAX_MESSAGES:
                 return False
-            message = self.db.conn.execute("INSERT INTO ticket_replies(ticket_id,created,body,author) VALUES(?,?,?,'person')",
-                                           (ticket_id, moment, body)).lastrowid
+            message = self.db.conn.execute("INSERT INTO ticket_replies(ticket_id,created,body,author,diagnostics) VALUES(?,?,?,'person',?)",
+                                           (ticket_id, moment, body, diagnostics)).lastrowid
             self.db.conn.execute("UPDATE tickets SET status='open', updated=? WHERE ticket_id=?", (moment, ticket_id))
         return {"ticket_id": ticket_id, "status": "open", "message_id": message}
 
@@ -247,10 +250,16 @@ class Tickets:
         return bool(found)
 
     # ------------------------------------------------------------------ staff
-    def _messages(self, ticket_id):
-        return [{"id": r["id"], "created": r["created"], "from": r["author"], "body": r["body"]}
-                for r in self.db.conn.execute(
-                    "SELECT id,created,body,author FROM ticket_replies WHERE ticket_id=? ORDER BY id", (ticket_id,))]
+    def _messages(self, ticket_id, full=False):
+        out = []
+        for r in self.db.conn.execute("SELECT * FROM ticket_replies WHERE ticket_id=? ORDER BY id", (ticket_id,)):
+            message = {"id": r["id"], "created": r["created"], "from": r["author"], "body": r["body"]}
+            if r["diagnostics"]:
+                message["has_diagnostics"] = True
+                if full:
+                    message["diagnostics"] = json.loads(r["diagnostics"])
+            out.append(message)
+        return out
 
     def _staff_view(self, row, full=False):
         """A ticket for the staff routes. The diagnostics bundle is large: a listing says whether there is one, and
@@ -258,7 +267,7 @@ class Tickets:
         view = {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
                 "updated": row["updated"], "body": row["body"], "email": row["email"], "version": row["version"],
                 "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
-                "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"]),
+                "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"], full=full),
                 "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"])}
         if full and row["diagnostics"]:
             view["diagnostics"] = json.loads(row["diagnostics"])
@@ -405,17 +414,20 @@ def install(app, tickets, address, staff_key="", judge=None):
     async def person_writes(request: Request, ticket_id: str):
         if not tickets.follow_ups.allow(address(request)):
             return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "3600"})
-        status, data = await read_json(request, MAX_FOLLOW_UP)
+        status, data = await read_json(request, MAX_REQUEST)
         if status != 200:
             return refuse(data, status)
+        if request.state.body_size > MAX_FOLLOW_UP and not (isinstance(data, dict) and "diagnostics" in data):
+            return refuse("too_large", 413)
         try:
-            if not isinstance(data, dict) or set(data) != {"message"}:
+            if not isinstance(data, dict) or "message" not in data or set(data) - {"message", "diagnostics"}:
                 raise Invalid("fields")
             body = text(data["message"], "message", MAX_MESSAGE)
+            diagnostics = parse_diagnostics(data)
         except Invalid as bad:
             return refuse("invalid", 422, field=bad.field)
         secret = secret_of(request, ticket_id)
-        done = tickets.add_message(ticket_id, secret, body) if secret else None
+        done = tickets.add_message(ticket_id, secret, body, diagnostics) if secret else None
         if done is None:
             return refuse("not_found", 404)
         return no_store(done, 201) if done else refuse("closed", 409)

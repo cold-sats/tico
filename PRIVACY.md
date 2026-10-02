@@ -151,7 +151,7 @@ Your answers are saved in your own database with the rest of setup, so the bots 
 
 ## Support tickets
 
-Help > **Contact support** sends the Tico team a message. It is separate from the count, and it works whether counting is on or
+Help > **Support** sends the Tico team a message. It is separate from the count, and it works whether counting is on or
 off: it is a message you write and send yourself, never automatic, never in demo mode, and only from a signed-in human's own
 browser (not a token, the Assistant or a bot). `TICO_SUPPORT=off` removes it from an install.
 
@@ -162,7 +162,7 @@ browser (not a token, the Assistant or a bot). `TICO_SUPPORT=off` removes it fro
 | `message` | What you wrote, up to 4000 characters. Required. |
 | `email` | Only if you leave one in the field, so the team can reply by email. It is prefilled from your account and you can clear it. |
 | `version`, `install_id` | Only while "Include version and install ID" is ticked, which it is by default. The install ID is the same random ID as the count's; it is made for a ticket if the count never made one. |
-| `diagnostics` | Only while "Attach diagnostics" is ticked, which it is by default. The bundle below; **Preview** on the form shows exactly it. |
+| `diagnostics` | Only while "@diagnostics" is ticked: on by default for new requests, off for replies. **Review and edit** shows the exact attachment; edits are validated and redacted again before use. |
 
 **What HQ keeps**, per ticket: those fields (the diagnostics with the ticket, to a limit of 256 KB, shown to the Tico team only), a hash of a secret that only your Tico holds (it lets your Tico read this ticket's replies
 and no other), the status (open, answered, closed), the times, the team's replies and any message you write back. No IP address is
@@ -180,7 +180,7 @@ reply which a human approves before it is posted. Ticket text is treated as untr
 HTML, and never followed as an instruction.
 
 **How long:** tickets are kept **until someone deletes them**. Nothing deletes a ticket by itself, closed or not. You can delete your own
-with **Delete** under Your requests, which removes it from HQ and from your Tico; or ask the team to delete it (say so in the ticket, or
+with **Delete** in the selected Support request, which removes it from HQ and from your Tico; or ask the team to delete it (say so in the ticket, or
 open an issue) and they do it with a staff route. A deleted ticket is overwritten in HQ's database file. HQ's optional Litestream backup
 keeps older copies of the file for as long as its retention says, if you turned it on.
 
@@ -194,29 +194,31 @@ How the team works tickets: [docs/support.md](docs/support.md).
 ### Support diagnostics
 
 The bundle is a fixed list of facts, written out by name in `backend/diagnostics.py`. A field that is not on the list cannot be in
-it. It never contains a task, message, doc, meeting or ticket, or the text of one. Every string in it is redacted first: emails,
+it. Collection never reads a task, message, doc, meeting or ticket body. You can edit the allowed fields before attaching them. Every string in it is redacted first: emails,
 keys and tokens (`sk-`, `ghp_`, `gho_`, `xox[abpr]-`, `AKIA`, bearer tokens, JWTs, long base64 or hex runs), IPv4 and IPv6
 addresses, URL query strings, your team's domain and every hostname that is not one of the product's own (`tico.team`, GitHub,
 the model providers), and the names and emails of your bots and humans, which become labels (`bot-3`, `person-1`) that are the same
 all through one bundle and mean nothing outside it. A name or slug is relabeled as a word from four characters; a shorter one (`coo`)
-is relabeled only as an exact `bot:<slug>` or `human:<id>` reference, and an email is always relabeled or redacted. It is built when you press **Preview** (or Send) and what you previewed is what
-is sent: Send names the preview by its SHA-256 and your Tico sends those exact bytes. Untick the box and none of it is built or sent.
+is relabeled only as an exact `bot:<slug>` or `human:<id>` reference, and an email is always relabeled or redacted. It is built when you press **Review and edit** (or Send) and what you previewed is what
+is sent: Send names the preview by its SHA-256 and your Tico sends those exact bytes. Untick the box and none of it is sent. A local preview already built remains in memory for at most 15 minutes. Edited previews expire too; refreshing is an explicit action and never happens silently on send. HQ keeps follow-up attachments with their messages until the ticket is deleted.
 
 Every field:
 
 | Field | What | Redacted sample |
 |---|---|---|
+| `capture` | Server capture start, event/repeat/eviction counts, omitted entries, memory-only retention, and whether the sender edited the attachment | `{"server_repeats": 12, "truncated": 0, "edited": true}` |
+| `browser` | Up to 20 in-memory browser failure groups: kind, UTC time, known app script filename, line/column, count. No error/rejection text, stack text, raw URL, console output or user input. Uploaded to your server only when building the attachment, and to HQ only on Send. | `{"kind": "error", "file": "app.bundle.js", "line": 42, "count": 2}` |
 | `format`, `created` | The bundle's version and when it was made | `1`, `2026-10-01T09:30:00Z` |
 | `versions` | Tico, server, each computer's release, the updater's | `{"tico": "0.2.18", "runners": ["0.2.17"], "updater": "v0.2.18"}` |
 | `system` | The server's OS and architecture, Docker and compose versions if the updater is there, whether it runs in Docker | `{"os": "Linux", "arch": "x86_64", "docker": "27.1.2", "compose": "2.29.1", "in_docker": true}` |
 | `containers` | Each container's name, state, health and restart count, from the updater | `{"name": "server", "state": "running", "health": "healthy", "restarts": 0}` |
 | `update` | The last update's result: state, versions, the updater's message, whether the database was restored | `{"state": "rolled_back", "from": "0.2.17", "to": "0.2.18", "message": "Not updated: ..."}` |
 | `health` | Each Health check by name and status; no summary text | `{"name": "Computers", "status": "warn"}` |
-| `runners` | Per computer, numbered `runner-1`: online, platform, kind, release, update state and error, each installed runtime (name, version, ready or not, its sign-in state and detail), how many bots are ready, their problem lines, and the computer's last 50 warning or error log lines | `{"label": "runner-1", "online": true, "runtimes": [{"name": "codex", "ready": true, "detail": "Signed in with ChatGPT"}], "problems": ["bot-2: repository missing at /Users/person-1/work"]}` |
+| `runners` | Per computer, numbered `runner-1`: online, last heartbeat time (`last_seen`), platform, kind, release, update state and error, each installed runtime (name, version, ready or not, its sign-in state and detail), how many bots are ready, their problem lines, and the computer's last 50 warning or error log lines | `{"label": "runner-1", "online": true, "runtimes": [{"name": "codex", "ready": true, "detail": "Signed in with ChatGPT"}], "problems": ["bot-2: repository missing at /Users/person-1/work"]}` |
 | `database` | The migration level of the database | `{"migration": 12, "cloud_migration": 44}` |
 | `features` | Which of these are on, as true or false only: `demo`, `updater`, `update_check`, `usage_count`, `backups`, `github_app`, `slack`, `sign_in_proxy`, `blob_storage`, `scheduler`, `observability`, `assistant`, `librarian` | `{"slack": false, "backups": true}` |
 | `counts` | How many bots, humans and routines | `{"bots": 12, "people": 5, "routines": 30}` |
-| `logs` | The server's last 200 WARNING and ERROR log lines (message only, never a traceback), and the updater's last failures | `"2026-10-01T09:29:58Z WARNING tico.support: HQ did not answer (ConnectTimeout)"` |
+| `logs` | Up to 200 server failure/warning entries, with adjacent repeats grouped, and the updater's last failures. Exceptions include only type and up to three application module/line locations, never values, locals or raw tracebacks | `"2026-10-01T09:29:58Z WARNING tico.support: HQ did not answer (ConnectTimeout)"` |
 
 A Tico from before this feature, or a server whose updater is not the Docker one, leaves out what it cannot see. Log lines come
 from the programs' own messages, which avoid task and message text, and go through the same redactor as everything else. The

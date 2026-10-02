@@ -249,9 +249,10 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       label: document.querySelector('#help-map').getAttribute('aria-label'),
       builtIn: [...document.querySelectorAll('.help-who tr.built-in th')].map(th => th.firstChild.textContent),
       fits: document.documentElement.scrollWidth <= innerWidth,
+      overviewWidth: document.querySelector('#help-page').clientWidth - parseFloat(getComputedStyle(document.querySelector('#help-page')).paddingLeft) - parseFloat(getComputedStyle(document.querySelector('#help-page')).paddingRight),
     }));
     let map = await helpMap();
-    assert.deepEqual(map.shown, ['wide']);
+    assert.deepEqual(map.shown, [map.overviewWidth <= 780 ? 'tall' : 'wide']);
     assert.match(map.label, /Tico server/);
     assert.deepEqual(map.builtIn, ['Assistant', 'BotOps', 'Librarian', 'Goal Manager']);
     await page.locator('[data-gs-tour]').click();

@@ -15,6 +15,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import math
 import os
 import platform
 import re
@@ -46,22 +47,48 @@ TLDS = ("com", "org", "net", "io", "dev", "ai", "team", "cloud", "xyz", "us", "u
 
 
 class LogRing(logging.Handler):
-    """The last WARNING and ERROR lines this process logged, for a support bundle. The message only: never an
-    exception's text or traceback, which can carry what was being processed."""
+    """Bounded failure evidence. Adjacent repeats share a slot; exception values and locals never enter it."""
 
     def __init__(self, size=400):
         super().__init__(logging.WARNING)
         self.lines = collections.deque(maxlen=size)
+        self.started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        self.total = self.dropped = self.repeated = 0
+        self.previous = None
+        self.count = 0
 
     def emit(self, record):
         try:
-            line = "%s %s %s: %s" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(record.created)), record.levelname,
-                                     record.name, record.getMessage())
+            message = "%s %s: %s" % (record.levelname, record.name, record.getMessage())
             if record.exc_info and record.exc_info[0]:
-                line += " (" + record.exc_info[0].__name__ + ")"
-            self.lines.append(line.replace("\n", " ")[:LINE * 2])
-        except Exception:                                   # a logging handler never raises into the app
-            pass
+                message += " (" + record.exc_info[0].__name__ + ")"
+                frames, tb = [], record.exc_info[2]
+                while tb:
+                    module = tb.tb_frame.f_globals.get("__name__", "")
+                    if re.fullmatch(r"(?:backend|runner|clients)\.[A-Za-z0-9_.]+", module):
+                        frames.append("%s:%s" % (module, tb.tb_lineno))
+                    tb = tb.tb_next
+                message += " " + " > ".join(frames[-3:])
+            message = message.replace("\n", " ")[:LINE - 65]
+            stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(record.created))
+            self.total += 1
+            if self.lines and self.previous == message:
+                self.count += 1
+                self.repeated += 1
+                self.lines[-1] = "%s %s [x%d; latest]" % (stamp, message, self.count)
+            else:
+                if len(self.lines) == self.lines.maxlen:
+                    self.dropped += 1
+                self.previous, self.count = message, 1
+                self.lines.append(stamp + " " + message)
+        except Exception:
+            pass  # diagnostics must never interrupt work
+
+    def snapshot(self):
+        with self.lock:
+            return list(self.lines), {"server_started": self.started, "server_events": self.total,
+                                     "server_repeats": self.repeated, "server_evicted": self.dropped,
+                                     "retention": "Memory only; resets on server restart"}
 
 
 RING = LogRing()
@@ -72,6 +99,17 @@ def watch_logs():
     root = logging.getLogger()
     if RING not in root.handlers:
         root.addHandler(RING)
+
+
+def request_failure(request, status, exc=None):
+    """Only server failures, using a registered route template; no URLs, request data or exception messages."""
+    route = getattr(request.scope.get("route"), "path", "unmatched")
+    method = request.method if request.method in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS") else "OTHER"
+    # Capture in the bounded ring only: a failing poll must not flood the ordinary process log.
+    record = logging.LogRecord("tico.request", logging.ERROR, "", 0, "%s %s HTTP %d%s",
+        (method, route, status, " " + type(exc).__name__ if exc else ""),
+        (type(exc), exc, exc.__traceback__) if exc else None)
+    RING.handle(record)
 
 
 # ---------------------------------------------------------------------- the redactor
@@ -208,12 +246,14 @@ def known_host(host):
 # tests read this table to prove no content field can appear.
 ALLOWED = {
     "format": None, "created": None,
+    "capture": {"server_started": None, "server_events": None, "server_repeats": None,
+                "server_evicted": None, "retention": None, "truncated": None, "edited": None},
     "versions": {"tico": None, "server": None, "runners": None, "updater": None},
     "system": {"os": None, "arch": None, "docker": None, "compose": None, "in_docker": None},
     "containers": [{"name": None, "state": None, "health": None, "restarts": None}],
     "update": {"state": None, "from": None, "to": None, "message": None, "restored": None},
     "health": [{"name": None, "status": None}],
-    "runners": [{"label": None, "online": None, "platform": None, "kind": None, "release": None, "update": None,
+    "runners": [{"label": None, "online": None, "last_seen": None, "platform": None, "kind": None, "release": None, "update": None,
                  "update_error": None, "runtimes": [{"name": None, "installed": None, "version": None, "ready": None,
                                                      "state": None, "detail": None}],
                  "bots": None, "bots_ready": None, "problems": None, "log": None}],
@@ -221,6 +261,7 @@ ALLOWED = {
     "features": {},
     "counts": {"bots": None, "people": None, "routines": None},
     "logs": {"server": None, "updater": None},
+    "browser": [{"kind": None, "at": None, "file": None, "line": None, "column": None, "count": None}],
 }
 FEATURES = ("demo", "updater", "update_check", "usage_count", "backups", "github_app", "slack", "sign_in_proxy",
             "blob_storage", "scheduler", "observability", "assistant", "librarian")
@@ -240,23 +281,57 @@ def allowed(value, shape=ALLOWED):
 
 
 def fit(bundle):
-    """The bundle under MAX_BYTES: the long lists shrink first, the logs before anything else."""
+    """Bound the preview and wire representation; explicitly report missing evidence."""
     def size():
-        return len(json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode())
-    for step in range(12):
-        if size() <= MAX_BYTES:
-            return bundle
-        logs = bundle.get("logs") or {}
-        for key in ("server", "updater"):
-            logs[key] = (logs.get(key) or [])[len(logs.get(key) or []) // 2:]
-        for row in bundle.get("runners") or []:
-            row["log"] = (row.get("log") or [])[len(row.get("log") or []) // 2:]
-            row["problems"] = (row.get("problems") or [])[:10]
-        bundle["containers"] = (bundle.get("containers") or [])[:50]
-    bundle["logs"] = {"server": [], "updater": []}
-    for row in bundle.get("runners") or []:
-        row["log"], row["problems"] = [], []
+        return len(canonical(bundle).encode())
+    capture = bundle.setdefault("capture", {})
+    capture.setdefault("truncated", 0)
+    while size() > MAX_BYTES:
+        lists = [bundle.get("logs", {}).get(k, []) for k in ("server", "updater")]
+        lists += [r.get("log", []) for r in bundle.get("runners", [])]
+        longest = max(lists, key=len, default=[])
+        if longest:
+            n = max(1, len(longest) // 2)
+            del longest[:n]
+            capture["truncated"] += n
+            continue
+        # Extremely large fleets must still fit; missing rows are never silently hidden.
+        rows = bundle.get("runners") or bundle.get("containers") or []
+        if rows:
+            rows.pop()
+            capture["truncated"] += 1
+            continue
+        raise ValueError("Diagnostics exceed the attachment limit")
     return bundle
+
+
+def validate_edit(value, original):
+    """Edits may remove fields/items or change scalar values, never introduce new data shapes."""
+    if isinstance(original, dict):
+        if not isinstance(value, dict) or set(value) - set(original):
+            raise ValueError("Keep the existing field names, or remove fields you do not want to send.")
+        for key, item in value.items():
+            validate_edit(item, original[key])
+    elif isinstance(original, list):
+        if not isinstance(value, list) or len(value) > len(original):
+            raise ValueError("Lists may be edited or shortened, not extended.")
+        for item in value:
+            # Rows can have different optional fields or log lengths. Match an existing shape,
+            # rather than using the last runner's empty log as the template for every runner.
+            for template in original:
+                try:
+                    validate_edit(item, template)
+                    break
+                except ValueError:
+                    continue
+            else:
+                raise ValueError("Keep existing list item types and fields, or remove the item.")
+    elif type(value) is not type(original):
+        raise ValueError("Keep the original value types, or remove the field.")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("Use finite numbers.")
+    if isinstance(value, str) and len(value) > MAX_BYTES:
+        raise ValueError("Text is too long.")
 
 
 def canonical(bundle):
@@ -336,7 +411,7 @@ def _runner_rows(c, fleet, online_ids):
             runtimes.append({"name": name, "installed": True, "version": _version(v.get("version")) or str(v.get("version") or "")[:60],
                              "ready": v.get("authenticated") == "ready", "state": str(v.get("authenticated") or ""),
                              "detail": str(v.get("detail") or "")[:200]})
-        rows.append({"label": "runner-%d" % index, "online": row["id"] in online_ids, "platform": str(row["platform"] or ""),
+        rows.append({"label": "runner-%d" % index, "online": row["id"] in online_ids, "last_seen": row["last_seen"], "platform": str(row["platform"] or ""),
                      "kind": update["kind"], "release": update["release"] or _version(row["version"]),
                      "update": update["state"], "update_error": update["error"][:200], "runtimes": runtimes,
                      "bots": len(bots), "bots_ready": sum(1 for b in bots.values() if (b or {}).get("ready")),
@@ -378,7 +453,10 @@ def build(store, settings, auth, who, census, github=None, config=None):
                 "observability": bool(settings.sentry_dsn or settings.posthog_key),
                 "assistant": bool(assistant and assistant.get("state") == "active"),
                 "librarian": bool(librarian and librarian.get("state") == "active")}
+    server_lines, capture = RING.snapshot()
+    capture["truncated"] = max(0, len(server_lines) - LOG_LINES)
     bundle = {
+        "capture": capture,
         "format": FORMAT, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "versions": {"tico": _version(releases.version()), "server": _version(releases.version()),
                      "runners": sorted({r["release"] for r in runners if r["release"]}),
@@ -396,7 +474,7 @@ def build(store, settings, auth, who, census, github=None, config=None):
         "database": {"migration": migration, "cloud_migration": cloud},
         "features": features,
         "counts": {"bots": bots_total, "people": len(people.get("people") or []), "routines": routines},
-        "logs": {"server": _lines(RING.lines, LOG_LINES), "updater": _lines(updater.get("errors"), RUNNER_LINES)},
+        "logs": {"server": _lines(server_lines, LOG_LINES), "updater": _lines(updater.get("errors"), RUNNER_LINES)},
     }
     return fit(redactor.clean(allowed(bundle)))
 

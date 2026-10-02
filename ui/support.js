@@ -1,292 +1,259 @@
-/* Contact support (backend/support.py, docs/support.md): the form on the Help page, "Your requests" beneath it, and a small
-   notice when the Tico team replies. Nothing is sent until Send is pressed. Everything a ticket says, from either side, is
-   text: it is escaped here and never rendered as HTML. */
+/* Support uses the existing ticket transport and the app's right rail. Drafts stay on this page's account in memory;
+   an attachment is an immutable server preview, never silently replaced when Send is pressed. */
 (function () {
+  'use strict';
   const API_BASE = () => (typeof API === 'string' ? API : '/api') + '/v2';
   const escape = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-  const say = (msg, isErr) => (typeof toast === 'function' ? toast(msg, isErr) : undefined);
-  const STATUS = {open: ['Open', 'waiting'], answered: ['Answered', 'ok'], closed: ['Closed', ''], gone: ['Removed', '']};
-  const POLL_MS = 5 * 60 * 1000;
-
-  let state = {enabled: null, tickets: [], unread: 0};
-  let toasted = 0, timer = null, stopped = false;
-
-  async function call(method, path, body) {
-    const r = await fetch(API_BASE() + path, {
-      method, cache: 'no-store',
-      headers: body === undefined ? {} : {'Content-Type': 'application/json', 'Idempotency-Key': (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()))},
+  const say = (msg, error) => typeof toast === 'function' && toast(msg, error);
+  const uid = () => crypto.randomUUID();
+  const browserFailures = [];
+  function browserFailure(kind, event) {
+    // No error message, rejection value, URLs, stack text or user input enters diagnostics.
+    let file = '';
+    try { file = new URL(event?.filename || '', location.href).pathname.split('/').pop(); } catch (_) {}
+    const item = {kind, at: new Date().toISOString(), file: /^[A-Za-z0-9_-]+\.js$/.test(file) ? file : '',
+      line: Math.max(0, Math.min(10000000, event?.lineno || 0)), column: Math.max(0, Math.min(10000000, event?.colno || 0)), count: 1};
+    const prior = browserFailures.find(x => x.kind === item.kind && x.file === item.file && x.line === item.line && x.column === item.column);
+    if (prior) { prior.at = item.at; prior.count = Math.min(1000000, prior.count + 1); }
+    else { browserFailures.push(item); if (browserFailures.length > 20) browserFailures.shift(); }
+  }
+  window.addEventListener('error', e => browserFailure('error', e));
+  window.addEventListener('unhandledrejection', () => browserFailure('unhandledrejection'));
+  const capture = () => browserFailures.length
+    ? call('POST', '/support/diagnostics/capture', {browser: browserFailures})
+    : call('GET', '/support/diagnostics');
+  const statuses = {open: 'Open', answered: 'Answered', closed: 'Closed', gone: 'Removed'};
+  let state = {enabled: null, tickets: [], unread: 0}, selected = '', rail = null, timer, busyRefresh = null;
+  let owner = '', toasted = 0, compose = null, drafts = new Map(), editor = null;
+  const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}); };
+  const draft = () => {
+    if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, bundle: null, key: uid()});
+    return drafts.get(selected);
+  };
+  const current = () => state.tickets.find(t => t.id === selected);
+  async function call(method, path, body, key) {
+    const r = await fetch(API_BASE() + path, {method, cache: 'no-store',
+      headers: body === undefined ? {} : {'Content-Type': 'application/json', 'Idempotency-Key': key || uid()},
       body: body === undefined ? undefined : JSON.stringify(body)});
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const detail = data && data.error && (data.error.detail || data.error.message);
-      throw Object.assign(new Error(detail || (typeof data.detail === 'string' ? data.detail : '') || 'Could not do that.'), {status: r.status});
-    }
+    if (!r.ok) throw Object.assign(new Error(data.error?.detail || data.error?.message || (typeof data.detail === 'string' ? data.detail : '') || 'Could not reach support. Try again.'), {status: r.status});
     return data;
   }
-
-  function css() {
-    if (document.getElementById('support-css')) return;
-    const style = document.createElement('style');
-    style.id = 'support-css';
-    style.textContent = `
-      #help-open[data-support-unread]{position:relative}
-      #help-open[data-support-unread]::after{content:"";position:absolute;top:-2px;right:-2px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:2px solid var(--surface)}
-      .support-modal{width:min(560px,calc(100vw - 32px))}
-      .support-modal .tmodal-body{display:grid;gap:12px}
-      .support-modal label{display:grid;gap:4px;font-size:12.5px;color:var(--muted)}
-      .support-modal textarea,.support-modal input[type=email]{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
-      .support-modal textarea{min-height:96px;resize:vertical}
-      .support-modal .support-check{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:13px}
-      .support-diag{display:flex;align-items:center;gap:10px;font-size:13px}
-      .support-diag label{display:flex;align-items:center;gap:8px;color:var(--ink)}
-      .support-diag button{border:0;background:none;color:var(--accent);padding:0;cursor:pointer;font:inherit;text-decoration:underline}
-      .support-json{margin:0;max-height:160px;overflow:auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);font:11.5px/1.4 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-      .support-sent{margin:0;font-size:12px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
-      .support-row{display:flex;gap:8px;align-items:center;justify-content:flex-end}
-      .support-mine{max-width:960px;margin:20px auto 0}
-      .support-mine h2{font-size:15px;margin:0 0 8px}
-      .support-ticket{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:0 0 8px;padding:0}
-      .support-ticket>summary{display:flex;gap:10px;align-items:center;padding:10px 12px;cursor:pointer;list-style:none}
-      .support-ticket>summary::-webkit-details-marker{display:none}
-      .support-ticket .support-line{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .support-ticket .support-when{color:var(--muted);font-size:12px;white-space:nowrap}
-      .support-ticket .support-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
-      .support-thread{display:grid;gap:10px;padding:0 12px 12px}
-      .support-msg{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px 10px;border-radius:8px;background:var(--surface2);font-size:13.5px}
-      .support-msg.staff{border-left:3px solid var(--accent)}
-      .support-msg .support-who{display:block;font-size:11px;color:var(--muted);margin-bottom:2px}
-      .support-write{display:grid;gap:8px}
-      .support-write textarea{width:100%;box-sizing:border-box;min-height:64px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);resize:vertical}`;
-    document.head.appendChild(style);
-  }
-
-  const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}); };
-  const summary = m => { const one = String(m).replace(/\s+/g, ' ').trim(); return one.length > 90 ? one.slice(0, 89) + '…' : one; };
-
   function mark() {
     const link = document.getElementById('help-open');
-    if (!link) return;
-    if (state.unread > 0) link.setAttribute('data-support-unread', String(state.unread));
-    else link.removeAttribute('data-support-unread');
+    if (state.unread) link?.setAttribute('data-support-unread', state.unread);
+    else link?.removeAttribute('data-support-unread');
   }
-
-  // Redraw the list on the Help page after a refresh, unless the person is in the middle of writing back.
-  function repaint() {
-    const page = document.getElementById('help-page');
-    if (!page || !page.querySelector('#support-mine')) return;
-    if ([...page.querySelectorAll('#support-mine textarea')].some(t => t.value)) return;
-    renderList(page);
-  }
-
   function accept(data) {
     state = {enabled: data.enabled !== false, tickets: data.tickets || [], unread: data.unread || 0};
-    mark();
-    repaint();
     if (state.unread > toasted) say('Tico support replied.');
     toasted = state.unread;
-    return state;
+    mark();
+    if (rail?.isConnected) { renderTickets(); renderThread(); }
   }
-
+  function note(message, error = false) {
+    const el = rail?.querySelector('[data-connection]');
+    if (el) { el.textContent = message; el.classList.toggle('err', error); }
+  }
   async function refresh() {
-    if (stopped) return state;
-    try {
-      const data = await call('POST', '/support/tickets/refresh');
-      return accept(data);
-    } catch (e) {
-      if (e.status === 401 || e.status === 403 || e.status === 409) stopped = true;
+    if (busyRefresh) return busyRefresh;
+    busyRefresh = (async () => {
+      try {
+        const data = await call('POST', '/support/tickets/refresh');
+        accept(data);
+        note(data.refresh_failed ? 'Could not check replies. Try Refresh.' : 'Checked ' + new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}), !!data.refresh_failed);
+      } catch (e) { note(e.message, true); }
+      finally { busyRefresh = null; }
       return state;
-    }
+    })();
+    return busyRefresh;
   }
-
   function schedule() {
     clearTimeout(timer);
-    if (stopped) return;
-    timer = setTimeout(async () => {
-      if (!document.hidden && state.tickets.some(t => t.status !== 'closed' && t.status !== 'gone')) await refresh();
-      schedule();
-    }, POLL_MS);
-  }
-
-  // ---------------------------------------------------------------- the form
-  async function openForm(onSent) {
-    let form;
-    try { form = await call('GET', '/support/compose'); } catch (e) { say(e.message, true); return; }
-    const dialog = document.createElement('dialog');
-    dialog.className = 'tmodal support-modal';
-    dialog.setAttribute('aria-label', 'Contact support');
-    dialog.innerHTML = `<div class="tmodal-head"><span class="who">Contact support</span><span class="spacer"></span><button type="button" class="ghost tmodal-x" data-close aria-label="Close">✕</button></div>
-      <form class="tmodal-body" novalidate>
-        <label>Message<textarea name="message" maxlength="${Number(form.max) || 4000}" required autofocus></textarea></label>
-        <label>Email for a reply<input type="email" name="email" autocomplete="email" value="${escape(form.email)}"></label>
-        <label class="support-check"><input type="checkbox" name="ids" checked> Include version and install ID</label>
-        <div class="support-diag"><label><input type="checkbox" name="diag" checked> Attach diagnostics</label><button type="button" data-preview>Preview</button></div>
-        <pre class="support-json" data-json hidden></pre>
-        <p class="support-sent" data-sent aria-live="polite"></p>
-        <p class="err" data-error hidden></p>
-        <div class="support-row"><button type="button" class="ghost" data-close>Cancel</button><button type="submit" class="primary">Send</button></div>
-      </form>`;
-    document.body.appendChild(dialog);
-    const f = dialog.querySelector('form'), sent = dialog.querySelector('[data-sent]'), err = dialog.querySelector('[data-error]');
-    const json = dialog.querySelector('[data-json]');
-    let bundle = null;       // the diagnostics as previewed: what Send sends is this one, by its id (backend/diagnostics.py)
-    const fetchBundle = async () => { bundle = await call('GET', '/support/diagnostics'); json.textContent = bundle.text; line(); return bundle; };
-    dialog.querySelector('[data-preview]').onclick = async () => {
-      if (!json.hidden) { json.hidden = true; return; }
-      try { if (!bundle) await fetchBundle(); json.hidden = false; } catch (e) { say(e.message, true); }
-    };
-    f.diag.addEventListener('change', () => { if (!f.diag.checked) json.hidden = true; });
-    const line = () => {
-      const parts = ['message'];
-      if (f.email.value.trim()) parts.push('email ' + f.email.value.trim());
-      if (f.ids.checked) {
-        if (form.version) parts.push('version ' + form.version);
-        parts.push('install ID ' + form.install_id);
-      }
-      if (f.diag.checked) parts.push('diagnostics' + (bundle ? ' (' + Math.max(1, Math.round(bundle.bytes / 1024)) + ' KB)' : ''));
-      sent.textContent = 'Sends to ' + form.to + ': ' + parts.join(', ') + '.';
-    };
-    line();
-    f.addEventListener('input', line);
-    dialog.querySelectorAll('[data-close]').forEach(b => b.onclick = () => dialog.close());
-    dialog.onclose = () => dialog.remove();
-    f.onsubmit = async ev => {
-      ev.preventDefault();
-      err.hidden = true;
-      if (!f.message.value.trim()) { err.textContent = 'Write a message.'; err.hidden = false; return; }
-      const submit = f.querySelector('[type=submit]');
-      submit.disabled = true;
-      try {
-        const file = () => call('POST', '/support/tickets', {message: f.message.value, email: f.email.value.trim(), include_ids: f.ids.checked,
-                                                            diagnostics: f.diag.checked ? bundle.id : ''});
-        if (f.diag.checked && !bundle) await fetchBundle();
-        let ticket;
-        try { ticket = await file(); }
-        catch (e) {
-          if (e.status !== 409 || !f.diag.checked) throw e;
-          bundle = null; await fetchBundle(); json.hidden = false;          // the preview expired: show the new one, send nothing
-          throw new Error('Diagnostics updated. Check and send again.');
-        }
-        dialog.close();
-        say('Sent.');
-        state.tickets = [ticket, ...state.tickets];
-        onSent && onSent(ticket);
-        schedule();
-      } catch (e) {
-        err.textContent = e.message; err.hidden = false; submit.disabled = false;
-      }
-    };
-    dialog.showModal();
-    f.message.focus();
-  }
-
-  // ---------------------------------------------------------------- your requests
-  function ticketHTML(t) {
-    const [label, tone] = STATUS[t.status] || [t.status, ''];
-    const thread = [`<div class="support-msg"><span class="support-who">You, ${escape(when(t.created))}</span>${escape(t.message)}</div>`]
-      .concat((t.messages || []).map(m => `<div class="support-msg ${m.from === 'staff' ? 'staff' : ''}"><span class="support-who">${m.from === 'staff' ? 'Tico support' : 'You'}, ${escape(when(m.created))}</span>${escape(m.body)}</div>`));
-    const write = t.status === 'closed' || t.status === 'gone' ? '' :
-      `<form class="support-write" data-write><textarea maxlength="4000" placeholder="Write back" aria-label="Write back"></textarea><div class="support-row"><button type="button" class="ghost danger" data-delete>Delete</button><button type="submit" class="ghost">Send</button></div></form>`;
-    return `<details class="support-ticket" data-ticket="${escape(t.id)}" data-status="${escape(t.status)}">
-      <summary>${t.unread ? '<span class="support-dot" aria-label="New reply"></span>' : ''}<span class="support-line">${escape(summary(t.message))}</span><span class="pill ${tone}">${escape(label)}</span><span class="support-when">${escape(when(t.created))}</span></summary>
-      <div class="support-thread">${thread.join('')}${write || `<div class="support-row"><button type="button" class="ghost danger" data-delete>Delete</button></div>`}</div></details>`;
-  }
-
-  function renderList(root) {
-    const host = root.querySelector('#support-mine');
-    if (!host) return;
-    if (!state.tickets.length) { host.hidden = true; return; }
-    host.hidden = false;
-    const open = new Set([...host.querySelectorAll('details[open]')].map(d => d.dataset.ticket));
-    host.querySelector('[data-list]').innerHTML = state.tickets.map(ticketHTML).join('');
-    host.querySelectorAll('details').forEach(d => { if (open.has(d.dataset.ticket)) d.open = true; });
-  }
-
-  function wire(root) {
-    const host = root.querySelector('#support-mine');
-    // Opening a request (the person's own click) reads it.
-    host.addEventListener('click', async e => {
-      const summary = e.target.closest('summary');
-      const d = summary && summary.parentElement;
-      if (!d || !d.matches('details.support-ticket') || d.open) return;       // open is still the old state here
-      const t = state.tickets.find(x => x.id === d.dataset.ticket);
-      if (!t || !t.unread) return;
-      try {
-        const next = await call('POST', `/support/tickets/${encodeURIComponent(t.id)}/read`);
-        Object.assign(t, next);
-        state.unread = state.tickets.reduce((n, x) => n + (x.unread || 0), 0);
-        toasted = Math.min(toasted, state.unread);
-        mark();
-        d.querySelector('.support-dot')?.remove();
-      } catch (_) { /* the dot stays until the next look */ }
-    });
-    host.addEventListener('submit', async e => {
-      const form = e.target.closest('[data-write]');
-      if (!form) return;
-      e.preventDefault();
-      const text = form.querySelector('textarea').value;
-      if (!text.trim()) return;
-      const id = form.closest('[data-ticket]').dataset.ticket;
-      try {
-        const next = await call('POST', `/support/tickets/${encodeURIComponent(id)}/messages`, {message: text});
-        state.tickets = state.tickets.map(x => x.id === id ? next : x);
-        renderList(root);
-        root.querySelector(`[data-ticket="${CSS.escape(id)}"]`).open = true;
-        say('Sent.');
-      } catch (err) { say(err.message, true); }
-    });
-    host.addEventListener('click', async e => {
-      const button = e.target.closest('[data-delete]');
-      if (!button) return;
-      const id = button.closest('[data-ticket]').dataset.ticket;
-      if (!confirm('Delete this request?')) return;
-      try {
-        await call('DELETE', `/support/tickets/${encodeURIComponent(id)}`);
-        state.tickets = state.tickets.filter(x => x.id !== id);
-        renderList(root);
-      } catch (err) { say(err.message, true); }
-    });
-  }
-
-  // The one hook the Help page calls after it draws itself (ui/app/help.js, pageHelp).
-  window.supportHelp = async function supportHelp(page) {
-    css();
-    if (!page || page.querySelector('#support-mine')) return;
-    const first = state.enabled === null;
-    if (first) {
-      try { accept(await call('GET', '/support/tickets')); } catch (_) { state.enabled = false; }
-    }
     if (!state.enabled) return;
-    const actions = page.querySelector('.help-actions');
-    if (actions) {
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'ghost'; button.dataset.supportOpen = '';
-      button.textContent = 'Contact support';
-      actions.appendChild(button);
-      button.onclick = () => openForm(() => { renderList(page); const d = page.querySelector('details.support-ticket'); if (d) d.open = true; });
-    }
-    const section = document.createElement('section');
-    section.id = 'support-mine'; section.className = 'support-mine'; section.hidden = true;
-    section.innerHTML = '<h2>Your requests</h2><div data-list></div>';
-    const anchor = page.querySelector('.help-foot');
-    if (anchor) anchor.before(section); else page.appendChild(section);
-    wire(page);
-    renderList(page);
-    const latest = await refresh();
-    if (document.body.contains(section)) renderList(page);
-    schedule();
-    return latest;
+    timer = setTimeout(async () => {
+      if (!document.hidden && state.tickets.some(t => !['closed', 'gone'].includes(t.status))) await refresh();
+      schedule();
+    }, rail?.isConnected ? 30000 : 300000);
+  }
+  async function readVisible() {
+    const t = current();
+    if (document.hidden || !rail?.isConnected || !t?.unread) return;
+    // Reading follows an explicit choice of thread, not a background fetch.
+    try {
+      const next = await call('POST', `/support/tickets/${encodeURIComponent(t.id)}/read`);
+      state.tickets = state.tickets.map(x => x.id === next.id ? next : x);
+      state.unread = state.tickets.reduce((n, x) => n + (x.unread || 0), 0);
+      toasted = state.unread; mark(); renderTickets(); renderThread();
+    } catch (_) { /* unread remains until the next explicit read */ }
+  }
+  function renderTickets() {
+    const select = rail.querySelector('[data-requests]');
+    select.innerHTML = '<option value="">New request</option>' + state.tickets.map(t => `<option value="${escape(t.id)}">${t.unread ? '● ' : ''}${escape((t.message || '').replace(/\s+/g, ' ').slice(0, 65))} · ${escape(statuses[t.status] || t.status)}</option>`).join('');
+    select.value = selected;
+  }
+  function renderThread() {
+    const host = rail.querySelector('[data-thread]'), t = current();
+    const bottom = host.scrollHeight - host.scrollTop - host.clientHeight < 40, top = host.scrollTop;
+    const text = (body, author, at, diag) => `<div class="support-msg ${author === 'Support' ? 'staff' : ''}"><span class="support-who">${escape(author)}${at ? ', ' + escape(when(at)) : ''}</span><div>${escape(body)}</div>${diag ? '<small class="support-sent">Diagnostics attached</small>' : ''}</div>`;
+    const html = t ? text(t.message, 'You', t.created, t.sent?.diagnostics) + (t.messages || []).map(m => text(m.body, m.from === 'staff' ? 'Support' : 'You', m.created, m.has_diagnostics)).join('')
+      : '<p class="support-empty">Tell us what happened and what you expected. Recent redacted diagnostics are attached by default; you can review, edit, or remove them.</p>';
+    if (host.innerHTML !== html) { host.innerHTML = html; host.scrollTop = bottom ? host.scrollHeight : top; }
+    const closed = t && ['closed', 'gone'].includes(t.status);
+    rail.querySelector('[data-compose]').hidden = !!closed;
+    rail.querySelector('[data-closed]').hidden = !closed;
+    rail.querySelector('[data-delete]').hidden = !t;
+    rail.querySelector('[data-read]').hidden = !t?.unread;
+    rail.querySelector('[data-status]').textContent = t ? statuses[t.status] || t.status : 'New request';
+  }
+  function renderComposer() {
+    const d = draft(), form = rail.querySelector('[data-compose]');
+    form.innerHTML = `<label class="sr-only" for="support-message">Message to support</label>
+      <textarea id="support-message" name="message" maxlength="4000" placeholder="${selected ? 'Write back…' : 'How can we help?'}" required>${escape(d.message)}</textarea>
+      <div class="support-diag"><label><input name="diag" type="checkbox" ${d.diag ? 'checked' : ''}> @diagnostics</label><button class="ghost" type="button" data-preview>Review and edit</button></div>
+      ${!selected ? `<details class="support-options"><summary>Reply email and install details</summary><label>Email for a reply<input name="email" type="email" value="${escape(d.email)}" autocomplete="email"></label><label class="support-check"><input name="ids" type="checkbox" ${d.ids ? 'checked' : ''}> Include version and install ID</label></details>` : ''}
+      <p class="support-sent" data-sent></p><p class="err" data-error role="alert" hidden></p>
+      <div class="support-row"><button class="primary" type="submit">Send</button></div>`;
+    form.oninput = () => {
+      d.message = form.elements.message.value;
+      if (!selected) { d.email = form.elements.email.value; d.ids = form.elements.ids.checked; }
+      d.diag = form.elements.diag.checked;
+      d.key = uid(); updateSent();
+    };
+    form.querySelector('[data-preview]').onclick = () => openEditor(d);
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const err = form.querySelector('[data-error]'), submit = form.querySelector('[type=submit]');
+      err.hidden = true;
+      if (!d.message.trim()) { err.textContent = 'Write a message.'; err.hidden = false; return; }
+      if (submit.disabled) return;
+      const locked = [...form.querySelectorAll('input, textarea, button'), ...rail.querySelectorAll('[data-requests], [data-new], [data-delete]')];
+      locked.forEach(el => { el.disabled = true; });
+      const thread = selected;
+      try {
+        if (d.diag && !d.bundle) { d.bundle = await capture(); updateSent(); }
+        const body = {message: d.message, diagnostics: d.diag ? d.bundle.id : ''};
+        if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids});
+        const next = await call('POST', thread ? `/support/tickets/${encodeURIComponent(thread)}/messages` : '/support/tickets', body, d.key);
+        state.tickets = [next, ...state.tickets.filter(t => t.id !== next.id)];
+        drafts.delete(thread); selected = next.id;
+        if (rail?.isConnected) { renderTickets(); renderThread(); renderComposer(); }
+        locked.forEach(el => { el.disabled = false; });
+        say(d.diag ? 'Sent with diagnostics.' : 'Sent.'); schedule();
+      } catch (error) { err.textContent = error.message; err.hidden = false; locked.forEach(el => { el.disabled = false; }); }
+    };
+    updateSent();
+  }
+  function updateSent() {
+    if (!rail?.isConnected) return;
+    const d = draft(), parts = ['message'];
+    if (!selected && d.email.trim()) parts.push('email ' + d.email.trim());
+    if (!selected && d.ids) parts.push('version ' + (compose?.version || 'unknown'), 'install ID ' + compose?.install_id);
+    if (d.diag) parts.push('redacted diagnostics' + (d.bundle ? ' (' + Math.max(1, Math.ceil(d.bundle.bytes / 1024)) + ' KB)' : ''));
+    rail.querySelector('[data-sent]').textContent = 'Sends to ' + compose?.to + ': ' + parts.join(', ') + '.';
+  }
+  async function openEditor(d) {
+    if (editor) return;
+    const dialog = document.createElement('dialog'); editor = dialog;
+    dialog.className = 'tmodal support-modal'; dialog.setAttribute('aria-label', 'Review and edit diagnostics');
+    dialog.innerHTML = `<div class="tmodal-head"><strong>Review and edit diagnostics</strong><span class="spacer"></span><button type="button" class="ghost" data-close aria-label="Close">✕</button></div>
+      <div class="tmodal-body"><p>Remove sections or edit the JSON below. Secrets are redacted again before you attach it. Nothing is sent to support here.</p>
+      <div data-sections class="support-sections"></div><label for="support-json">Exact attachment</label><textarea id="support-json" class="support-json" spellcheck="false" aria-label="Diagnostics JSON"></textarea>
+      <p class="support-sent" data-result role="status">Loading diagnostics…</p><p class="err" data-error role="alert" hidden></p>
+      <div class="support-row"><button class="ghost" type="button" data-refresh>Refresh capture</button><button class="ghost" type="button" data-save>Check edits</button><button class="primary" type="button" data-use disabled>Use diagnostics</button></div></div>`;
+    document.body.appendChild(dialog); dialog.showModal();
+    const area = dialog.querySelector('textarea'), err = dialog.querySelector('[data-error]'), result = dialog.querySelector('[data-result]'), use = dialog.querySelector('[data-use]');
+    let base = d.bundle, checked = null, loading = false;
+    const fail = e => { err.textContent = e.message; err.hidden = false; };
+    const invalidate = () => { checked = null; use.disabled = true; result.textContent = 'Check edits to see the final redacted attachment.'; };
+    area.oninput = invalidate;
+    const show = bundle => {
+      base = checked = bundle; area.value = bundle.text; use.disabled = false;
+      result.textContent = 'This is the exact attachment (' + Math.ceil(bundle.bytes / 1024) + ' KB).';
+      const data = JSON.parse(bundle.text), sections = dialog.querySelector('[data-sections]');
+      sections.innerHTML = Object.keys(data).filter(k => !['format', 'created', 'capture'].includes(k)).map(k => `<label><input type="checkbox" data-section="${escape(k)}" checked> ${escape(k)}</label>`).join('');
+      sections.onchange = e => {
+        const key = e.target.dataset.section;
+        if (!key) return;
+        try { const value = JSON.parse(area.value); if (e.target.checked) value[key] = data[key]; else delete value[key]; area.value = JSON.stringify(value, null, 2); invalidate(); }
+        catch (_) { fail(new Error('Fix the JSON before changing sections.')); e.target.checked = !e.target.checked; }
+      };
+    };
+    const load = async () => {
+      if (loading) return;
+      loading = true; err.hidden = true; use.disabled = true;
+      try { show(await capture()); }
+      catch (e) { fail(e); }
+      finally { loading = false; }
+    };
+    dialog.querySelector('[data-refresh]').onclick = () => {
+      if (area.value && !confirm('Replace this capture and its edits with current diagnostics?')) return;
+      void load();
+    };
+    dialog.querySelector('[data-save]').onclick = async () => {
+      if (loading || !base) return;
+      err.hidden = true; loading = true; use.disabled = true;
+      try {
+        const input = area.value;
+        JSON.parse(input);
+        const value = await call('POST', '/support/diagnostics', {id: base.id, text: input});
+        // An in-flight validation must not overwrite text the user continued editing.
+        if (area.value !== input) { invalidate(); return; }
+        show(value); result.textContent = 'Edits checked and redacted. Review the final text, then use this attachment.';
+      } catch (e) { fail(e); }
+      finally { loading = false; }
+    };
+    use.onclick = () => {
+      if (!checked || loading) return;
+      d.bundle = checked; d.diag = true; d.key = uid();
+      if (rail?.isConnected) { rail.querySelector('[name=diag]').checked = true; updateSent(); }
+      dialog.close();
+    };
+    dialog.querySelector('[data-close]').onclick = () => dialog.close();
+    dialog.onclose = () => { editor = null; dialog.remove(); };
+    if (base) show(base); else await load();
+  }
+  window.supportLeave = () => { editor?.close(); rail = null; schedule(); };
+  window.supportHelp = async page => {
+    const actor = typeof S === 'undefined' ? '' : S.me?.id;
+    if (owner !== actor) { if (owner) browserFailures.length = 0; owner = actor; drafts = new Map(); selected = ''; compose = null; state = {enabled: null, tickets: [], unread: 0}; }
+    try {
+      accept(await call('GET', '/support/tickets'));
+      if (!state.enabled || !page.isConnected) { page.querySelector('.help-support-link')?.remove(); return; }
+      compose = await call('GET', '/support/compose');
+      if (!page.isConnected) return;
+      const main = page.parentElement; main.classList.add('help-layout');
+      rail = document.createElement('aside'); rail.id = 'support-rail'; rail.className = 'support-rail'; rail.setAttribute('aria-label', 'Support');
+      rail.innerHTML = `<div class="rail-sec"><div class="support-head"><h2>Support</h2><span class="spacer"></span><button type="button" class="ghost" data-new>New request</button></div><p class="support-sent">Replies appear here. You can leave and come back.</p>
+        <label class="sr-only" for="support-requests">Your requests</label><select id="support-requests" data-requests aria-label="Your requests"></select>
+        <div class="support-head"><small data-status></small><span class="spacer"></span><button class="ghost" data-read type="button">Mark read</button><button class="ghost danger" data-delete type="button">Delete</button></div></div>
+        <div class="support-thread" data-thread aria-label="Support conversation"></div>
+        <p class="support-sent" data-closed hidden>This request is closed. Start a new request if you need more help.</p>
+        <form class="support-write rail-sec" data-compose novalidate></form>
+        <div class="support-connection"><small data-connection role="status"></small><button class="ghost" type="button" data-refresh>Refresh</button></div>`;
+      main.appendChild(rail);
+      main.insertAdjacentHTML('beforeend', railEdgeHTML('right', 'Resize support panel', 'support-rail'));
+      const choose = id => { selected = id; renderTickets(); renderThread(); renderComposer(); void readVisible(); };
+      rail.querySelector('[data-requests]').onchange = e => choose(e.target.value);
+      rail.querySelector('[data-new]').onclick = () => choose('');
+      rail.querySelector('[data-refresh]').onclick = refresh;
+      rail.querySelector('[data-read]').onclick = readVisible;
+      rail.querySelector('[data-delete]').onclick = async () => {
+        const id = selected;
+        if (!id || !confirm('Delete this request and its diagnostics?')) return;
+        try { await call('DELETE', `/support/tickets/${encodeURIComponent(id)}`); state.tickets = state.tickets.filter(t => t.id !== id); drafts.delete(id); choose(''); }
+        catch (e) { say(e.message, true); }
+      };
+      if (selected && !current()) selected = '';
+      if (!selected && !drafts.has('') && state.tickets.length) selected = (state.tickets.find(t => t.unread) || state.tickets[0]).id;
+      renderTickets(); renderThread(); renderComposer();
+      await refresh(); schedule();
+    } catch (e) { if (page.isConnected) { const p = document.createElement('p'); p.className = 'err'; p.textContent = e.message; page.appendChild(p); } }
   };
-
-  // A reply reaches a person on any page: ask now and then, only while something is open.
   window.supportPoll = refresh;
-  const start = async () => {
-    css();
-    if (typeof S === 'undefined' || !S.me) return setTimeout(start, 2000);
-    if (state.enabled === null) {
-      try { accept(await call('GET', '/support/tickets')); } catch (_) { stopped = true; return; }
-    }
-    if (state.enabled && state.tickets.some(t => t.status !== 'closed' && t.status !== 'gone')) await refresh();
-    schedule();
-  };
-  window.addEventListener('load', () => setTimeout(start, 3000));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && state.enabled) { void refresh(); schedule(); } });
+  window.addEventListener('load', () => setTimeout(async () => {
+    if (typeof S === 'undefined' || !S.me || state.enabled !== null) return;
+    try { accept(await call('GET', '/support/tickets')); schedule(); } catch (_) { /* Help offers a retry */ }
+  }, 3000));
 })();
