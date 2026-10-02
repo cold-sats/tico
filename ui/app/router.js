@@ -51,6 +51,7 @@ function route() {
   else if (S.route === SETTINGS) pageSettings();
   else if (S.route === HELP) pageHelp();
   else if (S.route === '#/getting-started') { location.replace(TASKS); return; }   // the checklist is gone
+  else if (S.route === '#/repositories') { SETTINGS_TAB = 'repos'; location.replace(SETTINGS); return; }   // Settings > Repositories
   else if (S.route === '#/health') { SETTINGS_TAB = 'health'; location.replace(SETTINGS); return; }   // Health moved into Settings
   else if (S.route === CREDENTIALS) pageCredentials();
   else if (S.route === SQL_PAGE) pageSql();
