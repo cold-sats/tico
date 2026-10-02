@@ -35,6 +35,10 @@ LOGIN_COMMAND = {"codex": ["codex", "login"], "claude": ["claude", "auth", "logi
                  "grok": ["grok", "login"]}
 
 
+class SubscriptionUnavailable(RuntimeError):
+    """An assigned subscription cannot run this turn on this Computer."""
+
+
 class Profile:
     """One subscription: the provider homes a bot's turns and readiness checks run against."""
 

@@ -31,6 +31,7 @@ from .outage import RECENT, Outage, describe, log
 from .state import BOT_THREAD, State, session_key
 from .warm import WarmSessions
 from .watchers import Watchers
+from .profiles import SubscriptionUnavailable
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -734,11 +735,18 @@ class Runner:
         profile = profiles.select(self.config, attempt["bot"], requested)
         if requested:
             if profile is None:
-                raise RuntimeError(self.subscription_problem(requested, computer=attempt.get("computer_label")))
+                raise SubscriptionUnavailable(self.subscription_problem(requested, computer=attempt.get("computer_label")))
             runtime = (attempt.get("config") or {}).get("runtime") or ""
-            status = self.runtime_readiness(runtime, [attempt], profile)
-            if status.get("authenticated") in ("missing", "failed", "rejected") or self.rejection(runtime, profile.name):
-                raise RuntimeError(self.subscription_problem(requested, signed_out=True, computer=attempt.get("computer_label")))
+            row = (getattr(self, "runtime_rows", None) or {}).get(runtime) or {}
+            status = (row.get("profiles") or {}).get(profile.name) or {}
+            cached = self.__dict__.get("_profile_report_cache")
+            login = next((row["runtimes"].get(runtime) for row in cached[1]
+                          if row["name"] == profile.name), None) if cached else None
+            signed_out = (login.get("signed_in") is False if login is not None else
+                          status.get("authenticated") in ("missing", "rejected"))
+            if signed_out or self.rejection(runtime, profile.name):
+                raise SubscriptionUnavailable(self.subscription_problem(requested, signed_out=True,
+                                              computer=attempt.get("computer_label")) + f" for {runtime}")
         return profile
 
     def add_profile(self, name):
@@ -1223,7 +1231,7 @@ class Runner:
                 profile = profiles.select(self.config, entry["bot"], entry.get("profile"))
                 if entry["config"].get("runtime") == runtime and (profile or not entry.get("profile")):
                     used.setdefault(profile.name if profile else "", profile)
-            if not used:
+            if not used or set(used) == {""}:
                 report[runtime] = self.runtime_readiness(runtime, assignments)
                 continue
             rows = {name: dict(self.runtime_readiness(runtime, assignments, used[name])) for name in sorted(used)}
@@ -1250,9 +1258,8 @@ class Runner:
     def profile_report(self):
         """Cached provider sign-in probes with a ten-second budget for the entire report."""
         cached = self.__dict__.get("_profile_report_cache")
-        if cached and time.monotonic() - cached[0] < 600:
+        if cached and time.monotonic() - cached[0] < 60:
             return cached[1]
-        previous = {row['name']: row['runtimes'] for row in self.__dict__.get("_profile_report_previous", [])}
         deadline = time.monotonic() + 10
         result = []
         entries = list((self.config.get("profiles") or {}).items())
@@ -1263,7 +1270,7 @@ class Runner:
             profile = profiles.Profile(name, entry["dir"], entry.get("share_operator"))
             runtimes = {runtime: {"signed_in": None} for runtime in profiles.RUNTIMES}
             for runtime in ("codex", "claude"):
-                signed = previous.get(name, {}).get(runtime, {}).get("signed_in")
+                signed = None
                 budget = deadline - time.monotonic()
                 executable = shutil.which(runtime)
                 if executable and budget > 0:
@@ -1283,7 +1290,6 @@ class Runner:
             result.append({"name": name, "runtimes": runtimes})
             if len(result) == 100:
                 break
-        self._profile_report_previous = result
         self._profile_report_cache = (time.monotonic(), result)
         return result
 
@@ -1598,7 +1604,7 @@ class Runner:
                 else:
                     detail = "Codex login required"
             except subprocess.TimeoutExpired:
-                authenticated, detail = "failed", "Codex sign-in check timed out"
+                authenticated, detail = "unknown" if profile else "failed", "Codex sign-in check timed out"
             except OSError:
                 authenticated, detail = "failed", "Codex sign-in could not be checked"
         elif runtime == "claude":
@@ -1624,7 +1630,7 @@ class Runner:
                 else:
                     authenticated, detail = "missing", "Claude login required"
             except subprocess.TimeoutExpired:
-                authenticated, detail = "failed", "Claude sign-in check timed out"
+                authenticated, detail = "unknown" if profile else "failed", "Claude sign-in check timed out"
             except OSError:
                 authenticated, detail = "failed", "Claude sign-in could not be checked"
         elif runtime == "gemini":
@@ -2210,8 +2216,16 @@ class Runner:
                 # if the bot has a fallback harness, run the turn there instead of losing it.
                 unavailable = limited or retryable
             except Exception as exc:
-                self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted; inspect local runner"})
-                unavailable = not own_interrupt(exc)
+                if isinstance(exc, SubscriptionUnavailable):
+                    reply, outcome, limited, retryable = str(exc), "failed", False, False
+                    auth_rejected.clear()
+                    self.state.append(aid, "diagnostic", {"text": reply})
+                    self.state.append(aid, "message", {"text": reply, "final": True})
+                    self.last_heartbeat = float("-inf")
+                    unavailable = False
+                else:
+                    self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted; inspect local runner"})
+                    unavailable = not own_interrupt(exc)
             native_control = bool(((attempt.get("message") or {}).get("refs") or {}).get("command") or
                                   (attempt.get("chat_goal") or {}).get("status") == "active")
             hop = configured_fallback(config) if unavailable and not native_control else None
@@ -2232,14 +2246,18 @@ class Runner:
                 ran[:] = [hop["model"] or "", hop["runtime"] or ""]
                 reply, outcome, tokens, limited, retryable = "", "interrupted", {}, False, False
                 primary = config.get("harness") or runtime
-                self.state.append(aid, "diagnostic",
-                                  {"text": f"{primary} unavailable; running this turn on {fallback}"})
                 try:
-                    host = self.host_factory({**attempt, "config": hop_config, "fallback": fallback}, base_env)
+                    hop_attempt = {**attempt, "config": hop_config, "fallback": fallback}
+                    profile = self.turn_profile(hop_attempt)
+                    hop_env = profile.environment(hop["runtime"], base_env) if profile else base_env
+                    env = hop_env
+                    self.state.append(aid, "diagnostic",
+                                      {"text": f"{primary} unavailable; running this turn on {fallback}"})
+                    host = self.host_factory(hop_attempt, hop_env)
                     host.start()
                     settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
-                                             effort=hop["reasoning_effort"], env=base_env, slug=bot,
-                                             mcp_servers=self.mcp_for_run(attempt, execution_path, base_env, hop["runtime"],
+                                             effort=hop["reasoning_effort"], env=hop_env, slug=bot,
+                                             mcp_servers=self.mcp_for_run(attempt, execution_path, hop_env, hop["runtime"],
                                                                           hop["harness"], diagnose))
                     thread = host.start_thread(bot, settings)
                     turn = host.start_turn(thread, self.prompt(attempt, resumed=False),
@@ -2248,8 +2266,15 @@ class Runner:
                     log(f"Tico runner: {bot}: {primary} unavailable; ran the turn on {fallback}"
                         + ("" if outcome == "completed" else f" ({outcome})"))
                 except Exception as exc:
-                    self.state.append(aid, "diagnostic",
-                                      {"text": type(exc).__name__ + ": fallback harness interrupted; inspect local runner"})
+                    if isinstance(exc, SubscriptionUnavailable):
+                        reply, outcome, limited, retryable = str(exc), "failed", False, False
+                        auth_rejected.clear()
+                        self.state.append(aid, "diagnostic", {"text": reply})
+                        self.state.append(aid, "message", {"text": reply, "final": True})
+                        self.last_heartbeat = float("-inf")
+                    else:
+                        self.state.append(aid, "diagnostic",
+                                          {"text": type(exc).__name__ + ": fallback harness interrupted; inspect local runner"})
             if auth_rejected and outcome == "failed":
                 self.reject(auth_rejected["runtime"], auth_rejected["reason"],
                             (profiles.select(self.config, bot, attempt.get("profile")).name

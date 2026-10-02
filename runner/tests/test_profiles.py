@@ -106,13 +106,16 @@ class Readiness(unittest.TestCase):
             self.runner.profile_report()
             self.assertEqual(len(probes), 4)
             self.assertTrue(all('--version' not in argv and kw['timeout'] <= 3 for argv, kw in probes))
+            with mock.patch('runner.service.time.monotonic', return_value=self.runner._profile_report_cache[0] + 61):
+                self.runner.profile_report()
+            self.assertEqual(len(probes), 8)
             self.runner.add_profile('new')
             self.runner.profile_report()
-            self.assertEqual(len(probes), 10)
+            self.assertEqual(len(probes), 14)
         self.runner._profile_report_cache = None
         with mock.patch('runner.service.shutil.which', return_value='codex'), \
                 mock.patch('runner.service.isolation.run', side_effect=subprocess.TimeoutExpired('probe', 3)):
-            self.assertEqual(self.runner.profile_report()[1]['runtimes'], rows[0]['runtimes'])
+            self.assertTrue(all(status['signed_in'] is None for row in self.runner.profile_report() for status in row['runtimes'].values()))
 
     def test_named_profile_is_persisted_without_replacing_local_assignments(self):
         import json
@@ -261,7 +264,7 @@ class Readiness(unittest.TestCase):
         for method in (self.runner.environment, lambda work: self.runner.make_host(work, {})):
             with self.assertRaisesRegex(RuntimeError, "Subscription absent isn't on"):
                 method({**BOT, 'profile': 'absent'})
-            with mock.patch.object(self.runner, 'runtime_readiness', return_value={'authenticated': 'missing'}):
+            with mock.patch.object(self.runner, 'runtime_rows', {'codex': {'profiles': {'one': {'authenticated': 'missing'}}}}, create=True):
                 with self.assertRaisesRegex(RuntimeError, "Subscription one isn't signed in"):
                     method({**BOT, 'profile': 'one'})
 
@@ -310,3 +313,109 @@ class Readiness(unittest.TestCase):
         self.runner.client = mock.Mock()
         self.runner.complete('attempt', {'outcome': 'completed', 'profile_used': None})
         self.assertNotIn('profile_used', self.runner.client.post.call_args.args[1])
+
+    def test_turn_guard_uses_cached_state_without_live_probes(self):
+        from unittest import mock
+        work = {**BOT, 'profile': 'one', 'computer_label': 'Build Computer'}
+        self.runner.runtime_rows = {'codex': {'profiles': {'one': {'authenticated': 'ready'}}}}
+        with mock.patch.object(self.runner, 'runtime_readiness', side_effect=AssertionError('live probe')):
+            for status in ('ready', 'failed', 'unknown'):
+                self.runner.runtime_rows['codex']['profiles']['one']['authenticated'] = status
+                self.assertEqual(self.runner.turn_profile(work).name, 'one')
+            self.runner.runtime_rows = {}
+            self.assertEqual(self.runner.turn_profile(work).name, 'one')
+            self.runner._profile_report_cache = (0, [{'name': 'one', 'runtimes': {'codex': {'signed_in': False}}}])
+            with self.assertRaisesRegex(RuntimeError, "Subscription one isn't signed in on Build Computer for codex"):
+                self.runner.turn_profile(work)
+            self.runner._profile_report_cache[1][0]['runtimes']['codex']['signed_in'] = None
+            self.assertEqual(self.runner.turn_profile(work).name, 'one')
+
+    def test_profileless_runtime_detail_has_no_empty_profile_prefix(self):
+        from unittest import mock
+        self.runner.config.update(default_profile=None, bot_profiles={}, profiles={})
+        with mock.patch.object(self.runner, 'runtime_readiness', return_value={
+                'installed': True, 'authenticated': 'ready', 'detail': 'Signed in'}):
+            row = self.runner.runtime_report([BOT])['codex']
+            self.assertEqual(row['detail'], 'Signed in')
+            self.assertNotIn('profiles', row)
+            self.runner.reject('codex', 'Unauthorized')
+            row = self.runner.runtime_report([BOT])['codex']
+            self.assertEqual(row['authenticated'], 'rejected')
+            self.assertEqual(row['detail'], 'Sign-in rejected: Unauthorized')
+
+    def test_fallback_uses_assigned_profile_and_waits_if_signed_out(self):
+        from unittest import mock
+        from runner.hosts.fake import FakeHost
+        from runner.tests.test_runner_resilience import FakeClient, attempt
+        root = Path(self.tmp.name)
+        (root / 'emp-coo').mkdir()
+        for signed_in in (True, False):
+            client, calls = FakeClient(), []
+            primary, secondary = FakeHost(), FakeHost(replies=['fallback reply'])
+            primary.fail_next_turn("You've hit your usage limit")
+            def factory(work, env):
+                calls.append((work['config']['runtime'], env))
+                return secondary if work.get('fallback') else primary
+            runner = Runner(self.runner.config, root / ('fallback-' + str(signed_in)),
+                            host_factory=factory, client=client, push=lambda path, env=None: (0, ''))
+            runner.renew_interval = 0.05
+            runner.runtime_rows = {runtime: {'profiles': {'one': {'authenticated': status}}}
+                                   for runtime, status in [('codex', 'ready'), ('claude', 'ready' if signed_in else 'missing')]}
+            work = {**attempt(), 'profile': 'one', 'computer_label': 'Build Computer'}
+            work['config']['fallback'] = {'harness': 'claude', 'model': 'test-model'}
+            with mock.patch.object(runner, 'runtime_readiness', side_effect=AssertionError('live probe')):
+                runner.execute(work)
+            completion = client.completion()
+            if signed_in:
+                self.assertEqual([runtime for runtime, env in calls], ['codex', 'claude'])
+                self.assertEqual(calls[1][1]['HOME'], str(Path(self.one['dir']) / 'claude'))
+                settings = next(iter(secondary.threads.values()))['settings']
+                self.assertEqual(settings['env']['HOME'], calls[1][1]['HOME'])
+                self.assertEqual(completion['outcome'], 'completed')
+            else:
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(completion['outcome'], 'failed')
+                self.assertEqual(completion['text'], "Subscription one isn't signed in on Build Computer for claude")
+                self.assertNotIn('limited', completion)
+                self.assertNotIn('retryable', completion)
+                self.assertNotIn('auth_rejected', completion)
+                self.assertEqual(runner.last_heartbeat, float('-inf'))
+
+    def test_start_refusal_records_message_and_prevents_fallback(self):
+        import json
+        from unittest import mock
+        from runner.tests.test_runner_resilience import FakeClient, attempt
+        root = Path(self.tmp.name)
+        (root / 'emp-coo').mkdir()
+        client, factory = FakeClient(), mock.Mock()
+        runner = Runner(self.runner.config, root / 'refused', host_factory=factory,
+                        client=client, push=lambda path, env=None: (0, ''))
+        runner.renew_interval = 0.05
+        work = {**attempt(), 'profile': 'absent', 'computer_label': 'Build Computer'}
+        work['config']['fallback'] = {'harness': 'claude', 'model': 'test-model'}
+        runner.execute(work)
+        completion = client.completion()
+        message = "Subscription absent isn't on Build Computer"
+        self.assertEqual((completion['outcome'], completion['text']), ('failed', message))
+        self.assertNotIn('retryable', completion)
+        factory.assert_not_called()
+        self.assertEqual(runner.last_heartbeat, float('-inf'))
+        with runner.state.connect() as c:
+            events = [(row['kind'], json.loads(row['payload'])) for row in c.execute('SELECT kind,payload FROM events')]
+        self.assertIn(('diagnostic', {'text': message}), events)
+        self.assertIn(('message', {'text': message, 'final': True}), events)
+
+    def test_profile_probe_timeout_is_unknown_in_heartbeat_and_turn_guard(self):
+        import subprocess
+        from unittest import mock
+        for runtime in ('codex', 'claude'):
+            work = {**BOT, 'profile': 'one', 'config': {'runtime': runtime}}
+            with mock.patch('runner.service.shutil.which', return_value=runtime), \
+                    mock.patch('runner.service.isolation.run', side_effect=subprocess.TimeoutExpired('probe', 3)), \
+                    mock.patch.object(self.runner, 'codex_models', return_value=[]):
+                status = self.runner.runtime_readiness(runtime, [work], profiles.select(self.runner.config, 'sales', 'one'))
+            self.assertEqual(status['authenticated'], 'unknown')
+            self.runner.runtime_rows = {runtime: {**status, 'profiles': {'one': status}}}
+            checks = self.runner.preflight([work], self.runner.runtime_rows)
+            self.assertFalse(any('signed in' in problem for problem in checks[0]['problems']))
+            self.assertEqual(self.runner.turn_profile(work).name, 'one')
