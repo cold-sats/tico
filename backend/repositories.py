@@ -85,8 +85,8 @@ def set_access(c, bot, body, org, actor, legacy=False):
         if legacy:
             c.execute('INSERT INTO repositories(id,full_name,enabled,updated) VALUES(?,?,1,?) '
                       'ON CONFLICT(full_name) DO UPDATE SET enabled=1', (uuid.uuid4().hex, name, H.now()))
-        elif not c.execute('SELECT 1 FROM repositories WHERE full_name=? AND enabled=1', (name,)).fetchone():
-            raise Problem('github_repo', 'Choose a ticked repository', 422)
+        elif not c.execute('SELECT 1 FROM repositories WHERE full_name=?', (name,)).fetchone():
+            raise Problem('github_repo', 'Choose a repository from the team list', 422)
         wanted[name.lower()] = (name, grant.access)
     config = json.loads(c.execute('SELECT config_json FROM bot_config WHERE bot=?', (bot,)).fetchone()[0] or '{}')
     config.update(repo_access_mode=body.mode, repo_all_access=body.all_access or before['all_access'])

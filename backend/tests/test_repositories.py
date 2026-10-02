@@ -32,14 +32,18 @@ def test_sync_bot_repos_setup_overrides_and_unreachable(api, gh):
     assert not rows['Acme/product']['bot_repo']
     assert rows['Acme/product']['setup_command'] == 'npm ci'
     assert rows['Acme/docs']['setup_source'] == 'conductor.json'
-    put(api, 'repositories/Acme/product', {'enabled': True, 'setup_command': 'make install'})
+    updated = put(api, 'repositories/Acme/product', {'enabled': True, 'setup_command': 'make install'})
+    assert updated['full_name'] == 'Acme/product' and updated['enabled']
+    assert updated['setup_command'] == 'make install' and updated['setup_source'] == 'settings'
     gh.repositories = [r for r in gh.repositories if r['full_name'] != 'Acme/docs']
     response = api.post('/api/v2/repositories/refresh', headers=auth()).json()
+    assert response == api.get('/api/v2/repositories', headers=auth('person-test')).json()
     rows = {r['full_name']: r for r in response['repositories']}
     assert not rows['Acme/docs']['reachable']
     assert rows['Acme/product']['setup_command'] == 'make install'
     assert rows['Acme/product']['setup_source'] == 'settings'
     assert api.get('/api/v2/repositories', headers=auth('person-test')).status_code == 200
+    assert api.get('/api/v2/bots/cpo/repositories', headers=auth('person-test')).status_code == 200
     assert api.put('/api/v2/repositories/Acme/product', json={'enabled': False}, headers=auth('person-test')).status_code == 403
 
 
@@ -182,3 +186,19 @@ def test_mcp_and_cli_repository_commands_use_routes(api, gh, monkeypatch):
     assert run('bot', 'repos', 'sales', '--own')['body'] == {'mode': 'own'}
     assert run('bot', 'repos', 'sales', '--chosen', 'example/docs:read', 'example/product')['body'] == {
         'mode': 'chosen', 'chosen': [{'full_name': 'example/docs', 'access': 'read'}, {'full_name': 'example/product', 'access': 'write'}]}
+
+
+def test_chosen_unticked_grants_survive_settings_saves_and_reticking(api, gh):
+    catalog(api, gh)
+    put(api, 'repositories/Acme/docs', {'enabled': True})
+    chosen = [{'full_name': 'Acme/docs', 'access': 'read'}]
+    put(api, 'bots/cpo/repositories', {'mode': 'chosen', 'chosen': chosen})
+    put(api, 'repositories/Acme/docs', {'enabled': False})
+    for mode in ('own', 'all', 'chosen'):
+        response = put(api, 'bots/cpo/repositories', {'mode': mode, 'all_access': 'read', 'chosen': chosen})
+        assert response['chosen'] == chosen
+        assert response['effective'] == [{'full_name': 'Acme/emp-cpo', 'access': 'write'}]
+    put(api, 'repositories/Acme/docs', {'enabled': True})
+    assert chosen[0] in api.get('/api/v2/bots/cpo/repositories', headers=auth()).json()['effective']
+    assert api.put('/api/v2/bots/cpo/repositories', json={'mode': 'chosen', 'chosen': [
+        {'full_name': 'Acme/unlisted', 'access': 'read'}]}, headers=auth()).status_code == 422

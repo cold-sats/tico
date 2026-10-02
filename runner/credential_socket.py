@@ -7,7 +7,7 @@ belongs to, minted with the runner's registration. The socket has no other quest
 name a bot, so an attempt never gets another bot's token, an attempt that has ended gets nothing,
 and the runner's own token never crosses it.
 
-One JSON line each way: {"token": "<attempt token>"} then {"token": "<github token>"} or {"error": "..."}.
+One JSON line each way: {"token": "<attempt token>", "repository": "owner/repo"} (repository optional) then {"token": "<github token>"} or {"error": "..."}.
 
 The same socket serves an inbox bot's mail access (runner/mail_key.py holds the Google key, which
 bots cannot read): {"token": "<attempt token>", "mail": {"service": "gmail", "mailbox": "ana@..."}}
@@ -31,7 +31,7 @@ MAIL_SERVICES = ("gmail", "calendar")
 
 
 class Server:
-    """Serves `mint(bot)` to whoever presents the attempt token registered for that bot."""
+    """Serves `mint(bot, repository)` to the attempt registered for that bot; repository is optional."""
 
     def __init__(self, path, mint, mail=None):
         self.path, self.mint, self.mail = str(path), mint, mail
@@ -62,7 +62,10 @@ class Server:
         if "mail" in asked:
             return self.answer_mail(bot, allowed, asked["mail"])
         try:
-            granted = self.mint(bot)
+            repository = asked.get("repository")
+            if repository is not None and not isinstance(repository, str):
+                return {"error": "bad repository"}
+            granted = self.mint(bot, repository) if repository else self.mint(bot)
         except Exception as exc:
             return {"error": type(exc).__name__}
         if not granted:
@@ -125,9 +128,10 @@ def serve(client, path=None, mail=None):
         return None
     path = path or os.environ.get("TICO_RUNNER_CRED_SOCKET") or DEFAULT_PATH
 
-    def mint(bot):
+    def mint(bot, repository=None):
+        from .git_credentials import select_token
         granted = client.post("github/token", {"bot": bot})
-        return granted.get("token") if granted.get("configured") else ""
+        return select_token(granted, repository)
     try:
         return Server(path, mint, mail).start()
     except OSError as exc:
@@ -135,12 +139,15 @@ def serve(client, path=None, mail=None):
         return None
 
 
-def request(path, attempt_token, timeout=20):
+def request(path, attempt_token, timeout=20, repository=None):
     """The GitHub token for the bot this attempt belongs to. Raises OSError/ValueError on failure."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(timeout)
         connection.connect(str(path))
-        connection.sendall(json.dumps({"token": attempt_token}).encode() + b"\n")
+        asked = {"token": attempt_token}
+        if repository:
+            asked["repository"] = repository
+        connection.sendall(json.dumps(asked).encode() + b"\n")
         line = connection.makefile("rb").readline(MAX_LINE)
     reply = json.loads(line)
     if not reply.get("token"):

@@ -75,3 +75,37 @@ def test_bot_code_is_wrapped_only_when_told_to_and_only_as_another_user(monkeypa
     assert argv[:1] == [isolation.SETPRIV] and argv[-2:] == ["codex", "app-server"]
     assert "--reuid=10003" in argv and "--regid=10002" in argv and "--ambient-caps=-all" in argv
     assert kwargs == {"umask": 0o002}
+
+
+def test_socket_preserves_repository_selection_and_attempt_identity(monkeypatch, capsys):
+    grants = {"configured": True, "token": "write-token", "tokens": [
+        {"token": "write-token", "repositories": ["Acme/product"]},
+        {"token": "read-token", "repositories": ["Acme/docs"]}]}
+    calls = []
+    class Hub:
+        def post(self, path, body):
+            calls.append((path, body))
+            return grants
+    directory = tempfile.mkdtemp(dir="/tmp")
+    monkeypatch.setattr(isolation, "enabled", lambda: True)
+    server = C.serve(Hub(), os.path.join(directory, "cred.sock"))
+    try:
+        server.register("attempt-a", "alpha")
+        assert C.request(server.path, "attempt-a", repository="Acme/docs") == "read-token"
+        assert C.request(server.path, "attempt-a", repository="Acme/product") == "write-token"
+        assert calls == [("github/token", {"bot": "alpha"})] * 2
+        monkeypatch.setenv("HUB_TOKEN", "attempt-a")
+        monkeypatch.setattr("sys.stdin", io.StringIO("protocol=https\nhost=github.com\npath=Acme/docs.git\n\n"))
+        G.main(["--socket", server.path, "--bot", "another-bot"])
+        assert capsys.readouterr().out == "username=x-access-token\npassword=read-token\n"
+        assert calls[-1] == ("github/token", {"bot": "alpha"})
+        with pytest.raises(ValueError):
+            C.request(server.path, "attempt-a", repository="Acme/unknown")
+        grants.pop("tokens")
+        assert C.request(server.path, "attempt-a", repository="Acme/docs") == "write-token"
+        server.unregister("attempt-a")
+        with pytest.raises(ValueError):
+            C.request(server.path, "attempt-a", repository="Acme/docs")
+    finally:
+        server.stop()
+        shutil.rmtree(directory)

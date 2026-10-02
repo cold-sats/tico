@@ -92,3 +92,66 @@ def test_the_helper_falls_back_to_the_turn_token_when_the_hub_cannot_be_reached(
     env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1"}
     assert G.apply(env, Hub({"configured": True, "token": "ghs_start"}), "cpo", config)
     assert "password=ghs_start" in fill(env, tmp_path)
+
+
+def test_mixed_grants_select_the_remote_token_without_persisting_it(tmp_path, monkeypatch):
+    grants = {"configured": True, "token": "write-token", "tokens": [
+        {"token": "write-token", "repositories": ["Acme/product"], "access": "write"},
+        {"token": "read-token", "repositories": ["Acme/docs"], "access": "read"}]}
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1"}
+    assert G.apply(env, Hub(grants), "alpha")
+    for repo, expected in (("Acme/product.git", "write-token"), ("acme/docs.git", "read-token")):
+        result = subprocess.run(["git", "credential", "fill"],
+                                input=f"protocol=https\nhost=github.com\npath={repo}\n\n",
+                                env=env, cwd=tmp_path, capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        assert f"password={expected}" in result.stdout
+    assert list(tmp_path.iterdir()) == []
+    assert env["GIT_CONFIG_VALUE_2"] == "true"
+    assert G.select_token(grants, "Acme/unknown") == ""
+    assert G.select_token({"configured": True, "token": "old-token"}, "Acme/docs") == "old-token"
+
+
+def test_fresh_groups_and_outage_fallback_keep_repository_selection(tmp_path, monkeypatch):
+    grants = {"configured": True, "token": "write-token", "tokens": [
+        {"token": "write-token", "repositories": ["Acme/product"]},
+        {"token": "read-token", "repositories": ["Acme/docs"]}]}
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"url": "https://example.com", "token": "registration"}))
+    hub = Hub(grants)
+    monkeypatch.setattr("clients.tico.Client", lambda *a, **kw: hub)
+    assert G.credential(config, "alpha", repository="Acme/docs") == "read-token"
+    assert G.credential(config, "alpha", repository="Acme/product") == "write-token"
+    assert hub.calls == [("github/token", {"bot": "alpha"})] * 2
+    monkeypatch.setenv(G.TOKENS_KEY, json.dumps(grants["tokens"]))
+    monkeypatch.setenv("GH_TOKEN", "write-token")
+    hub.error = OSError()
+    assert G.credential(config, "alpha", repository="Acme/docs") == "read-token"
+    assert G.credential(config, "alpha", repository="Acme/unknown") == ""
+    monkeypatch.delenv(G.TOKENS_KEY)
+    hub.answer, hub.error = {"configured": True, "token": "old-token"}, None
+    assert G.credential(config, "alpha", repository="Acme/docs") == "old-token"
+
+
+def test_gh_wrapper_uses_the_read_token_for_explicit_and_local_repositories(tmp_path, monkeypatch):
+    import os
+    import shutil
+    gh = tmp_path / "gh"
+    gh.write_text("#!/bin/sh\nprintf '%s' \"$GH_TOKEN\"\n")
+    gh.chmod(0o755)
+    env = {"PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "HOME": str(tmp_path)}
+    grants = {"configured": True, "token": "write-token", "tokens": [
+        {"token": "write-token", "repositories": ["Acme/product"]},
+        {"token": "read-token", "repositories": ["Acme/docs"]}]}
+    assert G.apply(env, Hub(grants), "alpha")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "remote", "add", "origin", "https://github.com/Acme/docs.git"], check=True)
+    for args, expected in ((["repo", "view"], "read-token"),
+                           (["repo", "view", "-R", "Acme/product"], "write-token"),
+                           (["api", "repos/Acme/docs/contents"], "read-token"),
+                           (["repo", "view", "Acme/docs"], "read-token")):
+        result = subprocess.run([shutil.which("gh", path=env["PATH"]), *args], env=env, cwd=tmp_path,
+                                capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == expected
+    assert "token" not in (tmp_path / ".git" / "config").read_text()
