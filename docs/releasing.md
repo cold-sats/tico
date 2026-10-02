@@ -10,17 +10,17 @@ Tests run on your computer, not in CI: nothing in GitHub Actions runs the suite 
 tagging, run the whole thing from the repository root:
 
 ```
-python -m pytest -q && npm run test:ui
+python scripts/release_checks.py
 ```
 
 That is the full suite (pytest in parallel, then the browser scripts three at a time) and it has to finish in under
-10 minutes; that is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
+5 minutes; the check records wall time and load and fails if the combined run reaches 300 seconds. This is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
 that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. CI only
 builds and publishes: the Docker workflow builds the three images for a `v*` tag, and the Release workflow publishes the
 GitHub release. The compose smoke test (Docker workflow) and the screenshots workflow run from the Actions tab
 (Run workflow) when you want them. The optional `ci.yml` workflow runs the same tests there on demand.
 
-Before a deploy, run the journey check on a laptop with Docker (it is not part of CI or of the ten-minute suite budget, and takes about ten minutes):
+Before a deploy, run the journey check on a laptop with Docker (it is not part of CI or of the five-minute suite budget, and takes about ten minutes):
 
 ```
 scripts/journey-test.sh                  # this checkout is the candidate; starts from the newest release tag
