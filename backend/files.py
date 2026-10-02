@@ -506,7 +506,7 @@ class Files:
         """Whether `who` may know this file exists: its scope's visibility, and never a runner's."""
         if who.role not in ("owner", "human", "bot"):
             return False
-        if who.role == "bot" and H.actor_id(who.actor) != row["bot"]:
+        if who.role == "bot" and H.actor_id(who.actor) != row["bot"] and not row["scope"].startswith("task:"):
             return False
         key = row["scope"]
         if key not in cache:

@@ -1,5 +1,16 @@
 """Structured reviews use the existing task ask/answer messages and wake path."""
+import html
+import re
+
 from .store import H, Problem, encode
+
+
+def readable_text(value):
+    text = " ".join(str(value).splitlines())
+    text = re.sub(r"([\\`*_{}\[\]()!#+|~-])", r"\\\1", text)
+    text = html.escape(text, quote=False).replace("@", "&#64;")
+    text = re.sub(r"(?i)\b(https?|ftp):", r"\1&#58;", text)
+    return re.sub(r"(?i)\bwww\.", "www&#46;", text)
 
 
 def comment_rights(c, auth, who, task_id):
@@ -54,7 +65,7 @@ def version_review(c, fid, number):
     row = c.execute("SELECT * FROM task_file_reviews WHERE file_id=? AND version=?", (fid, number)).fetchone()
     asked = H.message(c, row["ask_message_id"]) if row and row["ask_message_id"] else None
     return {"note": row["note"] if row else None, "comment_id": row["comment_id"] if row else None,
-            "ask": {k: asked["refs"].get(k) for k in ("questions", "who")} if asked else None,
+            "ask": {**{k: asked["refs"].get(k) for k in ("questions", "who")}, "by": asked["from_actor"]} if asked else None,
             "answers": H.review_answers(c, asked["id"]) if asked else []}
 
 
@@ -74,13 +85,13 @@ def edit_version(c, auth, who, task_id, fid, number, body):
         existing = c.execute("SELECT ask_message_id FROM task_file_reviews WHERE file_id=? AND version=?",
                              (fid, number)).fetchone()[0]
         if existing:
-            if value is None or value == current["ask"]:
+            if value is None or value == {k: v for k, v in (current["ask"] or {}).items() if k != "by"}:
                 return version_review(c, fid, number)
             if H.answers_to(c, [existing]):
                 raise Problem("validation", "This version's question was answered; attach a new version for another review", 422)
             asked = H.message(c, existing)
             row = H.task(c, task_id)
-            recipient = H.resolve_actor(c, value.get("who") or row["requester"])
+            recipient = H.task_ask_recipient(c, who.actor, row, value)
             c.execute("UPDATE messages SET refs_json=?,to_actor=? WHERE id=?",
                       (encode({**asked["refs"], **value}), recipient, existing))
             return version_review(c, fid, number)
@@ -131,14 +142,14 @@ def answer_task(c, auth, who, task_id, body, wake):
         if body.other and not any(q["other"] for q in questions.values()):
             raise Problem("validation", "Other text is not allowed for this question", 422)
     by = H.human(c, H.actor_id(who.actor)) if H.is_human(who.actor) else H.bot(c, H.actor_id(who.actor))
-    name = (by or {}).get("name") or H.actor_id(who.actor)
-    subject = f'"{version["name"]}" v{body.target.version}' if version else "the question"
+    name = readable_text((by or {}).get("name") or H.actor_id(who.actor))
+    subject = f'"{readable_text(version["name"])}" v{body.target.version}' if version else "the question"
     if body.dismiss:
         text = f"{name} dismissed the question on {subject}." if version else f"{name} dismissed the question."
     elif version and len(questions) == 1 and list(body.answers.values()) == [["Approve"]]:
         text = f"{name} approved {subject}."
     else:
-        text = " ".join(f'{name} answered "{q["question"]}": {", ".join(body.answers[qid]) or "Other"}.'
+        text = " ".join(f'{name} answered "{readable_text(q["question"])}": {", ".join(readable_text(label) for label in body.answers[qid]) or "Other"}.'
                          for qid, q in questions.items())
         if version:
             text += f" File: {subject}."
@@ -147,6 +158,37 @@ def answer_task(c, auth, who, task_id, body, wake):
     value = {"target": target, "answers": body.answers, "other": body.other, "dismiss": body.dismiss,
              "by": who.actor, "at": H.now()}
     msg = H.task_comment(c, who.actor, task_id, text, wake=wake,
-                         extra_refs={"answer": value}, answer_to=asked["id"])
+                         extra_refs={"answer": value}, answer_to=asked["id"], answer_text=body.other or "")
     return {"comment": {**msg, "answer": value}, "answer": value,
             "comments": H.task_comments(c, task_id), "woke": bool(wake)}
+
+
+def task_covers(c, task_ids):
+    """Newest visual version per task, with one query for a bounded task page."""
+    if not task_ids:
+        return {}
+    marks = ",".join("?" * len(task_ids))
+    rows = c.execute(
+        "WITH visuals AS ("
+        "SELECT f.task_id,f.id,v.version,v.mime,v.created,v.rowid AS position,"
+        "coalesce(v.width,m.width) AS width,coalesce(v.height,m.height) AS height,"
+        "coalesce(v.thumb_blob_id,m.thumb_blob_id) AS thumb_blob_id,"
+        "coalesce(v.poster_blob_id,m.poster_blob_id) AS poster_blob_id "
+        "FROM bot_files f JOIN bot_file_versions v ON v.file_id=f.id "
+        "LEFT JOIN blob_media m ON m.blob_id=v.blob_id "
+        f"WHERE f.task_id IN ({marks}) AND f.archived=0 AND f.locator='tico_blob' "
+        "UNION ALL SELECT a.task_id,b.id,1,b.content_type,b.created,b.rowid,"
+        "m.width,m.height,m.thumb_blob_id,m.poster_blob_id "
+        "FROM task_assets a JOIN blobs b ON b.id=a.blob_id LEFT JOIN blob_media m ON m.blob_id=b.id "
+        f"WHERE a.task_id IN ({marks}) AND NOT EXISTS "
+        "(SELECT 1 FROM bot_file_versions v WHERE v.blob_id=b.id)), "
+        "ranked AS (SELECT *,ROW_NUMBER() OVER (PARTITION BY task_id "
+        "ORDER BY created DESC,version DESC,position DESC) AS rank FROM visuals "
+        "WHERE mime LIKE 'image/%' OR (mime LIKE 'video/%' AND poster_blob_id IS NOT NULL)) "
+        "SELECT * FROM ranked WHERE rank=1", (*task_ids, *task_ids))
+    out = {}
+    for row in rows:
+        suffix = "/poster" if row["mime"].startswith("video/") else "/thumb" if row["thumb_blob_id"] else ""
+        out[row["task_id"]] = {"url": f"/api/v2/files/{row['id']}{suffix}?v={row['version']}",
+                               "width": row["width"], "height": row["height"]}
+    return out

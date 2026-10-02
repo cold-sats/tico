@@ -170,19 +170,23 @@ an id (up to 40 characters), header (30), question (300), and zero to six option
 to 60 characters and descriptions up to 200. An option can link to a version using `file: "<id>@<n>"`.
 `multi` defaults to false; `other` defaults to true. Question ids and labels must be unique.
 Unknown fields are rejected. `who` names a person or bot for Needs you; otherwise the requester
-is highlighted. Every open ask counts in the task's `open_asks`, including older unanswered questions.
+is highlighted (the owner when the requester asks). Every open ask counts in the task's
+`open_asks`, including older unanswered questions.
 
-Anyone who may comment on the task can answer, except the asker. Read permission alone does
-not grant comment or answer permission. Answers validate question ids and option labels; Other
+Uploading any file or version requires comment permission. Anyone who may comment on the task
+can answer, except the asker. Read permission alone does not grant comment or answer permission. Answers validate question ids and option labels; Other
 text is accepted only when the question allows it. A dismissal closes the ask too. Every answer
-is retained, oldest first, as an existing answer message and a readable task comment. The task's
-bot wakes with the comment text and an `answer: {...}` block; older Computers still read the text.
+is retained, oldest first, as an existing answer message and a readable task comment. Answers
+follow the comment wake rule: a bot, task owner or requester, or human mover wakes the task's bot; other teammates' answers wait for its next turn. The Computer receives the comment
+text and one `answer: {...}` block; older Computers still read the text.
 The bot decides what to do and whether to move the step. Ask once per version and act on the
 answer; attach a new version when the work changes.
 
 The API uses the existing ask/answer protocol (`messages.kind`, `refs.questions`, `refs.target`,
-and `refs.answer`); plain questions and text replies keep working. The version's metadata points
-to its ask message. These routes use the usual Idempotency-Key contract:
+and `refs.answer`); plain questions and text replies keep working. Plain comments keep structured
+questions open; an older Computer's plain answer closes its target and reads as `{by, text, at}`.
+Needs you excludes closed, cancelled, archived and declined tasks, even with an open question.
+The version's metadata points to its ask message. These routes use the usual Idempotency-Key contract:
 
 - `POST /api/v2/tasks/{id}/files` accepts the existing `name` plus `text` or `content_base64`, and
   optional `note` and `ask`. The result includes `file_id` and `version`, alongside the existing
@@ -195,3 +199,10 @@ to its ask message. These routes use the usual Idempotency-Key contract:
   `target: {file: id, version: n}`, `answers: {question_id: [label, ...]}`, optional `other`,
   or `dismiss: true`. Answer every question, using an empty label list for an allowed Other reply.
   `GET` lists the structured answers.
+
+Comment and version `ask` objects include `questions`, `who` and `by` (the asker's actor).
+Comment `refs.attachments` includes each attached version's `id`, `name` and `version`.
+Task list and detail rows include `cover: {url, width, height}` or null. The cover is the newest
+image version's thumbnail (or the image itself) or a video's poster; its URL includes `?v=N`.
+Archived files are excluded, dimensions may be null, and each task page computes covers in one query.
+For multi-question reviews, `other` is one string for the entire answer.

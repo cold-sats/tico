@@ -619,7 +619,7 @@ def create_app(settings=None):
             H.hydrate_task_tags(c, [row])
         value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
                  "labels": H.task_labels(row), "lane": row.get("lane") or "company",
-                 "next_run": bool(row.get("next_run"))}
+                 "next_run": bool(row.get("next_run")), "cover": None}
         if c is not None and row.get("next_run"):
             value["next_run_waiting"] = H.next_run_waiting(c, row)
         value.pop("labels_json", None)
@@ -637,6 +637,8 @@ def create_app(settings=None):
             if routine:
                 value.update(routine_id=routine['schedule_id'])
             value.update({"origin_actor": H.task_origin(c, row), "ask": H.unanswered_ask(c, row), "open_asks": len(H.open_task_asks(c, row))})
+            from .task_review import task_covers
+            value["cover"] = task_covers(c, [row["id"]]).get(row["id"])
             from .blobs import brief
             value["attachments"] = [brief(r) for r in c.execute(
                 "SELECT b.* FROM blobs b JOIN task_assets a ON a.blob_id=b.id WHERE a.task_id=?", (row["id"],))]
@@ -660,6 +662,8 @@ def create_app(settings=None):
         H.hydrate_task_tags(c, rows)
         ids = [row["id"] for row in rows]
         marks = ",".join("?" * len(ids))
+        from .task_review import task_covers
+        covers = task_covers(c, ids)
 
         parts = {row["parent_id"]: {"total": row["total"] or 0, "done": row["done"] or 0}
                  for row in c.execute(
@@ -687,26 +691,21 @@ def create_app(settings=None):
                 f"SELECT id,title,status FROM tasks WHERE id IN ({blocker_marks})", blocker_ids)}
 
         asks, open_counts = {}, {}
-        conversations = list({row.get("conversation_id") for row in rows if row.get("conversation_id")})
-        if conversations:
-            conv_marks = ",".join("?" * len(conversations))
-            messages = [dict(m) for m in c.execute(
-                f"SELECT * FROM messages WHERE kind='ask' AND conversation_id IN ({conv_marks}) ORDER BY created DESC",
-                conversations)]
-            ask_ids = [m["id"] for m in messages]
-            answered = set()
-            if ask_ids:
-                ask_marks = ",".join("?" * len(ask_ids))
-                answered.update(r[0] for r in c.execute(
-                    f"SELECT DISTINCT in_reply_to FROM messages WHERE kind='answer' AND in_reply_to IN ({ask_marks})", ask_ids))
-            convs = {cid: H.conversation(c, cid) for cid in conversations}
-            for message in messages:
-                if message["id"] in answered or message.get("answered_by"):
-                    continue
-                message["refs"] = H._json(message.get("refs_json"), {}) or {}
-                tid = H.message_task_id(message, convs[message["conversation_id"]])
-                asks.setdefault(tid, message)
-                open_counts[tid] = open_counts.get(tid, 0) + 1
+        for message in c.execute(
+                "SELECT * FROM (SELECT m.*,t.id AS ask_task_id,"
+                "COUNT(*) OVER (PARTITION BY t.id) AS open_count,"
+                "ROW_NUMBER() OVER (PARTITION BY t.id ORDER BY m.rowid DESC) AS ask_rank "
+                "FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
+                f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
+                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.answered_by IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')) "
+                "WHERE ask_rank=1", ids):
+            message = dict(message)
+            tid = message.pop("ask_task_id")
+            open_counts[tid] = message.pop("open_count")
+            message.pop("ask_rank")
+            message["refs"] = H._json(message.get("refs_json"), {}) or {}
+            asks[tid] = message
 
         origins = {}
         for event in c.execute(
@@ -730,7 +729,7 @@ def create_app(settings=None):
                 "links": links[row["id"]],
                 "children_summary": summaries[row["id"]],
                 "pr_state": H.pr_state(links[row["id"]]),
-                "attachments": attachments[row["id"]],
+                "attachments": attachments[row["id"]], "cover": covers.get(row["id"]),
                 "ask": asks.get(row["id"]), "open_asks": open_counts.get(row["id"], 0),
             })
             if row.get("blocked_by"):
@@ -2202,8 +2201,9 @@ def create_app(settings=None):
         def work(c):
             from .task_review import answer_task
             task_id = auth.resolve_task(c, who, tid)
-            # An answer unblocks the task, whoever with comment rights supplied it.
-            return answer_task(c, auth, who, task_id, body, wake=True)
+            row = auth.task(c, who, task_id)
+            wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or mover(c, who)
+            return answer_task(c, auth, who, task_id, body, wake=wake)
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks/{tid}/tree")

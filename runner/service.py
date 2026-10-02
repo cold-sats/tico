@@ -1952,8 +1952,9 @@ class Runner:
         current_refs = attempt["message"].get("refs") or {}
         if current_refs.get("answer"):
             lines.append("answer: " + json.dumps(current_refs["answer"], ensure_ascii=False))
-        if current_refs:
-            lines.append("Current message references:\n" + json.dumps(current_refs, ensure_ascii=False))
+        remaining_refs = {k: v for k, v in current_refs.items() if k != "answer"}
+        if remaining_refs:
+            lines.append("Current message references:\n" + json.dumps(remaining_refs, ensure_ascii=False))
         if attempt["message"].get("refs", {}).get("attachments"):
             lines.append("Current attachments: " + json.dumps(attempt["message"]["refs"]["attachments"], ensure_ascii=False))
         if attempt.get("next_run"):

@@ -390,11 +390,12 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                 raise Problem("file_refused", str(exc), 422) from exc
         with store.read() as c:
             tid = auth.resolve_task(c, who, tid)
-            auth.task(c, who, tid)
+            from .task_review import comment_rights
+            comment_rights(c, auth, who, tid)
         digest = blobs.put(data)
         def work(c):
             from .task_review import comment_rights, edit_version
-            task = comment_rights(c, auth, who, tid) if body.ask else auth.task(c, who, tid)
+            task = comment_rights(c, auth, who, tid)
             item = register(c, who, digest, len(data), body.name, content_type)
             bot_actor = next((a for a in (who.actor, task["owner"], task["requester"]) if H.is_bot(a)), None)
             fid, number = files.attach_task(c, who, tid, item, digest,
@@ -579,7 +580,11 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         with store.read() as c:
             stored = c.execute("SELECT 1 FROM bot_files WHERE id=?", (bid,)).fetchone()
         if is_file_id(bid) or stored:
-            return files.serve(request.state.identity, bid, v, meta=True)
+            try:
+                return files.serve(request.state.identity, bid, v, meta=True)
+            except Problem as exc:
+                if is_file_id(bid) or v not in (None, 1) or exc.status not in (403, 404):
+                    raise
         if v not in (None, 1):
             raise Problem("not_found", "File version not found", 404)
         with store.read() as c:
@@ -592,7 +597,11 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         with store.read() as c:
             stored = c.execute("SELECT 1 FROM bot_files WHERE id=?", (bid,)).fetchone()
         if is_file_id(bid) or stored:
-            return files.serve(who, bid, v)
+            try:
+                return files.serve(who, bid, v)
+            except Problem as exc:
+                if is_file_id(bid) or v not in (None, 1) or exc.status not in (403, 404):
+                    raise
         if v not in (None, 1):
             raise Problem("not_found", "File version not found", 404)
         with store.read() as c:

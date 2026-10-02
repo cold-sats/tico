@@ -15196,8 +15196,7 @@
             }
           },
           "ask": {
-            "type": "object",
-            "description": "Structured questions on a task ask"
+            "$ref": "#/components/schemas/TaskReviewAskView"
           },
           "answer": {
             "$ref": "#/components/schemas/ReviewAnswer"
@@ -15941,39 +15940,63 @@
         "additionalProperties": true
       },
       "ReviewAnswer": {
-        "type": "object",
-        "properties": {
-          "target": {
-            "type": "object"
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "object"
+              },
+              "answers": {
+                "type": "object"
+              },
+              "other": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dismiss": {
+                "type": "boolean"
+              },
+              "by": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "answers",
+              "at",
+              "by",
+              "dismiss",
+              "other",
+              "target"
+            ],
+            "additionalProperties": true
           },
-          "answers": {
-            "type": "object"
-          },
-          "other": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "dismiss": {
-            "type": "boolean"
-          },
-          "by": {
-            "type": "string"
-          },
-          "at": {
-            "type": "string"
+          {
+            "type": "object",
+            "properties": {
+              "by": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "by",
+              "text"
+            ],
+            "additionalProperties": true
           }
-        },
-        "required": [
-          "answers",
-          "at",
-          "by",
-          "dismiss",
-          "other",
-          "target"
-        ],
-        "additionalProperties": true
+        ]
       },
       "ReviewAsk": {
         "properties": {
@@ -16697,6 +16720,39 @@
             "type": "string",
             "description": "Display name of requester"
           },
+          "cover": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "height": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "height",
+                  "url",
+                  "width"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "open_asks": {
             "type": "integer",
             "description": "Questions on this task with no answer or dismissal"
@@ -17239,9 +17295,13 @@
             ]
           },
           "ask": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskReviewAskView"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "answers": {
@@ -17384,6 +17444,29 @@
         },
         "required": [
           "task"
+        ],
+        "additionalProperties": true
+      },
+      "TaskReviewAskView": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array"
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "questions",
+          "who"
         ],
         "additionalProperties": true
       },
@@ -18389,9 +18472,13 @@
             ]
           },
           "ask": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskReviewAskView"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "answers": {

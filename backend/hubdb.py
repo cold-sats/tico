@@ -1541,7 +1541,7 @@ def _close_open_asks(conn, actor, target, kind, msg):
     Answering one question at a time meant prompting the bot once per question -- each answer
     its own message, each message its own run -- and left no room to say anything alongside the
     answer. A person writing back IS the answer, so every ask that bot had open on them closes
-    here: one message, one run. A bot that still does not have what it needs asks again, which
+    here: one message, one run. Structured reviews close only through an explicit answer. A bot that still does not have what it needs asks again, which
     is cheap and is what a person would do.
     ("when I respond, it marks the questions as answered.")
     """
@@ -1552,6 +1552,7 @@ def _close_open_asks(conn, actor, target, kind, msg):
     open_asks = [r["id"] for r in _rows(conn.execute(
         "SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
         "WHERE m.to_actor=? AND m.from_actor=? AND m.kind='ask' "
+        "AND json_type(m.refs_json,'$.questions') IS NULL "
         "AND m.answered_by IS NULL AND m.id NOT IN (SELECT in_reply_to FROM messages "
         "WHERE kind='answer' AND in_reply_to IS NOT NULL) "
         f"AND (? IS NULL OR {MESSAGE_TASK_SQL}=?)",
@@ -1675,7 +1676,7 @@ def _ask_depth(conn, actor, refs, in_reply_to):
     return max(declared, deepest + 1, 1)
 
 
-def answer(conn, actor, message_id, body, unknown=False, *, comment_refs=None, comment_target=None):
+def answer(conn, actor, message_id, body, unknown=False, *, comment_refs=None, comment_target=None, classify_text=None):
     """Reply to an ask. A checked task comment may also answer a structured task ask."""
     _writer(conn, actor)
     asked = message(conn, message_id)
@@ -1687,7 +1688,7 @@ def answer(conn, actor, message_id, body, unknown=False, *, comment_refs=None, c
         refuse(conn, actor, "identity", "The asker cannot answer their own question")
     if asked["to_actor"] != actor and not task_reply:
         refuse(conn, actor, "identity", f"{message_id} was not addressed to {actor}")
-    if classify(body, where="message", actor=actor, conn=conn) == "escape":
+    if classify(body if classify_text is None else classify_text, where="message", actor=actor, conn=conn) == "escape":
         refuse(conn, actor, "escape", "The reply includes a secrets path or another bot’s workspace path. Remove the restricted reference and retry; this did not send anything outside the Hub.",
                "escape")
     refs = {"depth": (asked.get("refs") or {}).get("depth", 1), **(comment_refs or {})}
@@ -2271,7 +2272,12 @@ def task_links(conn, task_id):
     return _rows(conn.execute("SELECT * FROM task_links WHERE task_id=? ORDER BY created", (task_id,)))
 
 
-def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None):
+def task_ask_recipient(conn, actor, row, ask):
+    target = ask.get("who") or (row["owner"] if actor == row["requester"] else row["requester"])
+    return resolve_actor(conn, target)
+
+
+def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None):
     """A comment on a task: one message in the task's conversation, tagged with the task, from
     whoever wrote it. It wakes the bot on the other side of the task when `wake` (a mover, the
     owner or the requester left it); otherwise it is saved for the bot's next turn on the task."""
@@ -2292,11 +2298,11 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     if not conv:
         refuse(conn, actor, "not-found", f"task {task_id} has no conversation")
     if ask:
-        target = resolve_actor(conn, ask.get("who") or row["requester"])
+        target = task_ask_recipient(conn, actor, row, ask)
         refs.update(ask)
         refs["who"] = ask.get("who")
     if answer_to:
-        msg = answer(conn, actor, answer_to, text, comment_refs=refs, comment_target=target or actor)
+        msg = answer(conn, actor, answer_to, text, comment_refs=refs, comment_target=target or actor, classify_text=answer_text)
     elif ask:
         msg = say(conn, actor, target, text, kind="ask", conversation_id=conv["id"], refs=refs)
     elif target is None:
@@ -2323,7 +2329,7 @@ def task_comments(conn, task_id):
         m["refs"] = _json(m.get("refs_json"), {}) or {}
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
             if m["kind"] == "ask" and m["refs"].get("questions"):
-                m["ask"] = {k: m["refs"].get(k) for k in ("questions", "who")}
+                m["ask"] = {**{k: m["refs"].get(k) for k in ("questions", "who")}, "by": m["from_actor"]}
                 m["answers"] = review_answers(conn, m["id"])
             if m["refs"].get("answer"):
                 m["answer"] = m["refs"]["answer"]
@@ -2332,9 +2338,14 @@ def task_comments(conn, task_id):
 
 
 def review_answers(conn, message_id):
-    return [refs["answer"] for row in conn.execute(
-        "SELECT refs_json FROM messages WHERE kind='answer' AND in_reply_to=? ORDER BY created,rowid", (message_id,))
-        if (refs := _json(row["refs_json"], {}) or {}).get("answer")]
+    out = []
+    for row in conn.execute(
+            "SELECT * FROM messages WHERE (kind='answer' AND in_reply_to=?) "
+            "OR id=(SELECT answered_by FROM messages WHERE id=?) ORDER BY created,rowid",
+            (message_id, message_id)):
+        refs = _json(row["refs_json"], {}) or {}
+        out.append(refs.get("answer") or {"by": row["from_actor"], "text": row["body"], "at": row["created"]})
+    return out
 
 
 def open_task_asks(conn, task_row):
@@ -2343,15 +2354,13 @@ def open_task_asks(conn, task_row):
         return []
     asks = _rows(conn.execute(
         "SELECT m.* FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
-        f"WHERE m.conversation_id=? AND m.kind='ask' AND {MESSAGE_TASK_SQL}=? ORDER BY m.rowid DESC",
+        f"WHERE m.conversation_id=? AND m.kind='ask' AND {MESSAGE_TASK_SQL}=? "
+        "AND m.answered_by IS NULL AND NOT EXISTS "
+        "(SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer') ORDER BY m.rowid DESC",
         (conv, task_row["id"])))
-    answered = answers_to(conn, [a["id"] for a in asks])
-    out = []
     for ask in asks:
-        if ask["id"] not in answered:
-            ask["refs"] = _json(ask.get("refs_json"), {}) or {}
-            out.append(ask)
-    return out
+        ask["refs"] = _json(ask.get("refs_json"), {}) or {}
+    return asks
 
 
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
@@ -3739,14 +3748,14 @@ def unanswered_ask(conn, task_row):
 
 def tasks_asked_of(conn, actor):
     """Live tasks with an unanswered ask addressed to this actor, even if they do not own them."""
-    rows = _rows(conn.execute(
+    return _rows(conn.execute(
         "SELECT t.* FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
         f"JOIN messages m ON m.conversation_id=t.conversation_id AND {MESSAGE_TASK_SQL}=t.id "
         f"WHERE (t.status IN ({','.join(repr(x) for x in ACTIVE_STATUSES)}) "
-        "OR json_type(m.refs_json,'$.questions')='array') AND m.kind='ask' AND m.to_actor=? "
+        "OR (t.status='done' AND json_type(m.refs_json,'$.questions')='array')) "
+        "AND m.kind='ask' AND m.to_actor=? AND m.answered_by IS NULL "
         "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer') "
         "GROUP BY t.id ORDER BY t.created", (actor,)))
-    return [row for row in rows if any(ask["to_actor"] == actor for ask in open_task_asks(conn, row))]
 
 
 def needs_you(conn, who):
