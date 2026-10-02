@@ -603,32 +603,17 @@ class Auth:
         return {slug for slug, level in self.bot_accesses(c, who).items() if not level["read"]}
 
     def task_sql(self, c, who, delegations="task_delegations"):
-        """The tasks this caller may read, as a WHERE fragment over `tasks` (owner, requester, id).
+        """Company tasks are readable subject to bot activity controls; private tasks have two parties.
 
-        The same rule as `task_row`, for lists: a task that involves a bot the caller cannot read
-        is theirs only as a party to it. `delegations` names the table a bot's delegations are
-        read from (the SQL endpoint reads a guarded view of it)."""
-        if who.role == "owner" or who.role not in ("human", "bot"):
-            return "1"
+        Ownership, type-wide work, ancestry and delegation never widen private visibility.
+        `delegations` stays accepted for compatibility with the guarded SQL caller.
+        """
+        if who.role not in ("owner", "human", "bot"):
+            return "0"
         hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who))]
         clear = ("NOT (owner IN %s OR requester IN %s)" % ((A.qlist(hidden),) * 2)) if hidden else "1"
         me = A.q(who.actor)
-        if who.role == "bot":
-            # Materialize ancestry before SQL installs its guarded views: a recursive view
-            # would otherwise need access to the unfiltered tasks table during execution.
-            managed = [r[0] for r in c.execute("WITH RECURSIVE managed(id) AS ("
-                "SELECT child.id FROM tasks child JOIN tasks parent ON child.parent_id=parent.id "
-                "WHERE ? IN (parent.owner,parent.requester) UNION "
-                "SELECT child.id FROM tasks child JOIN managed ON child.parent_id=managed.id) "
-                "SELECT managed.id FROM managed JOIN tasks t ON t.id=managed.id WHERE ? NOT IN (t.owner,t.requester)",
-                (who.actor, who.actor))]
-            # A type opened to bots (hubdb.TYPE_BOTS) is read whole, like a board on the wall.
-            shared = H.bot_readable_types(c)
-            return (f"({me} IN (owner,requester) OR ({clear} AND id IN {A.qlist(managed)}) OR "
-                    f"({clear} AND type_id IN {A.qlist(shared)}) OR "
-                    f"({clear} AND id IN (SELECT task_id FROM {delegations} "
-                    f"WHERE delegate={me} AND expires>{A.q(H.now())})))")
-        return f"({clear} OR {me} IN (owner,requester))"
+        return f"({me} IN (owner,requester) OR (coalesce(private,1)=0 AND ({clear})))"
 
     def operator(self, c, who, bot):
         row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
@@ -755,6 +740,10 @@ class Auth:
         row = H.conversation(c, conversation_id)
         if not row:
             raise Problem("not_found", "Conversation not found", 404)
+        if row.get("task_id"):
+            self.task(c, who, row["task_id"])
+            if row.get("kind") == "task":
+                return row
         if who.role == "bot":
             # A runner turn sees the conversations its attempt was handed. An external agent
             # has no attempt: it sees the conversations it is in, which is what a claim would
@@ -816,10 +805,9 @@ class Auth:
         self.domain(who)
         if not row:
             raise Problem("not_found", "Task not found", 404)
-        if who.role == "owner":
-            return row
+        if who.role not in ("owner", "human", "bot") or not H.task_private_readable(c, who.actor, row):
+            raise Problem("not_found", "Task not found", 404)
         participants = (row["owner"], row["requester"])
-        ancestor_party = who.role == "bot" and H.task_ancestor_party(c, who.actor, row)
         if who.actor not in participants:
             # A party to a task always sees it; anyone else needs Read on every bot it involves.
             bots = [H.actor_id(a) for a in participants if str(a).startswith("bot:")]
@@ -828,12 +816,6 @@ class Auth:
                     raise Problem("not_found", "Task not found", 404)
                 if not level["read"]:
                     raise Problem("forbidden", f"This task involves {slug}, whose activity you cannot read", 403)
-        if (who.role == "bot" and who.actor not in participants and not ancestor_party
-                and not H.type_bot_reads(c, who.actor, row)):
-            delegated = c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
-                                  (row["id"], who.actor, H.now())).fetchone()
-            if not delegated and not H.task_ancestor_party(c, who.actor, row):
-                raise Problem("forbidden", "This task is not assigned or delegated to you", 403)
         return row
 
     def task(self, c, who, task_id):

@@ -97,7 +97,8 @@ async function taskModalShow(task, d = taskModal()) {
   d.scrollTop = 0;
   // the list knows the task; the detail adds its parts, its parent and the comments
   const [detail] = await Promise.all([v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`), taskTypesLoad().catch(() => TASK_TYPES)]);
-  if (!detail?.task || !d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
+  if (!d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
+  if (!detail?.task) { d.close(); d.innerHTML = ''; TASK_DRAFTS.delete(String(task.id)); return; }
   await taskMenuSettled(d);                 // never pull a menu out from under the pointer
   if (!d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
   if (d.liveTask && Number(detail.task.version) < Number(d.liveTask.version)) return;   // a save landed since this was asked for
@@ -132,6 +133,8 @@ function taskModalBind(d, task, full = false) {
   // Each change goes through the dialog's queue (taskSave), one at a time, each with the latest version.
   const change = (body, then, field) => taskSaveQueued(d, String(task.id), body, then, field);
   taskPropsBind(d, task, change);
+  const privacy = $('[data-task-private]', d);
+  if (privacy) privacy.onchange = () => change({private: privacy.checked}, undefined, 'private');
   d.querySelectorAll('[data-drop-label]').forEach(b => b.onclick = () => change(cur => ({labels: (cur.labels || []).filter(l => l !== b.dataset.dropLabel)}), undefined, 'tags'));
   const link = $('[data-modal-link]', d);
   const addLink = $('[data-link-add]', d);
@@ -303,7 +306,14 @@ async function taskChatRead(state) {
     if (taskChatCurrent(state) && !state.sending) taskCommentsRender(state, data);
   } catch (e) {
     if (!taskChatCurrent(state)) return;
-    if ([400, 403, 404].includes(e.status)) {state.stopped = true; clearInterval(state.poll);}
+    if ([403, 404].includes(e.status)) {
+      state.stopped = true; clearInterval(state.poll);
+      TASK_DRAFTS.delete(String(state.id)); PROP_TASKS = null;
+      state.dialog.close(); state.dialog.innerHTML = '';
+      if (TASKS_ST) void tasksLoad(TASKS_ST);
+      return;
+    }
+    if (e.status === 400) {state.stopped = true; clearInterval(state.poll);}
     const status = $('[data-task-chat-status]', state.host);
     if (status) status.textContent = `Unable to refresh: ${e.message}`;
     else state.host.innerHTML = `<p class="err" role="status">Comments unavailable: ${esc(e.message)}</p>`;
@@ -377,7 +387,7 @@ function hubModalHTML(t, it, opts = {}) {
   const mover = canMove();
   const links = (t.links || []).filter(l => l.kind !== 'pr' && l.kind !== 'worktree');   // those are Code, in the rail
   const pos = opts.peek ? taskPeekPos(t.id) : '';
-  return `<div class="tmodal-head">${taskStatusIcon(t)}<span class="pill tstatus">${esc(statusWord)}</span>${t.blocked_by && !finished
+  return `<div class="tmodal-head">${taskStatusIcon(t)}<span class="pill tstatus">${esc(statusWord)}</span>${t.private ? '<span title="Only the requester and assignee can see this task" aria-label="Private">🔒</span>' : ''}${t.blocked_by && !finished
       ? `<span class="tchip-blocked" title="Blocked by ${esc(t.blocker?.title || 'another task')}">blocked</span>` : ''}
       <span class="tmodal-owner">${actorFace(t.owner, 18)}<span class="who">${esc(actorLabel(t.owner))}</span></span>
       <span class="spacer"></span>${pos ? `<span class="peek-pos tnum" title="J / K or ↑ / ↓ move to the next or previous task">${esc(pos)}</span>` : ''}

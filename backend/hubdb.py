@@ -602,12 +602,18 @@ CREATE INDEX IF NOT EXISTS tasks_step_rank ON tasks(step_id, step_rank);
 UPDATE tasks SET step_rank=rowid WHERE step_id IS NOT NULL AND step_rank IS NULL;
 """
 
+# Existing records have no reliable sensitivity marker. Preserve them privately on upgrade;
+# legacy inserts that omit the new field also fail closed. Current creates specify the default.
+TASK_PRIVACY_SCHEMA = """
+ALTER TABLE tasks ADD COLUMN private INTEGER NOT NULL DEFAULT 1 CHECK (private IN (0,1));
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
               REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA,
               USAGE_LIMITS_SCHEMA, TAGS_SCHEMA, PIPELINES_SCHEMA, CHAT_GOALS_SCHEMA, REPOSITORIES_SCHEMA, TASK_LINKS_V2_SCHEMA, SUBSCRIPTIONS_SCHEMA,
-              STORAGE_SCHEMA, TASK_REVIEW_SCHEMA, MEETING_REVIEW_SCHEMA, NUMBERS_SCHEMA]
+              STORAGE_SCHEMA, TASK_REVIEW_SCHEMA, MEETING_REVIEW_SCHEMA, NUMBERS_SCHEMA, TASK_PRIVACY_SCHEMA]
 
 
 class Refused(Exception):
@@ -1795,11 +1801,42 @@ def type_bots(conn, row):
 
 
 def type_bot_reads(conn, actor, row):
-    return is_bot(actor) and type_bots(conn, row) in TYPE_BOTS
+    return is_bot(actor) and task_private_readable(conn, actor, row) and type_bots(conn, row) in TYPE_BOTS
 
 
 def type_bot_works(conn, actor, row):
-    return is_bot(actor) and type_bots(conn, row) == "work"
+    return is_bot(actor) and task_private_readable(conn, actor, row) and type_bots(conn, row) == "work"
+
+
+def task_private(conn, row):
+    """Read partial rows conservatively; callers often select only the task's identity fields."""
+    if "private" in row:
+        return bool(row["private"] is None or row["private"])
+    found = _one(conn, "SELECT private FROM tasks WHERE id=?", (row["id"],))
+    return not found or bool(found["private"] is None or found["private"])
+
+
+def task_private_readable(conn, actor, row):
+    if not row:
+        return False
+    if not task_private(conn, row):
+        return True
+    if "owner" not in row or "requester" not in row:
+        row = task(conn, row["id"])
+    return bool(row and actor in (row["owner"], row["requester"]))
+
+
+def _task_private_writer(conn, actor, row):
+    # The keeper performs internal maintenance; it is never an authenticated task reader.
+    if actor != KEEPER and not task_private_readable(conn, actor, row):
+        refuse(conn, actor, "not-found", "Task not found")
+
+
+def private_tasks_default(conn, actor):
+    if not is_bot(actor) or not _has_table(conn, "bot_config"):
+        return False
+    from .shared_bots import declared, follow
+    return follow(conn, actor_id(actor), declared(conn, actor_id(actor))).get("private_tasks_default") is True
 
 
 def bot_readable_types(conn):
@@ -2209,6 +2246,7 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
 
 
 def _task_link_allowed(conn, actor, row, mover=None, kind=None):
+    _task_private_writer(conn, actor, row)
     if is_human(actor) and kind != "worktree":
         return
     if mover is None:
@@ -2249,6 +2287,8 @@ def task_unlink(conn, actor, task_id, link_id, mover=None):
 
 
 def task_ancestor_party(conn, actor, row):
+    if not task_private_readable(conn, actor, row):
+        return False
     seen = {row["id"]}
     parent_id = row.get("parent_id")
     while parent_id and parent_id not in seen:
@@ -2266,6 +2306,12 @@ def _task_parent(conn, actor, task_id, parent_id):
     parent = task(conn, parent_id)
     if not parent:
         refuse(conn, actor, "not-found", f"no task {parent_id} to file this under")
+    _task_private_writer(conn, actor, parent)
+    if (is_bot(actor) and actor not in (parent["owner"], parent["requester"])
+            and not type_bot_reads(conn, actor, parent) and not task_ancestor_party(conn, actor, parent)
+            and not _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
+                         (parent["id"], actor, now()))):
+        refuse(conn, actor, "identity", "This task type does not allow unrelated bots to create subtasks")
     seen = {task_id} if task_id else set()
     cursor = parent
     while cursor:
@@ -2358,6 +2404,8 @@ def task_tree(conn, task_id, visible_ids=None):
 
 
 def _parent_finished(conn, row, previous, actor=None):
+    if task_private(conn, row):
+        return
     terminal = ("done", "closed", "declined")
     if previous in terminal or row["status"] not in terminal or not row.get("parent_id"):
         return
@@ -2379,7 +2427,10 @@ def task_links(conn, task_id):
 
 def task_ask_recipient(conn, actor, row, ask):
     target = ask.get("who") or (row["owner"] if actor == row["requester"] else row["requester"])
-    return resolve_actor(conn, target)
+    target = resolve_actor(conn, target)
+    if task_private(conn, row) and target not in (row["owner"], row["requester"]):
+        refuse(conn, actor, "private", "Only the requester and assignee can receive private task questions")
+    return target
 
 
 def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None):
@@ -2390,11 +2441,12 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
     text = str(text or "").strip()
     if not text:
         refuse(conn, actor, "lint", "write the comment")
     others = [a for a in dict.fromkeys([row["owner"], row["requester"], task_origin(conn, row)])
-              if a and a not in (actor, KEEPER)]
+              if a and a not in (actor, KEEPER) and task_private_readable(conn, a, row)]
     target = next((a for a in others if is_bot(a)), None) or (others[0] if others else None)
     refs = {"task": task_id, "comment": True, **(extra_refs or {})}
     if not wake:
@@ -2470,7 +2522,7 @@ def open_task_asks(conn, task_row):
 
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
-                goal_id=None, next_run=False, type=None, step=None, number=None, mover=None):
+                goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None):
     """Rule 5. Anyone may open a task for any active owner; a human owner is linted (rule 7).
 
     `next_run` files it for the bot's next run instead of starting one: the notice is written
@@ -2489,6 +2541,10 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     requester = parent["requester"] if parent and is_human(actor) and is_human(parent["requester"]) else actor
+    private = bool(private or private_tasks_default(conn, actor) or private_tasks_default(conn, target)
+                   or parent and task_private(conn, parent))
+    if private:
+        requester = actor
     title = str(title or "").strip()
     body = str(body or "")
     severity = classify(f"{title}\n{body}", to_actor=target, actor=actor, conn=conn)
@@ -2523,7 +2579,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
         number = _number_free(conn, actor, number)
     ts = now()
     dedicated = False
-    if conversation_id:
+    if conversation_id and not private:
         conv = conversation(conn, conversation_id)
         if not conv:
             refuse(conn, actor, "not-found", f"no conversation {conversation_id}")
@@ -2535,13 +2591,13 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
            "status": "open", "due": due, "parent_id": parent_id, "conversation_id": conv["id"],
            "created": ts, "updated": ts, "done_at": None, "closed_at": None, "closed_by": None,
            "note": "", "lane": lane, "rank": _queue_end(conn, target, top),
-           "goal_id": goal_id or None, "next_run": 1 if next_run else 0, "number": number}
+           "goal_id": goal_id or None, "next_run": 1 if next_run else 0, "number": number, "private": int(private)}
     conn.execute("INSERT INTO tasks (id, title, body, requester, owner, due, parent_id, "
                  "conversation_id, created, updated, done_at, closed_at, closed_by, note, lane, rank, "
-                 "goal_id, next_run, number) VALUES "
+                 "goal_id, next_run, number, private) VALUES "
                  "(:id, :title, :body, :requester, :owner, :due, :parent_id, "
                  ":conversation_id, :created, :updated, :done_at, :closed_at, :closed_by, :note, "
-                 ":lane, :rank, :goal_id, :next_run, :number)", row)
+                 ":lane, :rank, :goal_id, :next_run, :number, :private)", row)
     _set_task_tags(conn, actor, row["id"], labels)
     if dedicated:
         conn.execute("UPDATE conversations SET task_id=? WHERE id=?", (row["id"], conv["id"]))
@@ -2601,6 +2657,16 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
+    if private is not None and bool(private) != task_private(conn, row):
+        if actor not in (row["owner"], row["requester"]):
+            refuse(conn, actor, "private", "Only the requester or assignee can change task privacy")
+        if not private and (actor != row["requester"] or not is_human(actor)):
+            refuse(conn, actor, "private", "Only the human requester can publish a private task")
+        if not private and row.get("parent_id") and parent_id != "":
+            parent = task(conn, row["parent_id"])
+            if parent and task_private(conn, parent):
+                refuse(conn, actor, "private", "Detach this task from its private parent before publishing")
     mine = actor in (row["owner"], row["requester"])
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
                      (task_id, actor, now()))
@@ -2671,6 +2737,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if step_rank is not None:
         sets.append("step_rank=:step_rank")
         args["step_rank"] = float(step_rank)
+    if private is not None and bool(private) != task_private(conn, row):
+        sets.append("private=:private")
+        args["private"] = int(private)
+        _task_event(conn, task_id, actor, "private", int(task_private(conn, row)), int(private), "")
     for field, value in (("note", note), ("due", due), ("body", body), ("lane", lane)):
         if value is None:
             continue
@@ -2690,6 +2760,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 refuse(conn, actor, "kind", "a task cannot block itself")
             if not task(conn, blocker):
                 refuse(conn, actor, "not-found", f"no task {blocker} to block on")
+            _task_private_writer(conn, actor, task(conn, blocker))
         sets.append("blocked_by=:blocked_by")
         args["blocked_by"] = blocker
         _task_event(conn, task_id, actor, "blocked_by", row.get("blocked_by"), blocker, note or "")
@@ -2701,6 +2772,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 refuse(conn, actor, "identity", "Only the parent's owner, requester or a mover can move a subtask away")
         if parent:
             target_parent = _task_parent(conn, actor, task_id, parent)
+            if task_private(conn, target_parent):
+                if private is False:
+                    refuse(conn, actor, "private", "A task under a private parent stays private")
+                sets.append("private=1")
             if not mover and actor not in (target_parent["owner"], target_parent["requester"]) and not task_ancestor_party(conn, actor, target_parent):
                 refuse(conn, actor, "identity", "Re-parent under a task you own or requested")
         sets.append("parent_id=:parent_id")
@@ -2708,6 +2783,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _task_event(conn, task_id, actor, "parent_id", row.get("parent_id"), parent, note or "")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
+        if private_tasks_default(conn, new_owner):
+            sets.append("private=1")
         if is_bot(row['owner']) and 'detail_json' in {r[1] for r in conn.execute('PRAGMA table_info(task_links)')}:
             for link in task_links(conn, task_id):
                 if link['kind'] == 'worktree':
@@ -2746,6 +2823,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
     event(conn, actor, "task.update", task_id, {"status": status, "note": note})
     after = task(conn, task_id)
+    if owner is not None or private is not None or task_private(conn, after) != task_private(conn, row):
+        conn.execute("DELETE FROM task_delegations WHERE task_id=?", (task_id,))
     # A bot that asked for `tasks` is always told and never woken for it, so there is nothing to
     # weigh: the news is free. Everyone else keeps the original rule, where the only way to
     # spare a bot the run was to withhold the notice.
@@ -2795,6 +2874,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
 
 
 def _task_close_allowed(conn, actor, row, note):
+    _task_private_writer(conn, actor, row)
     if actor != KEEPER and not is_human(actor) and row["status"] != "closed" and children_summary(conn, row["id"])["open"]:
         refuse(conn, actor, "children", "Finish the open subtasks before closing this task")
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
@@ -2985,6 +3065,8 @@ MESSAGE_TASK_SQL = f"coalesce({_task_ref_sql('$.task')}, {_task_ref_sql('$.task_
 
 def _mirror_task_note(conn, actor, task_row, note):
     """Copy a task note into the bot's chat room so people and later turns can read it."""
+    if task_private(conn, task_row):
+        return
     text = str(note or "").strip()
     if not text:
         return
@@ -3131,7 +3213,7 @@ def stalled_tasks(conn, at=None):
     at = at or now()
     rows = _rows(conn.execute(
         "SELECT t.* FROM tasks t JOIN bots b ON t.owner='bot:'||b.slug WHERE b.state='active' "
-        "AND t.status IN ('open','doing') AND t.updated<? ORDER BY t.updated",
+        "AND t.status IN ('open','doing') AND coalesce(t.private,1)=0 AND t.updated<? ORDER BY t.updated",
         (shift(at, seconds=-STALL_MINUTES * 60),)))
     if not rows:
         return []
@@ -3213,6 +3295,7 @@ def task_run_now(conn, actor, task_id):
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
     if not is_bot(row["owner"]):
         refuse(conn, actor, "run-now", "only a bot's task runs; a person does it themselves")
     if row["status"] not in ACTIVE_STATUSES:
@@ -3325,7 +3408,7 @@ def _wake(conn, task_row, target, body, refs=None, quiet_bots=False, quiet=False
     """
     if quiet_bots and (quiet or tasks_only(conn, target)):
         refs = {**(refs or {}), "quiet": True}
-    if not target or not _actor_exists(conn, target):
+    if not target or not _actor_exists(conn, target) or not task_private_readable(conn, target, task_row):
         return None
     message_refs = {"task": task_row["id"], **(refs or {})}
     return _write_message(conn, KEEPER, target, body,

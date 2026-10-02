@@ -96,6 +96,7 @@ TaskNumber = Annotated[int, Field(ge=1, le=999_999_999)]
 
 
 class TaskCreate(Contract):
+    private: StrictBool | None = None
     title: str = Field(min_length=1, max_length=300)
     body: Text
     owner: ID
@@ -123,6 +124,7 @@ class NoteCreate(Contract):
 
 
 class TaskUpdate(Contract):
+    private: StrictBool | None = None
     version: int = Field(ge=1)
     status: Literal["open", "doing", "waiting", "review", "ready", "done", "declined"] | None = None
     note: str | None = Field(default=None, max_length=200_000)
@@ -939,6 +941,7 @@ class GroupUpdate(Contract):
 
 
 class BotDefinitionCreate(Contract):
+    private_tasks_default: StrictBool = False
     slug: Slug
     display_name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=2000)
@@ -976,6 +979,7 @@ class BotArchive(Contract):
 
 
 class BotDefinitionUpdate(Contract):
+    private_tasks_default: StrictBool | None = None
     template: str | None = Field(default=None, max_length=80)
     display_name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=2000)

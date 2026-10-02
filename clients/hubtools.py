@@ -412,6 +412,7 @@ def tag_update(api, args):
        "title": _s("What you are asking for, in plain words: no reference numbers, no all-caps"),
        "body": _s("The details", default=""),
        "due": _s("ISO-8601 date-time with timezone"),
+       "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
        "parent_id": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
        "request_id": _s("BotOps continuation: originating human chat message id"),
        "type": _s("Task type id or name; defaults to General"),
@@ -436,6 +437,8 @@ def task_create(api, args):
     for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
+    if args.get("private") is not None:
+        body["private"] = args["private"]
     if args.get("dry_run"):
         return api.post("tasks/dry-run", body)
     return api.post("tasks", body, key=_key(args))
@@ -530,6 +533,7 @@ def task_ask(api, args):
 @tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes.",
       {"id": TASK_ID,
+       "private": {"type": "boolean", "description": "Tighten visibility; only the direct human requester can publish"},
        "status": {"type": "string", "enum": ["open", "doing", "waiting", "review", "done", "declined"]},
        "type": _s("Task type id or name"),
        "step": _s("Step id or name within the task type; sets status. An empty string clears it"),
@@ -554,6 +558,8 @@ def task_update(api, args):
     for field in ("type", "step", "step_rank", "number"):
         if args.get(field) is not None:
             body[field] = args[field]
+    if args.get("private") is not None:
+        body["private"] = args["private"]
     if args.get("blocked_by") is not None:
         body["blocked_by"] = args["blocked_by"]
     return api.post("tasks/" + args["id"], body, key=_key(args))

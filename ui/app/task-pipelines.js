@@ -90,8 +90,8 @@ async function renderTaskTypes() {
     const add = host.querySelector('[data-new-type]'); if (add) add.onclick = () => taskTypeEditor();
   } catch (error) { host.textContent = error.message; }
 }
-// What every bot may do with the type's tasks beyond its own (docs/tasks.md, "Types bots work on").
-const TYPE_BOTS = [['parties', 'Only the bots on each task'], ['read', 'Every bot reads and comments on all of them'],
+// What every bot may do with company tasks beyond reading (docs/tasks.md, "Types bots work on").
+const TYPE_BOTS = [['parties', 'Participants change their tasks'], ['read', 'Every bot may comment and create subtasks'],
   ['work', 'Every bot reads and works on all of them']];
 function taskTypeEditor(type = null) {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal task-type-editor';

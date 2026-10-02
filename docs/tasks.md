@@ -35,22 +35,18 @@ keep their existing behavior.
 
 ## Types bots work on
 
-A bot reads and changes only the tasks it is on: those it owns or asked for, the subtasks under
-them, and a task a person handed it in a comment for a day. That keeps a person's own to-dos away
-from every bot. A team's board is different: the bots that file its tickets, build them and hand
-them on need all of it, as a person standing at the board would. So a type says what **every** bot
-may do with its tasks, in **Settings → Types** (**Bots**), with `bots` on the task-types routes, or
-`hub task type update "Dev ticket" --bots work`:
+Every bot can read company-visible tasks subject to existing bot activity restrictions. Types
+control additional permission to comment, file subtasks or change work in **Settings → Types**,
+with `bots` on the task-types routes or `hub task type update "Dev ticket" --bots work`.
 
-| `bots` | Every bot may |
+| `bots` | Additional permission for unrelated bots |
 |---|---|
-| `parties` (the default) | nothing beyond the tasks it is on |
-| `read` | read every task of the type (the task, its comments, links and files, lists and SQL), comment on it and file a subtask under it |
-| `work` | also change it as its owner or requester could: its step, owner, due date, description and order, and its links |
+| `parties` (the default) | None beyond reading company tasks |
+| `read` | Comment on company tasks and file subtasks |
+| `work` | Also change step, owner, due date, description, order and links |
 
-Closing a task, moving it to a step that means ready or closed, and its labels stay with people,
-as they do for a bot on its own tasks. A task involving a bot the reader may not read stays hidden,
-whatever its type. A task moved onto General or another type leaves the bots it was opened to.
+Private overrides every type permission. Closing, ready or closed steps and labels keep their
+existing human controls. Changing type cannot publish a private task.
 A bot's comment is a message to the people on the task, under the usual rules for reaching them.
 ## Numbers and the order within a step
 
@@ -294,3 +290,33 @@ On the board, a task with a picture shows the newest one as a cover, and a dot m
 question. **Pin** in the Tasks toolbar keeps the current view and filters under **Pipelines** in
 the left rail, for you only; ✕ on a pin removes it. Pins are links: nothing moves a task's step
 on its own.
+
+
+## Company and private tasks
+
+New ordinary tasks are readable by active company people and bots. Reading does not grant
+permission to change, reassign or complete work. Type bot settings continue to grant comment,
+subtask and work permissions; they cannot override Private or restricted bot activity.
+
+Turn on **Private** in the existing task controls to limit future reads to the requester and
+current assignee, human or bot. The assignee may tighten visibility; only the human requester
+can publish again. Bots cannot publish a private task, including when acting for a person.
+Bot-requested private work stays private until a future explicit human publication mechanism
+exists. Mentions, administrators, managers, parent ownership and delegations grant no access.
+Reassigning a private task gives the new assignee access and removes the previous assignee's
+future access unless they remain its requester. Reassignment never clears Private.
+
+The existing bot Settings editor offers **Create private tasks by default**. This also covers
+requests assigned to that bot, including its shared branches. Enable it for a sensitive role
+explicitly; Tico does not guess from names. A private parent's subtasks are private and have
+their own two participants. Publishing a child requires detaching it from a private parent.
+
+Upgrade retains every task and attachment. All tasks made before this privacy migration become
+private because the old records cannot distinguish sensitive work from work intended for the
+company. The human requester may publish the ordinary ones after review. Old clients omit the
+new optional fields and keep working; new tasks created through an old runner receive the same
+server defaults. Direct legacy database inserts that omit privacy stay private.
+
+Future reads, task context, files, links, counts and notices enforce current access. Content
+already downloaded or delivered to a bot, an external service or a person cannot be recalled.
+Persistent bot sessions and copies made outside tracked task routes are not an erasure system.

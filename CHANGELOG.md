@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+- New ordinary tasks are readable by company people and bots. Private tasks limit future access to the requester and current assignee; bot defaults also protect requests assigned to sensitive bots. Existing tasks upgrade privately, preserving attachments and requiring human requester publication.
+
 ### Added
 - A task type can open its tasks to every bot: `read` (read, comment, file subtasks) or `work` (also move,
   reassign and link them), in Settings → Types, the task-types routes, `hub task type --bots` and MCP. A team's

@@ -9143,7 +9143,7 @@
     },
     "/api/v2/tasks": {
       "get": {
-        "summary": "Tasks the caller can see",
+        "summary": "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, brief=true leaves out bodies",
         "operationId": "listTasks",
         "parameters": [
           {
@@ -9254,6 +9254,80 @@
               "type": "string",
               "default": "queue",
               "title": "Sort"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "step",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Step"
+            }
+          },
+          {
+            "name": "number",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Number"
+            }
+          },
+          {
+            "name": "updated_since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          },
+          {
+            "name": "brief",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Brief"
             }
           }
         ],
@@ -17844,6 +17918,9 @@
       "Task": {
         "type": "object",
         "properties": {
+          "private": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -17851,7 +17928,8 @@
             "type": "string"
           },
           "body": {
-            "type": "string"
+            "type": "string",
+            "description": "Left out of a list asked for with brief=true, as is acceptance_criteria"
           },
           "requester": {
             "type": "string"
@@ -17982,6 +18060,20 @@
               }
             ]
           },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The task's number, unique across the team (#18945); given once on a numbered type and never changed"
+          },
+          "step_rank": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Its place within its step, lower first"
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -17990,8 +18082,6 @@
           }
         },
         "required": [
-          "acceptance_criteria",
-          "body",
           "created",
           "due",
           "id",
@@ -18140,6 +18230,17 @@
       },
       "TaskCreate": {
         "properties": {
+          "private": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private"
+          },
           "title": {
             "type": "string",
             "maxLength": 300,
@@ -18281,6 +18382,19 @@
               }
             ],
             "title": "Step"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 999999999.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
           }
         },
         "additionalProperties": false,
@@ -18683,6 +18797,9 @@
           "name": {
             "type": "string"
           },
+          "numbered": {
+            "type": "boolean"
+          },
           "created": {
             "type": "string"
           },
@@ -18713,6 +18830,7 @@
           "created",
           "id",
           "name",
+          "numbered",
           "steps",
           "updated"
         ],
@@ -18748,6 +18866,11 @@
               }
             ],
             "title": "Bots"
+          },
+          "numbered": {
+            "type": "boolean",
+            "title": "Numbered",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -18828,6 +18951,17 @@
               }
             ],
             "title": "Bots"
+          },
+          "numbered": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numbered"
           }
         },
         "additionalProperties": false,
@@ -18836,6 +18970,17 @@
       },
       "TaskUpdate": {
         "properties": {
+          "private": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private"
+          },
           "version": {
             "type": "integer",
             "minimum": 1.0,
@@ -19021,6 +19166,30 @@
               }
             ],
             "title": "Step"
+          },
+          "step_rank": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Rank"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 999999999.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
           },
           "on_behalf_of": {
             "anyOf": [

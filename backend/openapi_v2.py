@@ -387,7 +387,7 @@ SCHEMAS = {
                                          "each task to the bots on it"}),
     "TaskTypeList": obj({"types": items(ref("TaskType"))}),
     "TaskTypeResult": obj({"type": ref("TaskType")}),
-    "Task": obj({"id": "s", "title": "s", "body": "s", "requester": "s", "owner": "s", "status": "s", "created": "s",
+    "Task": obj({"private": "b", "id": "s", "title": "s", "body": "s", "requester": "s", "owner": "s", "status": "s", "created": "s",
                  "updated": "s", "due": "n", "version": "i", "lane": "s", "labels": items({"type": "string"}),
                  "acceptance_criteria": items({"type": "string"})},
                 required=["id", "title", "requester", "owner", "status", "created", "updated", "due", "version", "lane", "labels"],

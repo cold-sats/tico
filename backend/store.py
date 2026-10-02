@@ -960,6 +960,9 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=56").fetchone():
                     H._apply(c, H.NUMBERS_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(56,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=57").fetchone():
+                    H._apply(c, H.TASK_PRIVACY_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(57,?)", (H.now(),))
                 c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
                     AFTER INSERT ON bot_config
                     WHEN json_extract(NEW.config_json,'$.repo_access_mode') IS NULL
@@ -1126,7 +1129,30 @@ class Store:
             if row:
                 if row["request_hash"] != hashed:
                     raise Problem("idempotency_conflict", "This key was used for different content", 409)
-                return json.loads(row["response_json"])
+                result = json.loads(row["response_json"])
+                from .auth import Auth
+                replay_auth = Auth(self)
+                replay_auth.sync_access(c)
+                # Cached results keep their retry semantics, but access is current on every retry.
+                task_ids = set()
+                for part in operation.split("/"):
+                    if H.task(c, part):
+                        task_ids.add(part)
+                def referenced(value):
+                    if isinstance(value, dict):
+                        if "requester" in value and "owner" in value and value.get("id"):
+                            task_ids.add(value["id"])
+                        for name, item in value.items():
+                            if name in ("task", "task_id", "parent_id", "blocked_by") and isinstance(item, str) and H.task(c, item):
+                                task_ids.add(item)
+                            referenced(item)
+                    elif isinstance(value, list):
+                        for item in value:
+                            referenced(item)
+                referenced(result)
+                for task_id in task_ids:
+                    replay_auth.task(c, identity, task_id)
+                return result
             c.execute("SAVEPOINT domain_write")
             try:
                 result = fn(c)

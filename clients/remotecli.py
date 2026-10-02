@@ -256,6 +256,8 @@ def run(args, who=None):
             body = Path(args.body_file).read_text() if args.body_file else args.body
             payload = {"owner": target(args.owner), "title": args.title, "body": body,
                        "due": args.due, "parent_id": args.parent, "goal_id": getattr(args, "goal", None) or None}
+            if getattr(args, "private", None) is not None:
+                payload["private"] = args.private
             for field in ("type", "step", "number"):
                 if getattr(args, field, None) is not None:
                     payload[field] = getattr(args, field)
@@ -341,6 +343,8 @@ def run(args, who=None):
             else:
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
+                if getattr(args, "private", None) is not None:
+                    body["private"] = args.private
                 for field in ("type", "step", "step_rank", "number"):
                     if getattr(args, field, None) is not None:
                         body[field] = getattr(args, field)

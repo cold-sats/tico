@@ -162,6 +162,7 @@ class SettingsAdmin:
                 "template": (_json(config["config_json"], {}) or {}).get("template") or "",
                 "description": config["description"] or "", "reports_to": config["reports_to"],
                 "bot_contact": (_json(config["config_json"], {}) or {}).get("bot_contact") or "open",
+                "private_tasks_default": effective.get("private_tasks_default") is True,
                 "status": row["state"], "repo": repo,
                 "repo_url": repo_url(repo, self.settings.github_owner),
                 "thread_mode": config["thread_mode"] or "personal",
@@ -277,6 +278,7 @@ class SettingsAdmin:
                   "status": body.status, "repo": repo, "host": "keeper", "tasks": "hub",
                   "runtime": runtime_of(harness) or choice["runtime"], "model": choice["id"],
                   "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode, "shared": body.shared,
+                  "private_tasks_default": body.private_tasks_default,
                   "model_managed_by": "cloud"}
         if body.template:
             config["template"] = body.template
@@ -458,8 +460,7 @@ class SettingsAdmin:
         source = shared_bots.source_of(shared_bots.declared(c, bot))
         if source and (H.bot(c, source) or {}).get("state") == "archived":
             raise Problem("original_archived", "Restore the original before changing its branch's status", 409)
-        # A branch's behaviour follows its original; where it sits on the chart is its own (Chris,
-        # 2026-10-02: Arthur's reviewer branches belong at the top of Engineering, not under Arthur).
+        # A branch follows its original's behaviour and controls its own reporting line.
         if body.model_fields_set - {"expected_revision", "on_behalf_of", "status", "reports_to"}:
             shared_bots.refuse_copy(c, bot)
         if "template" in body.model_fields_set:
@@ -498,6 +499,7 @@ class SettingsAdmin:
         declared.update({"name": bot, "display_name": values["display_name"],
                          "description": values["description"], "reports_to": values.get("reports_to"),
                          "bot_contact": values.get("bot_contact") or "open",
+                         "private_tasks_default": values.get("private_tasks_default") is True,
                          "status": values["status"], "repo": values["repo"],
                          "thread_mode": values["thread_mode"], "temp": bool(values.get("temp"))})
         c.execute("UPDATE bots SET display_name=?,state=? WHERE slug=?",
