@@ -200,3 +200,29 @@ def test_task_read_snapshot_cannot_mix_old_access_with_new_private_comment(api):
     with store.read() as after:
         with pytest.raises(Problem):
             auth.task(after, outsider, task['id'])
+
+
+def test_native_hub_upgrade_from_23_is_atomic_and_preserves_tasks_messages(tmp_path):
+    path = tmp_path / 'native-hub.db'
+    c = H.connect(path)
+    H.sync_registry(c, {}, {'people': [{'id': 'ana', 'email': 'ana@acme.example'},
+                                      {'id': 'ben', 'email': 'ben@acme.example'}]})
+    ordinary = H.task_create(c, 'human:ana', 'Review ordinary work', 'Review it.', 'human:ben', lint=False)
+    orphan = H.task_create(c, 'human:ana', 'Review orphan work', 'Review it.', 'human:ben', lint=False)
+    comment = H.task_comment(c, 'human:ana', orphan['id'], 'Preserved tracked comment.', wake=False)
+    c.execute("UPDATE tasks SET requester='human:missing' WHERE id=?", (orphan['id'],))
+    c.execute('ALTER TABLE tasks DROP COLUMN private')
+    c.execute('PRAGMA user_version=23')
+    ids = {row[0] for row in c.execute('SELECT id FROM messages')}
+    c.close()
+    c = H.connect(path)
+    try:
+        assert c.execute('PRAGMA user_version').fetchone()[0] == 24
+        assert not H.task_private(c, H.task(c, ordinary['id']))
+        assert H.task_private(c, H.task(c, orphan['id']))
+        assert {row[0] for row in c.execute('SELECT id FROM messages')} == ids
+        assert H.message(c, comment['id'])['body'] == 'Preserved tracked comment.'
+        H.migrate(c)
+        assert c.execute('PRAGMA foreign_key_check').fetchall() == []
+    finally:
+        c.close()
