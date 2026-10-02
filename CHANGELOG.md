@@ -14,6 +14,15 @@ All notable changes to Tico are recorded here. The format follows
 - A bot's Tools show as up to three small icons next to its name, then "+N"; the full list is under More.
 
 ### Added
+- Settings → Repositories: tick the GitHub repositories the team works on. Bot repositories are hidden unless you show
+  them, and each repository's setup command comes from its `tico.json` or `conductor.json` or is typed in. "New bots
+  get" picks own repository only or all ticked repositories. The list refreshes from GitHub on its own.
+- A bot's Repositories setting replaces "Extra GitHub repositories": own repository only, all ticked repositories, or
+  chosen ones, each read or write. Every bot keeps the extra repositories it had, with write access. Bots' Git and
+  GitHub CLI commands use the matching read or write access per repository.
+- Computers keep base clones of the repositories their bots can reach, in the team's folder, fetched in the
+  background. Cloning pauses when disk space is low, and a clone no bot has needed for 30 days is removed. Operations
+  shows each computer's clones.
 - Chat goals: the target next to attach pins a goal to a Codex or Claude Code bot's chat, and the bot keeps working
   toward it. The goal sits above the chat (three lines, two on a phone; tap for all of it, Edit, Pause and Clear),
   shows Working, Paused, Met or Stopped, and a met or stopped goal becomes one line in the chat. The bot's row in the
