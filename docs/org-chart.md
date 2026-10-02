@@ -14,6 +14,11 @@ Bots read the same chart through `hub team show` / the `hub_team_show` MCP tool 
 may see (see [permissions.md](permissions.md)) with its `reports_to`, its `team` (its group's id), its `department` (its group's name)
 and its `template`. `hub team show --team <group>` is that group and the groups in it. `hub human list` is the humans alone.
 
+The chart shows each original bot in its assigned group. Personal branches appear only for their operator and are
+labeled **Your branch**, including in the recent-history view and mobile team switcher. Owners and admins use the
+bot's branch picker or Settings to inspect other people's branches; permission to manage a branch does not add it
+to their own chart. Branches keep their own reporting relationships and work.
+
 Groups and reporting are two things. `reports_to` says who a human or bot works for; a group says who is on which sub-team. Changing
 one never changes the other.
 

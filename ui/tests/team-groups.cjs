@@ -10,7 +10,7 @@ const {html, uiFile} = require('./support/page.cjs');
 
 const FULL = {see: true, read: true, write: true};
 
-async function open(browser, me) {
+async function open(browser, me, branches = false) {
   const page = await browser.newPage({viewport: {width: 1300, height: 900}, serviceWorkers: 'block'});
   const errors = [], calls = [];
   const people = [
@@ -30,6 +30,12 @@ async function open(browser, me) {
     bot('inbox', 'Inbox Manager', '', 'p:ana'),
     bot('channel', 'Channel Inbox', 'marketing', 'b:botops', {helper: true}),
   ];
+  if (branches) bots.push(
+    bot('cmo-ben', 'CMO', 'marketing', 'p:ben', {shared_from: 'cmo', operator: 'ben'}),
+    bot('cmo-ana', 'CMO', 'marketing', 'p:ana', {shared_from: 'cmo', operator: 'ana'}),
+    bot('cmo-limited', 'CMO', 'marketing', 'p:ben', {is_branch: true, operator: 'ben', my_access: {see: true, read: false, write: false}}),
+    bot('cmo-unknown', 'CMO', 'marketing', 'p:ben', {shared_from: 'cmo', operator: null}),
+  );
   const groupRows = () => groups.map((g, i) => ({...g, org_parent: g.parent ? 'g:' + g.parent : '', order: i}));
   const apply = (id, body) => {
     const group = groups.find(g => g.id === id);
@@ -197,11 +203,39 @@ async function member(browser) {
   await page.close();
 }
 
+async function personalBranches(browser) {
+  for (const [id, role] of [['ana', 'owner'], ['ben', 'viewer'], ['cara', 'viewer']]) {
+    const {page, errors} = await open(browser, {id, role, cloud: true}, true);
+    for (const history of [false, true]) {
+      if (history) await page.locator('#org-history').click();
+      assert.equal(await node(page, 'b:cmo').count(), 1, 'the canonical bot stays on the chart');
+      for (const person of ['ana', 'ben', 'unknown', 'limited']) {
+        const branch = node(page, 'b:cmo-' + person);
+        assert.equal(await branch.count(), (person === id || (person === 'limited' && id === 'ben')) ? 1 : 0, 'only the operator sees a branch, including for admins');
+        if (person === id) assert.equal(await branch.locator('.org-branch').textContent(), 'Your branch');
+      }
+    }
+    await page.locator('#org-mine').click();
+    assert.equal(await node(page, 'b:cmo-unknown').count(), 0);
+    const recent = await page.evaluate(() => {
+      orgHistoryStore(['b:cmo-ben', 'b:cmo-ana', 'b:cmo-unknown', 'b:cmo'], Date.now());
+      return {fan: orgFanBots().map(b => b.slug), chat: orgFanChatBots('scout').map(b => b.slug), total: S.emps.length};
+    });
+    const expected = ['ana', 'ben'].includes(id) ? ['cmo-' + id, 'cmo'] : ['cmo'];
+    assert.deepEqual(recent.fan, expected);
+    assert.deepEqual(recent.chat, expected);
+    assert.equal(recent.total, 10, 'branch management retains the full readable roster');
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
+}
+
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     await owner(browser);
     await member(browser);
+    await personalBranches(browser);
     console.log('PASS: groups nest in the team chart; owners add, rename, drag into and nest groups; members read.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
