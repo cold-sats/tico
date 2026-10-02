@@ -258,7 +258,7 @@ async function updUnreadRefresh() {
   let mine = true;
   try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
   const r = await v2Get('/v2/updates/unread' + (mine ? '?mine=true' : ''));
-  if (r) updBadge(r.unread);
+  if (r) { updBadge(r.unread); meetPendingBadge(r.meetings_pending || 0); }
 }
 // The bot's latest update heads the Updates section of its right rail: its age, the text (long ones fold
 // behind a small "More"), and an icon to all of its updates. Once the rail shows it, it counts as read.

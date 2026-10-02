@@ -278,3 +278,35 @@
   .note-send select{max-width:none}
 }
 @media (max-width:640px){.meeting-head{align-items:flex-start;flex-direction:column}.notes-head{grid-template-columns:minmax(0,1fr) auto}.notes-head input[type=search]{grid-column:1 / -1;grid-row:2;max-width:none;justify-self:stretch}.note-send select{flex:1 0 100%;max-width:none}.kbd-hint{display:none}.meet-row{padding:12px}.meet-blank{padding:24px 14px 28px}.meet-meta .meet-who{flex-basis:100%;margin-top:1px}.meet-meta .meet-who::before{content:none}.meet-tiles.big{grid-template-columns:1fr 1fr}.meet-tile.big{flex-direction:row;justify-content:flex-start;gap:10px;padding:10px 12px;text-align:left}.meet-tile.big .mt-text{align-items:flex-start}.meet-tile.big .mt-text b{font-size:13px}}
+
+/* Personal import review uses the existing page, list and detail dialog. */
+.meet-review-bar{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.meet-review-tabs{display:flex;gap:4px;flex:1}
+.meet-review-tabs button{border:0;background:transparent;color:var(--muted);padding:8px 12px;border-radius:6px;font:inherit;font-size:13px;cursor:pointer}
+.meet-review-tabs button[aria-selected=true]{background:var(--surface2);color:var(--ink);font-weight:600}
+.meet-review-tabs #meet-pending-count{font-variant-numeric:tabular-nums;margin-left:3px}
+.meet-review-help{font-size:13px;margin:0 0 12px}
+.meet-review-help[hidden],.meet-review-bulk[hidden]{display:none}
+.meet-review-bulk{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 12px;font-size:13px}
+.meet-review-bulk .spacer{flex:1}
+.meet-review-bulk label{display:flex;align-items:center;gap:6px}
+.meet-review-bulk input,.meet-row input[type=checkbox]{width:16px;height:16px;flex:none;accent-color:var(--accent)}
+.meet-row.review-pending{grid-template-columns:16px auto minmax(0,1fr) auto}
+.meet-row .meet-side{display:flex;align-items:center;gap:6px}
+.meet-row [data-review-action]{font-size:12px;padding:5px 10px}
+.meet-review-detail{flex-wrap:wrap}
+.meet-review-detail .hint{flex:1;min-width:180px}
+.meet-settings-modal{width:460px;max-width:calc(100vw - 24px);padding:24px}
+.meet-settings-modal h2{margin:0 0 18px;font-size:17px}
+.meet-settings-modal label{display:grid;gap:6px;font-size:13px;margin-top:14px}
+.meet-settings-modal select{width:100%}
+.meet-settings-modal .row{flex-wrap:wrap;margin-top:20px;gap:8px}
+.nav-badge.meet-pending-badge{background:var(--surface2);color:var(--muted)}
+@media(max-width:760px){
+  .meet-review-tabs button{padding:8px;font-size:13px;min-height:40px}
+  #main:has(.meet-review-bar){padding-bottom:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 16px)}
+  .meet-row.review-pending .meet-main{grid-column:3 / -1}
+  .meet-row.review-pending .meet-side,.meet-row.review-dismissed .meet-side{grid-column:2 / -1}
+  .meet-row [data-review-action]{min-height:36px}
+  .meet-settings-modal select{font-size:16px}
+}
