@@ -25,6 +25,7 @@ from urllib.parse import quote
 from fastapi import Request, Response
 
 from . import hubdb as H
+from .batch_work import isolated
 from .store import Problem
 
 PATH = "/api/v2/github/webhook"   # under /api/v2: the runner hostname routes only that prefix
@@ -72,24 +73,20 @@ def queue_wake(c, task, item):
 
 
 def flush_wakes(c):
+    """Send each due PR burst independently; keep a failed or blocked notice for retry."""
     from .repositories import metadata
     sent = []
     for row in c.execute("SELECT key FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchall():
-        burst = metadata(c, row["key"])
-        if burst.get("due", "") > H.now():
-            continue
-        c.execute("SAVEPOINT github_wake")
-        try:
+        with isolated(c, "github_wake", row["key"]):
+            burst = metadata(c, row["key"])
+            if burst.get("due", "") > H.now():
+                continue
             task = H.task(c, row["key"].split(":", 1)[1])
-            if task and task["status"] in H.ACTIVE_STATUSES:
+            if task and task["status"] in (*H.ACTIVE_STATUSES, "blocked"):
                 H._wake(c, task, task["owner"], "\n".join(burst.get("items", [])))
+            c.execute("DELETE FROM registry_metadata WHERE key=?", (row["key"],))
+            if task and task["status"] in (*H.ACTIVE_STATUSES, "blocked"):
                 sent.append(task["id"])
-            c.execute("RELEASE github_wake")
-        except Exception:
-            c.execute("ROLLBACK TO github_wake")
-            c.execute("RELEASE github_wake")
-            logging.getLogger("tico.github").exception("PR wake failed for %s", row["key"])
-        c.execute("DELETE FROM registry_metadata WHERE key=?", (row["key"],))
     return sent
 
 
@@ -399,6 +396,12 @@ def push(c, payload):
     return {"ref": ref, "commits": n}
 
 
+DEPLOY_QUERY = ("SELECT l.*,p.seq AS merge_seq FROM task_links l JOIN tasks t ON t.id=l.task_id "
+               "LEFT JOIN main_pushes p ON p.sha=l.pr_sha "
+               "WHERE l.kind='pr' AND l.state='merged' AND l.url LIKE ? ESCAPE '\\' "
+               "AND l.pr_sha IS NOT NULL AND t.status='ready'")
+
+
 def ship_deployed(c, settings):
     """Every `ready` task whose merged pull request is in the running release is shipped."""
     commit, repo = settings.release_commit, settings.release_repo
@@ -406,10 +409,10 @@ def ship_deployed(c, settings):
         return []
     here = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (commit,)).fetchone()
     shipped = []
-    tasks = H._rows(c.execute("SELECT DISTINCT t.* FROM tasks t JOIN task_links l ON l.task_id=t.id "
-                                "WHERE t.status='ready' AND l.kind='pr' AND l.state='merged' AND l.pr_sha IS NOT NULL"))
-
-    ids = [t["id"] for t in tasks]
+    candidates = H._rows(c.execute(DEPLOY_QUERY,
+        ("https://github.com/" + repo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/pull/%",)))
+    ids = list(dict.fromkeys(link["task_id"] for link in candidates))
+    tasks = [H.task(c, tid) for tid in ids]
     summaries = H.children_summaries(c, ids)
     links_by_task = {tid: [] for tid in ids}
     pushes = {}
@@ -449,16 +452,9 @@ def ship_deployed(c, settings):
         return True
 
     for task in tasks:
-        c.execute("SAVEPOINT ship_task")
-        try:
-            changed = ship(task)
-            c.execute("RELEASE ship_task")
-            if changed:
+        with isolated(c, "ship_deployed", task["id"]):
+            if ship(task):
                 shipped.append(task["id"])
-        except Exception:
-            c.execute("ROLLBACK TO ship_task")
-            c.execute("RELEASE ship_task")
-            logging.getLogger("tico.github").exception("Shipping failed for task %s", task["id"])
     return shipped
 
 

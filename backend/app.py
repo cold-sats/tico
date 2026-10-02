@@ -1300,6 +1300,9 @@ def create_app(settings=None):
             return {k: v for k, v in row.items() if k in SEE_ONLY}
         row["draining"] = bool(c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot["slug"],)).fetchone())
         row["status"] = H.status(c, bot["slug"])
+        waiting = views.checkout_wait(c, bot["slug"])
+        if waiting:
+            row["status"] = {**(row["status"] or {}), "focus": waiting}
         row["assignment"] = dict(assignment) if assignment else None
         row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
                              and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
@@ -2281,6 +2284,9 @@ def create_app(settings=None):
             def with_bot_state(row):
                 if row:
                     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
+                    waiting = views.checkout_wait(c, row["bot"])
+                    if waiting:
+                        row["focus"] = waiting
                     row = usage_limits.overlay(c, row, default)      # over a spend limit: paused, and why
                 return row
             if bot:
@@ -3331,11 +3337,19 @@ def create_app(settings=None):
     def claim(request: Request, body: M.Claim):
         # A read first: an idle runner asks every fraction of a second and must not take the write lock.
         with store.read() as c:
+            selected = []
+            version = c.execute("PRAGMA data_version").fetchone()[0]
             idle = execution.idle_claim(c, request.state.identity, body,
-                                        request.headers.get("idempotency-key"))
-        if idle is not None:
-            return idle
-        return mutate(request, body, lambda c: execution.claim(c, request.state.identity, body))
+                                        request.headers.get("idempotency-key"), selected)
+            if idle is not None:
+                return idle
+            # Under the write lock, reuse the read result only if no other connection
+            # committed since that read began. A changed queue is selected afresh.
+            def work(write):
+                unchanged = c.execute("PRAGMA data_version").fetchone()[0] == version
+                return execution.claim(write, request.state.identity, body,
+                                       selected=selected[0] if unchanged and selected else None)
+            return mutate(request, body, work)
 
     @app.post("/api/v2/attempts/{aid}/renew")
     def renew(request: Request, aid: str, body: M.Empty):

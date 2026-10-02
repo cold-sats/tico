@@ -18,6 +18,7 @@ proposals (`goal_proposals`) that the goal's or KPI's owner confirms.
 
 from datetime import datetime, timedelta, timezone
 
+from .batch_work import isolated
 from . import hubdb as H
 from . import kpis as K
 from . import people as P
@@ -556,11 +557,12 @@ def refresh(conn, goal_ids=None, at=None):
     rows = [goal(conn, g) for g in goal_ids] if goal_ids else goals(conn, live_only=True)
     changed, suggested = [], []
     for row in filter(None, rows):
-        out = apply_auto(conn, row["id"], at)
-        if out and out.get("suggested"):
-            suggested.append(out)
-        elif out and out.get("changed"):
-            changed.append(out)
+        with isolated(conn, "goal_refresh", row["id"]):
+            out = apply_auto(conn, row["id"], at)
+            if out and out.get("suggested"):
+                suggested.append(out)
+            elif out and out.get("changed"):
+                changed.append(out)
     return {"changed": changed, "suggested": suggested, "checked": len([r for r in rows if r])}
 
 

@@ -615,3 +615,67 @@ def test_new_head_clears_stale_conflict_and_deduplicates_per_head(api):
     assert get(api, 'tasks/' + task['id'])['task']['pr_state'] == 'open'
     hook(api, 'pull_request', pr_event('synchronize', mergeable=False, head={'sha': 'b'}))
     assert clear_wake()
+@pytest.mark.parametrize("finished_status", ["closed", "declined", "done"])
+def test_grouped_wakes_retry_bad_rows_and_send_blocked_tasks(api, monkeypatch, finished_status):
+    from backend.repositories import save_metadata
+    tasks = [post(api, "tasks", {"owner": "cpo", "title": title, "body": "Review work"})
+             for title in ("Broken notice", "Blocked task", "Finished task")]
+    store = api.app.state.store
+    with store.transaction() as c:
+        for task in tasks:
+            save_metadata(c, "github-task-wake:" + task["id"], {"due": H.shift(H.now(), seconds=-1), "items": ["Checks failed"]})
+        c.execute("UPDATE tasks SET status='blocked' WHERE id=?", (tasks[1]["id"],))
+        c.execute("UPDATE tasks SET status=? WHERE id=?", (finished_status, tasks[2]["id"]))
+    wake = H._wake
+    def broken(c, task, *args):
+        if task["id"] == tasks[0]["id"]:
+            H.event(c, H.KEEPER, "wake.partial", task["id"])
+            raise RuntimeError("bad conversation")
+        return wake(c, task, *args)
+    monkeypatch.setattr(H, "_wake", broken)
+    with store.transaction() as c:
+        assert G.flush_wakes(c) == [tasks[1]["id"]]
+    with store.read() as c:
+        assert [r[0] for r in c.execute("SELECT key FROM registry_metadata WHERE key LIKE 'github-task-wake:%'")] == ["github-task-wake:" + tasks[0]["id"]]
+        assert not c.execute("SELECT 1 FROM events WHERE action='wake.partial'").fetchone()
+    monkeypatch.setattr(H, "_wake", wake)
+    with store.transaction() as c:
+        assert G.flush_wakes(c) == [tasks[0]["id"]]
+
+
+def test_deploy_query_uses_repository_index_and_ignores_other_repos(api):
+    own = post(api, "tasks", {"owner": "cpo", "title": "Release work", "body": "Review", "links": [PR]})
+    other = post(api, "tasks", {"owner": "cpo", "title": "Other work", "body": "Review",
+                                "links": ["https://github.com/example/other/pull/412"]})
+    store = api.app.state.store
+    store.settings.release_commit = "release-sha"
+    store.settings.release_repo = "TicoTeam/Tico"
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET status='ready' WHERE id IN (?,?)", (own["id"], other["id"]))
+        c.execute("UPDATE task_links SET state='merged',pr_sha='release-sha'")
+        plan = c.execute("EXPLAIN QUERY PLAN " + G.DEPLOY_QUERY,
+                         ("https://github.com/ticoteam/tico/pull/%",)).fetchall()
+        assert any("task_links_repo_url" in r[3] and "url>?" in r[3] for r in plan)
+        assert G.ship_deployed(c, store.settings) == [own["id"]]
+        assert H.task(c, other["id"])["status"] == "ready"
+
+
+def test_wake_is_not_reported_sent_when_the_final_write_fails(api):
+    from backend.repositories import save_metadata
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review', 'body': 'Review work'})
+    key = 'github-task-wake:' + task['id']
+    class FailingDelete:
+        def __init__(self, c):
+            self.c = c
+        def __getattr__(self, name):
+            return getattr(self.c, name)
+        def execute(self, sql, args=()):
+            if sql == 'DELETE FROM registry_metadata WHERE key=?':
+                raise RuntimeError('Cannot remove saved wake')
+            return self.c.execute(sql, args)
+    with api.app.state.store.transaction() as c:
+        save_metadata(c, key, {'due': H.shift(H.now(), seconds=-1), 'items': ['Checks failed']})
+        before = c.execute('SELECT count(*) FROM messages').fetchone()[0]
+        assert G.flush_wakes(FailingDelete(c)) == []
+        assert c.execute('SELECT count(*) FROM messages').fetchone()[0] == before
+        assert c.execute('SELECT 1 FROM registry_metadata WHERE key=?', (key,)).fetchone()

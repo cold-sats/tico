@@ -93,3 +93,24 @@ behaviour is in [environments](environments.md#sign-in-options).
   reachable only from the load balancer's security group; anything that can reach it directly can send that header.
 
 Tico does not build or manage the load balancer, Cognito or the network around them.
+
+
+## Run recovery and checkout locks
+
+A computer holds a bot's checkout while its run and publishing finish. Locks live in the
+runner's state folder. Harness processes inherit the lock so a surviving process still owns
+its checkout if the runner stops. A cached harness closes after a locked run; its saved
+conversation resumes on the next run. If the local filesystem cannot lock files, the runner logs
+the reason once and continues running.
+
+Health shows “Waiting for the previous run on <computer> to finish” when queued work is
+waiting behind a run. Finished or expired attempts release their server fence, including
+older computers that do not report active processes. Server startup removes fences left by
+finished attempts after a rollback. A fence is also bounded by the run's `max_run_minutes`
+plus two lease periods.
+
+A busy checkout leaves its work queued. Tico retries after 30 seconds, then waits longer up
+to five minutes, reusing the attempt until the checkout is available. This appears as
+“Checkout busy; waiting to retry.” Background row failures appear in Health with their
+reason; logs repeat a short line at most hourly for each row, with a traceback on the first
+failure. A refused due reminder is recorded once rather than retried on every check.

@@ -8,6 +8,7 @@ from croniter import croniter
 
 from . import goals as G
 from . import placement
+from .batch_work import isolated
 from .statuses import PARKED_SQL
 from .store import H, encode, sweep_idempotency, sweep_mail
 
@@ -52,8 +53,8 @@ class Scheduler:
                              "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot "
                              "AND pc.onboarding_state IN " + PARKED_SQL + ")").fetchall()   # `on:` routines fire from routines.emit
             for row in rows:
-                c.execute("SAVEPOINT scheduled_work")
-                try:
+                created = None
+                with isolated(c, "schedule", row["id"], failures):
                     due = H.parse_ts(row["next_due"])
                     if due and due.tzinfo is None:
                         due = due.replace(tzinfo=ZoneInfo(row["timezone"]))
@@ -101,16 +102,13 @@ class Scheduler:
                                 task = routines.open_task(c, self.execution.auth, row, row["title"],
                                                           row["playbook"] or routines.DEFAULT_TEXT, stamp(at))
                                 tid, outcome = task["id"], "created"
-                                fired.append(tid)
+                                created = tid
                             c.execute("INSERT INTO schedule_occurrences VALUES(?,?,?,?)", (row["id"], when, tid, outcome))
                             H.event(c, H.KEEPER, "schedule.occurrence", row["id"], {"occurrence": when, "task": tid, "outcome": outcome})
                         following = next_due(row["cron"], at, row["timezone"])
                         c.execute("UPDATE schedules SET last_fired=?,next_due=? WHERE id=?", (when, stamp(following), row["id"]))
-                    c.execute("RELEASE scheduled_work")
-                except Exception as exc:
-                    c.execute("ROLLBACK TO scheduled_work")
-                    c.execute("RELEASE scheduled_work")
-                    failures.append({"schedule": row["id"], "error": type(exc).__name__})
+                    if created:
+                        fired.append(created)
             # a merged pull request whose push record arrived after the deploy still ships
             from .github import ship_deployed
             ship_deployed(c, self.store.settings)
@@ -118,30 +116,24 @@ class Scheduler:
             for task in closed:
                 c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task["id"],))
             for row in H.tasks_due_for_bots(c, stamp(at + timedelta(days=1))[:10]):
-                c.execute("SAVEPOINT reminder_row")
-                try:
+                with isolated(c, "reminder", row["id"], failures):
                     due = H.parse_ts(row.get("due"))
                     if due and due.tzinfo is None:
                         # Legacy rows allowed dates/local timestamps. New API writes require an
                         # offset; preserve the old machine's Pacific interpretation on migration.
                         due = due.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
                     if not due or due > at or not row["owner"].startswith("bot:"):
-                        c.execute("RELEASE reminder_row")
                         continue
                     if c.execute("SELECT 1 FROM task_reminders WHERE task_id=? AND due=?", (row["id"], row["due"])).fetchone():
-                        c.execute("RELEASE reminder_row")
                         continue
                     if H.bot(c, H.actor_id(row["owner"]))["state"] != "active":
-                        c.execute("RELEASE reminder_row")
                         continue
-                    H.say(c, H.KEEPER, row["owner"], "Due: " + row["title"], kind="notice",
-                          conversation_id=row["conversation_id"], refs={"task": row["id"], "wake": "due"})
+                    try:
+                        H.say(c, H.KEEPER, row["owner"], "Due: " + row["title"], kind="notice",
+                              conversation_id=row["conversation_id"], refs={"task": row["id"], "wake": "due"})
+                    except H.Refused as exc:
+                        H.event(c, H.KEEPER, "task.reminder-refused", row["id"], {"reason": str(exc)[:300]})
                     c.execute("INSERT INTO task_reminders VALUES(?,?,?)", (row["id"], row["due"], stamp(at)))
-                    c.execute("RELEASE reminder_row")
-                except Exception as exc:
-                    c.execute("ROLLBACK TO reminder_row")
-                    c.execute("RELEASE reminder_row")
-                    failures.append({"task": row["id"], "error": type(exc).__name__})
             c.execute("INSERT INTO service_health VALUES('scheduler',?,?,?) ON CONFLICT(service) DO UPDATE SET "
                       "last_success=excluded.last_success,last_error=excluded.last_error,detail_json=excluded.detail_json",
                       (stamp(at), "schedule errors" if failures else None,
@@ -159,6 +151,9 @@ class Scheduler:
             # Outside the scheduling transaction: the sweep takes its own short write
             # locks. Marked first so a failing sweep retries hourly, not every tick.
             self.swept = at
+            with self.store.transaction() as c:
+                c.execute("DELETE FROM service_health WHERE service LIKE 'background:%' AND julianday(json_extract(detail_json,'$.failed_at')) < julianday(?) - 30", (stamp(at),))
+                c.execute("DELETE FROM checkout_waits WHERE job_id IN (SELECT id FROM jobs WHERE state IN ('completed','cancelled'))")
             sweep_idempotency(self.store, stamp(at))
             sweep_mail(self.store, stamp(at))
         if self.goals_checked is None or at - self.goals_checked >= timedelta(hours=1):

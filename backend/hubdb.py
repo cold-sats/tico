@@ -72,6 +72,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from pathlib import Path
 
+from .batch_work import isolated
 from clients.manifest import repo_dir
 from backend.chat_goals_schema import SCHEMA as CHAT_GOALS_SCHEMA
 from backend.repositories_schema import SCHEMA as REPOSITORIES_SCHEMA
@@ -1218,13 +1219,14 @@ def lift_cooled_quarantines(conn, cooldown=QUARANTINE_COOLDOWN_S):
     cutoff = shift(now(), seconds=-cooldown)
     lifted = []
     for row in _rows(conn.execute("SELECT slug FROM bots WHERE state='quarantined'")):
-        slug = row["slug"]
-        since = _one(conn, "SELECT max(ts) AS ts FROM events WHERE action='quarantine' AND target=?",
-                     (bot_actor(slug),))
-        if quarantine_is_escape(conn, slug) or not since or not since["ts"] or since["ts"] > cutoff:
-            continue
-        status_set(conn, KEEPER, slug, state="active", reason="Cooldown over: the refusal count starts again.")
-        lifted.append(slug)
+        with isolated(conn, "lift_cooled_quarantines", row["slug"]):
+            slug = row["slug"]
+            since = _one(conn, "SELECT max(ts) AS ts FROM events WHERE action='quarantine' AND target=?",
+                         (bot_actor(slug),))
+            if quarantine_is_escape(conn, slug) or not since or not since["ts"] or since["ts"] > cutoff:
+                continue
+            status_set(conn, KEEPER, slug, state="active", reason="Cooldown over: the refusal count starts again.")
+            lifted.append(slug)
     return lifted
 
 
@@ -1458,7 +1460,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
     if kind not in MESSAGE_KINDS:
         refuse(conn, actor, "kind", f"a message is {'|'.join(MESSAGE_KINDS)}, not {kind}")
     severity = classify(body, to_actor=resolve_actor(conn, to_actor), where="message", actor=actor, conn=conn)
-    if severity == "escape":
+    if severity == "escape" and not (actor == KEEPER and kind == "notice"):
         refuse(conn, actor, "escape", "The message includes a secrets path or another bot’s workspace path. Remove the restricted reference and retry; this did not send anything outside the Hub.",
                "escape")
     target = _reach(conn, actor, to_actor)
@@ -2109,7 +2111,7 @@ def task_unlink(conn, actor, task_id, link_id, mover=None):
     if not have:
         refuse(conn, actor, "not-found", f"no link {link_id} on {task_id}")
     _task_link_allowed(conn, actor, row, mover, have["kind"])
-    if have.get('state') != 'removed' and 'detail_json' in have:
+    if have['kind'] == 'worktree' and have.get('state') != 'removed' and 'detail_json' in have:
         detail = json.loads(have.get('detail_json') or '{}')
         detail['delete_requested'] = True
         detail.pop('restore_on_reopen', None)
@@ -2690,23 +2692,24 @@ def sweep_stranded(conn, at=None, grace_hours=24):
     moved = []
     for row in _rows(conn.execute("SELECT * FROM tasks WHERE status='waiting' AND owner LIKE 'bot:%' "
                                   "AND updated<=? ORDER BY updated", (cutoff,))):
-        if waiting_on(conn, row) or (bot(conn, actor_id(row["owner"])) or {}).get("state") != "active":
-            continue
-        superseded = _has_table(conn, "schedule_occurrences") and _one(
-            conn, "SELECT 1 FROM schedule_occurrences o WHERE o.task_id=? AND EXISTS("
-                  "SELECT 1 FROM schedule_occurrences later WHERE later.schedule_id=o.schedule_id "
-                  "AND later.occurrence>o.occurrence) LIMIT 1", (row["id"],))
-        if superseded and row["requester"] == KEEPER:
-            task_close(conn, KEEPER, row["id"],
-                       "Closed by the keeper: it was waiting on nothing while later runs of its routine "
-                       "came due. The next run opens a fresh task.")
-            moved.append((row["id"], "closed"))
-        else:
-            # Setting it open is what wakes the owner ("Open: <title>"); the note says why.
-            task_update(conn, KEEPER, row["id"], status="open",
-                        note="Back to open: it was waiting, but no question, child task, blocker or "
-                             "approval is outstanding. Continue it, ask, or mark it done or declined.")
-            moved.append((row["id"], "open"))
+        with isolated(conn, "sweep_stranded", row["id"]):
+            if waiting_on(conn, row) or (bot(conn, actor_id(row["owner"])) or {}).get("state") != "active":
+                continue
+            superseded = _has_table(conn, "schedule_occurrences") and _one(
+                conn, "SELECT 1 FROM schedule_occurrences o WHERE o.task_id=? AND EXISTS("
+                      "SELECT 1 FROM schedule_occurrences later WHERE later.schedule_id=o.schedule_id "
+                      "AND later.occurrence>o.occurrence) LIMIT 1", (row["id"],))
+            if superseded and row["requester"] == KEEPER:
+                task_close(conn, KEEPER, row["id"],
+                           "Closed by the keeper: it was waiting on nothing while later runs of its routine "
+                           "came due. The next run opens a fresh task.")
+                moved.append((row["id"], "closed"))
+            else:
+                # Setting it open is what wakes the owner ("Open: <title>"); the note says why.
+                task_update(conn, KEEPER, row["id"], status="open",
+                            note="Back to open: it was waiting, but no question, child task, blocker or "
+                                 "approval is outstanding. Continue it, ask, or mark it done or declined.")
+                moved.append((row["id"], "open"))
     return moved
 
 
@@ -2742,16 +2745,9 @@ def auto_close_done(conn, at=None):
     # listing cap silently stopped closing them.
     for row in _rows(conn.execute("SELECT * FROM tasks WHERE status='done' AND requester LIKE 'bot:%' "
                                   "AND done_at IS NOT NULL AND done_at<=? ORDER BY done_at,id", (cutoff,))):
-        conn.execute("SAVEPOINT auto_close_row")
-        try:
-            after = task_close(conn, KEEPER, row["id"], f"closed automatically after {AUTO_CLOSE_DAYS} days")
-            conn.execute("RELEASE auto_close_row")
-            closed.append(after)
-        except Exception:
-            conn.execute("ROLLBACK TO auto_close_row")
-            conn.execute("RELEASE auto_close_row")
-            import logging
-            logging.getLogger("tico.scheduler").exception("Auto-close failed for task %s", row["id"])
+        with isolated(conn, "auto_close_done", row["id"]):
+            closed.append(task_close(conn, KEEPER, row["id"],
+                                     f"closed automatically after {AUTO_CLOSE_DAYS} days"))
     return closed
 
 
@@ -2982,35 +2978,36 @@ def wake_stalled(conn, at=None):
     at = at or now()
     woke, escalated = [], []
     for row in stalled_tasks(conn, at):
-        # Only wakes since the task last moved count toward handing it to BotOps: a long job that
-        # moves after every wake is working, not stuck (for example one working through hundreds of sites).
-        since = max(row["updated"], shift(at, seconds=-86400))
-        count = conn.execute("SELECT count(*) FROM events WHERE action='task.stall_wake' AND target=? AND ts>?",
-                             (row["id"], since)).fetchone()[0] or 0
-        last = conn.execute("SELECT max(ts) FROM events WHERE action='task.stall_wake' AND target=?",
-                            (row["id"],)).fetchone()[0]
-        if last and last > shift(at, seconds=-STALL_REPEAT_MINUTES * 60):
-            continue
-        if count >= STALL_WAKES_PER_DAY:
-            if not conn.execute("SELECT 1 FROM events WHERE action='task.stall_escalated' AND target=? AND ts>?",
-                                (row["id"], shift(at, seconds=-86400))).fetchone() and _actor_exists(conn, "bot:botops"):
-                title = f"Find why {actor_id(row['owner'])}'s task stays stuck after {count} wake-ups"
-                task_create(conn, KEEPER, title[:150],
-                            f"Task {row['id']} ({row['title'][:120]}) has been {row['status']} with nothing moving it; "
-                            f"{count} wake-ups today did not move it. Fix the cause (routine, runner, instructions) "
-                            "or set it waiting with the reason.", "bot:botops", deduplicate=True)
-                event(conn, KEEPER, "task.stall_escalated", row["id"], {"bot": actor_id(row["owner"]), "wakes": count})
-                escalated.append(row["id"])
-            continue
-        if row.get("next_run"):
-            conn.execute("UPDATE tasks SET next_run=0 WHERE id=?", (row["id"],))
-        _wake(conn, row, row["owner"],
-              f"Stalled {row['quiet_minutes']} min: {row['title']}. Nothing is set to move it. Carry it on now, "
-              "or set it waiting with the reason (hub task update --status waiting --note).",
-              {"wake": "stalled"})
-        event(conn, KEEPER, "task.stall_wake", row["id"],
-              {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1})
-        woke.append(row["id"])
+        with isolated(conn, "wake_stalled", row["id"]):
+            # Only wakes since the task last moved count toward handing it to BotOps: a long job that
+            # moves after every wake is working, not stuck (for example one working through hundreds of sites).
+            since = max(row["updated"], shift(at, seconds=-86400))
+            count = conn.execute("SELECT count(*) FROM events WHERE action='task.stall_wake' AND target=? AND ts>?",
+                                 (row["id"], since)).fetchone()[0] or 0
+            last = conn.execute("SELECT max(ts) FROM events WHERE action='task.stall_wake' AND target=?",
+                                (row["id"],)).fetchone()[0]
+            if last and last > shift(at, seconds=-STALL_REPEAT_MINUTES * 60):
+                continue
+            if count >= STALL_WAKES_PER_DAY:
+                if not conn.execute("SELECT 1 FROM events WHERE action='task.stall_escalated' AND target=? AND ts>?",
+                                    (row["id"], shift(at, seconds=-86400))).fetchone() and _actor_exists(conn, "bot:botops"):
+                    title = f"Find why {actor_id(row['owner'])}'s task stays stuck after {count} wake-ups"
+                    task_create(conn, KEEPER, title[:150],
+                                f"Task {row['id']} ({row['title'][:120]}) has been {row['status']} with nothing moving it; "
+                                f"{count} wake-ups today did not move it. Fix the cause (routine, runner, instructions) "
+                                "or set it waiting with the reason.", "bot:botops", deduplicate=True)
+                    event(conn, KEEPER, "task.stall_escalated", row["id"], {"bot": actor_id(row["owner"]), "wakes": count})
+                    escalated.append(row["id"])
+                continue
+            if row.get("next_run"):
+                conn.execute("UPDATE tasks SET next_run=0 WHERE id=?", (row["id"],))
+            _wake(conn, row, row["owner"],
+                  f"Stalled {row['quiet_minutes']} min: {row['title']}. Nothing is set to move it. Carry it on now, "
+                  "or set it waiting with the reason (hub task update --status waiting --note).",
+                  {"wake": "stalled"})
+            event(conn, KEEPER, "task.stall_wake", row["id"],
+                  {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1})
+            woke.append(row["id"])
     return {"woke": woke, "escalated": escalated}
 
 
