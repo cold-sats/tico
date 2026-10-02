@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Granola sync imports free-account notes with markdown and participant emails, recognizes transcript access accurately, shows the account email when supplied, and names failed sync steps safely.
+
 ## [0.3.5] - 2026-10-02
 
 ### Fixed

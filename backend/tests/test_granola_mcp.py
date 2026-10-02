@@ -406,7 +406,7 @@ def test_malformed_meeting_is_skipped_and_later_notes_import(api):
     provider.service.transport = httpx.MockTransport(handle)
     provider.sync()
     status = api.get(BASE, headers=headers("ana-test")).json()
-    assert status["skipped"] == 1 and status["last_error"] == "1 notes skipped"
+    assert status["skipped"] == 1 and status["last_error"] == "bad_response: import_meeting"
     assert status["imported_count"] == 1 and status["last_sync"]
     assert provider.service.load("human:ana")[1]["cursor"]
 
