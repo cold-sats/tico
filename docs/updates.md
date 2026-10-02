@@ -59,6 +59,11 @@ need to be pulled again if you later roll back. Disk-space update failures say w
 increases, including while the server and computers are on different releases. Older computers that do not report disk
 space keep working; they show the warning after their runner updates.
 
+New base clones need at least 5 GB free or 10% of the workspace volume's capacity, whichever is
+greater. Below that floor the computer reports `disk_low`, with the free space and space needed.
+Free space on that volume to retry. Base clones absent from the computer's repository list for
+30 days are removed; bot folders are left in place.
+
 ## A Mac (or Linux checkout)
 
 The runner is a git checkout. When the server's release is newer, the runner:
