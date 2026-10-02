@@ -527,17 +527,26 @@ def task_types(api, args):
     return api.get("task-types/" + args["id"])["type"] if args.get("id") else api.get("task-types")["types"]
 
 
+TYPE_BOTS = {"type": "string", "enum": ["parties", "read", "work"],
+             "description": "What every bot may do with the type's tasks: parties (only the bots on each task), "
+                            "read (read and comment on all of them) or work (also change them)"}
+
+
 @tool("hub_task_type_create", "Create a task type and its steps (movers only).",
-      {"name": _s("Type name"), "steps": TASK_STEPS}, required=("name",), writes=True)
+      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS}, required=("name",), writes=True)
 def task_type_create(api, args):
-    return api.post("task-types", {"name": args["name"], "steps": args.get("steps") or []}, key=_key(args))
+    body = {"name": args["name"], "steps": args.get("steps") or []}
+    if args.get("bots"):
+        body["bots"] = args["bots"]
+    return api.post("task-types", body, key=_key(args))
 
 
 @tool("hub_task_type_update", "Edit a task type (movers only). Steps replace the full list; keep retained ids. "
       "A step with tasks cannot be removed.", {"id": _s("Type id or name"), "name": _s("Type name"),
-      "steps": TASK_STEPS}, required=("id",), writes=True)
+      "steps": TASK_STEPS, "bots": TYPE_BOTS}, required=("id",), writes=True)
 def task_type_update(api, args):
-    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps") if k in args}, key=_key(args))
+    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots") if k in args},
+                    key=_key(args))
 
 
 @tool("hub_task_type_delete", "Delete an unused task type (movers only). General stays built in.",

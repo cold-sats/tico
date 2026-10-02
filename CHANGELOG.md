@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A task type can open its tasks to every bot: `read` (read, comment, file subtasks) or `work` (also move,
+  reassign and link them), in Settings → Types, the task-types routes, `hub task type --bots` and MCP. A team's
+  board can be worked by the bots that file and build its tickets; everything else stays with the bots on it.
+
 ## [0.3.10] - 2026-10-02
 
 ### Fixed

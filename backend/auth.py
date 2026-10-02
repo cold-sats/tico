@@ -619,7 +619,10 @@ class Auth:
                 "SELECT child.id FROM tasks child JOIN managed ON child.parent_id=managed.id) "
                 "SELECT managed.id FROM managed JOIN tasks t ON t.id=managed.id WHERE ? NOT IN (t.owner,t.requester)",
                 (who.actor, who.actor))]
+            # A type opened to bots (hubdb.TYPE_BOTS) is read whole, like a board on the wall.
+            shared = H.bot_readable_types(c)
             return (f"({me} IN (owner,requester) OR ({clear} AND id IN {A.qlist(managed)}) OR "
+                    f"({clear} AND type_id IN {A.qlist(shared)}) OR "
                     f"({clear} AND id IN (SELECT task_id FROM {delegations} "
                     f"WHERE delegate={me} AND expires>{A.q(H.now())})))")
         return f"({clear} OR {me} IN (owner,requester))"
@@ -822,7 +825,8 @@ class Auth:
                     raise Problem("not_found", "Task not found", 404)
                 if not level["read"]:
                     raise Problem("forbidden", f"This task involves {slug}, whose activity you cannot read", 403)
-        if who.role == "bot" and who.actor not in participants and not ancestor_party:
+        if (who.role == "bot" and who.actor not in participants and not ancestor_party
+                and not H.type_bot_reads(c, who.actor, row)):
             delegated = c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
                                   (row["id"], who.actor, H.now())).fetchone()
             if not delegated and not H.task_ancestor_party(c, who.actor, row):
