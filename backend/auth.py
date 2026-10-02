@@ -79,6 +79,8 @@ class Identity:
     # may do and propose the rest, or (confirmed) the person's own click on a proposal it made.
     via: str = ""
     confirmed: bool = False
+    # Acting for a human does not grant a bot membership in that human's private tasks.
+    task_actor: str = ""
 
 
 def standing(c, pid):
@@ -613,7 +615,10 @@ class Auth:
         hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who))]
         clear = ("NOT (owner IN %s OR requester IN %s)" % ((A.qlist(hidden),) * 2)) if hidden else "1"
         me = A.q(who.actor)
-        return f"({me} IN (owner,requester) OR (coalesce(private,1)=0 AND ({clear})))"
+        audience = f"({me} IN (owner,requester) OR (coalesce(private,1)=0 AND ({clear})))"
+        if who.task_actor:
+            audience += f" AND (coalesce(private,1)=0 OR {A.q(who.task_actor)} IN (owner,requester))"
+        return audience
 
     def operator(self, c, who, bot):
         row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
@@ -799,13 +804,15 @@ class Auth:
             raise Problem("forbidden", "The initiating person is no longer on the roster", 403)
         email = str(human.get("email") or "").lower()
         role = "owner" if email and email == self.owner_email else "human"
-        return Identity(actor, role, email=email)
+        return Identity(actor, role, email=email, task_actor=who.actor)
 
     def task_row(self, c, who, row):
         self.domain(who)
         if not row:
             raise Problem("not_found", "Task not found", 404)
         if who.role not in ("owner", "human", "bot") or not H.task_private_readable(c, who.actor, row):
+            raise Problem("not_found", "Task not found", 404)
+        if who.task_actor and not H.task_private_readable(c, who.task_actor, row):
             raise Problem("not_found", "Task not found", 404)
         participants = (row["owner"], row["requester"])
         if who.actor not in participants:
