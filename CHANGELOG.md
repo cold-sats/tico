@@ -7,6 +7,27 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Nested tasks with progress rolled up to their parent; a task finishes when its subtasks finish.
+- Several PRs per task, with checks, conflicts and reviews that wake the assigned teammate.
+- Task worktrees: separate branches and folders, saved work before cleanup, and restoration when a task reopens. Computers without a GitHub App can use their own Git login.
+- Subscriptions assigned to a group or bot. An assigned bot waits with a reason when its subscription is unavailable, keeping its work on the chosen login.
+- An Engineering Manager template.
+- A redesigned Tasks page with one-line rows, tabs, groups, filter chips, side peek, a properties panel, bulk actions and keyboard controls.
+
+### Changed
+- Computers keep repository mirrors separately from bot-owned base clones. Base clones refresh from the mirror without a token and keep GitHub as their push destination.
+- New task worktrees try to refresh the mirror immediately; an unavailable connection uses cached history and reports its age.
+- Unused base clones retire after 30 days when no task worktrees remain and every local commit is saved remotely, even under a different branch name.
+
+### Fixed
+- A failed scheduled item no longer rolls back other scheduled work; reminder task titles describe the work to do.
+- Computers report busy bots so the same bot cannot start a second run during a turn or worktree maintenance. Turns keep renewing their lease while waiting for maintenance.
+- Repository credentials stay scoped to the acting bot and repository. Git maintenance filters credentials and disables repository hooks and fsmonitor, including during secret checks.
+- Reopening during cleanup returns saved work to the task branch. Reusing a removed worktree enforces the bot's limit, and a reassigned task can create a fresh worktree while its previous owner awaits cleanup.
+- Ignored Python build metadata, bytecode, desktop metadata and editor settings no longer prevent worktree cleanup.
+- PR status checks and task queries avoid unnecessary full-table scans.
+
 ## [0.3.1] - 2026-10-02
 
 ### Changed
@@ -1586,7 +1607,7 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.1...HEAD
 [0.3.0]: https://github.com/ticoteam/tico/compare/v0.2.42...v0.3.0
 [0.2.39]: https://github.com/ticoteam/tico/compare/v0.2.38...v0.2.39
 [0.2.35]: https://github.com/ticoteam/tico/compare/v0.2.34...v0.2.35
