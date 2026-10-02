@@ -43,26 +43,83 @@ function tasksActiveFilterCount(state) {
 }
 // The address follows the filters without reloading the page (no hashchange, no history entry). With any filter in
 // it, it names the view too, so a shared address opens the same tab whatever route it started from.
-function tasksURLWrite(state) {
-  if (TASKS_ST !== state) return;
+function tasksQuery(state) {
   const query = new URLSearchParams();
   for (const [k, values] of Object.entries(state.filters)) if (values.length) query.set(k, values.join(','));
   if (state.type) query.set('type', state.type);
-  const filtered = [...query.keys()].length > 0;
   // Any view but the default is named too, so #/tasks?view=board&type=video is a link that stays put.
-  if (filtered || state.view !== 'foryou') query.set('view', state.view);
+  if ([...query.keys()].length || state.view !== 'foryou') query.set('view', state.view);
+  return query;
+}
+const tasksQueryText = query => [...query.keys()].length ? '?' + query.toString().replace(/%2C/gi, ',').replace(/%3A/gi, ':') : '';
+function tasksURLWrite(state) {
+  if (TASKS_ST !== state) return;
+  const query = tasksQuery(state);
+  const filtered = [...query.keys()].some(k => k !== 'view');
   let base = String(location.hash || TASKS).split('?')[0];
   if (!isTasksRoute(base)) {
     if (!filtered) return;                        // #/task/<id> stays as it is until a filter is chosen
     base = TASKS;
   }
   if (query.has('view')) base = TASKS;            // one address per view: #/board?view=list would say two things
-  const hash = base + ([...query.keys()].length ? '?' + query.toString().replace(/%2C/gi, ',').replace(/%3A/gi, ':') : '');
+  const hash = base + tasksQueryText(query);
   if (hash !== location.hash) {
     history.replaceState(history.state, '', location.pathname + location.search + hash);
     S.route = LAST_ROUTE = hash;
+    tasksPinsRender();
   }
 }
+// ---- pinned views: Pin keeps the view and its filters (its address) under Pipelines in the left rail, per person
+// (preference tasks.pins, cached on this device). A pin is only a link: nothing moves a task's step on its own.
+const TASK_PINS_PREF = 'tasks.pins', TASK_PINS_KEY = 'tico.tasks.pins';
+const tasksPinValid = p => p && typeof p.hash === 'string' && p.hash.startsWith(TASKS) && typeof p.name === 'string';
+let TASK_PINS = (() => { try { return (JSON.parse(localStorage.getItem(TASK_PINS_KEY) || '[]') || []).filter(tasksPinValid); } catch { return []; } })();
+const tasksPinHash = state => TASKS + tasksQueryText(tasksQuery(state));
+function tasksPinName(state) {
+  const type = state.type ? (TASK_TYPES || []).find(t => t.id === state.type)?.name || state.type : '';
+  const view = TASK_VIEWS.find(([k]) => k === state.view)?.[1] || 'Tasks';
+  const words = TASK_FILTER_FIELDS.filter(([k]) => k !== 'type' && state.filters[k]?.length).map(([k]) => {
+    const opts = new Map(tasksFilterOptions(state, k).map(o => [o.value, o.label]));
+    return state.filters[k].map(v => opts.get(v) || (k === 'owner' || k === 'asked' ? actorLabel(v) : v)).join(', ');
+  });
+  return [type || view, ...words].join(' · ').slice(0, 60);
+}
+function tasksPinsKeep(items) {
+  TASK_PINS = items;
+  try { localStorage.setItem(TASK_PINS_KEY, JSON.stringify(items)); } catch {}
+  void post('/v2/preferences/' + TASK_PINS_PREF, {value: {items, at: Date.now()}}).catch(() => {});
+  tasksPinsRender();
+  if (TASKS_ST) tasksTools(TASKS_ST);
+}
+function tasksPinToggle(state) {
+  const hash = tasksPinHash(state);
+  tasksPinsKeep(TASK_PINS.some(p => p.hash === hash) ? TASK_PINS.filter(p => p.hash !== hash) : [...TASK_PINS, {hash, name: tasksPinName(state)}]);
+}
+function tasksPinsRender() {
+  const box = $('#nav-pins'), list = $('#pin-list');
+  if (!box || !list) return;
+  box.hidden = !TASK_PINS.length;
+  const here = String(location.hash || '');
+  const html = TASK_PINS.map((p, i) => `<li class="pin-row"><a class="nav-link" href="${esc(p.hash)}" title="${esc(p.name)}"${p.hash === here ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">route</span><span class="pin-name">${esc(p.name)}</span></a>
+    <button type="button" class="pin-x" data-unpin="${i}" aria-label="Unpin ${esc(p.name)}" title="Unpin">✕</button></li>`).join('');
+  if (list.dataset.html !== html) list.innerHTML = list.dataset.html = html;
+}
+async function tasksPinsSync() {
+  const v = (await v2Get('/v2/preferences/' + TASK_PINS_PREF))?.value;
+  if (!Array.isArray(v?.items)) return;
+  TASK_PINS = v.items.filter(tasksPinValid);
+  try { localStorage.setItem(TASK_PINS_KEY, JSON.stringify(TASK_PINS)); } catch {}
+  tasksPinsRender();
+  if (TASKS_ST) tasksTools(TASKS_ST);
+}
+document.addEventListener('click', ev => {
+  const x = ev.target.closest('[data-unpin]');
+  if (!x) return;
+  ev.preventDefault();
+  tasksPinsKeep(TASK_PINS.filter((_, i) => i !== Number(x.dataset.unpin)));
+});
+window.addEventListener('hashchange', () => tasksPinsRender());
+tasksPinsRender();
 // The filters an older page saved (Mine, Asked by me, an owner, a tag) become chips once, then are forgotten.
 function tasksMigrateOldFilters(state, saved) {
   let local = {};
@@ -362,6 +419,13 @@ function tasksTools(state) {
   if (groupable) {
     const by = tasksGroupBy(state), word = TASK_GROUPS.find(([k]) => k === by)?.[1] || by;
     tasksPaint($('#task-group-wrap'), `<button type="button" class="tl-chip tl-chip-main tl-groupchip" id="task-group" aria-haspopup="true" aria-label="Group by: ${esc(word)}. Change">${TL_ICON.group}<span class="k">Group</span><span class="v">${esc(word)}</span>${TL_ICON.caret}</button>`);
+  }
+  const pin = $('#task-pin');
+  if (pin) {
+    const on = TASK_PINS.some(p => p.hash === tasksPinHash(state));
+    pin.setAttribute('aria-pressed', String(on));
+    pin.textContent = on ? 'Pinned' : 'Pin';
+    pin.title = on ? 'Unpin from the sidebar' : 'Pin to the sidebar';
   }
   const mode = $('#task-select-mode');
   if (mode) {

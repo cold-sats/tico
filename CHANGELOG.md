@@ -7,7 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Tasks: a Files strip with one tile per file at its newest version; a tile opens in place with its versions, Compare, notes and questions.
+- Tasks: questions on comments and file versions show as option buttons; an answer posts as a comment.
+- Board cards show the newest picture as a cover and a dot for an open question. Pin keeps a Tasks view under Pipelines in the left rail.
+- Linked pictures in task details, comments and chat show inline.
+
 ### Fixed
+- Files a comment carried show on every install, not only in the cloud.
 - Task links: `#/tasks/<id>` opens the task, and the Tasks view (Open, Board, Recurring, Done) stays in the address, so a board link is stable.
 - Task comments show a saved note's text, once, instead of "left a note".
 - Images, video and audio in a task load straight into the player with a placeholder while loading; video starts playing before the whole file has downloaded.
