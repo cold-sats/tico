@@ -321,13 +321,8 @@ def clone_shared(path, config, env=None, timeout=120):
     url = shared_repository_url(config)
     if not url:
         return "The original repository's address is unknown"
-    slug = re.sub(r"^(?:https?://|ssh://git@|git@)github\.com[:/]", "", url).rstrip("/").removesuffix(".git")
-    github = slug != url.rstrip("/").removesuffix(".git")
     env = safe_git.environment(env)
-    commands = []
-    if github and shutil.which("gh"):
-        commands.append(["gh", "repo", "clone", slug, str(path), "--", "--quiet"])
-    commands.append([*safe_git.PREFIX, "clone", "--quiet", url, str(path)])
+    commands = [[*safe_git.PREFIX, "clone", "--quiet", url, str(path)]]
     for command in commands:
         try:
             result = isolation.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL,
@@ -337,7 +332,7 @@ def clone_shared(path, config, env=None, timeout=120):
             problem = (result.stderr.strip().splitlines() or [f"exit {result.returncode}"])[-1][:200]
         except (OSError, subprocess.SubprocessError) as exc:
             problem = type(exc).__name__
-        # Git credentials can still work when gh is installed but not signed in. Never overwrite leftovers.
+        # Never overwrite leftovers from a failed clone.
         if path.exists() and (not path.is_dir() or any(path.iterdir())):
             break
     return problem
@@ -554,7 +549,7 @@ class Runner:
         self.client = client or Client(config["url"], config["token"], timeout=10, retries=1)
         self.state = State(state_dir)
         self.repositories = repositories.Repositories(config["projects_dir"], self.state.directory / "repositories.json", self.client)
-        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda bot: bot.removeprefix("bot:") not in self.active_bots.values(), vault_values=lambda bot: self.worktree_vault.get(bot.removeprefix("bot:"), []), retain_vault=self.retain_worktree_vault, environment=lambda bot: self.credential_environment(bot.removeprefix("bot:")))
+        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda bot: bot.removeprefix("bot:") not in self.active_bots.values(), vault_values=lambda bot: self.worktree_vault.get(bot.removeprefix("bot:"), []), retain_vault=self.retain_worktree_vault, refresh=self.repositories.refresh_mirror, environment=lambda bot: self.credential_environment(bot.removeprefix("bot:")))
         self.follower = Follower(config, self.state.directory, self.client, supervised=supervised)
         self.capacity = int(config.get("capacity", 4))
         self.host_factory = host_factory or self.make_host

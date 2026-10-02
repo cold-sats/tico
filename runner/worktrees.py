@@ -59,7 +59,10 @@ def git(path, *args, env=None, check=True):
     done = isolation.run([*safe_git.prefix(path), '-C', str(path), *args], env=safe_git.environment(env), capture_output=True, text=True,
                          stdin=subprocess.DEVNULL, timeout=120)
     if check and done.returncode:
-        raise ValueError(f'Git {args[0]} failed (exit {done.returncode}); check access, network, disk space and repository state')
+        error = ValueError(f'Git {args[0]} failed (exit {done.returncode}); check access, network, disk space and repository state')
+        if args[0] in ('push', 'fetch', 'ls-remote'):
+            error.git_detail = done.stderr or f'exit {done.returncode}'
+        raise error
     return done
 
 
@@ -426,13 +429,19 @@ class Deferred(ValueError):
 
 def act(workspace, row, action, env, vault_values=(), before_remove=lambda: True):
     with locked(workspace, row['path']):
-        return _act(workspace, row, action, env, vault_values, before_remove)
+        try:
+            return _act(workspace, row, action, env, vault_values, before_remove)
+        except ValueError as exc:
+            if row.get('machine_git') and hasattr(exc, 'git_detail'):
+                raise ValueError(repositories.machine_error(row['repo'], exc.git_detail)) from None
+            raise
 
 
 class Worktrees:
-    def __init__(self, workspace, client, idle=lambda: True, environment=lambda bot: safe_git.process_environment(), vault_values=lambda bot: (), retain_vault=lambda owners: None):
+    def __init__(self, workspace, client, idle=lambda: True, environment=lambda bot: safe_git.process_environment(), vault_values=lambda bot: (), retain_vault=lambda owners: None, refresh=None):
         self.workspace, self.client, self.idle = workspace, client, idle
         self.environment = environment
+        self.refresh = refresh
         self.vault_values = vault_values
         self.retain_vault = retain_vault
         self.bot_locks = weakref.WeakValueDictionary()
@@ -518,6 +527,11 @@ class Worktrees:
                 else:
                     repo = {}
                 action_row = {**row, **repo, **action, 'full_name': row['repo']}
+                if action['action'] == 'restore' and row.get('repo') and not repo.get('machine_git') and self.refresh:
+                    try:
+                        action_row['_mirror_refresh'] = self.refresh(row['repo'], granted['token'])
+                    except (ValueError, OSError, subprocess.SubprocessError):
+                        pass  # worktree_base reports the cached mirror's age if refresh is unavailable
                 def still_closed():
                     fresh = next((r for r in self.client.get('runners/me/worktrees')['worktrees'] if r['id'] == row['id']), None)
                     return fresh is not None and self.bot_idle(row['owner']) and (fresh['task_status'] in ('done', 'closed', 'declined') or fresh['bot_state'] == 'archived' or json.loads(fresh.get('detail_json') or '{}').get('delete_requested'))

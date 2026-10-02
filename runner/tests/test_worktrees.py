@@ -809,3 +809,42 @@ def test_ignored_build_outputs_do_not_hold_cleanup(trees, name):
     artifact.write_text('build output')
     row['prs_finished'] = True
     assert W.act(workspace, row, 'remove', os.environ.copy()) == 'removed'
+
+
+def test_heartbeat_creation_refreshes_mirror_before_cloning(trees):
+    workspace, base, remote, row, client = trees
+    shutil.rmtree(base)
+    saved = {**row, 'task_status': 'open', 'bot_state': 'active', 'state': 'pending'}
+    client.get.side_effect = lambda route: {'worktrees': [saved]} if route.endswith('/worktrees') else {'repositories': [row]}
+    client.post.return_value = {'token': 'synthetic-worktree-token'}
+    refresh = mock.Mock(return_value={'refreshed': True, 'mirror': remote.as_uri(), 'default_branch': 'main'})
+    manager = W.Worktrees(workspace, client, refresh=refresh)
+    run = W.isolation.run
+    def local_git(args, **kwargs):
+        if args[0] == 'git':
+            args = [args[0], '-c', f'url.{remote}.insteadOf=https://github.com/org/product.git', *args[1:]]
+        return run(args, **kwargs)
+    try:
+        with mock.patch.object(W.isolation, 'run', side_effect=local_git):
+            manager.sync([{**row, 'action': 'restore'}])
+        assert not manager.errors, manager.errors
+        refresh.assert_called_once_with('org/product', 'synthetic-worktree-token')
+        assert (workspace / row['path'] / 'file').read_text() == 'initial', manager.errors
+        assert git(base, 'remote', 'get-url', 'tico-mirror') == remote.as_uri()
+        assert 'synthetic-worktree-token' not in (base / '.git' / 'config').read_text()
+    finally:
+        manager.close()
+
+
+def test_no_app_failed_clone_explains_computer_login(trees):
+    workspace, base, remote, row, client = trees
+    shutil.rmtree(base)
+    client.get.return_value = {'repositories': [], 'configured': False}
+    run = W.isolation.run
+    def unavailable(args, **kwargs):
+        if 'clone' in args:
+            return subprocess.CompletedProcess(args, 128, '', 'access refused\nmore detail')
+        return run(args, **kwargs)
+    with mock.patch.object(W.isolation, 'run', side_effect=unavailable):
+        with pytest.raises(ValueError, match="git could not reach org/product with this computer's git login: access refused"):
+            W.command(client, 'add', 'org/product')

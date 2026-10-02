@@ -37,6 +37,12 @@ def base_folder(name):
     return git_repository.folder(name.lower() if valid_name(name) else name)
 
 
+def machine_error(name, detail):
+    from . import redact
+    first = (str(detail).strip().splitlines() or ['Git command failed'])[0][:200]
+    return f"git could not reach {name} with this computer's git login: {redact.scrub_log(first)}"
+
+
 def mirror_warning(mirror):
     try:
         fetched_at = float((mirror / 'tico-fetched-at').read_text())
@@ -325,7 +331,7 @@ class Repositories:
             self.mirror_permissions(mirror)
             (mirror / 'tico-fetched-at').write_text(str(now))
             # Bot-owned directories are touched only by unprivileged Git, without a token.
-            local = ['git', '-c', 'safe.directory=' + str(mirror.resolve()),
+            local = [*safe_git.PREFIX, '-c', 'safe.directory=' + str(mirror.resolve()),
                      '-c', 'safe.directory=' + str(path.resolve()), '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
                      '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always']
             if not exists:
@@ -455,7 +461,7 @@ def worktree_base(workspace, repo, env):
     if root.is_symlink() or path.is_symlink() or path.resolve().parent != root.resolve():
         raise ValueError('Base clone points outside repos')
     isolation.mkdir(root, mode=0o755)
-    refreshed = None
+    refreshed = repo.pop('_mirror_refresh', None)
     if path.exists():
         if not (path / '.git').is_dir() or (path / '.git').is_symlink():
             raise ValueError('Base clone folder is not a Git repository')
@@ -465,7 +471,7 @@ def worktree_base(workspace, repo, env):
             raise ValueError('Base clone remote does not match this repository')
     else:
         socket_path = source_env.get(git_credentials.credential_socket.SOCKET_ENV)
-        if socket_path and not repo.get('machine_git'):
+        if socket_path and not refreshed and not repo.get('machine_git'):
             try:
                 refreshed = git_credentials.credential_socket.request_refresh(socket_path, source_env.get('HUB_TOKEN', ''), name)
             except (OSError, ValueError):
@@ -486,14 +492,15 @@ def worktree_base(workspace, repo, env):
             command += ['--branch', repo['default_branch']]
         try:
             done = isolation.run([*command, '--', url, str(path)], env=clone_env, capture_output=True, text=True, timeout=120)
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError) as exc:
             discard_failed_clone(path)
+            if repo.get('machine_git'):
+                raise ValueError(machine_error(name, type(exc).__name__)) from None
             raise ValueError('Git clone failed; check repository access, network and disk space') from None
         if done.returncode:
             discard_failed_clone(path)
             if repo.get('machine_git'):
-                detail = (done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[0][:200]
-                raise ValueError(f"Git could not reach {name} with this computer's git login: {detail}")
+                raise ValueError(machine_error(name, done.stderr or f'exit {done.returncode}'))
             raise ValueError('Git clone failed; check repository access, network and disk space')
         if refreshed:
             for key, value in [('remote.origin.url', git_repository.address(name)),
@@ -545,6 +552,8 @@ def worktree_base(workspace, repo, env):
         available = isolation.run([*safe_git.prefix(path), '-C', str(path), 'show-ref', '--verify', 'refs/remotes/origin/' + branch],
                                  env=local_env, capture_output=True, timeout=15)
         if available.returncode:
+            if repo.get('machine_git'):
+                raise ValueError(machine_error(name, done.stderr if 'done' in locals() else 'Git fetch timed out'))
             raise ValueError('Git fetch failed; check repository access, network and disk space')
         repo.setdefault('fetch_warning', 'Could not refresh origin; using the base clone (age unknown)')
     mark_managed(path, local_env, name)

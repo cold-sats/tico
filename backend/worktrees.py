@@ -186,9 +186,17 @@ def install(app, store, auth, mutate):
         parts = PurePosixPath(path).parts
         if attaching and parts[0].casefold() == 'tasks' and (len(parts) < 3 or parts[1] != short):
             raise Problem('worktree_path', 'This worktree belongs to another task', 409)
-        candidates = c.execute("SELECT * FROM task_links WHERE kind='worktree' AND (computer_id=? OR (task_id=? AND state='removed'))", (assigned['id'], task['id']))
+        candidates = list(c.execute("SELECT * FROM task_links WHERE kind='worktree' AND (computer_id=? OR task_id=?)", (assigned['id'], task['id'])))
         canonical = unicodedata.normalize('NFC', path).casefold()
         existing = next((r for r in candidates if unicodedata.normalize('NFC', r['path'] or '').casefold() == canonical), None)
+        suffix = ''
+        if existing and not attaching and existing['task_id'] == task['id']:
+            owner = json.loads(existing['detail_json'] or '{}').get('owner', task['owner'])
+            if owner != task['owner'] and existing['state'] != 'removed':
+                suffix = '-' + bot
+                path = relative(path + suffix)
+                canonical = unicodedata.normalize('NFC', path).casefold()
+                existing = next((r for r in candidates if unicodedata.normalize('NFC', r['path'] or '').casefold() == canonical), None)
         if existing:
             owner = json.loads(existing['detail_json'] or '{}').get('owner', task['owner'])
             if existing['task_id'] != task['id'] or existing['path'] != path or owner != task['owner'] and existing['state'] != 'removed':
@@ -207,7 +215,7 @@ def install(app, store, auth, mutate):
                       (assigned['id'], json.dumps(detail), H.now(), existing['id']))
             return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
         slug = re.sub('[^a-z0-9]+', '-', task['title'].lower()).strip('-')[:50] or 'task'
-        branch = branch or (None if attaching else f'tico/{short}-{slug}')
+        branch = branch or (None if attaching else f'tico/{short}-{slug}{suffix}')
         if branch is not None and (not re.fullmatch(r'[A-Za-z0-9_./-]+', branch) or branch.startswith('-') or '..' in branch or '@{' in branch or branch.endswith(('/', '.', '.lock')) or '//' in branch):
             raise Problem('worktree_branch', 'Invalid worktree branch', 422)
         link = uuid.uuid4().hex

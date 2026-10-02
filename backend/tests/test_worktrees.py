@@ -318,3 +318,17 @@ def test_unidentified_missing_link_is_removed_and_frees_limit(prepared):
     assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
     with api.app_state.store.read() as c:
         assert c.execute("SELECT count(*) FROM task_links WHERE kind='worktree' AND state<>'removed'").fetchone()[0] == 0
+
+
+def test_reassigned_task_can_create_fresh_worktree_while_old_owner_keeps_cleanup(prepared):
+    api, tid, _ = prepared
+    old = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps({'owner': 'bot:cpo'}), old['link_id']))
+    new = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'})
+    assert new.status_code == 200, new.text
+    new = new.json()
+    assert new['path'] != old['path'] and new['branch'] != old['branch']
+    assert post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json() == new
+    with api.app_state.store.read() as c:
+        assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (old['link_id'],)).fetchone()[0])['owner'] == 'bot:cpo'
