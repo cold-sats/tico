@@ -415,7 +415,7 @@ def install(app, store, service):
             if not app.state.execution.runner(c, who):
                 raise Problem("forbidden", "This computer is no longer registered", 403)
             row = service.row(c)
-            return runner_repos(c, who.runner_id, row['org'] if row else '')
+            return {**runner_repos(c, who.runner_id, row['org'] if row else ''), 'configured': bool(row)}
 
     @app.get('/api/v2/runners/me/repositories')
     def computer_get(request: Request):
@@ -433,7 +433,7 @@ def install(app, store, service):
                                  (grant['full_name'],)).fetchone()
                 result.append({**(dict(repo) if repo else {'full_name': grant['full_name'], 'default_branch': None,
                                                           'setup_command': None}), 'access': grant['access']})
-            return {'repositories': result}
+            return {'repositories': result, 'configured': bool(row)}
 
     @app.post('/api/v2/runners/me/repositories/token')
     def computer_token(request: Request):

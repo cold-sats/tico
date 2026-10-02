@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import credential_socket, isolation
+from . import credential_socket, isolation, safe_git
 from .outage import log
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,10 +103,10 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
     path = Path(path)
     if not repository or not (path / ".git").exists():
         return "skipped", "no repository link" if not repository else "not a git checkout"
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
 
     def git(*args, timeout=15):
-        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                              stdin=subprocess.DEVNULL, env=env, timeout=timeout)
 
     def why(result):
@@ -166,10 +166,10 @@ def clone_repository(path, repository, env=None, url=None, timeout=180):
     path = Path(path)
     if path.exists() and (not path.is_dir() or any(path.iterdir())):
         return "failed", f"{path.name} already exists here and is not an empty folder; left as it is"
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     wanted = url or f"https://github.com/{repository}.git"
     try:
-        done = isolation.run(["git", "clone", "--quiet", wanted, str(path)], capture_output=True, text=True,
+        done = isolation.run([*safe_git.PREFIX, "clone", "--quiet", wanted, str(path)], capture_output=True, text=True,
                              stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     except subprocess.TimeoutExpired:
         return "failed", "timed out"

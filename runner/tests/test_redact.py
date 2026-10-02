@@ -124,3 +124,43 @@ class Turn(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_scrubbing_never_runs_checkout_programs_or_writes_through_symlinks(tmp_path, monkeypatch):
+    from unittest import mock
+    from runner import isolation
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    def git(*args):
+        return subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
+    git('init', '-b', 'main')
+    git('config', 'user.name', 'Sam')
+    git('config', 'user.email', 'sam@example.com')
+    (repo / 'file').write_text('initial')
+    (repo / '.gitattributes').write_text('file diff=unsafe\n')
+    git('add', '.')
+    git('commit', '-m', 'Initial')
+    before = git('rev-parse', 'HEAD')
+    (repo / 'file').write_text('changed')
+    git('commit', '-am', 'Changed')
+    program = tmp_path / 'program'
+    marker = tmp_path / 'ran'
+    program.write_text('#!/bin/sh\ntouch "' + str(marker) + '"\n')
+    program.chmod(0o755)
+    git('config', 'core.fsmonitor', str(program))
+    git('config', 'diff.unsafe.textconv', str(program))
+    git('config', 'diff.external', str(program))
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (outside / 'secret').write_text(SECRET)
+    (repo / 'link').symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv('EXAMPLE_VAULT_SECRET', SECRET)
+    with mock.patch.object(isolation, 'run', wraps=isolation.run) as calls:
+        r = redact.Redactor([SECRET])
+        r.scrub_tree(repo, before)
+        r.scrub_files([repo / 'link' / 'secret'], repo)
+        assert all('EXAMPLE_VAULT_SECRET' not in call.kwargs['env'] for call in calls.call_args_list)
+        assert all(call.kwargs['env']['GIT_CONFIG_GLOBAL'] == __import__('os').devnull for call in calls.call_args_list)
+        assert all('--no-optional-locks' in call.args[0] and 'core.fsmonitor=false' in call.args[0] for call in calls.call_args_list)
+    assert not marker.exists()
+    assert (outside / 'secret').read_text() == SECRET

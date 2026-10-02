@@ -611,3 +611,36 @@ def test_combined_heartbeat_reports_retry_only_the_named_field(tmp_path):
         assert before['readiness'] == after['readiness']
 
 
+def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    client, host = FakeClient(), FakeHost(replies=['done'])
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)},
+                    tmp_path / 'state', client=client, host_factory=lambda *args: host,
+                    push=lambda *args, **kw: (0, ''))
+    runner.renew_interval = 0.01
+    (tmp_path / 'emp-coo').mkdir()
+    renewed = threading.Event()
+    original = client.post
+    def post(path, body=None, key=None):
+        result = original(path, body, key)
+        if path.endswith('/renew'):
+            renewed.set()
+        return result
+    client.post = post
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with runner.worktrees.bot_lock('coo'):
+            future = pool.submit(runner.execute, attempt())
+            assert renewed.wait(2)
+            assert not host.replies == [] and not future.done()
+        future.result(timeout=5)
+    assert client.completion()['outcome'] == 'completed'
+
+
+def test_busy_bots_include_worktree_maintenance(tmp_path):
+    client = FakeClient()
+    runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)},
+                    tmp_path / 'state', client=client)
+    runner.worktrees.maintaining.add('coo')
+    runner.claim_next()
+    assert client.posts == [('jobs/claim', {'next_run': True, 'busy_bots': ['coo']})]
+

@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 import tempfile
+from clients import git_repository
 
 from . import git_credentials, isolation, safe_git
 
@@ -22,6 +23,27 @@ GB = 1024 ** 3
 
 def valid_name(name):
     return isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+", name) and name.split('/')[1] not in ('.', '..')
+
+
+def valid_repository(name):
+    try:
+        git_repository.address(name)
+        return True
+    except ValueError:
+        return False
+
+
+def base_folder(name):
+    return git_repository.folder(name.lower() if valid_name(name) else name)
+
+
+def mirror_warning(mirror):
+    try:
+        fetched_at = float((mirror / 'tico-fetched-at').read_text())
+        age = f'{max(0, int((time.time() - fetched_at) / 60))} minutes old'
+    except (OSError, ValueError):
+        age = 'age unknown'
+    return 'Could not refresh origin; using the local mirror (' + age + ')'
 
 
 class Repositories:
@@ -38,7 +60,7 @@ class Repositories:
         self.process = None
         try:
             saved = json.loads(self.state_file.read_text())
-            self.rows = {name: row for name, row in saved.items() if valid_name(name) and isinstance(row, dict)}
+            self.rows = {name: row for name, row in saved.items() if valid_repository(name) and isinstance(row, dict)}
         except (OSError, ValueError, AttributeError):
             self.rows = {}
 
@@ -98,7 +120,7 @@ class Repositories:
                     self.process = None
 
     def path(self, name):
-        path = self.root / name.lower().replace('/', '__')
+        path = self.root / base_folder(self.rows.get(name, {}).get('full_name', name))
         if self.root.is_symlink() or path.is_symlink() or path.resolve().parent != self.root.resolve():
             raise ValueError('Repository folder points outside repos; left as it is')
         return path
@@ -147,7 +169,12 @@ class Repositories:
             wanted = {r['full_name'].lower(): r for r in repos}
             for marker in self.root.glob('*/.git/tico-managed'):
                 name = marker.parent.parent.name.replace('__', '/', 1)
-                if valid_name(name) and not marker.is_symlink():
+                try:
+                    stored = json.loads(marker.read_text())
+                    name = stored.get('full_name') or name
+                except (OSError, ValueError, AttributeError):
+                    pass
+                if valid_repository(name) and not marker.is_symlink() and base_folder(name) == marker.parent.parent.name:
                     self.rows.setdefault(name, {'full_name': name, 'state': 'cloned', 'managed': True, 'left_at': now, 'size_mb': 0})
             for name, row in list(self.rows.items()):
                 if name in wanted:
@@ -187,8 +214,8 @@ class Repositories:
                         self.rows[name].update(error=kept)
                         continue
                     shutil.rmtree(path)
-                mirror = self.mirror_path(name)
-                if mirror.exists():
+                mirror = self.mirror_path(name) if valid_name(name) else None
+                if mirror and mirror.exists():
                     shutil.rmtree(mirror)
                 with self.lock:
                     self.rows[name].update(state='removed', size_mb=0)
@@ -296,6 +323,7 @@ class Repositories:
             if done.returncode:
                 raise ValueError('Could not set mirror default branch')
             self.mirror_permissions(mirror)
+            (mirror / 'tico-fetched-at').write_text(str(now))
             # Bot-owned directories are touched only by unprivileged Git, without a token.
             local = ['git', '-c', 'safe.directory=' + str(mirror.resolve()),
                      '-c', 'safe.directory=' + str(path.resolve()), '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
@@ -362,65 +390,173 @@ class Repositories:
                 self.rows[name].update(state='failed', failures=failures, retry_delay=delay, attempted_at=time.time(),
                                        error=f'{error}. Retrying in {delay // 60} minutes')
 
+    def refresh_mirror(self, name, token):
+        """A bounded refresh requested by an authorized turn; tokens never enter the base."""
+        if not valid_name(name):
+            raise ValueError('Invalid mirror repository')
+        mirror = self.mirror_path(name)
+        self.mirrors.mkdir(mode=0o755, parents=True, exist_ok=True)
+        size = self.rows.get(name.lower(), {}).get('size_mb', 0) * 1024 ** 2
+        if shutil.disk_usage(self.mirrors).free < 5 * GB + 2 * size:
+            raise ValueError('Not enough disk to refresh the mirror; free space on the computer state volume')
+        clean = safe_git.clean_environment()
+        env = {**clean, **git_credentials.environment(token)}
+        prefix = [*safe_git.prefix(mirror), '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+                  '-c', 'http.followRedirects=false', '-c', 'http.sslVerify=true',
+                  '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.file.allow=never']
+        if not mirror.exists():
+            result = self.run_git([*prefix, 'ls-remote', '--symref', '--', git_repository.address(name), 'HEAD'], env=env, timeout=15)
+            match = re.search(r'^ref: refs/heads/(.+)\tHEAD$', result.stdout, re.M)
+            if result.returncode or not match:
+                raise ValueError('Could not find the default branch; check GitHub access')
+            initialized = self.run_git([*prefix, 'init', '--bare', '--quiet', '--initial-branch=' + match.group(1), str(mirror)], env=clean, timeout=10)
+            if initialized.returncode:
+                raise ValueError('Could not create mirror; check disk space and permissions')
+        config = self.run_git([*prefix, '-C', str(mirror), 'config', '--no-includes', '--name-only',
+                               '--get-regexp', r'^(http|include|includeif)\.'], env=clean, timeout=10)
+        if config.returncode not in (0, 1):
+            raise ValueError('Could not inspect mirror Git config')
+        for key in config.stdout.splitlines():
+            if key.lower().startswith(('include.', 'includeif.')):
+                raise ValueError('Mirror Git config includes another file')
+            setting = key.rsplit('.', 1)[-1].lower()
+            value = 'true' if setting == 'sslverify' else clean.get('GIT_SSL_CAINFO', '') if setting == 'sslcainfo' else ''
+            prefix += ['-c', key + '=' + value]
+        head = self.run_git([*prefix, '-C', str(mirror), 'symbolic-ref', 'HEAD'], env=clean, timeout=10)
+        branch = head.stdout.strip()
+        if head.returncode or not branch.startswith('refs/heads/'):
+            raise ValueError('Mirror default branch is missing')
+        try:
+            result = self.run_git([*prefix, '-C', str(mirror), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
+                                   '--', git_repository.address(name), '+' + branch + ':' + branch], env=env, timeout=15)
+            fetched = result.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            fetched = False
+        if not fetched:
+            available = self.run_git([*prefix, '-C', str(mirror), 'show-ref', '--verify', branch], env=clean, timeout=10)
+            if available.returncode == 0:
+                return {'cached': True, 'mirror': mirror.as_uri(), 'default_branch': branch.removeprefix('refs/heads/'),
+                        'warning': mirror_warning(mirror)}
+            raise ValueError('Mirror fetch failed; check repository access and network')
+        (mirror / 'tico-fetched-at').write_text(str(time.time()))
+        self.mirror_permissions(mirror)
+        return {'refreshed': True, 'mirror': mirror.as_uri(), 'default_branch': branch.removeprefix('refs/heads/')}
+
 
 def worktree_base(workspace, repo, env):
     """Fetch a managed base using this bot's own credentials, also usable inside a turn."""
-    env = safe_git.environment(env)
+    source_env = env
+    env = safe_git.machine_environment(env) if repo.get('machine_git') else safe_git.environment(env)
     name = repo['full_name']
-    if not valid_name(name):
+    if not valid_repository(name) or not repo.get('machine_git') and not valid_name(name):
         raise ValueError('Invalid repository name')
     root = Path(workspace) / 'repos'
-    path = root / name.lower().replace('/', '__')
+    path = root / base_folder(name)
     if root.is_symlink() or path.is_symlink() or path.resolve().parent != root.resolve():
         raise ValueError('Base clone points outside repos')
     isolation.mkdir(root, mode=0o755)
+    refreshed = None
     if path.exists():
         if not (path / '.git').is_dir() or (path / '.git').is_symlink():
             raise ValueError('Base clone folder is not a Git repository')
-        current = isolation.run([*safe_git.PREFIX, '-C', str(path), 'config', '--get', 'remote.origin.url'], env=env, capture_output=True, text=True, timeout=15)
-        if not git_credentials._same_repository(current.stdout.strip(), name):
+        current = isolation.run([*safe_git.prefix(path), '-C', str(path), 'config', '--get', 'remote.origin.url'], env=env, capture_output=True, text=True, timeout=15)
+        matches = git_repository.matches(current.stdout.strip(), name) if repo.get('machine_git') else git_credentials._same_repository(current.stdout.strip(), name)
+        if not matches:
             raise ValueError('Base clone remote does not match this repository')
     else:
-        command = [*safe_git.PREFIX, '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'http.followRedirects=false', '-c', 'http.sslVerify=true', 'clone', '--quiet', '--single-branch']
+        socket_path = source_env.get(git_credentials.credential_socket.SOCKET_ENV)
+        if socket_path and not repo.get('machine_git'):
+            try:
+                refreshed = git_credentials.credential_socket.request_refresh(socket_path, source_env.get('HUB_TOKEN', ''), name)
+            except (OSError, ValueError):
+                pass
+        command = [*safe_git.PREFIX, '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', 'protocol.file.allow=always', '-c', 'http.followRedirects=false', '-c', 'http.sslVerify=true', 'clone', '--quiet', '--single-branch']
+        clone_env, url = env, git_repository.address(name)
+        if refreshed:
+            url = refreshed['mirror']
+            from urllib.parse import urlparse, unquote
+            position = command.index('clone')
+            command[position:position] = ['-c', 'safe.directory=' + unquote(urlparse(url).path)]
+            command += ['--origin', 'tico-mirror']
+            clone_env = safe_git.clean_environment(env)
+            repo['default_branch'] = refreshed['default_branch']
+            if refreshed.get('warning'):
+                repo['fetch_warning'] = refreshed['warning']
         if repo.get('default_branch'):
             command += ['--branch', repo['default_branch']]
         try:
-            done = isolation.run([*command, '--', f'https://github.com/{name}.git', str(path)], env=env, capture_output=True, text=True, timeout=120)
+            done = isolation.run([*command, '--', url, str(path)], env=clone_env, capture_output=True, text=True, timeout=120)
         except (OSError, subprocess.SubprocessError):
             discard_failed_clone(path)
             raise ValueError('Git clone failed; check repository access, network and disk space') from None
         if done.returncode:
             discard_failed_clone(path)
+            if repo.get('machine_git'):
+                detail = (done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[0][:200]
+                raise ValueError(f"Git could not reach {name} with this computer's git login: {detail}")
             raise ValueError('Git clone failed; check repository access, network and disk space')
-        mark_managed(path, env)
+        if refreshed:
+            for key, value in [('remote.origin.url', git_repository.address(name)),
+                               ('remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')]:
+                result = isolation.run([*safe_git.prefix(path), '-C', str(path), 'config', key, value], env=clone_env, capture_output=True, timeout=15)
+                if result.returncode:
+                    raise ValueError('Could not configure base clone origin')
+        mark_managed(path, env, name)
     branch = repo.get('default_branch')
     if not branch:
-        result = isolation.run([*safe_git.PREFIX, '-C', str(path), 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], env=env, capture_output=True, text=True, timeout=15)
+        result = isolation.run([*safe_git.prefix(path), '-C', str(path), 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], env=env, capture_output=True, text=True, timeout=15)
         branch = result.stdout.strip().removeprefix('origin/')
     if not branch or branch.startswith('-') or isolation.run([*safe_git.PREFIX, 'check-ref-format', '--branch', branch],
             env=env, capture_output=True, timeout=15).returncode:
         raise ValueError('Repository default branch is missing; refresh Repositories')
-    mirror_url = isolation.run([*safe_git.PREFIX, '-C', str(path), 'config', '--get', 'remote.tico-mirror.url'],
+    mirror_url = isolation.run([*safe_git.prefix(path), '-C', str(path), 'config', '--get', 'remote.tico-mirror.url'],
                                env=env, capture_output=True, text=True, timeout=15).stdout.strip()
+    if repo.get('machine_git'):
+        mirror_url = ''
+    if mirror_url:
+        from urllib.parse import urlparse, unquote
+        from . import credential_socket
+        mirror = Path(unquote(urlparse(mirror_url).path))
+        if not refreshed:
+            repo.pop('fetch_warning', None)
+        try:
+            socket_path = (source_env or {}).get(credential_socket.SOCKET_ENV)
+            if not socket_path:
+                raise ValueError('Supervisor mirror refresh unavailable')
+            if not refreshed:
+                response = credential_socket.request_refresh(socket_path, (source_env or {}).get('HUB_TOKEN', ''), name)
+                if response.get('warning'):
+                    repo['fetch_warning'] = response['warning']
+        except (OSError, ValueError, subprocess.SubprocessError):
+            repo['fetch_warning'] = mirror_warning(mirror)
     source = mirror_url or 'origin'
-    local_env = safe_git.process_environment(env) if mirror_url else env
-    prefix = [*safe_git.PREFIX, '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always'] if mirror_url else [*safe_git.PREFIX, '-c', 'http.followRedirects=false']
+    local_env = safe_git.clean_environment(env) if mirror_url else env
+    prefix = [*safe_git.prefix(path), '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always'] if mirror_url else [*safe_git.prefix(path), '-c', 'http.followRedirects=false']
     if mirror_url:
         from urllib.parse import urlparse, unquote
         prefix += ['-c', 'safe.directory=' + unquote(urlparse(mirror_url).path)]
-    done = isolation.run([*prefix, '-C', str(path), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', source,
-                         f'+refs/heads/{branch}:refs/remotes/origin/{branch}'], env=local_env, capture_output=True, text=True, timeout=120)
-    if done.returncode:
-        available = isolation.run([*safe_git.PREFIX, '-C', str(path), 'show-ref', '--verify', 'refs/remotes/origin/' + branch],
+    try:
+        done = isolation.run([*prefix, '-C', str(path), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', source,
+                             f'+refs/heads/{branch}:refs/remotes/origin/{branch}'], env=local_env, capture_output=True, text=True, timeout=15 if not mirror_url else 30)
+        fetched = done.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        fetched = False
+    if not fetched:
+        available = isolation.run([*safe_git.prefix(path), '-C', str(path), 'show-ref', '--verify', 'refs/remotes/origin/' + branch],
                                  env=local_env, capture_output=True, timeout=15)
         if available.returncode:
             raise ValueError('Git fetch failed; check repository access, network and disk space')
-    mark_managed(path, local_env)
+        repo.setdefault('fetch_warning', 'Could not refresh origin; using the base clone (age unknown)')
+    mark_managed(path, local_env, name)
     # A normal git push then updates the task branch's tracking ref, rather than comparing it to main.
-    done = isolation.run([*safe_git.PREFIX, '-C', str(path), 'config', 'remote.origin.fetch',
+    done = isolation.run([*safe_git.prefix(path), '-C', str(path), 'config', 'remote.origin.fetch',
                           '+refs/heads/*:refs/remotes/origin/*'], env=env, capture_output=True, text=True, timeout=15)
     if done.returncode:
         raise ValueError('Could not configure task branch tracking')
+    done = isolation.run([*safe_git.prefix(path), '-C', str(path), 'symbolic-ref', 'refs/remotes/origin/HEAD',
+                          'refs/remotes/origin/' + branch], env=local_env, capture_output=True, timeout=15)
+    if done.returncode:
+        raise ValueError('Could not record base default branch')
     return path, branch
 
 
@@ -436,8 +572,9 @@ def discard_failed_clone(path):
     shutil.rmtree(path)
 
 
-def mark_managed(path, env):
-    done = isolation.run(['/bin/sh', '-c', 'test ! -L .git/tico-managed && : > .git/tico-managed'],
+def mark_managed(path, env, name=None):
+    marker = json.dumps({'full_name': name}) if name else ''
+    done = isolation.run(['/bin/sh', '-c', 'test ! -L .git/tico-managed && printf %s \"$1\" > .git/tico-managed', 'mark', marker],
                          cwd=str(path), env=safe_git.process_environment(env), capture_output=True, timeout=15)
     if done.returncode:
         raise ValueError('Could not mark managed base clone; check permissions')
@@ -446,8 +583,8 @@ def mark_managed(path, env):
 def base_kept(path):
     if (path / '.git').is_symlink() or (path / '.git' / 'worktrees').is_symlink():
         raise ValueError('Base clone registrations point outside repos')
-    env = safe_git.environment(safe_git.process_environment())
-    prefix = [*safe_git.PREFIX, '-C', str(path)]
+    env = safe_git.clean_environment()
+    prefix = [*safe_git.prefix(path), '-C', str(path)]
     done = isolation.run([*prefix, 'worktree', 'prune', '--expire', 'now'], env=env, capture_output=True, text=True, timeout=120)
     if done.returncode:
         raise ValueError('Could not prune base clone; repair without deleting local work')
@@ -462,11 +599,4 @@ def base_kept(path):
         raise ValueError('Could not inspect local branches; repair without deleting local work')
     if int(branches.stdout.strip() or '0'):
         return 'kept: local branches with unpublished commits'
-    refs = isolation.run([*prefix, 'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'], env=env, capture_output=True, text=True, timeout=15)
-    if refs.returncode:
-        raise ValueError('Could not inspect local branch names')
-    names = refs.stdout.splitlines()
-    remote_names = {name.split('/', 3)[3] for name in names if name.startswith('refs/remotes/') and len(name.split('/', 3)) == 4}
-    if any(name.removeprefix('refs/heads/') not in remote_names for name in names if name.startswith('refs/heads/')):
-        return 'kept: local branches absent from remotes'
     return None

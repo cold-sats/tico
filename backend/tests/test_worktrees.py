@@ -171,6 +171,42 @@ def test_pre_migration_schema_has_no_worktree_reads_or_actions():
         assert {r[1] for r in c.execute('PRAGMA table_info(task_links)')} == {'id', 'kind', 'state'}
 
 
+def test_no_app_accepts_computer_git_addresses_but_connected_app_keeps_grants(prepared):
+    api, tid, _ = prepared
+    url = 'ssh://git@git.example.com/team/product.git'
+    assert post(api, f'tasks/{tid}/worktrees', {'repo': url}).status_code == 403
+    with api.app_state.store.transaction() as c:
+        c.execute('DELETE FROM github_app')
+    inventory = api.get('/api/v2/runners/me/repositories', headers=auth('runner-test')).json()
+    assert inventory['configured'] is False
+    for repo in ('Other/product', url, 'https://git.example.com/team/docs.git', 'file:///tmp/example.git'):
+        response = post(api, f'tasks/{tid}/worktrees', {'repo': repo})
+        assert response.status_code == 200, response.text
+        link = response.json()
+        credential = post(api, 'runners/me/worktrees/' + link['link_id'] + '/token', {}, 'runner-test')
+        assert credential.json() == {'configured': False, 'token': None}
+        with api.app_state.store.read() as c:
+            assert c.execute('SELECT repo FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0] == repo
+    assert post(api, f'tasks/{tid}/worktrees', {'repo': 'https://git.example.com/a.git?token=example'}).status_code == 422
+
+
+def test_reviving_removed_link_counts_limit_and_transfers_to_current_owner(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='removed',detail_json=? WHERE id=?", (json.dumps({'owner': 'bot:cpo'}), link['link_id']))
+    for i in range(10):
+        assert post(api, f'tasks/{tid}/worktrees/attach', {'repo': 'Acme/product', 'path': f'tasks/{tid[:8]}/extra{i}'}).status_code == 200
+    response = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'})
+    assert response.status_code == 409 and '10 worktrees' in response.text
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='removed' WHERE path LIKE '%/extra0'")
+    assert post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json() == link
+    with api.app_state.store.read() as c:
+        row = c.execute('SELECT * FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+        assert row['state'] == 'pending' and json.loads(row['detail_json'])['owner'] == 'bot:cmo'
+
+
 def test_failed_bot_creation_manual_removal_and_absent_at_close_do_not_restore(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
@@ -264,7 +300,9 @@ def test_reopen_add_reuses_link_and_attach_keeps_original_owner(prepared):
     assert post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/manual', 'repo': 'Acme/product'}).status_code == 200
     with api.app_state.store.transaction() as c:
         c.execute("UPDATE task_links SET state='removed',detail_json=? WHERE id=?", (json.dumps({'owner': 'bot:cpo'}), link['link_id']))
-    assert post(api, f'tasks/{tid}/worktrees/attach', {'path': link['path'], 'repo': 'Acme/product'}).status_code == 409
+    assert post(api, f'tasks/{tid}/worktrees/attach', {'path': link['path'], 'repo': 'Acme/product'}).status_code == 200
+    with api.app_state.store.read() as c:
+        assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])['owner'] == 'bot:cmo'
 
 
 def test_unidentified_missing_link_is_removed_and_frees_limit(prepared):

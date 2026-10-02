@@ -954,6 +954,7 @@ class Store:
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,
                 # so no migration number to collide with another branch's.
                 for name, spec in (("tasks_goal", "tasks(goal_id, status)"),
+                                   ("task_links_repo_kind", "task_links(repo COLLATE NOCASE, kind)"),
                                    ("task_links_repo_url", "task_links(kind, state, url COLLATE NOCASE)"),
                                    ("attempts_bot_created", "attempts(bot, created)"),
                                    ("attempts_job", "attempts(job_id)"),

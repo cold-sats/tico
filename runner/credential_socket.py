@@ -34,13 +34,14 @@ MAIL_SERVICES = ("gmail", "calendar")
 class Server:
     """Serves `mint(bot, repository)` to the attempt registered for that bot; repository is optional."""
 
-    def __init__(self, path, mint, mail=None):
+    def __init__(self, path, mint, mail=None, refresh=None):
         self.path, self.mint, self.mail = str(path), mint, mail
         self.attempts, self.mailboxes, self.lock = {}, {}, threading.Lock()
         self.server = None
         self.redactors = {}
         self.issued = {}
         self.directory = None
+        self.refresh = refresh
 
     def register(self, attempt_token, bot, mailboxes=()):
         with self.lock:
@@ -78,6 +79,10 @@ class Server:
             if repository is not None and not isinstance(repository, str):
                 return {"error": "bad repository"}
             granted = self.mint(bot, repository) if repository else self.mint(bot)
+            if asked.get('refresh'):
+                if not granted or not repository or not self.refresh:
+                    return {'error': 'mirror refresh unavailable'}
+                return self.refresh(repository, granted)
         except Exception as exc:
             return {"error": type(exc).__name__}
         if not granted:
@@ -142,7 +147,7 @@ class Server:
                 self.directory.cleanup()
 
 
-def serve(client, path=None, mail=None):
+def serve(client, path=None, mail=None, refresh=None):
     """The supervisor's server: `client` is the runner's own, `mail`
     (service, mailbox) -> {"token", "expiry"} mints Gmail access."""
     from . import isolation
@@ -158,7 +163,7 @@ def serve(client, path=None, mail=None):
         granted = client.post("github/token", {"bot": bot})
         return select_token(granted, repository)
     try:
-        server = Server(path, mint, mail).start()
+        server = Server(path, mint, mail, refresh).start()
         server.directory = directory
         return server
     except OSError as exc:
@@ -182,6 +187,18 @@ def request(path, attempt_token, timeout=20, repository=None):
     if not reply.get("token"):
         raise ValueError(reply.get("error") or "refused")
     return reply["token"]
+
+
+def request_refresh(path, attempt_token, repository, timeout=60):
+    """Refresh only a mirror this attempt can read; no supervisor token is returned."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(timeout)
+        connection.connect(str(path))
+        connection.sendall(json.dumps({'token': attempt_token, 'repository': repository, 'refresh': True}).encode() + b'\n')
+        reply = json.loads(connection.makefile('rb').readline(MAX_LINE))
+    if not reply.get('refreshed') and not reply.get('cached'):
+        raise ValueError(reply.get('error') or 'mirror refresh failed')
+    return reply
 
 
 class MailRefused(ValueError):

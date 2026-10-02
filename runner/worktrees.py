@@ -16,6 +16,7 @@ import threading
 import weakref
 
 from clients.tico import APIError
+from clients import git_repository
 from . import git_credentials, isolation, repositories, safe_git
 
 
@@ -55,7 +56,7 @@ def disk_floor(workspace):
 def git(path, *args, env=None, check=True):
     if args[:2] == ('worktree', 'prune') and (Path(path) / '.git' / 'worktrees').is_symlink():
         raise ValueError('Worktree registrations point outside the base clone; left as they are')
-    done = isolation.run([*safe_git.PREFIX, '-C', str(path), *args], env=safe_git.environment(env), capture_output=True, text=True,
+    done = isolation.run([*safe_git.prefix(path), '-C', str(path), *args], env=safe_git.environment(env), capture_output=True, text=True,
                          stdin=subprocess.DEVNULL, timeout=120)
     if check and done.returncode:
         raise ValueError(f'Git {args[0]} failed (exit {done.returncode}); check access, network, disk space and repository state')
@@ -97,7 +98,16 @@ def setup(path, command, env):
 
 
 def metadata(client, name):
-    repos = client.get('runners/me/repositories')['repositories']
+    try:
+        reply = client.get('runners/me/repositories')
+    except APIError as exc:
+        if exc.status != 404:
+            raise
+        reply = {'repositories': []}
+    repos = reply['repositories']
+    if reply.get('configured') is False or not repos and reply.get('configured') is not True:
+        git_repository.address(name)
+        return {'full_name': name, 'machine_git': True}
     repo = next((r for r in repos if r['full_name'].lower() == name.lower() and r.get('access') == 'write'), None)
     if not repo:
         raise ValueError('This bot needs write access to this repository')
@@ -127,12 +137,16 @@ def command(client, operation, value, task=None):
         if operation == 'add':
             disk_floor(workspace)
             repo = metadata(client, value)
+            if repo.get('machine_git'):
+                env = safe_git.machine_environment()
             link = client.post(f'tasks/{task}/worktrees', {'repo': repo['full_name']})
             with locked(workspace, link['path']):
                 checked_branch(link['branch'])
                 path = safe_path(workspace, link['path'])
                 if path.exists():
-                    if not (path / '.git').is_file() or not git_credentials._same_repository(git(path, 'config', '--get', 'remote.origin.url').stdout.strip(), repo['full_name']):
+                    origin = git(path, 'config', '--get', 'remote.origin.url', env=env).stdout.strip()
+                    matches = git_repository.matches(origin, repo['full_name']) if repo.get('machine_git') else git_credentials._same_repository(origin, repo['full_name'])
+                    if not (path / '.git').is_file() or not matches:
                         raise ValueError('Worktree path already exists and does not match the repository')
                     if git(path, 'symbolic-ref', '--short', 'HEAD').stdout.strip() != link['branch']:
                         raise ValueError('Existing worktree uses a different branch; attach it instead')
@@ -162,12 +176,13 @@ def command(client, operation, value, task=None):
             common = Path(git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.strip()).resolve()
             if Path(workspace).resolve() not in common.parents:
                 raise ValueError('Worktree base must be inside the team workspace')
-            repo_name = git_credentials.repository_name(git(path, 'config', '--get', 'remote.origin.url').stdout.strip())
+            origin = git(path, 'config', '--get', 'remote.origin.url').stdout.strip()
+            repo_name = git_credentials.repository_name(origin) or origin
             repo = metadata(client, repo_name or '')
             branch = checked_branch(git(path, 'symbolic-ref', '--short', 'HEAD', env=env).stdout.strip())
             link = client.post(f'tasks/{task}/worktrees/attach', {'path': relative, 'repo': repo['full_name'], 'branch': branch})
         client.patch(f'tasks/{task}/links/{link["link_id"]}', {'state': 'present', 'path': link['path']})
-        return {**link, 'workspace_path': str(path)}
+        return {**link, 'workspace_path': str(path), **({'warning': repo['fetch_warning']} if repo.get('fetch_warning') else {})}
     except (ValueError, OSError, subprocess.SubprocessError):
         if operation == 'add' and 'link' in locals() and ('path' not in locals() or not (path / '.git').is_file()):
             client.patch(f'tasks/{task}/links/{link["link_id"]}', {'state': 'missing'})
@@ -227,8 +242,9 @@ def inspect(workspace, row, env=None, cache=None):
             return result
         if not (path / '.git').is_file():
             raise ValueError('Tracked path is not a Git worktree; left as it is')
-        result['repo'] = git_credentials.repository_name(git(path, 'config', '--get', 'remote.origin.url', env=env).stdout.strip())
-        if result['repo'] and (len(result['repo']) > 200 or not repositories.valid_name(result['repo'])):
+        origin = git(path, 'config', '--get', 'remote.origin.url', env=env).stdout.strip()
+        result['repo'] = row.get('repo') or git_credentials.repository_name(origin) or origin
+        if result['repo'] and (len(result['repo']) > 200 or not repositories.valid_repository(result['repo'])):
             result['repo'] = None
             result['error'] = 'Invalid or oversized repository name'
         branch = git(path, 'symbolic-ref', '--short', 'HEAD', env=env).stdout.strip()
@@ -267,10 +283,10 @@ def inspect(workspace, row, env=None, cache=None):
     return result
 
 
-_BUILD = {'node_modules', '.venv', 'venv', 'dist', 'build', 'target', '.next', '__pycache__', '.cache', 'coverage', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.gradle', '.turbo', '.parcel-cache'}
+_BUILD = {'node_modules', '.venv', 'venv', 'dist', 'build', 'target', '.next', '__pycache__', '.cache', 'coverage', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.gradle', '.turbo', '.parcel-cache', '.DS_Store', '.idea', '.vscode', 'out'}
 def build_file(name):
     parts = Path(name).parts
-    return any(part in _BUILD for part in parts) or any(parts[i:i + 2] in (('.terraform', 'providers'), ('.terraform', 'plugin-cache')) for i in range(len(parts) - 1))
+    return any(part in _BUILD or part.endswith(('.egg-info', '.pyc')) for part in parts) or any(parts[i:i + 2] in (('.terraform', 'providers'), ('.terraform', 'plugin-cache')) for i in range(len(parts) - 1))
 
 
 _SECRET = ('.env*', '*.pem', '*.key', 'id_rsa*', 'credentials*', '*.p12')
@@ -280,11 +296,13 @@ def _act(workspace, row, action, env, vault_values=(), before_remove=lambda: Tru
     env = safe_git.environment(env)
     path = safe_path(workspace, row['path'])
     if action == 'remove':
+        if not before_remove():
+            raise Deferred('Task reopened or bot is running; retry cleanup later')
         if not path.exists():
             # Prune even when the folder was removed outside Tico.
             if not row.get('repo'):
                 return 'removed'
-            base = Path(workspace) / 'repos' / row['repo'].lower().replace('/', '__')
+            base = Path(workspace) / 'repos' / repositories.base_folder(row['repo'])
             if (base.parent.is_symlink() or base.is_symlink() or (base / '.git').is_symlink()
                     or base.resolve().parent != base.parent.resolve()):
                 raise ValueError('Worktree base points outside repos')
@@ -360,6 +378,8 @@ def _act(workspace, row, action, env, vault_values=(), before_remove=lambda: Tru
                     else:
                         git(path, 'push', 'origin', branch + ':refs/heads/' + branch, env=env)
         if not before_remove():
+            if branch not in defaults and git(path, 'symbolic-ref', '--short', 'HEAD', env=env, check=False).stdout.strip() == wip:
+                git(path, 'switch', branch, env=env)
             raise Deferred('Task reopened or bot is running; retry cleanup later')
         git(base, 'worktree', 'remove', str(path), env=env)
         return 'removed'
@@ -370,6 +390,8 @@ def _act(workspace, row, action, env, vault_values=(), before_remove=lambda: Tru
             raise ValueError('Restore path already exists and is not a worktree')
         return 'present'
     base, default = repositories.worktree_base(workspace, row, env)
+    if row.get('fetch_warning'):
+        row['restore_source'] = row['fetch_warning']
     git(base, 'worktree', 'prune', '--expire', 'now', env=env)
     isolation.mkdir(path.parent, mode=0o755)
     local = git(base, 'show-ref', '--verify', 'refs/heads/' + branch, env=env, check=False).returncode == 0
@@ -485,10 +507,14 @@ class Worktrees:
                 env = safe_git.environment(self.environment(row['owner']))
                 if row.get('repo'):
                     granted = self.client.post(f'runners/me/worktrees/{row["id"]}/token')
-                    if not granted.get('token'):
+                    if granted.get('configured') is False:
+                        env = safe_git.machine_environment(self.environment(row['owner']))
+                        repo = {'machine_git': True}
+                    elif not granted.get('token'):
                         raise ValueError('No repository credential for this worktree')
-                    env.update(git_credentials.environment(granted['token']))
-                    repo = next((r for r in self.client.get('runners/me/repositories')['repositories'] if r['full_name'].lower() == row['repo'].lower()), {})
+                    else:
+                        env.update(git_credentials.environment(granted['token']))
+                        repo = next((r for r in self.client.get('runners/me/repositories')['repositories'] if r['full_name'].lower() == row['repo'].lower()), {})
                 else:
                     repo = {}
                 action_row = {**row, **repo, **action, 'full_name': row['repo']}

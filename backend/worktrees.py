@@ -9,6 +9,7 @@ from typing import Literal
 
 from fastapi import Request
 from pydantic import Field
+from clients import git_repository
 
 from . import hubdb as H, repositories as R
 from .auth import validate_identity
@@ -76,11 +77,16 @@ def heartbeat(c, who, reports, capable, default_org=""):
             connection = c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
             grants = R.access(c, H.actor_id(row['owner']), connection['org'] if connection else default_org)['effective']
             grant = next((r for r in grants if r['full_name'].lower() == report.repo.lower() and r['access'] == 'write'), None)
-            if not grant:
+            if connection and not grant:
                 c.execute("UPDATE task_links SET state='unknown',detail_json=?,updated=? WHERE id=?",
                           (json.dumps({**json.loads(row['detail_json'] or '{}'), 'error': 'This bot needs write access to the attached repository'}), H.now(), row['id']))
                 continue
-            row['repo'] = grant['full_name']
+            if not connection:
+                try:
+                    git_repository.address(report.repo)
+                except ValueError:
+                    continue
+            row['repo'] = grant['full_name'] if connection else report.repo
             c.execute('UPDATE task_links SET repo=? WHERE id=?', (row['repo'], row['id']))
         detail = json.loads(row['detail_json'] or '{}')
         now = H.now()
@@ -161,8 +167,13 @@ def install(app, store, auth, mutate):
         org = connection['org'] if connection else store.settings.github_owner
         grants = R.access(c, bot, org)['effective']
         grant = next((r for r in grants if repo and r['full_name'].lower() == repo.lower() and r['access'] == 'write'), None)
-        if repo and not grant:
+        if repo and connection and not grant:
             raise Problem('forbidden', 'This bot needs write access to this repository', 403)
+        if repo and not connection:
+            try:
+                git_repository.address(repo)
+            except ValueError as exc:
+                raise Problem('worktree_repo', str(exc), 422) from None
         assigned = c.execute('SELECT r.id,r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=? AND r.revoked_at IS NULL', (bot,)).fetchone()
         if not assigned or not readiness_document(assigned['readiness_json']).get('worktrees'):
             raise Problem('computer_update', 'Update this computer to use task worktrees', 409)
@@ -170,27 +181,31 @@ def install(app, store, auth, mutate):
             raise Problem('forbidden', 'Worktree belongs on the bot\'s computer', 403)
         attaching = path is not None
         short = task['id'][:8]
-        repo = grant['full_name'] if grant else None
-        path = relative(path or f'tasks/{short}/{repo.replace("/", "__")}')
+        repo = grant['full_name'] if connection and grant else repo
+        path = relative(path or f'tasks/{short}/{git_repository.folder(repo)}')
         parts = PurePosixPath(path).parts
         if attaching and parts[0].casefold() == 'tasks' and (len(parts) < 3 or parts[1] != short):
             raise Problem('worktree_path', 'This worktree belongs to another task', 409)
-        candidates = c.execute("SELECT * FROM task_links WHERE kind='worktree' AND computer_id=?", (assigned['id'],))
+        candidates = c.execute("SELECT * FROM task_links WHERE kind='worktree' AND (computer_id=? OR (task_id=? AND state='removed'))", (assigned['id'], task['id']))
         canonical = unicodedata.normalize('NFC', path).casefold()
         existing = next((r for r in candidates if unicodedata.normalize('NFC', r['path'] or '').casefold() == canonical), None)
         if existing:
             owner = json.loads(existing['detail_json'] or '{}').get('owner', task['owner'])
-            if existing['task_id'] != task['id'] or existing['path'] != path or owner != task['owner']:
+            if existing['task_id'] != task['id'] or existing['path'] != path or owner != task['owner'] and existing['state'] != 'removed':
                 raise Problem('worktree_path', 'This worktree belongs to another task', 409)
-            if existing['state'] == 'removed':
-                detail = json.loads(existing['detail_json'] or '{}')
-                detail.pop('removed_by', None)
-                detail.pop('cleanup_requested', None)
-                c.execute("UPDATE task_links SET state='pending',detail_json=?,updated=? WHERE id=?", (json.dumps(detail), H.now(), existing['id']))
-            return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
+            if existing['state'] != 'removed':
+                return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
         count = c.execute("SELECT count(*) FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? AND coalesce(l.state,'unknown')<>'removed'", (task['owner'],)).fetchone()[0]
         if count >= 10:
             raise Problem('worktree_limit', 'Finish or close older tasks before adding more than 10 worktrees', 409)
+        if existing:
+            detail = json.loads(existing['detail_json'] or '{}')
+            detail.pop('removed_by', None)
+            detail.pop('cleanup_requested', None)
+            detail['owner'] = task['owner']
+            c.execute("UPDATE task_links SET state='pending',computer_id=?,detail_json=?,updated=? WHERE id=?",
+                      (assigned['id'], json.dumps(detail), H.now(), existing['id']))
+            return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
         slug = re.sub('[^a-z0-9]+', '-', task['title'].lower()).strip('-')[:50] or 'task'
         branch = branch or (None if attaching else f'tico/{short}-{slug}')
         if branch is not None and (not re.fullmatch(r'[A-Za-z0-9_./-]+', branch) or branch.startswith('-') or '..' in branch or '@{' in branch or branch.endswith(('/', '.', '.lock')) or '//' in branch):
@@ -289,7 +304,7 @@ def install(app, store, auth, mutate):
             service = app.state.github_app
             connection = service.row(c)
             if not connection:
-                raise Problem('github_connection', 'Connect GitHub to save task work before cleanup', 409)
+                return {'configured': False, 'token': None}
             grants = R.access(c, H.actor_id(link['owner']), connection['org'])['effective']
             if not any(r['full_name'].lower() == link['repo'].lower() and r['access'] == 'write' for r in grants):
                 raise Problem('forbidden', 'This bot needs write access to save its worktree', 403)

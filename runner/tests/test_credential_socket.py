@@ -136,3 +136,19 @@ def test_same_user_runner_refreshes_through_supervisor(monkeypatch):
         directory = server.directory.name
         server.stop()
     assert not Path(directory).exists()
+
+
+def test_mirror_refresh_requires_live_attempt_and_its_repository(channel):
+    refresh = mock.Mock(return_value={'refreshed': True})
+    channel.refresh = refresh
+    channel.mint = lambda bot, repository=None: 'synthetic-repo-token' if bot == 'alpha' and repository == 'org/product' else None
+    channel.register('attempt-a', 'alpha')
+    assert C.request_refresh(channel.path, 'attempt-a', 'org/product') == {'refreshed': True}
+    refresh.assert_called_once_with('org/product', 'synthetic-repo-token')
+    for token, repo in [('attempt-a', 'org/other'), ('unknown', 'org/product')]:
+        with pytest.raises(ValueError):
+            C.request_refresh(channel.path, token, repo)
+    channel.unregister('attempt-a')
+    with pytest.raises(ValueError):
+        C.request_refresh(channel.path, 'attempt-a', 'org/product')
+    assert refresh.call_count == 1

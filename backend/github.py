@@ -97,8 +97,11 @@ def _pr_status(c, task, note):
         return None
     links = [l for l in H.task_links(c, task["id"]) if l["kind"] == "pr"]
     app = c.execute("SELECT org FROM github_app LIMIT 1").fetchone()
+    repos = list({l['repo'] for l in links if l.get('repo')})
+    marks = ','.join('?' for _ in repos)
     tracked_repos = {str(r[0]).lower() for r in c.execute(
-        "SELECT DISTINCT repo FROM task_links WHERE kind='pr' AND json_extract(detail_json,'$.tracked')=1")}
+        f"SELECT DISTINCT repo FROM task_links WHERE repo COLLATE NOCASE IN ({marks}) "
+        "AND kind='pr' AND json_extract(detail_json,'$.tracked')=1", repos)} if repos else set()
     if app:
         org = str(app[0]).lower() + "/"
         tracked_repos.update(str(r[0]).lower() for r in c.execute(

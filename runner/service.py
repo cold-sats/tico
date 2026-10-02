@@ -265,9 +265,9 @@ def pull_repo(path, env=None, timeout=45):
     path = Path(path)
     if not (path / ".git").exists():
         return ""
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     def git(*args, timeout=15):
-        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     try:
         dirty = git("status", "--porcelain")
@@ -323,11 +323,11 @@ def clone_shared(path, config, env=None, timeout=120):
         return "The original repository's address is unknown"
     slug = re.sub(r"^(?:https?://|ssh://git@|git@)github\.com[:/]", "", url).rstrip("/").removesuffix(".git")
     github = slug != url.rstrip("/").removesuffix(".git")
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     commands = []
     if github and shutil.which("gh"):
         commands.append(["gh", "repo", "clone", slug, str(path), "--", "--quiet"])
-    commands.append(["git", "clone", "--quiet", url, str(path)])
+    commands.append([*safe_git.PREFIX, "clone", "--quiet", url, str(path)])
     for command in commands:
         try:
             result = isolation.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL,
@@ -353,9 +353,9 @@ def sync_shared(path, env=None, timeout=45):
     path = Path(path)
     if not (path / ".git").exists():
         return "the checkout is missing"
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     def git(*args, timeout=15):
-        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     try:
         dirty = git("status", "--porcelain")
@@ -414,9 +414,9 @@ def push_repo(path, env=None, timeout=60):
     path = Path(path)
     if not (path / ".git").exists():
         return 0, ""
-    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    env = safe_git.environment(env)
     def git(*args, timeout=10):
-        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     ahead = 0
     try:
@@ -572,7 +572,7 @@ class Runner:
         # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
         # a turn's host process needs lives in a directory the bot user owns instead.
         self.host_state = isolation.bot_state(self.state.directory)
-        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))
+        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config), refresh=self.repositories.refresh_mirror)
         self.warm = WarmSessions(self.host_state / "antigravity")
         self.attempt_runtimes = {}     # attempt id -> host names its turn may use
         self.tools = harness_tools.Harnesses(
@@ -681,8 +681,8 @@ class Runner:
         origin = ""
         if (path / ".git").exists():
             try:
-                result = isolation.run(["git", "-C", str(path), "remote", "get-url", "origin"],
-                                        capture_output=True, text=True, timeout=5)
+                result = isolation.run([*safe_git.prefix(path), "-C", str(path), "remote", "get-url", "origin"],
+                                        env=safe_git.clean_environment(), capture_output=True, text=True, timeout=5)
                 url = (result.stdout.strip() if result.returncode == 0 else "")
                 if url.endswith(".git"):
                     url = url[:-4]
@@ -700,9 +700,9 @@ class Runner:
             if not origin:
                 continue
             try:
-                isolation.run(["git", "clone", "--quiet", origin + "/" + sibling.name + ".git", str(sibling)],
+                isolation.run([*safe_git.PREFIX, "clone", "--quiet", origin + "/" + sibling.name + ".git", str(sibling)],
                                capture_output=True, text=True, timeout=60, check=True,
-                               env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+                               env=safe_git.machine_environment())
             except (OSError, subprocess.SubprocessError) as exc:
                 log(f"Tico runner: could not clone {sibling.name} for reads ({type(exc).__name__})")
 
@@ -1442,14 +1442,14 @@ class Runner:
             published = None
             if repository_present and (path / ".git").exists():
                 try:
-                    result = isolation.run(["git", "-C", str(path), "rev-parse", "--short=12", "HEAD"],
-                                            capture_output=True, text=True, timeout=5)
+                    result = isolation.run([*safe_git.prefix(path), "-C", str(path), "rev-parse", "--short=12", "HEAD"],
+                                            env=safe_git.clean_environment(), capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
                         revision = result.stdout.strip()[:100]
                     # Whether GitHub holds this checkout's history: a checkout with no upstream exists only here,
                     # so no other computer could clone it if the bot moved.
-                    published = isolation.run(["git", "-C", str(path), "rev-parse", "--abbrev-ref", "@{u}"],
-                                              capture_output=True, text=True, timeout=5).returncode == 0
+                    published = isolation.run([*safe_git.prefix(path), "-C", str(path), "rev-parse", "--abbrev-ref", "@{u}"],
+                                              env=safe_git.clean_environment(), capture_output=True, text=True, timeout=5).returncode == 0
                 except (OSError, subprocess.SubprocessError):
                     pass
                 if published is False and self.assigned_here(entry):
@@ -2057,8 +2057,13 @@ class Runner:
         goal_failure = [None]
         redactor, started_at, tree = None, "", {}
         meter, ran = [usage.Meter()], [config.get("model") or "", config.get("runtime") or ""]
+        bot_lock, acquired = self.worktrees.bot_lock(bot), False
         try:
             try:
+                while not acquired and not lost.is_set():
+                    acquired = bot_lock.acquire(timeout=1)
+                if lost.is_set():
+                    raise RuntimeError('Attempt lease lost while waiting for worktree maintenance')
                 self.local_path(bot, config)
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
@@ -2400,6 +2405,8 @@ class Runner:
                     Path(filename).unlink(missing_ok=True)
                 done.set()
                 renewer.join(timeout=2)
+                if acquired:
+                    bot_lock.release()
 
     def complete(self, aid, completion):
         """Send a result. A server from before usage refuses the field outright (422): the result must not

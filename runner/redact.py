@@ -20,6 +20,7 @@ import subprocess
 import threading
 from pathlib import Path
 from urllib.parse import quote, quote_plus
+from . import isolation, safe_git
 
 MASK = "••••"
 ERROR = "[redacted: error]"
@@ -110,13 +111,18 @@ class Redactor:
             return True
 
     # ------------------------------------------------------------------ a checkout
-    def scrub_files(self, paths):
+    def scrub_files(self, paths, root=None):
         """Rewrite the text files in `paths`. (rewritten, left_out): a binary file with a secret is never touched and
         never listed as clean, so the caller can keep it out of what it publishes."""
         rewritten, left_out = [], []
         for path in map(Path, paths):
             try:
-                if path.is_symlink() or not path.is_file():
+                parents = list(path.parents)
+                if root in parents:
+                    parents = parents[:parents.index(root)]
+                else:
+                    parents = [path.parent]
+                if path.is_symlink() or any(p.is_symlink() for p in parents) or not path.is_file():
                     continue
                 data = path.read_bytes()
                 if not self.holds(data):
@@ -145,9 +151,9 @@ class Redactor:
             if len(entry) > 3 and entry[:2] != " D" and entry[:2] != "D ":
                 name = entry[3:]
                 paths.append(root / name.split(" -> ")[-1])
-        result["rewritten"], result["left_out"] = self.scrub_files(paths)
+        result["rewritten"], result["left_out"] = self.scrub_files(paths, root)
         if since:
-            patch = _git(root, "log", "-p", "--format=", since + "..HEAD", raw=True)
+            patch = _git(root, "log", "-p", "--no-ext-diff", "--no-textconv", "--format=", since + "..HEAD", raw=True)
             result["committed"] = bool(patch) and self.holds(patch)
         return result
 
@@ -195,7 +201,8 @@ def head(root):
 
 def _git(root, *args, raw=False):
     try:
-        done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+        done = isolation.run([*safe_git.prefix(root), "-C", str(root), *args],
+                             env=safe_git.clean_environment(), capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return b"" if raw else ""
     if done.returncode != 0:
