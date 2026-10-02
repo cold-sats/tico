@@ -829,7 +829,7 @@ async function recheckSaves(browser) {
 async function recheckLists(browser) {
   // N6: the pickers never offer a loop: Part of leaves out the task and everything under it; Blocked by leaves out
   // every task that already waits on it.
-  const {page, errors} = await open(browser);
+  const {page, errors, tasks} = await open(browser);
   const peek = page.locator('#task-peek');
   await page.locator('[data-task-key="tt-checkout"] .tl-title').click();
   await peek.locator('[data-prop="parent"]').click();
@@ -855,17 +855,20 @@ async function recheckLists(browser) {
   assert.equal(await page.evaluate(() => window.kept.every(el => el.isConnected)), true, 'not redrawn');
   assert.equal(await page.locator('[data-task-key="tt-flaky"]').evaluate(r => r.classList.contains('sel')), true);
   assert.equal(await focusedKey(page), 'tt-rotate');
-  // N4: Done keeps its own paging; the poll does not fetch it again, and its selection survives.
+  // N4 / R2-4: Done keeps its own paging. While it shows, the poll fetches only its first page (picking up newly finished
+  // tasks), never the rest; its selection survives.
   await page.locator('#task-bulk [data-bulk="clear"]').click();
   await page.locator('#task-view [data-view="done"]').click();
   await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 3);
   await page.locator('[data-task-key="tt-sso"] .tl-check').click();
   const doneAsks = [];
-  page.on('request', r => { if (/status=done/.test(r.url())) doneAsks.push(r.url()); });
+  page.on('request', r => { if (/status=done/.test(r.url())) doneAsks.push(new URL(r.url()).searchParams); });
+  Object.assign(tasks.find(x => x.id === 't-flaky'), {status: 'done', done_at: new Date().toISOString(), version: 9});   // a bot finished it
   await page.evaluate(() => refresh(false));
   await page.evaluate(() => refresh(false));
-  await page.waitForTimeout(300);
-  assert.deepEqual(doneAsks, [], 'the poll leaves Done alone');
+  await page.locator('#task-body [data-task-key="tt-flaky"]').waitFor();
+  assert.ok(doneAsks.length >= 1 && doneAsks.every(q => q.get('offset') === '0' && q.get('limit') === '20'), 'only the first page');
+  assert.equal(await page.locator('#task-body .tl-row').count(), 4);
   assert.equal(await page.locator('.tl-bulk-n').innerText(), '1 selected');
   assert.deepEqual(errors, []);
   await page.close();
@@ -906,12 +909,68 @@ async function recheckPhone(browser) {
   console.log('re-check: phone sheet close: ok');
 }
 
+// ---- re-check 2 (scratchpad/r2/recheck/probe2.cjs, and the four other lows)
+async function recheckFinal(browser) {
+  // R2-1: a menu opened while a save is on its way stays open when the save lands; the panel redraws once it closes.
+  const {page, errors, posts, tasks} = await open(browser);
+  const peek = page.locator('#task-peek'), props = peek.locator('[data-task-props]');
+  await page.route('**/api/v2/tasks/t-triage', async route => { if (route.request().method() === 'POST') await new Promise(r => setTimeout(r, 1500)); await route.fallback(); });
+  await page.locator('[data-task-key="tt-triage"] .tl-title').click();
+  await props.locator('[data-prop="status"]').waitFor();
+  await page.waitForTimeout(400);
+  await props.locator('[data-prop="status"]').click();
+  await peek.locator('.prop-pop [data-prop-pick="waiting"]').click();
+  await page.waitForTimeout(200);
+  await props.locator('[data-prop="owner"]').click();
+  await page.waitForTimeout(2000);                                    // the save lands meanwhile
+  assert.equal(await page.evaluate(() => !!document.querySelector('#task-peek .prop-pop:popover-open')), true, 'the menu is still open');
+  assert.equal(await page.evaluate(() => document.activeElement?.closest('.prop-pop') != null), true, 'and keeps the focus');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => /Waiting/.test(document.querySelector('#task-peek [data-prop="status"]')?.textContent || ''));
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.prop), 'owner');
+  await page.unroute('**/api/v2/tasks/t-triage');
+  // R2-3: Undo says how many it could not reopen, and names them.
+  await page.keyboard.press('Escape');
+  await page.locator('[data-task-key="tt-rotate"] .tl-check').click();
+  await page.locator('[data-task-key="tt-flaky"] .tl-check').click();
+  await page.locator('#task-bulk [data-bulk="close"]').click();
+  await page.waitForFunction(() => /2 closed/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
+  await page.route('**/api/v2/tasks/t-flaky', route => route.request().method() === 'POST'
+    ? route.fulfill({status: 403, contentType: 'application/json', body: JSON.stringify({error: {detail: 'Not allowed'}})}) : route.fallback());
+  await page.locator('#task-bulk [data-bulk="undo"]').click();
+  await page.waitForFunction(() => /not reopened/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
+  assert.equal(await page.locator('.tl-bulk-msg').innerText(), '1 of 2 reopened; bots were already told; 1 not reopened: Fix the flaky login test on CI');
+  assert.equal(tasks.find(x => x.id === 't-rotate').status, 'doing');
+  assert.deepEqual(errors, []);
+  await page.close();
+  // R2-2: a poll that overtakes a save's reload still moves the list and the peek on when the task leaves the view.
+  const second = await open(browser, {hash: '#/tasks'});
+  await second.page.route('**/api/v2/tasks?*', async route => { await new Promise(r => setTimeout(r, 700)); await route.fallback(); });
+  await second.page.locator('[data-task-key="tt-access"] .tl-title').click();
+  await second.page.locator('#task-peek [data-prop="owner"]').click();
+  await second.page.locator('#task-peek .prop-pop [data-prop-pick="writer"]').click();
+  await second.page.waitForTimeout(200);
+  await second.page.evaluate(() => refresh(false));                   // the poll starts while the save's reload is on its way
+  await second.page.waitForFunction(() => !document.querySelector('[data-task-key="tt-access"]') && TASKS_ST.peek && TASKS_ST.peek !== 'tt-access', null, {timeout: 10000});
+  assert.deepEqual(second.errors, []);
+  await second.page.close();
+  // R2-5: as much of the last name as tells people apart.
+  const third = await open(browser, {people: [{id: 'ana', name: 'Ana'}, {id: 'sam', name: 'Sam Ortiz'}, {id: 'sam2', name: 'Sam Lee'}, {id: 'sam3', name: 'Sam Long'},
+    {id: 'sam4', name: 'Sam', email: 'sam.k@acme.example'}],
+    extraTasks: ['sam2', 'sam3', 'sam4'].map((who, i) => ({...fixtures().find(x => x.id === 't-demo'), id: 't-demo-' + i, title: 'Demo ' + i, owner: 'human:' + who}))});
+  const names = await groupNames(third.page);
+  for (const want of ['NEEDS SAM O.', 'NEEDS SAM LE.', 'NEEDS SAM LO.', 'NEEDS SAM.K']) assert.ok(names.includes(want), `${want} in ${names}`);
+  assert.deepEqual(third.errors, []);
+  await third.page.close();
+  console.log('re-check 2: menus, Undo failures, overtaken reloads, names: ok');
+}
+
 module.exports = {open, fixtures};
 if (require.main === module) (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const only = process.env.TASKS_ONLY ? process.env.TASKS_ONLY.split(',') : null;
-    for (const [name, run] of Object.entries({listAndTabs, filters, carriedOver, peekAndKeys, properties, board, bulk, views, polling, phone, recheckSaves, recheckLists, recheckPhone}))
+    for (const [name, run] of Object.entries({listAndTabs, filters, carriedOver, peekAndKeys, properties, board, bulk, views, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
       if (!only || only.includes(name)) await run(browser);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

@@ -131,6 +131,12 @@ async function taskModalShow(task, d = taskModal()) {
   const peek = !!d.dataset.peek;
   taskChatStop();
   taskFilePreviewReset();
+  // A menu open on this task (a property picked while a save was still on its way) is never pulled away: the redraw
+  // waits for it to close, then draws the newest copy.
+  if (d.open && String(d.dataset.task) === String(task.id) && $('.prop-pop', d)?.matches(':popover-open')) {
+    await taskMenuSettled(d);
+    if (!d.open || String(d.dataset.task) !== String(task.id)) return;
+  }
   if (d.dataset.task !== String(task.id)) { d.propsErrs = null; d.focusProp = ''; d.liveTask = null; }
   // never draw an older copy of the task over the newer one a save returned
   else if (d.liveTask && Number(task.version) < Number(d.liveTask.version)) task = d.liveTask;
@@ -140,6 +146,9 @@ async function taskModalShow(task, d = taskModal()) {
     taskPeekOpen(TASKS_ST, 't' + task.id); return;           // a parent or subtask opened from the peek: the list follows it
   }
   d.dataset.task = task.id;
+  // a property that has the focus now keeps it through the redraw (over the one a save asked for)
+  const onProp = d.contains(document.activeElement) ? document.activeElement.dataset.prop : '';
+  if (onProp) d.focusProp = onProp;
   d.innerHTML = hubModalHTML(task, taskItem(task), {peek});
   taskModalBind(d, task);
   taskPropFocus(d);
@@ -248,8 +257,9 @@ async function taskSave(d, id, body, then, field) {
       void loadBotChatTasks(BOT.slug);
     }
     // The list reloads behind it. If the task left the view (done, closed, handed on, declined), the list and the
-    // peek move on to the next row.
-    if (TASKS_ST) void tasksLoad(TASKS_ST).then(() => { if (state && TASKS_ST === state && state.peek === key) tasksAfterFinish(state, key, at); });
+    // peek move on to the next row: checked by whichever load lands last (a poll may overtake this one).
+    if (state) state.pendingFinish = {key, at, after: state.loadSeq};
+    if (TASKS_ST) void tasksLoad(TASKS_ST);
     return true;
   } catch (e) {
     if (!here()) { toast(e.message, true); return false; }

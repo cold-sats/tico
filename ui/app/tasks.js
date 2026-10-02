@@ -65,14 +65,18 @@ function needsWords(who) {
   const pid = actorPerson(who);
   return pid ? `Needs ${personShortName(pid)}` : 'Needs someone';
 }
-// A person's first name, unless someone else here has it too: then the last name's initial ("Sam O."), or failing
-// that the address's local part ("sam.lee").
+// A person's first name, unless someone else here has it too: then as much of the last name as tells them apart
+// ("Sam O.", "Sam Le." and "Sam Lo.", or the whole last name), else the address's local part ("sam.lee").
 function personShortName(pid) {
   const name = personDisplay(pid), first = firstName(name);
-  const clash = (S.people || []).some(p => p.id !== pid && firstName(p.name || titleCase(p.id)) === first);
-  if (!clash) return first;
-  const parts = String(name).trim().split(/\s+/);
-  if (parts.length > 1) return `${first} ${parts.at(-1)[0].toUpperCase()}.`;
+  const others = (S.people || []).filter(p => p.id !== pid && firstName(p.name || titleCase(p.id)) === first);
+  if (!others.length) return first;
+  const lastOf = n => { const parts = String(n || '').trim().split(/\s+/); return parts.length > 1 ? parts.at(-1) : ''; };
+  const last = lastOf(name), theirs = others.map(p => lastOf(p.name).toLowerCase());
+  for (let n = 1; last && n <= last.length; n++) {
+    const pre = last.slice(0, n).toLowerCase();
+    if (!theirs.some(o => o.slice(0, n) === pre)) return n === last.length ? `${first} ${last}` : `${first} ${last.slice(0, n)}.`;
+  }
   const person = (S.people || []).find(p => p.id === pid);
   return String(person?.email || pid).split('@')[0];
 }

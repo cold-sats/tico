@@ -562,7 +562,7 @@ async function tasksBulkApply(state, describe, bodyFor) {
       try {
         await post(`/v2/tasks/${encodeURIComponent(t.id)}`, {version: t.version, ...body});
         changed++;
-        if (describe.close) closed.push({id: t.id, status: t.status, step_id: t.step_id || '', owner: t.owner, typed: pipelineTypeId(t) !== 'general',
+        if (describe.close) closed.push({id: t.id, title: t.title, status: t.status, step_id: t.step_id || '', owner: t.owner, typed: pipelineTypeId(t) !== 'general',
           told: !!body.note || !!actorSlug(taskRequester(t))});
         break;
       } catch (e) {
@@ -610,6 +610,7 @@ async function tasksBulkUndo(state) {
   const items = state.bulkUndo?.items || [];
   state.bulkUndo = null; state.bulkBusy = true; state.bulkMsg = `Reopening ${items.length}…`; tasksBulkBar(state);
   let ok = 0;
+  const failed = [];
   for (const prev of items) {
     try {
       const fresh = (await get(`/v2/tasks/${encodeURIComponent(prev.id)}`)).task;
@@ -617,13 +618,16 @@ async function tasksBulkUndo(state) {
       if (fresh.owner !== prev.owner) body.owner = actorSlug(prev.owner) || prev.owner;
       await post(`/v2/tasks/${encodeURIComponent(prev.id)}`, {version: fresh.version, ...body});
       ok++;
-    } catch (e) { toast(`Not reopened: ${e.message}`, true); }
+    } catch (e) { failed.push({id: prev.id, title: prev.title, why: e.message}); }
   }
   if (TASKS_ST !== state) return;
   state.bulkBusy = false;
   const told = items.some(p => p.told);
-  state.bulkMsg = told ? `Reopened; bots were already told` : `${ok} reopened`;
-  if (told) toast('Reopened; bots were already told');
+  const names = failed.map(f => f.title || tasksSelectedTitle(state, 't' + f.id));
+  state.bulkMsg = [failed.length ? `${ok} of ${items.length} reopened` : told ? 'Reopened' : `${ok} reopened`, told ? 'bots were already told' : '',
+    failed.length ? `${failed.length} not reopened: ${names.join(', ')}` : ''].filter(Boolean).join('; ');
+  state.bulkFail = new Map(failed.map(f => ['t' + f.id, f.why || 'Not reopened']));
+  if (told || failed.length) toast(state.bulkMsg, !!failed.length);
   await tasksLoad(state);
   tasksBulkBar(state);
   tasksBulkSettle(state, 4000);

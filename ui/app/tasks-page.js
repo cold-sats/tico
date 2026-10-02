@@ -284,8 +284,10 @@ const mergeTaskRows = (...groups) => [...new Map(groups.flat().map(task => [task
 const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_TASK_STATUSES}&limit=100&offset=${offset}`;
 async function tasksLoad(state, opts = {}) {
   const seq = ++state.loadSeq;
-  // Done keeps its own paging: the poll never reloads it; a reload after a change folds in its newest page.
-  const reloadDone = !opts.poll && (state.doneLoaded || state.view === 'done' || !!state.type);
+  // Done keeps its own paging. A reload after a change folds in its newest page; the poll does that too, but only while
+  // Done (or a type's board, which shows finished steps) is on screen, and never more than that one page.
+  const doneShown = state.view === 'done' || !!state.type;
+  const reloadDone = opts.poll ? doneShown && state.doneLoaded : (state.doneLoaded || doneShown);
   state.loading = !(state.tasks || []).some(t => !['done', 'closed'].includes(String(t.status)));
   tasksRender(state);
   const [active, rec, lab] = await Promise.all([
@@ -302,6 +304,7 @@ async function tasksLoad(state, opts = {}) {
   tasksTypeCheck(state);
   tasksTools(state); tasksRender(state);
   tasksPeekSync(state);
+  tasksFinishPending(state, seq);
 
   if (state.open) {
     const id = state.open; state.open = '';
@@ -324,6 +327,14 @@ async function tasksLoad(state, opts = {}) {
   };
   await drain(active?.next_offset);
   if (reloadDone && TASKS_ST === state && state.loadSeq === seq) await (state.doneLoaded ? tasksDoneMerge(state) : tasksLoadDone(state, true));
+}
+// A save took its task out of the view? Once a load that started after the save has drawn, the list and the peek
+// move on (tasksAfterFinish). Any load may land it: an older one overtaken by the poll returns before it gets here.
+function tasksFinishPending(state, seq) {
+  const p = state.pendingFinish;
+  if (!p || seq <= p.after) return;
+  state.pendingFinish = null;
+  if (state.peek === p.key) tasksAfterFinish(state, p.key, p.at);
 }
 // A saved or linked type that no longer exists (deleted, or from another install) would hide every task: it goes.
 function tasksTypeCheck(state) {
