@@ -131,3 +131,22 @@ def test_updater_keeps_environment_build_even_when_older_than_server(api):
     built.bucket, built._s3, built.version = "b", FakeS3(), "3.0.0"
     built._github_transport = httpx.MockTransport(lambda request: pytest.fail("Updater must not fetch GitHub"))
     assert api.get("/download/latest.json").json()["version"] == MANIFEST["version"]
+
+
+def test_download_storage_uses_blob_region_endpoint_and_prefix(monkeypatch, tmp_path):
+    from backend.config import Settings
+    import boto3
+    settings = Settings(db_path=tmp_path / "hub.db", blob_bucket="s3://private/team/files", blob_region="us-east-1",
+                        blob_endpoint="https://s3.example.com")
+    s3 = FakeS3()
+    s3.keys = {"team/files/" + key: value for key, value in s3.keys.items()}
+    calls = []
+    def client(service, **options):
+        calls.append((service, options))
+        return s3
+    monkeypatch.setattr(boto3, "client", client)
+    downloads = Downloads(settings)
+    assert downloads.bucket_manifest()["version"] == MANIFEST["version"]
+    url = downloads.file_url("2.1.0", "Tico_2.1.0_universal.dmg")
+    assert url.startswith("https://s3.test/team/files/releases/app/2.1.0/")
+    assert calls == [("s3", {"region_name": "us-east-1", "endpoint_url": "https://s3.example.com"})]
