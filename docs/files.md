@@ -26,9 +26,9 @@ its conversation, or bot-wide) and a canonical identity:
 ## The three kinds
 
 1. **Stored files.** The bytes are in Tico's private blob store (content-addressed, backed up,
-   never overwritten). They open through Tico only: `GET /api/v2/files/{id}` for the latest version
+   never overwritten). Tico authorizes each open: `GET /api/v2/files/{id}` for the latest version
    and `/api/v2/files/{id}/versions/{n}` for an older one, in the same safe viewer or download as
-   any attachment. No storage address (`s3://`, a presigned URL) is ever shown.
+   any attachment. A configured CDN receives an expiring signed redirect; S3 addresses are never shown.
 2. **Cloud documents.** A Google Doc, Sheet or Slides, a Notion page, a Figma file or any https
    document. `hub file link <url> --title "..."` registers the address (http, `javascript:`,
    credentials in the URL and private-network hosts are refused). Open goes to the provider, which
@@ -65,7 +65,7 @@ files:
   publish: [reports/, artifacts/, deliverables/]   # publish: [] turns it off
 ```
 
-Only documents, images, csv, tsv, json, yaml, md, html, pdf and office files go, at most 25 MB each.
+Documents, images, video, audio, csv, tsv, json, yaml, md, html, pdf and office files go, at most 25 MB each.
 A `.env`, anything with a credential-like name, a symbolic link, a file with more than one hard link, and any path that resolves outside
 the checkout is refused. Uploads go through a durable outbox in the runner's own state with an
 idempotency key per file and content, so a restart or a lost reply retries safely and lands once. A
@@ -115,3 +115,79 @@ It never substitutes the bot's description for its Instructions.
 Every version is kept: versions are immutable and nothing prunes them. The owner or a bot administrator
 removes a file from the bot's page (`PATCH /api/v2/files/{id}` with `archived: true`). That hides the row
 and keeps the bytes; the file returns when the bot publishes a changed version. A bot cannot remove a file.
+
+## Storage and CDN
+
+With `TICO_BLOB_BUCKET` configured, every new attachment goes straight to private S3 storage.
+Without a bucket, local storage keeps laptop and demo installs working. Files are addressed by
+SHA-256; uploads larger than 8 MiB use S3 multipart upload. Objects carry their media type, a safe
+inline/download disposition, server-side encryption, and
+`Cache-Control: private, max-age=31536000, immutable`.
+
+On startup, a server with a bucket copies registered local files in the background. One worker
+limits copy upload and verification traffic to 8 MiB/s, verifies the uploaded SHA-256, and records
+the bucket location. Health shows **Moving files to S3: n of m** and any failure. Local copies stay
+on disk; nothing deletes them automatically. Reads prefer S3 and fall back to the retained local
+copy. Failed copies retry on the next server start. `/healthz` also reports copy progress.
+
+`POST /api/v2/tasks/{id}/files` accepts multipart fields `file`, optional `name`, `note`, `ask`
+(a JSON string), and `poster` (PNG or JPEG). Uploads spool to private temporary files and are
+hashed in chunks. `TICO_UPLOAD_MAX_BYTES` defaults to 2 GiB; larger files get a 413 with the limit.
+Staging needs enough free disk space for the upload and media processing. Temporary files are
+removed after processing; abandoned media staging directories expire after a day.
+The JSON `text`/`content_base64` route still accepts files up to 10 MB for older clients.
+
+`hub task attach <id> cut.mp4 --poster poster.jpg --note "Rough cut"` streams from disk when
+`/api/v2/config` advertises `features.task_files_multipart`. An older server receives the existing
+JSON upload; the client refuses files over 10 MB before reading them. The Computer's automatic
+25 MB file publishing also hashes and uploads from disk. Video and audio extensions are accepted
+alongside the existing document and image types. The local MCP adapter can use `hub_task_attach`
+with `path` and optional `poster`; server MCP calls keep using text/base64 and cannot read server paths.
+
+Every file, version, poster, and thumbnail request checks the existing Tico rights first.
+`GET /api/v2/files/{id}?v=N` selects a version; `/versions/N` remains supported for stored bot
+files. `/poster?v=N` and `/thumb?v=N` return 404 when a preview is unavailable. Without a CDN,
+Tico streams S3 or local bytes, supports a single HTTP byte range (206/416), and returns a digest
+ETag. Versioned responses are immutable for a year; latest responses use `no-cache` and can return
+304. Images, supported video, audio, PDF, plain text, Markdown, and CSV can open inline. SVG,
+HTML, and unknown types download. All byte responses retain `nosniff` and a sandbox CSP.
+
+Media fields live on each file version: `width`, `height`, `duration_ms`, `poster_blob_id`,
+`thumb_blob_id`, and `media_state` (`pending`, `ready`, `none`). One background worker fills them;
+missing tools or unsupported media never fail an upload. Pillow makes image thumbnails up to
+480 px; without Pillow, PNG/JPEG/GIF/WebP headers still provide dimensions. ffprobe/ffmpeg make
+video posters at the earlier of 1 second or 10% of duration, up to 640 px. pdftoppm renders PDF
+page one. A supplied poster is preserved.
+
+The optional ffmpeg + poppler-utils install was measured in a disposable
+`python:3.12-slim-bookworm` container with the server's ca-certificates/curl baseline:
+181,808 KiB before, 557,780 KiB after (apt lists removed), **375,972 KiB / 367.2 MiB added**.
+APT reported 119 MB of download archives and 417 MB of installed packages. This exceeds the
+150 MB image budget, so these tools are omitted from the standard server image. Install them in
+a custom server image, or supply a poster. Pillow and the multipart parser ship with the server.
+
+The setup script needs Python with boto3 and cryptography and the owner's AWS credentials.
+
+For CloudFront, configure `TICO_CDN_URL` and `TICO_CDN_KEY_ID`, plus either
+`TICO_CDN_SECRET_ARN` (an AWS Secrets Manager secret containing the PEM private key) or
+`TICO_CDN_CREDENTIAL_ID` (the key's encrypted Tico vault credential). Key values are never
+returned or logged. After checking rights, Tico sends a 302 with `Cache-Control: private, no-store`
+to a signed URL that expires in one hour. Local files awaiting verified copy continue streaming
+through Tico. CloudFront serves ranges directly and enforces the trusted key group.
+The signature follows [AWS's canned-policy signed URL format](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-canned-policy.html).
+
+The owner can provision a dedicated bucket/distribution with:
+
+```sh
+deploy/aws/attachments-cdn.sh --bucket acme-files --region us-east-1 \
+  --private-key-path /secure/attachments-signing.pem
+```
+
+This prints the plan and defaults to `--dry-run`; it makes no AWS calls and writes no key.
+`--apply` creates or reuses a private bucket with public access blocked, AES256 encryption,
+Origin Access Control, a public key and trusted key group, and a CloudFront distribution. The
+key is written with mode 0600 for the owner to import into server secrets. Existing bucket policy
+and lifecycle rules are preserved; incomplete multipart uploads expire after one day. The cache
+policy honors origin Cache-Control with minimum TTL 0, default TTL 30 seconds, and maximum TTL
+one year. A response headers policy enforces `nosniff` and sandbox CSP on CDN responses.
+Use a bucket dedicated to Tico attachments; the script sets its security and ownership controls.

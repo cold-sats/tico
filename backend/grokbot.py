@@ -189,7 +189,7 @@ def prefetch_images(store, blobs, body, transport=None, person=""):
             got = image_bytes(image, transport)
             if got:
                 data, kind, name = got
-                rows.append((blobs.put(data), len(data), name, kind))
+                rows.append((blobs.put(data, kind), len(data), name, kind))
             elif image.url:
                 rows.append((None, image.url))
         out[mid] = rows

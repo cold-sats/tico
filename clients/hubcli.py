@@ -673,6 +673,8 @@ def parser():
     s.add_argument("id")
     s.add_argument("file")
     s.add_argument("--name", help="the name people see; defaults to the file's own")
+    s.add_argument("--note", help="a note about this version")
+    s.add_argument("--poster", help="a PNG or JPEG preview")
     s.set_defaults(fn="task attach")
     s = task.add_parser("list")
     s.add_argument("--owner")

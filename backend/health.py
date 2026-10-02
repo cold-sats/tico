@@ -361,6 +361,14 @@ def view(c, who, settings, auth, github, config):
     waiting, slow = _waiting(c, online_ids)
     failed, failures = _failed(c)
     checks = []
+    if full and settings.blob_bucket:
+        health = c.execute("SELECT * FROM service_health WHERE service='blob-copy'").fetchone()
+        detail = json.loads(health["detail_json"] or "{}") if health else {}
+        if detail.get("running") or detail.get("error"):
+            summary = f"Moving files to S3: {detail.get('done', 0)} of {detail.get('total', 0)}"
+            if detail.get("error"):
+                summary += ". " + detail["error"]
+            checks.append(_check("blob_storage", "File storage", "bad" if detail.get("error") else "info", summary))
     # Connection health belongs to the person; only the Team owner may see another person's.
     for row in c.execute("SELECT actor,metadata_json FROM granola_connections"):
         meta = json.loads(row["metadata_json"])

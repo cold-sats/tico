@@ -149,6 +149,11 @@ class Settings:
     scheduler_enabled: bool = False
     blob_dir: Path | None = None
     blob_bucket: str = ""
+    upload_max_bytes: int = 2 * 1024 ** 3
+    cdn_url: str = ""
+    cdn_key_id: str = ""
+    cdn_secret_arn: str = ""
+    cdn_credential_id: str = ""
     processing_operators: tuple[str, ...] = ()
     mail_retention_days: int = 180
     release_id: str = ""
@@ -325,6 +330,11 @@ class Settings:
             rehearsal=rehearsal,
             blob_dir=Path(os.environ["TICO_BLOB_DIR"]) if os.environ.get("TICO_BLOB_DIR") else None,
             blob_bucket=os.environ.get("TICO_BLOB_BUCKET", ""),
+            upload_max_bytes=int(os.environ.get("TICO_UPLOAD_MAX_BYTES", str(2 * 1024 ** 3))),
+            cdn_url=os.environ.get("TICO_CDN_URL", ""),
+            cdn_key_id=os.environ.get("TICO_CDN_KEY_ID", ""),
+            cdn_secret_arn=os.environ.get("TICO_CDN_SECRET_ARN", ""),
+            cdn_credential_id=os.environ.get("TICO_CDN_CREDENTIAL_ID", ""),
             processing_operators=tuple(filter(None, os.environ.get("TICO_PROCESSING_OPERATORS", "").split(","))),
             mail_retention_days=max(1, int(os.environ.get("TICO_MAIL_RETENTION_DAYS", "180") or "180")),
             release_id=os.environ.get("TICO_RELEASE", ""),

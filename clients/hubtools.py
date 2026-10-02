@@ -17,6 +17,7 @@ No rule lives here; the rules live in `backend/hubdb.py`.
 Pure stdlib on purpose: this module is imported by the runner venv, the cloud venv and the
 CLI alike.
 """
+import base64
 import json
 import os
 import re
@@ -1016,12 +1017,33 @@ def intake_resolve(api, args):
       "Mac or an s3:// URI. Send the text as-is, or content_base64 for a binary file.",
       {"id": _s("Task id"),
        "name": _s("File name with its extension, e.g. 2026-09-15-draft-review.md"),
+       "path": _s("A local file to stream when this server supports multipart uploads"),
+       "poster": _s("Optional local PNG or JPEG poster with path"),
+       "note": _s("A note about this version"),
        "text": _s("The file's text, for a text or Markdown file"),
        "content_base64": _s("The file's bytes, base64-encoded, for anything that is not text")},
       required=("id", "name"), writes=True)
 def task_attach(api, args):
     body = {"name": args["name"]}
-    for field in ("text", "content_base64"):
+    if args.get("path"):
+        if not hasattr(api, "post_multipart"):
+            raise ValueError("Stream local files with hub task attach on your Computer")
+        from pathlib import Path
+        path = Path(args["path"])
+        fields = {k: args[k] for k in ("name", "note", "ask") if args.get(k) is not None}
+        if api.features().get("task_files_multipart"):
+            uploads = {"file": path}
+            if args.get("poster"):
+                uploads["poster"] = Path(args["poster"])
+            return api.post_multipart(f"tasks/{args['id']}/files", uploads, fields, key=_key(args))
+        if path.stat().st_size > 10_000_000:
+            raise ValueError("This server accepts files up to 10 MB; upgrade it for streaming uploads")
+        with path.open("rb") as source:
+            data = source.read(10_000_001)
+        if len(data) > 10_000_000:
+            raise ValueError("This server accepts files up to 10 MB")
+        body["content_base64"] = base64.b64encode(data).decode()
+    for field in ("text", "content_base64", "note"):
         if args.get(field) is not None:
             body[field] = args[field]
     return api.post(f"tasks/{args['id']}/files", body, key=_key(args))

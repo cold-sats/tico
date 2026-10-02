@@ -6,12 +6,11 @@ import binascii
 import json
 import mimetypes
 import secrets
+import re
 from email.parser import BytesParser
 from email.policy import HTTP
-from urllib.parse import quote
 
 from fastapi import Request
-from fastapi.responses import Response
 
 from pydantic import Field, ValidationError
 
@@ -51,6 +50,8 @@ class TaskFile(M.Contract):
     name: str = Field(min_length=1, max_length=200)
     text: str | None = Field(default=None, min_length=1, max_length=2_000_000)
     content_base64: str | None = Field(default=None, min_length=1, max_length=14_000_000)
+    note: str = Field(default="", max_length=64000)
+    ask: dict | None = None
 
 
 def upload_contract(model):
@@ -120,7 +121,7 @@ async def form(request, model, blobs):
     # Binary bytes become durable before the transaction publishes references to them.
     prepared = []
     for upload in uploads:
-        digest = await asyncio.to_thread(blobs.put, upload["data"])
+        digest = await asyncio.to_thread(blobs.put, upload["data"], upload["content_type"])
         prepared.append({"name": upload["name"], "size": len(upload["data"]),
                          "content_type": upload["content_type"], "digest": digest})
     return body, prepared
@@ -315,6 +316,8 @@ def write_upload(store, request, body, uploads, fn):
 def install_media(app, store, auth, mutate, send_message, task_create):
     blobs = Blobs(store.settings)
     app.state.blobs = blobs
+    from .file_metadata import Metadata
+    app.state.file_metadata = Metadata(store, blobs)
 
     from .files import install_files
     files = install_files(app, store, auth, blobs, mutate)
@@ -359,39 +362,78 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         return await asyncio.to_thread(write, request, body, uploads, work)
 
     @app.post("/api/v2/tasks/{tid}/files")
-    def task_attach(request: Request, tid: str, body: TaskFile):
-        """Attach a deliverable to a task. The file is private to the task: whoever may read the
-        task may download it at `/api/v2/files/<id>`; nothing is public."""
+    async def task_attach(request: Request, tid: str):
         who = request.state.identity
-        if (body.text is None) == (body.content_base64 is None):
-            raise Problem("validation", "Send exactly one of text or content_base64", 422)
-        if body.text is not None:
-            data = body.text.encode("utf-8")
-        else:
-            try:
-                data = base64.b64decode(body.content_base64, validate=True)
-            except (ValueError, binascii.Error) as exc:
-                raise Problem("validation", "content_base64 is not valid base64", 422) from exc
-        if not data or len(data) > 10_000_000:
-            raise Problem("validation", "A file is at least one byte and at most 10 MB", 422)
-        content_type = mimetypes.guess_type(body.name)[0] or ("text/plain" if body.text is not None else "application/octet-stream")
-        if who.role == "bot":
-            try:
-                BF.check_name(body.name)
-            except BF.Refused as exc:
-                raise Problem("file_refused", str(exc), 422) from exc
         with store.read() as c:
             auth.task(c, who, tid)
-        digest = blobs.put(data)
+        poster = None
+        if request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
+            from .file_upload import parse
+            fields, uploads, stack = await parse(request, store.settings.upload_max_bytes, blobs.directory)
+            try:
+                upload = uploads["file"]
+                fields.setdefault("name", upload["filename"])
+                if "ask" in fields:
+                    fields["ask"] = json.loads(fields["ask"])
+                body = TaskFile.model_validate(fields)
+                supplied_type = upload["mime"].lower().split(";", 1)[0].strip()
+                content_type = mimetypes.guess_type(body.name)[0] or (supplied_type if re.fullmatch(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+", supplied_type) else "application/octet-stream")
+                size = upload["size"]
+                if who.role == "bot":
+                    try:
+                        BF.check_name(body.name)
+                    except BF.Refused as exc:
+                        raise Problem("file_refused", str(exc), 422) from exc
+                digest = await asyncio.to_thread(blobs.put_stream, upload["stream"], content_type,
+                                                store.settings.upload_max_bytes)
+                if "poster" in uploads:
+                    supplied = uploads["poster"]
+                    from .file_metadata import validate_poster
+                    poster_type = await asyncio.to_thread(validate_poster, supplied["stream"])
+                    poster_digest = await asyncio.to_thread(blobs.put_stream, supplied["stream"], poster_type)
+                    poster = {"digest": poster_digest, "size": supplied["size"], "name": "poster", "content_type": poster_type}
+            except (ValueError, ValidationError) as exc:
+                raise Problem("validation", "Invalid upload name, note or ask JSON", 422) from exc
+            finally:
+                stack.close()
+        else:
+            try:
+                body = TaskFile.model_validate(await request.json())
+            except (ValueError, ValidationError) as exc:
+                raise Problem("validation", "Invalid task file fields", 422) from exc
+            if (body.text is None) == (body.content_base64 is None):
+                raise Problem("validation", "Send exactly one of text or content_base64", 422)
+            if body.text is not None:
+                data = body.text.encode("utf-8")
+            else:
+                try:
+                    data = base64.b64decode(body.content_base64, validate=True)
+                except (ValueError, binascii.Error) as exc:
+                    raise Problem("validation", "content_base64 is not valid base64", 422) from exc
+            size = len(data)
+            if not data or size > 10_000_000:
+                raise Problem("validation", "A file is at least one byte and at most 10 MB", 422)
+            content_type = mimetypes.guess_type(body.name)[0] or ("text/plain" if body.text is not None else "application/octet-stream")
+            if who.role == "bot":
+                try:
+                    BF.check_name(body.name)
+                except BF.Refused as exc:
+                    raise Problem("file_refused", str(exc), 422) from exc
+            digest = await asyncio.to_thread(blobs.put, data, content_type)
         def work(c):
             auth.task(c, who, tid)
-            item = register(c, who, digest, len(data), body.name, content_type)
+            item = register(c, who, digest, size, body.name, content_type)
             c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, item["id"]))
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
-            # What a bot delivers is one of its files, listed on its page; a person's upload is not.
             files.publish_task_deliverable(c, who, tid, item, digest)
+            preview = register(c, who, **poster)["id"] if poster else None
+            c.execute("INSERT INTO blob_media(blob_id,poster_blob_id) VALUES(?,?)", (item["id"], preview))
             return {"file": item, "link": store.settings.public_url + item["url"]}
-        return mutate(request, body, work)
+        # Include byte identity in the receipt without storing multipart bytes.
+        receipt = {**body.model_dump(), "digest": digest, "size": size, "poster": poster}
+        result = await asyncio.to_thread(write_upload, store, request, body, [receipt], work)
+        app.state.file_metadata.wake.set()
+        return result
 
     @app.get("/api/meetings/sources")
     def sources(request: Request):
@@ -565,17 +607,40 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             return files.serve(request.state.identity, bid, meta=True)
         with store.read() as c:
             row = readable_blob(c, request.state.identity, bid)
-            return {"id": row["id"], "name": row["name"], "size": row["size"], "content_type": row["content_type"]}
+            media = c.execute("SELECT * FROM blob_media WHERE blob_id=?", (bid,)).fetchone()
+            return {"id": row["id"], "name": row["name"], "size": row["size"], "content_type": row["content_type"],
+                    **({k: media[k] for k in ("width", "height", "duration_ms", "poster_blob_id", "thumb_blob_id", "media_state")} if media else {})}
+
+    def resolve_blob(c, who, bid, v=None, derivative=None):
+        row = readable_blob(c, who, bid)
+        version = c.execute("SELECT * FROM bot_file_versions WHERE blob_id=? AND (? IS NULL OR version=?)", (bid, v, v)).fetchone()
+        if v is not None and not version and v != 1:
+            raise Problem("not_found", "File version not found", 404)
+        if derivative:
+            media = version or c.execute("SELECT * FROM blob_media WHERE blob_id=?", (bid,)).fetchone()
+            preview = media[derivative + "_blob_id"] if media else None
+            row = c.execute("SELECT * FROM blobs WHERE id=?", (preview,)).fetchone() if preview else None
+            if not row:
+                raise Problem("not_found", "File preview not found", 404)
+        return dict(row)
+
+    @app.get("/api/v2/files/{bid}/poster")
+    def poster(request: Request, bid: str, v: int | None = None):
+        return download_blob(request, bid, v, "poster")
+
+    @app.get("/api/v2/files/{bid}/thumb")
+    def thumb(request: Request, bid: str, v: int | None = None):
+        return download_blob(request, bid, v, "thumb")
 
     @app.get("/api/v2/files/{bid}")
-    def download(request: Request, bid: str):
+    def download(request: Request, bid: str, v: int | None = None):
+        return download_blob(request, bid, v)
+
+    def download_blob(request, bid, v=None, derivative=None):
         who = request.state.identity
         if is_file_id(bid):
-            return files.serve(who, bid)
+            return files.serve(who, bid, v, request=request, derivative=derivative)
         with store.read() as c:
-            row = readable_blob(c, who, bid)
-            data = blobs.get(row["digest"])
-            return Response(data, media_type="application/octet-stream", headers={
-                "X-Content-SHA256": row["digest"],
-                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(row["name"], safe=""),
-                "Content-Security-Policy": "default-src 'none'; sandbox"})
+            row = resolve_blob(c, who, bid, v, derivative)
+        from .file_delivery import serve
+        return serve(request, blobs, row, v is not None)

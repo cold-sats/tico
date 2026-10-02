@@ -1,5 +1,7 @@
 """Small stdlib HTTP client usable by existing bot environments."""
 
+import os
+import mimetypes
 import json
 import hashlib
 import ipaddress
@@ -55,7 +57,7 @@ class Client:
         key = key or str(uuid.uuid4())
         if raw is not None and body is not None:
             raise ValueError("Send either a JSON body or opaque bytes, not both")
-        data = bytes(raw) if raw is not None else (json.dumps(body).encode() if body is not None else None)
+        data = raw if raw is not None and (hasattr(raw, "read") or isinstance(raw, MultipartBody)) else bytes(raw) if raw is not None else (json.dumps(body).encode() if body is not None else None)
         # Persistent harnesses retain a reference, never an expired per-turn token.
         token = self.token
         if token.startswith("tico-file:"):
@@ -75,20 +77,39 @@ class Client:
                 raise ValueError("Only a scoped processing credential may be added")
             headers.update(extra_headers)
         if data is not None:
-            headers.update({"Content-Type": "application/octet-stream" if raw is not None else "application/json",
+            headers.update({"Content-Type": getattr(data, "content_type", "application/octet-stream") if raw is not None else "application/json",
                             "Idempotency-Key": key})
+        if hasattr(data, "read"):
+            headers["Content-Length"] = str(os.fstat(data.fileno()).st_size)
+        elif isinstance(data, MultipartBody):
+            headers["Content-Length"] = str(data.size)
         for attempt in range(self.retries + 1):
+            if hasattr(data, "seek"):
+                data.seek(0)
             req = urllib.request.Request(self.url + path, data=data, headers=headers, method=method)
             try:
                 with self.opener.open(req, timeout=self.timeout) as response:
                     if binary:
                         data = response.read(20_000_001)
-                        if (len(data) > 20_000_000 or response.headers.get_content_type() != "application/octet-stream"
-                                or hashlib.sha256(data).hexdigest() != response.headers.get("X-Content-SHA256")):
+                        if (len(data) > 20_000_000 or hashlib.sha256(data).hexdigest() != response.headers.get("X-Content-SHA256")):
                             raise APIError("file_integrity", "Tico file response failed its size, type, or integrity check")
                         return data
                     return json.load(response)
             except urllib.error.HTTPError as exc:
+                if binary and exc.code == 302:
+                    target = exc.headers.get("Location", "")
+                    parsed = urllib.parse.urlsplit(target)
+                    signed = urllib.parse.parse_qs(parsed.query)
+                    digest = exc.headers.get("X-Content-SHA256", "")
+                    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or not {"Signature", "Expires", "Key-Pair-Id"} <= signed.keys() or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                        raise APIError("file_integrity", "Tico returned an invalid file redirect")
+                    # No bearer token, processing credential or delegation follows the redirect.
+                    download = urllib.request.Request(target, headers={"User-Agent": "Tico-Client/" + CLIENT_VERSION})
+                    with self.opener.open(download, timeout=self.timeout) as response:
+                        data = response.read(20_000_001)
+                        if len(data) > 20_000_000 or hashlib.sha256(data).hexdigest() != digest:
+                            raise APIError("file_integrity", "Tico file response failed its size or integrity check")
+                        return data
                 try:
                     payload = json.load(exc)
                 except ValueError:
@@ -136,7 +157,59 @@ class Client:
         """One opaque binary body (an audio chunk), under the same retry rule as a JSON write."""
         return self.request("POST", "/api/v2/" + path, key=key, raw=data)
 
+    def post_multipart(self, path, files, fields=None, key=None):
+        return self.request("POST", "/api/v2/" + path, key=key, raw=MultipartBody(files, fields or {}))
+
+    def features(self):
+        try:
+            return self.get("config").get("features", {})
+        except APIError as exc:
+            if exc.status not in (403, 404):
+                raise
+            return {}
+
     def download(self, file_id):
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", file_id):
             raise ValueError("Use an opaque Tico file ID, not a URL or path")
         return self.request("GET", "/api/v2/files/" + file_id, binary=True)
+
+
+class MultipartBody:
+    """A replayable iterable; each retry opens the same files and uses bounded reads."""
+    def __init__(self, files, fields):
+        boundary = "tico-" + uuid.uuid4().hex
+        self.content_type = "multipart/form-data; boundary=" + boundary
+        self.parts = []
+        for name, value in fields.items():
+            if not re.fullmatch(r"[a-z_]+", name):
+                raise ValueError("Invalid upload field")
+            value = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+            self.parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode() + value.encode() + b"\r\n", None))
+        for name, path in files.items():
+            path = Path(path)
+            if not re.fullmatch(r"[a-z_]+", name):
+                raise ValueError("Invalid upload field")
+            filename = re.sub(r'[\r\n"\\]', "_", path.name)
+            mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            prefix = f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\nContent-Type: {mime}\r\n\r\n'.encode()
+            self.parts.append((prefix, path))
+        self.ending = f"--{boundary}--\r\n".encode()
+        self.file_sizes = {path: path.stat().st_size for _, path in self.parts if path}
+        self.size = len(self.ending) + sum(len(prefix) + (self.file_sizes[path] + 2 if path else 0) for prefix, path in self.parts)
+
+    def __iter__(self):
+        for prefix, path in self.parts:
+            yield prefix
+            if path:
+                with path.open("rb") as source:
+                    remaining = self.file_sizes[path]
+                    while remaining:
+                        chunk = source.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            raise APIError("file_changed", "The upload file changed; retry with the finished file")
+                        remaining -= len(chunk)
+                        yield chunk
+                    if source.read(1):
+                        raise APIError("file_changed", "The upload file changed; retry with the finished file")
+                yield b"\r\n"
+        yield self.ending

@@ -291,8 +291,22 @@ def run(args, who=None):
             return post("tasks/" + args.id, {"version": current["version"], "labels": labels})
         if sub == "attach":
             path = Path(args.file)
-            data = path.read_bytes()
             body = {"name": args.name or path.name}
+            if client.features().get("task_files_multipart"):
+                if getattr(args, "note", None):
+                    body["note"] = args.note
+                if getattr(args, "ask", None):
+                    body["ask"] = json.loads(Path(args.ask).read_text())
+                uploads = {"file": path}
+                if getattr(args, "poster", None):
+                    uploads["poster"] = Path(args.poster)
+                return client.post_multipart(f"tasks/{args.id}/files", uploads, body, key=key)
+            if path.stat().st_size > 10_000_000:
+                raise APIError("too_large", "This server accepts files up to 10 MB; upgrade it for streaming uploads", 413)
+            with path.open("rb") as source:
+                data = source.read(10_000_001)
+            if len(data) > 10_000_000:
+                raise APIError("too_large", "This server accepts files up to 10 MB", 413)
             try:
                 body["text"] = data.decode("utf-8")
             except UnicodeDecodeError:

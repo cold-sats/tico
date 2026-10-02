@@ -168,6 +168,10 @@ def create_app(settings=None):
         directory_task = asyncio.create_task(directory_loop()) if timers else None
         granola_task = asyncio.create_task(app.state.granola.loop(stop)) if timers else None
         # A demo runs no scheduler: nothing fires, and nothing waits for a bot that will never run.
+        import threading
+        copy_stop = threading.Event()
+        copy_task = asyncio.create_task(asyncio.to_thread(app.state.blobs.copy_local, store, copy_stop))
+        media_task = asyncio.create_task(asyncio.to_thread(app.state.file_metadata.loop))
         demo_task = None
         if settings.demo:
             from . import demo
@@ -176,6 +180,11 @@ def create_app(settings=None):
             yield
         finally:
             stop.set()
+            copy_stop.set()
+            app.state.file_metadata.stop.set()
+            app.state.file_metadata.wake.set()
+            await copy_task
+            await media_task
             app.state.github_app.repository_stop.set()
             if demo_task:
                 await demo_task
@@ -330,22 +339,36 @@ def create_app(settings=None):
                 # A bot's computer publishes files up to 25 MB as raw bytes (backend/files.py).
                 published = (request.url.path in ("/api/v2/files/uploads", "/api/v2/files/imports")
                              and request.state.identity.role in ("bot", "runner"))
-                limit = (27_000_000 if published else 20_000_000 if docs_import or upload and request.state.identity.role in ("human", "owner")
+                streamed = bool(re.fullmatch(r"/api/v2/tasks/[^/]+/files", request.url.path)
+                                and request.headers.get("content-type", "").lower().startswith("multipart/form-data"))
+                limit = (settings.upload_max_bytes + 11_000_000 if streamed else 14_500_000 if re.fullmatch(r"/api/v2/tasks/[^/]+/files", request.url.path) else 27_000_000 if published else 20_000_000 if docs_import or upload and request.state.identity.role in ("human", "owner")
                          else 2_000_000)
                 if int(size) > limit:
-                    raise Problem("too_large", "Request exceeds the upload limit", 413)
+                    raise Problem("too_large", f"Upload exceeds the file limit of {settings.upload_max_bytes} bytes" if streamed else "Request exceeds the upload limit", 413)
                 # Streaming/chunked requests also have a hard limit. Starlette caches body()
                 # for downstream parsing; collect only a bounded amount before assigning it.
-                chunks, total = [], 0
-                async for chunk in request.stream():
-                    total += len(chunk)
-                    if total > limit:
-                        raise Problem("too_large", "Request exceeds the upload limit", 413)
-                    chunks.append(chunk)
-                request._body = b"".join(chunks)
+                if streamed:
+                    receive = request._receive
+                    total = 0
+                    async def bounded_receive():
+                        nonlocal total
+                        message = await receive()
+                        total += len(message.get("body", b""))
+                        if total > limit:
+                            raise Problem("too_large", f"Upload exceeds the file limit of {settings.upload_max_bytes} bytes", 413)
+                        return message
+                    request._receive = bounded_receive
+                else:
+                    chunks, total = [], 0
+                    async for chunk in request.stream():
+                        total += len(chunk)
+                        if total > limit:
+                            raise Problem("too_large", "Request exceeds the upload limit", 413)
+                        chunks.append(chunk)
+                    request._body = b"".join(chunks)
                 if (getattr(request.state, "identity", None) and request.state.identity.via
                         and not request.state.identity.confirmed
-                        and not assistant_writes(request.method, request.url.path, settings, request._body,
+                        and not assistant_writes(request.method, request.url.path, settings, getattr(request, "_body", b""),
                                                  request.state.identity.actor,
                                                  lambda tid, shared: assistant_owns(tid, request.state.identity.actor, shared),
                                                  assistant_direct(), assistant_to_bot)):
@@ -392,7 +415,10 @@ def create_app(settings=None):
             route_keeps = (request.url.path.startswith("/api/") and request.method == "GET"
                            and response.status_code in (200, 302)
                            and str(response.headers.get("cache-control", "")).startswith("private, max-age="))
-            if route_keeps:
+            file_bytes = (request.method == "GET" and re.fullmatch(r"/api/v2/files/[^/]+(?:/(?:poster|thumb|versions/[0-9]+))?", request.url.path)
+                          and response.status_code in (200, 206, 302, 304, 416)
+                          and "cache-control" in response.headers)
+            if route_keeps or file_bytes:
                 pass                    # the route's own "private, max-age=…" stands
             elif request.url.path in ui_bundle.PATHS and response.status_code in (200, 304) \
                     and "immutable" in str(response.headers.get("cache-control", "")):
@@ -860,14 +886,15 @@ def create_app(settings=None):
         with store.read() as c:
             c.execute("SELECT 1 FROM cloud_migrations").fetchone()
         return {"ok": True, "service": "tico", "protocol": 2, "release": settings.release_id,
-                "environment_id": settings.environment_id}
+                "environment_id": settings.environment_id, "features": {"task_files_multipart": True},
+                "blob_storage": app.state.blobs.copy_status}
 
     @app.get("/api/v2/config")
     def environment(request: Request):
         """Everything a client needs to name this environment and reach its runner."""
         from .onboarding import config_view
         with store.read() as c:
-            return config_view(c, settings, request.state.identity)
+            return {**config_view(c, settings, request.state.identity), "features": {"task_files_multipart": True}}
 
     @app.get("/api/v2/system/update")
     def system_update_status(request: Request):
@@ -2653,7 +2680,7 @@ def create_app(settings=None):
     def desired_runner_release(request: Request):
         with store.read() as c:
             execution.runner(c, request.state.identity)
-        return runner_versions.desired()
+        return {**runner_versions.desired(), "features": {"task_files_multipart": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):
