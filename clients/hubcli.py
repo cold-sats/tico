@@ -576,7 +576,7 @@ def parser():
 
     task = sub.add_parser("task").add_subparsers(dest="sub")
     worktree = task.add_parser("worktree", help="create or attach this task's worktree").add_subparsers(dest="worktree_sub")
-    for operation, argument in (("add", "repo"), ("attach", "path")):
+    for operation, argument in (("add", "repo"), ("attach", "path"), ("setup", "repo")):
         s = worktree.add_parser(operation)
         s.add_argument(argument)
         s.add_argument("--task", help="task id; defaults to this run's task")

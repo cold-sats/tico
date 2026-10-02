@@ -20,7 +20,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
-from . import goals, repositories, worktrees
+from . import goals, repositories, worktrees, safe_git
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -551,7 +551,7 @@ class Runner:
         self.client = client or Client(config["url"], config["token"], timeout=10, retries=1)
         self.state = State(state_dir)
         self.repositories = repositories.Repositories(config["projects_dir"], self.state.directory / "repositories.json", self.client)
-        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda: not self.active)
+        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda: not self.active, environment=lambda bot: self.credential_environment(bot.removeprefix("bot:")))
         self.follower = Follower(config, self.state.directory, self.client, supervised=supervised)
         self.capacity = int(config.get("capacity", 4))
         self.host_factory = host_factory or self.make_host
@@ -977,9 +977,7 @@ class Runner:
 
     def credential_environment(self, bot, config=None):
         """Process settings only. Credentials arrive through this bot's live vault grants."""
-        settings = {"HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "TERM", "COLORTERM",
-                    "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"}
-        return {k: v for k, v in os.environ.items() if k in settings or k.startswith("LC_")}
+        return safe_git.process_environment()
 
     def migrate_credentials(self, assignments):
         """Once per existing bot, preserve the legacy credentials it could read (its own file, `_shared.env`, declared
@@ -1775,6 +1773,8 @@ class Runner:
                 lines.append(stale)
         if attempt.get("task"):
             lines.append("Assigned task:\n" + json.dumps(attempt["task"], ensure_ascii=False))
+            lines.append("Check this task’s worktree links before code work. If detail_json has setup_pending=true, "
+                         "run `hub task worktree setup <repo>` in this turn; restored worktrees need setup.")
             requester = str((attempt["task"] or {}).get("requester") or "")
             if requester:
                 lines.append(f"This task was requested by {requester}.")
@@ -2385,13 +2385,13 @@ class Runner:
             try:
                 return self.client.post("runners/heartbeat", body)
             except APIError as exc:
-                if exc.status != 422:
-                    raise
                 detail = str(exc.detail or "Heartbeat validation failed")
-                if "worktrees" in body and "extra" in detail.lower() and ("worktrees" in detail or "readiness." not in detail):
+                if 400 <= exc.status < 500 and "worktrees" in body:
                     body.pop("worktrees", None)
                     self._worktrees_after = time.monotonic() + 600
                     continue
+                if exc.status != 422:
+                    raise
                 if "repositories" in body and "extra" in detail.lower() and ("repositories" in detail or "readiness." not in detail):
                     body.pop("repositories", None)
                     self._repositories_after = time.monotonic() + 600

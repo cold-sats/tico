@@ -275,7 +275,7 @@ class Execution:
                           "bot_agent_instructions.runner_id<>excluded.runner_id",
                           (bot, content, who.runner_id, now))
         from . import worktrees
-        worktree_actions = worktrees.heartbeat(c, who, body.worktrees, readiness.get('worktrees', False))
+        worktree_actions = worktrees.heartbeat(c, who, body.worktrees, readiness.get('worktrees', False), self.store.settings.github_owner)
         # A Restart a person pressed goes to the runner once; it restarts when no turn is running.
         restart = c.execute("SELECT restart_requested FROM runners WHERE id=?", (who.runner_id,)).fetchone()
         if restart and restart["restart_requested"]:

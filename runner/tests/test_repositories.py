@@ -88,12 +88,12 @@ def test_removal_waits_30_days_and_never_follows_paths_outside_repos(repos, tmp_
     (repos.root / 'org__two').symlink_to(outside, target_is_directory=True)
     repos.client.get.return_value = {'repositories': []}
     now = time.time()
-    with mock.patch('runner.repositories.time.time', return_value=now):
+    with mock.patch('runner.repositories.isolation.run', side_effect=fake_git), mock.patch('runner.repositories.time.time', return_value=now):
         cycle(repos)
-    with mock.patch('runner.repositories.time.time', return_value=now + REMOVE_AFTER - 1):
+    with mock.patch('runner.repositories.isolation.run', side_effect=fake_git), mock.patch('runner.repositories.time.time', return_value=now + REMOVE_AFTER - 1):
         cycle(repos)
         assert repos.path('org/one').exists()
-    with mock.patch('runner.repositories.time.time', return_value=now + REMOVE_AFTER + 1):
+    with mock.patch('runner.repositories.isolation.run', side_effect=fake_git), mock.patch('runner.repositories.time.time', return_value=now + REMOVE_AFTER + 1):
         cycle(repos)
         assert not repos.path('org/one').exists()
         assert (outside / 'keep').read_text() == 'keep'

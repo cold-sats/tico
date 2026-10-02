@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 
-from . import git_credentials, isolation
+from . import git_credentials, isolation, safe_git
 
 FETCH_INTERVAL = 15 * 60
 REMOVE_AFTER = 30 * 86400
@@ -86,6 +86,10 @@ class Repositories:
                 return self.report()
             now = time.time()
             wanted = {r['full_name'].lower(): r for r in repos}
+            for marker in self.root.glob('*/.git/tico-managed'):
+                name = marker.parent.parent.name.replace('__', '/', 1)
+                if valid_name(name) and not marker.is_symlink():
+                    self.rows.setdefault(name, {'full_name': name, 'state': 'cloned', 'managed': True, 'left_at': now, 'size_mb': 0})
             for name, row in list(self.rows.items()):
                 if name in wanted:
                     row.pop('left_at', None)
@@ -119,6 +123,13 @@ class Repositories:
             try:
                 path = self.path(name)
                 if self.rows[name].get('managed') and path.exists():
+                    linked = path / '.git' / 'worktrees'
+                    if (path / '.git').is_symlink() or linked.is_symlink():
+                        raise ValueError('Base clone registrations point outside repos')
+                    done = isolation.run([*safe_git.PREFIX, '-C', str(path), 'worktree', 'prune', '--expire', 'now'],
+                                         env=safe_git.environment(safe_git.process_environment()), capture_output=True, timeout=120)
+                    if done.returncode:
+                        raise ValueError('Could not prune worktree registrations')
                     linked = path / '.git' / 'worktrees'
                     if linked.is_symlink() or linked.exists() and any(linked.iterdir()):
                         continue
@@ -158,9 +169,9 @@ class Repositories:
             token = granted.get('token') or ''
             if not token or name not in {n.lower() for n in granted.get('repositories', [])}:
                 raise ValueError('No GitHub read token for this repository; check the GitHub connection')
-            env = {**os.environ, **git_credentials.environment(token)}
+            env = {**safe_git.process_environment(), **git_credentials.environment(token), 'GIT_OPTIONAL_LOCKS': '0'}
             url = f'https://github.com/{repo["full_name"]}.git'
-            prefix = ['git', '-c', 'http.followRedirects=false']
+            prefix = [*safe_git.PREFIX, '-c', 'http.followRedirects=false']
             if exists:
                 branch = repo.get('default_branch') or '*'
                 command = [*prefix, '-C', str(path), 'fetch', '--quiet', '--prune', '--no-tags', '--', url,
@@ -208,6 +219,7 @@ class Repositories:
 
 def worktree_base(workspace, repo, env):
     """Fetch a managed base using this bot's own credentials, also usable inside a turn."""
+    env = safe_git.environment(env)
     name = repo['full_name']
     if not valid_name(name):
         raise ValueError('Invalid repository name')
@@ -219,14 +231,19 @@ def worktree_base(workspace, repo, env):
     if path.exists():
         if not (path / '.git').is_dir() or (path / '.git').is_symlink():
             raise ValueError('Base clone folder is not a Git repository')
-        current = isolation.run(['git', '-C', str(path), 'config', '--get', 'remote.origin.url'], capture_output=True, text=True, timeout=15)
+        current = isolation.run([*safe_git.PREFIX, '-C', str(path), 'config', '--get', 'remote.origin.url'], env=env, capture_output=True, text=True, timeout=15)
         if not git_credentials._same_repository(current.stdout.strip(), name):
             raise ValueError('Base clone remote does not match this repository')
     else:
-        command = ['git', 'clone', '--quiet', '--single-branch']
+        command = [*safe_git.PREFIX, 'clone', '--quiet', '--single-branch']
         if repo.get('default_branch'):
             command += ['--branch', repo['default_branch']]
-        done = isolation.run([*command, '--', f'https://github.com/{name}.git', str(path)], env=env, capture_output=True, text=True, timeout=120)
+        try:
+            done = isolation.run([*command, '--', f'https://github.com/{name}.git', str(path)], env=env, capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            if path.exists():
+                shutil.rmtree(path)
+            raise ValueError('Git clone failed; check repository access, network and disk space') from None
         if done.returncode:
             if path.exists():
                 shutil.rmtree(path)
@@ -235,13 +252,19 @@ def worktree_base(workspace, repo, env):
         isolation.chown(path / '.git' / 'tico-managed')
     branch = repo.get('default_branch')
     if not branch:
-        result = isolation.run(['git', '-C', str(path), 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], capture_output=True, text=True, timeout=15)
+        result = isolation.run([*safe_git.PREFIX, '-C', str(path), 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], env=env, capture_output=True, text=True, timeout=15)
         branch = result.stdout.strip().removeprefix('origin/')
-    if not branch or branch.startswith('-'):
+    if not branch or branch.startswith('-') or isolation.run([*safe_git.PREFIX, 'check-ref-format', '--branch', branch],
+            env=env, capture_output=True, timeout=15).returncode:
         raise ValueError('Repository default branch is missing; refresh Repositories')
-    done = isolation.run(['git', '-C', str(path), 'fetch', '--quiet', '--no-tags', 'origin',
+    done = isolation.run([*safe_git.PREFIX, '-C', str(path), 'fetch', '--quiet', '--no-tags', 'origin',
                          f'+refs/heads/{branch}:refs/remotes/origin/{branch}'], env=env, capture_output=True, text=True, timeout=120)
     if done.returncode:
         raise ValueError('Git fetch failed; check repository access, network and disk space')
+    # A normal git push then updates the task branch's tracking ref, rather than comparing it to main.
+    done = isolation.run([*safe_git.PREFIX, '-C', str(path), 'config', 'remote.origin.fetch',
+                          '+refs/heads/*:refs/remotes/origin/*'], env=env, capture_output=True, text=True, timeout=15)
+    if done.returncode:
+        raise ValueError('Could not configure task branch tracking')
     path.touch()
     return path, branch

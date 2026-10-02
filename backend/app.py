@@ -2152,7 +2152,7 @@ def create_app(settings=None):
             task_id = auth.resolve_task(c, who, tid)
             auth.task(c, who, task_id)
             if body.remove:
-                H.task_unlink(c, who.actor, task_id, body.remove)
+                H.task_unlink(c, who.actor, task_id, body.remove, mover=mover(c, who))
             elif body.url:
                 H.task_link(c, who.actor, task_id, body.url, body.title)
             else:
