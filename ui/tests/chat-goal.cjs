@@ -250,10 +250,10 @@ async function emptyChat(browser) {
   again.slowGoal = 300;
   await again.page.locator('#chat-composer .p-goal').click();
   const form = again.page.locator('#chat-goal textarea');
-  await form.fill('Tidy the Acme wiki'); await form.press('Enter'); await form.press('Enter').catch(() => {});
+  await form.fill('Clean up the Acme wiki'); await form.press('Enter'); await form.press('Enter').catch(() => {});
   await again.page.locator('#chat-goal .cg-bar').waitFor();
   assert.equal(again.created.length, 1);
-  assert.deepEqual(again.goalPosts, [{action: 'set', objective: 'Tidy the Acme wiki'}]);
+  assert.deepEqual(again.goalPosts, [{action: 'set', objective: 'Clean up the Acme wiki'}]);
   assert.deepEqual(again.errors, []);
   await again.page.close();
 
