@@ -7,9 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-02
+
 ### Added
 - Connect your own Granola account in Meetings through its official MCP, including free-plan notes, encrypted per-person sign-in and background sync; API keys remain available for Business/Enterprise.
-- Nested tasks with progress rolled up to their parent; a task finishes when its subtasks finish.
+- Nested tasks: a parent shows its subtasks' progress ("4 of 10 done · 7 PRs merged") and its owner hears when the last one closes.
 - Several PRs per task, with checks, conflicts and reviews that wake the assigned teammate.
 - Task worktrees: separate branches and folders, saved work before cleanup, and restoration when a task reopens. Computers without a GitHub App can use their own Git login.
 - Subscriptions assigned to a group or bot. An assigned bot waits with a reason when its subscription is unavailable, keeping its work on the chosen login.
