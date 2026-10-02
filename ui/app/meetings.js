@@ -162,7 +162,6 @@ async function meetSettingsOpen(state) {
 // rest in a dialog (ui/meeting-importers.js).
 const MEET_SOURCES = [
   {id: 'granola', name: 'Granola'},
-  {id: 'fireflies', name: 'Fireflies'},
   {id: 'zoom', name: 'Zoom', logo: 'zoom'},
   {id: 'google-meet', name: 'Google Meet', logo: 'google'},
   {id: 'close', name: 'Close'},

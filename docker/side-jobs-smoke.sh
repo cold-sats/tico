@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Proves a runner container runs the side jobs the hub assigns to it: the Fireflies importer starts when
-# the owner enables it for this computer (no Fireflies key is needed: the importer starting is what shows,
+# Proves a runner container runs the side jobs the hub assigns to it: the Zoom importer starts when
+# the owner enables it for this computer (no Zoom key is needed: the importer starting is what shows,
 # by reporting missing_credentials), and stops again when it is switched off. Own network and volumes, no
 # host port, so it can run beside docker/smoke.sh.
 #   TICO_IMAGE=tico TICO_TAG=local TICO_RUNNER_IMAGE=tico-runner docker/side-jobs-smoke.sh
@@ -37,7 +37,7 @@ importer_stopped() { ! importer_running; }
 reported() {
   api "$url/meeting-importers" | python3 -c '
 import json, sys
-row = next(r for r in json.load(sys.stdin)["importers"] if r["source"] == "fireflies")
+row = next(r for r in json.load(sys.stdin)["importers"] if r["source"] == "zoom")
 sys.exit(0 if row["error_code"] == "missing_credentials" and row["runner_label"] == "Side jobs runner" else 1)'
 }
 
@@ -55,15 +55,15 @@ retry 120 runner_id || fail "the runner did not enroll"
 id="$(runner_id)"
 importer_stopped || fail "the importers job runs with nothing assigned"
 
-step "assigning Fireflies to this computer starts the importers job"
+step "assigning Zoom to this computer starts the importers job"
 api -X POST -H "Idempotency-Key: side-$RANDOM$RANDOM$SECONDS" \
-  -d "{\"enabled\": true, \"runner_id\": \"$id\"}" "$url/meeting-importers/fireflies" >/dev/null
+  -d "{\"enabled\": true, \"runner_id\": \"$id\"}" "$url/meeting-importers/zoom" >/dev/null
 retry 60 importer_running || fail "the importers job did not start"
 retry 90 reported || fail "the importer did not report its status to the hub"
 
 step "switching it off stops the job, and the runner stays up"
 api -X POST -H "Idempotency-Key: side-$RANDOM$RANDOM$SECONDS" \
-  -d '{"enabled": false, "runner_id": ""}' "$url/meeting-importers/fireflies" >/dev/null
+  -d '{"enabled": false, "runner_id": ""}' "$url/meeting-importers/zoom" >/dev/null
 retry 60 importer_stopped || fail "the importers job kept running after it was unassigned"
 docker exec "$runner" pgrep -f 'python -m runner .* run$' >/dev/null || fail "the runner itself stopped"
 docker logs "$runner" 2>&1 | grep -q 'no longer assigned here' || fail "the runner did not log stopping the job"

@@ -41,7 +41,7 @@ class ImporterService:
 
     def assigned(self):
         if self.only:
-            return [self.only]
+            return [self.only] if self.only in REGISTRY else []
         rows = (self.client.get("runners/importers") or {}).get("importers") or []
         return [r["source"] for r in rows if isinstance(r, dict) and r.get("source") in REGISTRY]
 

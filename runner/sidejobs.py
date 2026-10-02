@@ -25,8 +25,9 @@ STOP_GRACE = 30
 
 
 def importers_wanted(client, config):
+    from .importers import REGISTRY
     rows = (client.get("runners/importers") or {}).get("importers") or []
-    return [r["source"] for r in rows if isinstance(r, dict) and r.get("source")]
+    return [r["source"] for r in rows if isinstance(r, dict) and r.get("source") in REGISTRY]
 
 
 def close_wanted(client, config):

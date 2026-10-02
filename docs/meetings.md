@@ -18,7 +18,7 @@ in the tool that made it. Media files can be attached too.
 | `hub_meeting_import` (MCP) | a human's external agent | the same fields; the agent reads the file and sends the text |
 | `POST /api/v2/meetings/import` | anything else | one JSON body, below |
 | Close | Close calls and Notetaker meetings | the `close-calls` worker on a Mac or a Linux runner; see [Close](#close) |
-| Fireflies, Zoom, Google Meet, Granola | the team's meeting tools | the `importers` job on an enrolled computer, turned on in **Tools > Meeting importers**; see [Meeting importers](#meeting-importers) |
+| Zoom, Google Meet, Granola | the team's meeting tools | the `importers` job on an enrolled computer, turned on in **Tools > Meeting importers**; see [Meeting importers](#meeting-importers) |
 
 The CLI and the API act as the human whose credential they carry: set `HUB_API_URL` and `HUB_TOKEN` to
 a personal token (see [Who can do what](#who-can-do-what)). All of them land in the same place, in the same shape, so the list, search, sharing, Send and
@@ -236,7 +236,7 @@ the others a dialog with the same form as Tools > Meeting importers (owners only
 
 ## Meeting importers
 
-Fireflies, Zoom, Google Meet and Granola each have an importer. They run as one job, `python -m runner
+Zoom, Google Meet and Granola each have an importer. They run as one job, `python -m runner
 importers`, on an enrolled computer (`scripts/tico install importers` on a Mac; a Linux runner (Docker) starts it by itself once an importer is assigned to it; the Sources strip on the
 Meetings page shows each one's health). Each importer:
 
@@ -252,7 +252,7 @@ Meetings page shows each one's health). Each importer:
 - reads a bounded window: the first pass covers the last 30 days, then each pass re-reads the last
   72 hours (summaries and transcripts arrive late) and moves on. A meeting still being transcribed
   keeps the window from passing it for up to seven days. For older history, stop the job and run
-  `python -m runner importers --backfill-days DAYS [--only fireflies|zoom|google-meet|granola]`
+  `python -m runner importers --backfill-days DAYS [--only zoom|google-meet|granola]`
   (1 to 365; Google Meet keeps only 30 days, so it is capped there); it makes one pass and exits;
 - files a meeting for the roster human it belongs to. A human who is not on the roster is filed
   under the team owner, except Granola, which skips notes it cannot place, because those are
@@ -271,7 +271,7 @@ the runner user, then assign the importer to that computer. `Tico side jobs:` li
 Options every importer's file accepts: `<TOOL>_PRIVATE=1` files its meetings as private (readable by
 their participants and the owner) and `<TOOL>_PRIVATE=0` files them for the team. The default is
 team-readable except Granola, which defaults to private. A credential can also be set in the job's
-environment (for example `FIREFLIES_API_KEY`), which wins over the file.
+environment (for example `GRANOLA_API_KEY`), which wins over the file.
 
 Errors the card can show: `missing_credentials` (the file or a key is missing), `auth_failed` (the tool
 refused it), `forbidden` (a scope or plan feature is missing), `rate_limited` (the importer retries on
@@ -283,28 +283,11 @@ recorded-shape fixtures and no network.
 
 ### Fireflies
 
-Fireflies' GraphQL API (`https://api.fireflies.ai/graphql`) with a personal API key. Each key reads its
-own holder's transcripts (`mine: true`), so the meeting is filed for the human who made the key.
-
-1. In Fireflies open **Integrations > Fireflies API** and copy the API key (one per human).
-2. On the computer that runs the importer, create `secrets/fireflies.env`:
-   ```
-   FIREFLIES_API_KEY=your-key
-   ```
-   Several humans' keys can be listed separated by commas; each is read and filed for its own holder.
-3. Enable **Fireflies** in Settings and choose that computer.
-
-The importer lists transcripts a day at a time (`transcripts(fromDate, toDate, limit, skip)`), then
-fetches each one for its sentences, attendees and summary. Title, date, participants (emails when
-Fireflies has them), sentences with speaker and time (joined into turns), the summary (overview, action
-items, outline) as notes, the Fireflies page as the recording link, and the meeting and audio links as
-context are imported. Fireflies' audio link expires after a day, so treat it as a hint. A transcript
-with no sentences yet is retried. Fireflies limits calls by plan (50 a day on Free, 500 on Pro, 60 a
-minute on Business and Enterprise), so this importer polls every 15 minutes.
-*Verified from docs.fireflies.ai:* endpoint, Bearer auth, `transcripts` arguments (`limit` at most 50,
-`skip`, `fromDate`, `toDate`, `mine`), the `Transcript`, `Sentence` and `MeetingAttendee` fields and
-units, and the `auth_failed` and `too_many_requests` errors. Fireflies documents `duration` in minutes
-in its schema; the importer only uses it when it agrees with the transcript's own length.
+Fireflies is no longer available as an importer. Existing Fireflies meetings keep their source
+label, transcripts, notes, attachments and recording links, and remain searchable and readable.
+Saved importer settings and local credential files are retained, but the server no longer assigns
+Fireflies to a computer and an updated runner does not run it. An older settings page can still
+switch it off; enabling it returns an unavailable message.
 
 ### Zoom
 
@@ -504,10 +487,10 @@ Settings. The steps below are the same whether it is a module or a standalone sc
      each meeting. See `runner/importers/base.py` (or `runner/close_calls.py`) for the shape (a poll
      loop, a cursor in the runner's state database, a heartbeat, `CodeWatch` to restart on new code)
      and `clients/tico.py` for the client.
-2. **Choose a `source` name** (`granola`, `fireflies`...). It is a label on the meeting, a filter on
+2. **Choose a `source` name** (`granola`, `zoom`...). It is a label on the meeting, a filter on
    the page and part of the idempotency key. Do not reuse another tool's name.
 3. **Choose `external_id` as the tool's own stable id** for the meeting (Zoom's meeting UUID, the
-   Fireflies transcript id). Never a timestamp or a hash of the text, or an edited transcript will
+   Granola note id). Never a timestamp or a hash of the text, or an edited transcript will
    arrive as a second meeting.
 4. **Map the fields.**
 

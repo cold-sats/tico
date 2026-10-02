@@ -1,6 +1,6 @@
 """Meeting importers that run on an enrolled computer and file through the hub's import API."""
 
-REGISTRY = {"fireflies": ("fireflies", "Fireflies"), "granola": ("granola", "Granola"),
+REGISTRY = {"granola": ("granola", "Granola"),
             "zoom": ("zoom", "Zoom"), "google-meet": ("google_meet", "GoogleMeet")}
 
 

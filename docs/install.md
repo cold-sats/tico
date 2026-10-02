@@ -508,10 +508,10 @@ to the computer, write a `.env` next to it with `TICO_URL=https://tico.example.c
 `importers` and `close-calls` jobs that a Mac runs as launchd jobs, as children of the runner with restart and backoff,
 and only while they are wanted:
 
-- *Meeting importers* (Fireflies, Zoom, Google Meet, Granola): in **Tools > Meeting importers**
+- *Meeting importers* (Zoom, Google Meet, Granola): in **Tools > Meeting importers**
   tick **Enabled** and choose this computer. The job starts within a minute and stops again when you switch it off
   or pick another computer. Put the tool's credential in the runner's secrets folder, for example
-  `docker exec '<container-name>' sh -c 'umask 077; printf "%s\n" "FIREFLIES_API_KEY=<key>" | tee /home/runner/workspace/secrets/fireflies.env >/dev/null'`
+  `docker exec '<container-name>' sh -c 'umask 077; printf "%s\n" "GRANOLA_API_KEY=<key>" | tee /home/runner/workspace/secrets/granola.env >/dev/null'`
   (the file names are in [meetings](meetings.md#meeting-importers)); `docker exec '<container-name>' python -m runner
   --config /home/runner/runner.json importers-doctor` says which are present.
 - *Close calls*: put `CLOSE_API_KEY=<key>` in `/home/runner/workspace/secrets/close-calls.env` the same way. The job

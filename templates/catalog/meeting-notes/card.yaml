@@ -28,7 +28,7 @@ never:
   - "Write up a private meeting or one on the restricted list"
 prerequisites:
   - tool: meetings
-    why: "A Fireflies, Zoom, Google Meet or Granola importer (or manual imports) puts meetings into Tico. Without transcripts there is nothing to write up."
+    why: "A Zoom, Google Meet or Granola importer (or manual imports) puts meetings into Tico. Without transcripts there is nothing to write up."
     required: true
   - tool: chat
     why: "Optional. Lets a requested summary be posted to an internal channel. Without it, summaries go to humans as messages."

@@ -91,7 +91,7 @@ def main(argv=None):
     p.add_argument("--backfill-days", type=int, metavar="DAYS",
                    help="Run one bounded historical transcript sync, then exit (1–365 days)")
     sub.add_parser("close-calls-doctor", help="Check the local Close transcript credential without provider calls")
-    p = sub.add_parser("importers", help="Run the meeting importers (Fireflies, Zoom, Google Meet, Granola) assigned to this machine")
+    p = sub.add_parser("importers", help="Run the meeting importers (Zoom, Google Meet, Granola) assigned to this machine")
     p.add_argument("--backfill-days", type=int, metavar="DAYS",
                    help="Run one bounded historical sync, then exit (1–365 days)")
     p.add_argument("--only", choices=sorted(importers.REGISTRY), help="Run just this importer")
