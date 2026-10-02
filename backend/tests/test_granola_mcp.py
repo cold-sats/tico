@@ -646,10 +646,8 @@ def test_a_gzipped_answer_from_granola_is_read_once():
     body = gzip.compress(json.dumps({"client_id": "zipped"}).encode())
     transport = httpx.MockTransport(lambda request: httpx.Response(
         200, headers={"Content-Encoding": "gzip", "Content-Type": "application/json"}, content=body))
-    client = granola_mcp.GranolaMCP.__new__(granola_mcp.GranolaMCP)
+    from types import SimpleNamespace
+    client = granola_mcp.GranolaMCP(SimpleNamespace(state=SimpleNamespace(store=None)))
     client.transport = transport
-    async def no_pace():
-        return None
-    client.pace = no_pace
     response = asyncio.run(client.http("POST", granola_mcp.AUTH + "/oauth2/register", json={}))
     assert granola_mcp.GranolaMCP.payload(response) == {"client_id": "zipped"}

@@ -91,12 +91,12 @@ function meetReviewTabs(state) {
 }
 function meetReviewBulk(state) {
   const el = $('#meet-review-bulk'); if (!el) return;
-  el.hidden = state.review !== 'pending' || !state.list.length;
-  const visible = meetVisible(state), selected = state.checked.size;
+  const visible = meetVisible(state), selected = visible.filter(r => state.checked.has(r.id)).length;
+  el.hidden = state.review !== 'pending' || !visible.length;
   el.innerHTML = `<label><input type="checkbox" id="meet-select-all" aria-label="Select visible meetings"${visible.length && visible.every(r => state.checked.has(r.id)) ? ' checked' : ''}> Select all</label>
-    <span class="muted">${selected ? `${selected} selected` : `${state.list.length} pending`}</span><span class="spacer"></span>
-    <button class="primary" type="button" data-review-bulk="approve_all">${selected ? 'Share selected' : 'Share all'}</button>
-    <button class="ghost" type="button" data-review-bulk="dismiss_all">${selected ? 'Dismiss selected' : 'Dismiss all'}</button>`;
+    <span class="muted">${selected ? `${selected} selected` : `${visible.length} visible`}</span><span class="spacer"></span>
+    <button class="primary" type="button" data-review-bulk="approve_all">${selected ? 'Share selected' : 'Share visible'}</button>
+    <button class="ghost" type="button" data-review-bulk="dismiss_all">${selected ? 'Dismiss selected' : 'Dismiss visible'}</button>`;
   $('#meet-select-all').onchange = e => { for (const r of visible) e.target.checked ? state.checked.add(r.id) : state.checked.delete(r.id); meetList(state); };
   el.querySelectorAll('[data-review-bulk]').forEach(b => b.onclick = () => meetReviewAct(state, b, b.dataset.reviewBulk));
 }
@@ -108,9 +108,12 @@ function meetReviewWire(state, host) {
 }
 async function meetReviewAct(state, button, action, id) {
   if (state.reviewBusy) return;
+  const visible = id ? [] : meetVisible(state).map(r => r.id);
+  const selected = visible.filter(id => state.checked.has(id));
+  if (!id && !visible.length) return;
   state.reviewBusy = true; button.disabled = true;
   const body = {action};
-  if (!id && state.checked.size) body.ids = [...state.checked];
+  if (!id) body.ids = selected.length ? selected : visible;
   const privacy = id && button.closest('#notes-detail')?.querySelector('#meet-review-private');
   if (action === 'approve' && privacy) body.private = privacy.value === 'private';
   try {

@@ -34,7 +34,9 @@ Pending is quiet: it does not add to **Needs you**. Existing meetings stay live 
 In Meetings, **Shared** keeps the existing live list; **Pending** and **Dismissed** show only
 meetings filed for you. Open a pending meeting to read it and choose Team or Private before
 sharing, or use the row's Share button to keep its source privacy. Select rows for Share selected
-or Dismiss selected; Share all and Dismiss all apply to your pending queue. Restore in Dismissed
+or Dismiss selected; Share visible and Dismiss visible apply only to meetings shown by the current
+search and filters. Hidden meetings are never included, even if previously selected. Bulk sharing
+keeps each meeting's source privacy. Restore in Dismissed
 returns a meeting to Pending. **Settings** controls future imports and, for the owner, the Team default.
 Human **Add notes** stays live, including a pasted or uploaded transcript; a human API caller
 can also choose `review: "live"`. Computer importers keep using the same payloads: the server
@@ -69,7 +71,8 @@ meeting has `review_state` (`pending`, `live` or `dismissed`). The rail's existi
 The same preference is available at `GET`/`POST /api/v2/preferences/meetings.auto_share`, using
 the existing `{"value": true|false}` body. Only the owner can set the Team default through
 `POST /api/v2/meetings/settings {"review_default": "auto"}`; its initial value is `review`.
-A person's choice wins. Turning auto-share on leaves their existing queue pending: use Share all.
+A person's choice wins. Turning auto-share on leaves their existing queue pending: use Share visible
+to approve the meetings shown, or the explicit whole-queue CLI/API action.
 
 CLI: `hub meeting pending`, `hub meeting approve <id>` or `hub meeting approve --all`,
 `hub meeting dismiss <id>`, and `hub meeting restore <id>`. MCP equivalents are
@@ -412,12 +415,15 @@ transcript requests for that sync.
 Granola's XML-like responses accept introductory text, bare participant emails and markdown containing `<` and `&`;
 shared summaries retain their markdown. Dates such as `Feb 4, 2026 7:30 PM` and `Feb 4, 2026` are
 treated as UTC. Unknown dates do not prevent importing a meeting's notes.
-Calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
+MCP calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
+OAuth calls have a separate paced queue so Connect and sign-in polling can finish while imports run.
 Notes are fetched in batches of up to ten, at least six seconds apart per connection, including
 individual requests used to recover from a failed batch. Rate limits allow up to four attempts at
 the same request, using Granola's `Retry-After` when supplied or waits of 15, 30 and 60 seconds. If the limit
 persists, the sync stops with `rate_limited: get_meetings`, retains its checkpoint and does not count
-the blocked meetings as skipped. The next sync resumes from that checkpoint. The first free-plan
+the blocked meetings as skipped. Each attempt resets its skipped count. A rate-limited sync retries
+in about five minutes, or later when Granola supplies a longer `Retry-After`, and resumes from that
+checkpoint. The first free-plan
 sync requests `last_30_days` when supported; otherwise it uses a custom date range.
 Disconnect cancels an active sync and removes the stored token promptly; revocation is attempted in
 background when Granola advertises a trusted endpoint. Connections are removed when a person leaves
@@ -437,8 +443,11 @@ The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use th
 rights; BotOps can give the Meetings link but cannot complete the browser sign-in.
 
 The account sync matches existing meetings by person and Granola ID, then by the Granola web URL
-when the IDs differ, and fills only empty fields. Existing titles, calendar times, attendees, notes,
-privacy settings and transcripts are preserved.
+when the IDs differ, and fills only empty fields. Summaries written by the account sync can update
+when Granola regenerates them, provided the stored summary still matches the last source version.
+Human logs, edited summaries, API-imported notes, existing titles, calendar times, attendees,
+privacy settings and transcripts are preserved. Older summaries without recorded source ownership
+are kept as-is.
 
 **Granola API key (Business/Enterprise)** remains an alternative for a Computer importer. Both
 connections use the same source. Account sync deduplicates by external meeting ID or the shared

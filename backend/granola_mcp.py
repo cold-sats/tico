@@ -27,6 +27,7 @@ MCP = "https://mcp.granola.ai/mcp"
 AUTH = "https://mcp-auth.granola.ai"
 SCOPES = "openid profile email offline_access mcp"
 SCHEDULE = 25 * 60
+RATE_LIMIT_RETRY = 5 * 60
 DEBOUNCE = 120
 GET_MEETINGS_INTERVAL = 6
 log = logging.getLogger(__name__)
@@ -47,9 +48,13 @@ class GranolaMCP:
         self.clock = time.time
         self.sleep = asyncio.sleep
         self.locks, self.jobs = weakref.WeakValueDictionary(), {}
+        self.connection_locks = weakref.WeakValueDictionary()
+        self.changing_connections = set()
         self.registration_lock = asyncio.Lock()
         self.pace_lock = asyncio.Lock()
+        self.oauth_pace_lock = asyncio.Lock()
         self.next_call = 0
+        self.next_oauth_call = 0
         self.starts = {}
         self.revocations = set()
 
@@ -116,7 +121,14 @@ class GranolaMCP:
                       (ciphertext, nonce, encode(meta), row["actor"], row["id"]))
 
     async def http(self, method, url, meeting_meta=None, **kwargs):
-        if meeting_meta is None:
+        if url.startswith(AUTH + "/"):
+            # OAuth has its own small queue, so sign-in never waits behind background MCP traffic.
+            async with self.oauth_pace_lock:
+                wait = self.next_oauth_call - self.clock()
+                if wait > 0:
+                    await self.sleep(wait)
+                self.next_oauth_call = self.clock() + 1.05
+        elif meeting_meta is None:
             await self.pace()
         else:
             await self.pace(meeting_meta)
@@ -174,6 +186,21 @@ class GranolaMCP:
             return client_id
 
     async def connect(self, who):
+        async with self.connection_locks.setdefault(who.actor, asyncio.Lock()):
+            self.changing_connections.add(who.actor)
+            try:
+                await self.cancel_sync(who.actor)
+                return await self.start_signin(who)
+            finally:
+                self.changing_connections.discard(who.actor)
+
+    async def cancel_sync(self, actor):
+        task = self.jobs.get(actor)
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def start_signin(self, who):
         async with self.lock(who.actor):
             client_id = await self.client_id()
             for attempt in range(2):
@@ -255,6 +282,9 @@ class GranolaMCP:
         return None
 
     async def poll(self, who):
+        meta = await asyncio.to_thread(self.metadata, who.actor)
+        if meta.get("state") != "pending":
+            return {"state": meta.get("state", "off"), **await asyncio.to_thread(self.status, who)}
         async with self.lock(who.actor):
             saved = await asyncio.to_thread(self.load, who.actor)
             if not saved:
@@ -317,7 +347,7 @@ class GranolaMCP:
                 "grant_type": "refresh_token", "client_id": secret["client_id"],
                 "refresh_token": secret["refresh_token"], "resource": MCP})
             if response.status_code == 429:
-                raise GranolaError("rate_limited")
+                raise GranolaError("rate_limited", retry_after=self.retry_delay(response))
             if response.status_code >= 500:
                 raise GranolaError("unreachable")
             value = self.payload(response)
@@ -356,10 +386,15 @@ class GranolaMCP:
             pass
 
     async def disconnect(self, who):
-        task = self.jobs.get(who.actor)
-        if task:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        async with self.connection_locks.setdefault(who.actor, asyncio.Lock()):
+            self.changing_connections.add(who.actor)
+            try:
+                await self.cancel_sync(who.actor)
+                return await self.remove_connection(who)
+            finally:
+                self.changing_connections.discard(who.actor)
+
+    async def remove_connection(self, who):
         async with self.lock(who.actor):
             try:
                 saved = await asyncio.to_thread(self.load, who.actor)
@@ -406,7 +441,7 @@ class GranolaMCP:
                 continue
             if response.status_code == 429:
                 delay = self.retry_delay(response)
-                if meetings:
+                if meetings or attempt == 3:
                     raise GranolaError("rate_limited", retry_after=delay)
                 await self.sleep(delay if delay is not None else 2 ** (attempt + 1))
                 continue
@@ -457,7 +492,7 @@ class GranolaMCP:
                                    ("permission", "paid", "upgrade", "forbidden", "not authorized", "access denied"))
                                    else "provider_error")
             return result
-        raise GranolaError("rate_limited")
+        raise GranolaError("rate_limited", retry_after=self.retry_delay(response))
 
     async def refresh_for_sync(self, row, meta, secret):
         try:
@@ -688,6 +723,8 @@ class GranolaMCP:
 
     async def sync(self, actor):
         async with self.lock(actor):
+            if actor in self.changing_connections:
+                return
             who = Identity(actor, "human")
             if not await asyncio.to_thread(self.eligible, who):
                 try:
@@ -705,15 +742,13 @@ class GranolaMCP:
             if meta["state"] != "connected":
                 return
             who = Identity(actor, "human", row["email"])
-            meta["last_attempt"] = self.clock()
+            meta.update(last_attempt=self.clock(), skipped=0)
             await asyncio.to_thread(self.save, row, meta, secret)
             step = "initialize"
             skipped_error = None
-            previous_skipped = meta.get("skipped", 0)
             try:
                 meta["transcripts_unavailable"] = False
                 meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else meta.get("account_plan_hint", "free")
-                meta["skipped"] = 0
                 transcript_errors = 0
                 session = {}
                 initialized = await self.rpc(row, meta, secret, session, "initialize", {
@@ -740,7 +775,10 @@ class GranolaMCP:
                             "name": "get_account_info", "arguments": self.arguments(tools["get_account_info"], {})})
                         meta.update(self.account_details(result))
                         meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else meta.get("account_plan_hint", "free")
-                    except (GranolaError, TypeError, ValueError, AttributeError):
+                    except GranolaError as exc:
+                        if exc.code == "needs_signin":
+                            raise
+                    except (TypeError, ValueError, AttributeError):
                         pass
                 until = datetime.fromtimestamp(self.clock(), timezone.utc)
                 since = meta.get("cursor") or (until - timedelta(days=30)).isoformat()
@@ -828,14 +866,18 @@ class GranolaMCP:
                                 transcript_errors = 0
                                 meta.update(transcript_succeeded=True, plan_hint="paid")
                             except Exception as exc:
+                                if isinstance(exc, GranolaError) and exc.code in ("needs_signin", "rate_limited", "unreachable"):
+                                    raise
                                 transcript = ""
-                                transcript_errors += 1
+                                # Missing/malformed transcripts are not evidence of a free account.
                                 if isinstance(exc, GranolaError) and exc.code == "transcripts_unavailable":
                                     meta["transcripts_unavailable"] = True
                                     meta.pop("transcript_succeeded", None)
-                                elif transcript_errors >= 3:
-                                    meta["transcripts_unavailable"] = True
-                                meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else meta.get("account_plan_hint", "free")
+                                    meta["plan_hint"] = "free"
+                                else:
+                                    transcript_errors += 1
+                                    if transcript_errors >= 3:
+                                        meta["transcripts_unavailable"] = True
                         step = "import_meeting"
                         try:
                             item = self.item(note, transcript)
@@ -876,11 +918,10 @@ class GranolaMCP:
                 if exc.code == "needs_signin":
                     return
                 meta["last_error"] = failure
-                if exc.code == "rate_limited" and step == "get_meetings" and not meta["skipped"]:
-                    # An attempt blocked by throttling has no new skipped-meeting count to report.
-                    meta["skipped"] = previous_skipped
                 meta["failures"] = min(meta.get("failures", 0) + 1, 4)
-                meta["retry_after"] = self.clock() + SCHEDULE * 2 ** (meta["failures"] - 1)
+                delay = (max(RATE_LIMIT_RETRY, exc.retry_after or 0) if exc.code == "rate_limited"
+                         else SCHEDULE * 2 ** (meta["failures"] - 1))
+                meta["retry_after"] = self.clock() + delay
             except Exception:
                 # In particular never persist validation errors containing provider data.
                 meta["last_error"] = "sync_error: " + step
@@ -888,6 +929,8 @@ class GranolaMCP:
             await asyncio.to_thread(self.save, row, meta, secret)
 
     async def trigger(self, who, interval=DEBOUNCE):
+        if who.actor in self.changing_connections:
+            return {"state": "off", "last_sync": None}
         if not await asyncio.to_thread(self.eligible, who):
             await self.disconnect(who)
             return {"state": "off", "last_sync": None}
@@ -900,12 +943,16 @@ class GranolaMCP:
             meta = await asyncio.to_thread(self.metadata, who.actor)
         if not meta or meta["state"] != "connected":
             return {"state": "needs_signin" if status["needs_signin"] else "off", "last_sync": status["last_sync"]}
-        if self.clock() - max(meta.get("last_attempt", 0), meta.get("last_finished", 0)) < interval:
+        throttled = (meta.get("last_error") or "").startswith("rate_limited:")
+        retry_at = meta.get("retry_after", 0) if interval == SCHEDULE or throttled else 0
+        if retry_at and self.clock() < retry_at:
+            return {"state": "recent", "last_sync": status["last_sync"]}
+        if not retry_at and self.clock() - max(meta.get("last_attempt", 0), meta.get("last_finished", 0)) < interval:
             return {"state": "recent", "last_sync": status["last_sync"]}
         if who.actor in self.jobs:
             return {"state": "syncing", "last_sync": status["last_sync"]}
-        if interval == SCHEDULE and self.clock() < meta.get("retry_after", 0):
-            return {"state": "recent", "last_sync": status["last_sync"]}
+        if who.actor in self.changing_connections:
+            return {"state": "off", "last_sync": status["last_sync"]}
         def record_failure():
             with self.store.transaction() as c:
                 row = c.execute("SELECT metadata_json FROM granola_connections WHERE actor=?", (who.actor,)).fetchone()
