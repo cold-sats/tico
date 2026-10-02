@@ -9,8 +9,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 from runner import profiles
 from runner.service import Runner
+
+
+def test_profile_add_does_not_persist_a_derived_state_directory(tmp_path, monkeypatch):
+    import json
+    from runner import __main__ as cli
+
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"runner_id": "test-registration"}))
+    monkeypatch.setattr(cli.mail_key, "carry_protected", lambda *args: pytest.fail("profile add must only add a profile"))
+    cli.main(["--config", str(config), "profile", "add", "team", "--share-operator"])
+    stored = json.loads(config.read_text())
+    assert "state_dir" not in stored
+    assert stored["default_profile"] == "team" and "team" in stored["profiles"]
+
 
 BOT = {"bot": "sales", "id": "a1", "token": "t", "config": {"runtime": "codex"},
        "conversation": {"id": "c1"}}

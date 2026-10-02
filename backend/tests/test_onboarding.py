@@ -401,17 +401,38 @@ def test_the_config_says_when_the_server_is_a_container_so_first_run_offers_a_li
     assert onboarding.running_in_docker() is True
 
 
-def test_enrollment_does_not_auto_assign_archived_or_draining_bots(environment):
+@pytest.mark.parametrize("state,draining", [("active", 1), ("paused", 0), ("paused", 1)])
+def test_enrollment_places_paused_and_draining_bots_but_skips_archived(environment, state, draining):
+    from backend import onboarding
     api = environment(seed={"ana": {"name": "Ana", "status": "active", "template": "assistant"},
                             "sam": {"name": "Sam", "status": "archived", "template": "assistant"},
-                            "waiting": {"name": "Waiting", "status": "active", "template": "assistant"}})
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO bot_control(bot,draining) VALUES('waiting',1)")
-    computer = machine(api)
+                            "waiting": {"name": "Waiting", "status": state, "template": "assistant"}})
     placement = api.app.state.execution.runner_enrolled.__self__
     with api.app.state.store.transaction() as c:
-        assert placement.assign_pending(c, computer["runner_id"]) == ["ana"]
-        rows = c.execute("SELECT bot,runner_id FROM assignments").fetchall()
-        assert [(row["bot"], row["runner_id"]) for row in rows] == [("ana", computer["runner_id"])]
+        c.execute("INSERT INTO bot_control(bot,draining) VALUES('waiting',?)", (draining,))
+        if draining:
+            H.event(c, "system:deploy", "bot.drain", "waiting", {"release": "test-release"})
+        record = onboarding.load(c)
+        record["completed"] = H.now()
+        placement._store(c, record, placement.auth.owner_identity(c).actor)
+    computer = machine(api)
+    with api.app.state.store.transaction() as c:
+        assert placement.assign_pending(c, computer["runner_id"]) == []
+        rows = c.execute("SELECT bot,runner_id FROM assignments ORDER BY bot").fetchall()
+        assert [(row["bot"], row["runner_id"]) for row in rows] == [
+            ("ana", computer["runner_id"]), ("waiting", computer["runner_id"])]
         assert c.execute("SELECT state FROM bots WHERE slug='sam'").fetchone()[0] == "archived"
-        assert c.execute("SELECT draining FROM bot_control WHERE bot='waiting'").fetchone()[0] == 1
+        assert c.execute("SELECT state FROM bots WHERE slug='waiting'").fetchone()[0] == state
+        assert c.execute("SELECT draining FROM bot_control WHERE bot='waiting'").fetchone()[0] == draining
+
+
+def test_automatic_placement_includes_legacy_config_without_a_bot_row(environment):
+    api = environment(seed={})
+    computer = machine(api)
+    placement = api.app.state.execution.runner_enrolled.__self__
+    with api.app.state.store.read() as c:
+        c.execute("PRAGMA foreign_keys=OFF")  # legacy databases can contain rows predating these constraints
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('legacy',?,?)",
+                  (encode({"template": "assistant"}), placement.auth.owner_id(c)))
+        assert placement.assign_pending(c, computer["runner_id"]) == ["legacy"]
+        assert c.execute("SELECT runner_id FROM assignments WHERE bot='legacy'").fetchone()[0] == computer["runner_id"]

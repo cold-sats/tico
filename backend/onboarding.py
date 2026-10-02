@@ -579,8 +579,7 @@ class Onboarding:
         computer = c.execute("SELECT operator,accepts_member_bots FROM runners WHERE id=? AND revoked_at IS NULL",
                              (runner_id,)).fetchone()
         for row in c.execute("SELECT bc.bot,bc.config_json,bc.operator FROM bot_config bc "
-                             "JOIN bots b ON b.slug=bc.bot WHERE b.state<>'archived' "
-                             "AND NOT EXISTS(SELECT 1 FROM bot_control ctl WHERE ctl.bot=bc.bot AND ctl.draining=1) "
+                             "LEFT JOIN bots b ON b.slug=bc.bot WHERE COALESCE(b.state,'active')<>'archived' "
                              "ORDER BY bc.bot").fetchall():
             if not (_json(row["config_json"], {}) or {}).get("template"):
                 continue
