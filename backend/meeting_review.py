@@ -25,7 +25,7 @@ class ReviewSettings(M.Contract):
 
 
 def install_meeting_review(app, store, auth, mutate):
-    def apply(c, who, rid, action, private=None):
+    def validate(c, who, rid, action):
         human_only(who)
         record = media.authorized(c, who, rid)
         if not meetings.filed_for(record, who):
@@ -33,11 +33,21 @@ def install_meeting_review(app, store, auth, mutate):
         meta = record['metadata']
         target = {'approve': 'live', 'dismiss': 'dismissed', 'restore': 'pending'}[action]
         if meta['review_state'] == target:
-            return media.view(c, who, rid)
+            return record
         if action == 'approve' and meta['review_state'] != 'pending':
             raise Problem('review', 'Restore this meeting to Pending before sharing it', 409)
         if action == 'restore' and meta['review_state'] != 'dismissed':
             raise Problem('review', 'Only a dismissed meeting can be restored', 409)
+        if action == 'dismiss' and meta['review_state'] != 'pending':
+            raise Problem('review', 'Only a pending meeting can be dismissed', 409)
+        return record
+
+    def apply(c, who, rid, action, private=None):
+        record = validate(c, who, rid, action)
+        meta = record['metadata']
+        target = {'approve': 'live', 'dismiss': 'dismissed', 'restore': 'pending'}[action]
+        if meta['review_state'] == target:
+            return media.view(c, who, rid)
         meta['review_state'] = target
         if action == 'approve':
             meta['reviewed_at'] = H.now()
@@ -111,11 +121,10 @@ def install_meeting_review(app, store, auth, mutate):
                 "WHERE m.review_state='pending' AND lower(m.owner)=? AND mc.deleted_at IS NULL ORDER BY m.created,m.id",
                 (who.email.lower(),))]
             # Validate the whole selection before publishing any of it.
+            action = 'approve' if body.action == 'approve_all' else 'dismiss'
             for rid in ids:
-                record = media.authorized(c, who, rid)
-                if not meetings.filed_for(record, who):
-                    raise Problem('forbidden', 'Only your own meetings may be reviewed', 403)
-            rows = [apply(c, who, rid, 'approve' if body.action == 'approve_all' else 'dismiss') for rid in ids]
+                validate(c, who, rid, action)
+            rows = [apply(c, who, rid, action) for rid in ids]
             return {'meetings': rows, 'count': len(rows), 'pending_count': meetings.pending_count(c, who)}
         return mutate(request, body, work)
 

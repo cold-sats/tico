@@ -31,6 +31,11 @@ they are filed for can open that queue or review a meeting, including through th
 acting with their rights. The Team owner, participants, other people and bots cannot see pending
 or dismissed meetings. They do not appear in search, SQL exports, routines, Updates or KPIs.
 Pending is quiet: it does not add to **Needs you**. Existing meetings stay live after upgrade.
+In Meetings, **Shared** keeps the existing live list; **Pending** and **Dismissed** show only
+meetings filed for you. Open a pending meeting to read it and choose Team or Private before
+sharing, or use the row's Share button to keep its source privacy. Select rows for Share selected
+or Dismiss selected; Share all and Dismiss all apply to your pending queue. Restore in Dismissed
+returns a meeting to Pending. **Settings** controls future imports and, for the owner, the Team default.
 Human **Add notes** stays live, including a pasted or uploaded transcript; a human API caller
 can also choose `review: "live"`. Computer importers keep using the same payloads: the server
 decides the review state for the person named in `owner_email`.
@@ -45,7 +50,8 @@ meeting has `review_state` (`pending`, `live` or `dismissed`). The rail's existi
   Omit `private` to keep its source default: Granola is private by default; other sources are team
   meetings unless their importer chose private. A team meeting with a transcript fires
   `meeting.ready` and the older `recording.ready` once. Repeating approval does not fire again.
-- The same route with `{"action": "dismiss"}` hides it from Pending. Later syncs may update its
+- The same route with `{"action": "dismiss"}` hides a pending meeting from Pending. Live meetings cannot be
+  dismissed; existing deletion controls remain available. Later syncs may update its
   contents but keep it dismissed under the same dedup key. `{"action": "restore"}` brings a
   dismissed meeting back to Pending. Re-import never shares a pending or dismissed meeting,
   and source syncs preserve the privacy chosen at approval.
@@ -53,6 +59,8 @@ meeting has `review_state` (`pending`, `live` or `dismissed`). The rail's existi
   `dismiss_all` dismisses it. Optional `ids` selects meetings filed for that caller; an empty
   list does nothing. Batch sharing keeps each source's privacy. A selection containing someone
   else's meeting is refused as a whole. The answer has `meetings`, `count` and `pending_count`.
+  Invalid transitions refuse the entire batch. Repeated approval of live meetings, dismissal of
+  dismissed meetings and restore of pending meetings are harmless and never repeat ready events.
 
 `GET /api/v2/meetings/settings` returns `auto_share` (the person's choice, or `null` when unset),
 `review_default` (`review` or `auto`) and `effective_auto_share` (a boolean).

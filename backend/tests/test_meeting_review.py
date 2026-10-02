@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from backend import hubdb as H, meetings
-from backend.tests.test_api import api, get, headers, post, runner, setup_attempt  # noqa: F401
+from backend.tests.test_api import api, as_member, get, headers, post, restrict, runner, setup_attempt  # noqa: F401
 from backend.tests.test_granola_mcp import Provider
 from backend.tests.test_mcp import call
 from backend.tests.test_member_bots import botops, turn  # noqa: F401
@@ -87,8 +87,8 @@ def test_approve_emits_once_and_reimports_never_undo_review_privacy(api):
     review(api, made['id'], token='ana-test')
     imported(api, token='ana-test', transcript='Sam: Corrected transcript.', private=True)
     assert get(api, 'meetings/' + made['id'])['private'] is False
-    review(api, made['id'], 'dismiss', 'ana-test')
-    review(api, made['id'], 'restore', 'ana-test')
+    post(api, f"meetings/{made['id']}/review", {'action': 'dismiss'}, expected=409)
+    assert get(api, 'meetings/' + made['id'])['review_state'] == 'live'
     review(api, made['id'], token='ana-test')
     assert len([t for t in get(api, 'tasks')['tasks'] if t['owner'] == 'bot:ops']) == 1
 
@@ -134,12 +134,14 @@ def test_legacy_hub_migration_backfills_live_and_cloud_restart_keeps_queue(api, 
     H.migrate(db)
     assert db.execute('PRAGMA user_version').fetchone()[0] == 22
     assert meetings.get('legacy', db)['review_state'] == 'live'
+    assert db.execute("SELECT 1 FROM sqlite_master WHERE name='task_file_reviews'").fetchone()
+    assert 'media_state' in {r[1] for r in db.execute('PRAGMA table_info(bot_file_versions)')}
     db.close()
     made = imported(api)
     api.app.state.store.initialize(seed_market=False)
     assert queue(api)['meetings'][0]['id'] == made['id']
     with api.app.state.store.read() as c:
-        assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=55').fetchone()
+        assert {r[0] for r in c.execute('SELECT version FROM cloud_migrations WHERE version>=53')} == {53, 54, 55}
 
 
 def test_granola_account_sync_lands_in_the_persons_pending_queue(api):
@@ -194,3 +196,79 @@ def test_close_personal_queue_and_team_wide_exception(api, filed_for, state):
         create(api, 'ops', DEBRIEF)
         assert review(api, made['id'])['review_state'] == 'live'
         assert len([t for t in get(api, 'tasks')['tasks'] if t['owner'] == 'bot:ops']) == 1
+
+
+@pytest.mark.parametrize('version', [20, 21])
+def test_released_migrations_remain_in_place(tmp_path, version):
+    db = sqlite3.connect(tmp_path / 'released.db', isolation_level=None)
+    db.row_factory = sqlite3.Row
+    for i, script in enumerate(H.MIGRATIONS[:version], 1):
+        H._apply(db, script)
+        db.execute(f'PRAGMA user_version={i}')
+    db.execute("INSERT INTO blob_locations VALUES('digest','example-bucket','2026-10-01')")
+    db.execute("INSERT INTO meetings(id,title,owner,metadata_json,created,updated) VALUES(?,?,?,?,?,?)",
+               ('released', 'Existing notes', 'ben@acme.example', '{}', H.now(), H.now()))
+    H.migrate(db)
+    assert db.execute('SELECT bucket FROM blob_locations').fetchone()[0] == 'example-bucket'
+    assert db.execute('SELECT count(*) FROM task_file_reviews').fetchone()[0] == 0
+    assert meetings.get('released', db)['review_state'] == 'live'
+    assert meetings.get('released', db)['metadata']['ready_announced'] is True
+    H.migrate(db)
+    assert db.execute('PRAGMA user_version').fetchone()[0] == 22
+    db.close()
+
+
+def test_delayed_send_rechecks_rights_and_rolls_back_approval(api):
+    as_member(api, 'ben@acme.example')
+    made = imported(api, send_to='ops')
+    with api.app.state.store.transaction() as c:
+        restrict(c, 'ops', people=['ana'])
+    post(api, f"meetings/{made['id']}/review", {'action': 'approve'}, 'ben-test', expected=404)
+    assert queue(api)['pending_count'] == 1
+    with api.app.state.store.read() as c:
+        record = meetings.get(made['id'], c)
+        assert record['review_state'] == 'pending' and not record['delivery']
+        assert not record['metadata'].get('ready_announced')
+    with api.app.state.store.transaction() as c:
+        restrict(c, 'ops', people=['ben'])
+    approved = review(api, made['id'])
+    delivery = approved['delivery']['task_id']
+    assert delivery
+    assert review(api, made['id'])['delivery']['task_id'] == delivery
+    assert len(get(api, 'tasks', 'ben-test')['tasks']) == 1
+
+
+def test_mixed_batch_transitions_and_repeated_actions_are_atomic(api):
+    pending = imported(api)
+    live = imported(api, external_id='already-live', review='live')
+    dismissed = imported(api, external_id='already-dismissed')
+    review(api, dismissed['id'], 'dismiss')
+    post(api, 'meetings/review', {'action': 'dismiss_all', 'ids': [pending['id'], live['id']]}, 'ben-test', expected=409)
+    post(api, 'meetings/review', {'action': 'approve_all', 'ids': [pending['id'], dismissed['id']]}, 'ben-test', expected=409)
+    assert queue(api)['pending_count'] == 1
+    result = post(api, 'meetings/review', {'action': 'approve_all', 'ids': [pending['id'], live['id']]}, 'ben-test')
+    assert result['pending_count'] == 0 and result['count'] == 2
+    assert review(api, live['id'])['review_state'] == 'live'
+    assert review(api, dismissed['id'], 'dismiss')['review_state'] == 'dismissed'
+    assert review(api, dismissed['id'], 'restore')['review_state'] == 'pending'
+    assert review(api, dismissed['id'], 'restore')['review_state'] == 'pending'
+    result = post(api, 'meetings/review', {'action': 'dismiss_all', 'ids': [dismissed['id']]}, 'ben-test')
+    assert result['pending_count'] == 0
+    assert post(api, 'meetings/review', {'action': 'dismiss_all', 'ids': [dismissed['id']]}, 'ben-test')['count'] == 1
+
+
+def test_dismissed_private_content_stays_out_of_all_shared_reads(api):
+    setup(api)
+    create(api, 'ops', DEBRIEF)
+    made = imported(api)
+    review(api, made['id'], 'dismiss')
+    _, _, attempt = setup_attempt(api, bot='finance')
+    for token in ('ana-test', 'cara-test', attempt['token']):
+        assert api.get('/api/v2/meetings/' + made['id'], headers=headers(token)).status_code == 404
+        assert api.get('/api/meetings/' + made['id'] + '/versions', headers=headers(token)).status_code == 404
+        assert get(api, 'meetings/search', token)['results'] == []
+        assert api.get('/api/v2/meetings/transcript?id=' + made['id'], headers=headers(token)).status_code == 404
+        assert post(api, 'sql', {'sql': 'SELECT id FROM meetings'}, token)['rows'] == []
+    assert queue(api, 'ana-test', 'dismissed')['count'] == 0
+    assert queue(api, 'cara-test', 'dismissed')['count'] == 0
+    assert not get(api, 'tasks')['tasks']
