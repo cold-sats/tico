@@ -9,7 +9,7 @@ On macOS, open the universal `.dmg` and drag Tico to Applications. On Windows, r
 `.deb` package. A Mac build without Apple signing and notarization may need **Open Anyway**
 in System Settings > Privacy & Security on its first launch.
 
-The first launch asks for **Server address**, for example `https://tico.example.com`. Enter
+The first launch asks for the **Server** address, for example `https://tico.example.com`. Enter
 your team's address and click **Connect**. Tico checks that the server is reachable and answers
 its `/healthz` check as Tico, saves the address in the app's config folder, then opens your Team.
 Sign in as you would in a browser. HTTPS is required; `http://localhost` and `http://127.0.0.1`

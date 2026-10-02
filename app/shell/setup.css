@@ -1,14 +1,23 @@
-:root { color-scheme: light dark; font: 15px system-ui, sans-serif; --background: #fafafa; --foreground: #202024; --input: white; --border: #bfc0c8; --error: #ae2727; background: var(--background); color: var(--foreground); }
-@media (prefers-color-scheme: dark) {
-  :root { --background: #171719; --foreground: #f1f1f4; --input: #252529; --border: #55555e; --error: #ff9c9c; }
-}
-body { margin: 0; }
-main { padding: 48px 32px 28px; }
-img { display: block; margin: 0 auto 32px; }
-label { display: block; margin-bottom: 10px; font-weight: 600; }
-input, button { box-sizing: border-box; width: 100%; border-radius: 8px; font: inherit; padding: 12px; }
-input { border: 1px solid var(--border); background: var(--input); color: inherit; }
-button { border: 0; background: #5656db; color: white; font-weight: 600; cursor: pointer; }
-button:disabled { opacity: .65; cursor: wait; }
-input:focus-visible, button:focus-visible { outline: 2px solid #8585f5; outline-offset: 3px; }
-#error { min-height: 38px; margin: 10px 0; color: var(--error); font-size: 13px; }
+/* The first-launch page: Tico's gray ramp, teal accent and font stack (ui/styles/tokens.css), following the OS theme. */
+:root{
+  --bg:#121417;--surface:#191c20;--line:#2a2f36;--muted:#8a93a0;--ink:#e6e9ee;--accent:#45c09c;--accent-ink:#0b1a15;--fail:#f08080;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color-scheme:dark}
+@media (prefers-color-scheme:light){:root{
+  --bg:#ffffff;--surface:#f5f6f8;--line:#e0e3e8;--muted:#5f6874;--ink:#16191d;--accent:#0f6e56;--accent-ink:#ffffff;--fail:#c53030;
+  color-scheme:light}}
+html,body{height:100%}
+body{margin:0;font:14px/1.5 var(--sans);color:var(--ink);background:var(--bg);display:grid;place-items:center}
+main{box-sizing:border-box;width:100%;max-width:340px;padding:24px 16px}
+.mark{display:block;margin:0 0 20px}
+label{display:block;margin-bottom:6px;font-size:12px;font-weight:600;color:var(--muted)}
+input,button{box-sizing:border-box;width:100%;font:inherit;border-radius:6px}
+input{padding:8px 10px;background:var(--surface);color:var(--ink);border:1px solid var(--line)}
+input::placeholder{color:var(--muted);opacity:1}
+input:hover{border-color:color-mix(in srgb,var(--muted) 55%,var(--line))}
+input:focus{border-color:var(--accent);outline:3px solid color-mix(in srgb,var(--accent) 28%,transparent);outline-offset:0}
+#error{min-height:18px;margin:6px 0 10px;color:var(--fail);font-size:12.5px}
+button{padding:8px 14px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
+button:hover{filter:brightness(1.08)}
+button:disabled{opacity:.65;cursor:wait}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
