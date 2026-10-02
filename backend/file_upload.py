@@ -1,4 +1,5 @@
 """Incremental multipart parsing: bounded fields and private, short-lived disk spools."""
+import asyncio
 import hashlib
 import tempfile
 from contextlib import ExitStack
@@ -9,13 +10,23 @@ from python_multipart.multipart import parse_options_header
 from .store import Problem
 
 
+async def parser_work(fn, *args):
+    # A cancelled request must not close spools while a worker is still writing.
+    worker = asyncio.create_task(asyncio.to_thread(fn, *args))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        await worker
+        raise
+
+
 async def parse(request, limit, directory):
     _, options = parse_options_header(request.headers.get("content-type", ""))
     boundary = options.get(b"boundary")
     if not boundary or len(boundary) > 200:
         raise Problem("validation", "Multipart upload needs a valid boundary", 422)
     try:
-        directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+        await asyncio.to_thread(directory.mkdir, parents=True, mode=0o700, exist_ok=True)
     except OSError:
         raise Problem("blob_storage", "Upload staging is unavailable; check disk space and permissions", 503, True) from None
     stack = ExitStack()
@@ -93,8 +104,8 @@ async def parse(request, limit, directory):
         "on_part_data": data, "on_part_end": end, "on_end": complete})
     try:
         async for chunk in request.stream():
-            parser.write(chunk)
-        parser.finalize()
+            await parser_work(parser.write, chunk)
+        await parser_work(parser.finalize)
         if not finished or "file" not in files:
             fail("Send a complete multipart upload with a file field")
         return fields, files, stack

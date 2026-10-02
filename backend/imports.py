@@ -314,7 +314,7 @@ def install_imports(app, store, auth, execution, mutate):
         """File a meeting of the caller's (or of `owner_email`, from a machine), or update the one
         this source and id already made."""
         machine = request.state.identity
-        body, uploads = await form(request, MeetingImport, app.state.blobs)
+        body, uploads = await form(request, MeetingImport, app.state.blobs, store)
 
         def work(c):
             return file_meeting(c, machine, body, uploads)

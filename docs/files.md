@@ -203,3 +203,8 @@ The version's author can edit its note or question through
 ask/answer messages, so their text remains readable by older Computers.
 See [Files, versions and questions](tasks.md#files-versions-and-questions) for the CLI, MCP
 and answer contracts.
+
+Upload retries verify their idempotency receipt before writing bytes to durable storage.
+Multipart retries still parse and hash the incoming bytes to reject changed content, using
+short-lived private spools. Parsing, hashing and spool writes run in a worker thread so large
+uploads do not block the server's event loop.

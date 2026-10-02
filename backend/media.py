@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import json
+import hashlib
 import mimetypes
 import secrets
 import re
@@ -21,7 +22,7 @@ from .blobs import Blobs, brief, register
 from .files import is_file_id
 from clients import bot_files as BF
 from . import rooms
-from .store import H, P, Problem, encode
+from .store import H, P, Problem, encode, digest as request_digest
 from .views import default_bot, human_only, roster
 
 
@@ -105,49 +106,86 @@ def calendar(value):
     return allowed
 
 
-async def form(request, model, blobs):
+def upload_key(request):
+    key = request.headers.get("idempotency-key")
+    if not key or len(key) > 200:
+        raise Problem("idempotency_key", "Provide an Idempotency-Key of 1–200 characters", 422)
+    return key
+
+
+def replay_upload(store, request, payload):
+    """Check the same authenticated receipt as mutate, before any durable blob write.
+
+    Multipart retries still parse/hash their spools so a changed body gets a conflict.
+    The final mutation checks again under its write lock to handle concurrent retries.
+    """
+    from .auth import validate_identity
+    who = request.state.identity
+    principal = who.actor + (":" + who.attempt_id if who.role == "bot" else "")
+    key = upload_key(request)
+    with store.read() as c:
+        validate_identity(c, who)
+        row = c.execute("SELECT request_hash,response_json FROM idempotency WHERE actor=? AND operation=? AND key=?",
+                        (principal, request.url.path, key)).fetchone()
+    if row is None:
+        return None
+    if row["request_hash"] != request_digest(encode(payload)):
+        raise Problem("idempotency_conflict", "This key was used for different content", 409)
+    result = json.loads(row["response_json"])
+    if isinstance(result, dict) and "_refusal" in result:
+        refusal = result["_refusal"]
+        raise Problem(refusal["code"], refusal["detail"], refusal["status"])
+    return result
+
+
+async def form(request, model, blobs, store):
+    upload_key(request)
     raw = await request.body()
     content_type = request.headers.get("content-type", "application/json")
-    uploads = []
-    try:
-        if content_type.startswith("multipart/form-data"):
-            message = BytesParser(policy=HTTP).parsebytes(b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + raw)
-            if not message.is_multipart() or message.defects:
-                raise ValueError("Malformed multipart body")
-            fields = {}
-            for index, part in enumerate(message.iter_parts()):
-                if index >= 30 or part.is_multipart() or part.defects:
-                    raise ValueError("Too many fields or malformed multipart data")
-                name = part.get_param("name", header="content-disposition")
-                data = part.get_payload(decode=True) or b""
-                filename = part.get_filename()
-                if filename is not None:
-                    if name not in ("files", "files[]") or len(data) > 10_000_000 or len(uploads) >= 10:
-                        raise ValueError("Use at most ten files, each at most 10 MB")
-                    uploads.append({"name": filename, "data": data, "content_type": part.get_content_type()})
-                elif not name or name in fields:
-                    raise ValueError("Duplicate or unnamed form field")
-                else:
-                    fields[name] = data.decode("utf-8")
-            for field in ("calendar", "refs", "acceptance_criteria", "participants", "context",
-                          "labels", "links"):
-                if field in fields:
-                    fields[field] = json.loads(fields[field])
-        else:
-            fields = json.loads(raw or b"{}")
-        body = model.model_validate(fields)
-    except ValidationError as exc:
-        first = exc.errors()[0]
-        where = ".".join(str(part) for part in first["loc"])
-        raise Problem("validation", f"Invalid request fields or attachments ({where}: {first['msg']})", 422) from exc
-    except (ValueError, UnicodeError) as exc:
-        raise Problem("validation", "Invalid request fields or attachments", 422) from exc
-    # Binary bytes become durable before the transaction publishes references to them.
-    prepared = []
-    for upload in uploads:
-        digest = await asyncio.to_thread(blobs.put, upload["data"], upload["content_type"])
-        prepared.append({"name": upload["name"], "size": len(upload["data"]),
-                         "content_type": upload["content_type"], "digest": digest})
+    def decode():
+        uploads = []
+        try:
+            if content_type.startswith("multipart/form-data"):
+                message = BytesParser(policy=HTTP).parsebytes(b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + raw)
+                if not message.is_multipart() or message.defects:
+                    raise ValueError("Malformed multipart body")
+                fields = {}
+                for index, part in enumerate(message.iter_parts()):
+                    if index >= 30 or part.is_multipart() or part.defects:
+                        raise ValueError("Too many fields or malformed multipart data")
+                    name = part.get_param("name", header="content-disposition")
+                    data = part.get_payload(decode=True) or b""
+                    filename = part.get_filename()
+                    if filename is not None:
+                        if name not in ("files", "files[]") or len(data) > 10_000_000 or len(uploads) >= 10:
+                            raise ValueError("Use at most ten files, each at most 10 MB")
+                        uploads.append({"name": filename, "data": data, "content_type": part.get_content_type()})
+                    elif not name or name in fields:
+                        raise ValueError("Duplicate or unnamed form field")
+                    else:
+                        fields[name] = data.decode("utf-8")
+                for field in ("calendar", "refs", "acceptance_criteria", "participants", "context",
+                              "labels", "links"):
+                    if field in fields:
+                        fields[field] = json.loads(fields[field])
+            else:
+                fields = json.loads(raw or b"{}")
+            body = model.model_validate(fields)
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            where = ".".join(str(part) for part in first["loc"])
+            raise Problem("validation", f"Invalid request fields or attachments ({where}: {first['msg']})", 422) from exc
+        except (ValueError, UnicodeError) as exc:
+            raise Problem("validation", "Invalid request fields or attachments", 422) from exc
+        prepared = [{"name": upload["name"], "size": len(upload["data"]),
+                     "content_type": upload["content_type"], "digest": hashlib.sha256(upload["data"]).hexdigest()}
+                    for upload in uploads]
+        return body, uploads, prepared
+    body, uploads, prepared = await asyncio.to_thread(decode)
+    if await asyncio.to_thread(replay_upload, store, request, {**body.model_dump(), "uploads": prepared}) is None:
+        # Binary bytes become durable before the transaction publishes references to them.
+        for upload in uploads:
+            await asyncio.to_thread(blobs.put, upload["data"], upload["content_type"])
     return body, prepared
 
 
@@ -354,7 +392,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
     async def chat_upload(request: Request, bot: str):
         who = request.state.identity
         human_only(who)
-        body, uploads = await form(request, M.ChatCreate, blobs)
+        body, uploads = await form(request, M.ChatCreate, blobs, store)
         def work(c):
             message = send_message(c, who, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs))
             items = [register(c, who, **upload) for upload in uploads]
@@ -371,7 +409,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
     async def task_upload(request: Request):
         who = request.state.identity
         human_only(who)
-        body, uploads = await form(request, M.TaskCreate, blobs)
+        body, uploads = await form(request, M.TaskCreate, blobs, store)
         def work(c):
             items = [register(c, who, **upload) for upload in uploads]
             details = body.body
@@ -398,6 +436,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         with store.read() as c:
             tid = auth.resolve_task(c, who, tid)
             comment_rights(c, auth, who, tid)
+        upload_key(request)
         poster = None
         if request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
             from .file_upload import parse
@@ -416,13 +455,19 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                         BF.check_name(body.name)
                     except BF.Refused as exc:
                         raise Problem("file_refused", str(exc), 422) from exc
-                digest = await asyncio.to_thread(blobs.put_staged, upload["stream"], upload["digest"], size, content_type)
+                digest = upload["digest"]
                 if "poster" in uploads:
                     supplied = uploads["poster"]
                     from .file_metadata import validate_poster
                     poster_type = await asyncio.to_thread(validate_poster, supplied["stream"])
-                    poster_digest = await asyncio.to_thread(blobs.put_staged, supplied["stream"], supplied["digest"], supplied["size"], poster_type)
-                    poster = {"digest": poster_digest, "size": supplied["size"], "name": "poster", "content_type": poster_type}
+                    poster = {"digest": supplied["digest"], "size": supplied["size"], "name": "poster", "content_type": poster_type}
+                receipt = {**body.model_dump(), "digest": digest, "size": size, "poster": poster}
+                replay = await asyncio.to_thread(replay_upload, store, request, {**body.model_dump(), "uploads": [receipt]})
+                if replay is not None:
+                    return replay
+                await asyncio.to_thread(blobs.put_staged, upload["stream"], digest, size, content_type)
+                if poster:
+                    await asyncio.to_thread(blobs.put_staged, supplied["stream"], poster["digest"], supplied["size"], poster_type)
             except (ValueError, ValidationError) as exc:
                 raise Problem("validation", "Invalid upload name, note or ask JSON", 422) from exc
             finally:
@@ -450,6 +495,13 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                     BF.check_name(body.name)
                 except BF.Refused as exc:
                     raise Problem("file_refused", str(exc), 422) from exc
+            payload = body.model_dump()
+            if not body.note and body.ask is None:
+                payload.pop("note")
+                payload.pop("ask")
+            replay = await asyncio.to_thread(replay_upload, store, request, payload)
+            if replay is not None:
+                return replay
             digest = await asyncio.to_thread(blobs.put, data, content_type)
         def work(c):
             task = comment_rights(c, auth, who, tid)
@@ -475,10 +527,6 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             result = await asyncio.to_thread(write_upload, store, request, body, [receipt], work)
         else:
             # Preserve the pre-upgrade hash when an older runner replays its JSON receipt.
-            payload = body.model_dump()
-            if not body.note and body.ask is None:
-                payload.pop("note")
-                payload.pop("ask")
             result = await asyncio.to_thread(store.mutate, who, request.url.path,
                                              request.headers.get("idempotency-key"), payload, work)
             if isinstance(result, dict) and "_refusal" in result:
@@ -558,7 +606,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
     @app.post("/api/send")
     async def note(request: Request):
         human_only(request.state.identity)
-        body, uploads = await form(request, Note, blobs)
+        body, uploads = await form(request, Note, blobs, store)
         def work(c):
             meta = new_note(c, request.state.identity, body, uploads)
             if request.url.path == "/api/send":
@@ -571,7 +619,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         human_only(request.state.identity)
         with store.read() as c:
             authorized(c, request.state.identity, rid, write=True)
-        body, uploads = await form(request, M.Empty, blobs)
+        body, uploads = await form(request, M.Empty, blobs, store)
         if not uploads:
             raise Problem("attachments", "Attach at least one file", 422)
         def work(c):
@@ -607,7 +655,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         human_only(request.state.identity)
         with store.read() as c:
             authorized(c, request.state.identity, rid, write=True)
-        body, uploads = await form(request, Send, blobs)
+        body, uploads = await form(request, Send, blobs, store)
         return await asyncio.to_thread(write, request, body, uploads,
                                        lambda c: deliver(c, auth, request.state.identity, rid, body, uploads))
 
