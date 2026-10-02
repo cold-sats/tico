@@ -98,6 +98,7 @@ def test_cloud_upgrade_classifies_legacy_identity_and_keeps_files_intact(api):
     ordinary = post(api, 'tasks', {'owner': 'cmo', 'title': 'Review ordinary work', 'body': 'Ordinary content.'})
     task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review the older work', 'body': 'Older content.'})
     child = post(api, 'tasks', {'owner': 'ben', 'title': 'Review related work', 'body': 'Related content.', 'parent_id': task['id']})
+    routine = post(api, 'tasks', {'owner': 'cmo', 'title': 'Review scheduled work', 'body': 'Scheduled content.'})
     orphan = post(api, 'tasks', {'owner': 'priya', 'title': 'Review orphaned work', 'body': 'Orphan content.'})
     post(api, 'tasks/' + task['id'] + '/files', {'name': 'legacy-brief.md', 'text': 'Legacy attachment bytes.'})
     with api.app.state.store.transaction() as c:
@@ -105,6 +106,7 @@ def test_cloud_upgrade_classifies_legacy_identity_and_keeps_files_intact(api):
                   for name in ('tasks', 'blobs', 'task_assets', 'bot_files')}
         c.execute("UPDATE bot_config SET config_json=? WHERE bot='cpo'", (json.dumps({'template': 'general-counsel'}),))
         c.execute("UPDATE tasks SET requester='human:missing' WHERE id=?", (orphan['id'],))
+        c.execute("UPDATE tasks SET requester='keeper' WHERE id=?", (routine['id'],))
         c.execute('ALTER TABLE tasks DROP COLUMN private')
         c.execute('DELETE FROM cloud_migrations WHERE version=57')
     api.app.state.store.initialize(seed_market=False)
@@ -113,6 +115,7 @@ def test_cloud_upgrade_classifies_legacy_identity_and_keeps_files_intact(api):
         assert H.task(c, child['id'])['private'] == 1
         assert H.task(c, orphan['id'])['private'] == 1
         assert H.task(c, ordinary['id'])['private'] == 0
+        assert H.task(c, routine['id'])['private'] == 0
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=57').fetchone()
         assert all(c.execute('SELECT count(*) FROM ' + name).fetchone()[0] == count for name, count in counts.items())
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=53').fetchone()
@@ -161,9 +164,8 @@ def test_private_dependency_and_refusal_audit_never_copy_sensitive_content(api):
         c.execute('UPDATE tasks SET blocked_by=? WHERE id=?', (private['id'], public['id']))
         H._unblock(c, H.task(c, private['id']))
         assert H.task(c, public['id'])['blocked_by'] == private['id']
-        try:
-            H.task_update(c, 'bot:cpo', private['id'], body='Publish outside the hub SECRET-PACKET')
-        except H.Refused as exc:
-            assert exc.private
+        with pytest.raises(H.Refused) as exc:
+            H.task_update(c, 'bot:cpo', private['id'], body='Read secrets/SECRET-PACKET')
+        assert exc.value.private
         audit = c.execute("SELECT detail_json FROM events WHERE action='refused'").fetchall()
         assert all('SECRET-PACKET' not in row[0] for row in audit)

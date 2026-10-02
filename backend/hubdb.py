@@ -13,7 +13,7 @@ Shape of every write:
 
 `actor` is `"bot:<slug>"`, `"human:<id>"` or `"keeper"`. Every write appends an `events` row.
 Nothing is edited or deleted (rule 9): tasks and status carry their own history tables. A plain task
-comment's author may change or take it back before delivery: the row stays marked, without retaining
+comment's author may change or take it back: the row stays marked, without retaining
 withdrawn text in the audit trail.
 
     conn = connect()                         # <projects>/runtime/hub.db, or $HUB_DB
@@ -1907,6 +1907,8 @@ def migrate_task_privacy(conn):
         configs = {row[0]: _json(row[1]) for row in conn.execute('SELECT bot,config_json FROM bot_config')} \
             if _has_table(conn, 'bot_config') else {}
         def sensitive_or_unknown(actor):
+            if actor == KEEPER:
+                return False
             if is_human(actor):
                 return actor_id(actor) not in humans
             if not is_bot(actor) or actor_id(actor) not in bots:
@@ -2673,43 +2675,12 @@ def is_comment(msg):
             and not (set(refs) - {"task", "comment", "quiet", "via"}))
 
 
-def _comment_not_delivered(conn, actor, msg):
-    # A provider context or an external post can retain words independently of this row.
-    handed = msg.get("delivered_at") or msg.get("read_at")
-    if _has_table(conn, "jobs"):
-        handed = handed or _one(conn, "SELECT 1 FROM jobs WHERE message_id=? AND "
-                                "(attempt_id IS NOT NULL OR state NOT IN ('queued','cancelled'))", (msg["id"],))
-    if _has_table(conn, "attempt_conversations"):
-        handed = handed or _one(conn, "SELECT 1 FROM attempt_conversations ac JOIN attempts a ON a.id=ac.attempt_id "
-                                "WHERE ac.conversation_id=? AND (a.finished IS NULL OR a.finished>=?)",
-                                (msg["conversation_id"], msg["created"]))
-    if _has_table(conn, "turns"):
-        handed = handed or _one(conn, "SELECT 1 FROM turns WHERE message_id=?", (msg["id"],))
-    if _has_table(conn, "slack_posts"):
-        handed = handed or _one(conn, "SELECT 1 FROM slack_posts WHERE message_id=?", (msg["id"],))
-    row = task(conn, (msg.get("refs") or {}).get("task"))
-    def could_read(slug):
-        bot_actor = "bot:" + slug
-        return bool(row and (bot_actor in (row["owner"], row["requester"], msg["from_actor"], msg["to_actor"])
-                    or task_ancestor_party(conn, bot_actor, row)
-                    or _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
-                            (row["id"], bot_actor, now()))))
-    if _has_table(conn, "attempts") and not handed:
-        # Task and direct-message reads need not grant a conversation, so check eligible turns too.
-        handed = any(could_read(r["bot"]) for r in conn.execute(
-            "SELECT DISTINCT bot FROM attempts WHERE finished IS NULL OR finished>=?", (msg["created"],)))
-    if _has_table(conn, "turns") and not handed:
-        handed = any(could_read(r["bot"]) for r in conn.execute(
-            "SELECT DISTINCT bot FROM turns WHERE finished IS NULL OR finished>=?", (msg["created"],)))
-    if _has_table(conn, "bot_config") and not handed:
-        from .harnesses import is_external
-        # External-agent reads are not tracked until acknowledgment; those copies cannot be proven absent.
-        handed = any(could_read(r["bot"]) and is_external(_json(r["config_json"], {}), r["runtime"])
-                     for r in conn.execute("SELECT bc.bot,bc.config_json,b.runtime FROM bot_config bc "
-                                           "JOIN bots b ON b.slug=bc.bot"))
-    if handed:
-        refuse(conn, actor, "delivered", "This comment may already have been handed to a bot or an external delivery; "
-                                       "its retained copies cannot be changed here")
+
+def _withdraw_queued_comment_copies(conn, message_id):
+    """Stop unsent copies and drop local outbound text; already delivered copies remain elsewhere."""
+    if _has_table(conn, 'slack_posts'):
+        conn.execute("UPDATE slack_posts SET text='',state=CASE WHEN state IN ('ready','retry') "
+                     "THEN 'cancelled' ELSE state END,updated=? WHERE message_id=?", (now(), message_id))
 
 
 def _refresh_comment_replies(conn, msg):
@@ -2748,7 +2719,6 @@ def _own_comment(conn, actor, task_id, message_id):
                                     "a notice or a chat message")
     if msg["from_actor"] != actor:
         refuse(conn, actor, "identity", f"{actor_id(msg['from_actor'])} wrote this comment; only they change it")
-    _comment_not_delivered(conn, actor, msg)
     return msg
 
 
@@ -2774,14 +2744,14 @@ def task_comment_edit(conn, actor, task_id, message_id, text):
     conn.execute("UPDATE tasks SET updated=? WHERE id=?", (ts, task_id))
     event(conn, actor, "message.edited", message_id, {"task": task_id})
     edited = message(conn, message_id)
+    _withdraw_queued_comment_copies(conn, message_id)
     _refresh_comment_replies(conn, edited)
     return edited
 
 
 @private_task_write
 def task_comment_delete(conn, actor, task_id, message_id):
-    """The author takes a comment back. Only its metadata stays for the audit trail, never listed again or
-    handed to a bot: a run it queued and nobody started is cancelled, the questions it answered
+    """The author takes a comment back. Only its metadata stays for the audit trail, excluded from future comment reads: a run it queued and nobody started is cancelled, the questions it answered
     are open again, and the bot it woke loses the delegation that came with it (`task_delegations`)."""
     msg = _own_comment(conn, actor, task_id, message_id)
     ts = now()
@@ -2797,6 +2767,7 @@ def task_comment_delete(conn, actor, task_id, message_id):
     event(conn, actor, "message.deleted", message_id,
           {"task": task_id, "reopened": reopened, "cancelled_run": cancelled})
     deleted = message(conn, message_id, include_deleted=True)
+    _withdraw_queued_comment_copies(conn, message_id)
     _refresh_comment_replies(conn, deleted)
     return deleted
 

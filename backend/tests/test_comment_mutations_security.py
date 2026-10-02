@@ -62,7 +62,7 @@ def test_current_task_read_is_required_even_when_replaying_an_authorized_edit(ap
 
 
 @pytest.mark.parametrize("handoff", ["delivered", "slack", "job", "context", "external"])
-def test_already_handed_comments_are_refused_instead_of_claiming_to_recall_copies(api, handoff):
+def test_already_handed_comments_change_current_record_without_recalling_copies(api, handoff):
     task = post(api, "tasks", {"owner": "ops", "title": "Review the report", "body": "Please review."})
     said = post(api, f"tasks/{task['id']}/comments", {"text": "Retained elsewhere"})["comment"]
     with api.app.state.store.transaction() as c:
@@ -77,11 +77,16 @@ def test_already_handed_comments_are_refused_instead_of_claiming_to_recall_copie
             H.turn_start(c, "bot:ops", "ops")
         else:
             c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.harness','hermes') WHERE bot='ops'")
-    for suffix, body in (("", {"text": "Replace"}), ("/delete", {})):
-        result = post(api, f"tasks/{task['id']}/comments/{said['id']}" + suffix, body, expected=422)
-        assert result["error"]["code"] == "delivered"
+    edited = post(api, f"tasks/{task['id']}/comments/{said['id']}", {"text": "Replacement words"})
+    assert edited['comment']['body'] == 'Replacement words'
+    detail = get(api, 'tasks/' + task['id'])
+    assert 'Retained elsewhere' not in str(detail)
+    post(api, f"tasks/{task['id']}/comments/{said['id']}/delete", {})
     with api.app.state.store.read() as c:
-        assert H.message(c, said["id"])["body"] == "Retained elsewhere"
+        assert H.message(c, said['id']) is None
+        if handoff == 'slack':
+            row = c.execute('SELECT text,state FROM slack_posts WHERE message_id=?', (said['id'],)).fetchone()
+            assert row['text'] == '' and row['state'] == 'cancelled'
 
 
 def test_structured_and_attachment_comments_are_outside_plain_comment_mutations(api):

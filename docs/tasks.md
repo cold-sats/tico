@@ -358,16 +358,16 @@ sends anything. Both move the task's updated time and add a line to its history.
 (`events`) records the change without retaining old text.
 
 A deleted comment leaves a tombstone with its text cleared. It is excluded from SQL for everyone,
-including the owner, and is never listed again or handed to a bot. Cached write replies are refreshed
+including the owner, and is excluded from future comment reads and bot context. Cached write replies are refreshed
 so retrying an earlier call does not return old or deleted text. If it started a bot run that has not
 begun yet, the run is cancelled. The questions it answered are open again, and the bot it woke loses the delegation that
 came with it. An edit is not sent again: a bot that next reads the comment gets its current text.
 
-Only plain comments that have not been handed to a bot context or an external delivery can be
-changed or deleted. Comments with attachments or structured review data are refused; their independent
-file and answer records are retained. Comments involving an eligible bot turn since their creation
-or an external agent with untracked reads are also refused. Already delivered comments are refused with `422 delivered`,
-because provider threads and external copies cannot be recalled here. Current task read access is
+Only plain comments can change. Attachment and structured-review comments are refused because
+their independent file and answer records are retained. Already delivered plain comments can
+still be edited or deleted in Tico; queued outbound copies stop and no retroactive change is sent
+to external services. Provider threads, retained bot sessions and already delivered external
+copies cannot be recalled here. Current task read access is
 required on every call, including an idempotent retry.
 
 ```sh

@@ -162,15 +162,16 @@ the task's comments as the task lists them. Neither wakes anyone or sends anythi
   side of the task, unless the caller owns the task, and that bot's contact rule when the caller is a bot.
 
 Every entry in a task's `comments` carries `edited_at`, null until it is edited; a deleted comment is not
-listed and is never handed to a bot. The task's `updated` moves, and its `events` gain
+listed or included in future bot context. The task's `updated` moves, and its `events` gain
 `{"field": "comment", "old": "<comment id>", "new": "<comment id>"}` for an edit and `"new": null` for a
 delete. The audit log keeps only change metadata. Deleted comments have their text cleared and are excluded
 from `POST /api/v2/sql` for every caller, including the owner. Cached write replies are refreshed when
 a comment changes; an edit or delete retry still checks the caller's current task read access.
-Only plain comments without attachments or structured review data can change. A comment already handed
-to a bot context or an external delivery, or involving an eligible bot turn since its creation or an
-external agent with untracked reads, is refused with `422 delivered`; retained provider threads
-and external copies cannot be recalled here. An edit accepts only `text`, not `ask` or attachments.
+Only plain comments without attachments or structured review data can change. Prior delivery does
+not prevent an author from editing or deleting the current record. Queued outbound copies stop;
+no correction or deletion is sent to external services. Provider threads, existing bot context
+and external copies already delivered remain outside this operation. An edit accepts only `text`,
+not `ask` or attachments.
 A client can tell a server offers this by the `editTaskComment` and `deleteTaskComment` operations in `GET /api/v2/openapi.json`.
 
 ## Branches

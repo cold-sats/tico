@@ -162,7 +162,7 @@ STABLE = [
     ("/api/v2/tasks/{tid}/comments/{mid}", "post", "Tasks", "editTaskComment",
      "Change the text of a comment you wrote; it wakes nobody and is marked edited_at", "CommentResult"),
     ("/api/v2/tasks/{tid}/comments/{mid}/delete", "post", "Tasks", "deleteTaskComment",
-     "Delete a comment you wrote; it is never listed again or handed to a bot", "CommentResult"),
+     "Delete a comment you wrote from future comment reads and bot context; existing delivered copies remain", "CommentResult"),
     ("/api/v2/updates", "get", "Updates", "listUpdates", "Daily and weekly updates", "UpdateList"),
     ("/api/v2/updates/unread", "get", "Updates", "countUnreadUpdates", "How many updates are unread", "Unread"),
     ("/api/v2/updates/read", "post", "Updates", "markUpdatesRead", "Mark updates read or unread", None),
