@@ -92,6 +92,17 @@ def recent_miss(settings, email):
         return False
 
 
+def may_have(settings, email, photo=None):
+    """Whether asking for this person's photo can find one: a roster photo, a cached Workspace one, or a Workspace
+    key with no recent miss. Without one the page shows initials and makes no request that would only 404."""
+    if photo:
+        return True
+    if settings is not None and cached(settings, email):
+        return True
+    path = _key_path()
+    return bool(path and path.is_file() and email and not (settings is not None and recent_miss(settings, email)))
+
+
 def load(settings, email, subject=None):
     """Cached Workspace bytes, a fresh Directory fetch, or None (remembered for a day)."""
     hit = cached(settings, email)

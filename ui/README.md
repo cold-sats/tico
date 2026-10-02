@@ -62,9 +62,9 @@ Every file in `app/` starts with `'use strict'`, as the old inline script did. U
 | avatars, sidebar, heartbeat, tooltip | bot avatars and blobs, the team tree, heartbeat and account menu, hover status |
 | issues, hub-v2, needs-you, bot-tasks | shared request rows and tables, hub v2 helpers, Needs you, a bot's tasks |
 | chat, pill, bot-page, bot-conversation, person-page, assistant-page | bot chat and its live reply, the composer, the bot and human pages, your Assistant |
-| tasks, task-modal, tasks-page, recurring | Tasks: rows and cards, the modal and its comments, the page, routines |
+| tasks, task-modal, task-code, tasks-page, recurring | Tasks: rows and cards, the modal and its comments, the modal's Code and Subtasks rail and the PR badge, the page, routines |
 | meetings, mail, messaging, credentials, sql, integrations, help | one page each |
-| settings, settings-*, vault, catalog | Settings: shell, one file per tab, the bot editor, access editor, credential vault, template cards |
+| settings, settings-*, subscriptions, vault, catalog | Settings: shell, one file per tab, the bot editor, access editor, subscriptions (computers, groups, a bot's), credential vault, template cards |
 | welcome, updates, goals | setup, Updates, Goals |
 | router, drawer, search, org-fan, nav-events, viewport, refresh, native, boot | `route()`, account menu and phone drawer, search, mobile team switcher, keyboard viewport, the refresh loop, the desktop bridge, startup |
 

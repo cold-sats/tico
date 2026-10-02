@@ -14,6 +14,70 @@ All notable changes to Tico are recorded here. The format follows
   `hub service-key create|list|revoke` (or `/api/v2/service-keys`); there is no Settings page for them yet
   (docs/service-keys.md).
 
+## [0.3.2] - 2026-10-02
+
+### Added
+- Connect your own Granola account in Meetings through its official MCP, including free-plan notes, encrypted per-person sign-in and background sync; API keys remain available for Business/Enterprise.
+- Nested tasks: a parent shows its subtasks' progress ("4 of 10 done · 7 PRs merged") and its owner hears when the last one closes.
+- Several PRs per task, with checks, conflicts and reviews that wake the assigned teammate.
+- Task worktrees: separate branches and folders, saved work before cleanup, and restoration when a task reopens. Computers without a GitHub App can use their own Git login.
+- Subscriptions assigned to a group or bot. An assigned bot waits with a reason when its subscription is unavailable, keeping its work on the chosen login.
+- An Engineering Manager template.
+- A redesigned Tasks page with one-line rows, tabs, groups, filter chips, side peek, a properties panel, bulk actions and keyboard controls.
+
+### Changed
+- Git maintenance keeps the Computer’s system and global credential settings, URL rewrites, SSH command, proxy and CA settings, and Git identity, without running repository-configured programs.
+- Computers keep repository mirrors separately from bot-owned base clones. Base clones refresh from the mirror without a token and keep GitHub as their push destination.
+- New task worktrees try to refresh the mirror immediately; an unavailable connection uses cached history and reports its age.
+- Unused base clones retire after 30 days when no task worktrees remain and every local commit is saved remotely, even under a different branch name.
+
+### Fixed
+- A failed scheduled item no longer rolls back other scheduled work; reminder task titles describe the work to do.
+- Computers report busy bots so the same bot cannot start a second run during a turn or worktree maintenance. Turns keep renewing their lease while waiting for maintenance.
+- Repository credentials stay scoped to the acting bot and repository. Git maintenance filters credentials and disables repository hooks and fsmonitor, including during secret checks.
+- Reopening during cleanup returns saved work to the task branch. Reusing a removed worktree enforces the bot's limit, and a reassigned task can create a fresh worktree while its previous owner awaits cleanup.
+- Ignored Python build metadata, bytecode, desktop metadata and editor settings no longer prevent worktree cleanup.
+- PR status checks and task queries avoid unnecessary full-table scans.
+
+## [0.3.1] - 2026-10-02
+
+### Changed
+- The bot page's right rail runs full height in a denser style: Active first, then Updates (just "Updates · 10h
+  ago"), Files (names only, a small "+N"), Recurring, with "Assigned to others" and Done folded at the bottom. The
+  "Latest update" banner and the separate history button are gone.
+- A bot's Tools show as up to three small icons next to its name, then "+N"; the full list is under More.
+
+### Added
+- Settings → Repositories: tick the GitHub repositories the team works on. Bot repositories are hidden unless you show
+  them, and each repository's setup command comes from its `tico.json` or `conductor.json` or is typed in. "New bots
+  get" picks own repository only or all ticked repositories. The list refreshes from GitHub on its own.
+- A bot's Repositories setting replaces "Extra GitHub repositories": own repository only, all ticked repositories, or
+  chosen ones, each read or write. Every bot keeps the extra repositories it had, with write access. Bots' Git and
+  GitHub CLI commands use the matching read or write access per repository.
+- Computers keep base clones of the repositories their bots can reach, in the team's folder, fetched in the
+  background. Cloning pauses when disk space is low, and a clone no bot has needed for 30 days is removed. Operations
+  shows each computer's clones.
+- Chat goals: the target next to attach pins a goal to a Codex or Claude Code bot's chat, and the bot keeps working
+  toward it. The goal sits above the chat (three lines, two on a phone; tap for all of it, Edit, Pause and Clear),
+  shows Working, Paused, Met or Stopped, and a met or stopped goal becomes one line in the chat. The bot's row in the
+  sidebar shows a target while it has one.
+- Type `/` in a bot's chat for its commands: `/goal`, `/new`, `/task`, `/branch`, `/help` and the ones its harness
+  takes, such as `/compact`. A `/word` that isn't a command now goes to the bot as ordinary text. Goals and commands
+  are also in the API, MCP (`hub_chat_goal`) and CLI (`hub chat goal`).
+
+### Fixed
+- docs-eval ignores Markdown emphasis around a price, treats "about ($29)" as approximate, and accepts "no price
+  variation" for an exact price.
+- A request you DM to BotOps in Slack counts as yours, like your Tico chat. Channel and thread messages still change
+  nothing for you.
+- Update status says which release the server is running and which it ran before, from its own startup record, so
+  BotOps no longer names a release the server never ran.
+- When BotOps closes its own task for you, the close stays yours and its closing note reads as BotOps.
+- A person with no photo gets initials and no photo request (it logged a 404 on every page).
+- The Docs sample question asks "Who helps new hires?".
+- The Librarian closes a fenced code block only on a line of the same fence character, so code with a mixed line stays
+  literal.
+
 ## [0.3.0] - 2026-10-01
 
 ### Changed
@@ -1554,7 +1618,7 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.1...HEAD
 [0.3.0]: https://github.com/ticoteam/tico/compare/v0.2.42...v0.3.0
 [0.2.39]: https://github.com/ticoteam/tico/compare/v0.2.38...v0.2.39
 [0.2.35]: https://github.com/ticoteam/tico/compare/v0.2.34...v0.2.35

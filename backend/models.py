@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import AfterValidator, BeforeValidator, BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 Text = Annotated[str, Field(min_length=1, max_length=200_000)]
 ID = Annotated[str, Field(min_length=1, max_length=200)]
@@ -38,6 +38,7 @@ class ConversationCreate(Contract):
 
 
 class MessageCreate(Contract):
+    command: bool = False
     to: ID
     text: Text
     conversation_id: ID | None = None
@@ -48,6 +49,7 @@ class MessageCreate(Contract):
 
 
 class ChatCreate(Contract):
+    command: bool = False
     text: Text
     refs: dict = Field(default_factory=dict)
 
@@ -451,7 +453,28 @@ class Enrollment(Contract):
     platform: str = Field(default="", max_length=100)
 
 
-class ProfileReadiness(Contract):
+class SlashCommand(Contract):
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,39}$")
+    args: str = Field(default="", max_length=100)
+    help: str = Field(default="", max_length=300)
+    kind: Literal["tico", "harness"] = "harness"
+    sub: list[str] | None = None
+
+
+class GoalReadiness(Contract):
+    goals: bool = False
+    commands: list[SlashCommand] = Field(default_factory=list, max_length=30)
+
+    @model_serializer(mode="wrap")
+    def _reported_capabilities(self, handler):
+        data = handler(self)
+        for key in ("goals", "commands"):
+            if key not in self.model_fields_set:
+                data.pop(key, None)
+        return data
+
+
+class ProfileReadiness(GoalReadiness):
     """One subscription profile on the runner: the provider login its bots share."""
     runtime: str = Field(default="", max_length=100)
     installed: bool = False
@@ -462,7 +485,7 @@ class ProfileReadiness(Contract):
     detail: str = Field(default="", max_length=500)
 
 
-class HarnessReadiness(Contract):
+class HarnessReadiness(GoalReadiness):
     """One model CLI on the runner (runner/harnesses/*.toml): what is installed and whether it can
     be kept current from Settings."""
     name: str = Field(default="", max_length=100)
@@ -482,7 +505,7 @@ class HarnessReadiness(Contract):
     detail: str = Field(default="", max_length=500)
 
 
-class RuntimeReadiness(Contract):
+class RuntimeReadiness(GoalReadiness):
     installed: bool
     # "rejected": the provider refused the key or sign-in on a real turn (rejected_at, rejected_reason).
     authenticated: Literal["ready", "missing", "failed", "unknown", "rejected"] = "unknown"
@@ -550,7 +573,7 @@ class ToolUpdate(Contract):
     title_prefix: str = Field(default="", max_length=100)
 
 
-class BotReadiness(Contract):
+class BotReadiness(GoalReadiness):
     ready: bool
     runtime: str = Field(default="", max_length=100)
     model: str = Field(default="", max_length=200)
@@ -584,6 +607,7 @@ class DiskReadiness(Contract):
 
 
 class StructuredReadiness(Contract):
+    worktrees: bool | None = None
     schema_version: Literal[1] = 1
     disk: DiskReadiness | None = None
     runtimes: dict[str, RuntimeReadiness] = Field(default_factory=dict)
@@ -604,7 +628,47 @@ class StructuredReadiness(Contract):
         return data
 
 
+class RepositoryStatus(Contract):
+    full_name: str
+    state: Literal["cloned", "cloning", "failed", "disk_low", "removed"]
+    last_fetch: str | None = None
+    size_mb: float = Field(default=0, ge=0)
+    error: str | None = None
+
+
+class SubscriptionRuntime(Contract):
+    signed_in: bool | None = None
+
+
+class ComputerProfile(Contract):
+    name: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
+    runtimes: dict[str, SubscriptionRuntime] = Field(default_factory=dict, max_length=20)
+
+
+class SubscriptionAssignment(Contract):
+    scope: Literal["group", "bot"]
+    target: str = Field(min_length=1, max_length=100)
+    profile: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
+
+
+class WorktreeStatus(Contract):
+    repo: str | None = Field(default=None, max_length=200)
+    last_activity: float | None = Field(default=None, ge=0)
+    link_id: str = Field(max_length=100)
+    state: Literal["present", "missing", "removed", "unknown"]
+    branch: str | None = Field(default=None, max_length=200)
+    ahead: int = Field(default=0, ge=0)
+    behind: int = Field(default=0, ge=0)
+    dirty_files: int = Field(default=0, ge=0)
+    last_commit: str | None = Field(default=None, max_length=100)
+    size_mb: float = Field(default=0, ge=0)
+    error: str | None = Field(default=None, max_length=300)
+
+
 class Heartbeat(Contract):
+    worktrees: list[WorktreeStatus] | None = Field(default=None, max_length=1000)
+    profiles: Annotated[list[Any], BeforeValidator(lambda value: value[:100] if isinstance(value, list) else value)] | None = None
+    repositories: list[RepositoryStatus] | None = None
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=32)
@@ -1105,6 +1169,7 @@ class Recruit(Contract):
 
 
 class Claim(Contract):
+    busy_bots: list[ID] | None = Field(default=None, max_length=32)
     bot: ID | None = None
     # The runner puts next-run tasks in its prompt. One that does not say so is never handed
     # any, so they wait for it rather than being marked carried and never read.
@@ -1117,7 +1182,7 @@ class Started(Contract):
 
 class Event(Contract):
     seq: int = Field(ge=1)
-    kind: Literal["delta", "message", "tokens", "status", "error", "tool", "diagnostic"]
+    kind: Literal["delta", "message", "tokens", "status", "error", "tool", "diagnostic", "goal"]
     payload: dict
 
 
@@ -1137,6 +1202,7 @@ class RunUsage(Contract):
     output_tokens: int = Field(default=0, ge=0, le=10**12)
     model: str = Field(default="", max_length=120)
     runtime: str = Field(default="", max_length=60)
+    profile_used: str | None = Field(default=None, max_length=80)
     billing: Literal["api", "subscription"] = "api"   # `subscription`: a ChatGPT or Claude sign-in, not a key
 
 
@@ -1149,7 +1215,15 @@ class UsageDefault(UsageLimit):
     count_subscription: bool = False
 
 
+class SubscriptionUnavailable(Contract):
+    profile: str = Field(min_length=1, max_length=80)
+    runtime: str = Field(max_length=80)
+    problem: str = Field(min_length=1, max_length=500)
+
+
 class Completion(Contract):
+    subscription_unavailable: SubscriptionUnavailable | None = None
+    profile_used: str | None = Field(default=None, max_length=80)
     outcome: Literal["completed", "failed", "interrupted"]
     text: str = Field(default="", max_length=200_000)
     last_seq: int = Field(ge=0)

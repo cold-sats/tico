@@ -139,7 +139,7 @@ class CodexHost(Host):
         self._initialize()
 
     def _initialize(self):
-        res = self.request("initialize", {"clientInfo": CLIENT_INFO}, timeout=START_TIMEOUT_S)
+        res = self.request("initialize", {"clientInfo": CLIENT_INFO, "capabilities": {"experimentalApi": True}}, timeout=START_TIMEOUT_S)
         self._server_info = res or {}
         self.notify("initialized", {})
         return res
@@ -253,10 +253,22 @@ class CodexHost(Host):
     # ------------------------------------------------------------------ notifications
     def _on_notification(self, method, p):
         tid, turn = p.get("threadId"), p.get("turnId")
+        if method == "thread/goal/updated":
+            from ..goals import codex_status
+            goal = p.get("goal") or {}
+            status = codex_status(goal)
+            if status in ("active", "paused", "met", "stopped"):
+                self.emit("goal", tid, None, status=status, objective=goal.get("objective"),
+                          note=goal.get("note") or (goal.get("status") if status == "stopped" else ""))
+            return
+        if method == "thread/goal/cleared":
+            self.emit("goal", tid, None, status="cleared", note="")
+            return
         if method == "turn/started":
             turn = (p.get("turn") or {}).get("id")
             if tid:
                 self._active_turn[tid] = turn
+            self.emit("status", tid, turn, state="active")
             return
         if method == "item/agentMessage/delta":
             self.emit("delta", tid, turn, text=p.get("delta") or "")
@@ -395,6 +407,40 @@ class CodexHost(Host):
             raise HostError("turn/start returned no turn id")
         self._active_turn[thread_id] = turn
         return turn
+
+    def start_goal(self, thread_id, action, objective, effort=None):
+        if action == "clear":
+            self.request("thread/goal/clear", {"threadId": thread_id})
+            return self._control_completed(thread_id)
+        if action == "pause":
+            try:
+                self.request("thread/goal/set", {"threadId": thread_id, "status": "paused"})
+            except HostError:
+                self.request("thread/goal/clear", {"threadId": thread_id})
+            return self._control_completed(thread_id)
+        self.request("thread/goal/set", {"threadId": thread_id, "objective": objective, "status": "active"})
+        return self.start_turn(thread_id, objective, effort=effort)
+
+    def _control_completed(self, thread_id):
+        import uuid
+        turn = str(uuid.uuid4())
+        self.emit("turn_completed", thread_id, turn, status="completed")
+        return turn
+
+    def start_command(self, thread_id, text, effort=None):
+        name, _, args = text.strip().partition(" ")
+        if name == "/compact":
+            self.request("thread/compact/start", {"threadId": thread_id})
+            return self._control_completed(thread_id)
+        if name == "/review":
+            target = {"type": "custom", "instructions": args} if args else {"type": "uncommittedChanges"}
+            result = self.request("review/start", {"threadId": thread_id, "target": target})
+            turn = (result.get("turn") or {}).get("id")
+            if not turn:
+                raise HostError("review/start returned no turn id")
+            self._active_turn[thread_id] = turn
+            return turn
+        return self.start_turn(thread_id, text, effort=effort)
 
     def steer(self, thread_id, turn_id, text):
         self.request("turn/steer", {"threadId": thread_id, "expectedTurnId": turn_id,

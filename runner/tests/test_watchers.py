@@ -89,6 +89,28 @@ class Rig(unittest.TestCase):
 
 
 class Watchers(Rig):
+    def test_assigned_subscription_is_used_and_missing_one_skips_script(self):
+        from unittest import mock
+        from runner import profiles
+        assigned = profiles.create(self.projects / 'profiles', 'assigned')
+        local = profiles.create(self.projects / 'profiles', 'local')
+        self.runner.config.update(profiles={'assigned': assigned, 'local': local}, default_profile='local')
+        entry = self.runner.assignments_seen[0]
+        entry.update(profile='assigned', computer_label='Build Computer')
+        script = self.repo / 'software' / 'profile.py'
+        script.write_text('import os\nprint(os.environ["CODEX_HOME"])\n')
+        self.declare('software/profile.py')
+        with mock.patch.object(self.runner, 'runtime_readiness', side_effect=AssertionError('live probe')):
+            self.tick(0)
+            self.settle()
+        self.assertEqual(self.client.posts[0][1]['output'], str(Path(assigned['dir']) / 'codex'))
+        entry['profile'] = 'absent'
+        self.tick(300)
+        self.settle()
+        self.assertEqual(len(self.client.posts), 1)
+        self.assertIn("Subscription absent isn't on Build Computer", self.watchers.noted[('support', 'hq-tickets')])
+        self.assertEqual(self.runner.vault_values, {})
+
     def test_revoked_grants_and_legacy_files_do_not_reach_the_next_watcher(self):
         self.client.credentials = []
         self.declare("software/hq-tickets quiet")

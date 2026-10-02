@@ -291,7 +291,8 @@ def brief(person_row):
     out = {"id": person_row["id"], "name": person_row["name"], "email": person_row["email"]}
     if person_row.get("photo"):
         out["photo"] = person_row["photo"]
-    if person_row.get("id"):
+    from . import people_photos
+    if person_row.get("id") and people_photos.may_have(None, person_row.get("email"), person_row.get("photo")):
         out["photo_url"] = "/api/humans/" + person_row["id"] + "/photo"
     return out
 

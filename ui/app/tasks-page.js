@@ -7,38 +7,50 @@
 const TASK_PREF = 'tasks.view';
 function pageTasks(forced, openId = '') {
   TASKS_ST?.layoutAbort?.abort();
-  const state = TASKS_ST = {bot: '', filter: 'all', label: '', view: 'foryou', tasks: [], routines: null,
-    labels: [], kind: 'all', armed: 'all', open: openId, q: '', loading: true,
-    doneLoaded: false, doneLoading: false, doneNext: null, loadSeq: 0};
+  PROP_TASKS = null;                       // the pickers' copy of the open tasks starts fresh with the page
+  const state = TASKS_ST = {view: 'foryou', tasks: [], routines: null, labels: [], kind: 'all', armed: 'all', open: openId, q: '',
+    loading: true, doneLoaded: false, doneLoading: false, doneNext: null, loadSeq: 0,
+    filters: tasksEmptyFilters(), group: {...TASK_GROUP_DEFAULT}, collapsed: new Set(), folded: new Set(),
+    selected: new Set(), anchor: '', cursor: '', tabKey: '', peek: '', bulkFail: new Map(), bulkMsg: '', memo: new Map()};
+  const query = tasksFiltersFromURL(state);
+  const hadQuery = [...query.keys()].length > 0;
+  if (state.urlView && TASK_VIEWS.some(([k]) => k === state.urlView)) forced = state.urlView;
   try {
-    state.bot = localStorage.getItem('hub.board.bot') || '';
-    state.filter = localStorage.getItem('hub.tasks.filter') || 'all';
-    state.label = localStorage.getItem('hub.tasks.label') || '';
     state.view = forced || localStorage.getItem('hub.tasks.view2') || 'foryou';
     state.kind = localStorage.getItem('hub.recurring.kind') || 'all';
     state.armed = localStorage.getItem('hub.recurring.armed') || 'all';
   } catch { state.view = forced || 'foryou'; }
   taskPipelineState(state);
+  if (hadQuery) state.type = state.urlType;
+  tasksPrefsFromLocal(state);
+  // Filters an older page saved (Mine, Asked by me, an owner, a tag) come over once as chips, unless the address has its own.
+  state.migrate = !hadQuery;
+  if (state.migrate && tasksMigrateOldFilters(state, null)) state.migrated = true;
   tasksNormalise(state, forced);
-  $('#main').innerHTML = `<div class="board-tools tasks-head find">
-      <h1>Tasks</h1>
-      <div class="task-strip"></div>
-      <div class="task-find">
-        <span class="nav-icon" aria-hidden="true">search</span>
-        <input type="search" id="task-q" spellcheck="false" aria-label="Search tasks" placeholder="Search tasks…" autocomplete="off">
-        <button type="button" id="task-filter" popovertarget="task-filter-pop" aria-label="Filter tasks" aria-expanded="false">Filter</button>
+  const main = $('#main');
+  main.classList.add('tasks-layout');
+  main.innerHTML = `<div class="tasks-page"><div class="tasks-pane" id="tasks-pane">
+      <header class="tl-head">
+        <h1>Tasks</h1>
+        <div class="tl-tabs" id="task-view" role="tablist" aria-label="Task views"></div>
+        <span class="spacer"></span>
+        <div class="tl-search">${TL_ICON.search}<input type="search" id="task-q" spellcheck="false" aria-label="Search tasks" placeholder="Search" autocomplete="off"><kbd aria-hidden="true">/</kbd></div>
+        <button class="primary tl-new" type="button" id="task-new" aria-label="New task" title="New task (C)">${TL_ICON.plus}<span>New task</span></button>
+      </header>
+      <div class="tl-bar" id="task-bar">
+        <div class="tl-filters" role="group" aria-label="Filters"><span class="tl-chipset" id="task-chips"></span>
+          <button type="button" class="tl-addf" id="task-filter" aria-haspopup="true">${TL_ICON.filter}<span>Filter</span></button>
+          <button type="button" class="linkish tl-clear" id="task-filter-clear" hidden>Clear</button></div>
+        <span class="spacer"></span>
+        <button type="button" class="tl-addf tl-selmode" id="task-select-mode" aria-pressed="false" hidden>Select</button>
+        <span class="tl-groupby" id="task-group-wrap"></span>
       </div>
-      <button class="primary round-add" type="button" id="task-new" aria-label="New task" title="New task">+</button>
-      <div class="tabs slim" id="task-view" role="group" aria-label="View"></div>
-    </div>
-    <div id="task-filter-pop" popover aria-label="Task filters">
-      <div class="task-filter-row"><span class="lbl">Show</span><div class="tfilters" id="task-filters" role="group" aria-label="Show tasks"></div></div>
-      <div class="task-filter-row"><label for="board-bot">Owner</label><select id="board-bot" aria-label="Filter by owner"></select></div>
-      <div class="task-filter-row" id="task-label-row"><label for="board-label">Tag</label><select id="board-label" aria-label="Filter by tag"></select></div>
-      <div class="task-filter-foot"><button type="button" id="task-filter-clear">Clear</button></div>
-    </div>
-    <div id="task-body"></div>`;
-  $('#task-new').onclick = () => openTaskCreate(state.bot || '');
+      <span id="tl-sel-word" hidden>Selected</span>
+      <div id="task-body"></div>
+      <div class="tl-bulk" id="task-bulk" role="toolbar" aria-label="Selected tasks" hidden></div>
+    </div></div>
+    <div id="task-filter-pop" class="tl-pop" popover></div>`;
+  $('#task-new').onclick = () => { const p = tasksCreatePrefill(state); openTaskCreate(p.owner, {labels: p.labels}); };
   const search = $('#task-q');
   search.oninput = () => {
     state.q = search.value;
@@ -49,50 +61,95 @@ function pageTasks(forced, openId = '') {
     }, 150);
   };
   search.onkeydown = ev => {
+    if (ev.key === 'ArrowDown' && !search.value.includes('\n')) { ev.preventDefault(); search.blur(); tasksMove(state, 1); return; }
     if (ev.key !== 'Escape') return;
     if (search.value) ev.stopPropagation();
+    else search.blur();
     search.value = state.q = '';
     clearTimeout(state.searchTimer);
     tasksRender(state);
   };
-  const filterPop = $('#task-filter-pop');
-  const head = $('.tasks-head.find');
-  const strip = head.querySelector('.task-strip');
-  const viewEl = $('#task-view');
-  const smallScreen = matchMedia('(max-width:760px)');
-  const positionFilter = () => {
-    if (smallScreen.matches) {
-      filterPop.style.top = filterPop.style.left = '';
+  const tabs = $('#task-view');
+  tabs.onclick = ev => {
+    const b = ev.target.closest('[data-view]'); if (!b || b.dataset.view === state.view) return;
+    tasksSetView(state, b.dataset.view);
+  };
+  tabs.onkeydown = ev => {
+    const list = [...tabs.querySelectorAll('[role=tab]')], at = list.indexOf(document.activeElement);
+    if (at < 0) return;
+    const to = {ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: list.length - 1}[ev.key];
+    if (to == null) return;
+    ev.preventDefault();
+    const next = list[(to + list.length) % list.length];
+    tasksSetView(state, next.dataset.view);
+    $(`#task-view [data-view="${next.dataset.view}"]`)?.focus();
+  };
+  $('#task-filter').onclick = ev => tasksFieldMenu(state, ev.currentTarget);
+  $('#task-chips').onclick = ev => {
+    const drop = ev.target.closest('[data-chip-drop]');
+    if (drop) {
+      const field = drop.dataset.chipDrop;
+      if (field === 'type') { state.type = ''; taskPipelineRemember(state); tasksRemember(state); } else state.filters[field] = [];
+      tasksFiltersChanged(state);
+      $('#task-filter')?.focus();
       return;
     }
-    const rect = $('#task-filter').getBoundingClientRect();
-    filterPop.style.top = `${Math.max(12, Math.min(rect.bottom + 6, window.innerHeight - filterPop.offsetHeight - 12))}px`;
-    filterPop.style.left = `${Math.max(12, Math.min(rect.right - filterPop.offsetWidth, window.innerWidth - filterPop.offsetWidth - 12))}px`;
+    const edit = ev.target.closest('[data-chip-edit]');
+    if (edit) tasksFilterMenu(state, edit.dataset.chipEdit, edit);
   };
-  const layoutTools = () => {
-    if (!head.isConnected) return;
-    if (smallScreen.matches) {
-      strip.appendChild(viewEl);
-      head.appendChild(strip);
-    } else {
-      head.insertBefore(strip, head.querySelector('.task-find'));
-      head.appendChild(viewEl);
-    }
-    if (filterPop.matches(':popover-open')) positionFilter();
-  };
-  layoutTools();
-  state.layoutAbort = new AbortController();
-  smallScreen.addEventListener('change', layoutTools, {signal: state.layoutAbort.signal});
-  filterPop.addEventListener('toggle', ev => {
-    const open = ev.newState === 'open';
-    $('#task-filter')?.setAttribute('aria-expanded', String(open));
-    if (open) positionFilter();
-  });
   $('#task-filter-clear').onclick = () => {
-    state.filter = 'all'; state.bot = ''; state.label = ''; state.type = '';
-    tasksRemember(state); tasksTools(state); tasksRender(state);
+    state.filters = tasksEmptyFilters(); state.type = ''; taskPipelineRemember(state); tasksRemember(state);
+    tasksFiltersChanged(state);
+    $('#task-filter')?.focus();
   };
+  $('#task-group-wrap').onclick = ev => { const b = ev.target.closest('#task-group'); if (b) tasksGroupMenu(state, b); };
+  $('#task-select-mode').onclick = () => {
+    state.selectMode = !state.selectMode;
+    if (!state.selectMode) tasksSelectionClear(state);
+    tasksTools(state); tasksSelectionPaint(state);
+  };
+  $('#task-bulk').onclick = ev => {
+    const b = ev.target.closest('[data-bulk]'); if (!b) return;
+    tasksBulkMenu(state, b.dataset.bulk, b);
+  };
+  const pop = $('#task-filter-pop');
+  pop.addEventListener('keydown', tasksMenuKeys);
+  pop.addEventListener('toggle', ev => {
+    if (ev.newState !== 'closed') return;
+    const anchor = state.menuAnchor; state.menuAnchor = null;
+    if (anchor?.isConnected && (pop.contains(document.activeElement) || document.activeElement === document.body)) anchor.focus();
+  });
+  const body = $('#task-body');
+  body.addEventListener('focusin', ev => {
+    const row = ev.target.closest('[data-task-key]');
+    if (row && row.dataset.taskKey !== state.cursor) { state.cursor = row.dataset.taskKey; tasksCursorPaint(state); }
+  });
+  bindRoutineActions(body);
+  body.addEventListener('click', ev => {
+    if (TASKS_ST !== state) return;
+    if (ev.target.closest('[data-new-routine],[data-edit-routine],[data-toggle-routine],[data-delete-routine]')) return;
+    const chip = ev.target.closest('[data-rfilter]');
+    if (chip) {
+      state[chip.dataset.rfilter] = chip.dataset.val;
+      try { localStorage.setItem('hub.recurring.' + chip.dataset.rfilter, state[chip.dataset.rfilter]); } catch {}
+      tasksRender(state);
+      return;
+    }
+    const exp = ev.target.closest('[data-expand-routine]');
+    if (exp && !ev.target.closest('a[href^="#/task/"]')) { ev.preventDefault(); toggleRoutineOccurrences(exp); return; }
+    if (ev.target.closest('#board-more')) { void tasksLoadDone(state); return; }
+    if (state.view === 'recurring') {
+      const b = ev.target.closest('[data-open-task]'); if (!b) return;
+      ev.preventDefault(); taskModalOpen(b.dataset.openTask);
+      return;
+    }
+    tasksBodyClick(state, ev);
+  });
+  state.layoutAbort = new AbortController();
+  document.addEventListener('keydown', ev => tasksKeys(state, ev), {signal: state.layoutAbort.signal});
   tasksTools(state); tasksRender(state);
+  if (hadQuery || state.type || state.migrated) tasksURLWrite(state);
+  if (state.migrated) tasksRemember(state);
   // the remembered view lives with the person, not the browser; the local copy is the fallback
   void (async () => {
     // Start the task request immediately. A slow preference read must never hold the board blank.
@@ -100,10 +157,15 @@ function pageTasks(forced, openId = '') {
     const pref = S.me?.cloud ? await v2Get('/v2/preferences/' + TASK_PREF) : null;
     if (TASKS_ST !== state) return;
     if (pref?.value && typeof pref.value === 'object') {
-      for (const k of ['bot', 'filter', 'label', 'type']) if (pref.value[k] != null) state[k] = String(pref.value[k]);
-      // Before `views: 2`, List and Board both showed For you, so an old choice means For you.
+      if (!hadQuery && pref.value.type != null) state.type = String(pref.value.type);
+      // Before `views: 2`, List and Board both showed Needs you, so an old choice means Needs you.
       if (!forced && pref.value.view) state.view = pref.value.views === 2 ? String(pref.value.view) : 'foryou';
+      tasksPrefsApply(state, pref.value);
       tasksNormalise(state, forced);
+      tasksTypeCheck(state);
+      const migrated = state.migrate && tasksMigrateOldFilters(state, pref.value);
+      if (state.type || migrated) tasksURLWrite(state);
+      if (migrated) tasksRemember(state);       // the saved value is written again without the old keys
     }
     tasksTools(state);
     tasksRender(state);
@@ -111,24 +173,30 @@ function pageTasks(forced, openId = '') {
     await loading;
   })();
 }
+function tasksSetView(state, view) {
+  state.view = view;
+  tasksMenuClose();
+  state.selectMode = false;
+  if (state.selected.size || state.bulkMsg) tasksSelectionClear(state);
+  tasksRemember(state); tasksURLWrite(state); tasksTools(state); tasksRender(state);
+  if (state.view === 'done' && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+  else if (state.view === 'done') void tasksDoneMerge(state);
+}
 function tasksNormalise(state, forced) {
   if (!TASK_VIEWS.some(([k]) => k === state.view)) state.view = forced || 'foryou';
-  if (!TASK_FILTERS.some(([k]) => k === state.filter)) state.filter = 'all';
   if (!['all', 'cron', 'event', 'inbox'].includes(state.kind)) state.kind = 'all';
   if (!['all', 'armed', 'idle'].includes(state.armed)) state.armed = 'all';
-  if (state.bot && !state.bot.startsWith('human:') && !S.emps.some(e => e.name === state.bot)) state.bot = '';
 }
 function tasksRemember(state) {
   taskPipelineRemember(state);
   try {
-    localStorage.setItem('hub.board.bot', state.bot);
-    localStorage.setItem('hub.tasks.filter', state.filter); localStorage.setItem('hub.tasks.label', state.label);
     localStorage.setItem('hub.tasks.view2', state.view);
+    localStorage.setItem('hub.tasks.layout', JSON.stringify(tasksPrefsValue(state)));
   } catch {}
   if (S.me?.cloud) {
     clearTimeout(state.saveTimer);
     state.saveTimer = setTimeout(() => { void post('/v2/preferences/' + TASK_PREF,
-      {value: {bot: state.bot, filter: state.filter, label: state.label, type: state.type, view: state.view, views: 2}}).catch(() => {}); }, 400);
+      {value: {type: state.type, view: state.view, views: 2, ...tasksPrefsValue(state)}}).catch(() => {}); }, 400);
   }
 }
 function taskOwnerOptions(selected = '') {
@@ -155,7 +223,7 @@ function taskCreateModal() {
 function openTaskCreate(owner = '', opts = {}) {
   const d = taskCreateModal();
   const parent = opts.parent || null;
-  d.innerHTML = `<div class="tmodal-head"><h2 class="tmodal-title" style="margin:0">${parent ? 'New part' : 'New task'}</h2>
+  d.innerHTML = `<div class="tmodal-head"><h2 class="tmodal-title" style="margin:0">${parent ? 'New subtask' : 'New task'}</h2>
       <span class="spacer"></span>
       <button class="ghost tmodal-x" type="button" data-modal-close aria-label="Close">✕</button></div>
     <div class="tmodal-body">
@@ -164,7 +232,7 @@ function openTaskCreate(owner = '', opts = {}) {
         <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" required aria-label="Title" placeholder="Email Dana the renewal brief"></div>
         <label>For <select name="owner" required aria-label="Who this task is for">${taskOwnerOptions(owner)}</select></label>
         <div class="r3">
-          <label>Tags <input type="text" name="labels" list="task-label-list-new" placeholder="bug, pricing-page" aria-label="Tag keys, comma separated" size="18"><datalist id="task-label-list-new">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
+          <label>Tags <input type="text" name="labels" list="task-label-list-new" placeholder="bug, pricing-page" aria-label="Tag keys, comma separated" size="18" value="${esc((opts.labels || []).join(', '))}"><datalist id="task-label-list-new">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
           <label><input type="checkbox" name="top"> Top of their queue</label>
         </div>
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
@@ -214,22 +282,29 @@ function formFocus(root) {
 }
 const mergeTaskRows = (...groups) => [...new Map(groups.flat().map(task => [task.id, task])).values()];
 const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_TASK_STATUSES}&limit=100&offset=${offset}`;
-async function tasksLoad(state) {
+async function tasksLoad(state, opts = {}) {
   const seq = ++state.loadSeq;
-  const reloadDone = state.doneLoaded || state.view === 'done' || !!state.type;
+  // Done keeps its own paging. A reload after a change folds in its newest page; the poll does that too, but only while
+  // Done (or a type's board, which shows finished steps) is on screen, and never more than that one page.
+  const doneShown = state.view === 'done' || !!state.type;
+  const reloadDone = opts.poll ? doneShown && state.doneLoaded : (state.doneLoaded || doneShown);
   state.loading = !(state.tasks || []).some(t => !['done', 'closed'].includes(String(t.status)));
   tasksRender(state);
   const [active, rec, lab] = await Promise.all([
     v2Get(activeTasksPath()),
-    v2Get('/v2/routines'), v2Get('/v2/tasks/labels'), taskTypesLoad().catch(() => TASK_TYPES)]);
+    v2Get('/v2/routines'), v2Get('/v2/tasks/labels'), taskTypesLoad().then(t => { state.typesLoaded = true; return t; }).catch(() => TASK_TYPES)]);
   if (TASKS_ST !== state || state.loadSeq !== seq) return;
-  const finished = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status)));
-  state.tasks = mergeTaskRows(active?.tasks || [], finished);
+  const activeIds = new Set((active?.tasks || []).map(t => String(t.id)));
+  const finished = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status)) && !activeIds.has(String(t.id)));   // reopened ones are active again
+  state.tasks = mergeTaskRows(finished, active?.tasks || []);
   state.routines = rec?.routines || null;
   state.labels = lab?.labels || [];
   state.tags = lab?.tags || [];
   state.loading = false;
+  tasksTypeCheck(state);
   tasksTools(state); tasksRender(state);
+  tasksPeekSync(state);
+  tasksFinishPending(state, seq);
 
   if (state.open) {
     const id = state.open; state.open = '';
@@ -251,7 +326,23 @@ async function tasksLoad(state) {
     }
   };
   await drain(active?.next_offset);
-  if (reloadDone && TASKS_ST === state && state.loadSeq === seq) await tasksLoadDone(state, true);
+  if (reloadDone && TASKS_ST === state && state.loadSeq === seq) await (state.doneLoaded ? tasksDoneMerge(state) : tasksLoadDone(state, true));
+}
+// A save took its task out of the view? Once a load that started after the save has drawn, the list and the peek
+// move on (tasksAfterFinish). Any load may land it: an older one overtaken by the poll returns before it gets here.
+function tasksFinishPending(state, seq) {
+  const p = state.pendingFinish;
+  if (!p || seq <= p.after) return;
+  state.pendingFinish = null;
+  if (state.peek === p.key) tasksAfterFinish(state, p.key, p.at);
+}
+// A saved or linked type that no longer exists (deleted, or from another install) would hide every task: it goes.
+function tasksTypeCheck(state) {
+  if (!state.type || TASK_TYPES.some(type => type.id === state.type)) return;
+  if (TASK_TYPES.length || !S.me?.cloud || state.typesLoaded) {
+    state.type = '';
+    taskPipelineRemember(state); tasksRemember(state); tasksURLWrite(state);
+  }
 }
 async function tasksLoadDone(state, reset = false) {
   if (TASKS_ST !== state || state.doneLoading || (!reset && state.doneNext == null)) return false;
@@ -274,6 +365,15 @@ async function tasksLoadDone(state, reset = false) {
   }
   return !!page;
 }
+// The newest finished tasks folded into what Done already shows: nothing older is dropped, the paging is untouched.
+async function tasksDoneMerge(state) {
+  if (TASKS_ST !== state || state.doneLoading) return;
+  const page = await v2Get(`/v2/tasks?lane=company&status=done,closed&sort=finished&limit=${DONE_CAP}&offset=0`);
+  if (!page || TASKS_ST !== state) return;
+  const fresh = new Map((page.tasks || []).map(t => [String(t.id), t]));
+  state.tasks = mergeTaskRows((state.tasks || []).filter(t => !fresh.has(String(t.id)) || !['done', 'closed'].includes(String(t.status))), page.tasks || []);
+  tasksTools(state); tasksRender(state);
+}
 async function tasksLoadAllDone(state) {
   if (state.doneDrain) return;
   state.doneDrain = true;
@@ -282,63 +382,6 @@ async function tasksLoadAllDone(state) {
       if (!await tasksLoadDone(state)) break;
     }
   } finally { state.doneDrain = false; }
-}
-function tasksTools(state) {
-  const view = $('#task-view');
-  if (!view) return;
-  if (!view.childElementCount) view.innerHTML = TASK_VIEWS.map(([k, label]) =>
-    `<button type="button" data-view="${k}" title="${label}" aria-label="${label}"><span class="nav-icon" aria-hidden="true">${TASK_VIEW_ICONS[k]}</span></button>`).join('');
-  for (const button of view.querySelectorAll('[data-view]')) {
-    const active = button.dataset.view === state.view;
-    button.classList.toggle('cur', active);
-    button.setAttribute('aria-pressed', String(active));
-  }
-  view.onclick = ev => {
-    const b = ev.target.closest('[data-view]'); if (!b) return;
-    state.view = b.dataset.view;
-    tasksRemember(state); tasksTools(state); tasksRender(state);
-    if (state.view === 'done' && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
-  };
-  const filters = $('#task-filters');
-  if (!filters.childElementCount) filters.innerHTML = TASK_FILTERS.map(([k, label]) =>
-    `<button type="button" class="rchip" data-filter="${k}">${label}</button>`).join('');
-  for (const button of filters.querySelectorAll('[data-filter]')) {
-    const active = button.dataset.filter === state.filter;
-    button.classList.toggle('on', active);
-    button.setAttribute('aria-pressed', String(active));
-  }
-  filters.onclick = ev => {
-    const b = ev.target.closest('[data-filter]'); if (!b) return;
-    state.filter = b.dataset.filter;
-    tasksRemember(state); tasksTools(state); tasksRender(state);
-  };
-  const sel = $('#board-bot');
-  sel.innerHTML = '<option value="">Anyone</option>' + taskOwnerOptions('').replace('<option value="">Who is this for?</option>', '');
-  const known = [...sel.options].some(o => o.value === state.bot);
-  sel.value = known ? state.bot : '';
-  state.bot = sel.value;
-  sel.onchange = () => {
-    state.bot = sel.value;
-    tasksRemember(state); tasksFilterCount(state); tasksRender(state);
-  };
-  const lab = $('#board-label');
-  const labels = [...new Set([...(state.labels || []), ...(state.label ? [state.label] : [])])];
-  lab.innerHTML = tagFilterOptions(state);
-  $('#task-label-row').hidden = !labels.length;
-  lab.onchange = () => {
-    state.label = lab.value;
-    tasksRemember(state); tasksFilterCount(state); tasksRender(state);
-  };
-  taskPipelineFilter(state);
-  tasksFilterCount(state);
-}
-function tasksFilterCount(state) {
-  const button = $('#task-filter');
-  if (!button) return;
-  const count = Number(state.filter !== 'all') + Number(!!state.bot) + Number(!!state.label) + Number(!!state.type);
-  button.textContent = count ? `Filter · ${count}` : 'Filter';
-  button.classList.toggle('active', !!count);
-  button.setAttribute('aria-label', count ? `Filter tasks, ${count} active` : 'Filter tasks');
 }
 function companyNeedActor(task, need) {
   const me = myActor();
@@ -352,7 +395,7 @@ function companyNeedGroups(items) {
   const needById = new Map((S.v2.needs || []).map(item => [String(item.id), item]));
   const groups = new Map();
   for (const it of items) {
-    if (!it.task || it.col === 'done' || !taskNeedsMe(it.task)) continue;
+    if (!it.task || it.col === 'done' || !taskNeedsViewer(it.task)) continue;
     const need = needById.get(String(it.id)), actor = companyNeedActor(it.task, need);
     if (!groups.has(actor)) groups.set(actor, {actor, items: [], firstNeed: Infinity, firstRank: Infinity, updated: ''});
     const group = groups.get(actor);
@@ -364,60 +407,61 @@ function companyNeedGroups(items) {
   return [...groups.values()].sort((a, b) => a.firstNeed - b.firstNeed || a.firstRank - b.firstRank
     || String(b.updated).localeCompare(String(a.updated)) || actorLabel(a.actor).localeCompare(actorLabel(b.actor)));
 }
-function companyNeedsHTML(items) {
-  const groups = companyNeedGroups(items);
-  if (!groups.length) return '<section class="card"><div class="empty">Nothing needs you. Finished work is under Done.</div></section>';
-  const row = group => {
-    group.items.sort((a, b) => byRank(a, b));
-    const slug = actorSlug(group.actor), person = actorPerson(group.actor);
-    const href = slug ? `#/bot/${encodeURIComponent(slug)}` : `#/person/${encodeURIComponent(person || S.me?.id || '')}`;
-    const face = slug ? avatar(slug, 36, 'needs') : personCircle(actorLabel(group.actor), 36);
-    const name = actorLabel(group.actor), count = group.items.length;
-    const titles = group.items.slice(0, 3).map(it => it.title).join(' · ')
-      + (count > 3 ? ` · ${count - 3} more` : '');
-    return `<a class="company-need-actor" href="${esc(href)}" data-need-actor="${esc(group.actor)}" aria-label="Open chat with ${esc(name)}">
-      ${face}<span class="company-need-copy"><span class="company-need-name">${esc(name)}<span class="cnt">${count} task${count === 1 ? '' : 's'}</span></span>
-      <span class="company-need-titles">${esc(titles)}</span></span>
-      <span class="nav-icon company-need-go" aria-hidden="true">chevron_right</span></a>`;
-  };
-  return `<section class="card company-needs"><header><h2>Needs you</h2></header>${groups.map(row).join('')}</section>`;
+function tasksTabsPaint(state) { tasksPaint($('#task-view'), tasksTabsHTML(state)); }
+// The body redraws on every load (the 30-second poll reloads the list): only rows that changed are replaced, so the
+// focus, the scroll, the cursor, the selection and the open peek all stay. A hidden row leaves the selection.
+function tasksPatchNode(live, next) {
+  if (live.nodeType !== next.nodeType || live.nodeName !== next.nodeName
+      || (live.nodeType === 1 && (live.dataset.taskKey || '') !== (next.dataset.taskKey || ''))) { live.replaceWith(next); return; }
+  if (live.nodeType === 3) { if (live.data !== next.data) live.data = next.data; return; }
+  if (live.nodeType !== 1) return;
+  if (live.dataset.taskKey) { if (!next.dataset.sig || live.dataset.sig !== next.dataset.sig) live.replaceWith(next); return; }   // a row: whole, or not at all
+  for (const {name} of [...live.attributes]) if (!next.hasAttribute(name)) live.removeAttribute(name);
+  for (const {name, value} of [...next.attributes]) if (live.getAttribute(name) !== value) live.setAttribute(name, value);
+  const a = [...live.childNodes], b = [...next.childNodes];
+  if (a.length !== b.length) { live.replaceChildren(...b); return; }
+  a.forEach((node, i) => tasksPatchNode(node, b[i]));
 }
-// Done: everything finished, newest first, a page at a time.
-function tasksDoneHTML(items, state) {
-  const list = items.filter(it => it.col === 'done' && !isRecurringTask(it.task)).sort(byNewest);   // routine runs live under Routines
-  if (state.doneLoading && !list.length) return '<section class="card"><div class="empty">Loading finished tasks…</div></section>';
-  if (!list.length) return '<section class="card"><div class="empty">Nothing finished yet.</div></section>';
-  return `<section class="card"><div class="v2-group"><h3>Done <span class="muted">${list.length}</span></h3>
-      ${list.map(taskRow).join('')}
-      ${state.doneNext != null ? '<button class="ghost" type="button" id="board-more">Show more</button>' : ''}</div></section>`;
+function tasksPatch(el, html) {
+  const next = document.createElement('div');
+  next.innerHTML = html;
+  const a = [...el.childNodes], b = [...next.childNodes];
+  if (!a.length || a.length !== b.length) { el.replaceChildren(...b); return; }
+  a.forEach((node, i) => tasksPatchNode(node, b[i]));
 }
 function tasksRender(state) {
   const el = $('#task-body');
   if (!el || TASKS_ST !== state) return;
-  if (state.view === 'recurring') el.innerHTML = tasksRecurringHTML(state);
+  state.memo = new Map();
+  const active = document.activeElement, inBody = el.contains(active);
+  const focusKey = inBody ? active.closest('[data-task-key]')?.dataset.taskKey || '' : '';
+  const focusWhat = !inBody ? '' : active.matches('[data-select]') ? '[data-select]' : active.matches('[data-expand]') ? '[data-expand]'
+    : active.matches('[data-open-task]') ? '[data-open-task]' : active.dataset.groupToggle ? `[data-group-toggle="${CSS.escape(active.dataset.groupToggle)}"]`
+    : active.dataset.groupAdd ? `[data-group-add="${CSS.escape(active.dataset.groupAdd)}"]` : active.matches('.tl-gchat') ? `.tl-gchat[href="${CSS.escape(active.getAttribute('href'))}"]`
+    : active.id === 'board-more' ? '#board-more' : active.matches('[data-clear-filters]') ? '[data-clear-filters]' : '';
+  el.dataset.view = state.view;
+  el.setAttribute('role', 'tabpanel'); el.setAttribute('aria-labelledby', 'task-tab-' + state.view);
+  let html;
+  if (state.view === 'recurring') html = tasksRecurringHTML(state);
   else {
     const items = taskItems(state);
-    el.innerHTML = state.loading && state.view !== 'done' && !items.length
-      ? '<section class="card"><div class="empty">Loading tasks…</div></section>'
+    html = state.loading && state.view !== 'done' && !items.length
+      ? '<div class="tl-empty">Loading tasks…</div>'
       : state.view === 'done' ? tasksDoneHTML(items, state)
-      : state.view === 'list' ? tasksListHTML(items)
-      : state.view === 'board' ? tasksBoardHTML(items, state) : companyNeedsHTML(items);
+      : state.view === 'board' ? tasksBoardHTML(items, state)
+      : tasksListHTML(items, state);
   }
-  const more = $('#board-more');
-  if (more) more.onclick = () => { void tasksLoadDone(state); };
-  if (!el.dataset.routineActions) { el.dataset.routineActions = '1'; bindRoutineActions(el); }
-  el.onclick = ev => {
-    if (ev.target.closest('[data-new-routine],[data-edit-routine],[data-toggle-routine],[data-delete-routine]')) return;
-    const chip = ev.target.closest('[data-rfilter]');
-    if (chip) {
-      state[chip.dataset.rfilter] = chip.dataset.val;
-      try { localStorage.setItem('hub.recurring.' + chip.dataset.rfilter, state[chip.dataset.rfilter]); } catch {}
-      tasksRender(state);
-      return;
-    }
-    const exp = ev.target.closest('[data-expand-routine]');
-    if (exp && !ev.target.closest('a[href^="#/task/"]')) { ev.preventDefault(); toggleRoutineOccurrences(exp); return; }
-    const b = ev.target.closest('[data-open-task]'); if (!b) return;
-    ev.preventDefault(); taskModalOpen(b.dataset.openTask);
-  };
+  if (state.view === 'recurring') el.innerHTML = html; else tasksPatch(el, html);
+  if (focusWhat && !el.contains(document.activeElement)) {
+    const host = focusKey ? el.querySelector(`[data-task-key="${CSS.escape(focusKey)}"]`) : el;
+    host?.querySelector(focusWhat)?.focus({preventScroll: true});
+  }
+  tasksSelectionPrune(state);
+  tasksCursorPaint(state);
+  if (state.peek) {
+    const row = el.querySelector(`[data-task-key="${CSS.escape(state.peek)}"]`);
+    row?.classList.add('peeked'); row?.querySelector('[data-open-task]')?.setAttribute('aria-current', 'true');
+  }
+  tasksSelectionPaint(state);
+  tasksTabsPaint(state);
 }

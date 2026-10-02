@@ -1,12 +1,12 @@
 """Signing a model CLI in on a runner from the browser.
 
-The owner asks for a login for one runtime on one computer; the runner starts the CLI and reports
+The Computer operator, owner or admin asks for a login for one runtime on one computer; the runner starts the CLI and reports
 what the CLI itself prints (a link and a one-time code, or a prompt for a pasted code). This module
 keeps that relay and nothing else. It never sees the credential the CLI ends up with: the CLI
 writes it on the runner's disk, and the runner only reports whether readiness turned green.
 
 What is stored is a link, a one-time code, a few redacted CLI message lines and timestamps, for
-at most `LIFETIME` seconds. A code the owner pastes back is held only until the runner has
+at most `LIFETIME` seconds. A code the person pastes back is held only until the runner has
 taken it, then dropped.
 """
 
@@ -87,9 +87,11 @@ def view(row):
             "expires_at": row["expires_at"]}
 
 
-def _owner(who):
-    if who.role != "owner":
-        raise Problem("forbidden", "Only the owner can sign a model in on a computer", 403)
+def _operator(c, who, rid, auth=None):
+    runner = _runner(c, rid)
+    if not (who.role == "owner" or auth and auth.bot_admin(who)
+            or who.role == "human" and H.actor_id(who.actor) == runner["operator"]):
+        raise Problem("forbidden", "You cannot sign a model in on this computer", 403)
 
 
 def _runner(c, rid):
@@ -106,8 +108,8 @@ def _login(c, rid, lid):
     return row
 
 
-def start(c, who, rid, runtime, profile=""):
-    _owner(who)
+def start(c, who, rid, runtime, profile="", auth=None):
+    _operator(c, who, rid, auth)
     if runtime not in RUNTIMES:
         raise Problem("kind", "Browser sign-in works for " + " and ".join(RUNTIMES)
                       + "; set other runtimes up from the computer's terminal", 422)
@@ -128,14 +130,14 @@ def start(c, who, rid, runtime, profile=""):
     return view(_login(c, rid, lid))
 
 
-def read(c, who, rid, lid):
-    _owner(who)
+def read(c, who, rid, lid, auth=None):
+    _operator(c, who, rid, auth)
     sweep(c)
     return view(_login(c, rid, lid))
 
 
-def submit_code(c, who, rid, lid, code):
-    _owner(who)
+def submit_code(c, who, rid, lid, code, auth=None):
+    _operator(c, who, rid, auth)
     sweep(c)
     row = _login(c, rid, lid)
     if row["runtime"] not in PASTE_RUNTIMES:
@@ -152,8 +154,8 @@ def submit_code(c, who, rid, lid, code):
     return view(_login(c, rid, lid))
 
 
-def cancel(c, who, rid, lid):
-    _owner(who)
+def cancel(c, who, rid, lid, auth=None):
+    _operator(c, who, rid, auth)
     sweep(c)
     row = _login(c, rid, lid)
     if row["state"] in ACTIVE:

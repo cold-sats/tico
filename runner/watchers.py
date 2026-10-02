@@ -31,6 +31,7 @@ from clients import watchers as declared
 from clients.manifest import manifest_path
 from . import isolation
 from .outage import describe, log
+from .profiles import SubscriptionUnavailable
 
 SCAN_EVERY = 30              # seconds between reading the bots' bot.yaml files
 OUTPUT_CAP = 256 * 1024      # bytes of output kept; the program is still drained past it
@@ -167,6 +168,8 @@ class Watchers:
     def guarded(self, key, entry, path, spec):
         try:
             self.run_once(key[0], entry, path, spec)
+        except SubscriptionUnavailable as exc:
+            self.problem(key, str(exc))
         except Exception as exc:                       # a watcher never stops the runner
             self.problem(key, f"failed to run ({describe(exc)})")
         finally:
@@ -185,7 +188,9 @@ class Watchers:
 
     def environment(self, bot, entry, aid):
         granted = self.runner.client.get("runner-watcher-credentials", bot=bot)
-        env = self.runner.environment({"id": aid, "bot": bot, "config": entry.get("config"), "token": ""}, granted=granted)
+        env = self.runner.environment({"id": aid, "bot": bot, "config": entry.get("config"), "token": "",
+                                       "profile": entry.get("profile"),
+                                       "computer_label": entry.get("computer_label")}, granted=granted)
         env.pop("HUB_TOKEN", None)
         return env
 

@@ -183,3 +183,8 @@ Use `hub question ask` when you need another bot's answer. An ordinary `hub mess
 does not deliver the recipient's final answer to the sending bot. If an incoming ordinary
 bot message requests a reply, send it explicitly with `hub message send <sender> "<reply>"`;
 do not leave that bot waiting for your final answer. An ask message receives your final answer automatically.
+
+Repository access requests use `hub_bot_repos_set` / `hub bot repos`, followed by a read of
+`effective` to verify the requested repositories and read/write grants. Keep Tool declarations
+separate: they describe actions and do not grant repository access. Preserve existing grants
+unless the requester asked to change them.

@@ -57,12 +57,12 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     let librarianQueued = false;   // the Librarian's run waits on a missing AI provider
     let chatSequence = 0, reopenBlocked = false;
     const chats = [
-      {id: 'docs-earlier', title: 'Who owns onboarding?', created: ago(90), closed_at: ago(60)},
+      {id: 'docs-earlier', title: 'Who helps new hires?', created: ago(90), closed_at: ago(60)},
       {id: 'docs-archived', title: 'How do refunds work?', created: ago(300), closed_at: ago(200)},
     ];
     const answer = 'See [Internal doc · Refund policy](doc:doc-000000000001).';
     const chatMessages = new Map([
-      ['docs-earlier', [{id: 'earlier-question', from_actor: 'human:ana', body: 'Who owns onboarding?'}]],
+      ['docs-earlier', [{id: 'earlier-question', from_actor: 'human:ana', body: 'Who helps new hires?'}]],
       ['docs-archived', [{id: 'old-question', from_actor: 'human:ana', body: 'How do refunds work?'},
         {id: 'old-answer', in_reply_to: 'old-question', from_actor: 'bot:librarian', body: 'Refunds take 30 days. ' + answer + '<script>window.docsUnsafe = true</script>'}]],
     ]);

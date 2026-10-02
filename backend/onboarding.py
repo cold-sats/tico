@@ -897,7 +897,7 @@ class Onboarding:
             self.admin.create_bot(c, who, M.BotDefinitionCreate(
                 slug=slug, display_name=choice["display_name"], description=summary,
                 status="planned", repo="bot-" + slug, thread_mode="personal",
-                reports_to=reports_to or None, shared=bool(card.get("shared")),
+                reports_to=reports_to or None, shared=bool(card.get("shared")), template=choice["template"],
                 model=model, effort=effort, owners=[H.actor_id(who.actor)]))
             if card.get("session") == "task":
                 c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.session','task') WHERE bot=?", (slug,))

@@ -327,7 +327,43 @@ here but not run against a Workspace.
 
 ### Granola
 
-**Granola has an official public API, so that is what is used.** Nothing reads Granola's local cache or
+**Connect your own Granola account in Meetings (default).** Choose **Connect Granola**, open the
+verification link and enter the code if asked. Each person connects their own account through
+Granola's official remote MCP at `https://mcp.granola.ai/mcp`. Tico stores tokens encrypted in the
+server credential vault; bots and Computers cannot read them. Disconnect in Meetings to delete them.
+
+The free plan imports your own notes and AI summaries from the last 30 days, without transcripts or
+folders. Paid plans can also import transcripts when Granola permits them. Private notes typed by
+the note-taker are never imported. Imported meetings default to private. Tico syncs in the background
+every 25 minutes and when you open Meetings, reusing a sync from the last two minutes. Recent meetings
+are revisited for late summaries. Only an invalid or rejected OAuth grant requires sign-in again.
+Network failures, rate limits and server outages keep your connection and retry on the next schedule
+with backoff. Meetings and your Health page say
+**Granola needs sign-in again** when the grant is rejected; connect again to continue.
+Transcript failures still import shared notes. Unmappable meetings are skipped, counted in status,
+and do not block later notes. Transcript access is checked again on each sync after a plan change.
+Calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
+Disconnect cancels an active sync and removes the stored token promptly; revocation is attempted in
+background when Granola advertises a trusted endpoint. Connections are removed when a person leaves
+or loses sign-in. A pending reconnect retains the working token until success or expiry; a successful
+new sign-in starts a fresh 30-day backfill.
+
+`hub meetings granola status` shows your connection and `hub meetings granola sync` starts a background
+sync. `POST /api/v2/meetings/granola/sync` returns `state: "syncing"` when a job is running
+(or `recent`, `off`, `needs_signin`). `GET /api/v2/meetings/granola` includes `syncing: bool`
+and `skipped` for the last attempt. The account email is omitted unless verified by the provider.
+The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use the caller's person
+rights; BotOps can give the Meetings link but cannot complete the browser sign-in.
+
+The account sync matches existing meetings by person and Granola ID, then by the Granola web URL
+when the IDs differ, and fills only empty fields. Existing titles, calendar times, attendees, notes,
+privacy settings and transcripts are preserved.
+
+**Granola API key (Business/Enterprise)** remains an alternative for a Computer importer. Both
+connections use the same source. Account sync deduplicates by external meeting ID or the shared
+Granola web URL, so an existing meeting keeps its richer API-imported fields.
+
+The API-key importer uses Granola's official public API. Nothing reads Granola's local cache or
 app files, and nothing needs to run on the Mac where Granola is installed.
 
 1. In Granola (Business or Enterprise plan) open **Settings > Workspaces > API** and **Generate API Key**.
@@ -339,7 +375,7 @@ app files, and nothing needs to run on the Mac where Granola is installed.
    GRANOLA_API_KEY=grn_...
    ```
    A comma-separated list takes several humans' personal keys.
-3. Enable **Granola** in Settings and choose that computer.
+3. Enable **Granola API key (Business/Enterprise)** in Tools > Meeting importers and choose that Computer.
 
 The importer lists notes (`GET https://public-api.granola.ai/v1/notes`, `created_after` and
 `created_before`, `page_size` at most 30, cursor pagination), then reads each note with its transcript

@@ -1,8 +1,8 @@
 # Files
 
-A bot's page lists **Files**: the useful things it created, revised or delivered, newest activity
-first, as a plain list of an icon and a name. Three rows show by default; "Show all" opens the rest in
-place. A stored file opens in the app's viewer (a CSV as a table, its first 1,000 rows, with Download);
+A bot's page lists **Files** in its right rail: the useful things it created, revised or delivered, newest
+activity first, as a plain list of names. Three rows show by default; a small "+N" opens the rest in
+place. A bot with no files has no Files section. A stored file opens in the app's viewer (a CSV as a table, its first 1,000 rows, with Download);
 a linked document opens at its provider in a new tab.
 
 ## What gets listed

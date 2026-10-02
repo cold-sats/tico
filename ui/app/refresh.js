@@ -25,7 +25,7 @@ async function refresh(force) {
   // Poll data without destroying an expanded document or a comment being typed.
   const reviewing = $('#main .req[open], #main .issue-compose:not([hidden])');
   if (force || !reviewing) {
-    if (TASKS_ST && [TASKS, BOARD, ISSUES, RECURRING].includes(S.route)) tasksRender(TASKS_ST);
+    if (TASKS_ST && isTasksRoute(S.route)) void tasksLoad(TASKS_ST, {poll: true});   // the open list reloads (not Done's pages); only changed rows redraw
     // The Active column beside the chat was loaded once and never again, so a task the bot closed
     // stayed listed until a reload. The poll redraws it too.
     if (BOT && isKeeper(BOT.slug) && BOT.loaded.has('tasks')) void loadBotTasksV2(BOT.slug);

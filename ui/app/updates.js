@@ -259,25 +259,34 @@ async function updUnreadRefresh() {
   const r = await v2Get('/v2/updates/unread' + (mine ? '?mine=true' : ''));
   if (r) updBadge(r.unread);
 }
-// "When I open a Bot, at the top I want to show last update if the update is
-// unread. It is dismissable. And in the bots menu you can see updates and the full history."
+// The bot's latest update heads the Updates section of its right rail: its age, the text (long ones fold
+// behind a small "More"), and an icon to all of its updates. Once the rail shows it, it counts as read.
 async function botLatestUpdate(slug) {
-  const host = $('#bot-update'); if (!host) return;
+  const host = $('#bot-latest'); if (!host) return;
   const r = await v2Get(`/v2/updates?bot=${encodeURIComponent(slug)}&limit=1`);
   const u = r?.updates?.[0];
-  if (!$('#bot-update') || BOT?.slug !== slug || BOT.tab === 'history') return;
-  if (!u || u.read) { host.hidden = true; return; }
-  host.innerHTML = `<div class="bot-update-meta"><span class="nav-icon" aria-hidden="true">dynamic_feed</span>
-      <b>${u.kind === 'weekly' ? 'Week in review' : 'Latest update'}</b><span class="muted">· ${esc(ago(u.updated || u.created))}</span>
-      <span class="spacer"></span><a class="linkish" href="#/bot/${encodeURIComponent(slug)}/history">History</a>
-      <button type="button" class="ghost bot-update-x" data-bot-update-dismiss aria-label="Dismiss" title="Dismiss">✕</button></div>
-    <div class="upd-body md">${safeMd(u.body || '', {shortLinks: true})}</div>`;
+  if (!$('#bot-latest') || BOT?.slug !== slug) return;
+  if (!u) { host.hidden = true; host.innerHTML = ''; return; }
+  const all = isKeeper(slug) ? `<a class="rail-ico" href="#/bot/${encodeURIComponent(slug)}/history" aria-label="All updates" title="All updates"><span class="nav-icon" aria-hidden="true">dynamic_feed</span></a>` : '';
+  host.innerHTML = `<header class="rail-head"><h2 class="rail-h">Updates</h2>
+      <span class="rail-age" title="${esc(fmt(u.updated || u.created))}">${esc(ago(u.updated || u.created))}</span>${u.read ? '' : '<span class="upd-dot" role="img" aria-label="Unread"></span>'}
+      <span class="spacer"></span>${all}</header>
+    <div class="upd-body md">${safeMd(u.body || '', {shortLinks: true})}</div>
+    <button type="button" class="rail-more" data-latest-more hidden>More</button>`;
   host.hidden = false;
-  host.querySelector('[data-bot-update-dismiss]').onclick = async () => {
-    host.hidden = true;
-    updBadge(Math.max(0, (S.updUnread || 1) - 1));
-    try { await post('/v2/updates/read', {ids: [u.id]}); } catch (e) { toast(e.message || 'Could not dismiss it', true); host.hidden = false; }
-  };
+  const body = host.querySelector('.upd-body'), more = host.querySelector('[data-latest-more]');
+  more.hidden = body.scrollHeight <= body.clientHeight + 2;
+  more.onclick = () => { const open = body.classList.toggle('open'); more.textContent = open ? 'Less' : 'More'; };
+  BOT.latest = u.read ? null : u;
+  botLatestSeen();
+}
+// Called when the rail is drawn or comes into view: an unread latest update it shows is now read.
+function botLatestSeen() {
+  const u = BOT?.latest, host = $('#bot-latest');
+  if (!u || !host || host.hidden || !host.offsetParent) return;
+  BOT.latest = null;
+  updBadge(Math.max(0, (S.updUnread || 1) - 1));
+  void post('/v2/updates/read', {ids: [u.id]}).catch(() => {});
 }
 // Every update the bot posted, newest first; what is shown here is read.
 async function botHistoryLoad(slug, before) {

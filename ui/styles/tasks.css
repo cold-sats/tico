@@ -7,46 +7,6 @@
 .tabs.slim button{padding:4px 10px;border-radius:6px;border-bottom:0;margin:0;font-size:13px}
 .tabs.slim button.cur{background:var(--surface2)}
 .tabs .cnt{color:var(--muted);font-size:11.5px;margin-left:2px;font-variant-numeric:tabular-nums}
-/* Tasks alone has a compact, single-line desktop toolbar; Goals shares .tasks-head. */
-.tasks-head.find{flex-wrap:nowrap;gap:8px;min-width:0}
-.tasks-head.find h1{flex:none;margin:0 2px 0 0;white-space:nowrap}
-.tasks-head.find .task-strip{display:contents}
-.tasks-head.find .task-find{order:2;display:flex;align-items:center;flex:1 1 auto;min-width:0;height:36px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
-.tasks-head.find .task-find:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
-.tasks-head.find .task-find>.nav-icon{margin-left:9px;width:18px;height:18px;font-size:18px}
-.tasks-head.find #task-q{flex:1;min-width:0;width:0;height:34px;padding:0 8px;border:0;border-radius:0;background:none;box-shadow:none;font-size:13px}
-.tasks-head.find #task-q:focus{outline:0;box-shadow:none}
-.tasks-head.find #task-filter{flex:none;align-self:stretch;display:flex;align-items:center;gap:4px;padding:0 10px;border:0;border-left:1px solid var(--line);border-radius:0;background:transparent;color:var(--muted);font-size:12px;white-space:nowrap;cursor:pointer}
-.tasks-head.find #task-filter:hover,.tasks-head.find #task-filter.active{color:var(--accent);background:var(--surface2)}
-.tasks-head.find #task-new{order:3}
-.tasks-head.find #task-view{order:4;flex:none;margin:0;white-space:nowrap}
-.tasks-head.find #task-view button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0}
-.tasks-head.find #task-view .nav-icon{color:inherit;font-size:19px}
-#task-filter-pop{position:fixed;inset:auto;z-index:50;width:min(330px,calc(100vw - 24px));max-height:min(70vh,520px);overflow-y:auto;margin:0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);box-shadow:0 12px 36px rgba(0,0,0,.18)}
-#task-filter-pop .task-filter-row{display:grid;gap:7px;margin-bottom:16px}
-#task-filter-pop .task-filter-row[hidden]{display:none}
-#task-filter-pop .task-filter-row>label,#task-filter-pop .task-filter-row>.lbl{color:var(--muted);font-size:12px;font-weight:600}
-#task-filter-pop .tfilters{flex-wrap:wrap}
-#task-filter-pop select{width:100%;max-width:none}
-#task-filter-pop .task-filter-foot{display:flex;justify-content:flex-end;padding-top:4px;border-top:1px solid var(--line)}
-#task-filter-pop #task-filter-clear{border:0;background:none;color:var(--accent);padding:7px 0 0;cursor:pointer;font-size:12px}
-@media (max-width:1050px) and (min-width:761px){
-  .tasks-head.find{gap:4px}
-  .tasks-head.find h1{font-size:16px;margin:0}
-  .tasks-head.find #task-view button{width:27px}
-  .tasks-head.find #task-filter{padding:0 6px;font-size:11px}
-}
-@media (max-width:760px){
-  .tasks-head.find{flex-wrap:wrap;gap:8px}
-  .tasks-head.find h1{order:0}
-  .tasks-head.find .task-find{order:1;flex:1 1 0}
-  .tasks-head.find #task-new{order:2}
-  .tasks-head.find .task-strip{order:3;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex:0 0 100%;min-width:0;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
-  .tasks-head.find .task-strip::-webkit-scrollbar{display:none}
-  .tasks-head.find #task-view{flex:none}
-  #task-filter-pop{inset:auto 0 0 0!important;width:100%;max-height:min(75vh,620px);padding:18px 18px max(18px,env(safe-area-inset-bottom));border-radius:16px 16px 0 0}
-  #task-filter-pop:popover-open::backdrop{background:rgba(0,0,0,.25)}
-}
 .trow{border-bottom:1px solid var(--line)}
 .trow:last-child{border-bottom:0}
 .trow summary{display:grid;grid-template-columns:44px 1fr auto 60px;gap:10px;align-items:center;padding:8px 2px;cursor:pointer;list-style:none;font-size:13.5px;color:var(--ink)}
