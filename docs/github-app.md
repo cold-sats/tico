@@ -15,7 +15,7 @@ changes; bots keep using whatever git access their computer already has.
 | Metadata | read | required by GitHub for every app |
 | Administration | write, optional | create bot repositories and delete repositories the Owner requests; omit it by leaving the box unchecked |
 
-The app is private, receives installation change webhooks to refresh the repository list, and requests no
+The app is private, receives installation change webhooks to refresh the repository list when its webhook is active, and requests no
 workflow permission, so a bot cannot change `.github/workflows` files. Add Workflows: write on the
 app's GitHub settings page if a bot's repository needs that.
 
@@ -108,3 +108,5 @@ app and reconnect, so Tico stores a key GitHub still accepts. Cached tokens keep
 Disconnect in Tico only forgets the app locally; bots fall back to their computers' git access. To
 revoke access on GitHub, uninstall the app from the organization's installed apps page, or delete the
 app from its settings page.
+
+Apps created before v0.3.1 may have Webhook → Active turned off in GitHub App settings. Their repository list refreshes daily and on Refresh in Settings → Repositories. The App webhook API does not expose the Active switch; enable it in GitHub to receive installation events.

@@ -155,3 +155,27 @@ def test_gh_wrapper_uses_the_read_token_for_explicit_and_local_repositories(tmp_
         assert result.returncode == 0, result.stderr
         assert result.stdout == expected
     assert "token" not in (tmp_path / ".git" / "config").read_text()
+
+
+def test_gh_placeholders_and_text_urls_select_checkout_origin(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(['git', 'init', '-q'], check=True)
+    subprocess.run(['git', 'remote', 'add', 'origin', 'https://github.com/Acme/docs.git'], check=True)
+    for args in (['api', 'repos/{owner}/{repo}/pulls'],
+                 ['pr', 'comment', '5', '--body', 'https://github.com/Acme/product/pull/3'],
+                 ['pr', 'create', '--title=https://github.com/Acme/product/pull/3'],
+                 ['pr', 'comment', '5', '-b', 'https://github.com/Acme/product/pull/3']):
+        assert G.gh_repository(args, {}) == 'Acme/docs'
+    assert G.gh_repository(['pr', 'view', 'https://github.com/Acme/product/pull/3'], {}) == 'Acme/product'
+
+
+def test_each_granted_token_is_redacted_after_apply():
+    from runner import redact
+    grants = {'configured': True, 'token': 'ghs_write_secret', 'tokens': [
+        {'token': 'ghs_write_secret', 'repositories': ['Acme/product']},
+        {'token': 'ghs_read_secret', 'repositories': ['Acme/docs']}]}
+    env = {}
+    assert G.apply(env, Hub(grants), 'alpha')
+    redactor = redact.for_turn(env)
+    assert redactor.scrub_text('ghs_write_secret ghs_read_secret') == redact.MASK + ' ' + redact.MASK
+    assert redact.for_turn({'GH_TOKEN': 'ghs_clone_secret'}).scrub_text('ghs_clone_secret') == redact.MASK

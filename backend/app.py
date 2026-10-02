@@ -135,7 +135,7 @@ def create_app(settings=None):
                     # page open; it is a no-op until its six hours are up.
                     await asyncio.to_thread(releases.notice)
                     from .repositories import daily
-                    await asyncio.to_thread(daily, app.state.github_app)
+                    daily(app.state.github_app)
                 except Exception as exc:
                     telemetry.capture("scheduler", exc)
                     import logging
@@ -2717,6 +2717,7 @@ def create_app(settings=None):
             if not runner or not (auth.bot_admin(who) or who.role == "human" and who.actor == "human:" + runner["operator"]):
                 raise Problem("forbidden", "You cannot revoke this runner", 403)
             c.execute("UPDATE runners SET revoked_at=? WHERE id=?", (H.now(), rid))
+            c.execute('DELETE FROM registry_metadata WHERE key=?', ('computer-repositories:' + rid,))
             H.event(c, who.actor, "runner.revoked", rid)
             return {"revoked": True}
         return mutate(request, body, work)

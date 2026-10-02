@@ -10,8 +10,9 @@ import shutil
 import subprocess
 import threading
 import time
+import tempfile
 
-from . import git_credentials, isolation
+from . import git_credentials
 
 FETCH_INTERVAL = 15 * 60
 REMOVE_AFTER = 30 * 86400
@@ -102,7 +103,7 @@ class Repositories:
                     row.update(state="failed", error="Could not save repository state; free disk space and check permissions")
                 return self.report()
             # One job per cycle, chosen fairly so a failed clone cannot hold up the others.
-            due = [name for name in wanted if now - self.rows[name].get('attempted_at', 0) >= FETCH_INTERVAL
+            due = [name for name in wanted if now - self.rows[name].get('attempted_at', 0) >= self.rows[name].get('retry_delay', FETCH_INTERVAL)
                    and now - self.rows[name].get('fetched_at', 0) >= FETCH_INTERVAL]
             due.sort(key=lambda name: self.rows[name].get('attempted_at', 0))
             selected = due[0] if due else None
@@ -144,35 +145,43 @@ class Repositories:
             exists = path.exists()
             if exists and (not self.rows[name].get('managed') or not (path / '.git').is_dir() or (path / '.git').is_symlink()):
                 raise ValueError('Repository folder already exists and is not a managed base clone; left as it is')
-            if not exists:
-                usage = shutil.disk_usage(self.root if self.root.exists() else self.root.parent)
-                floor = max(5 * GB, usage.total * .1)
-                if usage.free < floor:
-                    with self.lock:
-                        self.rows[name].update(state='disk_low', error=f'Not enough disk to clone {repo["full_name"]}: {usage.free / GB:.1f} GB free, needs {floor / GB:g} GB. Free space on this volume')
-                    return
+            usage = shutil.disk_usage(self.root if self.root.exists() else self.root.parent)
+            floor = max(5 * GB, usage.total * .1)
+            if usage.free < floor:
+                with self.lock:
+                    self.rows[name].update(state='disk_low', error=f'Not enough disk to {"fetch" if exists else "clone"} {repo["full_name"]}: {usage.free / GB:.1f} GB free, needs {floor / GB:g} GB. Free space on this volume')
+                return
             granted = self.client.post('runners/me/repositories/token')
             token = granted.get('token') or ''
             if not token or name not in {n.lower() for n in granted.get('repositories', [])}:
                 raise ValueError('No GitHub read token for this repository; check the GitHub connection')
-            env = {**os.environ, **git_credentials.environment(token)}
+            env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_CONFIG_')}
+            env.update(git_credentials.environment(token))
+            env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
             url = f'https://github.com/{repo["full_name"]}.git'
-            prefix = ['git', '-c', 'http.followRedirects=false']
+            prefix = ['git', '-c', 'http.followRedirects=false', '-c', 'core.fsmonitor=false',
+                      '-c', 'http.proxy=', '-c', 'http.sslVerify=true', '-c', 'protocol.allow=never',
+                      '-c', 'protocol.https.allow=always', '-c', 'protocol.file.allow=never']
             if exists:
                 branch = repo.get('default_branch') or '*'
                 command = [*prefix, '-C', str(path), 'fetch', '--quiet', '--prune', '--no-tags', '--', url,
                            f'+refs/heads/{branch}:refs/remotes/origin/{branch}']
             else:
-                isolation.mkdir(self.root, mode=0o755)
+                self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
                 created = True
                 with self.lock:
                     self.rows[name].update(state="cloning", managed=True)
                     self.save()
-                command = [*prefix, 'clone', '--quiet', '--single-branch']
+                command = [*prefix, 'clone', '--quiet', '--single-branch', '--filter=blob:none', '--no-checkout']
                 if repo.get('default_branch'):
                     command += ['--branch', repo['default_branch']]
                 command += ['--', url, str(path)]
-            done = isolation.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env, timeout=120)
+            # The supervisor alone holds the union token; no bot-owned hooks or fsmonitor run.
+            timeout = max(900, min(7200, int(repo.get('size_kb') or self.rows[name].get('size_mb', 0) * 1024) // 1024))
+            with tempfile.TemporaryDirectory(prefix='tico-git-hooks-') as hooks:
+                command[1:1] = ['-c', 'core.hooksPath=' + hooks]
+                done = subprocess.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                      env=env, timeout=timeout)
             if done.returncode:
                 # Git's stderr may contain credentials or local secrets; keep them out of reports.
                 raise ValueError(f'Git {"fetch" if exists else "clone"} failed (exit {done.returncode}); check GitHub access, disk space and network')
@@ -182,6 +191,7 @@ class Repositories:
                 self.rows[name].update(state='cloned', managed=True, fetched_at=now,
                                        last_fetch=datetime.fromtimestamp(now, timezone.utc).isoformat(), size_mb=round(size, 1))
                 self.rows[name].pop('error', None)
+                self.rows[name].update(failures=0, retry_delay=FETCH_INTERVAL)
         except Exception as exc:
             if created:
                 try:
@@ -190,7 +200,7 @@ class Repositories:
                 except (OSError, ValueError):
                     pass
             if isinstance(exc, subprocess.TimeoutExpired):
-                error = 'Git timed out after 120 seconds; check the network and retry'
+                error = f'Git timed out after {exc.timeout} seconds; check the network'
             elif isinstance(exc, ValueError):
                 error = str(exc).replace(token, '[redacted]') if token else str(exc)
             elif isinstance(exc, OSError) and exc.errno == 28:
@@ -198,4 +208,7 @@ class Repositories:
             else:
                 error = 'Could not sync base clone; check GitHub connection, network, disk space and folder permissions'
             with self.lock:
-                self.rows[name].update(state='failed', error=error)
+                failures = self.rows[name].get('failures', 0) + 1
+                delay = (900, 3600, 21600)[min(failures - 1, 2)]
+                self.rows[name].update(state='failed', failures=failures, retry_delay=delay, attempted_at=time.time(),
+                                       error=f'{error}. Retrying in {delay // 60} minutes')

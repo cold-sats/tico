@@ -225,16 +225,27 @@ def credential(config_path, bot, socket_path=None, repository=None):
 
 
 def gh_repository(argv, env):
+    skip, positional = False, []
     for index, arg in enumerate(argv):
+        if skip:
+            skip = False
+            continue
+        if arg in ('--body', '-b', '--title', '-t', '--body-file', '-F', '--field', '-f', '--raw-field', '--header', '-H'):
+            skip = True
+            continue
         if arg in ("-R", "--repo") and index + 1 < len(argv):
             return repository_name(argv[index + 1])
         if arg.startswith("--repo=") or (arg.startswith("-R") and len(arg) > 2):
             return repository_name(arg.split("=", 1)[1] if arg.startswith("--repo=") else arg[2:])
-    for arg in argv:
-        if arg.startswith("https://github.com/"):
+        if not arg.startswith('-'):
+            positional.append(arg)
+    for arg in positional:
+        if arg.startswith('https://github.com/'):
             return repository_name(arg)
-        if arg.lstrip("/").startswith("repos/"):
-            return repository_name(arg.lstrip("/")[6:])
+        if arg.lstrip('/').startswith('repos/'):
+            name = repository_name(arg.lstrip('/')[6:])
+            if name:
+                return name
     if len(argv) > 2 and argv[0] == "repo" and argv[1] in ("view", "clone", "fork"):
         if not argv[2].startswith("-"):
             return repository_name(argv[2])

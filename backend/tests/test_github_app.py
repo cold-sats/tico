@@ -276,6 +276,7 @@ def events(api, action):
 
 def test_extra_repositories_join_the_turn_token_with_the_same_permissions(api, gh):
     connect(api)
+    assert api.put('/api/v2/bots/cpo/repositories', json={'mode': 'chosen', 'chosen': []}, headers=auth()).status_code == 200
     runner_token(api, "cpo")
     r = put_extras(api, "cpo", ["shared-docs", "Acme/design-system", "https://github.com/Acme/infra.git", "Acme/emp-cpo", "shared-docs"])
     assert r.status_code == 200, r.text
@@ -294,7 +295,8 @@ def test_repositories_not_on_the_list_are_not_in_the_token(api, gh):
     runner_token(api, "cpo")
     turn_token(api)
     assert gh.of("/access_tokens")[-1][2]["repositories"] == ["emp-cpo"]
-    put_extras(api, "cpo", ["shared-docs"])
+    assert api.put('/api/v2/bots/cpo/repositories', json={'mode': 'chosen', 'chosen': []}, headers=auth()).status_code == 200
+    assert put_extras(api, "cpo", ["shared-docs"]).status_code == 200
     turn_token(api)
     assert "secrets" not in gh.of("/access_tokens")[-1][2]["repositories"]
     # Another bot's list is its own, and clearing the list takes the repositories back out.
@@ -361,14 +363,14 @@ def service_issues(api):
     return [i for i in api.get("/api/v2/operations", headers=auth()).json()["issues"] if i["kind"] == "service"]
 
 
-def test_a_bot_whose_repository_is_not_on_github_is_not_a_token_problem(api, gh):
+def test_a_bot_whose_repository_is_not_on_github_is_named_in_health(api, gh):
     connect(api)
     runner_token(api, "cpo")
     gh.missing.add("emp-cpo")
     r = turn_token(api)
     assert r.status_code == 409 and "does not exist yet" in r.text
     assert "can't create repositories (Administration is off)" in r.text       # connected without Administration
-    assert not token_health(api) and not service_issues(api)
+    assert token_health(api) and service_issues(api)
 
 
 def test_repository_creation_is_only_suggested_when_the_app_can_do_it(api, gh):
