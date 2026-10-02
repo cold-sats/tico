@@ -336,16 +336,32 @@ The free plan imports your own notes and AI summaries from the last 30 days, wit
 folders. Paid plans can also import transcripts when Granola permits them. Private notes typed by
 the note-taker are never imported. Imported meetings default to private. Tico syncs in the background
 every 25 minutes and when you open Meetings, reusing a sync from the last two minutes. Recent meetings
-are revisited for late summaries. If Granola rejects a refresh, Meetings and your Health page say
-**Granola needs sign-in again**; connect again to continue.
+are revisited for late summaries. Only an invalid or rejected OAuth grant requires sign-in again.
+Network failures, rate limits and server outages keep your connection and retry on the next schedule
+with backoff. Meetings and your Health page say
+**Granola needs sign-in again** when the grant is rejected; connect again to continue.
+Transcript failures still import shared notes. Unmappable meetings are skipped, counted in status,
+and do not block later notes. Transcript access is checked again on each sync after a plan change.
+Calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
+Disconnect cancels an active sync and removes the stored token promptly; revocation is attempted in
+background when Granola advertises a trusted endpoint. Connections are removed when a person leaves
+or loses sign-in. A pending reconnect retains the working token until success or expiry; a successful
+new sign-in starts a fresh 30-day backfill.
 
 `hub meetings granola status` shows your connection and `hub meetings granola sync` starts a background
-sync. The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use the caller's person
+sync. `POST /api/v2/meetings/granola/sync` returns `state: "syncing"` when a job is running
+(or `recent`, `off`, `needs_signin`). `GET /api/v2/meetings/granola` includes `syncing: bool`
+and `skipped` for the last attempt. The account email is omitted unless verified by the provider.
+The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use the caller's person
 rights; BotOps can give the Meetings link but cannot complete the browser sign-in.
 
+The account sync matches existing meetings by person and Granola ID, then by the Granola web URL
+when the IDs differ, and fills only empty fields. Existing titles, calendar times, attendees, notes,
+privacy settings and transcripts are preserved.
+
 **Granola API key (Business/Enterprise)** remains an alternative for a Computer importer. Both
-connections use the same source and external meeting ID, so the same person's meeting updates in
-place when both are enabled.
+connections use the same source. Account sync deduplicates by external meeting ID or the shared
+Granola web URL, so an existing meeting keeps its richer API-imported fields.
 
 The API-key importer uses Granola's official public API. Nothing reads Granola's local cache or
 app files, and nothing needs to run on the Mac where Granola is installed.

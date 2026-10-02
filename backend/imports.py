@@ -321,7 +321,7 @@ def install_imports(app, store, auth, execution, mutate):
 
         return await asyncio.to_thread(write_upload, store, request, body, uploads, work)
 
-    def file_meeting(c, machine, body, uploads):
+    def file_meeting(c, machine, body, uploads, *, fill_empty=False):
         person_call = machine.role in ("owner", "human")
         turns = segments_of(body)
         runner = None
@@ -342,7 +342,16 @@ def install_imports(app, store, auth, execution, mutate):
         key = (body.source, "meeting", f"{who.actor}:{body.external_id}") if body.external_id else None
         ref = c.execute("SELECT meeting_id FROM recording_source_refs WHERE source=? AND resource_type=? "
                         "AND external_id=?", key).fetchone() if key else None
+        if fill_empty and not ref and body.media_url:
+            # Scope the URL fallback to this person's Granola source references, including deleted meetings.
+            ref = c.execute("SELECT m.id FROM meetings m JOIN recording_source_refs r ON r.meeting_id=m.id "
+                            "WHERE r.source=? AND r.resource_type='meeting' "
+                            "AND substr(r.external_id,1,?)=? AND json_extract(m.metadata_json,'$.media_url')=? LIMIT 1",
+                            (body.source, len(who.actor) + 1, who.actor + ":", body.media_url)).fetchone()
         existing = bool(ref)
+        if fill_empty and ref and key:
+            c.execute("INSERT INTO recording_source_refs(source,resource_type,external_id,meeting_id,created) "
+                      "VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING", (*key, ref[0], H.now()))
         if ref and deleted(c, ref[0]):
             # Somebody threw this meeting away. Say so, so an importer stops offering it
             # rather than bringing back what a person deleted.
@@ -353,6 +362,19 @@ def install_imports(app, store, auth, execution, mutate):
             meta = new_note(c, who, Note(text=body.title or "Imported meeting"), [])
             meta.update(note="", preview="", private=False)
         rid = meta["id"]
+        if fill_empty and existing:
+            stored = meeting(rid, c)
+            body = body.model_copy(update={
+                "title": "" if meta.get("title") else body.title,
+                "started_at": meta.get("started") or body.started_at,
+                "duration_seconds": meta["duration_ms"] / 1000 if meta.get("duration_ms") else body.duration_seconds,
+                "participants": [] if meta.get("participants") else body.participants,
+                "notes": "" if stored.get("notes") else body.notes,
+                "transcript": "" if meta.get("turns") else body.transcript,
+                "media_url": "" if meta.get("media_url") else body.media_url,
+                "private": None if "private" in meta else body.private,
+                "context": meta.get("source_context") or body.context})
+            turns = segments_of(body)
         people = listed_participants(c, body.participants)
         fingerprint = hashlib.sha256(encode({
             "turns": turns, "notes": body.notes, "title": body.title, "started_at": body.started_at,
@@ -386,7 +408,8 @@ def install_imports(app, store, auth, execution, mutate):
         if fresh:
             meta["attachments"] = (meta.get("attachments") or []) + attachments(c, who, rid, fresh)
         transcript = raw_transcript(turns)
-        save(c, meta, transcript=transcript or None, readable=transcript.replace("\n", "\n\n") if transcript else None,
+        save(c, meta, transcript=transcript or None, readable=transcript.replace("\n", "\n\n") if transcript else
+             stored["transcript_readable"] if fill_empty and existing else None,
              notes=body.notes or None)
         if key and not existing:
             c.execute("INSERT INTO recording_source_refs(source,resource_type,external_id,meeting_id,created) "

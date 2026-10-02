@@ -1,6 +1,7 @@
 """Fake official OAuth/MCP: no live accounts, network or secrets."""
 import asyncio
 import json
+import logging
 
 import httpx
 import pytest
@@ -48,7 +49,7 @@ class Provider:
             data = parse_qs(request.content.decode())
             assert data["resource"] == ["https://mcp.granola.ai/mcp"]
             return httpx.Response(200, json={"device_code": "fake-device-sensitive", "user_code": "ABCD",
-                                            "verification_uri": "https://example.com/device", "expires_in": 600, "interval": 5})
+                                            "verification_uri": "https://granola.ai/device", "expires_in": 600, "interval": 5})
         if path == "/oauth2/token":
             data = parse_qs(request.content.decode())
             assert data["resource"] == ["https://mcp.granola.ai/mcp"]
@@ -112,6 +113,7 @@ class Provider:
 
 
 def test_registration_device_encryption_status_and_disconnect(api, caplog):
+    caplog.set_level(logging.DEBUG)
     provider = Provider(api)
     assert provider.connect()["connected"]
     assert provider.connect("ben-test")["connected"]
@@ -175,7 +177,7 @@ def test_free_sync_dedup_private_notes_and_person_isolation(api):
         row = c.execute("SELECT metadata_json FROM meetings WHERE id=?", (existing["id"],)).fetchone()
         assert json.loads(row[0])["private"]
     record = api.get("/api/meetings/" + existing["id"], headers=headers("ana-test")).json()
-    assert "Ship it" in record["notes"] and "Never import this" not in json.dumps(record)
+    assert record["notes"] == "API notes" and "Never import this" not in json.dumps(record)
     assert not api.get(BASE, headers=headers("ben-test")).json()["connected"]
     assert api.post(BASE + "/sync", headers=headers("ben-test")).json()["state"] == "off"
     assert api.get(BASE + "?person=ana", headers=headers("ben-test")).json()["mode"] == "off"
@@ -195,7 +197,7 @@ def test_paid_transcripts_or_permission_denial_still_imports(api, denied):
     assert status["last_sync"] and status["imported_count"] == 1 and not status["last_error"]
     assert status["plan_hint"] == ("free" if denied else "paid")
     if denied:
-        assert provider.service.load("human:ana")[1]["transcripts_unavailable"]
+        assert status["plan_hint"] == "free"
 
 
 def test_401_refresh_and_429_backoff(api):
@@ -268,7 +270,7 @@ def test_botops_mcp_uses_the_human_requester(api, botops):
     provider.connect("cara-test")
     attempt = turn(api, botops, person="cara-test", text="Sync my Granola notes")
     error, result = call(api, "hub_meeting_granola_status", token=attempt["token"])
-    assert not error and result["connected"] and result["email"] == "cara@acme.example"
+    assert not error and result["connected"] and result["email"] is None
     error, result = call(api, "hub_meeting_granola_sync", token=attempt["token"])
     assert not error and result["state"] == "syncing"
     async def finish():
@@ -330,3 +332,302 @@ def test_expiry_refresh_before_request_and_connection_survives_vault_restart(api
     provider.sync()
     assert provider.service.load("human:ana")[2]["access_token"] == "fake-access-refreshed"
     assert not api.get(BASE, headers=headers("ana-test")).json()["needs_signin"]
+
+
+@pytest.mark.parametrize("failure", ["503", "429", "network", "bad_response", "registration_network"])
+def test_transient_refresh_keeps_token_and_retries(api, caplog, failure):
+    caplog.set_level(logging.DEBUG)
+    provider = Provider(api)
+    provider.connect()
+    previous = provider.handle
+    def handle(request):
+        if request.url.path == "/oauth2/token":
+            if failure in ("network", "registration_network"):
+                if failure == "network":
+                    raise httpx.ConnectError("fake-refresh-sensitive", request=request)
+                return httpx.Response(401, json={"error": "invalid_client"})
+            if failure == "bad_response":
+                return httpx.Response(200, text="fake-refresh-sensitive")
+            return httpx.Response(int(failure), text="fake-refresh-sensitive")
+        if failure == "registration_network" and request.url.path == "/oauth2/register":
+            raise httpx.ConnectError("fake-refresh-sensitive", request=request)
+        return previous(request)
+    provider.service.transport = httpx.MockTransport(handle)
+    provider.now += 3600
+    provider.sync()
+    saved = provider.service.load("human:ana")
+    assert saved[2]["refresh_token"] == "fake-refresh-sensitive"
+    assert saved[1]["state"] == "connected" and not saved[1]["needs_signin"]
+    assert saved[1]["last_error"] and saved[1]["retry_after"] > provider.now
+    assert all(secret not in caplog.text for secret in ("fake-refresh-sensitive", "fake-access-sensitive", "fake-device-sensitive"))
+    provider.service.transport = httpx.MockTransport(previous)
+    provider.sync()
+    assert provider.service.load("human:ana")[1]["last_sync"]
+
+
+@pytest.mark.parametrize("transcript", ["tool_error", [], "", [{"start": "2026-10-01T00:00:00Z", "text": "Ship it"}], {"unknown": "shape"}])
+def test_any_transcript_failure_imports_notes(api, transcript):
+    provider = Provider(api)
+    provider.paid = True
+    provider.connect()
+    previous = provider.handle
+    def handle(request):
+        if request.url.path == "/mcp":
+            body = json.loads(request.content)
+            if body.get("params", {}).get("name") == "get_meeting_transcript":
+                result = {"isError": True, "content": [{"type": "text", "text": "Transcripts are available on Business and Enterprise plans"}]} if transcript == "tool_error" else {"structuredContent": {"transcript": transcript}}
+                return httpx.Response(200, json={"result": result})
+        return previous(request)
+    provider.service.transport = httpx.MockTransport(handle)
+    provider.sync()
+    status = api.get(BASE, headers=headers("ana-test")).json()
+    assert status["last_sync"] and status["imported_count"] == 1 and status["skipped"] == 0
+    with api.app.state.store.read() as c:
+        assert "Ship it" in c.execute("SELECT notes FROM meetings").fetchone()[0]
+
+
+def test_malformed_meeting_is_skipped_and_later_notes_import(api):
+    provider = Provider(api)
+    provider.connect()
+    previous = provider.handle
+    def handle(request):
+        if request.url.path == "/mcp":
+            body = json.loads(request.content)
+            if body.get("params", {}).get("name") == "get_meetings":
+                return httpx.Response(200, json={"result": {"structuredContent": {"meetings": [
+                    {"id": "invalid id", "summary": "Bad"},
+                    {"id": "later-note", "summary": "Good"}]}}})
+        return previous(request)
+    provider.service.transport = httpx.MockTransport(handle)
+    provider.sync()
+    status = api.get(BASE, headers=headers("ana-test")).json()
+    assert status["skipped"] == 1 and status["last_error"] == "1 notes skipped"
+    assert status["imported_count"] == 1 and status["last_sync"]
+    assert provider.service.load("human:ana")[1]["cursor"]
+
+
+def test_url_dedup_preserves_richer_api_meeting_and_person_scope(api):
+    provider = Provider(api)
+    provider.connect()
+    url = "https://app.granola.ai/notes/shared"
+    original = import_meeting(api, source="granola", external_id="public-api-id", notes="Rich API notes",
+                              started_at="2026-09-30T10:00:00Z", participants=["Ana"], media_url=url, private=False)
+    original_record = api.get("/api/meetings/" + original["id"], headers=headers("ana-test")).json()
+    previous = provider.handle
+    def handle(request):
+        response = previous(request)
+        if request.url.path == "/mcp" and json.loads(request.content).get("params", {}).get("name") == "get_meetings":
+            return httpx.Response(200, json={"result": {"structuredContent": {"meetings": [
+                {"id": "document-uuid", "summary": "Poor summary", "title": "Poor title", "web_url": url,
+                 "created_at": "2026-10-01T00:00:00Z"}]}}})
+        return response
+    provider.service.transport = httpx.MockTransport(handle)
+    provider.sync()
+    record = api.get("/api/meetings/" + original["id"], headers=headers("ana-test")).json()
+    for field in ("notes", "transcript_readable", "title", "started", "participants", "private", "turns"):
+        assert record[field] == original_record[field]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM meetings").fetchone()[0] == 1
+    assert api.get(BASE, headers=headers("ana-test")).json()["imported_count"] == 0
+
+
+def test_disconnect_cancels_running_sync_and_status_matches_schema(api):
+    from backend.tests.test_openapi_v2 import conforms
+    provider = Provider(api)
+    provider.connect()
+    async def exercise():
+        started = asyncio.Event()
+        async def blocked(*args, **kwargs):
+            started.set()
+            await asyncio.Event().wait()
+        provider.service.rpc = blocked
+        who = Identity("human:ana", "human", "ana@acme.example")
+        result = await provider.service.trigger(who)
+        await started.wait()
+        status = await asyncio.to_thread(provider.service.status, who)
+        assert status["syncing"] and result["state"] == "syncing"
+        from backend.openapi_v2 import generate
+        root = generate()
+        assert conforms(status, root["components"]["schemas"]["GranolaStatus"], root) is None
+        assert conforms(result, root["components"]["schemas"]["GranolaSync"], root) is None
+        await asyncio.wait_for(provider.service.disconnect(who), 1)
+        assert not provider.service.jobs
+    api.portal.call(exercise)
+    assert provider.service.load("human:ana") is None
+
+
+@pytest.mark.parametrize("field,value", [("hidden", True), ("sign_in", False)])
+def test_inactive_person_connection_deleted_and_revoked(api, field, value):
+    provider = Provider(api)
+    provider.connect()
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO registry_metadata(key,value_json) VALUES('people',?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+                  (json.dumps({"people": [{"id": "ana", field: value}]}),))
+    provider.sync()
+    assert provider.service.load("human:ana") is None
+    async def finish():
+        await asyncio.gather(*list(provider.service.revocations))
+    api.portal.call(finish)
+    assert any(path == "/oauth2/revoke" for path, _ in provider.calls)
+    assert not any(path == "/mcp" for path, _ in provider.calls)
+
+
+def test_scheduler_isolates_corrupt_metadata_without_decryption(api):
+    provider = Provider(api)
+    provider.connect()
+    provider.connect("ben-test")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE granola_connections SET metadata_json='{' WHERE actor='human:ana'")
+    scheduled = []
+    async def fake_sync(actor):
+        scheduled.append(actor)
+    provider.service.sync = fake_sync
+    def no_decryption(*args):
+        raise AssertionError("Scheduling must not decrypt")
+    provider.service.load = no_decryption
+    async def exercise():
+        await provider.service.tick()
+        provider.now += 31
+        await provider.service.tick()
+        await asyncio.gather(*list(provider.service.jobs.values()))
+    api.portal.call(exercise)
+    assert scheduled == ["human:ben"]
+
+
+@pytest.mark.parametrize("url", ["javascript:alert(1)", "http://granola.ai/device", "https://granola.ai.example.com/device", "https://example.com/device"])
+def test_untrusted_verification_urls_rejected(api, url):
+    provider = Provider(api)
+    previous = provider.handle
+    def handle(request):
+        response = previous(request)
+        if request.url.path == "/oauth2/device_authorization":
+            return httpx.Response(200, json={**response.json(), "verification_uri_complete": url})
+        return response
+    provider.service.transport = httpx.MockTransport(handle)
+    response = api.post(BASE + "/connect", headers=headers("ana-test"))
+    assert response.status_code == 503 and url not in response.text
+    assert provider.service.load("human:ana") is None
+
+
+def test_reconnect_expiry_preserves_old_token_and_success_resets_cursor(api):
+    provider = Provider(api)
+    provider.connect()
+    provider.sync()
+    old = provider.service.load("human:ana")
+    api.post(BASE + "/connect", headers=headers("ana-test"))
+    assert provider.service.load("human:ana")[2]["previous_secret"]["refresh_token"] == old[2]["refresh_token"]
+    provider.now += 601
+    response = api.get(BASE + "/connect/status", headers=headers("ana-test"))
+    assert response.json()["connected"]
+    assert provider.service.load("human:ana")[1]["cursor"] == old[1]["cursor"]
+    provider.connect()
+    assert "cursor" not in provider.service.load("human:ana")[1]
+    async def finish():
+        await asyncio.gather(*list(provider.service.revocations))
+    api.portal.call(finish)
+    assert any(path == "/oauth2/revoke" for path, _ in provider.calls)
+
+
+def test_transcript_retry_after_plan_upgrade(api):
+    provider = Provider(api)
+    provider.paid = True
+    provider.connect()
+    previous = provider.handle
+    denied = True
+    transcript_calls = []
+    def handle(request):
+        if request.url.path == "/mcp":
+            name = json.loads(request.content).get("params", {}).get("name")
+            if name == "get_meetings":
+                return httpx.Response(200, json={"result": {"structuredContent": {"meetings": [
+                    {"id": f"note-{i}", "summary": "Shared summary"} for i in range(4)]}}})
+            if name == "get_meeting_transcript":
+                transcript_calls.append(request)
+                if denied:
+                    return httpx.Response(200, json={"result": {"isError": True}})
+        return previous(request)
+    provider.service.transport = httpx.MockTransport(handle)
+    provider.sync()
+    assert len(transcript_calls) == 3
+    assert provider.service.load("human:ana")[1]["transcripts_unavailable"]
+    denied = False
+    provider.sync()
+    assert len(transcript_calls) == 7
+    assert not provider.service.load("human:ana")[1]["transcripts_unavailable"]
+
+
+def test_guarded_oauth_seconds_and_xml_attributes(api):
+    from backend.granola_mcp import GranolaMCP
+    provider = Provider(api)
+    previous = provider.handle
+    def handle(request):
+        response = previous(request)
+        if request.url.path in ("/oauth2/device_authorization", "/oauth2/token"):
+            return httpx.Response(200, json={**response.json(), "interval": "unknown", "expires_in": "unknown"})
+        return response
+    provider.service.transport = httpx.MockTransport(handle)
+    assert provider.connect()["connected"]
+    provider.now += 3600
+    provider.sync()
+    assert provider.service.load("human:ana")[2]["expiry"] > provider.now
+    row = GranolaMCP.xml_content('<meeting id="doc" title="Planning" date="2026-10-01" summary="Ship it"/>')["meetings"][0]
+    assert row["title"] == "Planning" and row["date"] == "2026-10-01"
+
+
+def test_shared_pace_and_restart_stagger(api):
+    provider = Provider(api)
+    provider.connect()
+    provider.connect("ben-test")
+    starts = []
+    async def fake_sync(actor):
+        starts.append((actor, provider.now))
+        saved = await asyncio.to_thread(provider.service.load, actor)
+        saved[1]["last_attempt"] = provider.now
+        await asyncio.to_thread(provider.service.save, *saved)
+    provider.service.sync = fake_sync
+    async def exercise():
+        await provider.service.tick()
+        await asyncio.gather(*list(provider.service.jobs.values()))
+        assert len(starts) == 1
+        provider.now += 5
+        await provider.service.tick()
+        await asyncio.gather(*list(provider.service.jobs.values()))
+        assert len(starts) == 2 and starts[1][1] - starts[0][1] >= 5
+        provider.service.next_call = provider.now
+        times = []
+        async def call():
+            await provider.service.http("GET", "https://mcp-auth.granola.ai/.well-known/oauth-authorization-server")
+            times.append(provider.now)
+        await asyncio.gather(call(), call(), call())
+        assert times[1] - times[0] >= 1 and times[2] - times[1] >= 1
+    api.portal.call(exercise)
+
+
+def test_poll_invalid_client_returns_terminal_state(api):
+    provider = Provider(api)
+    provider.poll_errors = ["invalid_client"]
+    status = provider.connect()
+    assert status["state"] == "needs_signin" and status["needs_signin"] and not status["connected"]
+
+
+def test_bad_id_in_batch_does_not_block_healthy_meeting(api):
+    provider = Provider(api)
+    provider.connect()
+    previous = provider.handle
+    def handle(request):
+        if request.url.path == "/mcp":
+            body = json.loads(request.content)
+            name = body.get("params", {}).get("name")
+            if name == "list_meetings":
+                return httpx.Response(200, json={"result": {"structuredContent": {"meetings": [
+                    {"id": "bad"}, {"id": "good"}]}}})
+            if name == "get_meetings":
+                if "bad" in body["params"]["arguments"]["meeting_ids"]:
+                    return httpx.Response(200, json={"result": {"isError": True}})
+                return httpx.Response(200, json={"result": {"structuredContent": {"meetings": [
+                    {"id": "good", "summary": "Shared notes"}]}}})
+        return previous(request)
+    provider.service.transport = httpx.MockTransport(handle)
+    provider.sync()
+    status = api.get(BASE, headers=headers("ana-test")).json()
+    assert status["last_sync"] and status["imported_count"] == 1 and status["skipped"] == 1

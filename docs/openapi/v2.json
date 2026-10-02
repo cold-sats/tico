@@ -12956,6 +12956,12 @@
           },
           "needs_signin": {
             "type": "boolean"
+          },
+          "syncing": {
+            "type": "boolean"
+          },
+          "skipped": {
+            "type": "integer"
           }
         },
         "required": [
@@ -12967,7 +12973,9 @@
           "mode",
           "needs_signin",
           "plan_hint",
-          "state"
+          "skipped",
+          "state",
+          "syncing"
         ],
         "additionalProperties": true
       },
@@ -13019,6 +13027,12 @@
           },
           "needs_signin": {
             "type": "boolean"
+          },
+          "syncing": {
+            "type": "boolean"
+          },
+          "skipped": {
+            "type": "integer"
           }
         },
         "required": [
@@ -13029,7 +13043,9 @@
           "last_sync",
           "mode",
           "needs_signin",
-          "plan_hint"
+          "plan_hint",
+          "skipped",
+          "syncing"
         ],
         "additionalProperties": true
       },
@@ -13037,7 +13053,13 @@
         "type": "object",
         "properties": {
           "state": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "syncing",
+              "recent",
+              "off",
+              "needs_signin"
+            ]
           },
           "last_sync": {
             "type": [
