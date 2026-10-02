@@ -22,13 +22,14 @@ class Blobs:
         self._s3 = s3
         self.settings = settings
         self._s3_failed = set()
-        self.copy_status = {"done": 0, "total": 0, "running": False, "error": ""}
+        self.copy_status = {"done": 0, "total": 0, "running": False, "error": "", "failed": 0}
 
     @property
     def s3(self):
         if self._s3 is None:
             import boto3
-            self._s3 = boto3.client("s3")
+            self._s3 = boto3.client("s3", region_name=self.settings.blob_region or None,
+                                    endpoint_url=self.settings.blob_endpoint or None)
         return self._s3
 
     @staticmethod
@@ -36,6 +37,28 @@ class Blobs:
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError("Invalid content digest")
         return "blobs/" + digest[:2] + "/" + digest
+
+    def s3_key(self, digest):
+        prefix = self.settings.blob_prefix
+        return (prefix + "/" if prefix else "") + self.key(digest)
+
+    @property
+    def location(self):
+        return self.bucket + ("/" + self.settings.blob_prefix if self.settings.blob_prefix else "")
+
+    def put_staged(self, stream, digest, size, content_type="application/octet-stream"):
+        """The multipart parser already hashed and spooled this stream."""
+        if self.bucket and self.rehearsal:
+            raise Problem("rehearsal", "Uploads are off in a rehearsal: attachments live in the company's bucket", 409)
+        stream.seek(0)
+        if self.bucket:
+            self._upload(stream, digest, size, content_type)
+        else:
+            try:
+                self._local(stream, digest)
+            except OSError as exc:
+                raise Problem("blob_storage", "File storage is unavailable; free disk space and check permissions", 503, True) from exc
+        return digest
 
     def put(self, data, content_type="application/octet-stream"):
         if self.bucket and not self.rehearsal:
@@ -70,13 +93,15 @@ class Blobs:
             raise Problem("blob_storage", detail, 503, True) from exc
 
     def _upload(self, stream, digest, size, content_type, small_body=None, rate_limit=0, stop=None):
-        key = self.key(digest)
+        key = self.s3_key(digest)
         options = dict(Bucket=self.bucket, Key=key, ContentType=content_type,
                        CacheControl="private, max-age=31536000, immutable",
                        ContentDisposition=disposition(content_type),
-                       ServerSideEncryption="AES256")
+                       ServerSideEncryption="AES256", Metadata={"sha256": digest})
         upload_id = None
         try:
+            if self._matches_s3(digest, size):
+                return
             if size <= 8 * 1024 ** 2:
                 self.s3.put_object(**options, Body=small_body if small_body is not None else PacedReader(stream, rate_limit, stop), IfNoneMatch="*",
                                    ChecksumSHA256=base64.b64encode(bytes.fromhex(digest)).decode())
@@ -98,9 +123,21 @@ class Blobs:
                 except Exception:
                     pass
             if getattr(exc, "response", {}).get("Error", {}).get("Code") in ("PreconditionFailed", "412"):
-                self.verify_s3(digest, rate_limit=rate_limit, stop=stop)
+                if not self._matches_s3(digest, size):
+                    raise Problem("blob_integrity", "Stored file failed its integrity check", 503) from exc
             else:
                 raise Problem("blob_storage", "S3 file storage is unavailable; retry without discarding your file", 503, True) from exc
+
+    def _matches_s3(self, digest, size):
+        try:
+            head = self.s3.head_object(Bucket=self.bucket, Key=self.s3_key(digest), ChecksumMode="ENABLED")
+        except Exception as exc:
+            if getattr(exc, "response", {}).get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+        checksum = base64.b64encode(bytes.fromhex(digest)).decode()
+        return head.get("ContentLength") == size and (
+            head.get("ChecksumSHA256") == checksum or head.get("Metadata", {}).get("sha256") == digest)
 
     def _local(self, source, digest):
         path = self.directory / self.key(digest)
@@ -127,7 +164,7 @@ class Blobs:
             os.unlink(temporary)
 
     def verify_s3(self, digest, rate_limit=0, stop=None):
-        stream = self.s3.get_object(Bucket=self.bucket, Key=self.key(digest))["Body"]
+        stream = self.s3.get_object(Bucket=self.bucket, Key=self.s3_key(digest))["Body"]
         try:
             sha = hashlib.sha256()
             paced = PacedReader(stream, rate_limit, stop)
@@ -143,7 +180,7 @@ class Blobs:
         key = self.key(digest)
         if self.bucket and digest not in self._s3_failed:
             try:
-                args = dict(Bucket=self.bucket, Key=key)
+                args = dict(Bucket=self.bucket, Key=self.s3_key(digest))
                 if start or end is not None:
                     args["Range"] = f"bytes={start}-{end if end is not None else ''}"
                 stream = self.s3.get_object(**args)["Body"]
@@ -178,9 +215,9 @@ class Blobs:
             return
         with store.read() as c:
             rows = list(c.execute("SELECT digest,MAX(content_type) AS content_type FROM blobs GROUP BY digest"))
-            known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (self.bucket,))}
+            known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (self.location,))}
         rows = [r for r in rows if r["digest"] not in known and (self.directory / self.key(r["digest"])).is_file()]
-        self.copy_status.update(done=0, total=len(rows), running=bool(rows), error="")
+        self.copy_status.update(done=0, total=len(rows), running=bool(rows), error="", failed=0)
         self._copy_health(store)
         for row in rows:
             if stop.is_set():
@@ -191,17 +228,18 @@ class Blobs:
                     if hashlib.file_digest(source, "sha256").hexdigest() != row["digest"]:
                         raise Problem("blob_integrity", "Local file failed its integrity check", 503)
                     source.seek(0)
-                    digest = self.put_stream(source, row["content_type"], rate_limit=8 * 1024 ** 2 if interval else 0, stop=stop)
-                if digest != row["digest"]:
-                    raise Problem("blob_integrity", "Local file failed its integrity check", 503)
+                    digest = row["digest"]
+                    self._upload(source, digest, path.stat().st_size, row["content_type"],
+                                 rate_limit=8 * 1024 ** 2 if interval else 0, stop=stop)
                 self.verify_s3(digest, rate_limit=8 * 1024 ** 2 if interval else 0, stop=stop)
                 with store.transaction() as c:
-                    c.execute("INSERT OR REPLACE INTO blob_locations VALUES(?,?,?)", (digest, self.bucket, H.now()))
+                    c.execute("INSERT OR REPLACE INTO blob_locations VALUES(?,?,?)", (digest, self.location, H.now()))
                 self._s3_failed.discard(row["digest"])
                 self.copy_status["done"] += 1
             except Exception as exc:
                 if stop.is_set():
                     break
+                self.copy_status["failed"] += 1
                 self._s3_failed.add(row["digest"])
                 self.copy_status["error"] = exc.detail if isinstance(exc, Problem) else "S3 copy failed; check bucket access and retry by restarting the server"
             self._copy_health(store)

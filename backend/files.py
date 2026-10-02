@@ -182,7 +182,7 @@ class Files:
         version = row["current_version"]
         if changed:
             version += 1
-            c.execute("INSERT INTO bot_file_versions(file_id,version,blob_id,digest,source_digest,size,name,mime,commit_sha,repo_path,attempt_id,actor,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO bot_file_versions(file_id,version,blob_id,digest,source_digest,size,name,mime,commit_sha,repo_path,attempt_id,actor,created,media_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
                       (row["id"], version, blob_id, digest, source_digest, size, name, mime, commit or None,
                        repo_path or None, attempt or None, actor, now))
         action = "created" if created else "modified" if changed else "published"
@@ -618,6 +618,7 @@ def install_files(app, store, auth, blobs, mutate):
     def versions(request: Request, fid: str):
         return files.versions(request.state.identity, fid)
 
+    @app.head("/api/v2/files/{fid}/versions/{number}", include_in_schema=False)
     @app.get("/api/v2/files/{fid}/versions/{number}")
     def version_bytes(request: Request, fid: str, number: int):
         return files.serve(request.state.identity, fid, number, request=request)

@@ -28,6 +28,11 @@ def test_s3_upload_has_checksum_and_never_overwrites_an_existing_key(tmp_path):
     class S3:
         objects = {}
         calls = []
+        def head_object(self, **kw):
+            if kw['Key'] not in self.objects:
+                raise ClientError({'Error': {'Code': '404'}}, 'HeadObject')
+            data = self.objects[kw['Key']]
+            return {'ContentLength': len(data), 'ChecksumSHA256': base64.b64encode(hashlib.sha256(data).digest()).decode()}
         def put_object(self, **kw):
             self.calls.append(kw)
             assert kw["IfNoneMatch"] == "*" and kw["ServerSideEncryption"] == "AES256"

@@ -9,17 +9,13 @@ import struct
 import subprocess
 import sys
 import threading
-from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from botocore.exceptions import ClientError
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from backend.blobs import Blobs, disposition
 from backend.config import Settings
-from backend.file_delivery import byte_range, signed_url
+from backend.file_delivery import byte_range
 from backend.file_metadata import dimensions
 from backend.store import Problem
 from backend.tests.test_api import api, headers, post  # noqa: F401
@@ -32,6 +28,17 @@ class S3:
     def __init__(self):
         self.objects, self.calls, self.parts = {}, [], []
         self.offline, self.corrupt = False, False
+        self.head_calls = []
+
+    def head_object(self, **kw):
+        self.head_calls.append(kw)
+        if self.offline:
+            raise RuntimeError('offline')
+        if kw['Key'] not in self.objects:
+            raise ClientError({'Error': {'Code': '404'}}, 'HeadObject')
+        data = self.objects[kw['Key']]
+        return {'ContentLength': len(data),
+                'ChecksumSHA256': base64.b64encode(hashlib.sha256(data).digest()).decode()}
 
     def put_object(self, **kw):
         self.calls.append(kw)
@@ -103,22 +110,6 @@ def test_safe_disposition(mime, inline):
     assert disposition(mime) == ('inline' if inline else 'attachment')
 
 
-def test_signed_url_signature_and_hour_expiry():
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-    settings = SimpleNamespace(cdn_url='https://cdn.example.com', cdn_key_id='key')
-    digest = hashlib.sha256(b'file').hexdigest()
-    url = signed_url(settings, digest, pem, now=1000)
-    parsed = urlsplit(url)
-    params = parse_qs(parsed.query)
-    assert params['Expires'] == ['4600'] and params['Key-Pair-Id'] == ['key']
-    signature = base64.b64decode(params['Signature'][0].translate(str.maketrans('-_~', '+=/')))
-    policy = json.dumps({'Statement': [{'Resource': url.split('?')[0], 'Condition': {
-        'DateLessThan': {'AWS:EpochTime': 4600}}}]}, separators=(',', ':')).encode()
-    key.public_key().verify(signature, policy, padding.PKCS1v15(), hashes.SHA1())
-    assert parsed.path == '/' + Blobs.key(digest)
-
-
 def task(api):
     return post(api, 'tasks', {'owner': 'ops', 'title': 'Review media', 'body': 'Open the file.'})['id']
 
@@ -146,9 +137,15 @@ def test_multipart_range_cache_etag_limits_and_legacy(api):
         assert response.status_code == 206 and response.content == expected
         assert response.headers['accept-ranges'] == 'bytes'
         assert response.headers['content-range'].endswith('/10')
-    for value in ('bytes=10-', 'bytes=4-2', 'bytes=-0', 'bytes=0-1,4-5'):
+    for value in ('bytes=10-', 'bytes=4-2', 'bytes=-0'):
         response = api.get(url, headers={**h, 'Range': value})
         assert response.status_code == 416 and response.headers['content-range'] == 'bytes */10'
+    multi = api.get(url, headers={**h, 'Range': 'bytes=0-1,4-5'})
+    assert multi.status_code == 200 and multi.content == full.content
+    head = api.head(url, headers=h)
+    assert head.status_code == 200 and head.content == b''
+    assert head.headers['content-length'] == '10'
+    assert api.head(url).status_code == 401
     assert api.get(url, headers={**h, 'If-None-Match': full.headers['etag']}).status_code == 304
     assert 'immutable' in api.get(url + '?v=1', headers=h).headers['cache-control']
     assert api.get(url + '/poster?v=1', headers=h).status_code == 404
@@ -174,7 +171,7 @@ def test_copy_verified_and_fallback_keeps_local(api):
     s3 = S3()
     blobs.bucket, blobs._s3 = 'private', s3
     blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
-    assert blobs.copy_status == {'done': 1, 'total': 1, 'running': False, 'error': ''}
+    assert blobs.copy_status == {'done': 1, 'total': 1, 'running': False, 'error': '', 'failed': 0}
     with api.app.state.store.read() as c:
         assert c.execute('SELECT digest FROM blob_locations').fetchone()[0] == digest
     assert (blobs.directory / blobs.key(digest)).exists()
@@ -192,24 +189,16 @@ def test_copy_verified_and_fallback_keeps_local(api):
         assert c.execute('SELECT COUNT(*) FROM blob_locations').fetchone()[0] == 0
 
 
-def test_cdn_redirect_and_blob_version_metadata(api, monkeypatch):
+def test_blob_version_metadata_and_head(api):
     _, attempt = turn(api)
-    made = publish(api, attempt, name='poster.png', text='header').json()['file']['id']
-    blobs = api.app.state.blobs
-    settings = api.app.state.store.settings
-    settings.cdn_url, settings.cdn_key_id, blobs.bucket = 'https://cdn.example.com', 'test-key', 'private'
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-    monkeypatch.setattr('backend.file_delivery.private_key', lambda *args: pem)
+    made = publish(api, attempt, name='report.txt', text='header').json()['file']['id']
     with api.app.state.store.transaction() as c:
-        version = c.execute('SELECT * FROM bot_file_versions WHERE file_id=?', (made,)).fetchone()
-        c.execute('INSERT INTO blob_locations VALUES(?,?,?)', (version['digest'], 'private', 'now'))
         c.execute("UPDATE bot_file_versions SET width=20,height=10,media_state='ready' WHERE file_id=?", (made,))
         with pytest.raises(sqlite3.IntegrityError):
             c.execute("UPDATE bot_file_versions SET digest='changed' WHERE file_id=?", (made,))
-    response = api.get('/api/v2/files/' + made + '?v=1', headers=headers('ben-test'), follow_redirects=False)
-    assert response.status_code == 302 and response.headers['cache-control'] == 'private, no-store'
-    assert 'Signature=' in response.headers['location']
+    for suffix in ('?v=1', '/versions/1'):
+        response = api.head('/api/v2/files/' + made + suffix, headers=headers('ben-test'))
+        assert response.status_code == 200 and response.content == b''
     assert api.get('/api/v2/files/' + made + '?v=2', headers=headers('ben-test')).status_code == 404
     meta = api.get('/api/v2/files/' + made + '/meta', headers=headers('ben-test')).json()
     assert meta['width'] == 20 and meta['height'] == 10
@@ -350,8 +339,146 @@ def test_storage_migration_preserves_old_version_and_reapplies():
     H._apply(c, STORAGE_SCHEMA)
     H._apply(c, STORAGE_SCHEMA)  # hub 20 and cloud 53 both use the idempotent apply helper
     version = c.execute('SELECT * FROM bot_file_versions').fetchone()
-    assert tuple(version)[:13] == old and version['media_state'] == 'pending'
+    assert tuple(version)[:13] == old and version['media_state'] == 'none'
     c.execute('UPDATE bot_file_versions SET width=10,height=5')
     with pytest.raises(sqlite3.IntegrityError):
         c.execute("UPDATE bot_file_versions SET blob_id='different'")
     c.close()
+
+
+def test_upload_uses_parser_spool_and_caps_part_headers(api, monkeypatch):
+    blobs = api.app.state.blobs
+    monkeypatch.setattr(blobs, 'put_stream', lambda *a, **kw: pytest.fail('second staging pass'))
+    tid = task(api)
+    bid = attach(api, tid, 'direct.txt', b'direct spool')
+    assert api.get('/api/v2/files/' + bid, headers=headers('ana-test')).content == b'direct spool'
+    url = f'/api/v2/tasks/{tid}/files'
+    for extra in (b'X-Header: a\r\n' * 16, b'X-A: ' + b'a' * 4000 + b'\r\nX-B: ' + b'b' * 4000 + b'\r\nX-C: ' + b'c' * 200 + b'\r\n'):
+        body = b'--boundary\r\nContent-Disposition: form-data; name="file"; filename="safe.txt"\r\n' + extra + b'\r\nbody\r\n--boundary--\r\n'
+        response = api.post(url, content=body, headers={**headers('ana-test'),
+            'Content-Type': 'multipart/form-data; boundary=boundary'})
+        assert response.status_code == 422
+        assert 'headers' in response.json()['error']['detail']
+
+
+def test_s3_head_skips_upload_without_request_verification(tmp_path):
+    s3 = S3()
+    settings = Settings(db_path=tmp_path / 'hub.db', blob_bucket='s3://private/team/files',
+                        blob_region='us-east-1', blob_endpoint='https://s3.example.com')
+    storage = Blobs(settings, s3)
+    digest = storage.put(b'content')
+    assert 'team/files/' + storage.key(digest) in s3.objects
+    s3.get_object = lambda **kw: pytest.fail('verification read in request')
+    assert storage.put(b'content') == digest
+    assert len(s3.calls) == 1 and len(s3.head_calls) == 2
+    assert storage.location == 'private/team/files'
+
+
+def test_copy_aborts_its_multipart_upload(api):
+    blobs = api.app.state.blobs
+    payload = b'm' * (8 * 1024 ** 2 + 1)
+    attach(api, task(api), 'source.txt', payload)
+    s3 = S3()
+    def broken(**kw):
+        raise RuntimeError('interrupted upload')
+    s3.upload_part = broken
+    blobs.bucket, blobs._s3 = 'private', s3
+    blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
+    assert s3.aborted and blobs.copy_status['failed'] == 1
+    assert blobs.copy_status['done'] == 0
+
+
+def test_metadata_transient_failure_backs_off_and_continues(api, monkeypatch):
+    from backend.file_metadata import Metadata
+    current = api.app.state.file_metadata
+    current.stop.set()
+    current.wake.set()
+    tid = task(api)
+    bad, good = attach(api, tid, 'first.png', b'first'), attach(api, tid, 'second.txt', b'second')
+    worker = Metadata(api.app.state.store, api.app.state.blobs)
+    process = worker.process
+    def transient(row):
+        if row['id'] == bad:
+            raise Problem('blob_storage', 'S3 unavailable', 503, True)
+        process(row)
+    monkeypatch.setattr(worker, 'process', transient)
+    assert worker.batch()
+    with worker.store.read() as c:
+        assert c.execute('SELECT media_state FROM blob_media WHERE blob_id=?', (bad,)).fetchone()[0] == 'pending'
+        retry = c.execute('SELECT * FROM blob_media_retries WHERE blob_id=?', (bad,)).fetchone()
+        assert retry['attempts'] == 1 and retry['retry_at'] > __import__('time').time()
+        assert c.execute('SELECT media_state FROM blob_media WHERE blob_id=?', (good,)).fetchone()[0] == 'none'
+    assert not worker.batch()
+    monkeypatch.setattr(worker, 'process', process)
+    with worker.store.transaction() as c:
+        c.execute('UPDATE blob_media_retries SET retry_at=0')
+    assert worker.batch()
+    with worker.store.read() as c:
+        assert c.execute('SELECT media_state FROM blob_media WHERE blob_id=?', (bad,)).fetchone()[0] == 'none'
+        assert c.execute('SELECT COUNT(*) FROM blob_media_retries').fetchone()[0] == 0
+
+
+def test_image_decoder_refuses_other_formats_and_pixel_bombs(tmp_path):
+    from backend.file_metadata import DecodeError, image
+    Image = pytest.importorskip('PIL.Image')
+    source, target = tmp_path / 'source', tmp_path / 'preview.jpg'
+    Image.new('RGB', (10, 10)).save(source, 'BMP')
+    with pytest.raises(DecodeError):
+        image(source, target)
+    # Valid CRC on an oversized PNG header, without allocating the pixels.
+    import zlib
+    header = b'IHDR' + struct.pack('>IIBBBBB', 10000, 6000, 8, 2, 0, 0, 0)
+    source.write_bytes(b'\x89PNG\r\n\x1a\n' + struct.pack('>I', 13) + header +
+                       struct.pack('>I', zlib.crc32(header)))
+    with pytest.raises(DecodeError):
+        image(source, target)
+    assert not target.exists()
+
+
+def test_pdf_delivery_headers_allow_inline_viewer(api):
+    bid = attach(api, task(api), 'page.pdf', b'%PDF-1.4\nexample')
+    for method in (api.get, api.head):
+        response = method('/api/v2/files/' + bid, headers=headers('ana-test'))
+        assert response.status_code == 200
+        assert response.headers['content-type'] == 'application/pdf'
+        assert response.headers['content-disposition'].startswith('inline')
+        assert response.headers['x-content-type-options'] == 'nosniff'
+        assert response.headers['content-security-policy'] == "default-src 'none'; style-src 'unsafe-inline'"
+
+
+def test_json_receipt_replays_across_upgrade(api):
+    from backend.store import encode, digest
+    tid = task(api)
+    url = f'/api/v2/tasks/{tid}/files'
+    body = {'name': 'legacy.txt', 'text': 'old upload'}
+    h = headers('ana-test')
+    first = api.post(url, json=body, headers=h)
+    assert first.status_code == 200, first.text
+    with api.app.state.store.transaction() as c:
+        row = c.execute('SELECT request_hash FROM idempotency WHERE operation=? AND key=?',
+                        (url, h['Idempotency-Key'])).fetchone()
+        old_payload = {**body, 'content_base64': None}
+        assert row[0] == digest(encode(old_payload))
+        c.execute('UPDATE idempotency SET request_hash=? WHERE operation=? AND key=?',
+                  (digest(encode(old_payload)), url, h['Idempotency-Key']))
+    again = api.post(url, json=body, headers=h)
+    assert again.status_code == 200 and again.json() == first.json()
+
+
+def test_metadata_loop_survives_cleanup_and_database_failures(api, monkeypatch):
+    from backend.file_metadata import Metadata
+    worker = Metadata(api.app.state.store, api.app.state.blobs)
+    calls = []
+    def broken_cleanup():
+        raise OSError('staging unavailable')
+    def batch():
+        calls.append(True)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError('database busy')
+        worker.stop.set()
+        return True
+    monkeypatch.setattr(worker, 'cleanup', broken_cleanup)
+    monkeypatch.setattr(worker, 'batch', batch)
+    monkeypatch.setattr(worker.stop, 'wait', lambda _: False)
+    worker.loop()
+    assert len(calls) == 2

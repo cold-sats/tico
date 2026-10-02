@@ -351,6 +351,16 @@ def _v(version):
     return "v" + version if version[:1].isdigit() else version
 
 
+def storage_view(c, settings):
+    usage = c.execute("SELECT COUNT(*) AS files,COALESCE(SUM(size),0) AS bytes FROM "
+                      "(SELECT digest,MAX(size) AS size FROM blobs GROUP BY digest)").fetchone()
+    row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-copy'").fetchone()
+    detail = json.loads(row["detail_json"] or "{}") if row else {}
+    return {"mode": "s3" if settings.blob_bucket else "local", "bucket": settings.blob_bucket,
+            "region": settings.blob_region, "files": usage["files"], "bytes": usage["bytes"],
+            "copy": {key: detail.get(key, 0) for key in ("done", "total", "failed")}}
+
+
 def view(c, who, settings, auth, github, config):
     _person(who)
     kind = "owner" if who.role == "owner" else "admin" if auth.bot_admin(who) else "human"
@@ -369,6 +379,10 @@ def view(c, who, settings, auth, github, config):
             if detail.get("error"):
                 summary += ". " + detail["error"]
             checks.append(_check("blob_storage", "File storage", "bad" if detail.get("error") else "info", summary))
+    if full and not settings.blob_bucket and not settings.loopback and not settings.demo and not settings.rehearsal:
+        checks.append(_check("blob_storage", "File storage", "info",
+                             "Files are on this computer's disk. A file store (S3) is recommended.",
+                             [_fix("Storage", "https://github.com/ticoteam/tico/blob/main/docs/files.md#storage")]))
     # Connection health belongs to the person; only the Team owner may see another person's.
     for row in c.execute("SELECT actor,metadata_json FROM granola_connections"):
         meta = json.loads(row["metadata_json"])
@@ -551,7 +565,7 @@ def view(c, who, settings, auth, github, config):
     checks.append(_check("failed", "Failed runs", "warn" if failed else "ok",
                          f"{_plural(failed, 'run')} failed in the last day." if failed else "No failed runs in the last day.",
                          [_fix("Open Runs", "#/runs")] if failed and full else []))
-    return {"audience": kind, "checks": checks, "attention": sum(1 for x in checks if x["status"] in ("warn", "bad")),
+    return {**({"storage": storage_view(c, settings)} if kind == "owner" else {}), "audience": kind, "checks": checks, "attention": sum(1 for x in checks if x["status"] in ("warn", "bad")),
             "computers": computers if full else [], "waiting": waiting if full else [], "slow": slow if full else [],
             "failures": failures if full else [], "checked": H.now(),
             # The sidebar's notice reads the same fresh answer, so the two never disagree.

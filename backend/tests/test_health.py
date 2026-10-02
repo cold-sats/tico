@@ -262,3 +262,33 @@ def test_missing_tool_credentials_name_the_tool_and_current_computer(environment
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bots SET state='archived' WHERE slug='ana'")
     assert "tool_credentials" not in health_of(api)[1]
+
+
+def test_owner_storage_counts_and_local_server_note(environment):
+    api = environment()
+    body, checks = health_of(api)
+    assert body['storage'] == {'mode': 'local', 'bucket': '', 'region': '', 'files': 0, 'bytes': 0,
+                               'copy': {'done': 0, 'total': 0, 'failed': 0}}
+    assert 'blob_storage' not in checks
+    api.app.state.store.settings.public_url = 'https://tico.example.com'
+    body, checks = health_of(api)
+    note = checks['blob_storage']
+    assert note['status'] == 'info'
+    assert note['summary'] == "Files are on this computer's disk. A file store (S3) is recommended."
+    assert note['fixes'][0]['href'].endswith('/files.md#storage')
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO blobs(id,owner,digest,size,name,content_type,created) VALUES('one','human:ana','abc',10,'one.txt','text/plain','now')")
+        c.execute("INSERT INTO blobs(id,owner,digest,size,name,content_type,created) VALUES('two','human:ana','abc',10,'two.txt','text/plain','now')")
+        c.execute("INSERT INTO service_health(service,detail_json) VALUES('blob-copy',?)", ('{"done":1,"total":2,"failed":1}',))
+    settings = api.app.state.store.settings
+    settings.blob_bucket, settings.blob_region = 'private', 'us-east-1'
+    body, checks = health_of(api)
+    assert body['storage'] == {'mode': 's3', 'bucket': 'private', 'region': 'us-east-1', 'files': 1, 'bytes': 10,
+                               'copy': {'done': 1, 'total': 2, 'failed': 1}}
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO humans(id,name,email) VALUES('sam','Sam','sam@example.com')")
+    limited, _ = health_of(api, as_person(api, 'sam'))
+    assert 'storage' not in limited
+    liveness = api.get('/healthz').json()
+    assert liveness['ok'] is True and liveness['service'] == 'tico'
+    assert set(liveness) == {'ok', 'service', 'protocol', 'release', 'environment_id'}

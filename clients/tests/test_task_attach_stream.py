@@ -1,5 +1,4 @@
-"""CLI feature negotiation and credential-free CDN downloads."""
-import hashlib
+"""CLI feature negotiation and bounded multipart uploads."""
 import io
 from pathlib import Path
 import urllib.error
@@ -55,27 +54,6 @@ def test_mcp_server_does_not_read_local_paths():
         hubtools.task_attach(Server(), {'id': 'task', 'name': 'draft.txt', 'path': '/private/server-file'})
 
 
-def test_binary_signed_redirect_drops_bearer_and_verifies():
-    data = b'cdn bytes'
-    digest = hashlib.sha256(data).hexdigest()
-    class Opener:
-        def __init__(self):
-            self.calls = []
-        def open(self, request, timeout=None):
-            self.calls.append(request)
-            if len(self.calls) == 1:
-                raise urllib.error.HTTPError(request.full_url, 302, 'Found', {
-                    'Location': 'https://cdn.example.com/blobs/file?Expires=1&Signature=test&Key-Pair-Id=key',
-                    'X-Content-SHA256': digest}, io.BytesIO())
-            assert request.get_header('Authorization') is None
-            assert request.get_header('X-tico-processing-token') is None
-            return io.BytesIO(data)
-    client = Client('https://api.example.com', 'private-token')
-    client.opener = Opener()
-    assert client.download('file') == data
-    assert len(client.opener.calls) == 2
-
-
 def test_multipart_retry_replays_same_parts_and_key(tmp_path, monkeypatch):
     path = tmp_path / 'draft.txt'
     path.write_bytes(b'draft')
@@ -96,3 +74,29 @@ def test_multipart_retry_replays_same_parts_and_key(tmp_path, monkeypatch):
     assert first[1] == second[1]
     assert first[0].get_header('Idempotency-key') == second[0].get_header('Idempotency-key') == 'same'
     assert int(first[0].get_header('Content-length')) == len(first[1])
+
+
+@pytest.mark.parametrize('bad', ['outside', 'symlink', 'credential', 'poster'])
+def test_local_mcp_attach_refuses_unsafe_paths(monkeypatch, tmp_path, bad):
+    from clients import bot_files as BF
+    root = tmp_path / 'checkout'
+    root.mkdir()
+    safe = root / 'safe.txt'
+    safe.write_text('safe')
+    outside = tmp_path / 'outside.txt'
+    outside.write_text('outside')
+    secret = root / 'credentials.txt'
+    secret.write_text('example only')
+    link = root / 'link.txt'
+    link.symlink_to(outside)
+    monkeypatch.setattr(BF, 'checkout_root', lambda: root)
+    client = Mock()
+    client.features.return_value = {'task_files_multipart': True}
+    args = {'id': 'task', 'name': 'safe.txt', 'path': str(safe)}
+    if bad == 'poster':
+        args['poster'] = str(outside)
+    else:
+        args['path'] = str({'outside': outside, 'symlink': link, 'credential': secret}[bad])
+    with pytest.raises(BF.Refused):
+        hubtools.task_attach(client, args)
+    client.post_multipart.assert_not_called()

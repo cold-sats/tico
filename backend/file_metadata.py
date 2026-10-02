@@ -3,6 +3,7 @@ import hashlib
 import json
 import shutil
 import struct
+import sys
 import subprocess
 import tempfile
 import threading
@@ -70,21 +71,43 @@ def validate_poster(stream):
     raise Problem("validation", "Supply a PNG or JPEG poster", 422)
 
 
+class DecodeError(Exception):
+    """An unsupported or invalid media input cannot be retried."""
+
+
 def image(source, target):
     with source.open("rb") as stream:
         width, height = dimensions(stream)
     try:
-        from PIL import Image, ImageOps
+        import PIL  # noqa: F401
     except ImportError:
         return width, height, None
-    with Image.open(source) as opened:
-        if opened.width * opened.height > 40_000_000:
-            return width, height, None
-        opened.seek(0)
-        preview = ImageOps.exif_transpose(opened)
-        width, height = preview.size
-        preview.thumbnail((480, 480))
-        preview.convert("RGB").save(target, "JPEG")
+    try:
+        args = [sys.executable, str(Path(__file__).with_name("file_image.py")), str(source), str(target)]
+        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as child:
+            deadline = time.monotonic() + 30
+            try:
+                while True:
+                    if time.monotonic() >= deadline:
+                        raise DecodeError("Image decoding timed out")
+                    try:
+                        output, _ = child.communicate(timeout=.1)
+                        break
+                    except subprocess.TimeoutExpired:
+                        if sys.platform == "darwin":
+                            usage = subprocess.run(["/bin/ps", "-o", "rss=", "-p", str(child.pid)],
+                                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1)
+                            if usage.stdout.strip() and int(usage.stdout) > 1024 * 1024:
+                                raise DecodeError("Image decoding exceeded its memory budget")
+                if child.returncode:
+                    raise DecodeError("Image decoding failed")
+                width, height = json.loads(output)
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait()
+    except (subprocess.SubprocessError, ValueError) as exc:
+        raise DecodeError("Image decoding failed") from exc
     return width, height, target
 
 
@@ -116,7 +139,7 @@ class Metadata:
                         out.write(chunk)
                         sha.update(chunk)
                 if sha.hexdigest() != blob["digest"]:
-                    raise ValueError("integrity")
+                    raise Problem("blob_integrity", "Media source failed its integrity check", 503, True)
                 preview = None
                 if mime in ("image/png", "image/jpeg", "image/gif", "image/webp"):
                     result["width"], result["height"], preview = image(source, thumb)
@@ -147,8 +170,8 @@ class Metadata:
                                              "name": path.name, "content_type": "image/jpeg"}))
                 result["media_state"] = "ready" if result["width"] or result["poster_blob_id"] or prepared else "none"
                 self.save(blob, result, prepared)
-        except Exception:
-            # Missing tools, unsupported inputs and failed previews never fail the upload.
+        except (DecodeError, subprocess.SubprocessError, ValueError, KeyError, StopIteration):
+            # Permanent decode failures never fail the upload.
             self.save(blob, result | {"media_state": "ready" if result["poster_blob_id"] else "none"}, [])
 
     def save(self, blob, result, prepared):
@@ -156,20 +179,39 @@ class Metadata:
         with self.store.transaction() as c:
             for field, upload in prepared:
                 result[field] = register(c, SimpleNamespace(actor=blob["owner"]), **upload)["id"]
+            c.execute("DELETE FROM blob_media_retries WHERE blob_id=?", (blob["id"],))
             values = tuple(result[k] for k in FIELDS)
             c.execute("INSERT OR IGNORE INTO blob_media(blob_id) VALUES(?)", (blob["id"],))
             assignment = ",".join(k + "=?" for k in FIELDS)
             c.execute("UPDATE blob_media SET " + assignment + " WHERE blob_id=?", (*values, blob["id"]))
             c.execute("UPDATE bot_file_versions SET " + assignment + " WHERE blob_id=?", (*values, blob["id"]))
 
+    def retry(self, blob):
+        with self.store.transaction() as c:
+            c.execute("INSERT OR IGNORE INTO blob_media(blob_id) VALUES(?)", (blob["id"],))
+            c.execute("INSERT OR IGNORE INTO blob_media_retries(blob_id) VALUES(?)", (blob["id"],))
+            row = c.execute("SELECT attempts FROM blob_media_retries WHERE blob_id=?", (blob["id"],)).fetchone()
+            attempts = row["attempts"] + 1
+            c.execute("UPDATE blob_media_retries SET attempts=?,retry_at=? WHERE blob_id=?",
+                      (attempts, time.time() + min(3600, 5 * 2 ** min(attempts - 1, 10)), blob["id"]))
+
     def batch(self):
         with self.store.read() as c:
             rows = list(c.execute("SELECT b.*,m.poster_blob_id FROM blobs b LEFT JOIN blob_media m ON m.blob_id=b.id "
-                "WHERE m.media_state='pending' OR EXISTS(SELECT 1 FROM bot_file_versions v WHERE v.blob_id=b.id AND v.media_state='pending') LIMIT 10"))
+                "LEFT JOIN blob_media_retries r ON r.blob_id=b.id "
+                "WHERE (m.media_state='pending' OR EXISTS(SELECT 1 FROM bot_file_versions v "
+                "WHERE v.blob_id=b.id AND v.media_state='pending')) AND COALESCE(r.retry_at,0)<=? LIMIT 10",
+                (time.time(),)))
         for row in rows:
             if self.stop.is_set():
                 break
-            self.process(dict(row))
+            try:
+                self.process(dict(row))
+            except Exception:
+                try:
+                    self.retry(dict(row))
+                except Exception:
+                    self.stop.wait(5)  # database unavailable; the loop will try again
         return bool(rows)
 
     def cleanup(self):
@@ -179,9 +221,15 @@ class Metadata:
                 shutil.rmtree(path)
 
     def loop(self):
-        self.cleanup()
+        try:
+            self.cleanup()
+        except Exception:
+            pass
         while not self.stop.is_set():
-            if not self.batch():
-                self.wake.wait(5)
-                self.wake.clear()
+            try:
+                if not self.batch():
+                    self.wake.wait(5)
+                    self.wake.clear()
+            except Exception:
+                self.stop.wait(5)
             self.stop.wait(.1)

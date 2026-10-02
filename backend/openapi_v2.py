@@ -494,7 +494,11 @@ SCHEMAS = {
         obj({"type": {"enum": ["manual"]}, "id": "s", "title": "s", "path": "s", "url": "s", "excerpt": "s", "score": "f"}, required=["type", "id", "title", "path", "url", "excerpt", "score"],
             section={"type": "string"}, anchor={"type": "string"}, collection={"type": "string"})]})}),
     "DocSearch": obj({"query": "s", "results": "a", "has_more": "b", "mode": "s"}),
-    "Health": obj({"audience": "s", "checks": "a", "attention": "i", "checked": "s"}),
+    "Storage": obj({"mode": {"type": "string", "enum": ["local", "s3"]}, "bucket": "s", "region": "s",
+                    "files": "i", "bytes": "i", "copy": obj({"done": "i", "total": "i", "failed": "i"})}),
+    "Health": obj({"audience": "s", "checks": "a", "attention": "i", "checked": "s"},
+                  required=["audience", "checks", "attention", "checked"],
+                  storage={**ref("Storage"), "description": "Read-only file storage usage and copy progress; Team owners only"}),
     "BotFile": obj({"id": "s", "bot": "s", "title": "s", "kind": "s", "mime": "s", "locator": "s", "scope": "s",
                     "version": "i", "state": "s", "synced": "b", "size": {"type": ["integer", "null"]},
                     "name": "n", "open": {"type": ["object", "null"], "description": "{type: tico|external, url}: "

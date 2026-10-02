@@ -415,7 +415,7 @@ def create_app(settings=None):
             route_keeps = (request.url.path.startswith("/api/") and request.method == "GET"
                            and response.status_code in (200, 302)
                            and str(response.headers.get("cache-control", "")).startswith("private, max-age="))
-            file_bytes = (request.method == "GET" and re.fullmatch(r"/api/v2/files/[^/]+(?:/(?:poster|thumb|versions/[0-9]+))?", request.url.path)
+            file_bytes = (request.method in ("GET", "HEAD") and re.fullmatch(r"/api/v2/files/[^/]+(?:/(?:poster|thumb|versions/[0-9]+))?", request.url.path)
                           and response.status_code in (200, 206, 302, 304, 416)
                           and "cache-control" in response.headers)
             if route_keeps or file_bytes:
@@ -886,8 +886,7 @@ def create_app(settings=None):
         with store.read() as c:
             c.execute("SELECT 1 FROM cloud_migrations").fetchone()
         return {"ok": True, "service": "tico", "protocol": 2, "release": settings.release_id,
-                "environment_id": settings.environment_id, "features": {"task_files_multipart": True},
-                "blob_storage": app.state.blobs.copy_status}
+                "environment_id": settings.environment_id}
 
     @app.get("/api/v2/config")
     def environment(request: Request):

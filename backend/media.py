@@ -384,13 +384,12 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                         BF.check_name(body.name)
                     except BF.Refused as exc:
                         raise Problem("file_refused", str(exc), 422) from exc
-                digest = await asyncio.to_thread(blobs.put_stream, upload["stream"], content_type,
-                                                store.settings.upload_max_bytes)
+                digest = await asyncio.to_thread(blobs.put_staged, upload["stream"], upload["digest"], size, content_type)
                 if "poster" in uploads:
                     supplied = uploads["poster"]
                     from .file_metadata import validate_poster
                     poster_type = await asyncio.to_thread(validate_poster, supplied["stream"])
-                    poster_digest = await asyncio.to_thread(blobs.put_stream, supplied["stream"], poster_type)
+                    poster_digest = await asyncio.to_thread(blobs.put_staged, supplied["stream"], supplied["digest"], supplied["size"], poster_type)
                     poster = {"digest": poster_digest, "size": supplied["size"], "name": "poster", "content_type": poster_type}
             except (ValueError, ValidationError) as exc:
                 raise Problem("validation", "Invalid upload name, note or ask JSON", 422) from exc
@@ -431,7 +430,19 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             return {"file": item, "link": store.settings.public_url + item["url"]}
         # Include byte identity in the receipt without storing multipart bytes.
         receipt = {**body.model_dump(), "digest": digest, "size": size, "poster": poster}
-        result = await asyncio.to_thread(write_upload, store, request, body, [receipt], work)
+        if request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
+            result = await asyncio.to_thread(write_upload, store, request, body, [receipt], work)
+        else:
+            # Preserve the pre-upgrade hash when an older runner replays its JSON receipt.
+            payload = body.model_dump()
+            if not body.note and body.ask is None:
+                payload.pop("note")
+                payload.pop("ask")
+            result = await asyncio.to_thread(store.mutate, who, request.url.path,
+                                             request.headers.get("idempotency-key"), payload, work)
+            if isinstance(result, dict) and "_refusal" in result:
+                refusal = result["_refusal"]
+                raise Problem(refusal["code"], refusal["detail"], refusal["status"])
         app.state.file_metadata.wake.set()
         return result
 
@@ -624,14 +635,17 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                 raise Problem("not_found", "File preview not found", 404)
         return dict(row)
 
+    @app.head("/api/v2/files/{bid}/poster", include_in_schema=False)
     @app.get("/api/v2/files/{bid}/poster")
     def poster(request: Request, bid: str, v: int | None = None):
         return download_blob(request, bid, v, "poster")
 
+    @app.head("/api/v2/files/{bid}/thumb", include_in_schema=False)
     @app.get("/api/v2/files/{bid}/thumb")
     def thumb(request: Request, bid: str, v: int | None = None):
         return download_blob(request, bid, v, "thumb")
 
+    @app.head("/api/v2/files/{bid}", include_in_schema=False)
     @app.get("/api/v2/files/{bid}")
     def download(request: Request, bid: str, v: int | None = None):
         return download_blob(request, bid, v)

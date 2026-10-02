@@ -1,4 +1,5 @@
 """Incremental multipart parsing: bounded fields and private, short-lived disk spools."""
+import hashlib
 import tempfile
 from contextlib import ExitStack
 
@@ -25,16 +26,26 @@ async def parse(request, limit, directory):
     def begin():
         part.clear()
         headers.clear()
-        part.update(header_name=bytearray(), header_value=bytearray(), data=bytearray(), size=0)
+        part.update(header_name=bytearray(), header_value=bytearray(), data=bytearray(), size=0, header_count=0, header_bytes=0)
+    def header_bytes(size):
+        part["header_bytes"] += size
+        if part["header_bytes"] > 8192:
+            fail("Upload part headers exceed 8 KB")
     def header_field(data, start, end):
+        header_bytes(end - start)
         part["header_name"].extend(data[start:end])
         if len(part["header_name"]) > 1024:
             fail("Upload header is too long")
     def header_value(data, start, end):
+        header_bytes(end - start)
         part["header_value"].extend(data[start:end])
         if len(part["header_value"]) > 4096:
             fail("Upload header is too long")
     def header_end():
+        part["header_count"] += 1
+        header_bytes(4)  # colon, space and CRLF
+        if part["header_count"] > 16:
+            fail("Upload part has more than 16 headers")
         headers[bytes(part["header_name"]).lower()] = bytes(part["header_value"])
         part["header_name"].clear()
         part["header_value"].clear()
@@ -48,6 +59,7 @@ async def parse(request, limit, directory):
             if name not in ("file", "poster"):
                 fail("Use the file and optional poster fields")
             part["stream"] = stack.enter_context(tempfile.TemporaryFile(dir=directory))
+            part["sha"] = hashlib.sha256()
             part["filename"] = opts[b"filename"].decode("utf-8")
             part["mime"] = headers.get(b"content-type", b"application/octet-stream").decode("ascii")
         elif name not in ("name", "note", "ask"):
@@ -59,6 +71,7 @@ async def parse(request, limit, directory):
         if part["size"] > maximum:
             raise Problem("too_large", f"{part['name']} exceeds the upload limit of {maximum} bytes", 413)
         if "stream" in part:
+            part["sha"].update(chunk)
             part["stream"].write(chunk)
         else:
             part["data"].extend(chunk)
@@ -68,7 +81,8 @@ async def parse(request, limit, directory):
             if part["size"] == 0:
                 fail("A file must contain at least one byte")
             part["stream"].seek(0)
-            files[name] = {k: part[k] for k in ("stream", "filename", "mime", "size")}
+            part["digest"] = part["sha"].hexdigest()
+            files[name] = {k: part[k] for k in ("stream", "filename", "mime", "size", "digest")}
         else:
             fields[name] = part["data"].decode("utf-8")
     def complete():

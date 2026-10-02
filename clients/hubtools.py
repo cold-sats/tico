@@ -1028,13 +1028,13 @@ def task_attach(api, args):
     if args.get("path"):
         if not hasattr(api, "post_multipart"):
             raise ValueError("Stream local files with hub task attach on your Computer")
-        from pathlib import Path
-        path = Path(args["path"])
+        from . import bot_files as BF
+        path, _ = BF.local_file(BF.checkout_root(), args["path"])
         fields = {k: args[k] for k in ("name", "note", "ask") if args.get(k) is not None}
         if api.features().get("task_files_multipart"):
             uploads = {"file": path}
             if args.get("poster"):
-                uploads["poster"] = Path(args["poster"])
+                uploads["poster"], _ = BF.local_file(BF.checkout_root(), args["poster"])
             return api.post_multipart(f"tasks/{args['id']}/files", uploads, fields, key=_key(args))
         if path.stat().st_size > 10_000_000:
             raise ValueError("This server accepts files up to 10 MB; upgrade it for streaming uploads")
