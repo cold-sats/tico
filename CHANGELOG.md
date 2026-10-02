@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Private company desktop apps built on version tags, with encrypted CI artifacts and automatic updates from their own Tico server.
+- Owners can set a public team icon in Settings or through the API and CLI.
+
+### Fixed
+- Human desktop downloads prefer valid company builds even when older than the server; company updater feeds reject generic manifests.
+
 ### Improved
 - Help puts Support in the existing resizable right rail, with continuing conversations, a simpler overview, platform descriptions and an inline glossary.
 - New support requests include editable, redacted diagnostics by default. Replies can attach a fresh capture; rejected attachments are never silently dropped.
@@ -35,8 +42,6 @@ All notable changes to Tico are recorded here. The format follows
 ## [0.3.8] - 2026-10-02
 
 ### Added
-- Private company desktop apps built on version tags, with company branding and automatic updates from their own Tico server.
-- Owner-only team icon API and CLI, with a stable public PNG URL for desktop builds.
 - Task files keep versions by name, with notes, questions and every answer.
 - Tasks show file tiles, version previews and comparisons; board cards show covers and open questions.
 - Pin task views under Pipelines and see linked pictures inline.
@@ -52,7 +57,7 @@ All notable changes to Tico are recorded here. The format follows
 ### Changed
 - One generic Tico desktop app connects to any server: first launch asks for the server address, and Change server is available in the app and tray menus. Optional per-environment builds still work.
 - Every GitHub release includes signed desktop updater bundles and installers for macOS, Windows and Linux, plus the public updater manifest. Generic apps update automatically from GitHub.
-- Hubs offer desktop downloads from their running GitHub release when their bucket build is absent; a company bucket build always wins, and unavailable GitHub downloads do not cause server errors.
+- Hubs offer desktop downloads from their running GitHub release when their bucket build is absent or older; a current or newer bucket build still wins, and unavailable GitHub downloads do not cause server errors.
 
 ## [0.3.7] - 2026-10-02
 

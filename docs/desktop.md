@@ -57,12 +57,16 @@ so its app can coexist with another company's app and the generic Tico app. The 
 `GET /api/download/{mac|windows|linux}` returns `app_kind: company` or `generic`; a frontend
 can show **Download Tico for <team name>** for a company build.
 
-Owners can set the public team logo with `hub team icon logo.png`, using their owner credential
+Owners can set the public team logo in **Settings → Team → Choose icon**, or with
+`hub team icon logo.png`, using their owner credential
 (`HUB_API_URL` and `HUB_TOKEN`). The API is `POST /api/v2/team/icon`, with an opaque binary PNG,
-JPEG or WebP body up to 1 MB and an `Idempotency-Key`. Images are normalized to PNG, at most 1024 pixels per side and 1 MB, with metadata removed.
+JPEG or WebP body up to 1 MB and an `Idempotency-Key`. Images up to 16 megapixels are normalized
+to a square PNG, at most 1024 pixels per side and 1 MB, with transparent padding and metadata removed.
 The answer is `{url: "/api/v2/team/icon", content_type: "image/png"}`. Only the owner may
 write; `GET /api/v2/team/icon` is public, with a five-minute cache and ETag/304 support. It
 returns 404 until a logo is set. This stable path is suitable for CI; expose it outside your
-sign-in proxy, or use another public HTTPS PNG URL. The Settings row is delivered separately.
+sign-in proxy, or use another public HTTPS PNG URL.
+When blob storage uses S3, its server credential also needs DeleteObject for retired icon blobs;
+a cleanup failure preserves the current icon and blocks another replacement until cleanup succeeds.
 
 Operators configure private company builds as described in [Releasing](releasing.md#company-apps).
