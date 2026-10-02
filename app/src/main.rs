@@ -1,6 +1,6 @@
 // Tico: a thin native shell around the local or cloud hub.
-// One window on the hub's own page and a tray item that toggles the window with a left click and
-// shows status on a right click. One source builds every company's app on macOS, Windows and
+// A bundled first-run page selects the server. One window on the hub's own page and a tray item
+// toggle the window with a left click and show status on a right click. One source builds every company's app on macOS, Windows and
 // Linux: the name, icon, identifier and server URL come in at build time (scripts/app.sh).
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
@@ -48,8 +48,7 @@ struct TrayItems {
 }
 
 struct AppState {
-    config: Config,
-    client: Client,
+    connection: Mutex<Option<Config>>,
     status: Mutex<HubStatus>,
     mode: Mutex<WindowMode>,
     applying_frame: AtomicBool,
@@ -60,37 +59,34 @@ type App = AppHandle<tauri::Wry>;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let config = Config::load();
-    let client = Client::new(config.clone());
     let saved = load_saved();
     let state = AppState {
-        config,
-        client,
+        connection: Mutex::new(None),
         status: Mutex::new(HubStatus::default()),
         mode: Mutex::new(saved.mode.unwrap_or(WindowMode::Full)),
         applying_frame: AtomicBool::new(false),
         tray: Mutex::new(None),
     };
 
-    // A local hub publishes no builds and is plain http, which the updater refuses; the check is
-    // simply absent there.
-    let updates = !state.config.is_local();
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_process::init());
-    if updates {
-        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    }
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_window(app);
         }))
         .manage(state)
-        .invoke_handler(tauri::generate_handler![bridge])
+        .invoke_handler(tauri::generate_handler![bridge, connect_server, server_address])
         .setup(move |app| {
-            build_window(app.handle())?;
+            let path = server_path(app.handle())?;
+            let config = Config::load(&path).unwrap_or(None);
+            let state: State<AppState> = app.state();
+            *state.connection.lock().unwrap() = config;
+            if connection(app.handle()).is_some() { build_window(app.handle())?; }
+            else { build_server_window(app.handle())?; }
             build_menu(app.handle())?;
             build_tray(app.handle())?;
             #[cfg(not(target_os = "macos"))]
@@ -108,9 +104,7 @@ fn main() {
                 });
             }
             start_polling(app.handle().clone());
-            if updates {
-                start_updates(app.handle().clone());
-            }
+            start_updates(app.handle().clone());
             apply_window_mode(app.handle(), false);
             show_window(app.handle());
             Ok(())
@@ -136,14 +130,74 @@ fn main() {
         .run(|_app, _event| {});
 }
 
+fn connection(app: &App) -> Option<Config> {
+    app.state::<AppState>().connection.lock().unwrap().clone()
+}
+
+fn server_path(app: &App) -> tauri::Result<std::path::PathBuf> {
+    Ok(app.path().app_config_dir()?.join("server.txt"))
+}
+
+fn build_server_window(app: &App) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("server") {
+        window.show()?;
+        window.set_focus()?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(app, "server", WebviewUrl::App("index.html".into()))
+        .title(config::app_name()).inner_size(440.0, 400.0).resizable(false)
+        .on_navigation(|url| url.scheme() == "tauri" || matches!(url.host_str(), Some("tauri.localhost") | Some("localhost")))
+        .build()?;
+    Ok(())
+}
+
+#[tauri::command]
+fn server_address(app: App) -> String {
+    connection(&app).map(|c| c.hub.to_string()).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn connect_server(app: App, address: String) -> Result<(), String> {
+    let hub = config::validate_server(&address).await?;
+    let path = server_path(&app).map_err(|_| "Could not open the app's settings folder.")?;
+    std::fs::create_dir_all(path.parent().unwrap()).map_err(|_| "Could not create the app's settings folder.")?;
+    let temporary = path.with_extension("tmp");
+    std::fs::write(&temporary, hub.as_str()).and_then(|_| std::fs::rename(&temporary, &path))
+        .map_err(|_| "Could not save the server address. Check free disk space and folder permissions.")?;
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let result = (|| -> tauri::Result<()> {
+            let state: State<AppState> = handle.state();
+            // A local owner token belongs to its original server, never a newly chosen address.
+            let local_token_file = connection(&handle).filter(|c| c.hub == hub).and_then(|c| c.local_token_file);
+            *state.connection.lock().unwrap() = Some(Config { hub, local_token_file });
+            *state.status.lock().unwrap() = HubStatus::default();
+            for (label, window) in handle.webview_windows() {
+                if label.starts_with("meeting-") { let _ = window.close(); }
+            }
+            if let Some(window) = main_window(&handle) {
+                window.navigate(connection(&handle).unwrap().start_url())?;
+            } else {
+                build_window(&handle)?;
+                apply_window_mode(&handle, false);
+            }
+            if let Some(window) = handle.get_webview_window("server") { window.close()?; }
+            show_window(&handle);
+            Ok(())
+        })();
+        let _ = send.send(result.map_err(|_| "Could not open the server. Try again.".to_string()));
+    }).map_err(|_| "Could not open the server. Try again.")?;
+    receive.await.map_err(|_| "Could not open the server. Try again.".to_string())?
+}
+
 // ----------------------------------------------------------------------------- window
 fn build_window(app: &App) -> tauri::Result<()> {
-    let state: State<AppState> = app.state();
-    let start = state.config.start_url();
-    let host = state.config.host();
+    let Some(config) = connection(app) else { return build_server_window(app) };
+    let start = config.start_url();
     let opener = app.clone();
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(start))
-        .title(&state.config.app_name)
+        .title(config::app_name())
         .inner_size(1240.0, 820.0)
         .min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
         .user_agent(USER_AGENT)
@@ -153,7 +207,7 @@ fn build_window(app: &App) -> tauri::Result<()> {
         // Anything that is not the hub opens in the default browser. Cloudflare's provider
         // choice is itself a clicked link: the whole authentication redirect chain stays in this
         // web view so the resulting CF_Authorization cookie belongs to the app, not the browser.
-        .on_navigation(move |url| stays_in_app(&opener, &host, url));
+        .on_navigation(move |url| stays_in_app(&opener, url));
     #[cfg(target_os = "macos")]
     {
         builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
@@ -165,7 +219,8 @@ fn build_window(app: &App) -> tauri::Result<()> {
 /// Anything that is not the hub opens in the default browser. Cloudflare's provider choice is
 /// itself a clicked link: the whole authentication redirect chain stays in this web view so the
 /// resulting CF_Authorization cookie belongs to the app, not the browser.
-fn stays_in_app(opener: &App, host: &str, url: &url::Url) -> bool {
+fn stays_in_app(opener: &App, url: &url::Url) -> bool {
+    let host = connection(opener).map(|c| c.host()).unwrap_or_default();
     let target = url.host_str().unwrap_or("");
     if target.is_empty() || target == host || url.scheme() == "tauri" {
         return true;
@@ -190,10 +245,9 @@ fn open_meeting_window(app: &App, id: &str) {
         let _ = window.set_focus();
         return;
     }
-    let state: State<AppState> = app.state();
-    let mut url = state.config.hub.clone();
+    let Some(config) = connection(app) else { return };
+    let mut url = config.hub.clone();
     url.set_fragment(Some(&format!("/meetings?meeting={id}&window=1")));
-    let host = state.config.host();
     let opener = app.clone();
     let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title("Meeting")
@@ -201,7 +255,7 @@ fn open_meeting_window(app: &App, id: &str) {
         .min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
         .resizable(true)
         .user_agent(USER_AGENT)
-        .on_navigation(move |url| stays_in_app(&opener, &host, url))
+        .on_navigation(move |url| stays_in_app(&opener, url))
         .build();
 }
 
@@ -225,7 +279,7 @@ fn main_window(app: &App) -> Option<WebviewWindow> {
 }
 
 fn show_window(app: &App) {
-    if let Some(window) = main_window(app) {
+    if let Some(window) = main_window(app).or_else(|| app.get_webview_window("server")) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -234,6 +288,7 @@ fn show_window(app: &App) {
 }
 
 fn toggle_window(app: &App) {
+    if main_window(app).is_none() { let _ = build_server_window(app); return; }
     if let Some(window) = main_window(app) {
         let visible = window.is_visible().unwrap_or(false);
         let focused = window.is_focused().unwrap_or(false);
@@ -356,16 +411,18 @@ fn eval(app: &App, js: &str) {
 
 // Cmd+R reaches this through the View menu too.
 fn reload(app: &App) {
-    let state: State<AppState> = app.state();
-    if let Some(window) = main_window(app) {
-        let _ = window.navigate(state.config.start_url());
+    if let (Some(config), Some(window)) = (connection(app), main_window(app)) {
+        let _ = window.navigate(config.start_url());
     }
 }
 
 // ----------------------------------------------------------------------------- bridge
 /// What the page posts: `windowMode` ("toggle" | "state"), `openWindow` ({meeting: id}).
 #[tauri::command]
-fn bridge(app: App, name: String, body: Option<Value>) {
+fn bridge(app: App, window: WebviewWindow, name: String, body: Option<Value>) {
+    // Generic builds accept any server; only the selected origin may call the native bridge.
+    let Some(config) = connection(&app) else { return };
+    if window.label() != "main" || window.url().map(|u| u.origin() != config.hub.origin()).unwrap_or(true) { return; }
     match name.as_str() {
         "windowMode" => {
             if body.as_ref().and_then(Value::as_str) == Some("toggle") { toggle_window_mode(&app) } else { sync_window_mode(&app) }
@@ -396,10 +453,10 @@ fn open_deep_link(app: &App, url: &url::Url) {
 
 // ----------------------------------------------------------------------------- app menu
 fn build_menu(app: &App) -> tauri::Result<()> {
-    let state: State<AppState> = app.state();
-    let name = state.config.app_name.clone();
+    let name = config::app_name();
     let app_menu = Submenu::with_items(app, &name, true, &[
         &PredefinedMenuItem::about(app, Some(&format!("About {name}")), None)?,
+        &MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?,
         &PredefinedMenuItem::separator(app)?,
         &PredefinedMenuItem::hide(app, None)?,
         &PredefinedMenuItem::quit(app, Some(&format!("Quit {name}")))?,
@@ -424,6 +481,7 @@ fn build_menu(app: &App) -> tauri::Result<()> {
 
 fn menu_event(app: &App, id: &str) {
     match id {
+        "server" => { let _ = build_server_window(app); }
         "search" => open_search(app),
         "reload" => reload(app),
         "mode" => toggle_window_mode(app),
@@ -442,16 +500,17 @@ fn build_tray(app: &App) -> tauri::Result<()> {
     let search = MenuItem::with_id(app, "search", "Search…", true, None::<&str>)?;
     let reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
     let state: State<AppState> = app.state();
-    let quit = MenuItem::with_id(app, "quit", format!("Quit {}", state.config.app_name), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", format!("Quit {}", config::app_name()), true, None::<&str>)?;
+    let server = MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[
         &headline, &counts, &PredefinedMenuItem::separator(app)?,
-        &toggle, &mode, &search, &reload, &PredefinedMenuItem::separator(app)?, &quit,
+        &toggle, &mode, &search, &reload, &server, &PredefinedMenuItem::separator(app)?, &quit,
     ])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     let tray = TrayIconBuilder::with_id("tico")
         .icon(icon)
         .icon_as_template(true)
-        .tooltip(&state.config.app_name)
+        .tooltip(config::app_name())
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
@@ -480,7 +539,7 @@ fn render_tray_now(app: &App) {
     let rail = *state.mode.lock().unwrap() == WindowMode::Rail;
     let guard = state.tray.lock().unwrap();
     let Some(items) = guard.as_ref() else { return };
-    let name = &state.config.app_name;
+    let name = config::app_name();
     let _ = items.toggle.set_text(if visible { "Hide window" } else { "Show window" });
     let _ = items.mode.set_text(if rail { "Use full window" } else { "Move to right rail" });
     let _ = items.headline.set_text(status.headline());
@@ -490,9 +549,8 @@ fn render_tray_now(app: &App) {
 
 // ----------------------------------------------------------------------------- updates
 // The page comes from the hub, so the site changes with no app update at all. The shell itself
-// changes rarely; when it does, the app fetches the signed build from the hub's manifest, installs
-// it and relaunches, with nothing asked of the person. A local hub publishes no builds; the
-// check quietly finds none.
+// changes rarely; when it does, the generic app fetches a signed GitHub release, installs
+// it and relaunches automatically. Per-environment builds retain their hub updater.
 fn start_updates(app: App) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(20)).await;
@@ -505,7 +563,21 @@ fn start_updates(app: App) {
 
 async fn check_for_update(app: &App) {
     use tauri_plugin_updater::UpdaterExt;
-    let updater = match app.updater() {
+    let selected = connection(app);
+    if !config::is_generic() && selected.as_ref().map(|c| c.is_local()).unwrap_or(true) { return; }
+    let builder = app.updater_builder();
+    let configured = app.config().plugins.0.get("updater").and_then(|p| p.get("endpoints"))
+        .and_then(Value::as_array).and_then(|a| a.first()).and_then(Value::as_str);
+    let endpoint = if config::is_generic() {
+        Some(config::GENERIC_UPDATER.parse().unwrap())
+    } else if configured == Some(config::GENERIC_UPDATER) {
+        // A direct cargo build with TICO_HUB_URL also retains the hub updater; scripts can
+        // override this with the separate, public runner hostname.
+        selected.map(|c| c.hub.join("download/latest.json").unwrap())
+    } else { None };
+    let updater = match if let Some(endpoint) = endpoint {
+        builder.endpoints(vec![endpoint]).and_then(|b| b.build())
+    } else { builder.build() } {
         Ok(updater) => updater,
         Err(e) => { log::debug!("updater unavailable: {e}"); return; }
     };
@@ -535,7 +607,10 @@ fn start_polling(app: App) {
 
 async fn refresh_status(app: &App) {
     let state: State<AppState> = app.state();
-    let fresh = state.client.status(app).await;
+    let Some(config) = connection(app) else { return };
+    let fresh = Client::new(config.clone()).status(app).await;
+    // A status request for the previous server may finish after someone changes the address.
+    if connection(app).map(|c| c.hub) != Some(config.hub) { return; }
     *state.status.lock().unwrap() = fresh;
     render_tray(app);
 }

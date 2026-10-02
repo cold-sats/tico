@@ -25,10 +25,25 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: app-*
+          path: dist/desktop
+          merge-multiple: true
+      - name: Build the desktop updater manifest
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          flags=()
+          [ -n "$APPLE_SIGNING_IDENTITY" ] && flags+=(--signed)
+          [ -n "$APPLE_ID" ] && flags+=(--notarized)
+          python scripts/app_release.py --github --version "${GITHUB_REF_NAME#v}" --tag "$GITHUB_REF_NAME" \
+            --output dist/desktop/latest.json --notes "Built from ${GITHUB_SHA::7}" "${flags[@]}" dist/desktop
       - name: Build the notes
         run: |
           version="${GITHUB_REF_NAME#v}"
-          mkdir dist
+          mkdir -p dist
           python scripts/changelog_notes.py "$version" > dist/notes.md
       - name: Build the installer and its compose bundle
         run: |
@@ -52,5 +67,5 @@ jobs:
         run: |
           flags=()
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/install/install.sh "dist/install/tico-bundle-$GITHUB_REF_NAME.tar.gz" dist/install/SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" dist/install/install.sh "dist/install/tico-bundle-$GITHUB_REF_NAME.tar.gz" dist/install/SHA256SUMS dist/desktop/* \
             --title "$GITHUB_REF_NAME" --notes-file dist/notes.md --verify-tag "${flags[@]}"

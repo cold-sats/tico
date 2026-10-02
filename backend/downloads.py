@@ -1,8 +1,8 @@
 """The desktop app's downloads and updates.
 
-CI builds the app for macOS, Windows and Linux (`.github/workflows/app.yml`) and puts the
-bundles and one manifest under `releases/app/` in the storage bucket, the prefix the deploy role
-may write and the server may read. Three routes serve them, none needing a sign-in (the app's
+CI builds the app for macOS, Windows and Linux (`.github/workflows/app.yml`) and attaches the
+bundles and manifest to each GitHub release. An optional deploy job also publishes under
+`releases/app/` in the storage bucket. Three routes serve them, none needing a sign-in (the app's
 updater has no browser session, and an installer is nothing to protect):
 
 - `GET /download/latest.json` — the manifest, in the shape Tauri's updater reads
@@ -12,7 +12,9 @@ updater has no browser session, and an installer is nothing to protect):
 - `GET /download/file/{version}/{name}` — one bundle, as a short-lived S3 link.
 
 `GET /api/download/{os}` is the signed-in question the site asks before it offers a download.
-A server with no bucket (a local hub) answers `available: false` everywhere.
+Without a bucket manifest, or when it predates the running server, downloads come from that
+version's public GitHub release. A bucket with the same or a newer version still wins. Public
+GitHub lookups (including failures) are cached for ten minutes and never carry credentials.
 
 The no-sign-in promise holds on the runner hostname (`runner.<host>`), which the tunnel routes
 for `/api/v2` and `/download` (your tunnel's public hostname rules) and which the updater
@@ -22,24 +24,33 @@ answers first, so a `/download/...` link there works only for a signed-in browse
 import json
 import re
 import time
+import threading
+from urllib.parse import quote
+
+import httpx
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .store import Problem
+from . import releases
 
 PREFIX = "releases/app/"
 OS_NAMES = ("mac", "windows", "linux")
 FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ +-]{0,200}$")
-VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.]+)?$")
+VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$")
 
 
 class Downloads:
-    def __init__(self, settings, s3=None):
+    def __init__(self, settings, s3=None, github_transport=None):
         self.bucket = settings.blob_bucket
         self.base = settings.runner_url or settings.public_url
         self._s3 = s3
         self._manifest = (0.0, None)
+        self.version = releases.version()
+        self._github = (0.0, None)
+        self._github_transport = github_transport
+        self._lock = threading.RLock()
 
     @property
     def s3(self):
@@ -49,24 +60,84 @@ class Downloads:
         return self._s3
 
     def manifest(self):
-        """The current manifest, read from the bucket at most once a minute."""
+        """Prefer a current bucket build; otherwise offer the running release's generic app."""
+        with self._lock:
+            bucket = self.bucket_manifest()
+            if bucket and (not releases.parse(self.version) or
+                           releases.parse(bucket["version"]) >= releases.parse(self.version)):
+                return bucket
+            return self.github_manifest()
+
+    def bucket_manifest(self):
+        """Read the bucket at most once a minute, including absent manifests."""
         if not self.bucket:
             return None
         fetched, cached = self._manifest
-        if cached is not None and time.time() - fetched < 60:
+        if fetched and time.time() - fetched < 60:
             return cached
         try:
             body = self.s3.get_object(Bucket=self.bucket, Key=PREFIX + "latest.json")["Body"].read()
             value = json.loads(body)
-            if not isinstance(value, dict) or not VERSION_RE.match(str(value.get("version") or "")):
+            if not isinstance(value, dict) or not VERSION_RE.fullmatch(str(value.get("version") or "")) or not releases.parse(value["version"]):
                 value = None
         except Exception:
             value = None
         self._manifest = (time.time(), value)
         return value
 
+    def github_manifest(self):
+        fetched, cached = self._github
+        if fetched and time.monotonic() - fetched < 600:
+            return cached
+        value = None
+        if VERSION_RE.fullmatch(self.version):
+            tag = "v" + self.version
+            asset_base = f"https://github.com/ticoteam/tico/releases/download/{quote(tag, safe='')}/"
+            try:
+                # A dedicated public client never inherits hub sessions, tokens, proxy credentials or netrc.
+                with httpx.Client(timeout=5, trust_env=False, transport=self._github_transport,
+                                  follow_redirects=True) as http:
+                    response = http.get("https://api.github.com/repos/ticoteam/tico/releases/tags/" + quote(tag, safe=""),
+                                        headers={"Accept": "application/vnd.github+json", "User-Agent": "tico-desktop-downloads"})
+                    response.raise_for_status()
+                    release = response.json()
+                    if release.get("tag_name") != tag or release.get("draft"):
+                        raise ValueError("wrong release")
+                    assets = {a["name"]: a for a in release.get("assets", [])
+                              if isinstance(a, dict) and FILE_RE.fullmatch(str(a.get("name") or ""))
+                              and a.get("browser_download_url") == asset_base + quote(a["name"])}
+                    if "latest.json" not in assets:
+                        raise ValueError("no app manifest")
+                    response = http.get(assets["latest.json"]["browser_download_url"])
+                    response.raise_for_status()
+                    value = response.json()
+                    if not isinstance(value, dict) or value.get("version") != self.version:
+                        raise ValueError("wrong app version")
+                    platforms = value.get("platforms")
+                    if not isinstance(platforms, dict) or not platforms:
+                        raise ValueError("no updater platforms")
+                    asset_urls = {a["browser_download_url"] for a in assets.values()}
+                    for entry in platforms.values():
+                        if not isinstance(entry, dict) or not entry.get("signature") or entry.get("url") not in asset_urls:
+                            raise ValueError("invalid updater asset")
+                    installers = {}
+                    for name, asset in assets.items():
+                        os_name = ("mac" if name.endswith(".dmg") else "windows" if name.endswith("-setup.exe")
+                                   else "linux" if name.endswith(".AppImage") else "linux_deb" if name.endswith(".deb") else None)
+                        if os_name:
+                            metadata = (value.get("installers") or {}).get(os_name) or {}
+                            installers[os_name] = {"file": name, "bytes": asset.get("size"),
+                                                   "url": asset["browser_download_url"],
+                                                   "signed": bool(metadata.get("signed", False)),
+                                                   "notarized": bool(metadata.get("notarized", False))}
+                    value = {**value, "installers": installers}
+            except Exception:
+                value = None
+        self._github = (time.monotonic(), value)
+        return value
+
     def file_url(self, version, name):
-        if not self.bucket or not VERSION_RE.match(version) or not FILE_RE.match(name):
+        if not self.bucket or not VERSION_RE.fullmatch(version) or not FILE_RE.fullmatch(name):
             return None
         key = f"{PREFIX}{version}/{name}"
         try:
@@ -80,11 +151,11 @@ class Downloads:
         if not manifest or os_name not in OS_NAMES:
             return None
         entry = (manifest.get("installers") or {}).get(os_name)
-        if not isinstance(entry, dict) or not FILE_RE.match(str(entry.get("file") or "")):
+        if not isinstance(entry, dict) or not FILE_RE.fullmatch(str(entry.get("file") or "")):
             return None
         return {"version": manifest["version"], "file": entry["file"], "bytes": entry.get("bytes"),
                 "notarized": bool(entry.get("notarized", False)), "signed": bool(entry.get("signed", False)),
-                "url": f"{self.base}/download/file/{manifest['version']}/{entry['file']}"}
+                "url": entry.get("url") or f"{self.base}/download/file/{manifest['version']}/{entry['file']}"}
 
 
 def install_downloads(app, store):

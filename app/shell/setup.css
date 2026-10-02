@@ -1,0 +1,14 @@
+:root { color-scheme: light dark; font: 15px system-ui, sans-serif; --background: #fafafa; --foreground: #202024; --input: white; --border: #bfc0c8; --error: #ae2727; background: var(--background); color: var(--foreground); }
+@media (prefers-color-scheme: dark) {
+  :root { --background: #171719; --foreground: #f1f1f4; --input: #252529; --border: #55555e; --error: #ff9c9c; }
+}
+body { margin: 0; }
+main { padding: 48px 32px 28px; }
+img { display: block; margin: 0 auto 32px; }
+label { display: block; margin-bottom: 10px; font-weight: 600; }
+input, button { box-sizing: border-box; width: 100%; border-radius: 8px; font: inherit; padding: 12px; }
+input { border: 1px solid var(--border); background: var(--input); color: inherit; }
+button { border: 0; background: #5656db; color: white; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .65; cursor: wait; }
+input:focus-visible, button:focus-visible { outline: 2px solid #8585f5; outline-offset: 3px; }
+#error { min-height: 38px; margin: 10px 0; color: var(--error); font-size: 13px; }

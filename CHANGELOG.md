@@ -25,6 +25,11 @@ All notable changes to Tico are recorded here. The format follows
 ### Fixed
 - Granola account sync reads notes preceded by provider text, fetches meetings in paced batches of ten, and retries rate limits without skipping meetings or losing sync progress.
 
+### Changed
+- One generic Tico desktop app connects to any server: first launch asks for the server address, and Change server is available in the app and tray menus. Optional per-environment builds still work.
+- Every GitHub release includes signed desktop updater bundles and installers for macOS, Windows and Linux, plus the public updater manifest. Generic apps update automatically from GitHub.
+- Hubs offer desktop downloads from their running GitHub release when their bucket build is absent or older; a current or newer bucket build still wins, and unavailable GitHub downloads do not cause server errors.
+
 ## [0.3.6] - 2026-10-02
 
 ### Fixed

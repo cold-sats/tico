@@ -13,10 +13,13 @@ Each DIR is scanned for what `tauri build` produced on one OS:
   *.deb                   uploaded beside the AppImage -> installers.linux_deb
 A platform that is not in any DIR keeps its entry from the manifest already published, so one
 OS can be released on its own. `--dry-run` prints the manifest and uploads nothing.
+`--github --version X.Y.Z --output latest.json DIR [DIR...]` writes a complete release's
+manifest using public GitHub asset URLs, without credentials or S3. `--tag` preserves a tag suffix.
 """
 import argparse
 import json
 import sys
+from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,17 +59,21 @@ def classify(directory):
     return found
 
 
-def manifest(version, base, scans, previous, notes="", signed=False, notarized=False):
+def manifest(version, base, scans, previous, notes="", signed=False, notarized=False, github=False, tag=None):
+    asset_base = f"https://github.com/ticoteam/tico/releases/download/{quote(tag or 'v' + version, safe='')}"
     platforms = dict((previous or {}).get("platforms") or {})
     installers = dict((previous or {}).get("installers") or {})
     for scan in scans:
         for target, entry in scan["platforms"].items():
             if not entry.get("signature"):
                 raise SystemExit(f"{entry['file']} has no .sig beside it; build with TAURI_SIGNING_PRIVATE_KEY set")
-            platforms[target] = {"signature": entry["signature"], "url": f"{base}/download/file/{version}/{entry['file']}"}
+            platforms[target] = {"signature": entry["signature"],
+                                 "url": f"{asset_base}/{quote(entry['file'])}" if github else f"{base}/download/file/{version}/{entry['file']}"}
         for os_name, entry in scan["installers"].items():
             installers[os_name] = {"file": entry["file"], "bytes": entry["bytes"],
                                    "signed": signed, "notarized": notarized and os_name == "mac"}
+            if github:
+                installers[os_name]["url"] = f"{asset_base}/{quote(entry['file'])}"
     return {"version": version, "notes": notes, "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "platforms": platforms, "installers": installers}
 
@@ -75,28 +82,41 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("dirs", nargs="+")
     parser.add_argument("--version", required=True)
-    parser.add_argument("--bucket", required=True)
-    parser.add_argument("--base", required=True, help="the hub URL the app reaches without a browser session")
+    parser.add_argument("--bucket")
+    parser.add_argument("--base", help="the hub URL the app reaches without a browser session")
+    parser.add_argument("--github", action="store_true", help="write a GitHub release manifest without accessing S3")
+    parser.add_argument("--tag", help="GitHub tag (defaults to v<version>)")
+    parser.add_argument("--output", default="latest.json", help="manifest path for --github")
     parser.add_argument("--notes", default="")
     parser.add_argument("--signed", action="store_true")
     parser.add_argument("--notarized", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if not args.github and (not args.bucket or not args.base):
+        parser.error("--bucket and --base are required unless --github is set")
     scans = [classify(d) for d in args.dirs]
     if not any(s["files"] for s in scans):
         raise SystemExit("no bundles found in " + ", ".join(args.dirs))
     previous = None
     s3 = None
-    if not args.dry_run:
+    if not args.dry_run and not args.github:
         import boto3
         s3 = boto3.client("s3")
         try:
             previous = json.loads(s3.get_object(Bucket=args.bucket, Key=PREFIX + "latest.json")["Body"].read())
         except Exception:
             previous = None
-    value = manifest(args.version, args.base.rstrip("/"), scans, previous, args.notes, args.signed, args.notarized)
+    value = manifest(args.version, (args.base or "").rstrip("/"), scans, previous, args.notes, args.signed,
+                     args.notarized, args.github, args.tag)
+    if args.github:
+        required = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64", "linux-x86_64"}
+        if not required.issubset(value["platforms"]) or not {"mac", "windows", "linux", "linux_deb"}.issubset(value["installers"]):
+            raise SystemExit("GitHub releases need macOS universal, Windows NSIS, Linux AppImage and Debian bundles")
     print(json.dumps(value, indent=2))
     if args.dry_run:
+        return 0
+    if args.github:
+        Path(args.output).write_text(json.dumps(value, indent=2) + "\n")
         return 0
     for scan in scans:
         for path in scan["files"]:
