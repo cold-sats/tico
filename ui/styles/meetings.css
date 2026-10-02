@@ -65,6 +65,50 @@
 .notes-filters select{flex:none;width:auto;max-width:220px;font:inherit;font-size:13px;color:var(--ink);padding:5px 8px}
 .notes-filters .notes-count{margin-left:auto;padding-left:8px;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .notes-rows{overflow:auto}
+/* The viewer's own Granola account (ui/app/meetings-granola.js): one dense row above the strip. */
+.meet-granola{margin:0 0 10px}
+.meet-granola[hidden]{display:none}
+.mg-row{display:flex;align-items:flex-start;gap:10px;padding:8px 10px 8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.mg-row .msrc-logo{margin-top:1px}
+.mg-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding-top:4px}
+.mg-line{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;font-size:13px;color:var(--muted);min-width:0}
+.mg-line b{color:var(--ink);font-weight:600}
+.mg-line>*+*::before{content:'·';margin-right:6px;color:var(--muted)}
+.mg-email{max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mg-bad{color:var(--fail)}
+.mg-sub{margin:0;font-size:12px}
+.mg-sub .linkish{font-size:12px;color:var(--accent-quiet);text-decoration:none}
+.mg-sub .linkish:hover{text-decoration:underline}
+.mg-err{margin:0;font-size:12px;color:var(--fail)}
+.mg-actions{flex:none;display:flex;align-items:center;gap:6px}
+.mg-actions button.primary,.mg-actions button.ghost{padding:5px 11px;font-size:12.5px}
+.mg-code-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin:2px 0}
+.mg-code{font-family:var(--mono);font-size:22px;font-weight:600;letter-spacing:.12em;color:var(--ink);padding:3px 10px;border-radius:7px;background:var(--surface2);border:1px solid var(--line);user-select:all}
+.mg-code-row .ghost{padding:5px 10px;font-size:12.5px}
+.mg-open{font-size:13px;font-weight:600;color:var(--accent)}
+.mg-wait{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.mg-wait .dot{width:7px;height:7px;background:var(--wait);animation:mg-pulse 1.4s ease-in-out infinite}
+@keyframes mg-pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.mg-wait .dot{animation:none}}
+.mg-more-wrap{position:relative}
+.mg-more{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:0;border-radius:6px;background:none;color:var(--muted);cursor:pointer}
+.mg-more:hover,.mg-more[aria-expanded=true]{background:var(--surface2);color:var(--ink)}
+.mg-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:30;min-width:140px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+.mg-menu[hidden]{display:none}
+.mg-menu button{display:block;width:100%;padding:7px 10px;border:0;border-radius:5px;background:none;color:var(--ink);font-size:13px;text-align:left;cursor:pointer;white-space:nowrap}
+.mg-menu button:hover,.mg-menu button:focus-visible{background:var(--surface2)}
+.mg-menu .danger-text{color:var(--fail)}
+@media (max-width:760px){
+  .mg-row{flex-wrap:wrap}
+  .mg-body{flex-basis:calc(100% - 40px)}
+  .mg-row[data-state=off] .mg-actions,.mg-row[data-state=signin] .mg-actions{width:100%;padding-left:36px}
+  .mg-row[data-state=on],.mg-row[data-state=code]{flex-wrap:nowrap}
+  .mg-row[data-state=on] .mg-body,.mg-row[data-state=code] .mg-body{flex-basis:auto}
+  .mg-line .mg-email{flex-basis:100%;max-width:none}
+  .mg-line .mg-email::before,.mg-line .mg-email+*::before{content:none}
+  .mg-actions button.primary,.mg-actions button.ghost,.mg-code-row .ghost{min-height:36px}
+  .mg-more{width:36px;height:36px}
+}
 .meet-sources{margin:0 0 14px}
 .meet-sources[hidden]{display:none}
 .meet-sources-label{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--muted)}
