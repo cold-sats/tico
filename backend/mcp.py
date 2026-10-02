@@ -221,7 +221,8 @@ def task_dry_run(c, auth, who, body):
         dup = H._one(c, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
                         f"AND status IN ({','.join('?' * len(H.LIVE_STATUSES))})",
                      (who.actor, target, title, *H.LIVE_STATUSES))
-        if dup:
+        if dup and H.task_private_readable(c, who.actor, H.task(c, dup["id"])) and (
+                not who.task_actor or H.task_private_readable(c, who.task_actor, H.task(c, dup["id"]))):
             problems.append(f"{dup['id']} already asks {H.actor_id(target)} for this")
     if not typ:
         problems.append("No such task type")

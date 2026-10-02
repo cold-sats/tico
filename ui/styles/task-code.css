@@ -105,3 +105,8 @@ a.code-main:hover .code-title,a.code-main:hover .code-repo{color:var(--accent);t
 .pr-badge.waiting{background:var(--wait-bg);color:var(--wait)}
 #pane-tasks .trow[data-task-version] summary:has(.pr-badge){grid-template-columns:16px minmax(0,1fr) auto auto;grid-template-areas:"ic ttl pr who"}
 #pane-tasks .trow[data-task-version] summary .pr-badge{grid-area:pr}
+
+.prop[data-prop-row="owner"] .prop-vwrap,.prop[data-prop-row="private"] .prop-vwrap{flex-wrap:wrap;gap:4px 8px}
+.prop-vwrap>small{flex-basis:100%;font-size:11px;color:var(--muted);line-height:1.4}
+.prop[data-prop-row="private"] label{display:inline-flex;align-items:center;gap:5px}
+.prop[data-prop-row="private"] .nav-icon{font-size:16px;width:16px;height:16px}

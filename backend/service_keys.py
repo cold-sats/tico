@@ -99,7 +99,7 @@ def upsert(c, auth, who, body):
     pair = c.execute("SELECT task_id FROM service_key_tasks WHERE key_id=? AND external_key=?",
                      (key_id, body.key)).fetchone()
     row = H.task(c, pair["task_id"]) if pair else None
-    if row and row.get("private"):
+    if row and H.task_private(c, row):
         raise Problem("forbidden", "This work is unavailable to a service key", 403)
     created = changed = False
     if not row and not body.close:

@@ -115,3 +115,15 @@ def test_mint_shows_the_secret_once_without_persisting_it_in_the_retry_cache(api
     with api.app.state.store.read() as c:
         for table in ("service_keys", "idempotency", "events"):
             assert made["key"] not in str([tuple(r) for r in c.execute("SELECT * FROM " + table)])
+
+
+def test_service_key_transition_to_sensitive_default_returns_only_ack_and_revokes_future_writes(api):
+    secret = post(api, 'service-keys', {'label': 'Inbound queue'})['key']
+    ack = inbound(api, secret, key='transition', owner='human:ben', title='Review the queue', body='Review it.')
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.private_tasks_default',json('true')) WHERE bot='ops'")
+    moved = inbound(api, secret, key='transition', owner='bot:ops')
+    assert moved['task'] == ack['task'] and set(moved['task']) == {'id'}
+    with api.app.state.store.read() as c:
+        assert H.task(c, ack['task']['id'])['private']
+    inbound(api, secret, 403, key='transition', body='Overwrite')
