@@ -833,6 +833,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "team": P.team_of(slug, configs, people),
                              "org_parent": P.org_parent("bot", slug, people, configs, archived),
                              "operator": registry["operator"] if registry else None,
+                             "is_branch": bool((configs.get(slug) or {}).get("shared_from")),
                              "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                              "icon": icon_of(configs.get(slug, {}) or {}),
                              "helper": helper(configs.get(slug, {}) or {}),

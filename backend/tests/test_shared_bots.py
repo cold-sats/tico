@@ -272,3 +272,18 @@ def test_a_branch_hangs_where_its_owner_puts_it_on_the_chart_but_still_follows_i
         rows = {r['bot']: r['reports_to'] for r in c.execute("SELECT bot,reports_to FROM bot_config WHERE bot IN ('cpo','cpo-cara')")}
     assert rows['cpo-cara'] == 'human:ana' and rows['cpo'] != 'human:ana'
     post(api, 'bots/cpo-cara/definition', {'description': 'Mine', 'expected_revision': revision(api, 'cpo-cara')}, 'cara-test', expected=409)
+
+
+def test_name_only_roster_marks_branches_without_exposing_the_original(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json, '$.shared_from', 'finance') WHERE bot='cpo'")
+        restrict(c, 'cpo', see={'everyone': True}, read={'people': ['ben']}, write={'people': ['ben']})
+        restrict(c, 'finance', people=['ana'])
+    response = api.get('/api/employees', headers={'Authorization': 'Bearer cara-test'})
+    assert response.status_code == 200
+    rows = {row['name']: row for row in response.json()}
+    assert 'finance' not in rows
+    branch_row = rows['cpo']
+    assert branch_row['my_access']['read'] is False
+    assert branch_row['is_branch'] is True and branch_row['operator'] == 'ben'
+    assert not {'shared_from', 'repo', 'schedules', 'model'} & branch_row.keys()
