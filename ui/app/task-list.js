@@ -4,11 +4,11 @@
 'use strict';
 
 // ---- filters: chips over the loaded tasks, kept in the address (#/tasks?owner=bot:eng&tag=bug) so a view can be shared
-const TASK_FILTER_FIELDS = [['owner', 'Owner'], ['team', 'Team'], ['tag', 'Tag'], ['repo', 'Repo'], ['pr', 'Has PR'], ['due', 'Due'], ['asked', 'Asked by'], ['type', 'Type']];
+const TASK_FILTER_FIELDS = [['owner', 'Owner'], ['team', 'Team'], ['tag', 'Tag'], ['repo', 'Repo'], ['pr', 'Has PR'], ['due', 'Due'], ['asked', 'Asked by']];
 const TASK_FILTER_WORDS = {pr: {yes: 'Yes', no: 'No'}, due: {overdue: 'Overdue', week: 'Next 7 days', any: 'Has a date', none: 'No date'}};
 const TASK_GROUPS = [['status', 'Status'], ['owner', 'Owner'], ['team', 'Team'], ['parent', 'Parent task'], ['tag', 'Tag'], ['requester', 'Asked by']];
 const TASK_GROUP_DEFAULT = {list: 'status', foryou: 'requester'};
-const tasksEmptyFilters = () => Object.fromEntries(TASK_FILTER_FIELDS.filter(([k]) => k !== 'type').map(([k]) => [k, []]));
+const tasksEmptyFilters = () => Object.fromEntries(TASK_FILTER_FIELDS.map(([k]) => [k, []]));
 const isTasksRoute = r => [TASKS, BOARD, ISSUES, RECURRING].includes(String(r || '').split('?')[0]);
 const PHONE = '(max-width:760px)';
 // Small inline icons (the icon font is a fixed subset; these never need it).
@@ -39,7 +39,7 @@ function tasksFiltersFromURL(state) {
   return query;
 }
 function tasksActiveFilterCount(state) {
-  return Object.values(state.filters || {}).filter(v => v.length).length + Number(!!state.type);
+  return Object.values(state.filters || {}).filter(v => v.length).length;
 }
 // The address follows the filters without reloading the page (no hashchange, no history entry). With any filter in
 // it, it names the view too, so a shared address opens the same tab whatever route it started from.
@@ -78,7 +78,7 @@ const tasksPinHash = state => TASKS + tasksQueryText(tasksQuery(state));
 function tasksPinName(state) {
   const type = state.type ? (TASK_TYPES || []).find(t => t.id === state.type)?.name || state.type : '';
   const view = TASK_VIEWS.find(([k]) => k === state.view)?.[1] || 'Tasks';
-  const words = TASK_FILTER_FIELDS.filter(([k]) => k !== 'type' && state.filters[k]?.length).map(([k]) => {
+  const words = TASK_FILTER_FIELDS.filter(([k]) => state.filters[k]?.length).map(([k]) => {
     const opts = new Map(tasksFilterOptions(state, k).map(o => [o.value, o.label]));
     return state.filters[k].map(v => opts.get(v) || (k === 'owner' || k === 'asked' ? actorLabel(v) : v)).join(', ');
   });
@@ -215,7 +215,6 @@ function tasksFilterOptions(state, field) {
     return keys.map(key => ({value: key, label: tagSummary(rich.get(key) || {key, label: key})})).sort((a, b) => a.label.localeCompare(b.label));
   }
   if (field === 'repo') return [...new Set([...tasks.flatMap(taskRepos), ...selected])].sort().map(r => ({value: r, label: r}));
-  if (field === 'type') return TASK_TYPES.map(type => ({value: type.id, label: type.name}));
   return Object.entries(TASK_FILTER_WORDS[field] || {}).map(([value, label]) => ({value, label}));
 }
 
@@ -397,11 +396,12 @@ function tasksPaint(el, html) {
 function tasksTools(state) {
   const tabs = $('#task-view');
   if (!tabs || TASKS_ST !== state) return;
+  taskPipelineTools(state);
   tasksPaint(tabs, tasksTabsHTML(state));
   $('#task-bar').hidden = state.view === 'recurring';
   const chips = [];
   for (const [field, name] of TASK_FILTER_FIELDS) {
-    const values = field === 'type' ? (state.type ? [state.type] : []) : state.filters[field];
+    const values = state.filters[field];
     if (!values?.length) continue;
     const opts = new Map(tasksFilterOptions(state, field).map(o => [o.value, o.label]));
     const words = values.map(v => opts.get(v) || (field === 'owner' || field === 'asked' ? actorLabel(v) : v));
@@ -413,7 +413,7 @@ function tasksTools(state) {
   const addBtn = $('#task-filter');
   addBtn.classList.toggle('active', !!count);
   addBtn.setAttribute('aria-label', count ? `Add filter, ${count} active` : 'Add filter');
-  $('#task-filter-clear').hidden = count < 2;
+  $('#task-filter-clear').hidden = count === 0;
   const groupable = state.view === 'list' || state.view === 'foryou';
   $('#task-group-wrap').hidden = !groupable;
   if (groupable) {
@@ -471,25 +471,18 @@ function tasksMenuClose() { const pop = $('#task-filter-pop'); if (pop?.matches(
 function tasksFilterMenu(state, field, anchor, toggle = true) {
   const name = TASK_FILTER_FIELDS.find(([k]) => k === field)?.[1] || field;
   const opts = tasksFilterOptions(state, field);
-  const single = field === 'type';
-  const chosen = single ? (state.type ? [state.type] : []) : state.filters[field];
+  const chosen = state.filters[field];
   const html = `<div class="tl-menu" role="group" aria-label="${esc(name)}">
     <div class="tl-menu-h" aria-hidden="true">${esc(name)}</div>
     ${opts.length > 7 ? `<input type="search" class="tl-menu-q" placeholder="Find ${esc(name.toLowerCase())}…" aria-label="Find ${esc(name.toLowerCase())}" autocomplete="off" spellcheck="false">` : ''}
-    <div class="tl-menu-list">${opts.map(o => `<label class="tl-opt" data-label="${esc(o.label.toLowerCase())}"><input type="${single ? 'radio' : 'checkbox'}" name="tl-${field}" value="${esc(o.value)}"${chosen.includes(o.value) ? ' checked' : ''}>${o.face ? `<span class="tl-opt-face">${o.face}</span>` : ''}<span>${esc(o.label)}</span></label>`).join('') || '<div class="tl-menu-none">None loaded</div>'}</div>
+    <div class="tl-menu-list">${opts.map(o => `<label class="tl-opt" data-label="${esc(o.label.toLowerCase())}"><input type="checkbox" name="tl-${field}" value="${esc(o.value)}"${chosen.includes(o.value) ? ' checked' : ''}>${o.face ? `<span class="tl-opt-face">${o.face}</span>` : ''}<span>${esc(o.label)}</span></label>`).join('') || '<div class="tl-menu-none">None loaded</div>'}</div>
   </div>`;
   tasksMenu(state, anchor, html, pop => {
     const q = pop.querySelector('.tl-menu-q');
     if (q) q.oninput = () => { for (const o of pop.querySelectorAll('.tl-opt')) o.hidden = !o.dataset.label.includes(q.value.trim().toLowerCase()); };
     pop.onchange = ev => {
       const input = ev.target.closest('input[name]'); if (!input) return;
-      if (single) {
-        state.type = input.value;
-        taskPipelineRemember(state); tasksRemember(state);
-        if (state.type && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
-      } else {
-        state.filters[field] = [...pop.querySelectorAll(`input[name="tl-${field}"]:checked`)].map(i => i.value);
-      }
+      state.filters[field] = [...pop.querySelectorAll(`input[name="tl-${field}"]:checked`)].map(i => i.value);
       tasksFiltersChanged(state);
       state.menuAnchor = $(`[data-chip-edit="${field}"]`) || $('#task-filter');
       tasksMenuPlace(pop, state.menuAnchor);
@@ -497,7 +490,7 @@ function tasksFilterMenu(state, field, anchor, toggle = true) {
   }, toggle);
 }
 function tasksFieldMenu(state, anchor) {
-  const fields = TASK_FILTER_FIELDS.filter(([k]) => k !== 'type' || TASK_TYPES.length > 1);
+  const fields = TASK_FILTER_FIELDS;
   tasksMenu(state, anchor, `<div class="tl-menu" role="menu" aria-label="Add filter"><div class="tl-menu-h" aria-hidden="true">Filter</div>
     ${fields.map(([k, name]) => `<button type="button" role="menuitem" class="tl-mi" data-pick-field="${k}">${esc(name)}</button>`).join('')}</div>`, pop => {
     pop.onclick = ev => {
@@ -520,6 +513,7 @@ function tasksGroupMenu(state, anchor) {
   });
 }
 function tasksFiltersChanged(state) {
+  state.memo = new Map();
   tasksURLWrite(state); tasksTools(state); tasksRender(state);
 }
 
@@ -944,7 +938,7 @@ function tasksBodyClick(state, ev) {
     return true;
   }
   if (ev.target.closest('[data-clear-filters]')) {
-    state.filters = tasksEmptyFilters(); state.type = ''; taskPipelineRemember(state);
+    state.filters = tasksEmptyFilters();
     state.q = ''; if ($('#task-q')) $('#task-q').value = '';
     tasksFiltersChanged(state);
     $('#task-filter')?.focus();

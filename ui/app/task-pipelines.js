@@ -17,16 +17,60 @@ async function taskTypesLoad() {
   return TASK_TYPES_LOADING;
 }
 function taskPipelineState(state) {
-  state.type = '';
+  state.type = 'general';
   if (!S.me?.cloud) return;
-  try { state.type = localStorage.getItem('tico.tasks.type') || ''; } catch {}
+  try { state.type = localStorage.getItem('tico.tasks.type') || 'general'; } catch {}
 }
 function taskPipelineRemember(state) {
-  try { localStorage.setItem('tico.tasks.type', state.type || ''); } catch {}
+  try { localStorage.setItem('tico.tasks.type', state.type || 'general'); } catch {}
 }
-// The type is one of the Tasks page's filter chips (ui/app/task-list.js); a chosen type turns the board into its steps.
+// Every task view belongs to one type; a selected type turns the board into its steps.
 function taskPipelineMatches(task, state) {
-  return !state.type || pipelineTypeId(task) === state.type;
+  return pipelineTypeId(task) === (state.type || 'general');
+}
+// Common types stay one click away; other team-defined types share the last segment.
+function taskPipelineDevType() {
+  return TASK_TYPES.find(type => /^dev(?:[ -]?tickets?)?$/i.test(type.name))
+    || TASK_TYPES.find(type => /^dev(?:[ -]?tickets?)?$/i.test(type.id));
+}
+function taskPipelineTools(state) {
+  const host = $('#task-type');
+  if (!host) return;
+  host.hidden = state.view === 'recurring';
+  const dev = taskPipelineDevType();
+  const other = TASK_TYPES.filter(type => type.id !== 'general' && type.id !== dev?.id);
+  const selected = other.find(type => type.id === state.type);
+  const segment = (id, label, disabled = false) => `<button type="button" id="task-type-${esc(id)}" data-task-type="${esc(id)}" aria-pressed="${state.type === id}"${disabled ? ' disabled title="This team has no Dev ticket type"' : ''}>${esc(label)}</button>`;
+  tasksPaint(host, segment('general', 'General') + segment(dev?.id || 'dev', 'Dev tickets', !dev)
+    + `<button type="button" id="task-type-more" aria-haspopup="menu" aria-controls="task-filter-pop" aria-expanded="false" aria-pressed="${!!selected}" aria-label="${esc(selected ? 'Task type: ' + selected.name + '. More task types' : 'More task types')}"${other.length ? '' : ' disabled'}>${selected ? `<span>${esc(selected.name)}</span>` : ''}${TL_ICON.caret}</button>`);
+  $('#task-q')?.setAttribute('aria-label', `Search ${pipelineSelectedType(state)?.name || 'General'} tasks`);
+}
+function taskPipelineSelect(state, id) {
+  if (id !== 'general' && !TASK_TYPES.some(type => type.id === id)) return;
+  tasksMenuClose();
+  state.typeChosen = true; // A late preference read cannot undo a choice made in this page.
+  if (state.type === id) { tasksRemember(state); return; }
+  state.type = id;
+  state.memo = new Map();
+  tasksSelectionClear(state);
+  taskPipelineRemember(state); tasksRemember(state);
+  tasksFiltersChanged(state); tasksPeekSync(state);
+  if (state.view === 'board' && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+}
+function taskPipelineMenu(state, anchor) {
+  const dev = taskPipelineDevType();
+  const other = TASK_TYPES.filter(type => type.id !== 'general' && type.id !== dev?.id);
+  tasksMenu(state, anchor, `<div class="tl-menu" role="menu" aria-label="More task types">
+    <div class="tl-menu-h" aria-hidden="true">Task type</div>
+    ${other.map(type => `<button type="button" role="menuitemradio" aria-checked="${state.type === type.id}" class="tl-mi" data-pick-type="${esc(type.id)}"><span>${esc(type.name)}</span>${state.type === type.id ? '<span class="tl-mi-on" aria-hidden="true">✓</span>' : ''}</button>`).join('')}</div>`, pop => {
+    pop.onclick = ev => {
+      const button = ev.target.closest('[data-pick-type]');
+      if (!button) return;
+      taskPipelineSelect(state, button.dataset.pickType);
+      $('#task-type-more')?.focus();
+    };
+  });
+  anchor.setAttribute('aria-expanded', String($('#task-filter-pop').matches(':popover-open')));
 }
 function taskPipelineBoard(items, state) {
   const type = pipelineSelectedType(state);
@@ -48,6 +92,7 @@ function taskPipelineBoard(items, state) {
 }
 // A task's Type and Step are rows in its properties (ui/app/task-props.js).
 async function taskPipelineCreate(form, selected = '') {
+  form.dataset.taskType = selected || 'general';
   try { await taskTypesLoad(); } catch { return; }
   if (!form.isConnected || TASK_TYPES.length < 2 || form.elements.type) return;
   const row = document.createElement('label'); row.textContent = 'Type ';
@@ -57,7 +102,7 @@ async function taskPipelineCreate(form, selected = '') {
   row.append(select); form.querySelector('label').after(row);
 }
 function taskPipelineCreatePayload(form, payload) {
-  if (form.elements.type?.value) payload.type = form.elements.type.value;
+  payload.type = form.elements.type?.value || form.dataset.taskType || 'general';
 }
 
 function taskTypesSettingsMount() {

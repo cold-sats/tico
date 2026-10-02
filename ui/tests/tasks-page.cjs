@@ -4,7 +4,7 @@
 //    a note as one muted line (amber only when it waits on you); a parked bot task's date reads "Wakes …", muted;
 //  - labelled view tabs with counts; Status groups "Needs you", "Needs <Name>", "Needs someone", then Waiting and Doing;
 //    groups fold, count, add; Group by is a chip menu, remembered; a subtask nests only inside its parent's group;
-//  - filter chips kept in the address; old saved filters come over once; an unknown type is dropped;
+//  - filter chips kept in the address; old saved filters come over once; an unknown type falls back to General;
 //  - the side peek (j/k, Esc, Open full, ←/→ fold) with a properties panel: every row saves at once, a conflict shows
 //    the server's value; the full task shows Properties, then Code, then Subtasks;
 //  - bulk changes touch only visible selected rows, retry once on a stale version, ask each bot request for its own
@@ -292,7 +292,7 @@ async function filters(browser) {
   await page.locator('#task-filter-pop [data-pick-field="owner"]').click();
   await page.locator('#task-filter-pop input[value="bot:engineer"]').check();
   await page.waitForFunction(() => location.hash.includes('owner=bot:engineer'));
-  assert.equal(new URL(page.url()).hash, '#/tasks?owner=bot:engineer&view=list', 'one address per view');
+  assert.equal(new URL(page.url()).hash, '#/tasks?owner=bot:engineer&type=general&view=list', 'one address per view');
   const owners = await page.locator('#task-body .tl-row .tl-face').evaluateAll(fs => fs.map(f => f.title));
   assert.ok(owners.length === 4 && owners.every(o => o === 'Engineer'), 'only Engineer: ' + owners);
   // ↑/↓ move through a menu's values.
@@ -329,7 +329,7 @@ async function filters(browser) {
   await page.locator('#task-filter-pop [data-pick-field="tag"]').click();
   await page.locator('#task-filter-pop input[value="pricing"]').check();
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => location.hash === '#/tasks?tag=pricing&view=foryou');
+  await page.waitForFunction(() => location.hash === '#/tasks?tag=pricing&type=general&view=foryou');
   await page.reload();
   await page.waitForFunction(() => TASKS_ST?.view === 'foryou' && !TASKS_ST.loading);
   // A shared address opens with its filters.
@@ -343,11 +343,88 @@ async function filters(browser) {
   await page.locator('#task-body .tl-empty').waitFor();
   assert.match(await page.locator('#task-body .tl-empty').innerText(), /No tasks match\.\s*Clear filters/);
   await page.locator('[data-clear-filters]').click();
-  await page.waitForFunction(n => location.hash === '#/tasks?view=list' && document.querySelectorAll('#task-body .tl-row').length === n, OPEN_COUNT);   // the view stays in the link
+  await page.waitForFunction(n => location.hash === '#/tasks?type=general&view=list' && document.querySelectorAll('#task-body .tl-row').length === n, OPEN_COUNT);   // the view stays in the link
   assert.equal(await page.locator('#task-q').inputValue(), '');
   assert.deepEqual(errors, []);
   console.log('filter chips and the address: ok');
   await page.close();
+}
+
+async function typeSelection(browser) {
+  const types = [
+    {id: 'general', name: 'General', steps: [{id: 'general-open', name: 'Open', status: 'open'}]},
+    {id: 'dev-123', name: 'Dev ticket', steps: [{id: 'dev-backlog', name: 'Backlog', status: 'open'}]},
+    {id: 'marketing', name: 'Marketing', steps: [{id: 'draft', name: 'Draft', status: 'open'}]},
+  ];
+  const extraTasks = types.slice(1).map(type => ({...fixtures()[0], id: type.id + '-task', title: type.name + ' only',
+    type_id: type.id, type: {id: type.id, name: type.name}, step_id: type.steps[0].id, status: 'open'}));
+  const {page, errors, posts} = await open(browser, {types, extraTasks});
+  assert.equal(await page.locator('#task-type [aria-pressed=true]').innerText(), 'General');
+  assert.equal(await page.locator('[data-task-key="tdev-123-task"]').count(), 0);
+  await page.locator('#task-filter').click();
+  assert.equal(await page.locator('[data-pick-field=type]').count(), 0);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-task-type=dev-123]').click();
+  assert.deepEqual(await rowKeys(page), ['tdev-123-task']);
+  await page.locator('[data-view=board]').click();
+  assert.deepEqual(await page.locator('#task-body .bcol h2').allTextContents(), ['Backlog']);
+  await page.locator('#task-q').fill('General');
+  await page.waitForFunction(() => !document.querySelector('#task-body .bcard'));
+  await page.locator('#task-q').fill('');
+  await page.waitForFunction(() => document.querySelector('#task-body .bcard'));
+  await shot(page, 'type-selector-board-dark');
+  await page.locator('#task-type-more').click();
+  assert.equal(await page.locator('#task-type-more').getAttribute('aria-expanded'), 'true');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#task-type-more').innerText(), 'Marketing');
+  assert.deepEqual(await page.locator('#task-body .bcol h2').allTextContents(), ['Draft']);
+  await page.locator('[data-view=list]').click();
+  assert.deepEqual(await rowKeys(page), ['tmarketing-task']);
+  await page.locator('#task-q').fill('no matching task');
+  await page.locator('[data-clear-filters]').click();
+  assert.equal(await page.evaluate(() => TASKS_ST.type), 'marketing');
+  assert.deepEqual(await rowKeys(page), ['tmarketing-task']);
+  await page.locator('#task-filter').click();
+  await page.locator('[data-pick-field=tag]').click();
+  await page.locator('#task-filter-pop input[type=checkbox]').first().check();
+  await page.keyboard.press('Escape');
+  await page.locator('#task-filter-clear').click();
+  assert.equal(await page.evaluate(() => TASKS_ST.type), 'marketing');
+  assert.deepEqual(await rowKeys(page), ['tmarketing-task']);
+  await page.locator('#task-new').click();
+  await page.locator('#task-create select[name=type]').waitFor();
+  assert.equal(await page.locator('#task-create select[name=type]').inputValue(), 'marketing');
+  await page.locator('#task-create [name=title]').fill('New campaign');
+  await page.locator('#task-create [name=owner]').selectOption('engineer');
+  await page.locator('#task-create [name=body]').fill('Launch details');
+  await page.locator('#task-create button[type=submit]').click();
+  await page.locator('#task-create').waitFor({state: 'hidden'});
+  assert.equal(posts.find(x => x.p === '/api/v2/tasks').body.type, 'marketing');
+  await page.waitForTimeout(500);
+  await page.goto('https://tico-ui.test/#/issues');
+  await page.waitForFunction(() => !TASKS_ST.loading && TASKS_ST.type === 'marketing');
+  assert.equal(await page.locator('#task-type-more').innerText(), 'Marketing');
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await shot(page, 'type-selector-list-light');
+  await page.setViewportSize({width: 390, height: 844});
+  await shot(page, 'type-selector-phone-light');
+  const fits = await page.locator('.tl-head').evaluate(el => el.scrollWidth <= el.clientWidth + 1);
+  assert.equal(fits, true, 'type and search fit the phone toolbar');
+  // A late saved preference must not replace the choice just made in the header.
+  await page.route('**/api/v2/preferences/tasks.view', async route => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return route.fulfill({contentType: 'application/json', body: JSON.stringify({value: {type: 'marketing', view: 'list', views: 2}})});
+  });
+  await page.goto('https://tico-ui.test/#/goals');
+  await page.goto('https://tico-ui.test/#/issues');
+  await page.locator('[data-task-type=dev-123]').click();
+  await page.waitForTimeout(1200);
+  assert.equal(await page.evaluate(() => TASKS_ST.type), 'dev-123');
+  assert.deepEqual(await rowKeys(page), ['tdev-123-task']);
+  assert.deepEqual(errors, []);
+  await page.close();
+  console.log('required task type, persistence, search, creation and filter clearing: ok');
 }
 
 async function carriedOver(browser) {
@@ -362,14 +439,14 @@ async function carriedOver(browser) {
   assert.equal(pref().filter, undefined, 'the saved preference no longer carries it');
   assert.deepEqual(errors, []);
   await page.close();
-  // A type that does not exist (deleted, or from another install) is dropped instead of hiding every task.
+  // A type that does not exist (deleted, or from another install) falls back to General.
   const second = await open(browser, {hash: '#/tasks?type=ghost&view=list'});
-  await second.page.waitForFunction(() => !TASKS_ST.type && !location.hash.includes('type='));
+  await second.page.waitForFunction(() => TASKS_ST.type === 'general' && location.hash.includes('type=general'));
   assert.equal(await second.page.locator('#task-body .tl-row').count(), OPEN_COUNT);
   assert.equal(await second.page.locator('[data-chip="type"]').count(), 0);
   await second.page.close();
   const third = await open(browser, {prefs: {type: 'gone', view: 'list', views: 2}});
-  await third.page.waitForFunction(() => TASKS_ST.typesLoaded && !TASKS_ST.type);
+  await third.page.waitForFunction(() => TASKS_ST.typesLoaded && TASKS_ST.type === 'general');
   assert.equal(await third.page.locator('#task-body .tl-row').count(), OPEN_COUNT);
   assert.deepEqual([...second.errors, ...third.errors], []);
   await third.page.close();
@@ -970,7 +1047,7 @@ if (require.main === module) (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const only = process.env.TASKS_ONLY ? process.env.TASKS_ONLY.split(',') : null;
-    for (const [name, run] of Object.entries({listAndTabs, filters, carriedOver, peekAndKeys, properties, board, bulk, views, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
+    for (const [name, run] of Object.entries({listAndTabs, typeSelection, filters, carriedOver, peekAndKeys, properties, board, bulk, views, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
       if (!only || only.includes(name)) await run(browser);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });
