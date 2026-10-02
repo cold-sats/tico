@@ -546,14 +546,16 @@ def worktree_base(workspace, repo, env):
         done = isolation.run([*prefix, '-C', str(path), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', source,
                              f'+refs/heads/{branch}:refs/remotes/origin/{branch}'], env=local_env, capture_output=True, text=True, timeout=15 if not mirror_url else 30)
         fetched = done.returncode == 0
-    except (OSError, subprocess.SubprocessError):
+        fetch_error = done.stderr or f'exit {done.returncode}'
+    except (OSError, subprocess.SubprocessError) as exc:
         fetched = False
+        fetch_error = type(exc).__name__
     if not fetched:
         available = isolation.run([*safe_git.prefix(path), '-C', str(path), 'show-ref', '--verify', 'refs/remotes/origin/' + branch],
                                  env=local_env, capture_output=True, timeout=15)
         if available.returncode:
             if repo.get('machine_git'):
-                raise ValueError(machine_error(name, done.stderr if 'done' in locals() else 'Git fetch timed out'))
+                raise ValueError(machine_error(name, fetch_error))
             raise ValueError('Git fetch failed; check repository access, network and disk space')
         repo.setdefault('fetch_warning', 'Could not refresh origin; using the base clone (age unknown)')
     mark_managed(path, local_env, name)

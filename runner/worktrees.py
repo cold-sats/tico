@@ -214,7 +214,9 @@ def remote_branch(base, branch, env):
     if listed.returncode == 2:
         return None
     if listed.returncode:
-        raise ValueError('Git fetch failed; cannot determine remote branch, retry later')
+        error = ValueError('Git fetch failed; cannot determine remote branch, retry later')
+        error.git_detail = listed.stderr or f'exit {listed.returncode}'
+        raise error
     git(base, 'fetch', '--no-tags', 'origin', f'+refs/heads/{branch}:refs/remotes/origin/{branch}', env=env)
     return 'refs/remotes/origin/' + branch
 
