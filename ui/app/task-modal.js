@@ -131,11 +131,24 @@ async function taskModalShow(task, d = taskModal()) {
   const peek = !!d.dataset.peek;
   taskChatStop();
   taskFilePreviewReset();
-  if (d.dataset.task !== String(task.id)) { d.propsMsg = null; d.focusProp = ''; }
+  // A menu open on this task (a property picked while a save was still on its way) is never pulled away: the redraw
+  // waits for it to close, then draws the newest copy.
+  if (d.open && String(d.dataset.task) === String(task.id) && $('.prop-pop', d)?.matches(':popover-open')) {
+    await taskMenuSettled(d);
+    if (!d.open || String(d.dataset.task) !== String(task.id)) return;
+  }
+  if (d.dataset.task !== String(task.id)) { d.propsErrs = null; d.focusProp = ''; d.liveTask = null; }
+  // never draw an older copy of the task over the newer one a save returned
+  else if (d.liveTask && Number(task.version) < Number(d.liveTask.version)) task = d.liveTask;
+  const seq = d.drawSeq = (d.drawSeq || 0) + 1;
+  const typing = d.contains(document.activeElement) && document.activeElement.matches('.task-chat textarea');
   if (peek && TASKS_ST && TASKS_ST.peek !== 't' + task.id && tasksById(TASKS_ST).has(String(task.id))) {
     taskPeekOpen(TASKS_ST, 't' + task.id); return;           // a parent or subtask opened from the peek: the list follows it
   }
   d.dataset.task = task.id;
+  // a property that has the focus now keeps it through the redraw (over the one a save asked for)
+  const onProp = d.contains(document.activeElement) ? document.activeElement.dataset.prop : '';
+  if (onProp) d.focusProp = onProp;
   d.innerHTML = hubModalHTML(task, taskItem(task), {peek});
   taskModalBind(d, task);
   taskPropFocus(d);
@@ -149,9 +162,10 @@ async function taskModalShow(task, d = taskModal()) {
   d.scrollTop = 0;
   // the list knows the task; the detail adds its parts, its parent and the comments
   const [detail] = await Promise.all([v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`), taskTypesLoad().catch(() => TASK_TYPES)]);
-  if (!detail?.task || !d.open || d.dataset.task !== task.id) return;
+  if (!detail?.task || !d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
   await taskMenuSettled(d);                 // never pull a menu out from under the pointer
-  if (!d.open || d.dataset.task !== task.id) return;
+  if (!d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
+  if (d.liveTask && Number(detail.task.version) < Number(d.liveTask.version)) return;   // a save landed since this was asked for
   const full = {...detail.task, children: detail.children || [], parent: detail.parent || null};
   // the redraw keeps the focus where it was (a header button, the title, a property)
   const a = d.contains(document.activeElement) ? document.activeElement : null;
@@ -163,6 +177,7 @@ async function taskModalShow(task, d = taskModal()) {
   taskPropFocus(d); d.focusProp = '';
   void taskRailLoad(d, full, detail);
   void taskChatLoad(task.id, d, detail);
+  if (typing) { const box = $('.task-chat textarea', d); box?.focus(); box?.setSelectionRange(box.value.length, box.value.length); }
 }
 // After a property saves, the redrawn row gets the focus back.
 function taskPropFocus(d) {
@@ -172,49 +187,16 @@ function taskPropFocus(d) {
 function taskModalBind(d, task, full = false) {
   d.taskAttachments = task.attachments || [];
   d.dataset.version = String(task.version ?? '');
+  if (!d.liveTask || String(d.liveTask.id) !== String(task.id) || Number(task.version) >= Number(d.liveTask.version)) d.liveTask = task;
   if (d.taskRail?.id !== String(task.id)) d.taskRail = {id: String(task.id), open: new Set()};
   if (full) d.taskRail.full = task;
   taskRailPaint(d, task); taskRailBind(d, task);
   $('[data-modal-close]', d).onclick = () => d.dataset.peek && TASKS_ST ? taskPeekClose(TASKS_ST) : d.close();
   void taskGoalTitle(d);
-  // Each property saves at once with the version this task was drawn with. A refusal (a newer version, or not
-  // allowed) shows the server's task again with a short line under the properties: never a stale value.
-  const change = async (body, then) => {
-    try {
-      const outcome = body.close ? 'closed' : pipelineActionStatus(task, body);
-      if ((outcome === 'done' || outcome === 'closed') && outcome !== task.status) {
-        const note = await taskOutcomeNote(task, outcome === 'closed' ? {close: true} : body);
-        if (note === null) return false;
-        if (note) body = {...body, note};
-      }
-      const state = d.dataset.peek && TASKS_ST, key = 't' + task.id;
-      const at = state ? tasksVisibleKeys().indexOf(key) : -1;
-      const data = await post(`/v2/tasks/${encodeURIComponent(task.id)}`, {version: task.version, ...body});
-      d.dataset.version = String(data.task?.version ?? '');
-      if (TASKS_ST) await tasksLoad(TASKS_ST);
-      // Done or Close in the peek: the list moves on to the next row, and the peek with it.
-      if (state && (outcome === 'done' || outcome === 'closed') && tasksAfterFinish(state, key, at)) return true;
-      if (BOT) {
-        if (isKeeper(BOT.slug)) void loadBotTasksV2(BOT.slug);
-        void loadBotChatTasks(BOT.slug);
-      }
-      d.propsMsg = null;
-      if (then !== false && d.open && d.dataset.task === String(task.id)) taskModalShow(data.task, d);
-      return true;
-    } catch (e) {
-      const here = () => d.open && d.dataset.task === String(task.id);
-      if (!here()) { toast(e.message, true); return false; }
-      d.propsMsg = {id: String(task.id), text: e.status === 409 ? 'Changed elsewhere. Showing the latest.' : `Not saved: ${e.message || 'refused'}`};
-      const fresh = await v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`);
-      if (fresh?.task && here()) {
-        if (TASKS_ST) void tasksLoad(TASKS_ST);
-        taskModalShow(fresh.task, d);
-      } else taskPropsMsgPaint(d);
-      return false;
-    }
-  };
+  // Each change goes through the dialog's queue (taskSave), one at a time, each with the latest version.
+  const change = (body, then, field) => taskSaveQueued(d, String(task.id), body, then, field);
   taskPropsBind(d, task, change);
-  d.querySelectorAll('[data-drop-label]').forEach(b => b.onclick = () => change({labels: (task.labels || []).filter(l => l !== b.dataset.dropLabel)}));
+  d.querySelectorAll('[data-drop-label]').forEach(b => b.onclick = () => change(cur => ({labels: (cur.labels || []).filter(l => l !== b.dataset.dropLabel)}), undefined, 'tags'));
   const link = $('[data-modal-link]', d);
   const addLink = $('[data-link-add]', d);
   if (addLink && link) {
@@ -240,9 +222,61 @@ function taskModalBind(d, task, full = false) {
   });
   d.querySelectorAll('[data-open-task]').forEach(b => b.onclick = ev => { ev.preventDefault(); void taskModalOpen(b.dataset.openTask, d); });
 }
+// ---- saving a task's properties. One save at a time per dialog, each with the version the last one returned, so a
+// quick second edit never trips over the first. The dialog redraws at once with the task the server sent back; the
+// list reloads behind it. A refused save shows its reason (under the properties) until that property next saves.
+function taskSaveQueued(d, id, body, then, field) {
+  field = field || d.focusProp || (typeof body === 'function' ? 'task' : Object.keys(body).find(k => k !== 'note')) || 'task';
+  d.saving = (d.saving || 0) + 1;
+  const run = () => taskSave(d, id, body, then, field).finally(() => { d.saving--; });
+  return (d.saveQueue = (d.saveQueue || Promise.resolve()).then(run, run));
+}
+async function taskSave(d, id, body, then, field) {
+  const here = () => d.open && String(d.dataset.task) === id;
+  let cur = d.liveTask && String(d.liveTask.id) === id ? d.liveTask : null;
+  if (!cur) cur = (await v2Get(`/v2/tasks/${encodeURIComponent(id)}`))?.task;
+  if (!cur) { toast('That task could not be loaded.', true); return false; }
+  if (typeof body === 'function') { body = body(cur); if (!body) return true; }
+  if (!d.propsErrs || d.propsErrs.id !== id) d.propsErrs = {id, map: new Map()};
+  const errs = d.propsErrs.map;
+  try {
+    const outcome = body.close ? 'closed' : pipelineActionStatus(cur, body);
+    if ((outcome === 'done' || outcome === 'closed') && outcome !== cur.status) {
+      const note = await taskOutcomeNote(cur, outcome === 'closed' ? {close: true} : body);
+      if (note === null) return false;
+      if (note) body = {...body, note};
+    }
+    const state = d.dataset.peek && TASKS_ST, key = 't' + id;
+    const at = state ? tasksVisibleKeys().indexOf(key) : -1;
+    const data = await post(`/v2/tasks/${encodeURIComponent(id)}`, {version: cur.version, ...body});
+    errs.delete(field);
+    if (data.task && String(d.liveTask?.id) === id) d.liveTask = data.task;
+    if (here() && then !== false && data.task) void taskModalShow(data.task, d);       // the server's answer, at once
+    if (BOT) {
+      if (isKeeper(BOT.slug)) void loadBotTasksV2(BOT.slug);
+      void loadBotChatTasks(BOT.slug);
+    }
+    // The list reloads behind it. If the task left the view (done, closed, handed on, declined), the list and the
+    // peek move on to the next row: checked by whichever load lands last (a poll may overtake this one).
+    if (state) state.pendingFinish = {key, at, after: state.loadSeq};
+    if (TASKS_ST) void tasksLoad(TASKS_ST);
+    return true;
+  } catch (e) {
+    if (!here()) { toast(e.message, true); return false; }
+    errs.set(field, e.status === 409 ? 'Changed elsewhere. Showing the latest.' : `Not saved: ${e.message || 'refused'}`);
+    const fresh = await v2Get(`/v2/tasks/${encodeURIComponent(id)}`);
+    if (fresh?.task && here()) {
+      d.liveTask = fresh.task;
+      void taskModalShow(fresh.task, d);
+      if (TASKS_ST) void tasksLoad(TASKS_ST);
+    } else taskPropsMsgPaint(d);
+    return false;
+  }
+}
 // ---- comments: one flat list of what was said and what changed, then a box. Not a chat.
 // `taskChatStop` and `taskChatLoad` keep their names: the router and the chat cards call them.
 let TASK_CHAT = null;
+const TASK_DRAFTS = new Map();         // an unsent comment, per task, kept across redraws until it is sent or cleared
 function taskChatStop() {
   if (TASK_CHAT) clearInterval(TASK_CHAT.poll);
   TASK_CHAT = null;
@@ -291,6 +325,9 @@ function taskCommentsRender(state, data) {
       <form><textarea rows="3" maxlength="4000" required aria-label="Add a comment" placeholder="Add a comment…"></textarea>
         <div class="row"><button class="primary" type="submit">Comment</button><span class="muted" data-task-chat-status role="status"></span></div></form>`;
     $('form', host).onsubmit = ev => { ev.preventDefault(); void taskCommentSend(state); };
+    const box = $('textarea', host);
+    box.value = TASK_DRAFTS.get(String(state.id)) || '';
+    box.oninput = () => { if (box.value) TASK_DRAFTS.set(String(state.id), box.value); else TASK_DRAFTS.delete(String(state.id)); };
   }
   const html = lines.map(commentLineHTML).join('') || '<p class="muted">Nothing said yet.</p>';
   if (html !== state.rendered) {
@@ -333,7 +370,7 @@ async function taskCommentSend(state) {
   try {
     const data = await post(`/v2/tasks/${encodeURIComponent(state.id)}/comments`, {text});
     if (!taskChatCurrent(state)) return;
-    box.value = ''; state.sending = false;
+    box.value = ''; TASK_DRAFTS.delete(String(state.id)); state.sending = false;
     await taskChatRead(state);
     status.textContent = data.woke ? '' : 'Saved. The bot reads it on its next run on this task.';
   } catch (e) {

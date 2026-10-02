@@ -75,16 +75,19 @@ function taskPropsHTML(t, opts = {}) {
   }
   return `<div class="props">${rows.join('')}</div><div class="props-msg" data-props-msg role="status" aria-live="polite"></div>`;
 }
+// A refused save's reason stays under the properties until that property saves (several: one line each, named).
+const PROP_WORDS = {status: 'Status', owner: 'Owner', due: 'Due', tags: 'Tags', parent: 'Part of', blocked: 'Blocked by', type: 'Type', step: 'Step'};
 function taskPropsMsgPaint(d) {
   const box = $('[data-props-msg]', d); if (!box) return;
-  const m = d.propsMsg;
-  box.textContent = m && m.id === d.dataset.task ? m.text : '';
+  const errs = d.propsErrs?.id === String(d.dataset.task) ? [...d.propsErrs.map] : [];
+  box.textContent = errs.length === 1 ? errs[0][1] : errs.map(([k, text]) => `${PROP_WORDS[k] || 'Task'}: ${text}`).join('\n');
 }
 
 // ---- one small menu for every row (and the "…" menu): arrow keys, Home/End, Enter, Esc; an optional find box
 function propMenu(d, anchor, {label, items = [], find = '', entry = '', none = 'Nothing to pick', onPick, onEntry}) {
   let pop = $('.prop-pop', d);
   if (pop?.matches(':popover-open')) { const same = pop.anchor === anchor; pop.hidePopover(); if (same) return; }
+  if (pop?.anchor && pop.anchor !== anchor) pop.anchor.setAttribute('aria-expanded', 'false');   // only one menu, only one expanded
   if (!pop) {
     pop = document.createElement('div');
     pop.className = 'tl-pop prop-pop'; pop.popover = 'auto';
@@ -154,13 +157,26 @@ function taskMenuSettled(d) {
 // ---- the pickers
 const stepItems = (t, type) => [{value: '', text: 'No step', html: `${statusIcon(STATUS_KIND_OF[t.status] || 'starting', '')}<span>No step</span>`, checked: !t.step_id},
   ...type.steps.map(s => ({value: s.id, text: s.name, html: `${statusIcon(STATUS_KIND_OF[s.status] || 'starting', '')}<span>${esc(s.name)}</span>`, checked: s.id === t.step_id, step: s}))];
+// Tasks to pick from: the Tasks page's list, else a short-lived copy (a minute; the Tasks page clears it on open).
 let PROP_TASKS = null;
 async function taskPropCandidates(t, key) {
   let rows = (TASKS_ST?.tasks || []).filter(x => !taskFinished(x));
-  if (!rows.length) { PROP_TASKS ||= (await v2Get(activeTasksPath()))?.tasks || []; rows = PROP_TASKS; }
-  const here = String(t.id);
-  return rows.filter(x => String(x.id) !== here && !(key === 'parent' && String(x.parent_id || '') === here))
-    .sort((a, b) => String(a.title).localeCompare(String(b.title)));
+  if (!rows.length) {
+    if (!PROP_TASKS || Date.now() - PROP_TASKS.at > 60000) PROP_TASKS = {at: Date.now(), rows: (await v2Get(activeTasksPath()))?.tasks || []};
+    rows = PROP_TASKS.rows;
+  }
+  const bar = taskPropLoops(t, key, rows);
+  return rows.filter(x => !bar.has(String(x.id))).sort((a, b) => String(a.title).localeCompare(String(b.title)));
+}
+// What a picker must not offer, because it would make a loop: the task itself, and for Part of everything under it
+// (children, grandchildren…), for Blocked by every task that already waits on it, however far down the chain.
+function taskPropLoops(t, key, rows) {
+  const here = String(t.id), field = key === 'parent' ? 'parent_id' : 'blocked_by';
+  const under = new Map();
+  for (const x of rows) { const up = String(x[field] || ''); if (up) { if (!under.has(up)) under.set(up, []); under.get(up).push(String(x.id)); } }
+  const out = new Set([here]), todo = [here];
+  while (todo.length) for (const k of under.get(todo.pop()) || []) if (!out.has(k)) { out.add(k); todo.push(k); }
+  return out;
 }
 // Wires the rows of a drawn task. `change(body)` saves (task-modal.js taskModalBind) and redraws.
 function taskPropsBind(d, task, change) {
@@ -209,7 +225,8 @@ function taskPropsBind(d, task, change) {
     } else if (key === 'tags') {
       const have = new Set(task.labels || []);
       const keys = [...new Set([...(TASKS_ST?.labels || []), ...(TASKS_ST?.tasks || []).flatMap(x => x.labels || [])])].filter(k => !have.has(k)).sort();
-      const add = tag => { tag = String(tag).trim().toLowerCase(); if (tag && !have.has(tag)) void save('tags', {labels: [...(task.labels || []), tag]}); };
+      // built from the newest copy when it saves, so two quick tags both stay
+      const add = tag => { tag = String(tag).trim().toLowerCase(); if (tag && !have.has(tag)) void save('tags', cur => (cur.labels || []).includes(tag) ? null : {labels: [...(cur.labels || []), tag]}); };
       propMenu(d, b, {label: 'Add a tag', entry: 'Tag', none: 'Type a tag, then Enter', items: keys.map(k => ({value: k, text: k,
         html: `<span class="tl-dot" style="--hue:${tagHue(k)}"></span><span>${esc(k)}</span>`})), onPick: it => add(it.value), onEntry: add});
     } else if (key === 'parent' || key === 'blocked') {
@@ -218,21 +235,34 @@ function taskPropsBind(d, task, change) {
       if (!b.isConnected) return;
       propMenu(d, b, {label: key === 'parent' ? 'Part of' : 'Blocked by', find: 'Find a task', none: 'No open tasks', items: rows.map(x => ({value: x.id, text: `${x.title} ${actorLabel(x.owner)}`,
         html: `${taskStatusIcon(x)}<span class="tl-mi-t">${esc(clipLine(x.title, 70))}</span><span class="tl-mi-sub">${esc(actorLabel(x.owner))}</span>`,
-        checked: String(task[field] || '') === String(x.id)})), onPick: it => { if (String(it.value) !== String(task[field] || '')) void save(key, {[field]: it.value}); }});
+        checked: String(task[field] || '') === String(x.id)})), onPick: it => {
+          if (taskPropLoops(task, key, TASKS_ST?.tasks || PROP_TASKS?.rows || []).has(String(it.value))) { d.propsErrs = {id: String(task.id), map: new Map([[key, 'That would make a loop.']])}; taskPropsMsgPaint(d); return; }
+          if (String(it.value) !== String(task[field] || '')) void save(key, {[field]: it.value});
+        }});
     }
   };
+  // A date saves only when it is whole and sensible. With the native picker that is its change; typed by hand (the
+  // fallback field), only on Enter or leaving the field, so a half-typed year like 0002 never saves.
   const date = $('[data-prop-date]', d);
-  if (date) date.onchange = () => {
-    const v = date.value;
-    if (!v) return;
-    const [y, m, day] = v.split('-').map(Number);
-    void save('due', {due: new Date(y, m - 1, day, 17, 0).toISOString()});   // the end of that working day, local time
+  const saveDate = () => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.value || '');
+    if (!m) return;
+    const [y, mo, day] = m.slice(1).map(Number), when = new Date(y, mo - 1, day, 17, 0);
+    if (y < 2000 || y > 2200 || when.getMonth() !== mo - 1 || when.getDate() !== day) {
+      d.propsErrs = {id: String(task.id), map: new Map([['due', 'That date is not valid.']])}; taskPropsMsgPaint(d); return;
+    }
+    void save('due', {due: when.toISOString()});   // the end of that working day, local time
   };
+  if (date) {
+    date.onchange = () => { if (!date.classList.contains('shown')) saveDate(); };
+    date.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); saveDate(); } };
+    date.onblur = () => { if (date.classList.contains('shown')) saveDate(); };
+  }
   // the "…" menu in the header: what used to be links and buttons under the task
   const more = $('[data-task-more]', d);
   if (more) more.onclick = () => {
     const r = taskPropRights(task), items = [];
-    if (d.dataset.peek) items.push({text: 'Open full', run: () => { d.close(); void taskModalShow(task); }});
+    if (d.dataset.peek) items.push({text: 'Open full', run: () => { const t = d.liveTask || task; d.close(); void taskModalShow(t); }});
     if (r.links && !$('[data-sub-add]', d)) items.push({text: 'Add subtask', run: () => taskRailAdd(d, task)});
     if (r.edit && TASK_TYPES.length > 1 && !typed) items.push({text: 'Set type…', run: () => taskTypeMenu(d, more, task, save)});
     items.push({text: 'Copy link', run: async () => {

@@ -63,7 +63,22 @@ function taskWaitsOn(t) {
 function needsWords(who) {
   if (who && who === myActor()) return 'Needs you';
   const pid = actorPerson(who);
-  return pid ? `Needs ${firstName(personDisplay(pid))}` : 'Needs someone';
+  return pid ? `Needs ${personShortName(pid)}` : 'Needs someone';
+}
+// A person's first name, unless someone else here has it too: then as much of the last name as tells them apart
+// ("Sam O.", "Sam Le." and "Sam Lo.", or the whole last name), else the address's local part ("sam.lee").
+function personShortName(pid) {
+  const name = personDisplay(pid), first = firstName(name);
+  const others = (S.people || []).filter(p => p.id !== pid && firstName(p.name || titleCase(p.id)) === first);
+  if (!others.length) return first;
+  const lastOf = n => { const parts = String(n || '').trim().split(/\s+/); return parts.length > 1 ? parts.at(-1) : ''; };
+  const last = lastOf(name), theirs = others.map(p => lastOf(p.name).toLowerCase());
+  for (let n = 1; last && n <= last.length; n++) {
+    const pre = last.slice(0, n).toLowerCase();
+    if (!theirs.some(o => o.slice(0, n) === pre)) return n === last.length ? `${first} ${last}` : `${first} ${last.slice(0, n)}.`;
+  }
+  const person = (S.people || []).find(p => p.id === pid);
+  return String(person?.email || pid).split('@')[0];
 }
 const needsWho = t => {
   const who = taskWaitsOn(t);
@@ -265,15 +280,14 @@ function taskRowNote(t) {
 function taskCard(it) {
   const t = it.task, st = TASKS_ST;
   const chips = t ? taskChipsHTML(t, {maxTags: 2}) : '';
-  const sel = !!st?.selected?.has(it.key);
-  const cls = `${sel ? ' sel' : ''}${st?.peek === it.key ? ' peeked' : ''}${st?.cursor === it.key ? ' is-cursor' : ''}`;
-  return `<div class="bcard${cls}" data-task-key="${esc(it.key)}">
-    <button class="bcard-open" type="button" data-open-task="${esc(it.key)}" title="${esc(t ? taskRowTip(t) : it.title)}" tabindex="${st?.tabKey === it.key ? 0 : -1}"${sel ? ' aria-describedby="tl-sel-word"' : ''}>
+  void st;   // selection, cursor and peek are painted on (task-list.js), so the card's signature only changes with its content
+  return tasksSigned(`<div class="bcard" data-task-key="${esc(it.key)}">
+    <button class="bcard-open" type="button" data-open-task="${esc(it.key)}" title="${esc(t ? taskRowTip(t) : it.title)}" tabindex="-1">
       ${t ? taskStatusIcon(t) : ''}<span class="bcard-title">${esc(it.title)}</span></button>
     <div class="bcard-foot">${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>
       <span class="tl-face" aria-hidden="true">${actorFace(it.actor, 16)}</span>
       <span class="age tnum" title="${esc(fmt(it.updated))}">${esc(ageShort(it.updated))}</span></div>
-  </div>`;
+  </div>`);
 }
 // The status a task is grouped by: 'needsme', 'needs:human:sam', 'needs-someone', 'waiting', 'doing', 'scheduled'.
 function taskStatusGroup(it) {

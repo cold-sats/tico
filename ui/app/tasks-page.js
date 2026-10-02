@@ -7,6 +7,7 @@
 const TASK_PREF = 'tasks.view';
 function pageTasks(forced, openId = '') {
   TASKS_ST?.layoutAbort?.abort();
+  PROP_TASKS = null;                       // the pickers' copy of the open tasks starts fresh with the page
   const state = TASKS_ST = {view: 'foryou', tasks: [], routines: null, labels: [], kind: 'all', armed: 'all', open: openId, q: '',
     loading: true, doneLoaded: false, doneLoading: false, doneNext: null, loadSeq: 0,
     filters: tasksEmptyFilters(), group: {...TASK_GROUP_DEFAULT}, collapsed: new Set(), folded: new Set(),
@@ -179,6 +180,7 @@ function tasksSetView(state, view) {
   if (state.selected.size || state.bulkMsg) tasksSelectionClear(state);
   tasksRemember(state); tasksURLWrite(state); tasksTools(state); tasksRender(state);
   if (state.view === 'done' && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+  else if (state.view === 'done') void tasksDoneMerge(state);
 }
 function tasksNormalise(state, forced) {
   if (!TASK_VIEWS.some(([k]) => k === state.view)) state.view = forced || 'foryou';
@@ -280,17 +282,21 @@ function formFocus(root) {
 }
 const mergeTaskRows = (...groups) => [...new Map(groups.flat().map(task => [task.id, task])).values()];
 const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_TASK_STATUSES}&limit=100&offset=${offset}`;
-async function tasksLoad(state) {
+async function tasksLoad(state, opts = {}) {
   const seq = ++state.loadSeq;
-  const reloadDone = state.doneLoaded || state.view === 'done' || !!state.type;
+  // Done keeps its own paging. A reload after a change folds in its newest page; the poll does that too, but only while
+  // Done (or a type's board, which shows finished steps) is on screen, and never more than that one page.
+  const doneShown = state.view === 'done' || !!state.type;
+  const reloadDone = opts.poll ? doneShown && state.doneLoaded : (state.doneLoaded || doneShown);
   state.loading = !(state.tasks || []).some(t => !['done', 'closed'].includes(String(t.status)));
   tasksRender(state);
   const [active, rec, lab] = await Promise.all([
     v2Get(activeTasksPath()),
     v2Get('/v2/routines'), v2Get('/v2/tasks/labels'), taskTypesLoad().then(t => { state.typesLoaded = true; return t; }).catch(() => TASK_TYPES)]);
   if (TASKS_ST !== state || state.loadSeq !== seq) return;
-  const finished = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status)));
-  state.tasks = mergeTaskRows(active?.tasks || [], finished);
+  const activeIds = new Set((active?.tasks || []).map(t => String(t.id)));
+  const finished = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status)) && !activeIds.has(String(t.id)));   // reopened ones are active again
+  state.tasks = mergeTaskRows(finished, active?.tasks || []);
   state.routines = rec?.routines || null;
   state.labels = lab?.labels || [];
   state.tags = lab?.tags || [];
@@ -298,6 +304,7 @@ async function tasksLoad(state) {
   tasksTypeCheck(state);
   tasksTools(state); tasksRender(state);
   tasksPeekSync(state);
+  tasksFinishPending(state, seq);
 
   if (state.open) {
     const id = state.open; state.open = '';
@@ -319,7 +326,15 @@ async function tasksLoad(state) {
     }
   };
   await drain(active?.next_offset);
-  if (reloadDone && TASKS_ST === state && state.loadSeq === seq) await tasksLoadDone(state, true);
+  if (reloadDone && TASKS_ST === state && state.loadSeq === seq) await (state.doneLoaded ? tasksDoneMerge(state) : tasksLoadDone(state, true));
+}
+// A save took its task out of the view? Once a load that started after the save has drawn, the list and the peek
+// move on (tasksAfterFinish). Any load may land it: an older one overtaken by the poll returns before it gets here.
+function tasksFinishPending(state, seq) {
+  const p = state.pendingFinish;
+  if (!p || seq <= p.after) return;
+  state.pendingFinish = null;
+  if (state.peek === p.key) tasksAfterFinish(state, p.key, p.at);
 }
 // A saved or linked type that no longer exists (deleted, or from another install) would hide every task: it goes.
 function tasksTypeCheck(state) {
@@ -334,10 +349,7 @@ async function tasksLoadDone(state, reset = false) {
   state.doneLoading = true;
   tasksRender(state);
   const offset = reset ? 0 : state.doneNext;
-  // a reload (the poll) asks again for as many as are shown, so "Show more" pages are not lost
-  const shown = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status))).length;
-  const limit = reset ? Math.max(DONE_CAP, Math.min(500, shown)) : DONE_CAP;
-  const page = await v2Get(`/v2/tasks?lane=company&status=done,closed&sort=finished&limit=${limit}&offset=${offset}`);
+  const page = await v2Get(`/v2/tasks?lane=company&status=done,closed&sort=finished&limit=${DONE_CAP}&offset=${offset}`);
   if (TASKS_ST !== state) return false;
   if (page) {
     const keep = (state.tasks || []).filter(t => !['done', 'closed'].includes(String(t.status)));
@@ -352,6 +364,15 @@ async function tasksLoadDone(state, reset = false) {
     void tasksLoadAllDone(state);
   }
   return !!page;
+}
+// The newest finished tasks folded into what Done already shows: nothing older is dropped, the paging is untouched.
+async function tasksDoneMerge(state) {
+  if (TASKS_ST !== state || state.doneLoading) return;
+  const page = await v2Get(`/v2/tasks?lane=company&status=done,closed&sort=finished&limit=${DONE_CAP}&offset=0`);
+  if (!page || TASKS_ST !== state) return;
+  const fresh = new Map((page.tasks || []).map(t => [String(t.id), t]));
+  state.tasks = mergeTaskRows((state.tasks || []).filter(t => !fresh.has(String(t.id)) || !['done', 'closed'].includes(String(t.status))), page.tasks || []);
+  tasksTools(state); tasksRender(state);
 }
 async function tasksLoadAllDone(state) {
   if (state.doneDrain) return;
@@ -394,7 +415,7 @@ function tasksPatchNode(live, next) {
       || (live.nodeType === 1 && (live.dataset.taskKey || '') !== (next.dataset.taskKey || ''))) { live.replaceWith(next); return; }
   if (live.nodeType === 3) { if (live.data !== next.data) live.data = next.data; return; }
   if (live.nodeType !== 1) return;
-  if (live.dataset.taskKey) { if (live.outerHTML !== next.outerHTML) live.replaceWith(next); return; }   // a row: whole or not at all
+  if (live.dataset.taskKey) { if (!next.dataset.sig || live.dataset.sig !== next.dataset.sig) live.replaceWith(next); return; }   // a row: whole, or not at all
   for (const {name} of [...live.attributes]) if (!next.hasAttribute(name)) live.removeAttribute(name);
   for (const {name, value} of [...next.attributes]) if (live.getAttribute(name) !== value) live.setAttribute(name, value);
   const a = [...live.childNodes], b = [...next.childNodes];

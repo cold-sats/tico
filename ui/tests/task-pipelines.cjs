@@ -124,8 +124,10 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(await peek.locator('[data-tag-key]').innerText(), 'release · Oct 2', 'step moves keep tags');
     await peek.locator('[data-prop="type"]').click();
     await peek.locator('.prop-pop [data-prop-pick="general"]').click();
-    await peek.locator('[data-prop-row="type"]').waitFor({state: 'detached'});
-    assert.match(await peek.locator('[data-prop="status"]').innerText(), /In review/, 'a General task has a plain Status again');
+    // It leaves the Marketing board, so the list and the peek move on to the next card.
+    await page.waitForFunction(() => TASKS_ST.peek && TASKS_ST.peek !== 'ttask-1');
+    assert.deepEqual(posted.filter(item => item.path.endsWith('/task-1')).at(-1).body, {version: 2, type: 'general'});
+    assert.equal(tasks.find(task => task.id === 'task-1').status, 'review', 'a General task keeps its status');
     await peek.locator('[data-modal-close]').click();
     await peek.waitFor({state: 'hidden'});
     await page.locator('[data-chip-drop="type"]').click();

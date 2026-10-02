@@ -72,8 +72,8 @@ const BOTS = [['engineer', 'Engineer', 'engineering'], ['support', 'Support', 's
   ({name, display_name, team, host: 'keeper', status: 'active', state: 'active', can_chat: true}));
 
 async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'dark', hash = '#/issues', failIds = [], prefs = null, mover = true,
-  types = [], local = {}} = {}) {
-  const tasks = fixtures();
+  types = [], local = {}, people = null, extraTasks = []} = {}) {
+  const tasks = [...fixtures(), ...extraTasks];
   const posts = [];
   let pref = prefs;
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
@@ -100,7 +100,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json(me);
     if (p === '/api/employees') return json(BOTS);
-    if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana', team: 'operations'}, {id: 'sam', name: 'Sam', team: 'marketing'}],
+    if (p === '/api/humans') return json({people: people || [{id: 'ana', name: 'Ana', team: 'operations'}, {id: 'sam', name: 'Sam', team: 'marketing'}],
       org_groups: [{id: 'engineering', name: 'Engineering'}, {id: 'support', name: 'Support'}, {id: 'marketing', name: 'Marketing'}, {id: 'operations', name: 'Operations'}]});
     if (p === '/api/issues') return json([]);
     if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
@@ -619,8 +619,9 @@ async function bulk(browser) {
   assert.deepEqual(taskWrites(posts).map(x => [x.p, x.body]), [['/api/v2/tasks/t-rotate', {version: 3, close: true}]], 'only the visible task');
   // Close can be undone for ten seconds.
   await page.locator('#task-bulk [data-bulk="undo"]').click();
-  await page.waitForFunction(() => /1 reopened/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
-  assert.deepEqual(taskWrites(posts).at(-1), {p: '/api/v2/tasks/t-rotate', body: {version: 4, status: 'open'}});
+  assert.equal(await page.evaluate(() => TASKS_ST.bulkBusy), true, 'no other bulk action while Undo runs');
+  await page.waitForFunction(() => /Reopened; bots were already told/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
+  assert.deepEqual(taskWrites(posts).at(-1), {p: '/api/v2/tasks/t-rotate', body: {version: 4, status: 'doing'}}, 'back to what it was, not just Open');
   await page.locator('#task-q').fill('');
   await page.locator('#task-q').press('Escape');            // leaves the search, then Esc dismisses the result line
   await page.waitForFunction(() => document.querySelector('#task-bulk').hidden);
@@ -767,12 +768,209 @@ async function phone(browser) {
   await page.close();
 }
 
+// ---- the re-check (scratchpad/r2/recheck/probe.cjs, as tests)
+async function recheckSaves(browser) {
+  // N1: a quick second edit is never lost. Saves queue per task, each with the version the last one returned; the
+  // panel redraws at once from the server's answer while the (slow) list reload runs behind it.
+  const {page, errors, posts, tasks} = await open(browser);
+  await page.route('**/api/v2/tasks?*', async route => { await new Promise(r => setTimeout(r, 1500)); await route.fallback(); });
+  const peek = page.locator('#task-peek'), props = peek.locator('[data-task-props]');
+  await page.locator('[data-task-key="tt-triage"] .tl-title').click();
+  await props.locator('[data-prop="status"]').waitFor();
+  await page.waitForTimeout(400);
+  await props.locator('[data-prop="status"]').click();
+  await peek.locator('.prop-pop [data-prop-pick="waiting"]').click();
+  await page.waitForTimeout(150);
+  assert.match(await props.locator('[data-prop="status"]').innerText(), /Waiting/, 'the saved value shows at once');
+  await props.locator('[data-prop="owner"]').click();
+  await peek.locator('.prop-pop [data-prop-pick="writer"]').click();
+  await page.waitForFunction(() => /Writer/.test(document.querySelector('#task-peek [data-prop="owner"]')?.textContent || ''));
+  const writes = () => taskWrites(posts).filter(x => x.p.endsWith('/t-triage')).map(x => x.body);
+  assert.deepEqual(writes(), [{version: 3, status: 'waiting'}, {version: 4, owner: 'writer'}], 'one at a time, each with the newest version');
+  assert.equal(tasks.find(x => x.id === 't-triage').owner, 'bot:writer');
+  await page.waitForTimeout(1800);
+  assert.equal(await props.locator('[data-props-msg]').innerText(), '');
+  assert.match(await props.locator('[data-prop="owner"]').innerText(), /Writer/, 'the slow reload does not draw an older copy');
+  // A refused save's reason stays until that property saves; another property's save does not wipe it.
+  tasks.find(x => x.id === 't-triage').version += 5;                     // changed elsewhere
+  await props.locator('[data-prop="owner"]').click();
+  await peek.locator('.prop-pop [data-prop-pick="support"]').click();
+  await page.waitForFunction(() => document.querySelector('#task-peek [data-props-msg]')?.textContent === 'Changed elsewhere. Showing the latest.');
+  await props.locator('[data-prop="status"]').click();
+  await peek.locator('.prop-pop [data-prop-pick="doing"]').click();
+  await page.waitForFunction(() => /Doing/.test(document.querySelector('#task-peek [data-prop="status"]')?.textContent || ''));
+  assert.equal(await props.locator('[data-props-msg]').innerText(), 'Changed elsewhere. Showing the latest.', 'kept until Owner saves');
+  await props.locator('[data-prop="owner"]').click();
+  await peek.locator('.prop-pop [data-prop-pick="support"]').click();
+  await page.waitForFunction(() => /Support/.test(document.querySelector('#task-peek [data-prop="owner"]')?.textContent || '') && !document.querySelector('#task-peek [data-props-msg]')?.textContent);
+  // N11: one menu at a time, and only its anchor is marked expanded.
+  await props.locator('[data-prop="status"]').click();
+  await props.locator('[data-prop="owner"]').evaluate(b => b.click());   // a second menu opened while the first is up
+  assert.equal(await props.locator('[data-prop="status"]').getAttribute('aria-expanded'), 'false');
+  assert.equal(await props.locator('[data-prop="owner"]').getAttribute('aria-expanded'), 'true');
+  await page.keyboard.press('Escape');
+  // N8: a date saves only when it is whole and sensible.
+  const before = writes().length;
+  await props.locator('[data-prop-date]').fill('0002-10-09');
+  assert.equal(await props.locator('[data-props-msg]').innerText(), 'That date is not valid.');
+  assert.equal(writes().length, before, 'nothing saved');
+  // N2: an unsent comment survives a property save and the poll's redraw.
+  await peek.locator('.task-chat textarea').fill('Half a thought');
+  await page.locator('#task-q').click();
+  Object.assign(tasks.find(x => x.id === 't-triage'), {title: 'Triage the widget bug reports', version: tasks.find(x => x.id === 't-triage').version + 1});
+  await page.evaluate(() => refresh(false));
+  await peekTitle(page, 'Triage the widget bug reports');
+  await peek.locator('.task-chat textarea').waitFor();
+  assert.equal(await peek.locator('.task-chat textarea').inputValue(), 'Half a thought');
+  assert.deepEqual(errors, []);
+  console.log('re-check: saves, errors, menus, dates, drafts: ok');
+  await page.close();
+}
+async function recheckLists(browser) {
+  // N6: the pickers never offer a loop: Part of leaves out the task and everything under it; Blocked by leaves out
+  // every task that already waits on it.
+  const {page, errors, tasks} = await open(browser);
+  const peek = page.locator('#task-peek');
+  await page.locator('[data-task-key="tt-checkout"] .tl-title').click();
+  await peek.locator('[data-prop="parent"]').click();
+  const parents = await peek.locator('.prop-pop [data-prop-pick]').evaluateAll(bs => bs.map(b => b.dataset.propPick));
+  for (const id of ['t-checkout', 't-idem', 't-summary', 't-terms']) assert.ok(!parents.includes(id), 'not offered as parent: ' + id);
+  assert.ok(parents.includes('t-news'));
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.locator('[data-task-key="tt-idem"] .tl-title').click();
+  await peekTitle(page, 'Add idempotency keys');
+  await peek.locator('[data-prop="blocked"]').click();
+  const blockers = await peek.locator('.prop-pop [data-prop-pick]').evaluateAll(bs => bs.map(b => b.dataset.propPick));
+  assert.ok(!blockers.includes('t-checkout') && !blockers.includes('t-idem'), 'the task it blocks, and itself, are left out');
+  await page.keyboard.press('Escape');
+  // N10: an unchanged row stays the same node through polls, selected, under the cursor or not; the selection stays.
+  await page.keyboard.press('Escape');
+  await page.locator('[data-task-key="tt-flaky"] .tl-check').click();
+  await page.locator('[data-task-key="tt-rotate"] .tl-open').focus();
+  await page.evaluate(() => { window.kept = [...document.querySelectorAll('[data-task-key="tt-flaky"], [data-task-key="tt-rotate"]')]; });
+  await page.evaluate(() => refresh(false));
+  await page.evaluate(() => refresh(false));
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => window.kept.every(el => el.isConnected)), true, 'not redrawn');
+  assert.equal(await page.locator('[data-task-key="tt-flaky"]').evaluate(r => r.classList.contains('sel')), true);
+  assert.equal(await focusedKey(page), 'tt-rotate');
+  // N4 / R2-4: Done keeps its own paging. While it shows, the poll fetches only its first page (picking up newly finished
+  // tasks), never the rest; its selection survives.
+  await page.locator('#task-bulk [data-bulk="clear"]').click();
+  await page.locator('#task-view [data-view="done"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 3);
+  await page.locator('[data-task-key="tt-sso"] .tl-check').click();
+  const doneAsks = [];
+  page.on('request', r => { if (/status=done/.test(r.url())) doneAsks.push(new URL(r.url()).searchParams); });
+  Object.assign(tasks.find(x => x.id === 't-flaky'), {status: 'done', done_at: new Date().toISOString(), version: 9});   // a bot finished it
+  await page.evaluate(() => refresh(false));
+  await page.evaluate(() => refresh(false));
+  await page.locator('#task-body [data-task-key="tt-flaky"]').waitFor();
+  assert.ok(doneAsks.length >= 1 && doneAsks.every(q => q.get('offset') === '0' && q.get('limit') === '20'), 'only the first page');
+  assert.equal(await page.locator('#task-body .tl-row').count(), 4);
+  assert.equal(await page.locator('.tl-bulk-n').innerText(), '1 selected');
+  assert.deepEqual(errors, []);
+  await page.close();
+  // N9: handing a Needs-you task to someone else moves the list and the peek on to the next row.
+  const second = await open(browser, {hash: '#/tasks'});
+  await second.page.locator('[data-task-key="tt-access"] .tl-title').click();
+  await second.page.locator('#task-peek [data-prop="owner"]').click();
+  await second.page.locator('#task-peek .prop-pop [data-prop-pick="writer"]').click();
+  await second.page.waitForFunction(() => !document.querySelector('[data-task-key="tt-access"]') && TASKS_ST.peek && TASKS_ST.peek !== 'tt-access');
+  assert.equal(await focusedKey(second.page), await second.page.evaluate(() => TASKS_ST.peek), 'the focus is on the row the peek moved to');
+  assert.deepEqual(second.errors, []);
+  await second.page.close();
+  // N5: two people with one first name get two different group names.
+  const third = await open(browser, {people: [{id: 'ana', name: 'Ana'}, {id: 'sam', name: 'Sam Ortiz'}, {id: 'sam2', name: 'Sam Lee'}],
+    extraTasks: [{...fixtures().find(x => x.id === 't-demo'), id: 't-demo2', title: 'Record the onboarding walkthrough', owner: 'human:sam2'}]});
+  const names = await groupNames(third.page);
+  assert.ok(names.includes('NEEDS SAM O.') && names.includes('NEEDS SAM L.'), 'distinct: ' + names);
+  assert.deepEqual(third.errors, []);
+  await third.page.close();
+  console.log('re-check: pickers, polls, Done, next row, names: ok');
+}
+async function recheckPhone(browser) {
+  // Closing the phone sheet (✕ or Esc) stays on Tasks: no extra step back through history.
+  for (const how of ['x', 'esc']) {
+    const {page, errors} = await open(browser, {viewport: {width: 390, height: 844}, hash: '#/issues'});
+    await page.evaluate(() => { location.hash = '#/goals'; });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => { location.hash = '#/issues'; });
+    await page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && document.querySelector('#task-body .tl-row'));
+    await page.locator('[data-task-key="tt-checkout"] .tl-title').click();
+    await page.locator('#task-peek[open]').waitFor();
+    if (how === 'x') await page.locator('#task-peek [data-modal-close]').click(); else await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
+    assert.deepEqual(await page.evaluate(() => [location.hash, !!document.querySelector('.tasks-page'), !!document.querySelector('#task-peek[open]')]), ['#/issues', true, false], how);
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
+  console.log('re-check: phone sheet close: ok');
+}
+
+// ---- re-check 2 (scratchpad/r2/recheck/probe2.cjs, and the four other lows)
+async function recheckFinal(browser) {
+  // R2-1: a menu opened while a save is on its way stays open when the save lands; the panel redraws once it closes.
+  const {page, errors, posts, tasks} = await open(browser);
+  const peek = page.locator('#task-peek'), props = peek.locator('[data-task-props]');
+  await page.route('**/api/v2/tasks/t-triage', async route => { if (route.request().method() === 'POST') await new Promise(r => setTimeout(r, 1500)); await route.fallback(); });
+  await page.locator('[data-task-key="tt-triage"] .tl-title').click();
+  await props.locator('[data-prop="status"]').waitFor();
+  await page.waitForTimeout(400);
+  await props.locator('[data-prop="status"]').click();
+  await peek.locator('.prop-pop [data-prop-pick="waiting"]').click();
+  await page.waitForTimeout(200);
+  await props.locator('[data-prop="owner"]').click();
+  await page.waitForTimeout(2000);                                    // the save lands meanwhile
+  assert.equal(await page.evaluate(() => !!document.querySelector('#task-peek .prop-pop:popover-open')), true, 'the menu is still open');
+  assert.equal(await page.evaluate(() => document.activeElement?.closest('.prop-pop') != null), true, 'and keeps the focus');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => /Waiting/.test(document.querySelector('#task-peek [data-prop="status"]')?.textContent || ''));
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.prop), 'owner');
+  await page.unroute('**/api/v2/tasks/t-triage');
+  // R2-3: Undo says how many it could not reopen, and names them.
+  await page.keyboard.press('Escape');
+  await page.locator('[data-task-key="tt-rotate"] .tl-check').click();
+  await page.locator('[data-task-key="tt-flaky"] .tl-check').click();
+  await page.locator('#task-bulk [data-bulk="close"]').click();
+  await page.waitForFunction(() => /2 closed/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
+  await page.route('**/api/v2/tasks/t-flaky', route => route.request().method() === 'POST'
+    ? route.fulfill({status: 403, contentType: 'application/json', body: JSON.stringify({error: {detail: 'Not allowed'}})}) : route.fallback());
+  await page.locator('#task-bulk [data-bulk="undo"]').click();
+  await page.waitForFunction(() => /not reopened/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
+  assert.equal(await page.locator('.tl-bulk-msg').innerText(), '1 of 2 reopened; bots were already told; 1 not reopened: Fix the flaky login test on CI');
+  assert.equal(tasks.find(x => x.id === 't-rotate').status, 'doing');
+  assert.deepEqual(errors, []);
+  await page.close();
+  // R2-2: a poll that overtakes a save's reload still moves the list and the peek on when the task leaves the view.
+  const second = await open(browser, {hash: '#/tasks'});
+  await second.page.route('**/api/v2/tasks?*', async route => { await new Promise(r => setTimeout(r, 700)); await route.fallback(); });
+  await second.page.locator('[data-task-key="tt-access"] .tl-title').click();
+  await second.page.locator('#task-peek [data-prop="owner"]').click();
+  await second.page.locator('#task-peek .prop-pop [data-prop-pick="writer"]').click();
+  await second.page.waitForTimeout(200);
+  await second.page.evaluate(() => refresh(false));                   // the poll starts while the save's reload is on its way
+  await second.page.waitForFunction(() => !document.querySelector('[data-task-key="tt-access"]') && TASKS_ST.peek && TASKS_ST.peek !== 'tt-access', null, {timeout: 10000});
+  assert.deepEqual(second.errors, []);
+  await second.page.close();
+  // R2-5: as much of the last name as tells people apart.
+  const third = await open(browser, {people: [{id: 'ana', name: 'Ana'}, {id: 'sam', name: 'Sam Ortiz'}, {id: 'sam2', name: 'Sam Lee'}, {id: 'sam3', name: 'Sam Long'},
+    {id: 'sam4', name: 'Sam', email: 'sam.k@acme.example'}],
+    extraTasks: ['sam2', 'sam3', 'sam4'].map((who, i) => ({...fixtures().find(x => x.id === 't-demo'), id: 't-demo-' + i, title: 'Demo ' + i, owner: 'human:' + who}))});
+  const names = await groupNames(third.page);
+  for (const want of ['NEEDS SAM O.', 'NEEDS SAM LE.', 'NEEDS SAM LO.', 'NEEDS SAM.K']) assert.ok(names.includes(want), `${want} in ${names}`);
+  assert.deepEqual(third.errors, []);
+  await third.page.close();
+  console.log('re-check 2: menus, Undo failures, overtaken reloads, names: ok');
+}
+
 module.exports = {open, fixtures};
 if (require.main === module) (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const only = process.env.TASKS_ONLY ? process.env.TASKS_ONLY.split(',') : null;
-    for (const [name, run] of Object.entries({listAndTabs, filters, carriedOver, peekAndKeys, properties, board, bulk, views, polling, phone}))
+    for (const [name, run] of Object.entries({listAndTabs, filters, carriedOver, peekAndKeys, properties, board, bulk, views, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
       if (!only || only.includes(name)) await run(browser);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });
