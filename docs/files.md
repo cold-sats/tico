@@ -28,7 +28,9 @@ its conversation, or bot-wide) and a canonical identity:
 1. **Stored files.** The bytes are in Tico's private blob store (content-addressed, backed up,
    never overwritten). Tico authorizes each open: `GET /api/v2/files/{id}` for the latest version
    and `/api/v2/files/{id}/versions/{n}` for an older one, in the same safe viewer or download as
-   any attachment. Tico streams authorized bytes; storage addresses are never shown.
+   any attachment. Adopted legacy attachment IDs keep their original bytes without a version;
+   current file lists include an explicit version in their links to those IDs. Tico streams
+   authorized bytes; storage addresses are never shown.
 2. **Cloud documents.** A Google Doc, Sheet or Slides, a Notion page, a Figma file or any https
    document. `hub file link <url> --title "..."` registers the address (http, `javascript:`,
    credentials in the URL and private-network hosts are refused). Open goes to the provider, which

@@ -565,7 +565,8 @@ class Files:
                  "state": row["state"], "synced": synced, "size": version["size"] if version else None,
                  "name": version["name"] if version else None,
                  "open": ({"type": "external", "url": row["url"]} if link
-                          else {"type": "tico", "url": "/api/v2/files/" + row["id"]} if version and synced else None),
+                          else {"type": "tico", "url": "/api/v2/files/" + row["id"] +
+                                ("" if is_file_id(row["id"]) else f"?v={row['current_version']}")} if version and synced else None),
                  "provider": provider, "provider_label": label if link else "",
                  "note": f"Link opens in {label} (requires access)" if link and provider != "web"
                          else f"Link opens on {label} (requires access)" if link else "",

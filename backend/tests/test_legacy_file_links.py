@@ -9,7 +9,7 @@ def test_adopted_legacy_urls_serve_original_and_new_ids_serve_latest(api):
     blobs = api.app.state.blobs
     digest = blobs.put(b"original")
     with api.app.state.store.transaction() as c:
-        old = register(c, Identity("human:ana", "owner"), digest, 8, "legacy.txt", "text/plain")
+        old = register(c, Identity("bot:ops", "bot"), digest, 8, "legacy.txt", "text/plain")
         c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, old["id"]))
     path = "/api/v2/files/" + old["id"]
     assert api.get(path, headers=headers()).content == b"original"
@@ -18,6 +18,10 @@ def test_adopted_legacy_urls_serve_original_and_new_ids_serve_latest(api):
     assert api.get(path, headers=headers()).content == b"original"
     assert api.get(path + "?v=1", headers=headers()).content == b"original"
     assert api.get(path + "?v=2", headers=headers()).content == b"revised"
+    listing = api.get("/api/v2/bots/ops/files", headers=headers()).json()
+    opened = next(file for file in listing["files"] if file["id"] == old["id"])["open"]["url"]
+    assert opened == path + "?v=2"
+    assert api.get(opened, headers=headers()).content == b"revised"
     assert api.head(path, headers=headers()).headers["content-length"] == "8"
     assert api.get(path + "/meta", headers=headers()).json()["size"] == 8
     assert api.get(path + "/meta?v=2", headers=headers()).json()["size"] == 7
