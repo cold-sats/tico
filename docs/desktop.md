@@ -15,7 +15,10 @@ its `/healthz` check as Tico, saves the address in the app's config folder, then
 Sign in as you would in a browser. HTTPS is required; `http://localhost` and `http://127.0.0.1`
 are allowed for a server on your Computer. A failed check shows an error below the field.
 
-Use **Change server…** in the app menu or tray menu to connect to another server. Tico keeps
+Use **Change server…** in the generic app's menu or tray menu to connect to another server.
+The app saves the address and restarts automatically to replace its native permissions.
+Only the selected server's origin can use native IPC; Access and external sign-in pages that
+remain in the window receive no native permissions. Tico keeps
 its tray icon when you close the main window. Click it to show or hide the window.
 
 The app checks for signed updates automatically, installs them and relaunches. Generic builds

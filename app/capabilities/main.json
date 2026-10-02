@@ -1,17 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The hub's own page, loaded from the hub, talks to the shell: window mode, open a meeting in its own window, native dialogs.",
+  "description": "Runtime template: only the selected server origin may use the native shell.",
   "windows": [
     "main"
   ],
-  "remote": {
-    "urls": [
-      "https://*/*",
-      "http://localhost:*/*",
-      "http://127.0.0.1:*/*"
-    ]
-  },
   "permissions": [
     "core:default",
     "core:event:default",
@@ -19,5 +12,6 @@
     "dialog:allow-message",
     "dialog:allow-confirm",
     "allow-bridge"
-  ]
+  ],
+  "local": false
 }

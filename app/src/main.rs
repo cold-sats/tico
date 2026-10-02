@@ -82,7 +82,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![bridge, connect_server, server_address])
         .setup(move |app| {
             let path = server_path(app.handle())?;
-            let config = Config::load(&path).unwrap_or(None);
+            let config = Config::load(&path).map_err(std::io::Error::other)?;
+            if let Some(config) = &config {
+                app.add_capability(server_capability(&config.hub).to_string())?;
+            }
             let state: State<AppState> = app.state();
             *state.connection.lock().unwrap() = config;
             if connection(app.handle()).is_some() { build_window(app.handle())?; }
@@ -165,31 +168,48 @@ async fn connect_server(app: App, address: String) -> Result<(), String> {
     let temporary = path.with_extension("tmp");
     std::fs::write(&temporary, hub.as_str()).and_then(|_| std::fs::rename(&temporary, &path))
         .map_err(|_| "Could not save the server address. Check free disk space and folder permissions.")?;
-    let (send, receive) = tokio::sync::oneshot::channel();
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        let result = (|| -> tauri::Result<()> {
-            let state: State<AppState> = handle.state();
-            // A local owner token belongs to its original server, never a newly chosen address.
-            let local_token_file = connection(&handle).filter(|c| c.hub == hub).and_then(|c| c.local_token_file);
-            *state.connection.lock().unwrap() = Some(Config { hub, local_token_file });
-            *state.status.lock().unwrap() = HubStatus::default();
-            for (label, window) in handle.webview_windows() {
-                if label.starts_with("meeting-") { let _ = window.close(); }
+    // Runtime capabilities are additive. Restart so only the newly selected origin
+    // receives permissions, and no permissions from the previous connection survive.
+    app.request_restart();
+    Ok(())
+}
+
+fn server_capability(hub: &url::Url) -> Value {
+    let mut capability: Value = serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+    // Explicit port also confines default-port URLs: URLPattern otherwise treats an
+    // omitted port as a wildcard. Escaping ':' keeps IPv6 hosts literal.
+    let host = hub.host_str().unwrap().replace(':', "\\:");
+    let port = hub.port_or_known_default().unwrap();
+    capability["remote"] = serde_json::json!({"urls": [format!("{}://{host}:{port}/*", hub.scheme())]});
+    capability
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    #[test]
+    fn ipc_is_confined_to_selected_origin_and_main_window() {
+        for (address, pattern) in [
+            ("https://team.example.com/tico/", "https://team.example.com:443/*"),
+            ("http://localhost:8765/", "http://localhost:8765/*"),
+            ("http://team.example.com/", "http://team.example.com:80/*"),
+        ] {
+            let capability = server_capability(&url::Url::parse(address).unwrap());
+            assert_eq!(capability["remote"]["urls"], serde_json::json!([pattern]));
+            let matcher: tauri::utils::acl::RemoteUrlPattern = pattern.parse().unwrap();
+            assert!(matcher.test(&url::Url::parse(address).unwrap()));
+            for other in ["https://accounts.google.com/", "https://team.cloudflareaccess.com/",
+                          "https://other.example.com/", "https://team.example.com:8443/",
+                          "http://team.example.com:8080/", "http://localhost:8766/"] {
+                assert!(!matcher.test(&url::Url::parse(other).unwrap()), "{pattern} accepted {other}");
             }
-            if let Some(window) = main_window(&handle) {
-                window.navigate(connection(&handle).unwrap().start_url())?;
-            } else {
-                build_window(&handle)?;
-                apply_window_mode(&handle, false);
-            }
-            if let Some(window) = handle.get_webview_window("server") { window.close()?; }
-            show_window(&handle);
-            Ok(())
-        })();
-        let _ = send.send(result.map_err(|_| "Could not open the server. Try again.".to_string()));
-    }).map_err(|_| "Could not open the server. Try again.")?;
-    receive.await.map_err(|_| "Could not open the server. Try again.".to_string())?
+            assert_eq!(capability["windows"], serde_json::json!(["main"]));
+            assert_eq!(capability["local"], false);
+        }
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(config["app"]["security"]["capabilities"], serde_json::json!(["server"]));
+    }
 }
 
 // ----------------------------------------------------------------------------- window
