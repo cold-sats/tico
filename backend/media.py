@@ -705,14 +705,18 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         row = c.execute("SELECT * FROM blobs WHERE id=?", (bid,)).fetchone()
         if not row:
             raise Problem("not_found", "File not found", 404)
+        from . import task_privacy as privacy
+        if not privacy.blob_readable(c, who.actor, bid):
+            raise Problem("not_found", "File not found", 404)
         # Ownership of the company account is not ordinary access to another person's
         # private Tico attachment. Shared-room and task access is derived from the linked
         # object below, using the same authorization as its conversation or task.
         allowed = who.role in ("owner", "human") and row["owner"] == who.actor
         if not allowed and who.role in ("owner", "human", "bot"):
-            for linked in c.execute("SELECT m.conversation_id FROM message_assets a JOIN messages m ON m.id=a.message_id WHERE a.blob_id=?", (bid,)):
+            for linked in c.execute("SELECT m.* FROM message_assets a JOIN messages m ON m.id=a.message_id WHERE a.blob_id=?", (bid,)):
                 try:
-                    auth.conversation(c, who, linked[0])
+                    auth.conversation(c, who, linked["conversation_id"])
+                    privacy.require_message(c, who, linked)
                     allowed = True
                     break
                 except Problem:

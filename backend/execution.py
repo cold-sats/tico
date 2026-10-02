@@ -5,6 +5,8 @@ import secrets
 import sqlite3
 
 from . import inbox_isolation, providers, routines, runner_versions, usage_limits
+from . import task_privacy as privacy
+from .auth import Identity
 from .batch_work import isolated
 from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
@@ -538,7 +540,7 @@ class Execution:
         task_sql = queued_task_sql()
         # Readiness, spend and cooldown are checked once per bot, never once per queued job.
         # Keep human chat priority and interrupted-task/conversation fencing in the query.
-        return c.execute(
+        candidates = c.execute(
             "SELECT j.*,a.generation FROM jobs j JOIN assignments a ON a.bot=j.bot "
             "JOIN messages m ON m.id=j.message_id JOIN conversations cv ON cv.id=m.conversation_id "
             f"WHERE j.state='queued' AND j.bot IN ({marks}) AND a.runner_id=? "
@@ -550,8 +552,10 @@ class Execution:
             f"AND (({task_sql} IS NOT NULL AND "
             + H.MESSAGE_TASK_SQL.replace("m.", "um.").replace("cv.", "uc.") + f"={task_sql}) "
             f"OR ({task_sql} IS NULL AND cv.kind='chat' AND um.conversation_id=m.conversation_id)))) "
-            "ORDER BY CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id LIMIT 1",
-            (*bots, who.runner_id)).fetchone()
+            "ORDER BY CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
+            (*bots, who.runner_id))
+        return next((row for row in candidates if privacy.message_readable(c, "bot:" + row["bot"],
+                                                                          H.message(c, row["message_id"]))), None)
 
     def idle_claim(self, c, who, body, key=None, selected=None):
         """The answer to a claim that changes nothing, from a read-only connection, or None when
@@ -651,6 +655,9 @@ class Execution:
         if not row:
             return {"attempt": None}
         msg = H.message(c, row["message_id"])
+        if not privacy.message_readable(c, "bot:" + row["bot"], msg):
+            c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (row["id"],))
+            return {"attempt": None}
         conv = H.conversation(c, msg["conversation_id"])
         task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
         token = secrets.token_urlsafe(32)
@@ -671,7 +678,8 @@ class Execution:
         # answered; the bot reads further back itself with `hub conversation show` when it wants to. The
         # hub keeps no pointer to the bot's session and rebuilds nothing on its behalf.
         epoch = c.execute("SELECT updated FROM session_epochs WHERE conversation_id=?", (conv["id"],)).fetchone()
-        history = message_page(c, conv["id"], limit=50, since=epoch["updated"] if epoch else None)["messages"]
+        bot_who = Identity("bot:" + row["bot"], "bot", attempt_id=aid)
+        history = privacy.page(c, bot_who, conv["id"], limit=50, since=epoch["updated"] if epoch else None)["messages"]
         principal = (conv.get("owner_actor") if conv.get("scope") == "personal"
                      else msg["from_actor"] if str(msg["from_actor"]).startswith("human:") else None)
         routine = None
@@ -694,6 +702,8 @@ class Execution:
                 from .docs import refresh_generated_docs
                 refresh_generated_docs(c)  # Also covers a Librarian enabled after the upgrade.
             for item in H.next_run_tasks(c, row["bot"], exclude=task["id"] if task else None):
+                if not H.task_private_readable(c, bot_who.actor, item):
+                    continue
                 c.execute("UPDATE tasks SET carried_by=? WHERE id=?", (aid, item["id"]))
                 carried.append({k: item.get(k) for k in ("id", "title", "body", "requester", "created")})
             if carried:
@@ -740,6 +750,8 @@ class Execution:
                         "FROM attempts a JOIN assignments x ON x.bot=a.bot WHERE a.id=?", (aid,)).fetchone()
         if not row or row["runner_id"] != who.runner_id:
             raise Problem("forbidden", "This execution attempt is not yours", 403)
+        if not privacy.attempt_readable(c, "bot:" + row["bot"], aid):
+            raise Problem("stale_lease", "Task access expired; stop this attempt", 409)
         current = self.current_owner(c, who, row)
         if active and current and row["state"] == "expired":
             row = self.restore(c, row) or row
@@ -881,6 +893,8 @@ class Execution:
                              "WHERE active_attempt.id=?) OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid LIMIT 10",
                              (attempt["bot"], aid)).fetchall():
+            if not privacy.message_readable(c, "bot:" + attempt["bot"], row):
+                continue
             incoming_task = H.message_task_id(H.message(c, row["id"]), H.conversation(c, row["conversation_id"]))
             if incoming_task and incoming_task != origin_task and row["kind"] == "notice":
                 continue                    # a new task gets its own run, even in the same bot room
@@ -903,7 +917,8 @@ class Execution:
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))
         ids = c.execute("SELECT message_id FROM attempt_inputs WHERE attempt_id=? AND acked_at IS NULL", (aid,)).fetchall()
-        return {"messages": [H.message(c, row[0]) for row in ids]}
+        return {"messages": [m for row in ids if (m := H.message(c, row[0]))
+                             and privacy.message_readable(c, "bot:" + attempt["bot"], m)]}
 
     def acknowledge_input(self, c, who, aid, mid):
         self.attempt(c, who, aid)
@@ -977,6 +992,7 @@ class Execution:
                         replyable = actor == task["owner"] and task["status"] == "done"
                 if target not in (H.KEEPER, actor) and replyable:
                     refs = {"turn_id": aid, **({"task": task["id"]} if task else {})}
+                    privacy.require_destination(c, Identity(actor, "bot", attempt_id=aid), target, conv["id"], refs, msg)
                     reply = H.answer(c, actor, msg["id"], body.text) if msg["kind"] == "ask" else H.say(
                         c, actor, target, body.text, conversation_id=conv["id"],
                         in_reply_to=msg["id"], refs=refs)
@@ -1135,6 +1151,9 @@ class Execution:
         jobs = []
         for row in c.execute("SELECT * FROM jobs WHERE bot=? AND state='uncertain' ORDER BY created", (bot,)):
             message = H.message(c, row['message_id'])
+            if (not privacy.message_readable(c, who.actor, message)
+                    or row['attempt_id'] and not privacy.attempt_readable(c, who.actor, row['attempt_id'])):
+                continue
             conv = H.conversation(c, message['conversation_id'])
             # An operator must be able to unblock their own bot whatever it was doing. That is
             # not a way into a person's conversation: one of those is reconcilable but arrives
@@ -1155,7 +1174,7 @@ class Execution:
                 reason = ("The run stopped before it returned an answer. Its runner did not record "
                           "enough detail for Tico to prove that retrying automatically is safe.")
             jobs.append({'id':row['id'], 'attempt_id':row['attempt_id'], 'readable':readable,
-                         'task':{'id':task['id'],'title':task['title'],'status':task['status']} if task else None,
+                         'task':{'id':task['id'],'title':task['title'],'status':task['status']} if task and readable else None,
                          'request':message['body'] if readable else '',
                          'attempt':(dict(attempt) if readable else
                                     {**dict(attempt), 'final_text': ''}) if attempt else None,
@@ -1302,6 +1321,10 @@ class Execution:
                 conv = H.conversation(c, msg['conversation_id']) if msg else None
                 task_id = H.message_task_id(msg, conv) if msg else None
                 task = H.task(c, task_id) if task_id else None
+                if not privacy.message_readable(c, 'bot:' + row['bot'], msg):
+                    decided.append(self._decide(c, row, row['attempt_id'], 'dismiss',
+                                               'Task access was revoked.', H.KEEPER, action='job.auto_reconcile'))
+                    continue
                 if task and task['status'] in ('done', 'closed'):
                     note = (f"Dismissed automatically: the task \"{task['title']}\" was already {task['status']} "
                             "when the interrupted delivery was reviewed, so there was nothing left to deliver.")
@@ -1314,7 +1337,8 @@ class Execution:
                             "again. BotOps is looking into why.")
                     decision = self._decide(c, row, row['attempt_id'], 'dismiss', note, H.KEEPER,
                                             action='job.auto_reconcile')
-                    self._tell_maintainer(c, row, msg)
+                    if privacy.message_readable(c, 'bot:' + H.FLEET_MAINTAINER, msg):
+                        self._tell_maintainer(c, row, msg)
                     decided.append(decision)
                     continue
                 config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row['bot'],)).fetchone()

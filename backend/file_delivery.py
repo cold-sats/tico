@@ -6,9 +6,6 @@ from fastapi.responses import Response, StreamingResponse
 
 from .blobs import disposition
 
-IMMUTABLE = "private, max-age=31536000, immutable"
-
-
 def byte_range(value, size):
     match = re.fullmatch(r"bytes=(\d*)-(\d*)", value)
     if not match or not any(match.groups()) or size == 0:
@@ -29,7 +26,7 @@ def serve(request, blobs, row, versioned=False):
     digest, size = row["digest"], row["size"]
     mime = row["content_type"].split(";", 1)[0].strip().lower()
     headers = {"ETag": '"' + digest + '"', "X-Content-SHA256": digest, "Accept-Ranges": "bytes",
-               "Cache-Control": IMMUTABLE if versioned else "no-cache",
+               "Cache-Control": "private, no-store",
                "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox",
                "Content-Disposition": disposition(mime) + "; filename*=UTF-8''" + quote(row["name"], safe="")}
     if mime == "application/pdf":

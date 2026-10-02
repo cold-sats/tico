@@ -20,6 +20,7 @@ from pydantic import Field
 
 from . import listening as L
 from . import rooms
+from . import task_privacy as privacy
 from .bot_access import q, qlist
 from .models import Contract
 from .store import H, Problem
@@ -79,6 +80,27 @@ def guarded(c, auth, who, inner):
         conversations = (f"CASE COALESCE(scope,'direct') WHEN 'personal' THEN COALESCE(owner_actor,{first_human})={me} "
                          f"WHEN 'shared' THEN {room_bot} IN {qlist(shared)} ELSE {participant} END")
     tasks = auth.task_sql(c, who, delegations=inner("task_delegations"))
+    # Room grants and an audit-trail owner role do not grant private task reads.
+    denied_messages = [r["id"] for r in c.execute("SELECT * FROM messages")
+                       if not privacy.message_readable(c, who.actor, r)]
+    denied_attempts = [r[0] for r in c.execute("SELECT id FROM attempts")
+                       if not privacy.attempt_readable(c, who.actor, r[0])]
+    denied_events = [r["id"] for r in c.execute("SELECT * FROM events")
+                     if not privacy.event_readable(c, who.actor, r)]
+    denied_blobs = [r[0] for r in c.execute("SELECT id FROM blobs")
+                    if not privacy.blob_readable(c, who.actor, r[0])]
+    denied_files = []
+    for row in c.execute("SELECT * FROM bot_files"):
+        if ((row["task_id"] and not H.task_private_readable(c, who.actor, H.task(c, row["task_id"])))
+                or any(v["blob_id"] in denied_blobs or v["attempt_id"] in denied_attempts for v in c.execute(
+                    "SELECT blob_id,attempt_id FROM bot_file_versions WHERE file_id=?", (row["id"],)))):
+            denied_files.append(row["id"])
+
+    def excluding(column, values):
+        return f"{column} NOT IN {qlist(values)}" if values else "1"
+
+    # Even an attempt's retained conversation grant must pass the current task gate.
+    conversations = f"({conversations}) AND (task_id IS NULL OR kind<>'task' OR task_id IN (SELECT id FROM tasks))"
     by_task = "task_id IN (SELECT id FROM tasks)"
     by_message = "message_id IN (SELECT id FROM messages)"
     by_schedule = "schedule_id IN (SELECT id FROM schedules)"
@@ -118,22 +140,24 @@ def guarded(c, auth, who, inner):
               "WHERE review_state<>'live')")
     rules = {
         "conversations": conversations,
-        "messages": "conversation_id IN (SELECT id FROM conversations)",
+        "messages": "conversation_id IN (SELECT id FROM conversations) AND " + excluding("id", denied_messages),
         "tasks": tasks,
         "tags": "1", "task_tags": by_task,
         "task_events": by_task, "task_delegations": by_task,
         "task_reminders": by_task, "task_assets": by_task, "task_links": by_task,
         "message_assets": by_message,
-        "approvals": "1" if owner else f"requested_by={me} OR message_id IN (SELECT id FROM {inner('messages')} WHERE to_actor={me})",
+        "approvals": ("(task_id IS NULL OR " + by_task + ") AND " + by_message + " AND (" +
+                      ("1" if owner else f"requested_by={me} OR message_id IN (SELECT id FROM messages WHERE to_actor={me})") + ")"),
         "bots": bots_visible("slug"),
         "bot_status": bots_visible("bot"), "bot_status_history": bots_visible("bot"),
         "schedules": bots_visible("bot"), "bot_config": bots_visible("bot"), "bot_control": bots_visible("bot"),
         "bot_transitions": bots_visible("bot"), "assignments": bots_visible("bot"),
-        "schedule_config": by_schedule, "schedule_occurrences": by_schedule,
-        "turns": f"{bots_visible('bot')} AND (message_id IS NULL OR {by_message})",
+        "schedule_config": by_schedule, "schedule_occurrences": f"{by_schedule} AND (task_id IS NULL OR {by_task})",
+        "turns": f"{bots_visible('bot')} AND (message_id IS NULL OR {by_message}) AND "
+                 f"(task_id IS NULL OR {by_task}) AND " + excluding("id", denied_attempts),
         "deltas": "turn_id IN (SELECT id FROM turns)",
         "jobs": f"{bots_visible('bot')} AND {by_message}",
-        "attempts": by_job, "job_recovery": by_job,
+        "attempts": by_job + " AND " + excluding("id", denied_attempts), "job_recovery": by_job + " AND " + by_attempt,
         "attempt_events": by_attempt, "attempt_inputs": by_attempt, "attempt_conversations": by_attempt,
         "bot_transition_checkpoints": "conversation_id IN (SELECT id FROM conversations)",
         "task_types": "1", "task_steps": "1",
@@ -159,7 +183,7 @@ def guarded(c, auth, who, inner):
         "listen_judgments": "id IS NOT NULL" if listener else "item_id IN (SELECT id FROM listen_items)",
         # The roster, the sign-in lists and roles, onboarding: for the owner and the Admins.
         "registry_metadata": "1" if admin and not bot else "0",
-        "events": events, "refusals": "1" if owner else mine if bot else f"actor={me}",
+        "events": f"({events}) AND " + excluding("id", denied_events), "refusals": "1" if owner else mine if bot else f"actor={me}",
         "meetings": f"({meetings}) AND id NOT IN (SELECT meeting_id FROM {inner('media_control')} WHERE deleted_at IS NOT NULL)",
         "meeting_versions": by_meeting, "meeting_deliveries": by_meeting, "media_assets": by_meeting, "media_control": by_meeting,
         "meeting_items": by_meeting, "meeting_brain": by_meeting, "meeting_comments": by_meeting,
@@ -168,15 +192,16 @@ def guarded(c, auth, who, inner):
         "document_versions": "id IN (SELECT id FROM documents)",
         "docs": "id IS NOT NULL", "doc_versions": "doc_id IN (SELECT id FROM docs)",
         "linked_docs": "id IS NOT NULL",
-        "bot_files": ((f"bot={q(H.actor_id(who.actor))} AND " if bot else "")
+        "bot_files": (excluding("id", denied_files) + " AND " + (f"bot={q(H.actor_id(who.actor))} AND " if bot else "")
                       + f"(CASE WHEN scope LIKE 'task:%' THEN substr(scope,6) IN (SELECT id FROM tasks) "
                         "WHEN scope LIKE 'conversation:%' THEN substr(scope,14) IN (SELECT id FROM conversations) "
                         f"ELSE {bots_visible('bot')} END)"),
         "bot_file_versions": "file_id IN (SELECT id FROM bot_files)",
         "bot_file_activity": "file_id IN (SELECT id FROM bot_files)",
         # The company owner is not thereby the owner of everyone's private attachments (media.py).
-        "blobs": ("" if bot else f"owner={me} OR ") + "id IN (SELECT blob_id FROM message_assets) "
-                 "OR id IN (SELECT blob_id FROM task_assets) OR id IN (SELECT blob_id FROM media_assets)",
+        "blobs": excluding("id", denied_blobs) + " AND (" + ("" if bot else f"owner={me} OR ") +
+                 "id IN (SELECT blob_id FROM message_assets) OR id IN (SELECT blob_id FROM task_assets) "
+                 "OR id IN (SELECT blob_id FROM media_assets))",
         "archives": "1" if owner else "0" if bot else f"owner={me}",
         "connector_snapshots": "1" if owner else "0" if bot else f"owner={q(person)}",
         "service_jobs": "1" if owner else "0" if bot else f"requested_by={me}",
@@ -186,6 +211,18 @@ def guarded(c, auth, who, inner):
         "mail_fts": "1" if owner else "0",
         "slack_posts": by_message if owner else "message_id IS NULL",
     }
+    for table in ("bot_status", "bot_status_history"):
+        denied = [r["id"] for r in c.execute("SELECT * FROM tasks")
+                  if not H.task_private_readable(c, who.actor, dict(r))]
+        rules[table] += " AND (task_id IS NULL OR " + excluding("task_id", denied) + ")"
+        # Untagged free-form status can retain the previous private turn's content.
+        if denied:
+            rules[table] += " AND bot NOT IN (SELECT substr(owner,5) FROM " + inner("tasks") + \
+                " WHERE id IN " + qlist(denied) + " UNION SELECT substr(requester,5) FROM " + inner("tasks") + \
+                " WHERE id IN " + qlist(denied) + ")"
+    rules["task_file_reviews"] = "file_id IN (SELECT id FROM bot_files) OR file_id IN (SELECT id FROM blobs)"
+    rules["bot_file_activity"] += " AND (task_id IS NULL OR " + by_task + ") AND (attempt_id IS NULL OR " + by_attempt + ")"
+    rules["bot_file_versions"] += " AND (attempt_id IS NULL OR " + by_attempt + ")"
     hidden = {table: set(HIDDEN.get(table, ())) for table in rules}
     if bot:
         hidden["humans"].add("email")
@@ -210,7 +247,14 @@ def connect(path, c, auth, who):
             names = ",".join(f'"{column}"' for column in columns)
             conn.execute(f'CREATE TEMP VIEW {inner(table)} AS SELECT {names} FROM main."{table}"')
         for table, (predicate, _) in tables.items():
-            conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT * FROM {inner(table)} WHERE {predicate}')
+            projection = "*"
+            if table == "tasks":
+                columns = [r[1] for r in conn.execute('PRAGMA table_info("main"."tasks")')]
+                projection = ",".join(f'CASE WHEN "{col}" IN (SELECT id FROM tasks) THEN "{col}" ELSE NULL END AS "{col}"'
+                                      if col in ("parent_id", "blocked_by") else f'"{col}"' for col in columns)
+                # Avoid a self-recursive view while checking the referenced task's rights.
+                projection = projection.replace("SELECT id FROM tasks", f"SELECT id FROM {inner('tasks')} WHERE {predicate}")
+            conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT {projection} FROM {inner(table)} WHERE {predicate}')
         # Older SQLite versions initialize JSON virtual tables with schema authorization calls.
         # Initialize only these built-ins before installing the read-only authorizer.
         for function in sorted(TABLE_FUNCTIONS):

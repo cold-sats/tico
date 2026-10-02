@@ -23,6 +23,7 @@ from . import models as M
 from .auth import Identity
 from .blobs import register
 from .store import H, Problem, encode, repo_url
+from . import task_privacy as privacy
 from clients import bot_files as BF
 
 SCHEMA = """
@@ -121,6 +122,8 @@ class Files:
         if not row or (who.role == "runner" and row["runner_id"] != who.runner_id):
             raise Problem("forbidden", "That turn is not this computer's", 403)
         message, conversation = H.message(c, row["mid"]), H.conversation(c, row["conversation_id"])
+        if not privacy.attempt_readable(c, "bot:" + bot, attempt_id):
+            raise Problem("privacy", "This bot can no longer read the task for this turn", 403)
         return row["conversation_id"], H.message_task_id(message, conversation)
 
     def target(self, c, who, bot, fields):
@@ -138,6 +141,9 @@ class Files:
             acting = who if who.role == "bot" else Identity("bot:" + bot, "bot", runner_id=who.runner_id, attempt_id=attempt)
             self.auth.task(c, acting, task)
         if wanted == "bot":
+            if ((task or turn_task) and H.task_private(c, H.task(c, task or turn_task))
+                    or attempt and any(H.task_private(c, H.task(c, tid)) for tid in privacy.attempt_tasks(c, attempt))):
+                raise Problem("privacy", "Private task files stay on their task", 403)
             if conversation and not turn_task and not task:
                 raise Problem("forbidden", "A bot cannot make a chat's file bot-wide; an owner promotes it", 403)
             return "bot", task or turn_task, None, attempt
@@ -485,6 +491,8 @@ class Files:
                     self.auth.task(c, who, body.task)
                 fields["task_id"] = body.task or None
             if body.promote:
+                if row["task_id"] and H.task_private(c, H.task(c, row["task_id"])):
+                    raise Problem("privacy", "Private task files stay on their task", 403)
                 if row["scope"] == "bot":
                     raise Problem("conflict", "This file is already bot-wide", 409)
                 if self.find(c, row["bot"], "bot", row["identity"]):
@@ -514,6 +522,13 @@ class Files:
         """Whether `who` may know this file exists: its scope's visibility, and never a runner's."""
         if who.role not in ("owner", "human", "bot"):
             return False
+        if row["task_id"] and not H.task_private_readable(c, who.actor, H.task(c, row["task_id"])):
+            return False
+        for version in c.execute("SELECT blob_id,attempt_id FROM bot_file_versions WHERE file_id=?", (row["id"],)):
+            if not privacy.blob_readable(c, who.actor, version["blob_id"]):
+                return False
+            if version["attempt_id"] and not privacy.attempt_readable(c, who.actor, version["attempt_id"]):
+                return False
         if who.role == "bot" and H.actor_id(who.actor) != row["bot"] and not row["scope"].startswith("task:"):
             return False
         key = row["scope"]
@@ -642,6 +657,7 @@ class Files:
             rows = [{"id": r["id"], "actor": r["actor"], "action": r["action"], "task_id": r["task_id"],
                      "version": r["version"], "digest": r["digest"], "created": r["created"]}
                     for r in c.execute("SELECT * FROM bot_file_activity WHERE file_id=? ORDER BY id DESC LIMIT 500", (fid,))]
+            rows = [r for r in rows if not r["task_id"] or H.task_private_readable(c, who.actor, H.task(c, r["task_id"]))]
             return {"file": fid, "activity": rows}
 
     def serve(self, who, fid, version=None, meta=False, request=None, derivative=None):

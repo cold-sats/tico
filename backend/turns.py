@@ -14,6 +14,7 @@ import re
 from fastapi import Request
 
 from .store import H, Problem
+from . import task_privacy as privacy
 
 SAID_CHARS, THINKING_CHARS, STEP_LIMIT = 280, 2000, 300
 # A tool event that opens a call; the next event for the same call closes it.
@@ -177,6 +178,7 @@ def mark_runs(c, messages):
 def annotate(c, auth, who, messages):
     """Add `run` (which run handled it), `ref_tasks` and, on a bot's reply, what the run did to
     messages this reader may already see."""
+    messages[:] = [m for m in messages if privacy.message_readable(c, who.actor, m)]
     mark_runs(c, messages)
     titles = {}
     for tid in {v for m in messages for v in task_refs(m)}:
@@ -196,7 +198,8 @@ def annotate(c, auth, who, messages):
         f"SELECT id,bot,created,started,finished FROM attempts WHERE id IN ({marks})", tuple(replies))}
     # What a bot did to answer is its run log: Read. Someone who may only write to it gets the answer.
     access = auth.bot_accesses(c, who, sorted({t["bot"] for t in turns.values()}))
-    turns = {aid: t for aid, t in turns.items() if access.get(t["bot"], auth.FULL)["read"]}
+    turns = {aid: t for aid, t in turns.items() if access.get(t["bot"], auth.FULL)["read"]
+             and privacy.attempt_readable(c, who.actor, aid)}
     replies = {aid: m for aid, m in replies.items() if aid in turns}
     if not turns:
         return messages
@@ -219,7 +222,7 @@ def annotate(c, auth, who, messages):
     for row in c.execute(f"SELECT l.*,t.owner,t.requester,t.id AS tid FROM task_links l JOIN tasks t ON t.id=l.task_id "
                          f"WHERE l.added_by IN ({who_marks}) AND l.created BETWEEN ? AND ?", (*actors, lo, hi)):
         aid = owner_of(row["added_by"], row["created"])
-        if aid and readable(lambda: auth.task_row(c, who, {"id": row["tid"], "owner": row["owner"], "requester": row["requester"]})):
+        if aid and readable(lambda: auth.task(c, who, row["tid"])):
             did[aid].append({"kind": "link", "url": row["url"], "title": row["title"] or "", "at": row["created"]})
     rooms_of = {aid: replies[aid]["conversation_id"] for aid in turns}
     for row in c.execute(f"SELECT id,conversation_id,from_actor,to_actor,kind,body,created FROM messages "
@@ -228,7 +231,7 @@ def annotate(c, auth, who, messages):
         aid = owner_of(row["from_actor"], row["created"])
         if not aid or row["conversation_id"] == rooms_of[aid] or row["to_actor"] == row["from_actor"]:
             continue
-        if readable(lambda: auth.conversation(c, who, row["conversation_id"])):
+        if readable(lambda: auth.conversation(c, who, row["conversation_id"])) and privacy.message_readable(c, who.actor, row):
             did[aid].append({"kind": row["kind"], "to": row["to_actor"], "text": clip(row["body"], 160), "at": row["created"]})
     for row in c.execute(f"SELECT ts,actor,rule,detail_json FROM refusals WHERE actor IN ({who_marks}) AND ts BETWEEN ? AND ?",
                          (*actors, lo, hi)):
@@ -259,6 +262,7 @@ def install(app, store, auth):
             if not row:
                 raise Problem("not_found", "Turn not found", 404)
             auth.conversation(c, who, row["conversation_id"])
+            privacy.require_attempt(c, who, aid)
             auth.require_read(c, who, row["bot"])
             events = [(r["kind"], json.loads(r["payload_json"]), r["created"]) for r in c.execute(
                 f"SELECT kind,payload_json,created FROM attempt_events WHERE attempt_id=? AND {STEP_EVENTS} ORDER BY seq",
