@@ -18,6 +18,7 @@ from pathlib import Path
 PLACEHOLDER = "@TICO_VERSION@"
 VERSION_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$")
 # What `docker compose up` and the setup wizard need on a server; nothing else is shipped here.
+# Ship compose.yaml verbatim so upgrades receive its current server environment forwarding.
 FILES = ("compose.yaml", ".env.example", "docker/runner.compose.yaml", "scripts/tico-setup", "LICENSE", "NOTICE")
 WIZARD_DIR = "setup"
 

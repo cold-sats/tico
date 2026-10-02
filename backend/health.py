@@ -10,7 +10,7 @@ import json
 import os
 import shlex
 
-from . import access, inbox_isolation, model_login, providers, releases, runner_versions, watchers
+from . import access, blob_s3, inbox_isolation, model_login, providers, releases, runner_versions, watchers
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 
 
@@ -357,7 +357,7 @@ def storage_view(c, settings):
     row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-copy'").fetchone()
     detail = json.loads(row["detail_json"] or "{}") if row else {}
     return {"mode": "s3" if settings.blob_bucket else "local", "bucket": settings.blob_bucket,
-            "region": settings.blob_region, "files": usage["files"], "bytes": usage["bytes"],
+            "region": blob_s3.region(settings) or "", "files": usage["files"], "bytes": usage["bytes"],
             "copy": {key: detail.get(key, 0) for key in ("done", "total", "failed")}}
 
 
@@ -374,7 +374,13 @@ def view(c, who, settings, auth, github, config):
     if full and settings.blob_bucket:
         health = c.execute("SELECT * FROM service_health WHERE service='blob-copy'").fetchone()
         detail = json.loads(health["detail_json"] or "{}") if health else {}
-        if detail.get("running") or detail.get("error"):
+        write_health = c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()
+        write_detail = json.loads(write_health["detail_json"] or "{}") if write_health else {}
+        location = settings.blob_bucket + ("/" + settings.blob_prefix if settings.blob_prefix else "")
+        if write_detail.get("error") and write_detail.get("location") == location:
+            checks.append(_check("blob_storage", "File storage", "warn", write_detail["error"],
+                                 [_fix("Storage", "https://github.com/ticoteam/tico/blob/main/docs/files.md#storage")]))
+        elif detail.get("running") or detail.get("error"):
             summary = f"Moving files to S3: {detail.get('done', 0)} of {detail.get('total', 0)}"
             if detail.get("error"):
                 summary += ". " + detail["error"]

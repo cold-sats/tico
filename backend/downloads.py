@@ -34,7 +34,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .store import Problem
-from . import releases
+from . import blob_s3, releases
 
 PREFIX = "releases/app/"
 OS_NAMES = ("mac", "windows", "linux")
@@ -61,9 +61,7 @@ class Downloads:
     @property
     def s3(self):
         if self._s3 is None:
-            import boto3
-            self._s3 = boto3.client("s3", region_name=self.settings.blob_region or None,
-                                    endpoint_url=self.settings.blob_endpoint or None)
+            self._s3 = blob_s3.client(self.settings)
         return self._s3
 
     def manifest(self):

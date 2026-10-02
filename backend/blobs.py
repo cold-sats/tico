@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from .store import H, Problem
+from . import blob_s3
 
 
 class Blobs:
@@ -27,9 +28,7 @@ class Blobs:
     @property
     def s3(self):
         if self._s3 is None:
-            import boto3
-            self._s3 = boto3.client("s3", region_name=self.settings.blob_region or None,
-                                    endpoint_url=self.settings.blob_endpoint or None)
+            self._s3 = blob_s3.client(self.settings)
         return self._s3
 
     @staticmethod
@@ -126,7 +125,7 @@ class Blobs:
                 if not self._matches_s3(digest, size):
                     raise Problem("blob_integrity", "Stored file failed its integrity check", 503) from exc
             else:
-                raise Problem("blob_storage", "S3 file storage is unavailable; retry without discarding your file", 503, True) from exc
+                raise Problem("blob_storage", blob_s3.write_error(exc, self.bucket) + "; retry without discarding your file", 503, True) from exc
 
     def _matches_s3(self, digest, size):
         try:
@@ -213,6 +212,7 @@ class Blobs:
     def copy_local(self, store, stop, interval=0.25):
         if not self.bucket or self.rehearsal:
             return
+        self.check_write(store)
         with store.read() as c:
             rows = list(c.execute("SELECT digest,MAX(content_type) AS content_type FROM blobs GROUP BY digest"))
             known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (self.location,))}
@@ -247,6 +247,39 @@ class Blobs:
                 break
         self.copy_status["running"] = False
         self._copy_health(store)
+
+    def check_write(self, store):
+        """Check PutObject permission without publishing a file or requiring DeleteObject."""
+        with store.read() as c:
+            row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()
+        previous = json.loads(row["detail_json"] or "{}") if row else {}
+        # Retain at most one unfinished probe if abort fails; retry its cleanup on the next start.
+        pending = previous if previous.get("upload_id") else {}
+        error = ""
+        try:
+            if pending:
+                try:
+                    self.s3.abort_multipart_upload(Bucket=pending["bucket"], Key=pending["key"], UploadId=pending["upload_id"])
+                except Exception as exc:
+                    if getattr(exc, "response", {}).get("Error", {}).get("Code") != "NoSuchUpload":
+                        raise
+                pending = {}
+            key = self.s3_key(hashlib.sha256(b"Tico storage write check").hexdigest())
+            result = self.s3.create_multipart_upload(Bucket=self.bucket, Key=key, ServerSideEncryption="AES256")
+            pending = {"bucket": self.bucket, "key": key, "upload_id": result["UploadId"]}
+            self._write_health(store, pending, "")
+            self.s3.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=pending["upload_id"])
+            pending = {}
+        except Exception as exc:
+            error = blob_s3.write_error(exc, pending.get("bucket", self.bucket))
+        self._write_health(store, pending, error)
+
+    def _write_health(self, store, pending, error):
+        detail = {**pending, "location": self.location, "error": error}
+        with store.transaction() as c:
+            c.execute("INSERT INTO service_health(service,last_success,last_error,detail_json) VALUES(?,?,?,?) "
+                      "ON CONFLICT(service) DO UPDATE SET last_success=excluded.last_success,last_error=excluded.last_error,detail_json=excluded.detail_json",
+                      ("blob-s3", H.now() if not error else None, H.now() if error else None, json.dumps(detail)))
 
     def _copy_health(self, store):
         with store.transaction() as c:

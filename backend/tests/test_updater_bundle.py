@@ -122,6 +122,28 @@ def test_update_replaces_the_bundle_and_never_env(monkeypatch, tmp_path, release
     assert any(c[-1] == "slack" for c in ups) and not any(c[-1] == "updater" for c in ups)
 
 
+def test_server_update_installs_release_storage_forwarding(monkeypatch, tmp_path, release_server):
+    import yaml
+    from scripts.build_install_bundle import build_bundle
+    from backend.tests.test_server_compose import STORAGE_KEYS
+
+    base, assets, _ = release_server
+    archive = build_bundle(SOURCE.parents[1], "v0.3.9")
+    assets["/download/v0.3.9/tico-bundle-v0.3.9.tar.gz"] = archive
+    assets["/download/v0.3.9/SHA256SUMS"] = (hashlib.sha256(archive).hexdigest() + "  tico-bundle-v0.3.9.tar.gz\n").encode()
+    updater = load(monkeypatch, tmp_path, base)
+    project = tmp_path / "project"
+    install(project)
+    (project / ".env").write_text("TICO_COMPANY_NAME=Acme\nTICO_BLOB_BUCKET=acme-files\nTICO_UPLOAD_MAX_BYTES=1024\n")
+    docker = Docker(updater, monkeypatch, [True])
+    updater.update("v0.3.9")
+    assert updater.status["state"] == "healthy", updater.status
+    for content in docker.compose_at_up:
+        assert STORAGE_KEYS <= set(yaml.safe_load(content)["services"]["server"]["environment"])
+    assert docker.compose_at_up
+    assert (project / ".env").read_text() == "TICO_COMPANY_NAME=Acme\nTICO_BLOB_BUCKET=acme-files\nTICO_UPLOAD_MAX_BYTES=1024\nTICO_TAG=v0.3.9\n"
+
+
 def test_a_checksum_mismatch_is_refused_and_changes_nothing(monkeypatch, tmp_path, release_server):
     base, _, publish = release_server
     publish("v0.2.0", NEW, tamper=True)

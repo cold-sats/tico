@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Docker installs forward attachment bucket settings and AWS credentials, automatically reuse backup keys for S3 files and downloads, and show denied S3 write checks in Health while retaining local read fallback.
+
 ## [0.3.9] - 2026-10-02
 
 ### Fixed
