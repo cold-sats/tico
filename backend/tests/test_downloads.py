@@ -48,7 +48,7 @@ def test_installers_and_the_manifest_are_served_without_a_sign_in(api):
     assert api.get("/download/linux", follow_redirects=False).status_code == 404   # not in this manifest
     described = api.get("/api/download/mac", headers=headers()).json()
     assert described == {"available": True, "version": "2.1.0", "file": "Tico_2.1.0_universal.dmg", "size_mb": 12,
-                         "url": "https://runner.test/download/file/2.1.0/Tico_2.1.0_universal.dmg", "notarized": True, "signed": True}
+                         "url": "https://runner.test/download/file/2.1.0/Tico_2.1.0_universal.dmg", "notarized": True, "signed": True, "app_kind": "company"}
     assert api.get("/api/download/windows", headers=headers()).json()["notarized"] is False
 
 
@@ -86,10 +86,11 @@ def test_no_bucket_uses_running_github_release_and_caches_without_credentials(ap
         assert response.status_code == 302 and response.headers["location"] == base + name
         described = api.get("/api/download/" + os_name, headers=headers()).json()
         assert described["available"] is True and described["url"] == base + name
+        assert described["app_kind"] == "generic"
     assert len(requests) == 2
 
 
-@pytest.mark.parametrize("bucket_version,github_expected", [("0.3.6", True), ("0.3.7", False), ("0.3.8", False), ("0.3.10", False)])
+@pytest.mark.parametrize("bucket_version,github_expected", [("0.3.6", False), ("0.3.7", False), ("0.3.8", False), ("0.3.10", False)])
 def test_bucket_version_selection(bucket_version, github_expected):
     base, release, value = github_fixture()
     requests = []

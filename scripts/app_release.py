@@ -18,6 +18,7 @@ manifest using public GitHub asset URLs, without credentials or S3. `--tag` pres
 """
 import argparse
 import json
+import re
 import sys
 from urllib.parse import quote
 from datetime import datetime, timezone
@@ -68,14 +69,14 @@ def manifest(version, base, scans, previous, notes="", signed=False, notarized=F
             if not entry.get("signature"):
                 raise SystemExit(f"{entry['file']} has no .sig beside it; build with TAURI_SIGNING_PRIVATE_KEY set")
             platforms[target] = {"signature": entry["signature"],
-                                 "url": f"{asset_base}/{quote(entry['file'])}" if github else f"{base}/download/file/{version}/{entry['file']}"}
+                                 "url": f"{asset_base}/{quote(entry['file'])}" if github else f"{base}/download/file/{quote(version, safe='')}/{quote(entry['file'])}"}
         for os_name, entry in scan["installers"].items():
             installers[os_name] = {"file": entry["file"], "bytes": entry["bytes"],
                                    "signed": signed, "notarized": notarized and os_name == "mac"}
             if github:
                 installers[os_name]["url"] = f"{asset_base}/{quote(entry['file'])}"
     return {"version": version, "notes": notes, "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "platforms": platforms, "installers": installers}
+            "platforms": platforms, "installers": installers, "app_kind": "generic" if github else "company"}
 
 
 def main(argv):
@@ -91,7 +92,16 @@ def main(argv):
     parser.add_argument("--signed", action="store_true")
     parser.add_argument("--notarized", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--prefix", default="", help="storage prefix before releases/app/")
+    parser.add_argument("--quiet", action="store_true", help="do not print private manifest or filenames")
+    parser.add_argument("--complete", action="store_true", help="require all company platforms before publishing")
     args = parser.parse_args(argv)
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?", args.version):
+        parser.error("invalid version")
+    prefix = args.prefix.strip("/")
+    if prefix and (not re.fullmatch(r"[A-Za-z0-9_/-]+", prefix) or any(p in ("", ".", "..") for p in prefix.split("/"))):
+        parser.error("invalid storage prefix")
+    prefix = (prefix + "/" if prefix else "") + PREFIX
     if not args.github and (not args.bucket or not args.base):
         parser.error("--bucket and --base are required unless --github is set")
     scans = [classify(d) for d in args.dirs]
@@ -103,16 +113,19 @@ def main(argv):
         import boto3
         s3 = boto3.client("s3")
         try:
-            previous = json.loads(s3.get_object(Bucket=args.bucket, Key=PREFIX + "latest.json")["Body"].read())
+            previous = json.loads(s3.get_object(Bucket=args.bucket, Key=prefix + "latest.json")["Body"].read())
+            if args.complete:
+                previous = None
         except Exception:
             previous = None
     value = manifest(args.version, (args.base or "").rstrip("/"), scans, previous, args.notes, args.signed,
                      args.notarized, args.github, args.tag)
-    if args.github:
+    if args.github or args.complete:
         required = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64", "linux-x86_64"}
         if not required.issubset(value["platforms"]) or not {"mac", "windows", "linux", "linux_deb"}.issubset(value["installers"]):
             raise SystemExit("GitHub releases need macOS universal, Windows NSIS, Linux AppImage and Debian bundles")
-    print(json.dumps(value, indent=2))
+    if not args.quiet:
+        print(json.dumps(value, indent=2))
     if args.dry_run:
         return 0
     if args.github:
@@ -120,12 +133,14 @@ def main(argv):
         return 0
     for scan in scans:
         for path in scan["files"]:
-            key = f"{PREFIX}{args.version}/{path.name}"
-            print("upload", key, file=sys.stderr)
+            key = f"{prefix}{args.version}/{path.name}"
+            if not args.quiet:
+                print("upload", key, file=sys.stderr)
             s3.upload_file(str(path), args.bucket, key)
-    s3.put_object(Bucket=args.bucket, Key=PREFIX + "latest.json", Body=json.dumps(value).encode(),
+    s3.put_object(Bucket=args.bucket, Key=prefix + "latest.json", Body=json.dumps(value).encode(),
                   ContentType="application/json", CacheControl="no-cache")
-    print("published", args.version, file=sys.stderr)
+    if not args.quiet:
+        print("published", args.version, file=sys.stderr)
     return 0
 
 

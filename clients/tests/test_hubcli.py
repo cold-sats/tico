@@ -491,3 +491,21 @@ class Tags(unittest.TestCase):
         self.assertEqual(task.add, ["release-2026-10-02"])
         for name in ("hub_tag_list", "hub_tag_show", "hub_tag_create", "hub_tag_update"):
             self.assertIn(name, hubtools.BY_NAME)
+
+
+def test_team_icon_cli_streams_the_owner_logo(tmp_path, monkeypatch):
+    from clients import remotecli
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(b"logo")
+    calls = []
+    class IconClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        def post_bytes(self, path, source):
+            calls.append((path, source.read()))
+            return {"url": "/api/v2/team/icon"}
+    monkeypatch.setenv("HUB_API_URL", "https://tico.example.com")
+    monkeypatch.setattr(remotecli, "Client", IconClient)
+    args = hubcli.parser().parse_args(["team", "icon", str(logo)])
+    assert remotecli.run(args) == {"url": "/api/v2/team/icon"}
+    assert calls == [("team/icon", b"logo")]

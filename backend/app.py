@@ -303,6 +303,8 @@ def create_app(settings=None):
             # updater has no browser session, and a build is nothing to protect.
             if request.url.path.startswith("/download/") and request.method == "GET":
                 return await call_next(request)
+            if request.url.path == "/api/v2/team/icon" and request.method == "GET":
+                return await call_next(request)
             # The repository webhook (backend/github.py) carries its own HMAC signature.
             if request.url.path == GITHUB_WEBHOOK_PATH and request.method == "POST":
                 return await call_next(request)
@@ -3545,6 +3547,8 @@ def create_app(settings=None):
     install_media(app, store, auth, mutate, send, task_create)
     from .downloads import install_downloads
     install_downloads(app, store)
+    from .team_icon import install_team_icon
+    install_team_icon(app, store)
     from .meeting_items import install_meeting_items
     install_meeting_items(app, store, mutate, task_create)
     from .connectors import install_connectors

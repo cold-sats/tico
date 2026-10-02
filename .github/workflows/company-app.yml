@@ -1,0 +1,127 @@
+# Company values come only from a private repository secret. This workflow never publishes to GitHub.
+name: Company desktop app
+on:
+  workflow_call:
+    inputs:
+      company:
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: universal-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+    # Do not cache branded binaries into caches a generic public build could restore.
+    runs-on: ${{ matrix.os }}
+    env:
+      TICO_COMPANY_APPS: ${{ secrets.TICO_COMPANY_APPS }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpulse-dev
+      - name: Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Configure private company app
+        shell: bash
+        run: python scripts/company_apps.py configure --company '${{ inputs.company }}'
+      - name: Apple signing identity
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          [ -n "$APPLE_CERTIFICATE" ] || exit 0
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm certificate.p12
+      - name: Apple signing and notarization, only when the secrets exist
+        if: runner.os == 'macOS'
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ID: ${{ secrets.APPLE_ID }}
+          PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # An empty APPLE_SIGNING_IDENTITY makes the bundler try to sign with nothing; only a
+          # real identity goes into the environment. Without one, tauri.conf.json signs ad hoc.
+          [ -n "$IDENTITY" ] && echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          [ -n "$ID" ] && echo "APPLE_ID=$ID" >> "$GITHUB_ENV"
+          [ -n "$PASSWORD" ] && echo "APPLE_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+          [ -n "$TEAM" ] && echo "APPLE_TEAM_ID=$TEAM" >> "$GITHUB_ENV"
+          true
+      - name: Build private company app
+        shell: bash
+        run: python scripts/company_apps.py build --company '${{ inputs.company }}' --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Collect bundles
+        shell: bash
+        run: |
+          mkdir -p out
+          if ! find app/target/${{ matrix.target }}/release/bundle -type f \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name '*-setup.exe' -o -name '*-setup.exe.sig' -o -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.deb' \) -exec cp {} out/ \; 2>/dev/null; then
+            echo '::error::Company bundle collection failed; check build output and disk space'
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: company-${{ inputs.company }}-${{ matrix.target }}
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TICO_COMPANY_APPS: ${{ secrets.TICO_COMPANY_APPS }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Configure and mask private publish values
+        run: python scripts/company_apps.py configure --company '${{ inputs.company }}'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: company-${{ inputs.company }}-*
+          path: bundles
+          merge-multiple: true
+      - name: Assume this company's publisher role
+        uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ env.COMPANY_ROLE }}
+          aws-region: us-west-2
+          mask-aws-account-id: true
+          role-session-name: tico-company-${{ github.run_id }}
+      - run: pip install "$(grep '^boto3==' backend/requirements.txt)"
+      - name: Publish company bundles and updater manifest
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: python scripts/company_apps.py publish --company '${{ inputs.company }}'
+      - name: Report company publication failure
+        if: failure()
+        run: echo '::error::Company publication failed for ${{ inputs.company }}; public release and other companies continue.'
