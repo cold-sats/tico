@@ -373,6 +373,10 @@ See [Computer sign-in and diagnostics](install.md#linux-or-cloud-server-docker).
    A key left in `workspace/secrets/google-sa.json` (an older install, or an older version of this page) is moved there within
    a minute. Bots cannot read that place: a message bot's run asks the runner for a short-lived token for one mailbox instead
    (below).
+   Re-enrollment on the same volume carries the protected key from the previous registration into the new state directory,
+   preserving its permissions. The operator and server must match; another operator's key is never copied, and an existing
+   key in the new registration is kept. The previous key remains available for rollback.
+   Health warns when an assigned teammate's Tool reports a missing Credential, naming the Tool and Computer.
 3. Wait a minute. `docker logs '<container-name>'` says `Tico side jobs: started connectors (mail, calendar)`. The first start builds
    the Python environment into the runner's volume (`/home/runner/tools/mail-venv`, or `/var/lib/tico-runner/tools/mail-venv`),
    about a minute, needing outbound access to PyPI once. It is not in the image, so the image stays slim for runners that never sync mail;

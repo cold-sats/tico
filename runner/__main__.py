@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from clients.tico import Client
-from . import importers, profiles
+from . import importers, mail_key, profiles
 from .service import Runner
 
 
@@ -112,9 +112,12 @@ def main(argv=None):
         fd = os.open(args.config, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "w") as stream:
             json.dump(config, stream, indent=2)
+        mail_key.carry_protected(config, args.config)
         print(json.dumps({"runner_id": result["runner_id"], "config": str(args.config), "operator": result["operator"]}))
         return
     config = json.loads(args.config.read_text())
+    config.setdefault("state_dir", str(args.config.parent / ("state-" + config["runner_id"])))
+    mail_key.carry_protected(config, args.config)
     if args.command == "profile":
         return profile_command(parser, args, config)
     client = Client(config["url"], config["token"])

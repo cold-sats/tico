@@ -10,7 +10,9 @@ stays where it was and bots can read it: `exposed` says so, and Settings > Healt
 """
 import json
 import os
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 
 from . import isolation
@@ -18,6 +20,66 @@ from .outage import log
 
 FILE = "google-sa.json"
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def carry_protected(config, config_path):
+    """Recover the mail key after re-enrollment, only from this operator's previous registration.
+
+    The container retains runner.json.stale when replacing a rejected registration. Never scan
+    unrelated state directories: their ownership alone does not identify the Team operator.
+    Leave the old key intact for rollback; never replace a key already in the new registration.
+    """
+    config_path = Path(config_path)
+    stale = config_path.with_name(config_path.name + ".stale")
+    temporary = None
+    try:
+        uid = os.getuid()
+        parent = config_path.parent.stat()
+        info = stale.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_dev != parent.st_dev or info.st_mode & 0o077:
+            return False
+        previous = json.loads(stale.read_text())
+        if not isinstance(previous, dict):
+            return False
+        if not config.get("operator") or any(previous.get(k) != config.get(k) for k in ("operator", "url")):
+            return False
+        if previous.get("environment") and config.get("environment") and previous["environment"] != config["environment"]:
+            return False
+        old_id = str(previous.get("runner_id") or "")
+        new_id = str(config.get("runner_id") or "")
+        if not old_id or not new_id or any("/" in ident or ident in (".", "..") for ident in (old_id, new_id)):
+            return False
+        old = config_path.parent / ("state-" + old_id)
+        new = config_path.parent / ("state-" + new_id)
+        new.mkdir(mode=0o700, exist_ok=True)
+        for directory in (old, new):
+            info = directory.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_dev != parent.st_dev or info.st_mode & 0o066:
+                return False
+        source = old / FILE
+        descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_dev != parent.st_dev or info.st_mode & 0o077:
+                return False
+            descriptor, temporary = tempfile.mkstemp(prefix=".mail-key-", dir=new)
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(handle.read())
+                os.fchmod(output.fileno(), stat.S_IMODE(info.st_mode))
+                output.flush()
+                os.fsync(output.fileno())
+            os.link(temporary, new / FILE)     # publish a complete file without replacing an existing key
+        return True
+    except FileExistsError:
+        return False
+    except (OSError, ValueError, TypeError) as exc:
+        if stale.exists():
+            log(f"Tico runner: could not carry the protected mail key to this registration ({type(exc).__name__}); "
+                "check free space and permissions on the runner volume; the old key is unchanged")
+        return False
+    finally:
+        if temporary is not None:
+            os.unlink(temporary)
 
 
 def protected_path(config):

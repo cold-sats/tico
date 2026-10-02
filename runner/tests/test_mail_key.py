@@ -149,3 +149,84 @@ def test_every_isolated_turn_is_pointed_at_the_socket_and_a_plain_runner_is_not(
     assert registered == [("t", "bot", []), ("t", "bot", ["ana@acme.team"])]
     env = {}
     assert Service.arm_credentials(SimpleNamespace(credentials=None), env, {"token": "t"}, "bot") is None and env == {}
+
+
+def previous_registration(tmp_path):
+    import json
+    config = {"runner_id": "new", "operator": "ana", "url": "https://tico.example.com", "environment": "team"}
+    stale = tmp_path / "runner.json.stale"
+    stale.write_text(json.dumps({**config, "runner_id": "old"}))
+    stale.chmod(0o600)
+    old = tmp_path / "state-old"
+    old.mkdir(mode=0o711)
+    key = old / mail_key.FILE
+    key.write_text('{"type": "service_account"}')
+    key.chmod(0o600)
+    return config, key
+
+def test_reenrollment_carries_the_protected_key_once_with_permissions(tmp_path):
+    config, key = previous_registration(tmp_path)
+    assert mail_key.carry_protected(config, tmp_path / "runner.json")
+    new = tmp_path / "state-new" / mail_key.FILE
+    assert new.read_bytes() == key.read_bytes()
+    assert stat.S_IMODE(new.stat().st_mode) == stat.S_IMODE(key.stat().st_mode) == 0o600
+    assert stat.S_IMODE(new.parent.stat().st_mode) == 0o700
+    new.write_text("existing")
+    assert not mail_key.carry_protected(config, tmp_path / "runner.json")
+    assert new.read_text() == "existing" and key.is_file()
+    assert not list(new.parent.glob(".mail-key-*"))
+
+@pytest.mark.parametrize("change", ["operator", "url", "environment", "directory-symlink", "file-symlink", "owner", "volume"])
+def test_reenrollment_never_imports_another_operators_key(tmp_path, monkeypatch, change):
+    config, key = previous_registration(tmp_path)
+    if change in ("operator", "url", "environment"):
+        config[change] = "different"
+    elif change == "directory-symlink":
+        moved = tmp_path / "other"
+        key.parent.rename(moved)
+        key.parent.symlink_to(moved, target_is_directory=True)
+    elif change == "file-symlink":
+        moved = tmp_path / "other-key"
+        key.rename(moved)
+        key.symlink_to(moved)
+    elif change == "owner":
+        monkeypatch.setattr(os, "getuid", lambda: key.stat().st_uid + 1)
+    elif change == "volume":
+        from pathlib import Path
+        real = Path.lstat
+        def different_volume(path):
+            result = real(path)
+            if path.name == "state-old":
+                values = list(result)
+                values[2] += 1
+                return os.stat_result(values)
+            return result
+        monkeypatch.setattr(Path, "lstat", different_volume)
+    assert not mail_key.carry_protected(config, tmp_path / "runner.json")
+    assert not (tmp_path / "state-new" / mail_key.FILE).exists()
+
+
+def test_enrollment_recovers_the_previous_registrations_protected_key(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from runner import __main__ as cli
+    config, old = previous_registration(tmp_path)
+    monkeypatch.setattr(cli, "Client", lambda *args: SimpleNamespace(post=lambda *args: {
+        "runner_id": "new", "operator": "ana", "token": "test-registration"}))
+    code = tmp_path / "code.json"
+    code.write_text(json.dumps({"code": "test-code"}))
+    cli.main(["--config", str(tmp_path / "runner.json"), "enroll", "--url", config["url"],
+              "--code-file", str(code), "--label", "Mail Computer", "--projects", str(tmp_path / "workspace"),
+              "--environment", "team"])
+    assert (tmp_path / "state-new" / mail_key.FILE).read_bytes() == old.read_bytes()
+
+
+def test_reenrollment_accepts_an_older_registration_without_environment(tmp_path):
+    import json
+    config, key = previous_registration(tmp_path)
+    stale = tmp_path / "runner.json.stale"
+    previous = json.loads(stale.read_text())
+    previous.pop("environment")
+    stale.write_text(json.dumps(previous))
+    assert mail_key.carry_protected(config, tmp_path / "runner.json")
+    assert (tmp_path / "state-new" / mail_key.FILE).read_bytes() == key.read_bytes()
