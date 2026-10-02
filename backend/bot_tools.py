@@ -119,9 +119,10 @@ def _repo_tool(settings, bot, repo, report):
     name = (url.split("github.com/", 1)[-1] if "github.com/" in url else url).removesuffix(".git")
     tool = {"id": "repo", "service": "github", "name": "GitHub", "logo_key": "github", "identity": name,
             "can": ["read", "write", "issues", "pull_requests"], "scope": {"repo": name}, "note": "", "url": url,
-            "status": "unknown", "detail": "Own repository: instructions and memory. Token capabilities are separate from declared tool policy."}
+            "status": "unknown", "detail": "Own repository: instructions and memory"}
     if report.get("repository_present") is True:
         tool["status"] = "ready"
+        tool["detail"] += "; checked out on its computer"
     elif report.get("repository_present") is False:
         tool["status"], tool["problem"] = "problem", "Repository is not checked out on the bot's computer"
     return tool
@@ -313,6 +314,8 @@ def listing(c, settings, bot):
             tools.append(repo)
     from .repositories import access
     app_row = c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
+    if repo and not app_row and repo in tools:
+        repo["detail"] += "; uses the computer's own GitHub sign-in (the GitHub App is not connected)"
     from .github_app import repo_of
     own = repo_of(state['row']['repo'] if state['row'] else '', settings.github_owner)
     org = app_row['org'] if app_row else settings.github_owner or (own.split('/')[0] if own else '')
@@ -326,7 +329,7 @@ def listing(c, settings, bot):
         tools.append({"id": f"github-extra-{index}", "service": "github", "name": "GitHub", "logo_key": "github",
                       "identity": name, "can": ["read", "write", "issues", "pull_requests"] if grant["access"] == "write" else ["read"], "scope": {"repo": name},
                       "note": "", "url": "https://github.com/" + name, "status": "unknown",
-                      "detail": "Granted repository. Token capabilities are separate from declared tool policy."})
+                      "detail": "Granted repository"})
     agent = state["agent"]
     if agent:
         online = bool(not agent["revoked_at"] and agent["last_seen"] and

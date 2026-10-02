@@ -16,10 +16,11 @@ function settingsChoiceFromValue(value) {
   const parts = String(value || '').split('::');
   return {harness: parts[0] || '', model: parts[1] || '', effort: parts[2] || ''};
 }
+// "Claude Opus 5 · high" (modelChoiceWords, ui/app/format.js); the tool that runs it only when it is not the model's own.
 const settingsChoiceLabel = (harness, model, effort) => {
   if (!model) return 'not set';
-  const left = [settingsHarnessName(harness) || harness, settingsModelName(model)].filter(Boolean).join('/');
-  return effort ? `${left} · ${settingsEffortName(effort)}` : left;
+  const row = settingsModel(model), own = row?.harnesses?.[0] || row?.runtime || harness;
+  return modelChoiceWords(model, settingsEffortName(effort), harness, own) || settingsModelName(model);
 };
 // A bot with no model of its own follows the team default; say which one it resolves to.
 function settingsDefaultLabel(e) {

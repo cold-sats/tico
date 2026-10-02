@@ -10,6 +10,9 @@ const docsHref = (id = '', extra = {}) => {
 };
 const docsIsAdmin = () => S.me?.role === 'owner' || !!S.me?.bot_admin;
 const docsDir = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+// A folder as a person reads it: "support/how-to" is "Support / How to". Only the words change; the path stays the path.
+const docsFolderWords = dir => String(dir || '').split('/').filter(Boolean)
+  .map(part => part.replace(/^_+/, '').replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()) || part).join(' / ');
 const docsLockMark = () => `<span class="docs-lock" title="Locked" aria-label="Locked">${DocsSearch.LOCK}</span>`;
 
 async function docsLoadAll(archived = false) {
@@ -91,14 +94,14 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
     const dirs = [...folders.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b));
     const internal = docs.length
       ? [...(folders.get('') || []).map(docItem),
-         ...dirs.map(dir => `<details open data-docs-folder="${esc(dir)}"><summary>${esc(dir)} <span class="muted">${folders.get(dir).length}</span></summary>${folders.get(dir).map(docItem).join('')}</details>`)].join('')
+         ...dirs.map(dir => `<details open data-docs-folder="${esc(dir)}"><summary title="${esc(dir)}">${esc(docsFolderWords(dir))} <span class="muted">${folders.get(dir).length}</span></summary>${folders.get(dir).map(docItem).join('')}</details>`)].join('')
       : `<div class="docs-empty-note"><p>No docs yet.</p>
           <div class="docs-empty-actions"><a class="docs-new" href="${docsHref('new')}" role="button">Write a doc</a><button class="ghost" type="button" data-docs-import>Import a file</button></div></div>`;
     const links = linked.length ? linked.map(linkRow).join('')
       : `<div class="docs-empty-note"><p>Point Tico at where your other docs live: a help site, a Drive folder, a Notion page or a repository. Tico stores only the link.</p>
           <div class="docs-empty-actions"><button class="ghost" type="button" data-docs-link>Add a link</button></div></div>`;
     browser.innerHTML = `<section class="docs-section" aria-labelledby="docs-h-internal"><header class="docs-section-head"><h2 id="docs-h-internal">${archived ? 'Archived docs' : 'Internal docs'} <span class="muted">${docs.length}</span></h2>
-        <a class="docs-mini" href="${docsHref('new')}" role="button" aria-label="New doc">+ New</a></header>${internal}</section>
+</header>${internal}</section>
       <section class="docs-section" aria-labelledby="docs-h-linked"><header class="docs-section-head"><h2 id="docs-h-linked">Linked docs <span class="muted">${linked.length}</span></h2>
         <button class="docs-mini" type="button" data-docs-link aria-label="Add a link">+ Add link</button></header>${links}</section>`;
     browser.querySelectorAll('details[data-docs-folder]').forEach(el => {
@@ -168,12 +171,12 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   const canChange = admin || !doc.locked;
   const meta = `Version ${doc.version} · Updated ${esc(ago(doc.updated))} by ${esc(doc.updated_by_name || doc.updated_by)}`;
   if (editing && canChange) {
-    reader.innerHTML = back + `<header class="docs-reader-head"><div class="docs-reader-title"><p class="muted docs-crumb">${esc(doc.path)}</p><h2>Edit ${esc(doc.title)}</h2><p class="muted">${meta}</p></div></header>`;
+    reader.innerHTML = back + `<header class="docs-reader-head"><div class="docs-reader-title"><p class="muted docs-crumb" title="${esc(doc.path)}">${esc(docsFolderWords(docsDir(doc.path)))}</p><h2>Edit ${esc(doc.title)}</h2><p class="muted">${meta}</p></div></header>`;
     reader.append(DocsEditor.editor({doc, onSaved: saved => { location.hash = docsHref(saved.id); }, onCancel: () => { location.hash = docsHref(doc.id); },
       onReload: () => { location.hash = docsHref(doc.id); }}));
     return;
   }
-  reader.innerHTML = `${back}<header class="docs-reader-head"><div class="docs-reader-title"><p class="muted docs-crumb">${esc(doc.path.split('/').join(' / '))}</p>
+  reader.innerHTML = `${back}<header class="docs-reader-head"><div class="docs-reader-title"><p class="muted docs-crumb" title="${esc(doc.path)}">${esc(docsFolderWords(docsDir(doc.path)))}</p>
       <h2>${esc(doc.title)}${doc.locked ? ` <span class="docs-lock-badge">${DocsSearch.LOCK}Locked</span>` : ''}</h2>
       <p class="muted" title="${esc(fmt(doc.updated))}">${meta}</p></div>
       <div class="docs-tools"><a class="docs-tool primary-tool" id="doc-edit" role="button" href="${docsHref(doc.id, {edit: 1})}"${canChange ? '' : ' aria-disabled="true" tabindex="-1" title="Locked: only an owner or bot administrator can change this doc"'}>Edit</a>

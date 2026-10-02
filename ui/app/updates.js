@@ -132,6 +132,7 @@ function updRender(state) {
   if (!items.length) html += '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">dynamic_feed</span><b>No updates yet.</b><span class="muted">The bots report in one at a time each morning.</span></div>';
   if (data.next_before) html += '<button type="button" class="ghost upd-more" data-upd-more>Load older</button>';
   feed.innerHTML = html;
+  const allRead = $('#upd-allread'); if (allRead) allRead.hidden = !items.some(u => !u.read);   // nothing to mark, no button
   updWatch(state);
 }
 // Seen for most of a second is read: queued here and sent in one small request.

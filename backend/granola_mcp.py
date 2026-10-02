@@ -112,7 +112,11 @@ class GranolaMCP:
                         payload.extend(chunk)
                         if len(payload) > 20_000_000:
                             raise GranolaError("bad_response")
-                    return httpx.Response(response.status_code, headers=response.headers, content=bytes(payload),
+                    # aiter_bytes() already decoded gzip/br: drop the encoding headers or the rebuilt response
+                    # decodes the body a second time and fails (Granola gzips every answer).
+                    headers = [(k, v) for k, v in response.headers.items()
+                               if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+                    return httpx.Response(response.status_code, headers=headers, content=bytes(payload),
                                           request=response.request)
         except httpx.HTTPError:
             raise GranolaError("unreachable") from None
@@ -138,7 +142,9 @@ class GranolaMCP:
             response = await self.http("POST", AUTH + "/oauth2/register", json={
                 "client_name": "Tico", "token_endpoint_auth_method": "none",
                 "grant_types": ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
-                "response_types": []})
+                # Granola rejects a registration without redirect_uris, even for a device-code client that never
+                # redirects ("redirect_uris must be an array"); a loopback address is never used.
+                "redirect_uris": ["http://127.0.0.1/callback"]})
             if response.status_code >= 400:
                 raise GranolaError()
             client_id = self.payload(response).get("client_id")
