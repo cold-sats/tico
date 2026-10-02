@@ -123,11 +123,8 @@ const refreshConfig = () => { if (!document.hidden && !nvBusy && S.me) get('/v2/
 setInterval(refreshConfig, 30000);  // with the app's poll: a release the server just learned of shows within a poll, not an hour
 document.addEventListener('visibilitychange', refreshConfig);   // a tab that was in the background asks the moment it is shown again
 // The main assistant is shown under the environment's assistant name, never its slug.
-// The built-in assistant reads as what it is. An assistant named after the team (the old default) is just "Assistant".
-const assistantShownName = () => {
-  const name = String(assistantName() || '').trim(), company = String(S.config.company_name || '').trim().toLowerCase();
-  return !name || name.toLowerCase() === company ? 'Assistant' : name;
-};
+// The built-in assistant reads as what it is (assistantName, ui/app/state.js).
+const assistantShownName = () => assistantName();
 const namedRoster = rows => rows.map(e => e.name === assistantBot() ? {...e, display_name: assistantShownName()} : e);
 // Small compatibility hook for separately loaded UI modules. It exposes only deployment mode,
 // never identity or credentials.

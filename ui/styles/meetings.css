@@ -60,7 +60,7 @@
 .round-add.primary{flex:0 0 36px;width:36px;height:36px;min-width:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-size:25px;font-weight:400;line-height:1}
 .notes{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .notes-list{min-width:0}
-.notes-filters{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);overflow-x:auto}
+.notes-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
 .notes-filters[hidden]{display:none}
 .notes-filters select{flex:none;width:auto;max-width:220px;font:inherit;font-size:13px;color:var(--ink);padding:5px 8px}
 .notes-filters .notes-count{margin-left:auto;padding-left:8px;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}

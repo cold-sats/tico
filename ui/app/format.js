@@ -12,8 +12,20 @@ const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const routineMayEdit = r => S.me?.role === 'owner' || (!!S.me?.id && (S.emps || []).find(e => e.name === (r.employee || r.bot))?.operator === S.me.id);
 const routinePaused = r => r.enabled === false || r.enabled === 0 ? ' <span class="pill" title="kept, not running">paused</span>' : '';
 // A routine runs on a cron or `on:` a hub event (docs/routines.md); one phrase for either.
-const EVENT_WORDS = {'meeting.ready': 'when a meeting is imported', 'recording.ready': 'when a meeting is imported'};
-const cadenceWords = r => r.on ? (EVENT_WORDS[r.on] || `on ${r.on}`) : cronWords(r.cron);
+const EVENT_WORDS = {'meeting.ready': 'when a meeting is imported', 'recording.ready': 'when a meeting is imported',
+  'market.insight.urgent': 'when an urgent market insight comes in'};
+// An event with no words of its own still reads as words: "market.price.changed" is "when market price changed".
+const eventWords = on => EVENT_WORDS[on] || `when ${String(on).replace(/[._-]+/g, ' ').trim()}`;
+const cadenceWords = r => r.on ? eventWords(r.on) : cronWords(r.cron);
+// A routine's time zone, short ("PDT"), and nothing when it is the viewer's own.
+const zoneWord = tz => {
+  if (!tz) return '';
+  try {
+    if (tz === Intl.DateTimeFormat().resolvedOptions().timeZone) return '';
+    return new Intl.DateTimeFormat('en-US', {timeZone: tz, timeZoneName: 'short'}).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || tz;
+  } catch { return tz; }
+};
+const cadenceZoned = r => { const z = !r.on && zoneWord(r.timezone); return cadenceWords(r) + (z ? ` ${z}` : ''); };
 const routineKind = r => r.kind || (r.on ? 'event' : 'cron');
 const routineIsInbox = r => !!(r.inbox && ((r.inbox.mailboxes || []).length || r.inbox.org_read));
 function routineMatches(r, filters) {
@@ -77,6 +89,12 @@ function occurrenceTableHTML(rows) {
 function cronWords(expr) {
   const f = (expr || '').trim().split(/\s+/); if (f.length !== 5) return expr;
   const [mi, hr, dom, mon, dow] = f;
+  // Every few minutes or hours, every day.
+  if (mon === '*' && dom === '*' && dow === '*') {
+    if (/^\*\/\d+$/.test(mi) && hr === '*') return `every ${mi.slice(2)} minutes`;
+    if (/^\d+$/.test(mi) && hr === '*') return +mi ? `every hour at :${mi.padStart(2, '0')}` : 'every hour';
+    if (/^\d+$/.test(mi) && /^\*\/\d+$/.test(hr)) return `every ${hr.slice(2)} hours` + (+mi ? ` at :${mi.padStart(2, '0')}` : '');
+  }
   if (!/^\d+$/.test(mi) || mon !== '*') return expr;
   const times = hr.split(',').every(h => /^\d+$/.test(h)) ? hr.split(',').map(h => `${h.padStart(2,'0')}:${mi.padStart(2,'0')}`).join(' and ') : null;
   if (!times) return expr;
@@ -91,3 +109,31 @@ function cronWords(expr) {
   else return expr;
   return `${when} at ${times}`;
 }
+
+// One way to write a model everywhere: "Claude Opus 5", "GPT-5.5", "Gemini 3 Pro"; a provider prefix
+// ("anthropic/") and a date stamp are dropped. A name it does not know stays as it came.
+const HARNESS_WORDS = {claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', antigravity: 'Antigravity', grok: 'Grok Build',
+  cursor: 'Cursor', hermes: 'Hermes', openclaw: 'OpenClaw', grokbot: 'Grok Bot', pi: 'pi'};
+const harnessWords = id => HARNESS_WORDS[String(id || '').toLowerCase()] || id || '';
+function modelWords(id) {
+  const raw = String(id || '').trim().replace(/^[a-z][\w.-]*\//i, '');
+  if (!raw) return '';
+  const parts = raw.split(/[-_\s]+/).filter(p => !/^\d{6,}$/.test(p));
+  const cap = w => w.charAt(0).toUpperCase() + w.slice(1);
+  const version = list => list.filter(p => /^\d+(\.\d+)?$/.test(p)).join('.');
+  const words = list => list.filter(p => !/^\d+(\.\d+)?$/.test(p)).map(cap).join(' ');
+  if (/^claude$/i.test(parts[0]) || /^(opus|sonnet|haiku)$/i.test(parts[0])) {
+    const rest = /^claude$/i.test(parts[0]) ? parts.slice(1) : parts;
+    return ['Claude', words(rest), version(rest)].filter(Boolean).join(' ');
+  }
+  if (/^gpt/i.test(raw)) return raw.replace(/^gpt/i, 'GPT');
+  if (/^gemini$/i.test(parts[0])) return ['Gemini', version(parts.slice(1)), words(parts.slice(1))].filter(Boolean).join(' ');
+  return raw;
+}
+// A bot's model choice: "Claude Opus 5 · high", and the tool that runs it when that is not the model's own.
+const modelChoiceWords = (model, effort, harness, ownHarness) => {
+  const name = modelWords(model);
+  if (!name) return '';
+  const via = harness && ownHarness && harness !== ownHarness ? ` in ${harnessWords(harness)}` : '';
+  return name + via + (effort ? ` · ${effort}` : '');
+};

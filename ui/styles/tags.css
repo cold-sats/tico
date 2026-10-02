@@ -12,3 +12,7 @@
 .tlabel [data-tag-key] { cursor: pointer; }
 .tlabel [data-tag-key]:hover { text-decoration: underline; }
 .tlabel [data-tag-key]:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.tag-form label:has(> input[type=checkbox]) { display: flex; align-items: center; gap: 8px; }
+.tag-advanced > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; width: max-content; }
+.tag-advanced[open] { display: grid; gap: 12px; }
+.tags-empty { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

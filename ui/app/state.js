@@ -30,7 +30,13 @@ const S = { emps: [], people: [], orgGroups: [], status: null, issues: [], me: n
             config: {...CONFIG_DEFAULTS},
             v2: {on: false, status: {}, needs: []} };
 const appName = () => S.config.app_name || CONFIG_DEFAULTS.app_name;
-const assistantName = () => S.config.assistant_name || CONFIG_DEFAULTS.assistant_name;
+// The assistant bot's name. Neither the product's name nor the team's is ever the bot's: a config that names it
+// after the app (an older demo did) or the team (the old default) reads as "Assistant". A team's own name for it stays.
+const assistantName = () => {
+  const name = String(S.config.assistant_name || '').trim(), low = name.toLowerCase();
+  return !name || low === appName().trim().toLowerCase() || low === String(S.config.company_name || '').trim().toLowerCase()
+    ? CONFIG_DEFAULTS.assistant_name : name;
+};
 const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_bot;
 // The assistant, BotOps, the Librarian and the Goal Manager are built in to every team: pause and rename them, never archive or delete.
 const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian' || slug === 'goal-manager';

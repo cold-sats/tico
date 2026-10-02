@@ -12,6 +12,12 @@ import shlex
 
 from . import access, inbox_isolation, model_login, providers, releases, runner_versions, watchers
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
+
+
+def _harness_name(runtime):
+    """A runtime as people know it: `claude` is Claude Code (backend/bot_tools.py HARNESS_NAMES)."""
+    from .bot_tools import HARNESS_NAMES
+    return HARNESS_NAMES.get(runtime) or str(runtime).title()
 from .store import H, Problem, readiness_document
 from .views import roster
 
@@ -442,9 +448,9 @@ def view(c, who, settings, auth, github, config):
             checks.append(_check("models", "Models", "bad", "No online computer is signed in to your model.",
                                  [_fix("Open Computers", "#/settings", "devices")]))
         elif signed and rejected:
-            checks.append(_check("models", "Models", "warn", f"{signed} is signed in on another computer. " + _rejected_summary(rejected), [_fix("Open Credentials", "#/credentials"), _fix("Open Computers", "#/settings", "devices")]))
+            checks.append(_check("models", "Models", "warn", f"{_harness_name(signed)} is signed in on another computer. " + _rejected_summary(rejected), [_fix("Open Credentials", "#/credentials"), _fix("Open Computers", "#/settings", "devices")]))
         elif signed:
-            checks.append(_check("models", "Models", "ok", f"{signed} is signed in."))
+            checks.append(_check("models", "Models", "ok", f"{_harness_name(signed)} is signed in."))
         else:
             checks.append(_check("models", "Models", "unknown", "Nothing to check until a computer is online."))
 

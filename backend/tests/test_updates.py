@@ -72,8 +72,9 @@ def test_an_update_is_one_to_five_plain_bullets_or_it_is_refused(api):
         "task id": "- Closed task 3233ce3a for Legal",
         "uuid": "- Finished bb68f3ce-12c1-45f3-aac3-fd159e2be06e",
         "six bullets": "\n".join(f"- Shipped part {n}" for n in range(6)),
-        "long bullet": "- " + " ".join(["word"] * 30),
-        "too many words": "\n".join("- " + " ".join(["word"] * 20) for _ in range(5)),
+        # Past both the daily and the (Friday) weekly limits, so the test passes on any day.
+        "long bullet": "- " + " ".join(["word"] * 45),
+        "too many words": "\n".join("- " + " ".join(["word"] * 38) for _ in range(5)),
     }
     for n, (name, body) in enumerate(bad.items()):
         refused = send(body, n)

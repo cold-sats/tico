@@ -40,7 +40,12 @@ class Provider:
         path = request.url.path
         self.calls.append((path, request))
         if path == "/oauth2/register":
-            assert json.loads(request.content)["token_endpoint_auth_method"] == "none"
+            body = json.loads(request.content)
+            assert body["token_endpoint_auth_method"] == "none"
+            # Granola's real server refuses a registration without a redirect_uris array (verified live).
+            if not isinstance(body.get("redirect_uris"), list):
+                return httpx.Response(400, json={"error": "invalid_client_metadata",
+                                                 "error_description": "redirect_uris must be an array"})
             return httpx.Response(200, json={"client_id": "public-client"})
         if path == "/oauth2/device_authorization":
             if self.registration_rejected:
@@ -631,3 +636,20 @@ def test_bad_id_in_batch_does_not_block_healthy_meeting(api):
     provider.sync()
     status = api.get(BASE, headers=headers("ana-test")).json()
     assert status["last_sync"] and status["imported_count"] == 1 and status["skipped"] == 1
+
+
+def test_a_gzipped_answer_from_granola_is_read_once():
+    """Granola gzips its answers; the client must not decode the body twice (it reported 'unreachable')."""
+    import asyncio, gzip
+    import httpx
+    from backend import granola_mcp
+    body = gzip.compress(json.dumps({"client_id": "zipped"}).encode())
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        200, headers={"Content-Encoding": "gzip", "Content-Type": "application/json"}, content=body))
+    client = granola_mcp.GranolaMCP.__new__(granola_mcp.GranolaMCP)
+    client.transport = transport
+    async def no_pace():
+        return None
+    client.pace = no_pace
+    response = asyncio.run(client.http("POST", granola_mcp.AUTH + "/oauth2/register", json={}))
+    assert granola_mcp.GranolaMCP.payload(response) == {"client_id": "zipped"}

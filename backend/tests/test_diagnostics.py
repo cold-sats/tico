@@ -234,6 +234,15 @@ def test_the_heartbeat_contract_takes_a_runners_recent_errors_and_keeps_them_bou
     ok = M.StructuredReadiness(recent_errors=["2026-09-29T10:00:00Z Tico runner: failed"])
     assert ok.model_dump()["recent_errors"] == ["2026-09-29T10:00:00Z Tico runner: failed"]
     assert M.StructuredReadiness().recent_errors == [] and "recent_errors" not in M.StructuredReadiness().model_dump()
-    for bad in (["x"] * 51, ["x" * 301]):
-        with pytest.raises(ValidationError):
-            M.StructuredReadiness(recent_errors=bad)
+    with pytest.raises(ValidationError):
+        M.StructuredReadiness(recent_errors=["x"] * 51)
+    # A long line is cut to 300, never refused: refusing hid a whole computer in 0.3.2.
+    assert M.StructuredReadiness(recent_errors=["x" * 301]).recent_errors == ["x" * 300]
+
+
+def test_the_runner_never_sends_an_error_line_over_300_characters():
+    from runner import outage
+    outage.RECENT.clear()
+    outage.log("Tico runner: failed " + "y" * 400)
+    assert outage.RECENT and all(len(line) <= 300 for line in outage.RECENT)
+    outage.RECENT.clear()

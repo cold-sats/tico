@@ -298,7 +298,7 @@ async function member(browser) {
 async function notConnected(browser) {
   const {page, errors} = await open(browser, {connected: false});
   await page.locator('#set-repos .repos-line').waitFor();
-  assert.equal((await page.locator('#set-repos').innerText()).replace(/\s+/g, ' '), 'Repositories GitHub is not connected. Connect GitHub');
+  assert.equal((await page.locator('#set-repos').innerText()).replace(/\s+/g, ' '), "Repositories The GitHub App is not connected; bots use their computers' own GitHub sign-in. Connect GitHub");
   assert.equal(await page.locator('#set-repos a[data-repos-connect]').getAttribute('href'), '#/integrations');
   // The bot editor has no Repositories section then.
   await page.evaluate(() => settingsEditBot('release-captain'));
