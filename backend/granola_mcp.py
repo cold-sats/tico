@@ -112,7 +112,11 @@ class GranolaMCP:
                         payload.extend(chunk)
                         if len(payload) > 20_000_000:
                             raise GranolaError("bad_response")
-                    return httpx.Response(response.status_code, headers=response.headers, content=bytes(payload),
+                    # aiter_bytes() already decoded gzip/br: drop the encoding headers or the rebuilt response
+                    # decodes the body a second time and fails (Granola gzips every answer).
+                    headers = [(k, v) for k, v in response.headers.items()
+                               if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+                    return httpx.Response(response.status_code, headers=headers, content=bytes(payload),
                                           request=response.request)
         except httpx.HTTPError:
             raise GranolaError("unreachable") from None

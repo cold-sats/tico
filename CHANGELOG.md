@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-02
+
+### Fixed
+- Connecting a Granola account no longer fails as "unreachable": Granola's compressed answers were decoded twice.
+
 ## [0.3.3] - 2026-10-02
 
 ### Fixed
