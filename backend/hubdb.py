@@ -12,7 +12,9 @@ Shape of every write:
     raises Refused(rule, detail, severity)   # also written to `refusals`, never stored
 
 `actor` is `"bot:<slug>"`, `"human:<id>"` or `"keeper"`. Every write appends an `events` row.
-Nothing is edited or deleted (rule 9): tasks and status carry their own history tables.
+Nothing is edited or deleted (rule 9): tasks and status carry their own history tables. A plain task
+comment's author may change or take it back before delivery: the row stays marked, without retaining
+withdrawn text in the audit trail.
 
     conn = connect()                         # <projects>/runtime/hub.db, or $HUB_DB
     sync_registry(conn, employees, people)   # bots and humans from the registry
@@ -831,6 +833,10 @@ def migrate(conn, adopt_legacy=False):
         conn.execute("ALTER TABLE tasks ADD COLUMN next_run INTEGER NOT NULL DEFAULT 0")
     if "carried_by" not in columns:
         conn.execute("ALTER TABLE tasks ADD COLUMN carried_by TEXT")
+    # A task comment its author changed or took back (task_comment_edit, task_comment_delete). Checked on
+    # every start rather than numbered, so no migration number collides with another branch's.
+    add_column(conn, "messages", "edited_at", "TEXT")
+    add_column(conn, "messages", "deleted_at", "TEXT")
     # Quiet notes (`hub note`): a line left for a bot's next run, asking nothing. `carried_by` is
     # the attempt that took it there; a cancelled note never goes.
     conn.execute("CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, from_actor TEXT NOT NULL, "
@@ -1494,6 +1500,10 @@ def _opener(conn, conversation_id):
 
 
 # ----------------------------------------------------------------------------- messages
+MESSAGE_ESCAPE = ("The message includes a secrets path or another bot’s workspace path. Remove the restricted "
+                  "reference and retry; this did not send anything outside the Hub.")
+
+
 def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None,
         in_reply_to=None, wait_s=None):
     """The one write every message goes through: rules 1, 2, 3, 4, 7 and 8 all live here."""
@@ -1502,8 +1512,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
         refuse(conn, actor, "kind", f"a message is {'|'.join(MESSAGE_KINDS)}, not {kind}")
     severity = classify(body, to_actor=resolve_actor(conn, to_actor), where="message", actor=actor, conn=conn)
     if severity == "escape" and not (actor == KEEPER and kind == "notice"):
-        refuse(conn, actor, "escape", "The message includes a secrets path or another bot’s workspace path. Remove the restricted reference and retry; this did not send anything outside the Hub.",
-               "escape")
+        refuse(conn, actor, "escape", MESSAGE_ESCAPE, "escape")
     target = _reach(conn, actor, to_actor)
     refs = dict(refs or {})
 
@@ -2564,14 +2573,15 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
 
 
 def task_comments(conn, task_id):
-    """Every comment and ask on this task, oldest first, with who wrote it."""
+    """Every comment and ask on this task, oldest first, with who wrote it. A deleted comment is not
+    listed; an edited one carries `edited_at`."""
     row = task(conn, task_id)
     if not row or not row.get("conversation_id"):
         return []
     conv = conversation(conn, row["conversation_id"])
     out = []
-    for m in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY created",
-                                (row["conversation_id"],))):
+    for m in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=? AND deleted_at IS NULL "
+                                "ORDER BY created", (row["conversation_id"],))):
         m["refs"] = _json(m.get("refs_json"), {}) or {}
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
             if m["kind"] == "ask" and m["refs"].get("questions"):
@@ -2586,8 +2596,8 @@ def task_comments(conn, task_id):
 def review_answers(conn, message_id):
     out = []
     for row in conn.execute(
-            "SELECT * FROM messages WHERE (kind='answer' AND in_reply_to=?) "
-            "OR id=(SELECT answered_by FROM messages WHERE id=?) ORDER BY created,rowid",
+            "SELECT * FROM messages WHERE deleted_at IS NULL AND ((kind='answer' AND in_reply_to=?) "
+            "OR id=(SELECT answered_by FROM messages WHERE id=?)) ORDER BY created,rowid",
             (message_id, message_id)):
         refs = _json(row["refs_json"], {}) or {}
         out.append(refs.get("answer") or {"by": row["from_actor"], "text": row["body"], "at": row["created"]})
@@ -2607,6 +2617,149 @@ def open_task_asks(conn, task_row):
     for ask in asks:
         ask["refs"] = _json(ask.get("refs_json"), {}) or {}
     return asks
+
+
+def comment_on(conn, task_row, message_id):
+    """The message `message_id` when it is on this task's thread the way `task_comments` finds it
+    (deleted or not, any kind), else None."""
+    msg = message(conn, message_id, include_deleted=True)
+    if not msg or not task_row or msg["conversation_id"] != task_row.get("conversation_id"):
+        return None
+    return msg if message_task_id(msg, conversation(conn, msg["conversation_id"])) == task_row["id"] else None
+
+
+def is_comment(msg):
+    """Written by `task_comment`: a say tagged `comment`. Not a question, an answer, a notice, an
+    approval, a bot's reply to its run or a chat message that only mentions the task."""
+    refs = msg.get("refs") or {}
+    return (msg.get("kind") == "say" and bool(refs.get("comment"))
+            and not (set(refs) - {"task", "comment", "quiet", "via"}))
+
+
+def _comment_not_delivered(conn, actor, msg):
+    # A provider context or an external post can retain words independently of this row.
+    handed = msg.get("delivered_at") or msg.get("read_at")
+    if _has_table(conn, "jobs"):
+        handed = handed or _one(conn, "SELECT 1 FROM jobs WHERE message_id=? AND "
+                                "(attempt_id IS NOT NULL OR state NOT IN ('queued','cancelled'))", (msg["id"],))
+    if _has_table(conn, "attempt_conversations"):
+        handed = handed or _one(conn, "SELECT 1 FROM attempt_conversations ac JOIN attempts a ON a.id=ac.attempt_id "
+                                "WHERE ac.conversation_id=? AND (a.finished IS NULL OR a.finished>=?)",
+                                (msg["conversation_id"], msg["created"]))
+    if _has_table(conn, "turns"):
+        handed = handed or _one(conn, "SELECT 1 FROM turns WHERE message_id=?", (msg["id"],))
+    if _has_table(conn, "slack_posts"):
+        handed = handed or _one(conn, "SELECT 1 FROM slack_posts WHERE message_id=?", (msg["id"],))
+    row = task(conn, (msg.get("refs") or {}).get("task"))
+    def could_read(slug):
+        bot_actor = "bot:" + slug
+        return bool(row and (bot_actor in (row["owner"], row["requester"], msg["from_actor"], msg["to_actor"])
+                    or task_ancestor_party(conn, bot_actor, row)
+                    or _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
+                            (row["id"], bot_actor, now()))))
+    if _has_table(conn, "attempts") and not handed:
+        # Task and direct-message reads need not grant a conversation, so check eligible turns too.
+        handed = any(could_read(r["bot"]) for r in conn.execute(
+            "SELECT DISTINCT bot FROM attempts WHERE finished IS NULL OR finished>=?", (msg["created"],)))
+    if _has_table(conn, "turns") and not handed:
+        handed = any(could_read(r["bot"]) for r in conn.execute(
+            "SELECT DISTINCT bot FROM turns WHERE finished IS NULL OR finished>=?", (msg["created"],)))
+    if _has_table(conn, "bot_config") and not handed:
+        from .harnesses import is_external
+        # External-agent reads are not tracked until acknowledgment; those copies cannot be proven absent.
+        handed = any(could_read(r["bot"]) and is_external(_json(r["config_json"], {}), r["runtime"])
+                     for r in conn.execute("SELECT bc.bot,bc.config_json,b.runtime FROM bot_config bc "
+                                           "JOIN bots b ON b.slug=bc.bot"))
+    if handed:
+        refuse(conn, actor, "delivered", "This comment may already have been handed to a bot or an external delivery; "
+                                       "its retained copies cannot be changed here")
+
+
+def _refresh_comment_replies(conn, msg):
+    """A retry keeps its original effect, but never replays withdrawn comment words."""
+    conn.execute("UPDATE events SET detail_json=json_remove(detail_json,'$.old') "
+                 "WHERE target=? AND action IN ('message.edited','message.deleted')", (msg["id"],))
+    if not _has_table(conn, "idempotency"):
+        return
+    def refresh(value):
+        if isinstance(value, dict):
+            if value.get("id") == msg["id"] and "from_actor" in value:
+                return msg
+            return {k: refresh(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [refresh(v) for v in value if not (msg.get("deleted_at") and isinstance(v, dict)
+                    and v.get("id") == msg["id"] and "from_actor" in v)]
+        return value
+    for row in conn.execute("SELECT rowid,response_json FROM idempotency WHERE instr(response_json,?)>0",
+                            (msg["id"],)).fetchall():
+        conn.execute("UPDATE idempotency SET response_json=? WHERE rowid=?",
+                     (_dump(refresh(_json(row["response_json"], {}))), row["rowid"]))
+
+
+def _own_comment(conn, actor, task_id, message_id):
+    """The live comment `message_id` on this task, when `actor` wrote it; refused otherwise."""
+    _writer(conn, actor)
+    row = task(conn, task_id)
+    readable = globals().get("task_private_readable")
+    if row and row.get("private") and (not readable or not readable(conn, actor, row)):
+        refuse(conn, actor, "identity", "This task is not available to you")
+    msg = comment_on(conn, row, message_id)
+    if not msg or msg.get("deleted_at"):
+        refuse(conn, actor, "not-found", f"no comment {message_id} on task {task_id}")
+    if not is_comment(msg):
+        refuse(conn, actor, "kind", "only a comment is edited or deleted, not a question, an answer, "
+                                    "a notice or a chat message")
+    if msg["from_actor"] != actor:
+        refuse(conn, actor, "identity", f"{actor_id(msg['from_actor'])} wrote this comment; only they change it")
+    _comment_not_delivered(conn, actor, msg)
+    return msg
+
+
+def task_comment_edit(conn, actor, task_id, message_id, text):
+    """The author changes a comment's text. The new text gets the checks a new comment's text gets
+    (`task_comment`, `say`); rule 7's lint is for unsolicited items, and a comment is tagged with its
+    task, so it never applies. Nothing is sent and nobody wakes: whoever reads the task next reads the
+    new text."""
+    msg = _own_comment(conn, actor, task_id, message_id)
+    text = str(text or "").strip()
+    if not text:
+        refuse(conn, actor, "lint", "write the comment")
+    if classify(text, to_actor=msg["to_actor"], where="message", actor=actor, conn=conn) == "escape":
+        refuse(conn, actor, "escape", MESSAGE_ESCAPE, "escape")
+    if actor == "bot:librarian":
+        text = librarian_text(text)
+    if text == msg["body"]:
+        return msg                  # the same words are no edit: no mark, no history line
+    ts = now()
+    conn.execute("UPDATE messages SET body=?, edited_at=? WHERE id=?", (text, ts, message_id))
+    _task_event(conn, task_id, actor, "comment", message_id, message_id)
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (ts, task_id))
+    event(conn, actor, "message.edited", message_id, {"task": task_id})
+    edited = message(conn, message_id)
+    _refresh_comment_replies(conn, edited)
+    return edited
+
+
+def task_comment_delete(conn, actor, task_id, message_id):
+    """The author takes a comment back. Only its metadata stays for the audit trail, never listed again or
+    handed to a bot: a run it queued and nobody started is cancelled, the questions it answered
+    are open again, and the bot it woke loses the delegation that came with it (`task_delegations`)."""
+    msg = _own_comment(conn, actor, task_id, message_id)
+    ts = now()
+    conn.execute("UPDATE messages SET body='',refs_json=?,deleted_at=? WHERE id=?",
+                 (_dump({"task": task_id, "comment": True}), ts, message_id))
+    reopened = [r["id"] for r in _rows(conn.execute("SELECT id FROM messages WHERE answered_by=?", (message_id,)))]
+    conn.execute("UPDATE messages SET answered_by=NULL WHERE answered_by=?", (message_id,))
+    conn.execute("UPDATE task_delegations SET expires=? WHERE message_id=? AND expires>?", (ts, message_id, ts))
+    cancelled = _has_table(conn, "jobs") and conn.execute(
+        "UPDATE jobs SET state='cancelled' WHERE message_id=? AND state='queued'", (message_id,)).rowcount > 0
+    _task_event(conn, task_id, actor, "comment", message_id, None)
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (ts, task_id))
+    event(conn, actor, "message.deleted", message_id,
+          {"task": task_id, "reopened": reopened, "cancelled_run": cancelled})
+    deleted = message(conn, message_id, include_deleted=True)
+    _refresh_comment_replies(conn, deleted)
+    return deleted
 
 
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
@@ -3928,8 +4081,9 @@ def chats_with(conn, actor, bot_actor_id):
     return out
 
 
-def message(conn, message_id):
-    row = _one(conn, "SELECT * FROM messages WHERE id=?", (message_id,))
+def message(conn, message_id, *, include_deleted=False):
+    row = _one(conn, "SELECT * FROM messages WHERE id=?" + ("" if include_deleted else " AND deleted_at IS NULL"),
+               (message_id,))
     if row:
         row["refs"] = _json(row.get("refs_json"), {}) or {}
         if row["kind"] == "ask" and row["refs"].get("questions"):
@@ -3941,7 +4095,7 @@ def message(conn, message_id):
 
 
 def messages(conn, conversation_id, since=None, limit=200):
-    sql = "SELECT * FROM messages WHERE conversation_id=?"
+    sql = "SELECT * FROM messages WHERE conversation_id=? AND deleted_at IS NULL"
     args = [conversation_id]
     if since:
         sql += " AND created > ?"
@@ -3961,12 +4115,12 @@ def answers_to(conn, message_ids):
     """
     out = {}
     for mid in message_ids or []:
-        row = _one(conn, "SELECT * FROM messages WHERE in_reply_to=? AND kind='answer' "
+        row = _one(conn, "SELECT * FROM messages WHERE in_reply_to=? AND kind='answer' AND deleted_at IS NULL "
                          "ORDER BY created LIMIT 1", (mid,))
         if not row:
             asked = _one(conn, "SELECT answered_by FROM messages WHERE id=?", (mid,))
             if asked and asked.get("answered_by"):
-                row = _one(conn, "SELECT * FROM messages WHERE id=?", (asked["answered_by"],))
+                row = _one(conn, "SELECT * FROM messages WHERE id=? AND deleted_at IS NULL", (asked["answered_by"],))
         if row:
             row["refs"] = _json(row.get("refs_json"), {}) or {}
             out[mid] = row
@@ -3975,7 +4129,7 @@ def answers_to(conn, message_ids):
 
 def undelivered(conn, to_actor=None, limit=200):
     """What the keeper's mailbox loop reads: messages no runtime has accepted yet."""
-    sql = "SELECT * FROM messages WHERE delivered_at IS NULL"
+    sql = "SELECT * FROM messages WHERE delivered_at IS NULL AND deleted_at IS NULL"
     args = []
     if to_actor:
         sql += " AND to_actor=?"
@@ -3991,7 +4145,7 @@ def inbox(conn, actor, at=None):
     at = at or now()
     rows = _rows(conn.execute(
         "SELECT * FROM messages WHERE to_actor=? AND (delivered_at IS NULL OR read_at IS NULL) "
-        "AND (expires_at IS NULL OR expires_at > ?) ORDER BY created", (actor, at)))
+        "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL ORDER BY created", (actor, at)))
     answered = answers_to(conn, [r["id"] for r in rows if r.get("kind") == "ask"])
     for row in rows:
         row["refs"] = _json(row.get("refs_json"), {}) or {}

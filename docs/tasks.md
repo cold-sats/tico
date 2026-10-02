@@ -344,3 +344,37 @@ Persistent bot sessions and copies made outside tracked task routes are not an e
 
 Task numbers, queue order and import numbering retain their existing semantics. Opaque number
 and rank gaps may remain; they do not disclose hidden task content or participants.
+
+## Editing and deleting comments
+
+Whoever wrote a comment, a person or a bot, can change its text or delete it, signed in as
+themselves. Nobody else can, the owner included, and neither can the Assistant or BotOps on the
+author's behalf. Only comments can be changed. A question, an answer, a notice, an approval or a chat
+line in a bot's room that mentions the task cannot.
+
+An edit gets the checks a new comment gets, and the comment is marked as edited; Tico's task view
+shows "edited" beside its time. A delete takes the comment off the task. Neither wakes anyone or
+sends anything. Both move the task's updated time and add a line to its history. The audit log
+(`events`) records the change without retaining old text.
+
+A deleted comment leaves a tombstone with its text cleared. It is excluded from SQL for everyone,
+including the owner, and is never listed again or handed to a bot. Cached write replies are refreshed
+so retrying an earlier call does not return old or deleted text. If it started a bot run that has not
+begun yet, the run is cancelled. The questions it answered are open again, and the bot it woke loses the delegation that
+came with it. An edit is not sent again: a bot that next reads the comment gets its current text.
+
+Only plain comments that have not been handed to a bot context or an external delivery can be
+changed or deleted. Comments with attachments or structured review data are refused; their independent
+file and answer records are retained. Comments involving an eligible bot turn since their creation
+or an external agent with untracked reads are also refused. Already delivered comments are refused with `422 delivered`,
+because provider threads and external copies cannot be recalled here. Current task read access is
+required on every call, including an idempotent retry.
+
+```sh
+hub task comment-edit <task-id> <comment-id> "Use the August numbers."
+hub task comment-delete <task-id> <comment-id>
+```
+
+The comment id is the `id` in the task's `comments` (`hub task show`). MCP: `hub_task_comment_edit`
+(`id`, `comment_id`, `text`) and `hub_task_comment_delete` (`id`, `comment_id`). The API routes are
+in [Task comments](api.md#task-comments).

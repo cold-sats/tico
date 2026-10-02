@@ -626,6 +626,23 @@ def task_answers(api, args):
     return api.get(f"tasks/{args['id']}/answers")
 
 
+COMMENT_ID = _s("The comment's id (`id` in the task's `comments`)")
+
+
+@tool("hub_task_comment_edit", "Change the text of a comment you wrote on a task. It wakes nobody and is not "
+      "sent again; it shows as edited.",
+      {"id": TASK_ID, "comment_id": COMMENT_ID, "text": _s("The new text")},
+      required=("id", "comment_id", "text"), writes=True)
+def task_comment_edit(api, args):
+    return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}", {"text": args["text"]}, key=_key(args))
+
+
+@tool("hub_task_comment_delete", "Take back a comment you wrote on a task: it is no longer listed or handed to a "
+      "bot.", {"id": TASK_ID, "comment_id": COMMENT_ID}, required=("id", "comment_id"), writes=True)
+def task_comment_delete(api, args):
+    return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}/delete", {}, key=_key(args))
+
+
 @tool("hub_task_label", "Add or remove labels on a task. A project is a label; so is a kind (bug, front-end).",
       {"id": TASK_ID,
        "add": {"type": "array", "items": {"type": "string"}, "description": "Labels to add"},

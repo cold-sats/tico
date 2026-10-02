@@ -25,6 +25,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--goal ID] [--dry-run] the checks a create would fail, nothing written
                     [--next-run]           for a bot: no wake; its next run carries the task
     hub task ask <id> "<question>"
+    hub task comment <id> "<text>"         on the record with your name
+    hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
+    hub task comment-delete <id> <comment-id>          take back a comment you wrote
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
                     [--title "..."]        rename it: checked as a new task's title would be
     hub task close <id> [--note "..."]
@@ -696,6 +699,15 @@ def parser():
     choices.add_argument("--ask", help="JSON file containing structured questions")
     choices.add_argument("--choices", help="comma-separated option labels")
     s.set_defaults(fn="task comment")
+    s = task.add_parser("comment-edit", help="change the text of a comment you wrote; it wakes nobody")
+    s.add_argument("id")
+    s.add_argument("comment_id", help="the comment's id (its id in the task's comments)")
+    s.add_argument("text")
+    s.set_defaults(fn="task comment-edit")
+    s = task.add_parser("comment-delete", help="take back a comment you wrote")
+    s.add_argument("id")
+    s.add_argument("comment_id", help="the comment's id (its id in the task's comments)")
+    s.set_defaults(fn="task comment-delete")
     s = task.add_parser("link", help="attach a link: the pull request you opened, an issue, a document")
     s.add_argument("id")
     s.add_argument("url")

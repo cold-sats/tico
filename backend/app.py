@@ -658,9 +658,9 @@ def create_app(settings=None):
             auth.require_read(c, who, row['bot'], 'Routine not found')
             return {'occurrences': routines.occurrences(c, schedule_id, limit)}
 
-    def mutate(request, body, fn):
+    def mutate(request, body, fn, check=None):
         result = store.mutate(request.state.identity, request.url.path,
-                              request.headers.get("idempotency-key"), body.model_dump(), fn)
+                              request.headers.get("idempotency-key"), body.model_dump(), fn, check=check)
         if isinstance(result, dict) and "_refusal" in result:
             refusal = result["_refusal"]
             raise Problem(refusal["code"], refusal["detail"], refusal["status"])
@@ -1677,7 +1677,7 @@ def create_app(settings=None):
     def message(request: Request, mid: str):
         with store.read() as c:
             row = H.message(c, mid)
-            if not row:
+            if not row or row.get("deleted_at"):
                 raise Problem("not_found", "Message not found", 404)
             who = request.state.identity
             privacy.require_message(c, who, row)
@@ -1854,7 +1854,7 @@ def create_app(settings=None):
             said = []
             for m in c.execute("SELECT * FROM messages WHERE to_actor=? AND "
                                "from_actor LIKE 'bot:%' AND kind IN ('say','ask','answer') AND created>? "
-                               "ORDER BY created DESC LIMIT 6", (who.actor, start)).fetchall():
+                               "AND deleted_at IS NULL ORDER BY created DESC LIMIT 6", (who.actor, start)).fetchall():
                 if not privacy.message_readable(c, who.actor, m):
                     continue
                 said.append({"from": batch._name(c, m["from_actor"]), "kind": m["kind"],
@@ -2356,6 +2356,48 @@ def create_app(settings=None):
             H.task_unlink(c, who.actor, task_id, link_id, mover=mover(c, who))
             return {"links": H.task_links(c, task_id)}
         return mutate(request, M.Empty(), work)
+
+    def own_comment(c, who, tid, mid, allow_deleted=False):
+        """The task that comment `mid` is on, when the caller wrote the comment; a refusal otherwise."""
+        task_id = auth.resolve_task(c, who, tid)
+        row = auth.task(c, who, task_id)
+        msg = H.comment_on(c, row, mid)
+        if not msg or msg.get("deleted_at") and not allow_deleted:
+            raise Problem("not_found", "No such comment on this task", 404)
+        # The Assistant and BotOps act with a person's rights, but the words are the person's own.
+        if who.via:
+            raise Problem("forbidden", "Only a comment's author edits or deletes it, signed in as themselves", 403)
+        if not H.is_comment(msg):
+            raise Problem("forbidden", "Only a comment can be edited or deleted, not a question, an answer, "
+                                       "a notice or a chat message", 403)
+        if msg["from_actor"] != who.actor:
+            raise Problem("forbidden", "Only the person or bot who wrote a comment can edit or delete it", 403)
+        return row
+
+    @app.post("/api/v2/tasks/{tid}/comments/{mid}")
+    def task_comment_edit(request: Request, tid: str, mid: str, body: M.TaskComment):
+        """The author changes a comment's text. It wakes nobody and is not sent again; the new text
+        is new words to the bot on the task, so it needs what a new comment needs."""
+        who = request.state.identity
+        if body.ask is not None or body.attachments:
+            raise Problem("validation", "An edit changes only a plain comment's text", 422)
+        def work(c):
+            row = own_comment(c, who, tid, mid)
+            from .task_review import comment_rights
+            comment_rights(c, auth, who, row["id"])
+            msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text)
+            return {"comment": msg, "comments": H.task_comments(c, row["id"]), "woke": False}
+        return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
+
+    @app.post("/api/v2/tasks/{tid}/comments/{mid}/delete")
+    def task_comment_delete(request: Request, tid: str, mid: str, body: M.Empty):
+        """The author takes a comment back: never listed again, never handed to a bot."""
+        who = request.state.identity
+        def work(c):
+            row = own_comment(c, who, tid, mid)
+            msg = H.task_comment_delete(c, who.actor, row["id"], mid)
+            return {"comment": msg, "comments": H.task_comments(c, row["id"]), "woke": False}
+        return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
     @app.post("/api/v2/tasks/{tid}/links")
     def task_links(request: Request, tid: str, body: M.TaskLink):

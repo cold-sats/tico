@@ -962,7 +962,7 @@ class Gateway:
             rows = [dict(r) for r in c.execute(
                 "SELECT m.id,m.body,m.conversation_id,m.from_actor,m.to_actor FROM messages m "
                 "WHERE m.kind IN ('say','ask','answer','notice') AND m.from_actor LIKE 'bot:%' "
-                "AND m.to_actor LIKE 'human:%' "
+                "AND m.to_actor LIKE 'human:%' AND m.deleted_at IS NULL "
                 "AND json_extract(m.refs_json,'$.task_completion') IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) "
                 "AND NOT EXISTS (SELECT 1 FROM slack_threads t WHERE t.conversation_id=m.conversation_id) "
@@ -1029,7 +1029,7 @@ class Gateway:
                 "SELECT m.id,m.body,m.in_reply_to,t.channel,t.thread_ts,t.bot FROM messages m "
                 "JOIN slack_threads t ON t.conversation_id=m.conversation_id AND m.from_actor='bot:'||t.bot "
                 "WHERE m.created>t.created AND m.kind IN ('say','ask','answer','notice') AND m.to_actor LIKE 'human:%' "
-                "AND json_extract(m.refs_json,'$.task_completion') IS NULL "
+                "AND m.deleted_at IS NULL AND json_extract(m.refs_json,'$.task_completion') IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) ORDER BY m.created LIMIT 50").fetchall()
             for r in rows:
                 if not privacy.public_message(c, H.message(c, r["id"])):

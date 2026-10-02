@@ -302,6 +302,10 @@ def run(args, who=None):
             return post(f"tasks/{args.id}/comments", body)
         if sub == "answers":
             return client.get(f"tasks/{args.id}/answers")
+        if sub == "comment-edit":
+            return post(f"tasks/{args.id}/comments/{args.comment_id}", {"text": args.text})
+        if sub == "comment-delete":
+            return post(f"tasks/{args.id}/comments/{args.comment_id}/delete", {})
         if sub == "link":
             return post(f"tasks/{args.id}/links", {"url": args.url, "title": args.title})
         if sub == "label":

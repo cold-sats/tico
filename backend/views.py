@@ -312,7 +312,7 @@ def operation_issues(c, who, auth):
         if location.get("agent"):
             queued = sum(privacy.message_readable(c, who.actor, m) for m in c.execute(
                 "SELECT * FROM messages WHERE to_actor=? AND read_at IS NULL "
-                "AND (expires_at IS NULL OR expires_at > ?)", ("bot:" + slug, H.now())))
+                "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL", ("bot:" + slug, H.now())))
         uncertain = privacy.job_count(c, who, slug, ("uncertain",))
         if uncertain and not mac_offline:
             noun = "run" if uncertain == 1 else "runs"
@@ -605,9 +605,9 @@ def recent_bots(c, auth, who, since, limit, needs):
         status = (privacy.status(c, who, H.status(c, slug)) or {}) if access.get(slug, auth.FULL)["read"] else {}
         actor = H.bot_actor(slug)
         mine = next((m for m in c.execute("SELECT * FROM messages WHERE from_actor=? AND to_actor=? "
-                    "ORDER BY created DESC", (me, actor)) if privacy.message_readable(c, who.actor, m)), None)
+                    "AND deleted_at IS NULL ORDER BY created DESC", (me, actor)) if privacy.message_readable(c, who.actor, m)), None)
         theirs = next((m for m in c.execute("SELECT * FROM messages WHERE from_actor=? AND to_actor=? "
-                      "ORDER BY created DESC", (actor, me)) if privacy.message_readable(c, who.actor, m)), None)
+                      "AND deleted_at IS NULL ORDER BY created DESC", (actor, me)) if privacy.message_readable(c, who.actor, m)), None)
         conversation = next((m["conversation_id"] for m in sorted(filter(None, (mine, theirs)),
                              key=lambda m: m["created"], reverse=True) if m["conversation_id"]), None)
         tasks = c.execute("SELECT id, title, status, owner, updated FROM tasks WHERE status IN "

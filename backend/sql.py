@@ -140,7 +140,7 @@ def guarded(c, auth, who, inner):
               "WHERE review_state<>'live')")
     rules = {
         "conversations": conversations,
-        "messages": "conversation_id IN (SELECT id FROM conversations) AND " + excluding("id", denied_messages),
+        "messages": "conversation_id IN (SELECT id FROM conversations) AND deleted_at IS NULL AND " + excluding("id", denied_messages),
         "tasks": tasks,
         "tags": "1", "task_tags": by_task,
         "task_events": by_task, "task_delegations": by_task,

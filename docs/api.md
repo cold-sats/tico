@@ -145,6 +145,34 @@ changed after that instant (closing, reopening, comments, questions, links and a
 what only shows in `children_summary` or `pr_state`, such as a subtask moving or a pull request's
 checks and reviews, does not), and `brief=true` to leave out bodies and acceptance criteria.
 
+## Task comments
+
+`POST /api/v2/tasks/{tid}/comments/{mid}` with `{"text": "..."}` changes the text of a comment the caller
+wrote; `POST /api/v2/tasks/{tid}/comments/{mid}/delete` with `{}` deletes it. `mid` is the comment's `id` in
+`GET /api/v2/tasks/{tid}`. Both answer as commenting does, `{"comment": {...}, "comments": [...], "woke": false}`:
+the comment with `edited_at`, or a tombstone with an empty body and `deleted_at` after a delete, and then
+the task's comments as the task lists them. Neither wakes anyone or sends anything.
+
+- `404 not_found`: the comment is not on this task, or was already deleted.
+- `403`: the caller did not write it, or is acting for its author (BotOps, or the Assistant, which gets
+  `confirm_required`); or the message is a question, an answer, a notice or a chat line in a bot's room
+  rather than a comment.
+- An edit's text gets the checks a new comment's text gets (`422` when empty, `403 escape` for a secrets path
+  or another bot's workspace path), and an edit needs what a new comment needs: Write on the bot on the other
+  side of the task, unless the caller owns the task, and that bot's contact rule when the caller is a bot.
+
+Every entry in a task's `comments` carries `edited_at`, null until it is edited; a deleted comment is not
+listed and is never handed to a bot. The task's `updated` moves, and its `events` gain
+`{"field": "comment", "old": "<comment id>", "new": "<comment id>"}` for an edit and `"new": null` for a
+delete. The audit log keeps only change metadata. Deleted comments have their text cleared and are excluded
+from `POST /api/v2/sql` for every caller, including the owner. Cached write replies are refreshed when
+a comment changes; an edit or delete retry still checks the caller's current task read access.
+Only plain comments without attachments or structured review data can change. A comment already handed
+to a bot context or an external delivery, or involving an eligible bot turn since its creation or an
+external agent with untracked reads, is refused with `422 delivered`; retained provider threads
+and external copies cannot be recalled here. An edit accepts only `text`, not `ask` or attachments.
+A client can tell a server offers this by the `editTaskComment` and `deleteTaskComment` operations in `GET /api/v2/openapi.json`.
+
 ## Branches
 
 `POST /api/v2/bots/{bot}/copies` (also `/branches`) makes the caller's branch and returns its definition,

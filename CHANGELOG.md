@@ -11,6 +11,11 @@ All notable changes to Tico are recorded here. The format follows
 - New ordinary tasks are readable by company people and bots. Private tasks limit future access to the requester and current assignee; bot defaults also protect requests assigned to sensitive bots. Existing known ordinary work remains visible; sensitive or ambiguous origins upgrade privately while retaining messages and attachments.
 
 ### Added
+- Whoever wrote a task comment can change its text or delete it: `POST /api/v2/tasks/{tid}/comments/{mid}` and
+  `.../delete` in the stable API, `hub task comment-edit` and `hub task comment-delete`, and MCP `hub_task_comment_edit`
+  and `hub_task_comment_delete`. Neither wakes anyone. A deleted comment is never listed or handed to a bot again, and
+  the audit log keeps only change metadata. The task view shows "edited" beside an edited comment.
+
 - Service keys: a key another system, such as your product's backend, uses to file, update, close and reopen tasks,
   and nothing else. `POST /api/v2/inbound/tasks` takes the system's own `key` for each piece of work and makes one task
   match what it says now, so calls may come in any order and twice. The owner and the admins manage keys with
