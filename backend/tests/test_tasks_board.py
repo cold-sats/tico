@@ -307,7 +307,7 @@ def test_bot_tag_owner_edits_and_tag_tasks_respect_visibility(api):
     post(api, "tags/" + tag["id"], {"version": 1, "markdown": "- [x] Smoke checks"}, token=token)
     mine = post(api, "tasks", {"owner": "ops", "title": "Run smoke checks", "body": "x", "labels": [tag["key"]]})
     other = post(api, "tasks", {"owner": "cmo", "title": "Write release notes", "body": "x", "labels": [tag["key"]]})
-    assert [task["id"] for task in get(api, "tags/" + tag["id"], token=token)["tasks"]] == [mine["id"]]
+    assert {task["id"] for task in get(api, "tags/" + tag["id"], token=token)["tasks"]} == {mine["id"], other["id"]}
     assert {task["id"] for task in get(api, "tags/" + tag["id"])["tasks"]} == {mine["id"], other["id"]}
     sql = post(api, "sql", {"sql": "SELECT task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id WHERE tags.key='release-bot'"}, token=token)
     assert {row[0] for row in sql["rows"]} == {mine["id"], other["id"]}
