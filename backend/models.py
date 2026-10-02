@@ -607,6 +607,7 @@ class DiskReadiness(Contract):
 
 
 class StructuredReadiness(Contract):
+    worktrees: bool | None = None
     schema_version: Literal[1] = 1
     disk: DiskReadiness | None = None
     runtimes: dict[str, RuntimeReadiness] = Field(default_factory=dict)
@@ -650,7 +651,22 @@ class SubscriptionAssignment(Contract):
     profile: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
 
 
+class WorktreeStatus(Contract):
+    repo: str | None = Field(default=None, max_length=200)
+    last_activity: float | None = Field(default=None, ge=0)
+    link_id: str = Field(max_length=100)
+    state: Literal["present", "missing", "removed", "unknown"]
+    branch: str | None = Field(default=None, max_length=200)
+    ahead: int = Field(default=0, ge=0)
+    behind: int = Field(default=0, ge=0)
+    dirty_files: int = Field(default=0, ge=0)
+    last_commit: str | None = Field(default=None, max_length=100)
+    size_mb: float = Field(default=0, ge=0)
+    error: str | None = Field(default=None, max_length=300)
+
+
 class Heartbeat(Contract):
+    worktrees: list[WorktreeStatus] | None = Field(default=None, max_length=1000)
     profiles: Annotated[list[Any], BeforeValidator(lambda value: value[:100] if isinstance(value, list) else value)] | None = None
     repositories: list[RepositoryStatus] | None = None
     version: str = Field(max_length=100)

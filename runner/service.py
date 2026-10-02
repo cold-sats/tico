@@ -21,7 +21,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
-from . import goals, repositories
+from . import goals, repositories, worktrees, safe_git
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -553,6 +553,7 @@ class Runner:
         self.client = client or Client(config["url"], config["token"], timeout=10, retries=1)
         self.state = State(state_dir)
         self.repositories = repositories.Repositories(config["projects_dir"], self.state.directory / "repositories.json", self.client)
+        self.worktrees = worktrees.Worktrees(config["projects_dir"], self.client, idle=lambda bot: bot.removeprefix("bot:") not in self.active_bots.values(), vault_values=lambda bot: self.worktree_vault.get(bot.removeprefix("bot:"), []), retain_vault=self.retain_worktree_vault, environment=lambda bot: self.credential_environment(bot.removeprefix("bot:")))
         self.follower = Follower(config, self.state.directory, self.client, supervised=supervised)
         self.capacity = int(config.get("capacity", 4))
         self.host_factory = host_factory or self.make_host
@@ -563,11 +564,13 @@ class Runner:
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
+        self.worktree_vault = {}
+        self.active_bots = {}
         self.vault_names = {}             # attempt id -> the variable names its vault grants put in the run
         # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
         # a turn's host process needs lives in a directory the bot user owns instead.
         self.host_state = isolation.bot_state(self.state.directory)
-        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))   # None unless isolated
+        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))
         self.warm = WarmSessions(self.host_state / "antigravity")
         self.attempt_runtimes = {}     # attempt id -> host names its turn may use
         self.tools = harness_tools.Harnesses(
@@ -1025,9 +1028,7 @@ class Runner:
 
     def credential_environment(self, bot, config=None):
         """Process settings only. Credentials arrive through this bot's live vault grants."""
-        settings = {"HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "TERM", "COLORTERM",
-                    "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"}
-        return {k: v for k, v in os.environ.items() if k in settings or k.startswith("LC_")}
+        return safe_git.process_environment()
 
     def migrate_credentials(self, assignments):
         """Once per existing bot, preserve the legacy credentials it could read (its own file, `_shared.env`, declared
@@ -1201,7 +1202,8 @@ class Runner:
         if profile:
             env = profile.environment((attempt.get("config") or {}).get("runtime") or "", env)
         env.update({"HUB_API_URL": self.config["url"], "HUB_TOKEN": attempt["token"],
-                    "HUB_BOT": attempt["bot"], "HUB_EMPLOYEE": attempt["bot"], "HUB_DIR": str(ROOT),
+                    "HUB_BOT": attempt["bot"], "HUB_EMPLOYEE": attempt["bot"],
+                    "HUB_TASK_ID": str((attempt.get("task") or {}).get("id") or ""), "HUB_DIR": str(ROOT),
                     # Where this company's bot repositories live. BotOps sets a new bot up here
                     # with `hub bot create`; every other bot reads it to find a sibling's work.
                     "HUB_WORKSPACE": str(self.config["projects_dir"]),
@@ -1714,7 +1716,7 @@ class Runner:
             note = getattr(self, "publish_notes", {}).get(row["bot"])
             if note:
                 bots[row["bot"]]["warnings"].append(PUBLISH_WARNING + note)
-        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots}
+        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": True}
         try:
             usage = shutil.disk_usage("/" if self.follower.kind == "docker" else self.state.directory)
             document["disk"] = {"total_bytes": usage.total, "free_bytes": usage.free}
@@ -1884,6 +1886,8 @@ class Runner:
                 lines.append(stale)
         if attempt.get("task"):
             lines.append("Assigned task:\n" + json.dumps(attempt["task"], ensure_ascii=False))
+            lines.append("Check this task’s worktree links before code work. If detail_json has setup_pending=true, "
+                         "run `hub task worktree setup <repo>` in this turn; restored worktrees need setup.")
             requester = str((attempt["task"] or {}).get("requester") or "")
             if requester:
                 lines.append(f"This task was requested by {requester}.")
@@ -2013,7 +2017,7 @@ class Runner:
                 renewal.failed(exc)
 
     def arm_credentials(self, env, attempt, bot):
-        """Register this attempt with the credential socket (isolated runners) and point the turn at it. Every
+        """Register this attempt with the supervisor credential socket and point the turn at it. Every
         isolated turn gets it, message bot or not: the Google key is not in the turn, so the mail CLI asks here,
         and a bot the hub named no mailbox for is told so instead of being told the key is missing."""
         socket_path = self.credentials.path if self.credentials else None
@@ -2022,7 +2026,17 @@ class Runner:
             env[credential_socket.SOCKET_ENV] = str(socket_path)
         return socket_path
 
+    def retain_worktree_vault(self, owners):
+        keep = owners | {row['bot'] for row in self.assignments_seen} | set(self.active_bots.values())
+        for bot in list(self.worktree_vault):
+            if bot not in keep:
+                self.worktree_vault.pop(bot, None)
+
     def execute(self, attempt):
+        with self.worktrees.bot_lock(attempt["bot"]):
+            return self.execute_turn(attempt)
+
+    def execute_turn(self, attempt):
         aid, bot = attempt["id"], attempt["bot"]
         self.state.record(attempt)
         lost, done = threading.Event(), threading.Event()
@@ -2046,9 +2060,12 @@ class Runner:
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.arm_credentials(env, attempt, bot)
-                git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
+                git_credentials.apply(env, self.client, bot, self.config_path if not socket_path else None, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))
+                if self.credentials:
+                    redactor = redactor or redact_mod.Redactor([])
+                    self.credentials.set_redactor(attempt["token"], redactor)
                 if redactor:
                     redactor.register(aid)
                 def redact(value):
@@ -2372,6 +2389,7 @@ class Runner:
                 if self.credentials:
                     self.credentials.unregister(attempt["token"])
                 redact_mod.release(aid)
+                self.worktree_vault[attempt["bot"]] = self.vault_values.get(aid, [])
                 self.vault_values.pop(aid, None)
                 self.vault_names.pop(aid, None)
                 for filename in self.vault_files.pop(aid, []):
@@ -2483,6 +2501,8 @@ class Runner:
             body["repositories"] = repository_rows
         if time.monotonic() >= getattr(self, "_profiles_after", 0):
             body["profiles"] = self.profile_report()
+        if hasattr(self, "worktrees") and time.monotonic() >= getattr(self, "_worktrees_after", 0):
+            body["worktrees"] = self.worktrees.poll()
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
@@ -2496,6 +2516,8 @@ class Runner:
             for row in runtime_rows:
                 row.pop("credential_source", None)
             beat = self.report_heartbeat(body)
+        if hasattr(self, "worktrees"):
+            self.worktrees.poll((beat or {}).get("worktree_actions", []))
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
@@ -2515,7 +2537,7 @@ class Runner:
 
     def report_heartbeat(self, body):
         readiness = body["readiness"]
-        optional = ("disk", "harnesses", "mail_key", "shared_env", "recent_errors")
+        optional = ("worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors")
         unsupported = self.__dict__.setdefault("_readiness_unsupported", {})
         for field, until in list(unsupported.items()):
             if time.monotonic() < until:
@@ -2531,6 +2553,11 @@ class Runner:
             try:
                 return self.client.post("runners/heartbeat", body)
             except APIError as exc:
+                detail = str(exc.detail or "Heartbeat validation failed")
+                if "worktrees" in body and ("worktrees" in str(exc.detail).lower() or exc.status == 422 and "extra" in str(exc.detail).lower()):
+                    body.pop("worktrees", None)
+                    self._worktrees_after = time.monotonic() + 600
+                    continue
                 if exc.status != 422:
                     raise
                 detail = str(exc.detail or "Heartbeat validation failed")
@@ -2587,7 +2614,7 @@ class Runner:
                               re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
                 generic = extra and "readiness." not in detail
                 if not field and generic:
-                    field = next((name for name in ("harnesses", "mail_key", "shared_env", "recent_errors", "disk")
+                    field = next((name for name in ("worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "disk")
                                   if name in readiness), None)
                 if field:
                     readiness.pop(field, None)
@@ -2624,6 +2651,7 @@ class Runner:
         for aid, future in list(self.active.items()):
             if future.done():
                 del self.active[aid]
+                self.active_bots.pop(aid, None)
                 self.next_claim = 0         # capacity came free: look for the next job now
                 self.attempt_runtimes.pop(aid, None)
                 try:
@@ -2658,7 +2686,7 @@ class Runner:
         if self.follower.blocks_claims(bool(self.active)):
             return
         while len(self.active) < self.capacity and time.monotonic() >= getattr(self, "next_claim", 0):
-            result = self.client.post("jobs/claim", {"next_run": True})   # prompt() carries them
+            result = self.worktrees.claim(self.client, self.assignments_seen)   # prompt() carries next-run tasks
             self.next_claim = time.monotonic() + self.claim_wait(bool(result.get("attempt")))
             if result.get("paused") and result["paused"] != getattr(self, "_paused_note", None):
                 self._paused_note = result["paused"]
@@ -2671,6 +2699,7 @@ class Runner:
             config = attempt.get("config") or {}
             self.attempt_runtimes[attempt["id"]] = {config.get("runtime") or "",
                                                     (configured_fallback(config) or {}).get("runtime") or ""} - {""}
+            self.active_bots[attempt["id"]] = attempt["bot"]
             self.active[attempt["id"]] = self.pool.submit(self.execute, attempt)
 
     def step_harnesses(self):
@@ -2781,4 +2810,5 @@ class Runner:
             self.pool.shutdown(wait=True)
             self.maintenance_pool.shutdown(wait=True)
             self.repositories.close()
+            self.worktrees.close()
             self.warm.prune(close=True)

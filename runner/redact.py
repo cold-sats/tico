@@ -14,6 +14,7 @@ secret (they are left out of what is published) and whether a commit made during
 (then nothing is pushed).
 """
 import base64
+import json
 import re
 import subprocess
 import threading
@@ -65,12 +66,21 @@ def _values(secrets):
 
 class Redactor:
     def __init__(self, secrets):
+        self.update_lock = threading.Lock()
         self.values = sorted(_values(secrets), key=len, reverse=True)
         forms = set()
         for value in self.values:
             forms |= _variants(value)
         forms.discard("")
         self.pattern = re.compile("|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))) if forms else None
+
+    def add(self, secrets):
+        with self.update_lock:
+            added = _values(secrets) - set(self.values)
+            if not added:
+                return
+            updated = Redactor([*self.values, *added])
+            self.values, self.pattern = updated.values, updated.pattern
 
     def scrub_text(self, text):
         if not isinstance(text, str) or self.pattern is None:
@@ -155,6 +165,11 @@ def for_turn(env, vault_values=(), names=("TOKEN", "SECRET", "PASSWORD", "API_KE
     variable whose name says it is one."""
     secrets = list(vault_values)
     secrets.extend(v for k, v in (env or {}).items() if any(s in k.upper() for s in names))
+    try:
+        groups = json.loads((env or {}).get('TICO_GITHUB_TOKENS', '[]'))
+        secrets.extend(group['token'] for group in groups if isinstance(group, dict) and isinstance(group.get('token'), str))
+    except (ValueError, TypeError):
+        pass
     redactor = Redactor(secrets)
     return redactor if redactor.pattern is not None else None
 

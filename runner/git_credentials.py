@@ -5,8 +5,8 @@ keep one: its credential helper is this module, which gets a fresh token on ever
 request: from the hub with the runner's own registration, or, where bot code cannot read that file
 (runner/isolation.py), from the supervisor's socket with the turn's attempt token. The helper is configured through
 environment variables (no file, no askpass script on disk) and the token is only ever printed to
-git. `gh` selects a token for its repository through a turn-local command wrapper. With no app
-connected, or on any failure, the turn keeps whatever git access the machine already has.
+git. `gh` selects a token for its repository through a turn-local command wrapper. With no App
+connected, the turn keeps the machine’s git access. App token failures disable that fallback.
 """
 import json
 import os
@@ -28,6 +28,7 @@ TOKENS_KEY = "TICO_GITHUB_TOKENS"
 # A fixed token, for when the runner's registration file is not known (tests, embedding).
 # The bot's repository (`owner/name`) as the hub resolved it, for the turn's publish step.
 REPOSITORY_KEY = "TICO_GITHUB_REPOSITORY"
+FAILED_HELPER = '!f() { echo "Tico: GitHub App token unavailable; check Settings > Tools > GitHub" >&2; echo quit=true; }; f'
 STATIC_HELPER = "!f() { echo username=x-access-token; echo \"password=$GH_TOKEN\"; }; f"
 
 
@@ -56,12 +57,15 @@ def apply(env, client, bot, config_path=None, socket_path=None):
     try:
         granted = client.post("github/token", {"bot": bot})
     except Exception as exc:
-        log(f"Tico runner: {bot}: no GitHub App token ({type(exc).__name__}); using the machine's git access")
+        log(f"Tico runner: {bot}: GitHub App token unavailable ({type(exc).__name__}); check Settings > Tools > GitHub")
+        granted = {"configured": True}
+    if not granted.get("configured"):
         return False
-    if not granted.get("configured") or not granted.get("token"):
-        return False
+    applied = bool(granted.get('token'))
+    if not applied:
+        granted = {**granted, 'token': '', 'tokens': []}
     helper = fresh_helper(config_path, bot, socket_path) if (config_path or socket_path or "tokens" in granted) else STATIC_HELPER
-    env.update(environment(granted["token"], helper))
+    env.update(environment(granted["token"], helper if applied else FAILED_HELPER))
     if "tokens" in granted:
         env[TOKENS_KEY] = json.dumps(granted["tokens"])
         executable = shutil.which("gh", path=env.get("PATH", os.environ.get("PATH")))
@@ -76,7 +80,7 @@ def apply(env, client, bot, config_path=None, socket_path=None):
         env[credential_socket.SOCKET_ENV] = str(socket_path)
     if granted.get("repository"):
         env[REPOSITORY_KEY] = str(granted["repository"])
-    return True
+    return applied
 
 
 def _same_repository(url, repository):
@@ -225,16 +229,28 @@ def credential(config_path, bot, socket_path=None, repository=None):
 
 
 def gh_repository(argv, env):
+    skip, positional = False, []
     for index, arg in enumerate(argv):
+        if skip:
+            skip = False
+            continue
+        if arg in ('--body', '-b', '--title', '-t', '--body-file', '-F', '--field', '-f', '--raw-field', '--header', '-H',
+                   '--comment', '--notes', '-m', '--message', '--jq', '-q', '--search', '--template'):
+            skip = True
+            continue
         if arg in ("-R", "--repo") and index + 1 < len(argv):
             return repository_name(argv[index + 1])
         if arg.startswith("--repo=") or (arg.startswith("-R") and len(arg) > 2):
             return repository_name(arg.split("=", 1)[1] if arg.startswith("--repo=") else arg[2:])
-    for arg in argv:
-        if arg.startswith("https://github.com/"):
+        if not arg.startswith('-'):
+            positional.append(arg)
+    for arg in positional:
+        if arg.startswith('https://github.com/'):
             return repository_name(arg)
-        if arg.lstrip("/").startswith("repos/"):
-            return repository_name(arg.lstrip("/")[6:])
+        if arg.lstrip('/').startswith('repos/'):
+            name = repository_name(arg.lstrip('/')[6:])
+            if name:
+                return name
     if len(argv) > 2 and argv[0] == "repo" and argv[1] in ("view", "clone", "fork"):
         if not argv[2].startswith("-"):
             return repository_name(argv[2])
@@ -257,8 +273,8 @@ def gh_main(argv=None):
         token = ""
     if token:
         env.update(GH_TOKEN=token, GITHUB_TOKEN=token)
-    elif repository:
-        print("Tico runner: no GitHub token for that repository", file=sys.stderr)
+    else:
+        print("Tico runner: no GitHub App token for this repository; check Settings > Tools > GitHub", file=sys.stderr)
         return 1
     os.execve(env["TICO_GITHUB_GH"], [env["TICO_GITHUB_GH"], *argv], env)
 
@@ -276,6 +292,9 @@ def main(argv=None):
     token = credential(args.config, args.bot, args.socket, repository_name(wanted.get("path")))
     if token:
         sys.stdout.write(f"username=x-access-token\npassword={token}\n")
+    else:
+        print("Tico runner: no GitHub App token for this repository; check Settings > Tools > GitHub", file=sys.stderr)
+        sys.stdout.write("quit=true\n")
 
 
 if __name__ == "__main__":

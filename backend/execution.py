@@ -198,9 +198,12 @@ class Execution:
         from .subscriptions import record
         record(c, who.runner_id, body.profiles)
         readiness = readiness_document(body.readiness)
-        from .repositories import save_metadata
-        save_metadata(c, "computer-repositories:" + who.runner_id,
-                      {"repositories": [r.model_dump() for r in body.repositories] if body.repositories is not None else "unknown"})
+        from .repositories import save_metadata, metadata
+        key = 'computer-repositories:' + who.runner_id
+        previous = metadata(c, key)
+        report = {'repositories': [r.model_dump() for r in body.repositories]} if body.repositories is not None else previous or {'repositories': 'unknown'}
+        if report != previous:
+            save_metadata(c, key, report)
         # Store what the runner actually reported: optional fields a runner left unset,
         # such as the per-profile rows older runners cannot produce, never enter the record.
         # Routines are the hub's own rows now; what a runner before 0.5.4 read from a
@@ -276,11 +279,13 @@ class Execution:
                           "bot_agent_instructions.content<>excluded.content OR "
                           "bot_agent_instructions.runner_id<>excluded.runner_id",
                           (bot, content, who.runner_id, now))
+        from . import worktrees
+        worktree_actions = worktrees.heartbeat(c, who, body.worktrees, readiness.get('worktrees', False), self.store.settings.github_owner)
         # A Restart a person pressed goes to the runner once; it restarts when no turn is running.
         restart = c.execute("SELECT restart_requested FROM runners WHERE id=?", (who.runner_id,)).fetchone()
         if restart and restart["restart_requested"]:
             c.execute("UPDATE runners SET restart_requested=NULL WHERE id=?", (who.runner_id,))
-        return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True,
+        return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True, "worktree_actions": worktree_actions,
                 **({"restart": True} if restart and restart["restart_requested"] else {})}
 
     def assigned(self, c, who):

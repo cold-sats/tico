@@ -478,11 +478,8 @@ def install_github(app, settings, store):
         if event == "ping":
             return {"ok": True}
         if event in ("installation", "installation_repositories"):
-            from .repositories import sync
-            app.state.github_app.cache.clear()
-            app.state.github_app.live.clear()
-            app.state.github_app.installation(refresh=True)
-            sync(app.state.github_app)
+            from .repositories import queue_sync
+            queue_sync(app.state.github_app, refresh=True)
             return {"ok": True}
         with store.transaction() as c:
             if event == "pull_request":

@@ -2109,6 +2109,14 @@ def task_unlink(conn, actor, task_id, link_id, mover=None):
     if not have:
         refuse(conn, actor, "not-found", f"no link {link_id} on {task_id}")
     _task_link_allowed(conn, actor, row, mover, have["kind"])
+    if have.get('state') != 'removed' and 'detail_json' in have:
+        detail = json.loads(have.get('detail_json') or '{}')
+        detail['delete_requested'] = True
+        detail.pop('restore_on_reopen', None)
+        conn.execute('UPDATE task_links SET detail_json=?,updated=? WHERE id=?', (json.dumps(detail), now(), link_id))
+        _task_event(conn, task_id, actor, 'link', have['url'], None, 'cleanup requested')
+        event(conn, actor, 'task.unlink', task_id, {'url': have['url'], 'cleanup': True})
+        return have
     conn.execute("DELETE FROM task_links WHERE id=?", (link_id,))
     _task_event(conn, task_id, actor, "link", have["url"], None, "removed")
     event(conn, actor, "task.unlink", task_id, {"url": have["url"]})
@@ -2506,6 +2514,12 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _task_event(conn, task_id, actor, "parent_id", row.get("parent_id"), parent, note or "")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
+        if is_bot(row['owner']) and 'detail_json' in {r[1] for r in conn.execute('PRAGMA table_info(task_links)')}:
+            for link in task_links(conn, task_id):
+                if link['kind'] == 'worktree':
+                    detail = json.loads(link.get('detail_json') or '{}')
+                    detail.setdefault('owner', row['owner'])
+                    conn.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), link['id']))
         sets.append("owner=:owner")
         args["owner"] = new_owner
         _task_event(conn, task_id, actor, "owner", row["owner"], new_owner, note or "")
