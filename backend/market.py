@@ -1209,7 +1209,7 @@ def _store_blob(conn, blobs, name, data):
     class Owner:
         actor = SEED_ACTOR
 
-    digest_ = blobs.put(data)
+    digest_ = blobs.put(data, "text/plain")
     return register(conn, Owner(), digest_, len(data), name, "text/plain")["id"]
 
 

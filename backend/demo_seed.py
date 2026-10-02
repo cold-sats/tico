@@ -480,7 +480,7 @@ class Builder:
         for index, (bot, path, mime, text) in enumerate(examples):
             self.at(hours=6 - index)
             data = text.encode()
-            digest = blobs.put(data)
+            digest = blobs.put(data, mime)
             def work(c):
                 item = register(c, Identity("bot:" + bot, "bot"), digest, len(data), path.rsplit("/", 1)[-1], mime)
                 files.add_version(c, bot=bot, actor="bot:" + bot, scope="bot", task=None, conversation=None, attempt="",

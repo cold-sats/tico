@@ -13255,6 +13255,10 @@
           },
           "checked": {
             "type": "string"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/Storage",
+            "description": "Read-only file storage usage and copy progress; Team owners only"
           }
         },
         "required": [
@@ -15633,6 +15637,59 @@
           "has_more",
           "messages",
           "next_before"
+        ],
+        "additionalProperties": true
+      },
+      "Storage": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "local",
+              "s3"
+            ]
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "copy": {
+            "type": "object",
+            "properties": {
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "done",
+              "failed",
+              "total"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "bucket",
+          "bytes",
+          "copy",
+          "files",
+          "mode",
+          "region"
         ],
         "additionalProperties": true
       },

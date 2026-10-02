@@ -16,6 +16,8 @@ MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_FOLDERS = ("reports/", "artifacts/")
 
 TYPES = {
+    ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg",
     ".md": "text/markdown", ".markdown": "text/markdown", ".txt": "text/plain", ".csv": "text/csv",
     ".tsv": "text/tab-separated-values", ".json": "application/json", ".yaml": "text/yaml",
     ".yml": "text/yaml", ".html": "text/html", ".htm": "text/html", ".pdf": "application/pdf",
@@ -28,7 +30,7 @@ TYPES = {
     ".odt": "application/vnd.oasis.opendocument.text", ".ods": "application/vnd.oasis.opendocument.spreadsheet",
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
 }
-KINDS = {".md": "document", ".markdown": "document", ".txt": "document", ".pdf": "document", ".rtf": "document",
+KINDS = {".mp4": "video", ".webm": "video", ".mov": "video", ".mp3": "audio", ".wav": "audio", ".m4a": "audio", ".ogg": "audio",".md": "document", ".markdown": "document", ".txt": "document", ".pdf": "document", ".rtf": "document",
          ".doc": "document", ".docx": "document", ".odt": "document", ".html": "document", ".htm": "document",
          ".csv": "spreadsheet", ".tsv": "spreadsheet", ".xls": "spreadsheet", ".xlsx": "spreadsheet",
          ".ods": "spreadsheet", ".json": "data", ".yaml": "data", ".yml": "data",

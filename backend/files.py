@@ -17,7 +17,6 @@ import secrets
 from urllib.parse import quote, urlsplit
 
 from fastapi import Request
-from fastapi.responses import Response
 from pydantic import Field
 
 from . import models as M
@@ -183,7 +182,7 @@ class Files:
         version = row["current_version"]
         if changed:
             version += 1
-            c.execute("INSERT INTO bot_file_versions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO bot_file_versions(file_id,version,blob_id,digest,source_digest,size,name,mime,commit_sha,repo_path,attempt_id,actor,created,media_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
                       (row["id"], version, blob_id, digest, source_digest, size, name, mime, commit or None,
                        repo_path or None, attempt or None, actor, now))
         action = "created" if created else "modified" if changed else "published"
@@ -263,7 +262,7 @@ class Files:
         digest, blob = None, None
         if not failed:
             digest = hashlib.sha256(data).hexdigest()
-            blob = self.blobs.put(data)
+            blob = self.blobs.put(data, mime)
         body = {**{k: fields.get(k, "") for k in ("bot", "path", "title", "task", "scope", "attempt", "commit", "source")},
                 "name": name, "digest": digest, "identity": identity, "etag": str(fields.get("etag") or ""),
                 "sync": "failed" if failed else ""}
@@ -471,7 +470,7 @@ class Files:
         provider = row["provider"] or ""
         _, label = BF.provider_of(urlsplit(row["url"] or "").hostname or "") if link else ("", "")
         task = self.task_info(c, who, row["task_id"], caches["task"])
-        value = {"id": row["id"], "bot": row["bot"], "title": row["title"], "kind": row["kind"], "mime": row["mime"],
+        value = {**({k: version[k] for k in ("width", "height", "duration_ms", "poster_blob_id", "thumb_blob_id", "media_state")} if version else {}), "id": row["id"], "bot": row["bot"], "title": row["title"], "kind": row["kind"], "mime": row["mime"],
                  "locator": row["locator"], "scope": row["scope"].partition(":")[0], "version": row["current_version"],
                  "state": row["state"], "synced": synced, "size": version["size"] if version else None,
                  "name": version["name"] if version else None,
@@ -537,7 +536,8 @@ class Files:
                 out.append({"version": v["version"], "current": v["version"] == row["current_version"], "name": v["name"],
                             "size": v["size"], "mime": v["mime"], "digest": v["source_digest"] or v["digest"],
                             "actor": v["actor"], "created": v["created"], "url": f"/api/v2/files/{fid}/versions/{v['version']}",
-                            "github_url": self.github_url(c, row["bot"], v, caches)})
+                            "github_url": self.github_url(c, row["bot"], v, caches),
+                            **{k: v[k] for k in ("width", "height", "duration_ms", "poster_blob_id", "thumb_blob_id", "media_state")}})
             return {"file": fid, "versions": out}
 
     def activity_log(self, who, fid):
@@ -548,7 +548,7 @@ class Files:
                     for r in c.execute("SELECT * FROM bot_file_activity WHERE file_id=? ORDER BY id DESC LIMIT 500", (fid,))]
             return {"file": fid, "activity": rows}
 
-    def serve(self, who, fid, version=None, meta=False):
+    def serve(self, who, fid, version=None, meta=False, request=None, derivative=None):
         """The bytes of one version through Tico, never a storage address."""
         with self.store.read() as c:
             row = self.visible_file(c, who, fid)
@@ -558,12 +558,17 @@ class Files:
             if not v or row["locator"] != "tico_blob":
                 raise Problem("not_found", "This file has no stored copy to open" if not v else "File not found", 404)
             if meta:
-                return {"id": fid, "name": v["name"], "size": v["size"], "content_type": v["mime"]}
-            data = self.blobs.get(v["blob_digest"])
-            return Response(data, media_type="application/octet-stream", headers={
-                "X-Content-SHA256": v["blob_digest"],
-                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(v["name"], safe=""),
-                "Content-Security-Policy": "default-src 'none'; sandbox"})
+                return {"id": fid, "name": v["name"], "size": v["size"], "content_type": v["mime"], **{k: v[k] for k in ("width", "height", "duration_ms", "poster_blob_id", "thumb_blob_id", "media_state")}}
+            if derivative:
+                bid = v[derivative + "_blob_id"]
+                v = c.execute("SELECT * FROM blobs WHERE id=?", (bid,)).fetchone() if bid else None
+                if not v:
+                    raise Problem("not_found", "File preview not found", 404)
+                blob = dict(v)
+            else:
+                blob = {"digest": v["blob_digest"], "size": v["size"], "name": v["name"], "content_type": v["mime"]}
+        from .file_delivery import serve
+        return serve(request, self.blobs, blob, version is not None)
 
 
 def install_files(app, store, auth, blobs, mutate):
@@ -613,7 +618,8 @@ def install_files(app, store, auth, blobs, mutate):
     def versions(request: Request, fid: str):
         return files.versions(request.state.identity, fid)
 
+    @app.head("/api/v2/files/{fid}/versions/{number}", include_in_schema=False)
     @app.get("/api/v2/files/{fid}/versions/{number}")
     def version_bytes(request: Request, fid: str, number: int):
-        return files.serve(request.state.identity, fid, number)
+        return files.serve(request.state.identity, fid, number, request=request)
     return files

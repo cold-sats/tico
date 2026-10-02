@@ -149,6 +149,10 @@ class Settings:
     scheduler_enabled: bool = False
     blob_dir: Path | None = None
     blob_bucket: str = ""
+    blob_region: str = ""
+    blob_endpoint: str = ""
+    blob_prefix: str = field(default="", init=False)
+    upload_max_bytes: int = 2 * 1024 ** 3
     processing_operators: tuple[str, ...] = ()
     mail_retention_days: int = 180
     release_id: str = ""
@@ -199,6 +203,9 @@ class Settings:
     rehearsal: bool = False
 
     def __post_init__(self):
+        bucket = self.blob_bucket.removeprefix("s3://").strip("/")
+        self.blob_bucket, _, self.blob_prefix = bucket.partition("/")
+        self.blob_prefix = self.blob_prefix.rstrip("/")
         self.public_url = self.public_url.rstrip("/")
         self.auth_proxy = self.auth_proxy.strip().lower()
         from . import cors
@@ -325,6 +332,9 @@ class Settings:
             rehearsal=rehearsal,
             blob_dir=Path(os.environ["TICO_BLOB_DIR"]) if os.environ.get("TICO_BLOB_DIR") else None,
             blob_bucket=os.environ.get("TICO_BLOB_BUCKET", ""),
+            blob_region=os.environ.get("TICO_BLOB_REGION", ""),
+            blob_endpoint=os.environ.get("TICO_BLOB_ENDPOINT", ""),
+            upload_max_bytes=int(os.environ.get("TICO_UPLOAD_MAX_BYTES", str(2 * 1024 ** 3))),
             processing_operators=tuple(filter(None, os.environ.get("TICO_PROCESSING_OPERATORS", "").split(","))),
             mail_retention_days=max(1, int(os.environ.get("TICO_MAIL_RETENTION_DAYS", "180") or "180")),
             release_id=os.environ.get("TICO_RELEASE", ""),

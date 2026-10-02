@@ -11,6 +11,7 @@ restart, or after a reply that never arrived, lands once. A file that could not 
 reported as "not synced" and never shown with a link that opens nothing.
 """
 
+import hashlib
 import json
 import threading
 import time
@@ -98,7 +99,8 @@ def prepare(state, bot, attempt_id, root, config, pushed=False, skip=()):
             if why:
                 raise BF.Refused(why)
             path, rel = BF.local_file(root, rel)
-            digest = BF.sha256(path.read_bytes()[:BF.MAX_BYTES + 1])
+            with path.open("rb") as source:
+                digest = hashlib.file_digest(source, "sha256").hexdigest()
         except (BF.Refused, OSError) as exc:
             refused += 1
             log(f"Tico runner: {bot}: not publishing {rel}: {exc}")
@@ -153,15 +155,18 @@ def upload(runner, client, row):
                 c.execute("INSERT OR REPLACE INTO file_published VALUES(?,?,?)", (bot, row["rel"], row["digest"]))
 
     try:
-        name, _, data, rel = BF.read_local(row["root"], row["rel"])
-        if BF.sha256(data) != row["digest"]:
+        path, rel = BF.local_file(row["root"], row["rel"])
+        with path.open("rb") as source:
+            digest = hashlib.file_digest(source, "sha256").hexdigest()
+        if digest != row["digest"]:
             mark("stale", "changed on disk since it was queued; the next turn queues the new content")
             return 0
     except (BF.Refused, OSError) as exc:
         mark("failed", str(exc))
         return 0
     try:
-        client.request("POST", "/api/v2/files/uploads?" + _query(row), raw=data, key=row["key"])
+        with path.open("rb") as source:
+            client.request("POST", "/api/v2/files/uploads?" + _query(row), raw=source, key=row["key"])
         mark("done")
         return 1
     except APIError as exc:
