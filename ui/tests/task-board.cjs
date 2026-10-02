@@ -51,7 +51,9 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     ];
     const comments = [{id: 'm1', kind: 'say', from_actor: 'human:ben', to_actor: 'bot:cmo', body: 'Use the September numbers.', created: now, refs: {task: 'Draft the newsletter', comment: true, attachments: [{id: 'doc', name: 'review-packet.md'}]}}];
     const events = [{id: 'e1', task_id: 'Draft the newsletter', ts: now, actor: 'human:reviewer', field: 'status', old: null, new: 'open', note: ''},
-                    {id: 'e2', task_id: 'Draft the newsletter', ts: now, actor: 'bot:cmo', field: 'status', old: 'open', new: 'doing', note: ''}];
+                    {id: 'e2', task_id: 'Draft the newsletter', ts: now, actor: 'bot:cmo', field: 'status', old: 'open', new: 'doing', note: 'Drafting from the brief'},
+                    {id: 'e3', task_id: 'Draft the newsletter', ts: now, actor: 'bot:cmo', field: 'note', old: '', new: 'Drafting from the brief', note: 'Drafting from the brief'},
+                    {id: 'e4', task_id: 'Draft the newsletter', ts: now, actor: 'bot:cmo', field: 'note', old: '', new: 'Waiting on the logo', note: ''}];
     const posted = [];
     const people = [];
     let preferencePending = true, tasksStartedBeforePreference = false;
@@ -285,6 +287,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-modal .task-comments .tcomment', {hasText: 'Use the September numbers.'}).waitFor();
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /ben/i, 'the author is on the comment');
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /moved it to Doing/);
+    const thread = await page.locator('#task-modal .task-comments').innerText();
+    assert.equal(thread.match(/Drafting from the brief/g).length, 1, 'a note saved with a status change is shown once');
+    assert.match(thread, /noted: Waiting on the logo/, 'a note on its own shows its text');
+    assert.doesNotMatch(thread, /left a note/);
     assert.equal(await page.getByRole('heading', {name: 'Comments'}).count(), 1);
     assert.equal(await page.locator('#task-modal button[data-prop="status"]').count(), 1, 'a mover can change the status');
     assert.equal(await page.locator('#task-modal select').count(), 0, 'properties, not a form of selects');
@@ -394,6 +400,17 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         {view, activeCount});
       assert.equal(await page.locator(`#task-view [data-view="${view}"]`).getAttribute('aria-selected'), 'true');
     }
+    // A view other than Needs you stays in the address, so a board link is stable; #/tasks/<id> opens the task.
+    await page.goto('http://tico-ui.test/#/tasks?view=board');
+    await page.waitForFunction(() => TASKS_ST?.view === 'board');
+    await page.waitForTimeout(300);
+    assert.equal(new URL(page.url()).hash, '#/tasks?view=board');
+    await page.locator('#task-view [data-view="list"]').click();
+    await page.waitForFunction(() => location.hash === '#/tasks?view=list');
+    await page.locator('#task-view [data-view="foryou"]').click();
+    await page.waitForFunction(() => location.hash === '#/tasks');
+    await page.goto('http://tico-ui.test/#/tasks/Approve%20the%20budget');
+    await page.locator('#task-modal', {hasText: 'Approve the budget'}).waitFor();
     // Links copied into chat or email do not depend on clients preserving a URL fragment.
     await page.goto('http://tico-ui.test/?task=Approve%20the%20budget');
     await page.locator('#task-modal', {hasText: 'Approve the budget'}).waitFor();

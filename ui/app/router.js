@@ -40,6 +40,7 @@ function route() {
   else if (S.route === '#/tags') pageTags();
   else if (S.route.startsWith('#/tag/')) pageTag(decodeURIComponent(S.route.slice(6)));
   else if (S.route.startsWith('#/task/')) pageTasks('', decodeURIComponent(S.route.slice(7)));
+  else if (S.route.startsWith(TASKS + '/')) { location.replace('#/task/' + S.route.slice(TASKS.length + 1).split('?')[0]); return; }   // #/tasks/<id> is the same task
   else if (S.route === CHAT) { location.hash = TASKS; return; }
   else if (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?')) pageNotes();
   else if (S.route.startsWith('#/bot/')) { const [slug, tab] = S.route.slice(6).split('/'); pageBot(slug, tab); }

@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Task links: `#/tasks/<id>` opens the task, and the Tasks view (Open, Board, Recurring, Done) stays in the address, so a board link is stable.
+- Task comments show a saved note's text, once, instead of "left a note".
+- Images, video and audio in a task play from their address with a placeholder while loading: video starts and seeks without downloading the whole file first, and reopening reuses the browser's copy.
 - Health no longer calls a computer offline when a bot's work has only waited a while, and starter bots waiting for their first setup no longer count as slow work.
 
 ## [0.3.4] - 2026-10-02

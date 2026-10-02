@@ -26,6 +26,12 @@
 .task-file-preview img,.task-file-preview video,.task-file-preview iframe{display:block;width:100%;max-height:65vh;object-fit:contain;border:0}
 .task-file-preview iframe{height:65vh;background:white}
 .task-file-preview audio{width:100%}
+.media-skel{position:relative;border-radius:6px;overflow:hidden}
+.media-skel:not(.ready){background:linear-gradient(90deg,var(--surface2) 25%,var(--line) 50%,var(--surface2) 75%);background-size:200% 100%;animation:mskel 1.2s linear infinite}
+.media-skel.image:not(.ready){min-height:240px}.media-skel.video:not(.ready){aspect-ratio:16/9}.media-skel.audio:not(.ready){min-height:54px}
+.media-skel:not(.ready) img{opacity:0}
+@keyframes mskel{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.media-skel:not(.ready){animation:none}}
 #task-modal:has(.task-file-preview:not([hidden])){width:min(1000px,calc(100vw - 32px))}
 .tcriteria{margin:4px 0 0 18px;padding:0}
 .tchildren{display:flex;flex-direction:column}

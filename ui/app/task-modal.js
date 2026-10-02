@@ -29,6 +29,27 @@ async function taskFilePreviewOpen(file, dialog) {
   box.hidden = false;
   box.innerHTML = `<div class="task-file-preview-head"><strong>${esc(file.name || 'Attachment')}</strong><span class="spacer"></span><a href="${path}" download>Download</a><button type="button" class="ghost" data-close-file-preview aria-label="Close attachment preview">✕</button></div><div data-task-file-content role="status">Loading preview…</div>`;
   const state = TASK_FILE_PREVIEW = {abort: new AbortController(), url: null};
+  // Images, video and audio play from their address: the browser streams, seeks and caches them, so going back and
+  // forth never downloads them again. A sized skeleton holds the place until the first frame or the metadata arrive.
+  const [early] = taskFilePreviewKind(file);
+  if (early === 'image' || early === 'video' || early === 'audio') {
+    const content = $('[data-task-file-content]', box);
+    content.removeAttribute('role');
+    const src = esc(path);
+    content.innerHTML = `<div class="media-skel ${early}" aria-busy="true">${early === 'image'
+      ? `<img src="${src}" alt="${esc(file.name || 'Attachment')}" decoding="async">`
+      : early === 'video' ? `<video src="${src}" controls playsinline preload="metadata"></video>`
+      : `<audio src="${src}" controls preload="metadata"></audio>`}</div>`;
+    const wrap = content.firstElementChild, el = wrap.firstElementChild;
+    const ready = () => { wrap.classList.add('ready'); wrap.removeAttribute('aria-busy'); };
+    el.addEventListener(early === 'image' ? 'load' : 'loadedmetadata', ready, {once: true});
+    el.addEventListener('error', () => {
+      if (TASK_FILE_PREVIEW !== state) return;
+      ready(); wrap.insertAdjacentHTML('afterend', '<p class="err">Preview unavailable. Download it to open it.</p>');
+    }, {once: true});
+    if (early === 'image' && el.complete && el.naturalWidth) ready();
+    return;
+  }
   try {
     const response = await fetch(path, {cache: 'no-store', signal: state.abort.signal});
     if (!response.ok) throw new Error(response.status === 403 ? 'You do not have access to this file.' : `Preview unavailable (${response.status}).`);
@@ -295,12 +316,19 @@ const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}`
   lane: v => `moved it to the ${v === 'company' ? 'team' : v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the tags: ${l.join(', ')}` : 'removed the tags'; } catch { return 'changed the tags'; } },
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
-  lint: v => `noted: ${v}`, note: () => 'left a note'};
+  lint: v => `noted: ${v}`, note: v => `noted: ${clipLine(String(v || ''), 200)}`};
 function commentLineHTML(x, i, all) {
   if (x.kind === 'event') {
     if (x.field === 'status' && x.old == null) return '';           // created: the header says so
     // A step move already names where the task went; its status change would say it twice.
     if (x.field === 'status' && all?.some(y => y.kind === 'event' && y.field === 'step' && y.new && y.ts === x.ts)) return '';
+    // A note saved with a status change or a comment is already shown there; a note on its own says what it is.
+    if (x.field === 'note') {
+      const text = String(x.new || '').trim(), at = Date.parse(x.ts);
+      const near = y => Math.abs(Date.parse(y.ts) - at) < 5000;
+      if (!text || all?.some(y => near(y) && ((y.kind === 'event' && y.field === 'status' && y.note && text.startsWith(String(y.note).trim().slice(0, 40)))
+        || (y.kind === 'comment' && String(y.message?.body || '').trim() === text)))) return '';
+    }
     const say = TASK_EVENT_WORDS[x.field] ? TASK_EVENT_WORDS[x.field](x.new) : `changed ${x.field}`;
     return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
       <time class="muted tnum" title="${esc(fmt(x.ts))}">${esc(ago(x.ts))}</time></div>`;

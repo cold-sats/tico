@@ -48,12 +48,15 @@ function tasksURLWrite(state) {
   const query = new URLSearchParams();
   for (const [k, values] of Object.entries(state.filters)) if (values.length) query.set(k, values.join(','));
   if (state.type) query.set('type', state.type);
-  if ([...query.keys()].length) query.set('view', state.view);
+  const filtered = [...query.keys()].length > 0;
+  // Any view but the default is named too, so #/tasks?view=board&type=video is a link that stays put.
+  if (filtered || state.view !== 'foryou') query.set('view', state.view);
   let base = String(location.hash || TASKS).split('?')[0];
   if (!isTasksRoute(base)) {
-    if (![...query.keys()].length) return;        // #/task/<id> stays as it is until a filter is chosen
+    if (!filtered) return;                        // #/task/<id> stays as it is until a filter is chosen
     base = TASKS;
   }
+  if (query.has('view')) base = TASKS;            // one address per view: #/board?view=list would say two things
   const hash = base + ([...query.keys()].length ? '?' + query.toString().replace(/%2C/gi, ',').replace(/%3A/gi, ':') : '');
   if (hash !== location.hash) {
     history.replaceState(history.state, '', location.pathname + location.search + hash);
