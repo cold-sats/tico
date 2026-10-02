@@ -139,3 +139,30 @@ A head pusher counts as the bot only when their login matches the PR author. Req
 changes always wake the owner, including requests from those identities.
 Automatic shipping waits until every merged PR is included in the configured release;
 PRs in another repository remain Ready for their release or a human's completion.
+
+## Editing and deleting comments
+
+Whoever wrote a comment, a person or a bot, can change its text or delete it, signed in as
+themselves. Nobody else can, the owner included, and neither can the Assistant or BotOps on the
+author's behalf. Only comments can be changed. A question, an answer, a notice, an approval or a chat
+line in a bot's room that mentions the task cannot.
+
+An edit gets the checks a new comment gets, and the comment is marked as edited; Tico's task view
+shows "edited" beside its time. A delete takes the comment off the task. Neither wakes anyone or
+sends anything. Both move the task's updated time and add a line to its history, and the audit log
+(`events`) keeps the old text.
+
+A deleted comment stays in the database, where the owner can still read it through SQL, but it is
+never listed again or handed to a bot. If it started a bot run that has not begun yet, the run is
+cancelled. The questions it answered are open again, and the bot it woke loses the delegation that
+came with it. An edit is not sent again: a bot that has not read the comment yet reads the new text,
+and one that has is not told. A copy already posted to Slack stays there.
+
+```sh
+hub task comment-edit <task-id> <comment-id> "Use the August numbers."
+hub task comment-delete <task-id> <comment-id>
+```
+
+The comment id is the `id` in the task's `comments` (`hub task show`). MCP: `hub_task_comment_edit`
+(`id`, `comment_id`, `text`) and `hub_task_comment_delete` (`id`, `comment_id`). The API routes are
+in [Task comments](api.md#task-comments).

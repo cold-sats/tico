@@ -44,4 +44,5 @@ Use `releases/download/vX.Y.Z/install.sh` to pin a release. For a shared server,
 - Project maintenance: [Architecture](architecture.md), [Contributing](../CONTRIBUTING.md), [Releasing](releasing.md),
   [Tico HQ](tico-hq.md) and [Telemetry](telemetry.md).
 
-[Task types and steps](tasks.md): custom pipelines, status mapping, and CLI, MCP, API and SQL examples.
+[Task types and steps](tasks.md): custom pipelines, status mapping, and CLI, MCP, API and SQL examples;
+editing and deleting your own comments.

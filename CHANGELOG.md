@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Whoever wrote a task comment can change its text or delete it: `POST /api/v2/tasks/{tid}/comments/{mid}` and
+  `.../delete` in the stable API, `hub task comment-edit` and `hub task comment-delete`, and MCP `hub_task_comment_edit`
+  and `hub_task_comment_delete`. Neither wakes anyone. A deleted comment is never listed or handed to a bot again, and
+  the audit log keeps the old text. The task view shows "edited" beside an edited comment.
+
 ## [0.3.2] - 2026-10-02
 
 ### Added

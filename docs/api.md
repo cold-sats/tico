@@ -133,6 +133,29 @@ unused types can be deleted, and steps with tasks cannot be removed. Task creati
 accept `type` and `step`. Answers add `type_id`, `step_id`, `type` and `step` while preserving the
 existing status contract. See [Task types and steps](tasks.md) for mapping and update examples.
 
+## Task comments
+
+`POST /api/v2/tasks/{tid}/comments/{mid}` with `{"text": "..."}` changes the text of a comment the caller
+wrote; `POST /api/v2/tasks/{tid}/comments/{mid}/delete` with `{}` deletes it. `mid` is the comment's `id` in
+`GET /api/v2/tasks/{tid}`. Both answer as commenting does, `{"comment": {...}, "comments": [...], "woke": false}`:
+the comment with `edited_at`, or with `deleted_at` after a delete, and then the task's comments as the task
+lists them. Neither wakes anyone or sends anything.
+
+- `404 not_found`: the comment is not on this task, or was already deleted.
+- `403`: the caller did not write it, or is acting for its author (BotOps, or the Assistant, which gets
+  `confirm_required`); or the message is a question, an answer, a notice or a chat line in a bot's room
+  rather than a comment.
+- An edit's text gets the checks a new comment's text gets (`422` when empty, `403 escape` for a secrets path
+  or another bot's workspace path), and an edit needs what a new comment needs: Write on the bot on the other
+  side of the task, unless the caller owns the task, and that bot's contact rule when the caller is a bot.
+
+Every entry in a task's `comments` carries `edited_at`, null until it is edited; a deleted comment is not
+listed and is never handed to a bot. The task's `updated` moves, and its `events` gain
+`{"field": "comment", "old": "<comment id>", "new": "<comment id>"}` for an edit and `"new": null` for a
+delete. The old text is kept in the audit log, which only the comment's author and the owner can read, and
+through `POST /api/v2/sql` only the owner still sees a deleted comment, with `deleted_at` set. A client can tell
+a server offers this by the `editTaskComment` and `deleteTaskComment` operations in `GET /api/v2/openapi.json`.
+
 ## Branches
 
 `POST /api/v2/bots/{bot}/copies` (also `/branches`) makes the caller's branch and returns its definition,
