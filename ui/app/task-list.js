@@ -56,7 +56,6 @@ function tasksURLWrite(state) {
     if (!filtered) return;                        // #/task/<id> stays as it is until a filter is chosen
     base = TASKS;
   }
-  if (query.has('view')) base = TASKS;            // one address per view: #/board?view=list would say two things
   const hash = base + ([...query.keys()].length ? '?' + query.toString().replace(/%2C/gi, ',').replace(/%3A/gi, ':') : '');
   if (hash !== location.hash) {
     history.replaceState(history.state, '', location.pathname + location.search + hash);

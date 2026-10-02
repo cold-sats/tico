@@ -343,7 +343,7 @@ async function filters(browser) {
   await page.locator('#task-body .tl-empty').waitFor();
   assert.match(await page.locator('#task-body .tl-empty').innerText(), /No tasks match\.\s*Clear filters/);
   await page.locator('[data-clear-filters]').click();
-  await page.waitForFunction(n => location.hash === '#/tasks' && document.querySelectorAll('#task-body .tl-row').length === n, OPEN_COUNT);
+  await page.waitForFunction(n => location.hash === '#/tasks?view=list' && document.querySelectorAll('#task-body .tl-row').length === n, OPEN_COUNT);   // the view stays in the link
   assert.equal(await page.locator('#task-q').inputValue(), '');
   assert.deepEqual(errors, []);
   console.log('filter chips and the address: ok');
