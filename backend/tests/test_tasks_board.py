@@ -630,18 +630,23 @@ def test_tree_visibility_and_link_reads_are_batched(api, monkeypatch):
         assert len([q for q in queries if q.startswith('SELECT') or q.startswith('WITH')]) == 2
 
 
-def test_task_link_mutations_require_move_rights(api):
-    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Protect task links', 'body': 'x'})
+def test_people_can_change_visible_task_links_but_bots_need_task_rights(api):
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Attach task links', 'body': 'x'})
     path = 'tasks/' + task['id'] + '/links'
     get(api, 'tasks/' + task['id'], token='priya-test')
-    post(api, path, {'url': 'https://example.com/work'}, token='priya-test', expected=403)
+    link = post(api, path, {'url': 'https://example.com/work'}, token='priya-test')['links'][0]
+    post(api, path, {'remove': link['id']}, token='priya-test')
     link = post(api, path, {'url': 'https://example.com/work'})['links'][0]
-    post(api, path, {'remove': link['id']}, token='priya-test', expected=403)
-    assert api.delete('/api/v2/' + path + '/' + link['id'], headers=headers('priya-test')).status_code == 403
-    # A mover can edit links on somebody else's task.
-    post(api, path, {'url': 'https://example.com/release'}, token='ben-test')
-    # The owning bot and an ancestor party have the same rights as task updates.
+    assert api.delete('/api/v2/' + path + '/' + link['id'], headers=headers('priya-test')).status_code == 200
+    # Worktree links keep the task-control requirement for people.
+    with api.app.state.store.transaction() as c:
+        worktree = H.task_link(c, 'human:ana', task['id'], 'https://example.com/tree', kind='worktree')
+    post(api, path, {'remove': worktree['id']}, token='priya-test', expected=403)
     token = bot_token(api, 'ops')
+    post(api, path, {'url': 'https://example.com/plan'}, token=token, expected=403)
+    link = post(api, path, {'url': 'https://example.com/work'})['links'][-1]
+    post(api, path, {'remove': link['id']}, token=token, expected=403)
+    # The owning bot and an ancestor party retain their task rights.
     parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Track linked work', 'body': 'x'})
     child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build linked work', 'body': 'x', 'parent_id': parent['id']})
     post(api, 'tasks/' + parent['id'] + '/links', {'url': 'https://example.com/plan'}, token=token)

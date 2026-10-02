@@ -125,11 +125,15 @@ requested or commented; review comment creation/deletion updates the pending cou
 statuses are matched to the PR's last reported head commit. The owner receives the specific
 failed check, new conflict, request for changes, comment from someone else or PR closed without
 merging, with events per task grouped into one wake within three minutes. Passing and pending
-checks and the bot's own comments never wake it. Check suites are tracked separately by App.
+checks and the bot's own comments never wake it. Requests for changes always wake it. A
+reviewer who pushes to a bot's PR remains a reviewer; only a pusher matching the PR author
+counts as the bot. New heads reset mergeability to Unknown, and conflicts wake once per head
+until a clean result clears the marker. Check suites are tracked separately by App.
 The grouping survives server restarts and keeps at most 50 distinct notice items per burst.
 
-Several PRs can belong to one task. Automatic Ready requires all PRs merged or closed and at
-least one merge. Abandoning every PR returns Review or Ready to Doing. A human can always move
+Several PRs can belong to one task. Automatic Ready requires every tracked PR merged or
+closed and at least one merge. Tracking applies to repositories in the connected org that are
+reachable, ticked or have received a PR webhook on any task. Abandoning every PR returns Review or Ready to Doing. A human can always move
 a task to Ready or Done, and GitHub preserves their choice for one hour. A release completes
 it only after all merged PRs are included; merged PRs in another repository remain Ready.
 Automatic completion waits for open subtasks.

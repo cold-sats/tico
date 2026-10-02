@@ -111,12 +111,15 @@ excluded from the PR totals.
 
 Attach as many PRs as the task needs with `hub task link`. `GET/POST /api/v2/tasks/{id}/links`
 list or attach links; `DELETE /api/v2/tasks/{id}/links/{link_id}` removes one. The older POST
-with `remove` still works. Changing links requires the same rights as moving the task.
+with `remove` still works. People who can read a task can add or remove its links. Bots
+need task rights; worktree links keep their worktree rules.
 PR URLs outside the connected GitHub org are plain links. PR links include repository,
 number, branch, checks, mergeability, review state and pending review comments. The task's `pr_state` shows the worst active PR:
 Failing, Conflict, Changes requested, Open, then Merged. Closed PRs are excluded; shipped PRs
 count as merged. Automatic Ready requires at least one merged PR and every tracked PR
-merged or closed. Links without PR webhooks do not block automatic Ready. Removing a PR link
+merged or closed. A repository in the connected org is tracked when it is reachable, ticked,
+or has received a PR webhook on any task. Its PRs block automatic Ready even before their
+first event. Unreachable, unticked repositories with no webhook history do not block it. Removing a PR link
 recomputes the automatic status. Abandoning every PR returns a task in Review or Ready
 to Doing. Adding a PR keeps a Ready task in Ready. Automatic PR moves retain the existing custom-type and legacy
 product-lane behavior and preserve a human's status choice for one hour.
@@ -128,9 +131,11 @@ can still move tasks without webhooks or a successful refresh.
 
 Failing checks, new conflicts, requests for changes, review comments from others and PRs
 closed without merging wake the owner with the specific item, grouped into one notice within
-three minutes. Conflicts wake once until a known mergeability change clears them. Label
-and text edits keep the last known mergeability. Pending or passing checks and the bot's
-own comments do not wake it. Tico recognises the GitHub App identity and suppresses comments
-from the login that pushed the head commit when the bot's login is unknown.
+three minutes. Conflicts wake once per head until a known clean result clears the marker.
+A new push resets mergeability to Unknown while GitHub recomputes it; label and text edits
+keep the last known mergeability. Pending or passing checks and the bot's own comments
+do not wake it. Tico recognises the GitHub App identity, configured bot login and PR author.
+A head pusher counts as the bot only when their login matches the PR author. Requests for
+changes always wake the owner, including requests from those identities.
 Automatic shipping waits until every merged PR is included in the configured release;
 PRs in another repository remain Ready for their release or a human's completion.

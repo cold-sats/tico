@@ -99,8 +99,14 @@ def _pr_status(c, task, note):
     if not product or task["status"] not in H.ACTIVE_STATUSES:
         return None
     links = [l for l in H.task_links(c, task["id"]) if l["kind"] == "pr"]
-    tracked_repos = {str(l.get("repo") or "").lower() for l in links
-                     if (H._json(l.get("detail_json"), {}) or {}).get("tracked")}
+    app = c.execute("SELECT org FROM github_app LIMIT 1").fetchone()
+    tracked_repos = {str(r[0]).lower() for r in c.execute(
+        "SELECT DISTINCT repo FROM task_links WHERE kind='pr' AND json_extract(detail_json,'$.tracked')=1")}
+    if app:
+        org = str(app[0]).lower() + "/"
+        tracked_repos.update(str(r[0]).lower() for r in c.execute(
+            "SELECT full_name FROM repositories WHERE reachable=1 OR enabled=1"))
+        tracked_repos = {repo for repo in tracked_repos if repo.startswith(org)}
     links = [l for l in links if l["state"] in ("merged", "closed", "shipped")
              or str(l.get("repo") or "").lower() in tracked_repos]
     finished = links and all(l["state"] in ("merged", "closed", "shipped") for l in links)
@@ -132,7 +138,10 @@ def pull_request(c, payload):
                 else "draft" if pr.get("draft") or action == "converted_to_draft" else "open")
         if link["state"] == "shipped" and state == "merged":
             state = "shipped"
-        mergeable = link.get("mergeable") or "unknown"
+        detail = H._json(link.get("detail_json"), {}) or {}
+        head_sha = (pr.get("head") or {}).get("sha")
+        new_head = head_sha and detail.get("head_sha") != head_sha
+        mergeable = "unknown" if action == "synchronize" or new_head else link.get("mergeable") or "unknown"
         if action in ("opened", "reopened", "synchronize", "ready_for_review", "refresh"):
             if pr.get("mergeable") is False or pr.get("mergeable_state") == "dirty":
                 mergeable = "conflict"
@@ -145,26 +154,37 @@ def pull_request(c, payload):
                    int(match.group(3)) if match else pr.get("number"), (pr.get("head") or {}).get("ref"), H.now(),
                    pr.get("merge_commit_sha") if state == "merged" else None,
                    pr.get("merged_at") or H.now() if state == "merged" else None, link["id"]))
-        detail = H._json(link.get("detail_json"), {}) or {}
+        author = str((pr.get("user") or {}).get("login") or "").lower()
+        if author:
+            detail["author_login"] = author
         if action != "refresh":
             detail["tracked"] = True
-        head_sha = (pr.get("head") or {}).get("sha")
         if head_sha:
             if detail.get("head_sha") != head_sha:
                 detail.pop("checks", None)
                 detail.pop("head_login", None)
+                detail.pop("conflict_head", None)
                 c.execute("UPDATE task_links SET checks='pending' WHERE id=?", (link["id"],))
             detail["head_sha"] = head_sha
-            if action == "synchronize":
-                detail["head_login"] = str((payload.get("sender") or {}).get("login") or "").lower()
-            elif payload.get("head_login"):
-                detail["head_login"] = payload["head_login"]
+            login = (str((payload.get("sender") or {}).get("login") or "").lower()
+                     if action == "synchronize" else str(payload.get("head_login") or "").lower())
+            if login:
+                if login == detail.get("author_login"):
+                    detail["head_login"] = login
+                else:
+                    detail.pop("head_login", None)
+        conflict_head = detail.get("head_sha") or "unknown"
+        conflict_wake = mergeable == "conflict" and detail.get("conflict_head") != conflict_head
+        if mergeable == "conflict":
+            detail["conflict_head"] = conflict_head
+        elif mergeable == "clean":
+            detail.pop("conflict_head", None)
         c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
         item = f"{link['title']} {state}" if state != "closed" else f"{link['title']} was closed without merging"
         if mergeable == "conflict":
             item += ": Merge conflict"
         if (state == "closed" and link["state"] != state
-                or mergeable == "conflict" and link.get("mergeable") != mergeable):
+                or conflict_wake):
             queue_wake(c, task, item)
         move = None
         if link["state"] != state or action in ("opened", "reopened", "ready_for_review"):
@@ -180,12 +200,14 @@ def _own_comment(c, task, payload, key, detail):
     if not login:
         return False
     author = str(((payload.get("pull_request") or {}).get("user") or {}).get("login") or "").lower()
+    author = author or str(detail.get("author_login") or "").lower()
+    head_login = str(detail.get("head_login") or "").lower()
     app = c.execute("SELECT slug FROM github_app LIMIT 1").fetchone()
     config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(task["owner"]),)).fetchone()
     bot_login = (H._json(config[0], {}) or {}).get("github_login", "") if config else ""
     via_app = (payload.get(key) or {}).get("performed_via_github_app") or {}
     return (app and str(via_app.get("slug") or "").lower() == str(app[0]).lower()
-            or login in {author, str(bot_login).lower(), str(detail.get("head_login") or "").lower() if not bot_login else "",
+            or login in {author, str(bot_login).lower(), head_login if head_login == author else "",
                          (str(app[0]) + "[bot]").lower() if app else ""})
 
 
@@ -245,8 +267,8 @@ def pr_signal(c, event, payload):
                 reviews[review_id] = signature
                 detail["reviews"] = dict(list(reviews.items())[-100:])
             fields["review_state"] = state
-            wake = fresh and payload.get("action") != "dismissed" and not _own_comment(c, task, payload, "review", detail) and (
-                state == "changes_requested" or state == "commented")
+            wake = fresh and payload.get("action") != "dismissed" and (
+                state == "changes_requested" or state == "commented" and not _own_comment(c, task, payload, "review", detail))
             item = f"Review {state.replace('_', ' ')} on {label}"
         else:
             action = payload.get("action")
@@ -358,7 +380,10 @@ def push(c, payload):
         for link in H._rows(c.execute("SELECT id,detail_json FROM task_links WHERE kind='pr' AND lower(repo)=? "
                                        "AND json_extract(detail_json,'$.head_sha')=?", (repo.lower(), head_sha))):
             detail = H._json(link["detail_json"], {}) or {}
-            detail["head_login"] = login
+            if login == detail.get("author_login"):
+                detail["head_login"] = login
+            else:
+                detail.pop("head_login", None)
             c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
     if ref != "refs/heads/" + default:
         return {"ref": ref, "commits": 0}

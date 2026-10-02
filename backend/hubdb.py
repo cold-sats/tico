@@ -2055,7 +2055,7 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
-    _task_link_allowed(conn, actor, row, mover)
+    _task_link_allowed(conn, actor, row, mover, kind or link_kind(str(url or "")))
     url = str(url or "").strip()
     if not re.match(r"^https?://\S+$", url):
         refuse(conn, actor, "kind", "a link is an http(s) URL")
@@ -2088,7 +2088,9 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
     return link
 
 
-def _task_link_allowed(conn, actor, row, mover=None):
+def _task_link_allowed(conn, actor, row, mover=None, kind=None):
+    if is_human(actor) and kind != "worktree":
+        return
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     delegated = _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
@@ -2102,10 +2104,10 @@ def task_unlink(conn, actor, task_id, link_id, mover=None):
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
-    _task_link_allowed(conn, actor, row, mover)
     have = _one(conn, "SELECT * FROM task_links WHERE id=? AND task_id=?", (link_id, task_id))
     if not have:
         refuse(conn, actor, "not-found", f"no link {link_id} on {task_id}")
+    _task_link_allowed(conn, actor, row, mover, have["kind"])
     conn.execute("DELETE FROM task_links WHERE id=?", (link_id,))
     _task_event(conn, task_id, actor, "link", have["url"], None, "removed")
     event(conn, actor, "task.unlink", task_id, {"url": have["url"]})
