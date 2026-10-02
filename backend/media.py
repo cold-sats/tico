@@ -537,6 +537,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             if body.note is not None or body.ask is not None:
                 edit_version(c, auth, who, tid, fid, number,
                              M.FileVersionEdit(note=body.note, ask=body.ask))
+            c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), tid))
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
             preview = register(c, who, **poster)["id"] if poster else None
             c.execute("INSERT INTO blob_media(blob_id,poster_blob_id) VALUES(?,?)", (item["id"], preview))

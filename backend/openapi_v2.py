@@ -136,7 +136,9 @@ STABLE = [
     ("/api/v2/task-types/{type_id}", "post", "Tasks", "updateTaskType", "Edit a type and replace its steps, keeping retained ids (movers only)", "TaskTypeResult"),
     ("/api/v2/task-types/{type_id}", "delete", "Tasks", "deleteTaskType", "Delete an unused task type (movers only)", "TaskTypeResult"),
     ("/api/v2/task-types/{type_id}/delete", "post", "Tasks", "deleteTaskTypePost", "Delete an unused type for clients using POST", "TaskTypeResult"),
-    ("/api/v2/tasks", "get", "Tasks", "listTasks", "Tasks the caller can see", "TaskList"),
+    ("/api/v2/tasks", "get", "Tasks", "listTasks",
+     "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, "
+     "brief=true leaves out bodies", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
     ("/api/v2/tasks/dry-run", "post", "Tasks", "checkTask", "The checks a create would fail; writes nothing", None),
     ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use", None),
@@ -378,7 +380,7 @@ SCHEMAS = {
     "Conversation": obj({"id": "s", "kind": "s", "subject": "s", "participants": items({"type": "string"}),
                          "created": "s", "last_message_at": "s", "closed_at": "n"}),
     "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "position": "i", "status": "s"}),
-    "TaskType": obj({"id": "s", "name": "s", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
+    "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
                     bots={"type": ["string", "null"], "enum": ["read", "work", None],
                           "description": "What every bot may do with the type's tasks beyond its own: read "
                                          "(read, comment, file subtasks) or work (also change them); null keeps "
@@ -388,7 +390,7 @@ SCHEMAS = {
     "Task": obj({"id": "s", "title": "s", "body": "s", "requester": "s", "owner": "s", "status": "s", "created": "s",
                  "updated": "s", "due": "n", "version": "i", "lane": "s", "labels": items({"type": "string"}),
                  "acceptance_criteria": items({"type": "string"})},
-                required=["id", "title", "body", "requester", "owner", "status", "created", "updated", "due", "version", "lane", "labels", "acceptance_criteria"],
+                required=["id", "title", "requester", "owner", "status", "created", "updated", "due", "version", "lane", "labels"],
                 owner_name={"type": "string", "description": "Display name of owner (`owner` stays the actor id)"},
                 requester_name={"type": "string", "description": "Display name of requester"},
                 cover={"oneOf": [obj({"url": "s", "width": {"type": ["integer", "null"]},
@@ -396,7 +398,12 @@ SCHEMAS = {
                 open_asks={"type": "integer", "description": "Questions on this task with no answer or dismissal"},
                 type_id={"type": ["string", "null"]}, step_id={"type": ["string", "null"]},
                 type={"oneOf": [obj({"id": "s", "name": "s"}), {"type": "null"}]},
-                step={"oneOf": [ref("TaskStep"), {"type": "null"}]}),
+                step={"oneOf": [ref("TaskStep"), {"type": "null"}]},
+                body={"type": "string", "description": "Left out of a list asked for with brief=true, "
+                      "as is acceptance_criteria"},
+                number={"type": ["integer", "null"], "description": "The task's number, unique across the team "
+                        "(#18945); given once on a numbered type and never changed"},
+                step_rank={"type": ["number", "null"], "description": "Its place within its step, lower first"}),
     "Person": obj({"id": "s", "name": "s", "email": "s", "title": "s", "team": "s", "reports_to": "n", "org_parent": "s"},
                   required=["id", "name", "org_parent"]),
     "Access": obj({"see": "b", "read": "b", "write": "b"},

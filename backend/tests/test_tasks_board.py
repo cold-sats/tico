@@ -11,6 +11,7 @@ from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
 from backend.store import encode
+from backend.tests.test_mcp import call
 
 
 @pytest.fixture
@@ -422,6 +423,124 @@ def test_stranded_auto_reopen_maps_to_the_types_open_step(api):
         assert (task['id'], 'open') in H.sweep_stranded(c, at=future)
         after = H.task(c, task['id'])
         assert after['status'] == 'open' and after['step_id'] == typ['steps'][0]['id']
+
+
+def test_a_numbered_type_numbers_its_tasks_once_and_keeps_an_imported_number(api):
+    typ = post(api, 'task-types', {'name': 'Dev ticket', 'numbered': True, 'steps': [
+        {'name': 'Backlog', 'status': 'open'}, {'name': 'Shipped', 'status': 'done'}]})['type']
+    assert typ['numbered'] is True
+    first = post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the account page', 'body': 'x', 'type': typ['id']})
+    imported = post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the signup page', 'body': 'x', 'type': typ['id'],
+                                   'number': 18945})
+    assert (first['number'], imported['number']) == (1, 18945)
+    post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the login page', 'body': 'x', 'number': 18945}, expected=422)
+    post(api, 'tasks', {'owner': 'priya', 'title': 'Fix the help page', 'body': 'x', 'number': 7},
+         token='priya-test', expected=403)
+    plain = post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the brief', 'body': 'x'})
+    assert plain['number'] is None
+    moved = edit_pipeline_task(api, plain, type=typ['id'])
+    assert moved['number'] == 18946
+    assert edit_pipeline_task(api, moved, type='General')['number'] == 18946
+    assert get(api, 'tasks/%2318945')['task']['id'] == imported['id']
+    get(api, 'tasks/18945', expected=404)           # bare digits may be a cut-short id
+    assert call(api, 'hub_task_show', {'id': '#18945'})[1]['task']['id'] == imported['id']
+    assert [t['id'] for t in get(api, 'tasks?number=18945')['tasks']] == [imported['id']]
+
+
+
+def test_number_exhaustion_does_not_create_an_unreadable_ticket(api):
+    typ = post(api, 'task-types', {'name': 'Dev ticket', 'numbered': True})['type']
+    task = post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the last page', 'body': 'x',
+                             'type': typ['id'], 'number': 999999999})
+    post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix another page', 'body': 'x',
+                       'type': typ['id']}, expected=422)
+    assert [t['id'] for t in get(api, 'tasks?type=' + typ['id'])['tasks']] == [task['id']]
+    assert get(api, 'tasks/%23999999999')['task']['id'] == task['id']
+    post(api, 'tasks/' + task['id'], {'version': task['version'], 'number': 2}, expected=422)
+
+
+def test_tickets_on_a_numbered_type_stay_out_of_needs_you_unless_they_ask_the_person(api):
+    tickets = post(api, 'task-types', {'name': 'Dev ticket', 'numbered': True, 'steps': [
+        {'name': 'Backlog', 'status': 'open'}, {'name': "Can't replicate", 'status': 'declined'}]})['type']
+    actions = post(api, 'task-types', {'name': 'Client action', 'steps': [{'name': 'To do', 'status': 'open'}]})['type']
+    mine = [post(api, 'tasks', {'owner': 'priya', 'title': title, 'body': 'Please.', **extra}) for title, extra in (
+        ('Approve the launch copy', {}), ('Call the client', {'type': actions['id']}),
+        ('Fix the account page', {'type': tickets['id']}))]
+    needs = lambda: {item['id']: item for item in get(api, 'needs-you', token='priya-test')['items']}  # noqa: E731
+    assert set(needs()) == {mine[0]['id'], mine[1]['id']}
+    assert get(api, 'needs-you?count=true', token='priya-test')['count'] == 2
+    # A ticket comes in once it asks her something: the bot she filed it for asks back (hub task ask).
+    asked = post(api, 'tasks', {'owner': 'ops', 'title': 'Fix the signup page', 'body': 'Please.',
+                                'type': tickets['id']}, token='priya-test')
+    post(api, 'tasks/' + asked['id'] + '/ask', {'text': 'Which browser was it?'}, token=bot_token(api, 'ops'))
+    assert needs()[asked['id']]['kind'] == 'question'
+    # A declined ticket is not hers to deal with today; a declined General task still is.
+    declined = [post(api, 'tasks', {'owner': 'cmo', 'title': title, 'body': 'Please.', **extra}, token='priya-test')
+                for title, extra in (('Fix the pricing page', {'type': tickets['id']}), ('Draft the newsletter', {}))]
+    edit_pipeline_task(api, declined[0], step="Can't replicate")
+    edit_pipeline_task(api, declined[1], status='declined')
+    assert declined[1]['id'] in needs() and declined[0]['id'] not in needs()
+
+def test_a_task_has_a_place_in_its_step_and_a_board_lists_in_that_order(api):
+    typ = post(api, 'task-types', {'name': 'Dev ticket', 'steps': [
+        {'name': 'Backlog', 'status': 'open'}, {'name': 'On deck', 'status': 'open'}]})['type']
+    a, b = (post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the ' + page, 'body': 'x', 'type': typ['id']})
+            for page in ('account page', 'signup page'))
+    top = post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the help page', 'body': 'x', 'type': typ['id'], 'top': True})
+    assert top['step_rank'] < a['step_rank'] < b['step_rank']
+    b = edit_pipeline_task(api, b, step='On deck')
+    a = edit_pipeline_task(api, a, step='On deck')
+    assert a['step_rank'] > b['step_rank']                      # entering a step joins its end
+    a = post(api, 'tasks/' + a['id'], {'version': a['version'], 'step_rank': b['step_rank'] - 1}, token='ben-test')
+    board = get(api, 'tasks?type=Dev ticket&sort=step')['tasks']
+    assert [t['id'] for t in board] == [top['id'], a['id'], b['id']]
+    assert [t['id'] for t in get(api, 'tasks?type=' + typ['id'] + '&step=On deck&sort=step')['tasks']] == [a['id'], b['id']]
+    post(api, 'tasks/' + a['id'], {'version': a['version'], 'step_rank': 0}, token='priya-test', expected=403)
+
+
+def test_a_board_polls_only_what_changed_since_it_last_looked(api):
+    old = post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the brief', 'body': 'x'})
+    changed = post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the plan', 'body': 'x'})
+    since = get(api, 'tasks/' + changed['id'])['task']['updated']
+    post(api, 'tasks/' + changed['id'] + '/comments', {'text': 'Shorter, please.'})
+    assert [t['id'] for t in get(api, 'tasks?updated_since=' + since.replace('Z', '%2B00:00'))['tasks']] == [changed['id']]
+    get(api, 'tasks?updated_since=2026-01-01T00:00:00', expected=422)
+    post(api, 'tasks/' + old['id'] + '/files', {'name': 'notes.md', 'text': 'The notes.'})
+    assert {t['id'] for t in get(api, 'tasks?updated_since=' + since)['tasks']} == {old['id'], changed['id']}
+
+
+def test_number_migration_preserves_shipped_schemas_and_existing_step_order(tmp_path):
+    import sqlite3
+    c = sqlite3.connect(tmp_path / 'old.db', isolation_level=None)
+    c.row_factory = sqlite3.Row
+    for schema in H.MIGRATIONS[:22]:
+        H._apply(c, schema)
+    c.execute('PRAGMA user_version=22')
+    stamp = H.now()
+    c.execute("INSERT INTO task_types(id,name,created,updated) VALUES('dev','Dev ticket',?,?)", (stamp, stamp))
+    c.execute("INSERT INTO task_steps(id,type_id,name,position,status) VALUES('todo','dev','To do',0,'open')")
+    for ident in ('first', 'second'):
+        c.execute("INSERT INTO tasks(id,title,body,requester,owner,status,created,updated,type_id,step_id) "
+                  "VALUES(?,?,'x','human:ana','bot:ops','open',?,?,'dev','todo')", (ident, ident, stamp, stamp))
+    H.migrate(c)
+    ranks = [tuple(row) for row in c.execute('SELECT id,step_rank,number FROM tasks ORDER BY step_rank')]
+    assert [row[0] for row in ranks] == ['first', 'second'] and all(row[2] is None for row in ranks)
+    assert H.MIGRATIONS[19:23] == [H.STORAGE_SCHEMA, H.TASK_REVIEW_SCHEMA, H.MEETING_REVIEW_SCHEMA, H.NUMBERS_SCHEMA]
+    H._apply(c, H.NUMBERS_SCHEMA)
+    H.migrate(c)
+    assert ranks == [tuple(row) for row in c.execute('SELECT id,step_rank,number FROM tasks ORDER BY step_rank')]
+    assert c.execute('PRAGMA user_version').fetchone()[0] == 23
+    c.close()
+
+
+def test_a_brief_list_leaves_out_what_a_board_does_not_show(api):
+    post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the brief', 'body': 'A long body.', 'acceptance_criteria': ['Short']})
+    task = get(api, 'tasks?brief=true')['tasks'][0]
+    assert task['title'] == 'Write the brief' and not {'body', 'acceptance_criteria', 'acceptance_json'} & set(task)
+    from backend.tests.test_openapi_v2 import conforms
+    from backend.openapi_v2 import generate
+    document = generate()
+    assert conforms(task, document['components']['schemas']['Task'], document) is None
 
 
 def test_three_level_tree_requester_rules_cycles_and_last_child_wake(api):

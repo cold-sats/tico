@@ -180,6 +180,9 @@ def pull_request(c, payload):
         elif mergeable == "clean":
             detail.pop("conflict_head", None)
         c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
+        current = c.execute("SELECT * FROM task_links WHERE id=?", (link["id"],)).fetchone()
+        if any(current[field] != link.get(field) for field in ("state", "mergeable", "repo", "number", "branch", "checks")):
+            c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task["id"]))
         item = f"{link['title']} {state}" if state != "closed" else f"{link['title']} was closed without merging"
         if mergeable == "conflict":
             item += ": Merge conflict"
@@ -286,7 +289,10 @@ def pr_signal(c, event, payload):
             fields["pending_comments"] = max(0, (link.get("pending_comments") or 0) + (1 if action == "created" else -1))
             wake = action == "created" and not _own_comment(c, task, payload, "comment", detail)
             item = f"{fields['pending_comments']} review comments on {label}"
+        changed = any(value != link.get(field) for field, value in fields.items())
         fields.update(detail_json=json.dumps(detail), updated=H.now())
+        if changed:
+            c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task["id"]))
         c.execute("UPDATE task_links SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?",
                   (*fields.values(), link["id"]))
         if wake:

@@ -957,6 +957,9 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=55").fetchone():
                     H._apply(c, H.MEETING_REVIEW_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(55,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=56").fetchone():
+                    H._apply(c, H.NUMBERS_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(56,?)", (H.now(),))
                 c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
                     AFTER INSERT ON bot_config
                     WHEN json_extract(NEW.config_json,'$.repo_access_mode') IS NULL

@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import re
 import sqlite3
 import stat
 from dataclasses import dataclass, replace
@@ -840,10 +841,11 @@ class Auth:
 
     def resolve_task(self, c, who, ident, visible=None):
         """The full task id for what a caller typed: the id itself, a unique prefix of at least
-        TASK_PREFIX_MIN characters, or a refusal. Models copy a long UUID imperfectly, so an
-        ambiguous prefix lists its candidates and a near miss is only suggested, never used.
-        Only tasks `visible` (default: what this caller may read) are matched, so a refusal never
-        names a task the caller cannot see."""
+        TASK_PREFIX_MIN characters, a task's number (`#18945`), or a refusal. Models copy a long
+        UUID imperfectly, so an ambiguous prefix lists its candidates and a near miss is only
+        suggested, never used; for the same reason bare digits, which a cut-short id can be, are
+        never read as a number. Only tasks `visible` (default: what this caller may read) are
+        matched, so a refusal never names a task the caller cannot see."""
         if not isinstance(ident, str) or not ident.strip():
             return ident
         ident = ident.strip()
@@ -861,6 +863,14 @@ class Auth:
                     continue
                 found.append(row)
             return found
+
+        number = re.fullmatch(r"#(\d{1,18})", ident)
+        if number:
+            rows = readable(H._rows(c.execute("SELECT id,title,owner,requester,parent_id FROM tasks WHERE number=? AND ("
+                                              + visible + ")", (int(number.group(1)),))))
+            if rows:
+                return rows[0]["id"]
+            raise Problem("not_found", "No task %s" % ident, 404)
 
         if TASK_PREFIX_MIN <= len(ident) < 36:
             rows = readable(H._rows(c.execute(

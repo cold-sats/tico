@@ -517,3 +517,23 @@ class Tags(unittest.TestCase):
         self.assertEqual(task.add, ["release-2026-10-02"])
         for name in ("hub_tag_list", "hub_tag_show", "hub_tag_create", "hub_tag_update"):
             self.assertIn(name, hubtools.BY_NAME)
+
+
+def test_task_board_filters_survive_the_all_form():
+    from clients.hubtools import task_list
+    args = hubcli.parser().parse_args(['task', 'list', '--all', '--type', 'Dev ticket', '--step', 'To do',
+                                      '--sort', 'step', '--number', '42', '--updated-since', '2026-01-01T00:00:00Z', '--brief'])
+    class Api:
+        def __init__(self):
+            self.query = None
+        def get(self, path, **query):
+            if path == 'bots':
+                return []
+            self.query = query
+            return {'tasks': [{'id': 'task'}]}
+    api = Api()
+    result = task_list(api, vars(args))
+    assert result == {'tasks': [{'id': 'task'}], 'bots': []}
+    assert {key: api.query[key] for key in ('type', 'step', 'sort', 'number', 'updated_since', 'brief')} == {
+        'type': 'Dev ticket', 'step': 'To do', 'sort': 'step', 'number': 42,
+        'updated_since': '2026-01-01T00:00:00Z', 'brief': 'true'}

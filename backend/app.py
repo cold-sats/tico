@@ -800,11 +800,11 @@ def create_app(settings=None):
         return who.role == "owner" or who.role == "human" and H.can_move(c, who.actor)
 
     def visible_tasks(c, who, owner=None, requester=None, status=None, lane=None, label=None,
-                      limit=500, offset=0, order="queue"):
+                      limit=500, offset=0, order="queue", **more):
         auth.domain(who)
         visible_sql = auth.task_sql(c, who)
         rows = H.tasks(c, owner=owner, requester=requester, status=status, lane=lane, label=label,
-                       limit=limit + 1, offset=offset, order=order, visible=visible_sql)
+                       limit=limit + 1, offset=offset, order=order, visible=visible_sql, **more)
         page, has_more = rows[:limit], len(rows) > limit
         return task_views(page, c, visible_sql), offset + limit if has_more else None
 
@@ -1934,7 +1934,8 @@ def create_app(settings=None):
     @app.get("/api/v2/tasks")
     def tasks(request: Request, owner: str | None = None, requester: str | None = None, status: str | None = None,
               lane: str | None = None, label: str | None = None, limit: int = 500,
-              offset: int = 0, sort: str = "queue"):
+              offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
+              number: int | None = None, updated_since: str | None = None, brief: bool = False):
         with store.read() as c:
             owner = H.resolve_actor(c, owner) if owner else None
             requester = H.resolve_actor(c, requester) if requester else None
@@ -1944,11 +1945,32 @@ def create_app(settings=None):
                 raise Problem("limit", "limit is between 1 and 500", 422)
             if offset < 0:
                 raise Problem("offset", "offset is zero or greater", 422)
-            if sort not in ("queue", "finished"):
-                raise Problem("sort", "sort is queue or finished", 422)
+            if sort not in ("queue", "finished", "step"):
+                raise Problem("sort", "sort is queue, finished or step", 422)
+            typ = H.type_get(c, type) if type else None
+            if type and not typ:
+                raise Problem("type", "No task type " + type, 422)
+            step_ids = None
+            if step:
+                # By id or name: in the type when one is given, else every type's step of that name.
+                steps = typ["steps"] if typ else H._rows(c.execute("SELECT id,name FROM task_steps"))
+                step_ids = [s["id"] for s in steps if step in (s["id"], s["name"])]
+                if not step_ids:
+                    raise Problem("step", "No step " + step + (" in " + typ["name"] if typ else ""), 422)
+            if number is not None and not 1 <= number <= 999_999_999:
+                raise Problem("number", "number is a task number, from 1", 422)
+            since = H.parse_ts(updated_since) if updated_since else None
+            if updated_since and (not since or since.tzinfo is None):
+                raise Problem("date", "updated_since must be an ISO-8601 date/time with a timezone", 422)
             rows, next_offset = visible_tasks(c, request.state.identity, owner, requester,
                 status.split(",") if status and status != "all" else None, lane=lane, label=label,
-                limit=limit, offset=offset, order=sort)
+                limit=limit, offset=offset, order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids,
+                number=number, updated_since=views.since_time(updated_since) if since else None)
+            if brief:
+                # A board polling hundreds of tasks needs neither their text nor their criteria.
+                for row in rows:
+                    for field in ("body", "acceptance_criteria", "acceptance_json"):
+                        row.pop(field, None)
             return {"tasks": rows, "next_offset": next_offset}
 
     # ------------------------------------------------------------------ quiet notes
@@ -2101,7 +2123,8 @@ def create_app(settings=None):
                                 H.task(c, body.parent_id)["requester"] if body.parent_id and H.is_human(who.actor)
                                 and H.is_human(H.task(c, body.parent_id)["requester"]) else who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
-                            goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step)
+                            goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step,
+                            number=body.number, mover=mover(c, who) or None)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
         parent = H.task(c, body.parent_id) if body.parent_id else None
         inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
@@ -2147,7 +2170,7 @@ def create_app(settings=None):
             if body.close:
                 if any(v is not None for v in (body.status, body.owner, body.due, body.body, body.lane,
                                                body.labels, body.blocked_by, body.parent_id, body.rank,
-                                               body.goal_id, body.type, body.step)):
+                                               body.goal_id, body.type, body.step, body.step_rank, body.number)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 note = body.note or ""
                 if (note.strip() and getattr(who, "via", "") == "botops" and who.actor != "bot:" + BOTOPS

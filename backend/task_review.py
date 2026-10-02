@@ -78,6 +78,7 @@ def edit_version(c, auth, who, task_id, fid, number, body):
         raise Problem("forbidden", "Only whoever added this version may edit its note or question", 403)
     value = check_ask(c, task_id, body.ask, auth, who)
     current = version_review(c, fid, number)
+    c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task_id))
     c.execute("INSERT OR IGNORE INTO task_file_reviews(file_id,version) VALUES(?,?)", (fid, number))
     if "note" in body.model_fields_set:
         c.execute("UPDATE task_file_reviews SET note=? WHERE file_id=? AND version=?", (body.note, fid, number))

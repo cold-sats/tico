@@ -91,6 +91,8 @@ class Answer(Contract):
 
 
 Lane = Literal["company", "product"]
+# A task's number: one sequence for the whole team, like one board's ticket numbers.
+TaskNumber = Annotated[int, Field(ge=1, le=999_999_999)]
 
 
 class TaskCreate(Contract):
@@ -110,6 +112,8 @@ class TaskCreate(Contract):
     request_id: ID | None = None
     type: ID | None = None
     step: str | None = Field(default=None, max_length=200)
+    # An imported ticket's own number (a mover's); a numbered type gives the next one otherwise.
+    number: TaskNumber | None = None
 
 
 class NoteCreate(Contract):
@@ -135,6 +139,8 @@ class TaskUpdate(Contract):
     rank: float | None = None
     type: ID | None = None
     step: str | None = Field(default=None, max_length=200)   # "" clears the step
+    step_rank: float | None = Field(default=None, allow_inf_nan=False)   # its place within its step
+    number: TaskNumber | None = None      # a mover's, for a task that has none
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
     # delegated_identity): checked as that person, never as BotOps.
     on_behalf_of: ID | None = None
@@ -156,12 +162,14 @@ class TaskTypeCreate(Contract):
     name: ID
     steps: list[TaskStepInput] = Field(default_factory=list)
     bots: TypeBots | None = None
+    numbered: bool = False
 
 
 class TaskTypeUpdate(Contract):
     name: ID | None = None
     steps: list[TaskStepInput] | None = None
     bots: TypeBots | None = None
+    numbered: bool | None = None
 
 
 class QuestionOption(Contract):

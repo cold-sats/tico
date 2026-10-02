@@ -12,6 +12,23 @@ All notable changes to Tico are recorded here. The format follows
   reassign and link them), in Settings → Types, the task-types routes, `hub task type --bots` and MCP. A team's
   board can be worked by the bots that file and build its tickets; everything else stays with the bots on it.
 - Imported meetings wait in a personal Pending queue before sharing, with approve, dismiss and restore actions, batch sharing, per-person auto-share, a Team review default, and CLI/MCP review tools.
+- Ticket numbers: a mover can make a custom type **numbered**, and each task created on it or moved onto it gets the
+  team's next number (one sequence for the whole team), kept for good. A mover can keep an imported ticket's number
+  (`number` on create, or once on a task that has none). `#18945` names the task wherever an id does, and
+  `GET /api/v2/tasks?number=18945` finds it.
+- A task has a place within its step, `step_rank`: a task that enters a step joins its end (its top with `top`), and
+  the people on it and movers can move it. `GET /api/v2/tasks` takes `type` and `step` filters and `sort=step`, the
+  board filtered to a type orders its columns that way, and `hub task list` and `hub_task_list` take the same.
+- `GET /api/v2/tasks?updated_since=<time>` returns only the tasks changed after that time, for a client that polls, and
+  `brief=true` leaves out their bodies and acceptance criteria.
+
+### Changed
+- Tickets on a numbered type stay out of their owner's Needs you, and the desktop count, unless one carries a question
+  for that person; a declined ticket stays out of its requester's. General tasks and other types are listed as before.
+
+### Fixed
+- A task's `updated` time moves when a file is attached to it or archived, a link is removed, a linked pull request
+  changes state, or a question on it is asked or answered, as it already did for its fields, comments and new links.
 
 ### Improved
 - Help puts Support in the existing resizable right rail, with continuing conversations, a simpler overview, platform descriptions and an inline glossary.

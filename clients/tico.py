@@ -83,6 +83,7 @@ class Client:
             headers["Content-Length"] = str(os.fstat(data.fileno()).st_size)
         elif isinstance(data, MultipartBody):
             headers["Content-Length"] = str(data.size)
+        path = path.replace("#", "%23")     # a task number ("tasks/#18945") is in the path, not a fragment
         for attempt in range(self.retries + 1):
             if hasattr(data, "seek"):
                 data.seek(0)

@@ -40,7 +40,8 @@ function taskPipelineBoard(items, state) {
   }
   const STEP_KIND = {open: 'starting', doing: 'doing', waiting: 'waiting', review: 'review', ready: 'review', done: 'done', closed: 'closed', declined: 'needs'};
   for (const column of columns) {
-    column.items.sort(byRank);
+    column.items.sort((a, b) => (a.task.step_rank ?? Infinity) - (b.task.step_rank ?? Infinity)
+      || String(a.task.created).localeCompare(String(b.task.created)) || String(a.task.id).localeCompare(String(b.task.id)));
     const step = type.steps.find(step => step.id === column.id);
     column.kind = STEP_KIND[step?.status || column.id.replace(/^status-/, '')] || '';
   }

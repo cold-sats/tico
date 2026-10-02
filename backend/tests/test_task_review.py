@@ -49,6 +49,20 @@ def test_version_names_scopes_archive_and_author_edits(api):
     assert attach(api, tid)["file_id"] != fid
 
 
+def test_file_review_edits_and_archive_are_visible_to_task_polling(api):
+    tid = task(api)
+    fid = attach(api, tid)["file_id"]
+    path = f"/api/v2/files/{fid}/versions/1"
+    for edit in ({"note": "Revised"}, {"ask": ask()}, {"ask": ask("ana")}):
+        since = get(api, f"tasks/{tid}")["task"]["updated"]
+        response = api.patch(path, json=edit, headers=headers())
+        assert response.status_code == 200, response.text
+        assert tid in [t["id"] for t in get(api, "tasks?updated_since=" + since)["tasks"]]
+    since = get(api, f"tasks/{tid}")["task"]["updated"]
+    assert api.patch(f"/api/v2/files/{fid}", json={"archived": True}, headers=headers()).status_code == 200
+    assert tid in [t["id"] for t in get(api, "tasks?updated_since=" + since)["tasks"]]
+
+
 def test_legacy_attachment_is_v1_and_adopted_without_rewriting(api):
     tid = task(api)
     from backend.auth import Identity
@@ -207,7 +221,8 @@ def test_review_migration_keeps_existing_version_bytes(api):
     tid = task(api)
     fid = attach(api, tid)["file_id"]
     with api.app.state.store.read() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert H.MIGRATIONS[20] == H.TASK_REVIEW_SCHEMA
+        assert c.execute("PRAGMA user_version").fetchone()[0] >= 21
         assert c.execute("SELECT 1 FROM cloud_migrations WHERE version=54").fetchone()
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             c.execute("UPDATE bot_file_versions SET digest='changed' WHERE file_id=?", (fid,))

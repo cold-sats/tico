@@ -236,6 +236,8 @@ def run(args, who=None):
                 body["steps"] = json.loads(Path(args.steps_file).read_text())
             if args.bots:
                 body["bots"] = args.bots
+            if args.numbered is not None:
+                body["numbered"] = args.numbered
             return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
         if sub == "types":
             if args.delete:
@@ -254,7 +256,7 @@ def run(args, who=None):
             body = Path(args.body_file).read_text() if args.body_file else args.body
             payload = {"owner": target(args.owner), "title": args.title, "body": body,
                        "due": args.due, "parent_id": args.parent, "goal_id": getattr(args, "goal", None) or None}
-            for field in ("type", "step"):
+            for field in ("type", "step", "number"):
                 if getattr(args, field, None) is not None:
                     payload[field] = getattr(args, field)
             if args.label:
@@ -339,7 +341,7 @@ def run(args, who=None):
             else:
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
-                for field in ("type", "step"):
+                for field in ("type", "step", "step_rank", "number"):
                     if getattr(args, field, None) is not None:
                         body[field] = getattr(args, field)
                 if args.blocked_by is not None:
