@@ -2034,7 +2034,14 @@ def create_app(settings=None):
                     auth.task_row(c, who, parent)
                 except Problem:
                     parent = None
+            from .task_review import comment_rights
+            try:
+                comment_rights(c, auth, who, tid)
+                can_comment = True
+            except Problem:
+                can_comment = False
             return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who)), "events": H.task_history(c, tid),
+                    "can_comment": can_comment,
                     "children": children,
                     "parent": {"id": parent["id"], "title": parent["title"], "status": parent["status"]} if parent else None,
                     "comments": H.task_comments(c, tid),

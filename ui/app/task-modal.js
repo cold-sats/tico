@@ -233,7 +233,7 @@ const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}`
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
   lint: v => `noted: ${v}`, note: v => `noted: ${clipLine(String(v || ''), 200)}`};
 // `files`: the task's files (ui/app/task-files.js), for the files a comment carried.
-function commentLineHTML(x, i, all, files = [], taskId = '') {
+function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
   if (x.kind === 'event') {
     if (x.field === 'status' && x.old == null) return '';           // created: the header says so
     // A step move already names where the task went; its status change would say it twice.
@@ -257,7 +257,7 @@ function commentLineHTML(x, i, all, files = [], taskId = '') {
       ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next run on this task">saved</span>' : ''}
       <span class="spacer"></span><time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
     ${body ? `<div class="md">${safeMd(body)}</div>` : ''}
-    ${tfCommentFilesHTML(m, files)}${ask ? askHTML(ask, m.answers, askTargetOf(m), m.from_actor, taskId, files) : ''}</div>`;
+    ${tfCommentFilesHTML(m, files)}${ask ? askHTML(ask, m.answers, askTargetOf(m), m.from_actor, taskId, files, canAnswer) : ''}</div>`;
 }
 function taskCommentsRender(state, data) {
   const host = state.host;
@@ -276,14 +276,18 @@ function taskCommentsRender(state, data) {
     box.oninput = () => { if (box.value) TASK_DRAFTS.set(String(state.id), box.value); else TASK_DRAFTS.delete(String(state.id)); };
   }
   state.data = data;
+  // `can_comment`: false for someone who may read the task but not comment on it; they get no box and no answer controls
+  const can = data.can_comment !== false, d = state.dialog;
+  $('form', host).hidden = !can;
+  if (d.canComment !== can) { d.canComment = can; if (d.tfEl) tfViewPaint(d); }
   // a new comment may have carried a new version of a file, or answered a question on one
   const count = (data.comments || data.messages || []).length;
   if (state.count != null && count !== state.count) void tfLoad(state.dialog, state.id);
   state.count = count;
   const files = tfFiles(state.dialog);
-  const html = lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id)).join('') || '<p class="muted">Nothing said yet.</p>';
+  const html = lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id, can)).join('') || '<p class="muted">Nothing said yet.</p>';
   const thread = $('.task-comments', host);
-  if (thread.contains(document.activeElement) && document.activeElement.closest('.ask')) return;     // never under someone answering
+  if (askBusy(thread)) return;     // never under someone answering
   if (html !== state.rendered) {
     const atEnd = !state.rendered || thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 40;
     thread.innerHTML = html;
@@ -310,7 +314,9 @@ async function taskChatLoad(id, dialog, data = null) {
     path: `/v2/tasks/${encodeURIComponent(id)}`, id, poll: 0, sending: false, reading: false};
   if (data) taskCommentsRender(state, data); else await taskChatRead(state);
   if (taskChatCurrent(state) && !state.stopped) state.poll = setInterval(() => {
-    if (!document.hidden) void taskChatRead(state);
+    if (document.hidden || !taskChatCurrent(state)) return;
+    void taskChatRead(state);
+    tfLoad(state.dialog, state.id).catch(() => {});     // a new file or version, or an answer on one, without reopening
   }, 8000);
 }
 async function taskCommentSend(state) {

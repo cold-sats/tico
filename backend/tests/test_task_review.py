@@ -297,7 +297,9 @@ def test_attach_requires_comment_rights_even_without_question(api, existing):
     with api.app.state.store.transaction() as c:
         restrict(c, "ops", see={"people": ["cara", "ana"]}, read={"people": ["cara", "ana"]},
                  write={"people": ["ana"]})
-    assert get(api, f"tasks/{tid}", "cara-test")["task"]["id"] == tid
+    seen = get(api, f"tasks/{tid}", "cara-test")
+    assert seen["task"]["id"] == tid and seen["can_comment"] is False
+    assert get(api, f"tasks/{tid}")["can_comment"] is True
     response = api.post(f"/api/v2/tasks/{tid}/files", json={"name": "report.md", "text": "Draft"},
                         headers=headers("cara-test"))
     assert response.status_code == 403

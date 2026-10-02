@@ -461,7 +461,7 @@ SCHEMAS = {
                      required=["tasks", "next_offset"], actors=ACTORS),
     "TaskResult": obj({"task": ref("Task")}),
     "TaskDetail": obj({"task": ref("Task"), "events": "a", "children": "a", "comments": items(ref("Message")),
-                       "messages": items(ref("Message")), "has_more": "b"},
+                       "messages": items(ref("Message")), "has_more": "b", "can_comment": "b", "mover": "b"},
                        required=["task", "events", "children", "comments", "messages", "has_more"], actors=ACTORS),
     "TaskReviewAskView": obj({"questions": "a", "who": "n", "by": "s"}),
     "ReviewAnswer": {"oneOf": [

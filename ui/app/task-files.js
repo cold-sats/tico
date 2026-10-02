@@ -102,10 +102,11 @@ function tfAdopt(d, task) {
 async function tfLoad(d, id) {
   const data = await v2Get(`/v2/tasks/${encodeURIComponent(id)}/files`);
   if (String(d.dataset.task) !== String(id)) return;
+  if (!data && TF_CACHE.has(String(id))) return;          // a failed poll keeps what the last one found
   const files = Array.isArray(data?.files) ? data.files.map(tfNorm) : tfFromAttachments(d.liveTask?.attachments);
   TF_CACHE.set(String(id), files);
   if (TF_CACHE.size > 60) TF_CACHE.delete(TF_CACHE.keys().next().value);
-  if (JSON.stringify(files) === JSON.stringify(d.taskFiles)) return;
+  if (JSON.stringify(files) === JSON.stringify(d.taskFiles)) { if (d.tfEl) tfViewPaint(d); return; }   // a viewer that waited (playing, answering) catches up
   d.taskFiles = files;
   tfPaint(d);
   if (TASK_CHAT?.dialog === d && TASK_CHAT.data) { TASK_CHAT.rendered = ''; taskCommentsRender(TASK_CHAT, TASK_CHAT.data); }
@@ -137,14 +138,15 @@ function tfClose(d) {
 }
 
 // ---- the viewer, in place under the strip
+const tfPlaying = box => [...box.querySelectorAll('video, audio')].some(m => !m.paused && !m.ended);
 function tfViewPaint(d, force = false) {
   const box = $('[data-tf-view]', d.tfEl);
   if (!box) return;
   const open = d.tfOpen, f = open && tfFiles(d).find(x => x.id === open.id);
   if (!f) { if (!box.hidden) { box.querySelector('video, audio')?.pause(); box.hidden = true; box.innerHTML = ''; box.dataset.sig = ''; } return; }
-  const v = tfVersion(f, open.n), sig = JSON.stringify([f, open]);
+  const v = tfVersion(f, open.n), sig = JSON.stringify([f, open, d.canComment !== false]);
   if (!force && box.dataset.sig === sig) return;
-  if (!force && box.contains(document.activeElement) && document.activeElement.closest('.ask')) return;   // never under someone answering
+  if (!force && (askBusy(box) || tfPlaying(box))) return;   // never under someone answering or watching
   const kind = tfKind(f.name, v.mime || f.mime);
   const asc = f.versions.slice().reverse();
   const cmp = open.cmp != null ? tfVersion(f, open.cmp) : null;
@@ -193,7 +195,7 @@ function tfVersionMetaHTML(d, f, v) {
   const line = [who, v.created ? ago(v.created) : '', v.size != null ? bytes(Number(v.size)) : ''].filter(Boolean).map(esc).join(' · ');
   return `<div class="tf-vmeta">${line ? `<div class="tf-vline muted">${v.by ? actorFace(v.by, 14) : ''}<span>${line}</span></div>` : ''}
     ${v.note ? `<div class="tf-note">${esc(v.note)}</div>` : ''}
-    ${v.ask ? askHTML(v.ask, v.answers, {file: f.id, version: v.n}, v.ask.by || v.by, d.dataset.task, tfFiles(d)) : ''}</div>`;
+    ${v.ask ? askHTML(v.ask, v.answers, {file: f.id, version: v.n}, v.ask.by || v.by, d.dataset.task, tfFiles(d), d.canComment !== false) : ''}</div>`;
 }
 const TF_TEXT = new Map();          // versioned url -> Promise<text>, for the visit
 function tfText(url) {
@@ -375,6 +377,13 @@ document.addEventListener('click', ev => {
 // ---- questions. An ask: {questions: [{id, header, question, options: [{label, description, file}], multi, other}],
 // who}. On a comment it is that comment's (an 'ask' message, its refs.questions); on a file version it is the
 // version's. Anyone who may comment answers, except whoever asked; the answer is a comment the thread then shows.
+// Readers (no comment rights: GET /v2/tasks/{id} `can_comment`) see the question, its choices and the answers, no controls.
+// Someone is part-way through an answer: focus in a question, a choice picked or words typed but not sent. A redraw
+// then waits; a question being sent (aria-busy) does not count, so the thread redraws once it lands.
+function askBusy(root) {
+  return [...root.querySelectorAll('.ask:not([aria-busy])')].some(el => el.contains(document.activeElement) || el.classList.contains('again')
+    || el.querySelector('.ask-opt[aria-pressed="true"]') || $('.ask-other', el)?.value.trim());
+}
 function askOf(m) {
   if (m.ask?.questions) return m.ask;
   return Array.isArray(m.refs?.questions) ? {questions: m.refs.questions, who: m.refs.who || null} : null;
@@ -385,6 +394,8 @@ function askTargetOf(m) {
 }
 function askAnswerWords(a, ask) {
   if (a.dismiss) return 'dismissed';
+  // an answer from an older runner is a plain reply: {by, text, at}
+  if (!a.answers && a.text) return String(a.text);
   const qs = ask?.questions || [];
   const parts = Object.entries(a.answers || {}).filter(([, l]) => (l || []).length).map(([qid, labels]) => {
     const q = qs.find(x => x.id === qid);
@@ -392,7 +403,7 @@ function askAnswerWords(a, ask) {
   });
   return parts.join('; ');
 }
-function askOptionHTML(o, files) {
+function askOptionHTML(o, files, ro = false) {
   let pic = '';
   const [fid, fn] = String(o.file || '').split('@');
   const f = fid && files.find(x => x.id === fid);
@@ -400,26 +411,27 @@ function askOptionHTML(o, files) {
     const v = tfVersion(f, fn), kind = tfKind(f.name, v.mime || f.mime), src = tfPicture(v, kind);
     if (src) pic = `<span class="ask-pic tf-skel"><img alt="" data-tf-src="${esc(src)}"></span>`;
   }
+  if (ro) return `<span class="ask-opt ro"${o.description ? ` title="${esc(o.description)}"` : ''}>${pic}<span class="ask-l">${esc(o.label)}</span>${o.description ? `<span class="ask-d">${esc(o.description)}</span>` : ''}</span>`;
   return `<button type="button" class="ask-opt" data-label="${esc(o.label)}" aria-pressed="false"${o.description ? ` title="${esc(o.description)}"` : ''}>${pic}<span class="ask-l">${esc(o.label)}</span>${o.description ? `<span class="ask-d">${esc(o.description)}</span>` : ''}</button>`;
 }
-function askHTML(ask, answers, target, asker, taskId, files = []) {
+function askHTML(ask, answers, target, asker, taskId, files = [], canAnswer = true) {
   const qs = (ask?.questions || []).filter(q => q && q.id);
   if (!qs.length) return '';
   answers = answers || [];
-  const mine = !!asker && asker === myActor();
+  const mine = !!asker && asker === myActor(), ro = !mine && !canAnswer;
   const answered = answers.length > 0;
   const other = qs.some(q => q.other !== false);
   const instant = qs.length === 1 && !qs[0].multi;
   const body = qs.map(q => `<div class="ask-q" data-qid="${esc(q.id)}" data-multi="${q.multi ? 1 : 0}">
       <div class="ask-line">${q.header ? `<span class="ask-chip">${esc(q.header)}</span>` : ''}<span class="ask-text">${esc(q.question || '')}</span></div>
-      ${mine || !(q.options || []).length ? '' : `<div class="ask-opts" role="group" aria-label="${esc(q.header || q.question || 'Options')}"${q.multi ? ' data-multi' : ''}>${q.options.map(o => askOptionHTML(o, files)).join('')}</div>`}
+      ${mine || !(q.options || []).length ? '' : `<div class="ask-opts"${ro ? '' : ` role="group" aria-label="${esc(q.header || q.question || 'Options')}"`}${q.multi ? ' data-multi' : ''}>${q.options.map(o => askOptionHTML(o, files, ro)).join('')}</div>`}
     </div>`).join('');
-  const form = mine ? '' : `<div class="ask-form">${other ? '<input class="ask-other" type="text" maxlength="2000" placeholder="Other…" aria-label="Other answer">' : ''}
+  const form = mine || ro ? '' : `<div class="ask-form">${other ? '<input class="ask-other" type="text" maxlength="2000" placeholder="Other…" aria-label="Other answer">' : ''}
       <div class="ask-foot">${!instant || other ? '<button type="button" class="primary ask-send" data-ask-send>Send</button>' : ''}<button type="button" class="linkish ask-dismiss" data-ask-dismiss>Dismiss</button><span class="muted ask-status" role="status"></span></div></div>`;
   const list = answered ? `<ul class="ask-answers">${answers.map(a => `<li>${a.by ? actorFace(a.by, 14) : ''}<b>${esc(a.by ? actorLabel(a.by) : 'Someone')}</b>
       <span class="${a.dismiss ? 'muted' : ''}">${esc(askAnswerWords(a, ask))}</span>${a.other ? `<span class="ask-o">${esc(a.other)}</span>` : ''}${a.at ? `<time class="muted tnum" title="${esc(fmt(a.at))}">${esc(ageShort(a.at))}</time>` : ''}</li>`).join('')}</ul>` : '';
-  return `<div class="ask${answered ? ' answered' : ''}${mine ? ' mine' : ''}" data-ask="${esc(JSON.stringify(target))}" data-task="${esc(taskId)}"${instant ? ' data-instant' : ''}>
-    ${body}${list}${!mine && answered ? '<button type="button" class="linkish ask-again" data-ask-again>Answer</button>' : ''}${form}</div>`;
+  return `<div class="ask${answered ? ' answered' : ''}${mine ? ' mine' : ''}${ro ? ' ro' : ''}" data-ask="${esc(JSON.stringify(target))}" data-task="${esc(taskId)}"${instant ? ' data-instant' : ''}>
+    ${body}${list}${!mine && !ro && answered ? '<button type="button" class="linkish ask-again" data-ask-again>Answer</button>' : ''}${form}</div>`;
 }
 async function askSubmit(el, dismiss = false) {
   const status = $('.ask-status', el);
@@ -451,7 +463,7 @@ async function askSubmit(el, dismiss = false) {
 }
 document.addEventListener('click', ev => {
   const el = ev.target.closest('.ask');
-  if (!el || el.getAttribute('aria-busy')) return;
+  if (!el || el.getAttribute('aria-busy') || el.classList.contains('ro')) return;
   const opt = ev.target.closest('.ask-opt');
   if (opt) {
     const group = opt.closest('.ask-opts');

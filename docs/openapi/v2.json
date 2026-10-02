@@ -17407,6 +17407,12 @@
           "has_more": {
             "type": "boolean"
           },
+          "can_comment": {
+            "type": "boolean"
+          },
+          "mover": {
+            "type": "boolean"
+          },
           "actors": {
             "type": "object",
             "additionalProperties": {

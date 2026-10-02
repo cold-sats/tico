@@ -1,7 +1,9 @@
 // A task's files and questions: the strip of tiles (lazy, sized, skeletons), a tile opened in place with its versions
 // and Compare, image arrows and Esc; files a comment carried; asks on a file version and on comments (single, multi
-// with Other, Dismiss; the asker sees no buttons); linked images inline; board covers and the open-question dot; Pin
-// to the sidebar; no sideways scroll at phone width. Every request is intercepted.
+// with Other, Dismiss; the asker sees no buttons); the modal's poll bringing new files without breaking a playing
+// video or a half-filled answer; a reader's questions (no controls) and an older runner's plain answer; linked
+// images inline; board covers and the open-question dot; Pin to the sidebar; the task view preference and file
+// input on a local install; no sideways scroll at phone width. Every request is intercepted.
 // TICO_SHOTS=<dir> saves screenshots (desktop and phone, dark and light).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -31,6 +33,15 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     const page = await browser.newPage({viewport: {width: 1280, height: 900}, serviceWorkers: 'block'});
     const errors = [], posted = [], requested = [];
     page.on('pageerror', e => errors.push(e.message));
+    // The modal polls every 8s; with window.fastPoll set, that poll runs every 200ms.
+    await page.addInitScript(() => {
+      const every = window.setInterval.bind(window);
+      window.setInterval = (fn, ms, ...args) => {
+        if (ms !== 8000) return every(fn, ms, ...args);
+        let last = Date.now();
+        return every(() => { if (window.fastPoll || Date.now() - last >= ms) { last = Date.now(); fn(...args); } }, 200);
+      };
+    });
     const now = Date.now(), at = mins => new Date(now - mins * 60000).toISOString();
     const me = {id: 'ana', name: 'Ana', email: 'ana@acme.example', role: 'owner', mover: true, cloud: false};
     const bots = [{name: 'editor', display_name: 'Editor', host: 'keeper', status: 'active', can_chat: true}];
@@ -58,6 +69,15 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
       body: 'Reference frame: ![frame](https://img.example.com/ref.png)\n\nMood: https://img.example.com/mood.jpg',
       attachments: [{id: 'f-frame', name: 'frame.png', content_type: 'image/png', size: 2048, url: '/api/v2/files/f-frame'}]};
     const plain = {...task, id: 't2', title: 'Write the captions', status: 'doing', open_asks: 0, attachments: [], body: 'Captions for the cut.', updated: at(60)};
+    // t2 is one Ana may read but not comment on; one of its questions was answered by an older runner: {by, text, at}
+    const plainComments = [
+      {id: 'p1', kind: 'ask', from_actor: 'bot:editor', body: 'Which tone?', created: at(50), answers: [{by: 'human:sam', text: 'Keep it warm and short.', at: at(40)}],
+        refs: {task: 't2', questions: [{id: 'tone', question: 'Which tone?', options: [{label: 'Warm'}, {label: 'Plain'}], other: true}]}},
+      {id: 'p2', kind: 'ask', from_actor: 'bot:editor', body: 'Which font?', created: at(30), answers: [],
+        refs: {task: 't2', questions: [{id: 'font', question: 'Which font?', options: [{label: 'Serif'}, {label: 'Sans'}], other: true}]}},
+    ];
+    const plainFiles = [{id: 'f-notes', name: 'captions.md', mime: 'text/markdown', current_version: 1, archived: false,
+      versions: [version('f-notes', 1, {mime: 'text/markdown', ask: {questions: [{id: 'ok', question: 'Good to go?', options: [{label: 'Yes'}, {label: 'No'}]}], who: null}})]}];
     const comments = [
       {id: 'm1', kind: 'say', from_actor: 'bot:editor', body: 'Second pass and a frame grab.', created: at(140), refs: {task: 't1', comment: true}},
       {id: 'm2', kind: 'ask', from_actor: 'bot:editor', body: 'Which music and thumbnail?', created: at(90), answers: [], refs: {task: 't1',
@@ -91,6 +111,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
       if (p.startsWith('/api/v2/preferences/')) {
         const key = p.split('/').at(-1);
         if (req.method() === 'POST') { const body = req.postDataJSON(); posted.push({path: p, body}); prefs[key] = body.value; return json({key, value: body.value}); }
+        requested.push(p);
         return json({key, value: key === 'tasks.view' ? {view: 'board'} : prefs[key] ?? null});
       }
       const file = p.match(/^\/api\/v2\/files\/([^/]+)(\/poster|\/thumb)?$/);
@@ -101,14 +122,14 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
           await new Promise(r => setTimeout(r, thumbDelay));
           return route.fulfill({contentType: 'image/png', headers: {'Cache-Control': 'private, max-age=31536000, immutable'}, body: id === 'f-still' || (id === 'f-cut' && n === '1') ? AMBER : TEAL});
         }
-        if (id === 'f-script') return route.fulfill({contentType: 'text/markdown', body: scripts[n]});
+        if (id === 'f-script' || id === 'f-notes') return route.fulfill({contentType: 'text/markdown', body: scripts[n]});
         if (id === 'f-rows') return route.fulfill({contentType: 'text/csv', body: csv});
         if (id === 'f-cut') return new Promise(() => {});        // a video that is still on its way: the poster shows
         return route.fulfill({contentType: 'application/octet-stream', body: 'not a real file'});
       }
       if (p === '/api/v2/tasks' && req.method() === 'GET') return json({tasks: [task, plain], next_offset: null});
       if (p === '/api/v2/tasks/t1/files') return json({files});
-      if (p === '/api/v2/tasks/t2/files') return json({files: []});
+      if (p === '/api/v2/tasks/t2/files') return json({files: plainFiles});
       if (p === '/api/v2/tasks/t1/answers' && req.method() === 'POST') {
         const body = req.postDataJSON(); posted.push({path: p, body});
         const answer = {...body, by: 'human:ana', at: new Date().toISOString()};
@@ -129,7 +150,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
       const one = p.match(/^\/api\/v2\/tasks\/([^/]+)$/);
       if (one) {
         const t = [task, plain].find(x => x.id === one[1]);
-        return json({task: t, comments: t === task ? comments : [], events: [], children: [], parent: null, mover: true, messages: []});
+        return json({task: t, comments: t === task ? comments : plainComments, events: [], children: [], parent: null, mover: true, messages: [], can_comment: t === task});
       }
       if (p === '/api/v2/conversations') return json({conversations: []});
       return json({});
@@ -151,6 +172,12 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     await card.locator('.bcard-cover.ready').waitFor();
     assert.equal(await card.locator('.ask-dot').count(), 1, 'an open question shows as a dot');
     assert.equal(await page.locator('#task-body .bcard[data-task-key="tt2"] .bcard-cover, #task-body .bcard[data-task-key="tt2"] .ask-dot').count(), 0);
+    // a local install (no `cloud`) still reads the saved view and offers files on a new task
+    assert(requested.includes('/api/v2/preferences/tasks.view'), 'the saved task view is read');
+    await page.evaluate(() => openTaskCreate());
+    assert.equal(await page.locator('#task-create-form input[type=file][name=files]').count(), 1);
+    await page.keyboard.press('Escape');
+    await page.locator('#task-create-form').waitFor({state: 'hidden'});
 
     // ---- Pin to sidebar, and unpin from its ✕
     assert.equal(await page.locator('#nav-pins').isHidden(), true);
@@ -283,6 +310,38 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     assert.equal(await m4.locator('.ask-text').innerText(), 'Captions too?');
     assert.deepEqual(errors, []);
 
+    // ---- the modal's poll brings a new file and version; a playing video and a half-filled answer wait for it
+    const video = view.locator('video');
+    await video.evaluate(v => { v.dataset.keep = '1'; Object.defineProperty(v, 'paused', {configurable: true, get: () => false}); });
+    comments.push({id: 'm6', kind: 'ask', from_actor: 'bot:editor', body: 'Which end card?', created: new Date().toISOString(), answers: [], refs: {task: 't1',
+      questions: [{id: 'end', question: 'Which end card?', options: [{label: 'Logo'}, {label: 'Link'}], multi: true, other: true}]}});
+    await page.evaluate(() => { window.fastPoll = true; });
+    const m6 = modal.locator('.tcomment', {has: page.locator('.ask-q[data-qid="end"]')});
+    await m6.locator('.ask-opt', {hasText: 'Logo'}).click();
+    await m6.locator('.ask-other').fill('Short');
+    await page.evaluate(() => document.activeElement.blur());
+    files.push({id: 'f-new', name: 'end-card.png', mime: 'image/png', current_version: 1, archived: false,
+      versions: [version('f-new', 1, {mime: 'image/png', width: 160, height: 90, thumb_url: url('f-new', 1, '/thumb')})]});
+    files[0].versions.unshift(version('f-cut', 4, {mime: 'video/mp4', width: 1920, height: 1080, media_state: 'ready', poster_url: url('f-cut', 4, '/poster'), thumb_url: url('f-cut', 4, '/thumb')}));
+    files[0].current_version = 4;
+    comments.push({id: 'm7', kind: 'say', from_actor: 'bot:editor', body: 'End card added.', created: new Date().toISOString(), refs: {task: 't1', comment: true}});
+    await modal.locator('.tf-tile[data-tf-file="f-new"]').waitFor();
+    await page.waitForTimeout(500);       // a few more polls
+    assert.equal(await view.locator('video[data-keep="1"]').count(), 1, 'the playing video was left alone');
+    assert.equal(await view.locator('[data-tf-v="4"]').count(), 0);
+    assert.equal(await m6.locator('.ask-opt[aria-pressed="true"]').count(), 1, 'the picked choice stays');
+    assert.equal(await m6.locator('.ask-other').inputValue(), 'Short');
+    assert.equal(await modal.locator('.tcomment', {hasText: 'End card added.'}).count(), 0, 'the thread waits for the answer');
+    // the answer is cleared and the video stops: the next poll catches up
+    await m6.locator('.ask-opt', {hasText: 'Logo'}).click();
+    await m6.locator('.ask-other').fill('');
+    await page.evaluate(() => document.activeElement.blur());
+    await video.evaluate(v => { delete v.paused; });
+    await view.locator('[data-tf-v="4"]').waitFor();
+    await modal.locator('.tcomment', {hasText: 'End card added.'}).waitFor();
+    await page.evaluate(() => { window.fastPoll = false; });
+    assert.deepEqual(errors, []);
+
     // ---- phone width: no sideways scroll, with the strip and an open video
     await page.setViewportSize({width: 390, height: 844});
     assert.equal(await cutTile.getAttribute('aria-expanded'), 'true', 'still open after answering');
@@ -297,6 +356,30 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     await page.evaluate(() => { TASKS_ST.view = 'board'; tasksRender(TASKS_ST); });
     await noSideways('phone, the board');
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`board-covers-phone-${mode}`); }
+
+    // ---- a reader (can_comment false): the questions, their choices and answers, no controls and no comment box;
+    // an older runner's answer reads as its text, folded
+    const answersBefore = posted.filter(x => x.path.endsWith('/answers')).length;
+    for (const [width, height, where] of [[390, 844, 'phone'], [1280, 900, 'desktop']]) {
+      await page.setViewportSize({width, height});
+      await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 't2')));
+      const legacy = modal.locator('.tcomment', {has: page.locator('.ask-q[data-qid="tone"]')});
+      await legacy.locator('.ask.answered').waitFor();
+      assert.match(await legacy.locator('.ask-answers').innerText(), /Sam\s*Keep it warm and short\./);
+      assert.equal(await legacy.locator('.ask-opt').first().isVisible(), false, 'answered: folded');
+      const font = modal.locator('.tcomment', {has: page.locator('.ask-q[data-qid="font"]')});
+      assert.equal(await font.locator('.ask-opt.ro').count(), 2);
+      assert.equal(await modal.locator('.task-chat .ask button, .task-chat .ask input').count(), 0, 'no answer controls');
+      assert.equal(await modal.locator('.task-chat form').isHidden(), true, 'no comment box');
+      await font.locator('.ask-opt.ro').first().click();
+      await modal.locator('.tf-tile[data-tf-file="f-notes"]').click();
+      await view.locator('.ask-q[data-qid="ok"]').waitFor();
+      assert.equal(await view.locator('.ask button, .ask input').count(), 0);
+      await noSideways(`${where}, a reader's task`);
+      for (const mode of ['dark', 'light']) { await theme(mode); await legacy.scrollIntoViewIfNeeded(); await shot(`legacy-answer-${where}-${mode}`); }
+      await modal.locator('[data-modal-close]').click();
+    }
+    assert.equal(posted.filter(x => x.path.endsWith('/answers')).length, answersBefore, 'a reader sends nothing');
     assert.deepEqual(errors, []);
     console.log(`PASS: files strip, viewer, versions, compare, asks, comment files, linked images, covers, pins, phone (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   } finally { await browser.close(); }
