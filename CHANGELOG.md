@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-10-02
+
 ### Fixed
 - Docker installs forward attachment bucket settings and optional dedicated file keys without importing the operator's AWS shell credentials. S3 files and downloads can reuse backup keys; non-AWS backup regions do not carry over to AWS file storage.
 - S3 startup write checks use bounded timeouts and let shutdown finish promptly. Health distinguishes missing multipart cleanup permission from denied writes while retaining local read fallback; new backup policies include multipart permissions.
