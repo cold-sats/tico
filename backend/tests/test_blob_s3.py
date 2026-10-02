@@ -323,7 +323,11 @@ def test_download_reads_and_signing_use_the_source_that_can_read(tmp_path, monke
     downloads = Downloads(store.settings, s3_source=storage)
     storage.check_write(store)
     clients['role'].readable = False
-    clients['backup'].objects[downloads.prefix + 'latest.json'] = json.dumps({'version': '0.3.11'}).encode()
+    clients['backup'].objects[downloads.prefix + 'latest.json'] = json.dumps({
+        'version': '0.3.11', 'app_kind': 'company',
+        'platforms': {'darwin-aarch64': {'signature': 'sig',
+            'url': 'https://acme.example/download/file/0.3.11/Tico.app.tar.gz'}},
+        'installers': {'mac': {'file': 'Tico.dmg'}}}).encode()
     clients['backup'].objects[downloads.prefix + '0.3.11/Tico.dmg'] = b'installer'
     assert downloads.bucket_manifest()['version'] == '0.3.11'
     assert downloads.file_url('0.3.11', 'Tico.dmg') == 'https://s3.example.com/backup'

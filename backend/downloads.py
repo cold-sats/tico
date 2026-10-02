@@ -12,8 +12,8 @@ updater has no browser session, and an installer is nothing to protect):
 - `GET /download/file/{version}/{name}` — one bundle, as a short-lived S3 link.
 
 `GET /api/download/{os}` is the signed-in question the site asks before it offers a download.
-Without a bucket manifest, or when it predates the running server, downloads come from that
-version's public GitHub release. A bucket with the same or a newer version still wins. Public
+Without a bucket manifest, downloads come from the running version's public GitHub release.
+A company bucket build always wins, including when it predates the server.
 The updater feed never falls back to a generic GitHub build, even if the bucket build is older.
 GitHub lookups (including failures) are cached for ten minutes and never carry credentials.
 
@@ -26,7 +26,7 @@ import json
 import re
 import time
 import threading
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 
@@ -39,7 +39,7 @@ from . import blob_s3, releases
 PREFIX = "releases/app/"
 MANIFEST_MAX_BYTES = 1024 * 1024
 OS_NAMES = ("mac", "windows", "linux")
-FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ +-]{0,200}$")
+FILE_RE = re.compile(r"^[\w][\w. +()-]{0,200}$")
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$")
 
 
@@ -72,10 +72,9 @@ class Downloads:
         return self._s3_source.read_s3(operation, **options)
 
     def manifest(self):
-        """Prefer a current bucket build; otherwise offer the running release's generic app."""
+        """Prefer the company's build; otherwise offer the running release's generic app."""
         bucket = self.bucket_manifest()
-        if bucket and (not releases.parse(self.version) or
-                       releases.parse(bucket["version"]) >= releases.parse(self.version)):
+        if bucket:
             return bucket
         return self.github_manifest()
 
@@ -107,8 +106,7 @@ class Downloads:
             finally:
                 stream.close()
             value = json.loads(body)
-            if not isinstance(value, dict) or not VERSION_RE.fullmatch(str(value.get("version") or "")) or not releases.parse(value["version"]):
-                value = None
+            value = self.company_manifest(value)
         except Exception:
             value = None
         finally:
@@ -116,6 +114,42 @@ class Downloads:
                 self._manifest = (time.monotonic(), value)
                 self._manifest_ready.set()
         return value
+
+    def company_manifest(self, value):
+        # Older environment manifests have no app_kind. Keep those installations working,
+        # but an explicitly generic manifest must never update a company's app.
+        if (not isinstance(value, dict) or value.get("app_kind", "company") != "company"
+                or not VERSION_RE.fullmatch(str(value.get("version") or ""))
+                or not releases.parse(value["version"])):
+            return None
+        platforms, installers = value.get("platforms"), value.get("installers")
+        if not isinstance(platforms, dict) or not platforms or not isinstance(installers, dict):
+            return None
+        safe_platforms = {}
+        for target, entry in platforms.items():
+            if not isinstance(entry, dict) or not isinstance(entry.get("signature"), str) or not entry["signature"].strip():
+                return None
+            address = urlsplit(str(entry.get("url") or ""))
+            # Publish routes, including retained older-platform versions, are the only
+            # permitted updater source. Reconstruct with this hub's configured origin.
+            root = urlsplit(self.base).path.rstrip("/") + "/download/file/"
+            if not address.path.startswith(root):
+                return None
+            parts = address.path[len(root):].split("/")
+            if len(parts) != 2:
+                return None
+            version, name = map(unquote, parts)
+            if not VERSION_RE.fullmatch(version) or not FILE_RE.fullmatch(name):
+                return None
+            safe_platforms[target] = {"signature": entry["signature"],
+                                      "url": f"{self.base}/download/file/{quote(version, safe='')}/{quote(name)}"}
+        safe_installers = {}
+        for os_name, entry in installers.items():
+            if not isinstance(entry, dict) or not FILE_RE.fullmatch(str(entry.get("file") or "")):
+                return None
+            # Company human downloads also stay on the hub's authorized bucket path.
+            safe_installers[os_name] = {k: v for k, v in entry.items() if k != "url"}
+        return {**value, "platforms": safe_platforms, "installers": safe_installers, "app_kind": "company"}
 
     def github_manifest(self):
         with self._lock:
@@ -183,7 +217,7 @@ class Downloads:
                                                    "url": asset["browser_download_url"],
                                                    "signed": bool(metadata.get("signed", False)),
                                                    "notarized": bool(metadata.get("notarized", False))}
-                    value = {**value, "installers": installers}
+                    value = {**value, "installers": installers, "app_kind": "generic"}
             except Exception:
                 value = None
         return value
@@ -206,8 +240,9 @@ class Downloads:
         if not isinstance(entry, dict) or not FILE_RE.fullmatch(str(entry.get("file") or "")):
             return None
         return {"version": manifest["version"], "file": entry["file"], "bytes": entry.get("bytes"),
+                "app_kind": manifest.get("app_kind", "company"),
                 "notarized": bool(entry.get("notarized", False)), "signed": bool(entry.get("signed", False)),
-                "url": entry.get("url") or f"{self.base}/download/file/{manifest['version']}/{entry['file']}"}
+                "url": entry.get("url") or f"{self.base}/download/file/{quote(manifest['version'], safe='')}/{quote(entry['file'])}"}
 
 
 def install_downloads(app, store):
@@ -242,5 +277,6 @@ def install_downloads(app, store):
             return {"available": False}
         size = entry.get("bytes")
         return {"available": True, "version": entry["version"], "url": entry["url"], "file": entry["file"],
+                "app_kind": entry["app_kind"],
                 "size_mb": round(size / 1048576) if isinstance(size, (int, float)) and size else None,
                 "notarized": entry["notarized"], "signed": entry["signed"]}

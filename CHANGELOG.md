@@ -9,6 +9,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Added
 - Imported meetings wait in a personal Pending queue before sharing, with approve, dismiss and restore actions, batch sharing, per-person auto-share, a Team review default, and CLI/MCP review tools.
+- Private company desktop apps built on version tags, with encrypted CI artifacts and automatic updates from their own Tico server.
+- Owners can set a public team icon in Settings or through the API and CLI.
 
 ### Improved
 - Help puts Support in the existing resizable right rail, with continuing conversations, a simpler overview, platform descriptions and an inline glossary.
@@ -16,6 +18,7 @@ All notable changes to Tico are recorded here. The format follows
 - Support diagnostics group repeated server failures, include safe exception locations, runner heartbeat/recovery context and bounded browser failure counts, and report missing capture coverage without verbose logging.
 
 ### Fixed
+- Human desktop downloads prefer valid company builds even when older than the server; company updater feeds reject generic manifests.
 - S3 attachments and desktop downloads share the first credential source that passes a bounded write check, with optional explicit selection. Uploads wait for a writable source and keep that identity through multipart cleanup. Health reports the source and denied permission; failed checks retry every 30 minutes, and denied reads try other sources before retained local copies. Concurrent probes and download manifest fetches share bounded work, including delayed credential discovery.
 
 ## [0.3.11] - 2026-10-02

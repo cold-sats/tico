@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from backend.downloads import Downloads
+from backend.downloads import Downloads, MANIFEST_MAX_BYTES
 
 from backend.tests.test_api import api, headers  # noqa: F401
 
@@ -49,7 +49,7 @@ def test_installers_and_the_manifest_are_served_without_a_sign_in(api):
     assert api.get("/download/linux", follow_redirects=False).status_code == 404   # not in this manifest
     described = api.get("/api/download/mac", headers=headers()).json()
     assert described == {"available": True, "version": "2.1.0", "file": "Tico_2.1.0_universal.dmg", "size_mb": 12,
-                         "url": "https://runner.test/download/file/2.1.0/Tico_2.1.0_universal.dmg", "notarized": True, "signed": True}
+                         "url": "https://runner.test/download/file/2.1.0/Tico_2.1.0_universal.dmg", "notarized": True, "signed": True, "app_kind": "company"}
     assert api.get("/api/download/windows", headers=headers()).json()["notarized"] is False
 
 
@@ -87,10 +87,11 @@ def test_no_bucket_uses_running_github_release_and_caches_without_credentials(ap
         assert response.status_code == 302 and response.headers["location"] == base + name
         described = api.get("/api/download/" + os_name, headers=headers()).json()
         assert described["available"] is True and described["url"] == base + name
+        assert described["app_kind"] == "generic"
     assert len(requests) == 2
 
 
-@pytest.mark.parametrize("bucket_version,github_expected", [("0.3.6", True), ("0.3.7", False), ("0.3.8", False), ("0.3.10", False)])
+@pytest.mark.parametrize("bucket_version,github_expected", [("0.3.6", False), ("0.3.7", False), ("0.3.8", False), ("0.3.10", False)])
 def test_bucket_version_selection(bucket_version, github_expected):
     base, release, value = github_fixture()
     requests = []
@@ -132,6 +133,31 @@ def test_updater_keeps_environment_build_even_when_older_than_server(api):
     built.bucket, built._s3, built.version = "b", FakeS3(), "3.0.0"
     built._github_transport = httpx.MockTransport(lambda request: pytest.fail("Updater must not fetch GitHub"))
     assert api.get("/download/latest.json").json()["version"] == MANIFEST["version"]
+
+
+@pytest.mark.parametrize("change", [
+    {"app_kind": "generic"}, {"installers": []}, {"platforms": []},
+    {"platforms": {"windows-x86_64": {"url": "https://github.com/ticoteam/tico/releases/download/v2.1.0/Tico.exe", "signature": "sig"}}},
+    {"platforms": {"windows-x86_64": {"url": "https://runner.test/download/file/2.1.0/Tico.exe", "signature": ""}}},
+])
+def test_updater_rejects_generic_and_invalid_bucket_manifests_without_github(api, change):
+    built = api.app.state.downloads
+    s3 = FakeS3()
+    s3.keys["releases/app/latest.json"] = json.dumps({**MANIFEST, **change}).encode()
+    built.bucket, built.base, built._s3 = "b", "https://runner.test", s3
+    built._github_transport = httpx.MockTransport(lambda request: pytest.fail("Updater must not fetch GitHub"))
+    assert api.get("/download/latest.json").status_code == 404
+
+
+def test_company_download_urls_stay_on_this_hub_and_manifest_read_is_bounded():
+    s3 = FakeS3()
+    value = {**MANIFEST, "installers": {"mac": {**MANIFEST["installers"]["mac"], "url": "https://elsewhere.example.com/file"}}}
+    s3.keys["releases/app/latest.json"] = json.dumps(value).encode()
+    downloads = Downloads(SimpleNamespace(blob_bucket="b", runner_url="https://runner.test", public_url=""), s3)
+    assert downloads.installer("mac")["url"].startswith("https://runner.test/download/file/")
+    s3.keys["releases/app/latest.json"] = b" " * MANIFEST_MAX_BYTES + json.dumps(value).encode()
+    downloads._manifest = (0.0, None)
+    assert downloads.bucket_manifest() is None
 
 
 def test_download_storage_uses_blob_region_endpoint_and_prefix(monkeypatch, tmp_path):
@@ -194,7 +220,7 @@ def test_bucket_manifest_fetch_is_single_flight_without_holding_lock(warm):
             body = io.BytesIO(json.dumps(MANIFEST).encode())
             bodies.append(body)
             return {'Body': body}
-    downloads = Downloads(SimpleNamespace(blob_bucket='acme-files', runner_url='', public_url=''), S3())
+    downloads = Downloads(SimpleNamespace(blob_bucket='acme-files', runner_url='https://runner.test', public_url=''), S3())
     stale = {'version': '0.3.6'} if warm else None
     downloads._manifest = (1.0, stale)
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -205,8 +231,8 @@ def test_bucket_manifest_fetch_is_single_flight_without_holding_lock(warm):
             assert len(calls) == 1
         finally:
             release.set()
-        assert first.result(timeout=1) == MANIFEST
-    assert downloads.bucket_manifest() == MANIFEST and len(calls) == 1
+        assert first.result(timeout=1) == {**MANIFEST, 'app_kind': 'company'}
+    assert downloads.bucket_manifest() == {**MANIFEST, 'app_kind': 'company'} and len(calls) == 1
     assert bodies[0].closed
 
 

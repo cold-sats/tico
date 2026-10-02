@@ -1084,7 +1084,11 @@ def parser():
     s.add_argument("--since")
     s.set_defaults(fn="run list")
 
-    s = sub.add_parser("team", help="the team chart: humans and bots").add_subparsers(dest="sub").add_parser(
+    team = sub.add_parser("team", help="team chart and icon").add_subparsers(dest="sub")
+    s = team.add_parser("icon", help="set the public team logo (owner; PNG/JPEG/WebP up to 1 MB)")
+    s.add_argument("file")
+    s.set_defaults(fn="team icon")
+    s = team.add_parser(
         "show", help="the team chart: humans, Slack, what they own, the bots with reports_to and group")
     s.add_argument("--person", help="that human and everyone under them")
     s.add_argument("--team", help="a group id, like engineering or sales: that group and the groups in it")

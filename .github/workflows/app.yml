@@ -1,11 +1,5 @@
-# The desktop app (app/, Tauri) for macOS, Windows and Linux, built when app/ changes on main or
-# by hand, signed for the updater, and published to your hub (scripts/app_release.py) when the repository variables TICO_HUB_URL,
-# TICO_RUNNER_URL, TICO_DEPLOY_ROLE and TICO_DEPLOY_BUCKET are set: the site
-# offers the download and installed apps update themselves. Secrets: TAURI_SIGNING_PRIVATE_KEY
-# (the update signing key; its public half is in app/tauri.conf.json), and for a notarized Mac
-# build APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
-# APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID. Without the Apple secrets the Mac build is ad-hoc
-# signed and Gatekeeper needs "Open Anyway" once.
+# Public desktop builds are always generic. Private company builds use company-app.yml.
+# Updater signing and optional Apple signing secrets are shared by both workflows.
 name: Desktop app
 
 on:
@@ -36,8 +30,10 @@ jobs:
             bundles: appimage,deb
     runs-on: ${{ matrix.os }}
     env:
-      TICO_HUB_URL: ${{ github.ref_type != 'tag' && vars.TICO_HUB_URL || '' }}
-      TICO_RUNNER_URL: ${{ vars.TICO_RUNNER_URL }}
+      TICO_HUB_URL: ""
+      TICO_RUNNER_URL: ""
+      TICO_ENV_SLUG: ""
+      TICO_LOCAL_TOKEN_FILE: ""
       TICO_APP_NAME: Tico
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -68,6 +64,8 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          # Keychain output can contain private certificate subject names.
+          exec >/dev/null 2>&1
           [ -n "$APPLE_CERTIFICATE" ] || exit 0
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p ci build.keychain
@@ -95,15 +93,11 @@ jobs:
         working-directory: app
         shell: bash
         run: |
-          flags=()
-          if [ -n "$TICO_HUB_URL" ]; then
-            endpoint="${TICO_RUNNER_URL:-$TICO_HUB_URL}"
-            export TICO_APP_UPDATE_URL="${endpoint%/}/download/latest.json"
-            PY=$(command -v python3 || command -v python)
-            "$PY" -c 'import json,os; json.dump({"plugins":{"updater":{"endpoints":[os.environ["TICO_APP_UPDATE_URL"]]}}},open("updater-config.json","w"))'
-            flags+=(--config updater-config.json)
+          # Signing tools can print private certificate subjects or identifiers.
+          if ! cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} >/dev/null 2>&1; then
+            echo '::error::Desktop build failed; verify build dependencies and signing configuration.'
+            exit 1
           fi
-          cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} "${flags[@]}"
       - name: Collect bundles
         shell: bash
         run: |
@@ -115,44 +109,3 @@ jobs:
           name: app-${{ matrix.target }}
           path: out/
           if-no-files-found: error
-
-  publish:
-    # Only for a hub that configured its release role and bucket (repository variables).
-    if: ${{ github.ref_type != 'tag' && vars.TICO_DEPLOY_ROLE != '' && vars.TICO_DEPLOY_BUCKET != '' }}
-    needs: build
-    runs-on: ubuntu-latest
-    env:
-      TICO_DEPLOY_BUCKET: ${{ vars.TICO_DEPLOY_BUCKET }}
-      TICO_RUNNER_URL: ${{ vars.TICO_RUNNER_URL }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.12'
-      - uses: actions/download-artifact@v4
-        with:
-          path: bundles
-      - name: Authenticate to AWS with short-lived GitHub identity
-        uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
-        with:
-          role-to-assume: ${{ vars.TICO_DEPLOY_ROLE }}
-          aws-region: us-west-2
-          role-session-name: tico-app-${{ github.run_id }}
-      - run: pip install "$(grep '^boto3==' backend/requirements.txt)"
-      - name: The app's version is the release's
-        if: github.ref_type == 'tag'
-        shell: bash
-        run: |
-          PY=$(command -v python3 || command -v python)
-          "$PY" -c "import json,os; p='app/tauri.conf.json'; d=json.load(open(p)); d['version']=os.environ['GITHUB_REF_NAME'].removeprefix('v'); json.dump(d, open(p,'w'), indent=2)"
-      - name: Publish
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-        run: |
-          version=$(python3 -c 'import json;print(json.load(open("app/tauri.conf.json"))["version"])')
-          flags=()
-          [ -n "$APPLE_SIGNING_IDENTITY" ] && flags+=(--signed)
-          [ -n "$APPLE_ID" ] && flags+=(--notarized)
-          python3 scripts/app_release.py --version "$version" --bucket "$TICO_DEPLOY_BUCKET" \
-            --base "$TICO_RUNNER_URL" --notes "Built from ${GITHUB_SHA::7}" "${flags[@]}" bundles/*
