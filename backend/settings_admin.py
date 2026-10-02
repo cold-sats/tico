@@ -162,7 +162,7 @@ class SettingsAdmin:
                 "template": (_json(config["config_json"], {}) or {}).get("template") or "",
                 "description": config["description"] or "", "reports_to": config["reports_to"],
                 "bot_contact": (_json(config["config_json"], {}) or {}).get("bot_contact") or "open",
-                "private_tasks_default": effective.get("private_tasks_default") is True,
+                "private_tasks_default": H.private_tasks_default(c, "bot:" + bot),
                 "status": row["state"], "repo": repo,
                 "repo_url": repo_url(repo, self.settings.github_owner),
                 "thread_mode": config["thread_mode"] or "personal",
@@ -278,7 +278,8 @@ class SettingsAdmin:
                   "status": body.status, "repo": repo, "host": "keeper", "tasks": "hub",
                   "runtime": runtime_of(harness) or choice["runtime"], "model": choice["id"],
                   "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode, "shared": body.shared,
-                  "private_tasks_default": body.private_tasks_default,
+                  "private_tasks_default": (body.private_tasks_default if "private_tasks_default" in body.model_fields_set
+                                            else body.template == "general-counsel"),
                   "model_managed_by": "cloud"}
         if body.template:
             config["template"] = body.template

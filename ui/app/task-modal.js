@@ -387,7 +387,7 @@ function hubModalHTML(t, it, opts = {}) {
   const mover = canMove();
   const links = (t.links || []).filter(l => l.kind !== 'pr' && l.kind !== 'worktree');   // those are Code, in the rail
   const pos = opts.peek ? taskPeekPos(t.id) : '';
-  return `<div class="tmodal-head">${taskStatusIcon(t)}<span class="pill tstatus">${esc(statusWord)}</span>${t.private ? '<span title="Only the requester and assignee can see this task" aria-label="Private">🔒</span>' : ''}${t.blocked_by && !finished
+  return `<div class="tmodal-head">${taskStatusIcon(t)}<span class="pill tstatus">${esc(statusWord)}</span>${t.private ? '<span title="Only the requester and assignee can see this task" aria-label="Private"><span class="nav-icon" aria-hidden="true">lock</span></span>' : ''}${t.blocked_by && !finished
       ? `<span class="tchip-blocked" title="Blocked by ${esc(t.blocker?.title || 'another task')}">blocked</span>` : ''}
       <span class="tmodal-owner">${actorFace(t.owner, 18)}<span class="who">${esc(actorLabel(t.owner))}</span></span>
       <span class="spacer"></span>${pos ? `<span class="peek-pos tnum" title="J / K or ↑ / ↓ move to the next or previous task">${esc(pos)}</span>` : ''}

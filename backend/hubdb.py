@@ -1817,6 +1817,9 @@ def type_bot_works(conn, actor, row):
 
 def task_private(conn, row):
     """Read partial rows conservatively; callers often select only the task's identity fields."""
+    if not row:
+        return True
+    row = dict(row)
     if "private" in row:
         return bool(row["private"] is None or row["private"])
     found = _one(conn, "SELECT private FROM tasks WHERE id=?", (row["id"],))
@@ -1826,6 +1829,7 @@ def task_private(conn, row):
 def task_private_readable(conn, actor, row):
     if not row:
         return False
+    row = dict(row)
     if not task_private(conn, row):
         return True
     if "owner" not in row or "requester" not in row:
@@ -1842,8 +1846,32 @@ def _task_private_writer(conn, actor, row):
 def private_tasks_default(conn, actor):
     if not is_bot(actor) or not _has_table(conn, "bot_config"):
         return False
-    from .shared_bots import declared, follow
-    return follow(conn, actor_id(actor), declared(conn, actor_id(actor))).get("private_tasks_default") is True
+    from .shared_bots import declared, source_of
+    config = declared(conn, actor_id(actor))
+    if source_of(config):
+        config = declared(conn, source_of(config))
+    return config.get("private_tasks_default", config.get("template") == "general-counsel") is True
+
+
+def isolate_private_task(conn, row):
+    """Move tracked task messages intact out of broader rooms and revoke former thread members."""
+    if not task_private(conn, row):
+        return row
+    conv = conversation(conn, row["conversation_id"])
+    parties = list(dict.fromkeys([row["requester"], row["owner"]]))
+    if not conv or conv.get("kind") != "task" or conv.get("task_id") != row["id"]:
+        thread = {"id": new_id()}
+        conn.execute("INSERT INTO conversations(id,kind,subject,participants_json,created,scope,task_id) "
+                     "VALUES(?,?,?,?,?,?,?)", (thread["id"], "task", row["title"], _dump(parties), now(), "task", row["id"]))
+        if conv:
+            for message in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=?", (conv["id"],))):
+                if message_task_id(message, conv) == row["id"]:
+                    conn.execute("UPDATE messages SET conversation_id=? WHERE id=?", (thread["id"], message["id"]))
+        conn.execute("UPDATE conversations SET task_id=? WHERE id=?", (row["id"], thread["id"]))
+        conn.execute("UPDATE tasks SET conversation_id=? WHERE id=?", (thread["id"], row["id"]))
+        conv = thread
+    conn.execute("UPDATE conversations SET participants_json=? WHERE id=?", (_dump(parties), conv["id"]))
+    return task(conn, row["id"])
 
 
 def bot_readable_types(conn):
@@ -2529,7 +2557,8 @@ def open_task_asks(conn, task_row):
 
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
-                goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None):
+                goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None,
+                requester_actor=None):
     """Rule 5. Anyone may open a task for any active owner; a human owner's General task is
     linted (rule 7).
 
@@ -2549,10 +2578,16 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     requester = parent["requester"] if parent and is_human(actor) and is_human(parent["requester"]) else actor
-    private = bool(private or private_tasks_default(conn, actor) or private_tasks_default(conn, target)
+    private = bool((private if private is not None else
+                    private_tasks_default(conn, actor) or private_tasks_default(conn, target))
                    or parent and task_private(conn, parent))
     if private:
         requester = actor
+    if requester_actor is not None:
+        # Only the server supplies a verified human origin for a bot's own work.
+        if not is_human(requester_actor) or target != actor or not human(conn, requester_actor):
+            refuse(conn, actor, "identity", "Human requester attribution requires the bot's own verified work")
+        requester = requester_actor
     title = str(title or "").strip()
     body = str(body or "")
     severity = classify(f"{title}\n{body}", to_actor=target, actor=actor, conn=conn)
@@ -2580,7 +2615,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
                      "AND coalesce(parent_id,'')=? "
                      f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
                (requester, target, title, parent_id or "", *LIVE_STATUSES))
-    if dup and (deduplicate or actor != KEEPER):
+    if dup and task_private_readable(conn, actor, task(conn, dup["id"])) and (deduplicate or actor != KEEPER):
         refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
     if number is not None:
         if not (actor == KEEPER or mover or mover is None and can_move(conn, actor)):
@@ -2669,7 +2704,7 @@ def _retitle(conn, actor, row, title, owner, type_id, parent_id=None):
                      "AND coalesce(parent_id,'')=? "
                      f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
                (row["id"], row["requester"], target, title, parent or "", *LIVE_STATUSES))
-    if dup:
+    if dup and task_private_readable(conn, actor, task(conn, dup["id"])):
         refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
     plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" and general else []
     if plain and TITLE_LINT == "refuse":
@@ -2679,7 +2714,7 @@ def _retitle(conn, actor, row, title, owner, type_id, parent_id=None):
 
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
-                step_rank=None, number=None, title=None):
+                step_rank=None, number=None, title=None, private=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane`, `labels` and `blocked_by` are a mover's to change (`mover` says whether
@@ -2873,7 +2908,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _task_event(conn, task_id, KEEPER, "lint", None, "; ".join(plain), "")
         event(conn, actor, "task.lint", task_id, {"problems": plain})
     event(conn, actor, "task.update", task_id, {"status": status, "note": note})
-    after = task(conn, task_id)
+    after = isolate_private_task(conn, task(conn, task_id))
     if owner is not None or private is not None or task_private(conn, after) != task_private(conn, row):
         conn.execute("DELETE FROM task_delegations WHERE task_id=?", (task_id,))
     # A bot that asked for `tasks` is always told and never woken for it, so there is nothing to

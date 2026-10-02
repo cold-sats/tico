@@ -55,7 +55,7 @@ def test_private_defaults_reassignment_and_human_publication(api):
         config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='ops'").fetchone()[0])
         config['private_tasks_default'] = True
         c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'", (json.dumps(config),))
-    assigned = post(api, 'tasks', {'owner': 'ops', 'title': 'Review the request', 'body': 'Review it.', 'private': False})
+    assigned = post(api, 'tasks', {'owner': 'ops', 'title': 'Review the request', 'body': 'Review it.'})
     created = post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft the response', 'body': 'Draft it.'}, token=ops)
     assert assigned['private'] and created['private']
     post(api, 'tasks/' + assigned['id'], {'version': assigned['version'], 'private': False}, token=ops, expected=422)
@@ -110,3 +110,36 @@ def test_cloud_upgrade_keeps_legacy_tasks_private_and_files_intact(api):
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=53').fetchone()
     api.app.state.store.initialize(seed_market=False)
     assert get(api, 'tasks/' + task['id'])['task']['private']
+
+
+def test_legal_template_and_branch_defaults_and_verified_human_origin(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'",
+                  (json.dumps({'template': 'general-counsel'}),))
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='cpo'",
+                  (json.dumps({'shared_from': 'ops'}),))
+        assert H.private_tasks_default(c, 'bot:ops')
+        assert H.private_tasks_default(c, 'bot:cpo')
+        task = H.task_create(c, 'bot:cpo', 'Review the agreement', 'Review it.', 'bot:cpo',
+                             requester_actor='human:ben', lint=False)
+        assert task['private'] and task['requester'] == 'human:ben'
+        raw = c.execute('SELECT * FROM tasks WHERE id=?', (task['id'],)).fetchone()
+        assert H.task_private(c, raw)
+        assert H.task_private_readable(c, 'human:ben', raw)
+        assert not H.task_private_readable(c, 'human:ana', raw)
+        company = H.task_create(c, 'human:ben', 'Review the public terms', 'Review it.', 'bot:cpo',
+                                private=False, lint=False)
+        assert not company['private']
+
+
+def test_private_reassignment_updates_thread_members_without_losing_messages(api):
+    task = post(api, 'tasks', {'owner': 'ben', 'title': 'Review the draft', 'body': 'Review it.', 'private': True})
+    post(api, 'tasks/' + task['id'] + '/comments', {'text': 'Tracked comment.'}, token='ben-test')
+    task = get(api, 'tasks/' + task['id'])['task']
+    post(api, 'tasks/' + task['id'], {'version': task['version'], 'owner': 'priya'})
+    with api.app.state.store.read() as c:
+        row = H.task(c, task['id'])
+        conv = H.conversation(c, row['conversation_id'])
+        assert set(json.loads(conv['participants_json'])) == {'human:ana', 'human:priya'}
+        assert c.execute('SELECT 1 FROM messages WHERE conversation_id=? AND body=?',
+                         (conv['id'], 'Tracked comment.')).fetchone()

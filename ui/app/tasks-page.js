@@ -249,8 +249,8 @@ function openTaskCreate(owner = '', opts = {}) {
   const privateDefault = () => {
     const slug = creation.elements.owner.value.replace(/^bot:/, '');
     const bot = S.emps.find(e => e.name === slug);
-    if (parent?.private || bot?.private_tasks_default) creation.elements.private.checked = true;
-    creation.elements.private.disabled = !!parent?.private || !!bot?.private_tasks_default;
+    creation.elements.private.checked = !!parent?.private || !!bot?.private_tasks_default;
+    creation.elements.private.disabled = !!parent?.private;
   };
   creation.elements.owner.addEventListener('change', privateDefault); privateDefault();
   goalOptions().then(goals => {
@@ -267,7 +267,7 @@ function openTaskCreate(owner = '', opts = {}) {
     if (!body) { msg.textContent = 'Add details.'; form.body.focus(); return; }
     btn.disabled = true; msg.textContent = 'Creating…';
     const payload = {title, body, owner};
-    if (form.elements.private.checked) payload.private = true;
+    payload.private = form.elements.private.checked;
     taskPipelineCreatePayload(form, payload);
     const labels = form.labels.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
     if (labels.length) payload.labels = labels;

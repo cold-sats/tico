@@ -26,3 +26,6 @@ routines:
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
 tools: []
+
+# Requests to the legal desk and tasks it files stay with their two participants.
+private_tasks_default: true

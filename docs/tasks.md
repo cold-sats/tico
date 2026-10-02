@@ -322,8 +322,9 @@ Reassigning a private task gives the new assignee access and removes the previou
 future access unless they remain its requester. Reassignment never clears Private.
 
 The existing bot Settings editor offers **Create private tasks by default**. This also covers
-requests assigned to that bot, including its shared branches. Enable it for a sensitive role
-explicitly; Tico does not guess from names. A private parent's subtasks are private and have
+requests assigned to that bot, including its shared branches. The Legal template enables it
+by default; Tico does not guess from names. A human may clear the create checkbox to choose
+company visibility explicitly. Bot execution on a private task cannot bypass that privacy. A private parent's subtasks are private and have
 their own two participants. Publishing a child requires detaching it from a private parent.
 
 Upgrade retains every task and attachment. All tasks made before this privacy migration become

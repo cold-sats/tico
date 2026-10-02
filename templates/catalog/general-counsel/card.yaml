@@ -64,3 +64,6 @@ first_routine:
 example_output: knowledge/examples/legal-summary.md
 reasoning_effort: high
 recommend_when: [sells_to_businesses, sells_to_consumers, uses_docs, uses_email]
+
+# Requests to the legal desk and tasks it files stay with their two participants.
+private_tasks_default: true
