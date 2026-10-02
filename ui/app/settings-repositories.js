@@ -51,7 +51,7 @@ async function renderSettingsRepos(fresh) {
   if (!$('#set-repos')) return;
   const admin = settingsIsAdmin(), dis = admin ? '' : ` disabled title="${REPO_LOCKED}"`;
   if (!REPOS.github_connected) {
-    host.innerHTML = `<header><h2>Repositories</h2></header><p class="repos-line">GitHub is not connected.${S.me?.role === 'owner' ? ` <a href="${INTEGRATIONS}" data-repos-connect>Connect GitHub</a>` : ''}</p>`;
+    host.innerHTML = `<header><h2>Repositories</h2></header><p class="repos-line">The GitHub App is not connected; bots use their computers' own GitHub sign-in.${S.me?.role === 'owner' ? ` <a href="${INTEGRATIONS}" data-repos-connect>Connect GitHub</a>` : ''}</p>`;
     return;
   }
   const bots = (REPOS.repositories || []).filter(r => r.bot_repo).length;

@@ -6,27 +6,13 @@
 const V2_ACTIVE = ['open', 'doing', 'waiting'];
 const V2_GROUPS = [['doing', 'Doing'], ['waiting', 'Waiting'],
                    ['done', 'Done'], ['declined', 'Declined'], ['closed', 'Closed']];
-// A bot's task list stays small. Two lines at most per task: its title and one
-// icon for its state (! needs you, a spinner while doing, a clock while waiting) and only the
-// avatar of whoever holds it (your own photo for you). No count beside Active.
+// A bot's task list stays small. Two lines at most per task: its title, the same status icon as Tasks
+// (taskStatusIcon, ui/app/tasks.js) and only the avatar of whoever holds it (your own photo for you).
 function taskStateLabel(t) {
   if (taskNeedsMe(t) || t.status === 'declined') return 'Needs you';
   if (t.status === 'waiting') return 'Waiting';
   if (t.status === 'doing' || (t.status === 'open' && !actorPerson(t.owner))) return 'Doing';
   return 'To do';
-}
-function taskStateIcon(t) {
-  const label = taskStateLabel(t);
-  const inner = {'Needs you': '!', Waiting: '<span class="nav-icon">schedule</span>', Doing: '', 'To do': ''}[label];
-  // The spinner means the bot is running this task right now, the same thing
-  // the org rail's spinner means. A task marked doing between runs gets a still ring instead.
-  const owner = actorSlug(t.owner), live = owner ? v2StatusOf(owner) : null;
-  const running = label === 'Doing' && live?.state === 'running' && (!live.task_id || live.task_id === t.id);
-  const cls = {'Needs you': 'needs', Waiting: 'waiting', Doing: running ? 'doing' : 'doing-idle', 'To do': 'todo'}[label];
-  const over = live?.state === 'paused' && /^Paused: over /.test(live.focus || '') ? live.focus : '';   // its bot is over a spend limit
-  if (over && ['Doing', 'To do'].includes(label)) return `<span class="st-ic st-doing-idle" role="img" aria-label="${esc(over)}" title="${esc(over)}"></span>`;
-  if (label === 'Doing' && !running) return `<span class="st-ic st-doing-idle" role="img" aria-label="In progress, not running now" title="In progress, not running now"></span>`;
-  return `<span class="st-ic st-${cls}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${inner}</span>`;
 }
 function actorAvatarOnly(a) {
   const slug = actorSlug(a), pid = actorPerson(a);
@@ -42,7 +28,7 @@ function v2TaskRow(t, slug) {
                 `<button class="linkish danger" type="button" data-v2-task="${esc(t.id)}" data-v2-close="1">Close</button>`];
   return `<details class="trow" data-task-version="${esc(t.version || '')}"><summary>
       <span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>
-      ${taskStateIcon(t)}<span class="ttl" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</span>${prStateBadge(t.pr_state)}
+      ${taskStatusIcon(t)}<span class="ttl" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</span>${prStateBadge(t.pr_state)}
       <span class="tags">${actorChip(other)}</span>${actorAvatarOnly(t.owner)}
       <span class="muted tnum">${esc(ago(t.updated || t.created))}</span></summary>
     <div class="tbody">

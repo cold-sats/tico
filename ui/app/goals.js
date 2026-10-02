@@ -228,9 +228,12 @@ function pageGoals() {
   const was = document.getElementById('goal-panel');
   if (was) { was._state = null; if (was.open) was.close(); }
   const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, panel: null};
-  $('#main').innerHTML = `<div class="board-tools tasks-head"><h1>Goals</h1></div>
-    <section class="gm" id="goal-manager-panel" aria-label="Goal Manager"></section>
-    <div id="goal-body"><p class="muted">Loading…</p></div>`;
+  // The tree is the page; the Goal Manager is its right rail (under the tree on a narrow window). The sidebar
+  // says where you are, so the title is for screen readers only.
+  $('#main').classList.add('goals-layout');
+  $('#main').innerHTML = `<div class="goals-main"><h1 class="sr-only">Goals</h1>
+      <div id="goal-body"><p class="muted">Loading…</p></div></div>
+    <aside class="gm gm-rail" id="goal-manager-panel" aria-label="Goal Manager"></aside>`;
   goalManagerMount(state);
   goalsLoad(state);
 }
@@ -282,7 +285,7 @@ async function goalsRefresh() {
   headGoalsReload();
 }
 
-// The Goal Manager at the top of Goals (docs/goals-and-kpis.md): what it does, its routines from the server (when
+// The Goal Manager in the right rail of Goals (docs/goals-and-kpis.md): what it does, its routines from the server (when
 // each next runs), its last run, and the viewer's chat with it: the room its bot page shows, loaded with the page. A reply
 // redraws the tree, since the Goal Manager may have just edited a goal. Leaving the page stops its stream.
 let GOAL_MANAGER_STOP = null;
@@ -299,17 +302,17 @@ async function goalManagerMount(pageState) {
   const stopStream = () => { try { es?.close(); } catch { /* closed */ } es = null; clearInterval(poll); poll = null; };
   GOAL_MANAGER_STOP = () => { stopped = true; stopStream(); };
   const off = !bot ? 'Not set up' : GM_STATE[bot.status] || '';
-  host.innerHTML = `<div class="gm-info">
+  host.innerHTML = `<section class="rail-sec gm-info">
       <header class="gm-head"><h2>Goal Manager</h2>${off ? `<span class="pill">${esc(off)}</span>` : ''}<a href="#/bot/${GM}">Open bot</a></header>
-      <p class="gm-what">Keeps KPIs current and each goal green, yellow or red. Humans set the goals.</p>
-      ${bot ? '<ul class="gm-routines" data-gm-routines><li class="muted">Loading routines…</li></ul><p class="gm-last" data-gm-result></p>' : ''}
-    </div>
-    <div class="gm-chat" data-gm-chat></div>`;
+      <p class="gm-what">Keeps KPIs current and each goal green, yellow or red. Humans set the goals.</p></section>
+    ${bot ? `<section class="rail-sec" aria-labelledby="gm-routines-h"><h3 class="rail-h" id="gm-routines-h">Routines</h3>
+      <ul class="gm-routines" data-gm-routines><li class="muted">Loading…</li></ul><p class="gm-last" data-gm-result></p></section>` : ''}
+    <section class="rail-sec gm-chat" data-gm-chat aria-labelledby="gm-chat-h"><h3 class="rail-h" id="gm-chat-h">Chat</h3></section>`;
   const chat = host.querySelector('[data-gm-chat]');
   if (!active) {
-    chat.innerHTML = S.me?.role === 'owner'
+    chat.innerHTML = '<h3 class="rail-h" id="gm-chat-h">Chat</h3>' + (S.me?.role === 'owner'
       ? '<div class="gm-on"><button class="primary" type="button" data-gm-on>Turn on</button><span class="muted" data-gm-status role="status"></span></div>'
-      : '<p class="muted gm-on">The owner can turn it on.</p>';
+      : '<p class="muted gm-on">The owner can turn it on.</p>');
     const on = chat.querySelector('[data-gm-on]');
     if (on) on.onclick = async () => {
       on.disabled = true;
@@ -324,7 +327,7 @@ async function goalManagerMount(pageState) {
       if (current()) on.disabled = false;
     };
   } else {
-    chat.innerHTML = `<div class="gm-latest" data-gm-latest aria-live="polite" hidden></div>
+    chat.innerHTML = `<h3 class="rail-h" id="gm-chat-h">Chat</h3><div class="gm-latest" data-gm-latest aria-live="polite" hidden></div>
       <details class="gm-history" hidden><summary>History</summary><div data-gm-history></div></details>
       <form class="gm-form"><textarea rows="1" maxlength="4000" aria-label="Message to the Goal Manager" placeholder="Ask it to change a goal…"></textarea><button class="primary" type="submit">Send</button></form>
       <p class="err" data-gm-error role="alert" hidden></p>`;
@@ -407,12 +410,9 @@ async function goalManagerMount(pageState) {
     const rows = (await get(`/v2/bots/${GM}/routines`)).routines || [];
     const runs = await Promise.all(rows.map(r => get(`/v2/routines/${encodeURIComponent(r.id)}/occurrences`).then(o => o.occurrences?.[0] || null, () => null)));
     if (!current()) return;
-    let here = '';
-    try { here = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* no zone */ }
     routinesEl.innerHTML = rows.length ? rows.map(r => {
       const when = r.enabled === false || !r.active ? 'paused' : r.on ? '' : r.next ? 'next ' + fmt(r.next) : '';
-      const zone = r.timezone && !r.on && r.timezone !== here ? ' (' + r.timezone + ')' : '';
-      return `<li><span class="nav-icon" aria-hidden="true">schedule</span><span><b>${esc(r.title)}</b> · ${esc(cadenceWords(r) + zone)}${when ? ' · ' + esc(when) : ''}</span></li>`;
+      return `<li><span class="nav-icon" aria-hidden="true">schedule</span><span><b>${esc(r.title)}</b> · ${esc(cadenceZoned(r))}${when ? ' · ' + esc(when) : ''}</span></li>`;
     }).join('') : '<li class="muted">No routines.</li>';
     // The last run: what the bot last reported, else the newest routine firing.
     const status = v2StatusOf(GM);

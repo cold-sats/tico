@@ -119,8 +119,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 #pane-tasks .trow summary{padding:4px;margin:0 -4px;min-height:28px;font-size:13px;line-height:18px}
 #pane-tasks .trow[data-task-version] summary{grid-template-columns:16px minmax(0,1fr) auto;grid-template-areas:"ic ttl who";gap:0 8px;align-items:center}
 #pane-tasks .trow[data-task-version] summary .pill,#pane-tasks .trow[data-task-version] summary .tnum,#pane-tasks .trow[data-task-version] summary .tags{display:none!important}
-#pane-tasks .trow[data-task-version] summary .st-ic{grid-area:ic;display:inline-flex;width:16px;height:16px;font-size:11px}
-#pane-tasks .trow[data-task-version] summary .st-ic .nav-icon{font-size:15px}
+#pane-tasks .trow[data-task-version] summary .si{grid-area:ic;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px}   /* the same status icon as Tasks (statusIcon, ui/app/tasks.js) */
 #pane-tasks .trow[data-task-version] summary .who-av{grid-area:who;display:inline-flex}
 #pane-tasks .trow summary .who-av .av{width:18px!important;height:18px!important;font-size:8px!important}
 #pane-tasks .trow[data-task-version] summary .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}

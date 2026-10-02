@@ -103,6 +103,7 @@ function frBotRowHTML(state, bot, botOps) {
   const waiting = frWaiting(state);
   const where = waiting === 'Add an AI provider' ? '<a href="#/settings" data-fr-providers>Add an AI provider</a>.' : waiting ? waiting + '.' : bootstrap ? 'Set up automatically once a computer is online.'
     : parked ? (ready ? 'Repository ready.' : 'Setting up its repository…')
+    : active ? 'Set up and running.'
     : `${esc(botOps)} is setting this up.`;
   return `<div class="onb-bot" data-onb-bot="${esc(bot.slug)}">${avatar(bot.slug, 27)}
       <div class="onb-bot-main"><strong>${esc(bot.display_name || bot.slug)}</strong>${parked ? ' <span class="pill needs" data-needs-onboarding>Needs setup</span>' : ''}
@@ -119,7 +120,8 @@ function frNextHTML(state) {
         `<option value="${esc(person.id)}">${esc(person.name || person.id)}${('human:' + person.id) === frOwner() ? ' (you)' : ''}</option>`).join('')}</select>
       <span class="muted" data-fr-owned="${esc(bot.slug)}">${esc(frPersonName(S.me?.id))} owns it</span></div>`).join('');
   return `<section class="card fr-card" id="fr-providers"><header><h2>AI providers</h2></header>
-      <a href="#/settings" data-fr-providers>${S.config?.providers_configured === false ? 'Add an AI provider' : 'AI providers'}</a></section>
+      ${S.config?.providers_configured === false ? '<a href="#/settings" data-fr-providers>Add an AI provider</a>'
+        : '<p>Chosen. <a href="#/settings" data-fr-providers>Change them</a></p>'}</section>
     <section class="card fr-card" id="fr-admin"><header><h2>Add an admin</h2></header>
       <form id="fr-admin-form" class="fr-form"><label class="onb-field"><span class="k">Name</span><input name="name" autocomplete="off" placeholder="Sam"></label>
         <label class="onb-field"><span class="k">Email</span><input name="email" type="email" autocomplete="off" required placeholder="sam@example.com"></label>
@@ -131,7 +133,7 @@ function frNextHTML(state) {
       <ul class="fr-tools">
         <li><a href="#/credentials" data-fr-link="credentials">Credentials</a></li>
         <li><a href="#/integrations" data-fr-link="integrations">Tools</a></li></ul>
-      <p class="fr-secrets" data-fr-secrets><strong>Enter credentials in those fields, never in a chat with a bot.</strong> One pasted into a chat is leaked: rotate it.</p></section>`;
+      <p class="fr-secrets" data-fr-secrets><strong>Enter credentials on the Credentials page, never in a chat with a bot.</strong> One pasted into a chat is leaked: rotate it.</p></section>`;
 }
 function frWireDone(state) {
   document.querySelectorAll('[data-fr-start]').forEach(button => button.onclick = () => void frStartSetup(button.dataset.frStart, button));
