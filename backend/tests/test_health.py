@@ -264,8 +264,10 @@ def test_missing_tool_credentials_name_the_tool_and_current_computer(environment
     assert "tool_credentials" not in health_of(api)[1]
 
 
-def test_listening_health_checks_custom_categories_without_question_text(environment):
+def test_listening_health_checks_custom_categories_without_question_text(environment, caplog, monkeypatch):
     import json
+    from backend import listening
+    monkeypatch.setattr(listening, "_warning_revisions", listening.OrderedDict())
     api = environment()
     settings = api.app.state.store.settings
     (settings.registry_dir / "listening.yaml").write_text("""
@@ -279,13 +281,20 @@ destinations:
     qset = {"id": "listening-item", "version": 9, "summary": secret, "questions": {
         "custom": {"type": "choice", "instructions": secret, "criteria": {"yes": secret, "no": None}}}}
     path.write_text(json.dumps(qset))
+    listening.destinations(settings)
     body, checks = health_of(api)
     assert checks["listening"]["status"] == "warn"
     assert "category 'custom'" in checks["listening"]["summary"] and "unless category 'veto'" in checks["listening"]["summary"]
     assert secret not in json.dumps(body)
+    for _ in range(3):
+        assert health_of(api)[1]["listening"] == checks["listening"]
+        listening.destinations(settings)
+    assert len(caplog.records) == 2, "repeated Health reads and destination loads log each category warning once"
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO humans(id,name,email) VALUES('sam','Sam','sam@example.com')")
     assert "listening" not in health_of(api, as_person(api, "sam"))[1]
+    api.app.state.auth.bot_admins.add(settings.test_identities["sam"].email.lower())
+    assert health_of(api, as_person(api, "sam"))[1]["listening"] == checks["listening"]
     path.write_text('{"private-question-fixture-value": [}')
     body, checks = health_of(api)
     assert "could not be loaded" in checks["listening"]["summary"] and secret not in json.dumps(body)
