@@ -233,6 +233,7 @@ def test_missing_tool_credentials_name_the_tool_and_current_computer(environment
     import json
     api = environment()
     computer = enrolled(api)
+    heartbeat(api, computer, runtimes=SIGNED_IN)
     add_bot(api, "ana")
     tools = [{"service": "gmail", "credential": "missing", "env": "GOOGLE_SA_KEY"},
              {"service": "google-calendar", "credential": "missing", "env": "GOOGLE_SA_KEY"},
@@ -252,6 +253,12 @@ def test_missing_tool_credentials_name_the_tool_and_current_computer(environment
         c.execute("INSERT INTO humans(id,name,email) VALUES('sam-test','Sam','sam@example.com')")
     _, limited = health_of(api, as_person(api, "sam-test"))
     assert "tool_credentials" not in limited
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET last_seen=? WHERE id=?", (H.shift(H.now(), minutes=-10), computer))
+    assert "tool_credentials" not in health_of(api)[1]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET last_seen=? WHERE id=?", (H.now(), computer))
+    assert "tool_credentials" in health_of(api)[1]
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bots SET state='archived' WHERE slug='ana'")
     assert "tool_credentials" not in health_of(api)[1]

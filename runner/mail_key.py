@@ -28,6 +28,8 @@ def carry_protected(config, config_path):
     The container retains runner.json.stale when replacing a rejected registration. Never scan
     unrelated state directories: their ownership alone does not identify the Team operator.
     Leave the old key intact for rollback; never replace a key already in the new registration.
+    Record a copy, an existing key or a confirmed absent source once per new registration, so
+    deleting the key later is respected on restart. Failed reads or copies remain retryable.
     """
     config_path = Path(config_path)
     stale = config_path.with_name(config_path.name + ".stale")
@@ -52,12 +54,34 @@ def carry_protected(config, config_path):
         old = config_path.parent / ("state-" + old_id)
         new = config_path.parent / ("state-" + new_id)
         new.mkdir(mode=0o700, exist_ok=True)
-        for directory in (old, new):
+
+        def safe_directory(directory):
             info = directory.lstat()
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_dev != parent.st_dev or info.st_mode & 0o066:
                 return False
-        source = old / FILE
-        descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+            return True
+
+        if not safe_directory(new):
+            return False
+        marker = new / ".mail-key-carried"
+        if marker.exists() or marker.is_symlink():
+            return False
+
+        def carried():
+            descriptor = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(descriptor)
+
+        if (new / FILE).exists() or (new / FILE).is_symlink():
+            carried()
+            return False
+        try:
+            if not safe_directory(old):
+                return False
+            source = old / FILE
+            descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            carried()
+            return False
         with os.fdopen(descriptor, "rb") as handle:
             info = os.fstat(handle.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_dev != parent.st_dev or info.st_mode & 0o077:
@@ -68,9 +92,16 @@ def carry_protected(config, config_path):
                 os.fchmod(output.fileno(), stat.S_IMODE(info.st_mode))
                 output.flush()
                 os.fsync(output.fileno())
-            os.link(temporary, new / FILE)     # publish a complete file without replacing an existing key
+            try:
+                os.link(temporary, new / FILE)     # publish a complete file without replacing an existing key
+            except FileExistsError:
+                carried()
+                return False
+        carried()
         return True
     except FileExistsError:
+        return False
+    except FileNotFoundError:
         return False
     except (OSError, ValueError, TypeError) as exc:
         if stale.exists():

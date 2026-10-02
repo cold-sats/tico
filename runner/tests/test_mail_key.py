@@ -171,10 +171,62 @@ def test_reenrollment_carries_the_protected_key_once_with_permissions(tmp_path):
     assert new.read_bytes() == key.read_bytes()
     assert stat.S_IMODE(new.stat().st_mode) == stat.S_IMODE(key.stat().st_mode) == 0o600
     assert stat.S_IMODE(new.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE((new.parent / ".mail-key-carried").stat().st_mode) == 0o600
     new.write_text("existing")
     assert not mail_key.carry_protected(config, tmp_path / "runner.json")
     assert new.read_text() == "existing" and key.is_file()
-    assert not list(new.parent.glob(".mail-key-*"))
+    assert list(new.parent.glob(".mail-key-*")) == [new.parent / ".mail-key-carried"]
+
+
+@pytest.mark.parametrize("missing", ["key", "state-directory", "stale-registration"])
+def test_missing_previous_mail_key_is_quiet_and_not_retried(tmp_path, monkeypatch, missing):
+    config, key = previous_registration(tmp_path)
+    if missing == "key":
+        key.unlink()
+    elif missing == "state-directory":
+        shutil.rmtree(key.parent)
+    else:
+        (tmp_path / "runner.json.stale").unlink()
+    warnings = []
+    monkeypatch.setattr(mail_key, "log", warnings.append)
+    assert not mail_key.carry_protected(config, tmp_path / "runner.json")
+    assert warnings == []
+    assert not (tmp_path / "state-new" / mail_key.FILE).exists()
+    if missing != "stale-registration":
+        key.parent.mkdir(mode=0o711, exist_ok=True)
+        key.write_text("later-key")
+        key.chmod(0o600)
+        assert not mail_key.carry_protected(config, tmp_path / "runner.json")
+        assert not (tmp_path / "state-new" / mail_key.FILE).exists()
+
+
+def test_existing_registration_key_is_not_restored_after_deletion(tmp_path):
+    config, key = previous_registration(tmp_path)
+    new = tmp_path / "state-new" / mail_key.FILE
+    new.parent.mkdir(mode=0o700)
+    new.write_text("operator-key")
+    new.chmod(0o600)
+    assert not mail_key.carry_protected(config, tmp_path / "runner.json")
+    assert new.read_text() == "operator-key"
+    new.unlink()
+    assert not mail_key.carry_protected(config, tmp_path / "runner.json")
+    assert not new.exists() and key.exists()
+
+
+def test_failed_carryover_can_retry_without_leaving_temporary_keys(tmp_path, monkeypatch):
+    import errno
+
+    config, key = previous_registration(tmp_path)
+    warnings = []
+    monkeypatch.setattr(mail_key, "log", warnings.append)
+    with mock.patch.object(mail_key.os, "link", side_effect=OSError(errno.ENOSPC, "No space left")):
+        assert not mail_key.carry_protected(config, tmp_path / "runner.json")
+    new = tmp_path / "state-new" / mail_key.FILE
+    assert warnings and "free space and permissions" in warnings[0]
+    assert not list(new.parent.iterdir()) and key.is_file()
+    assert mail_key.carry_protected(config, tmp_path / "runner.json")
+    assert new.read_bytes() == key.read_bytes()
+
 
 @pytest.mark.parametrize("change", ["operator", "url", "environment", "directory-symlink", "file-symlink", "owner", "volume"])
 def test_reenrollment_never_imports_another_operators_key(tmp_path, monkeypatch, change):
@@ -219,6 +271,10 @@ def test_enrollment_recovers_the_previous_registrations_protected_key(tmp_path, 
               "--code-file", str(code), "--label", "Mail Computer", "--projects", str(tmp_path / "workspace"),
               "--environment", "team"])
     assert (tmp_path / "state-new" / mail_key.FILE).read_bytes() == old.read_bytes()
+    (tmp_path / "state-new" / mail_key.FILE).unlink()
+    monkeypatch.setattr(cli, "Client", lambda *args: SimpleNamespace(get=lambda *args: []))
+    cli.main(["--config", str(tmp_path / "runner.json"), "status"])
+    assert not (tmp_path / "state-new" / mail_key.FILE).exists() and old.exists()
 
 
 def test_reenrollment_accepts_an_older_registration_without_environment(tmp_path):

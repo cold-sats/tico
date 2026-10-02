@@ -375,8 +375,10 @@ See [Computer sign-in and diagnostics](install.md#linux-or-cloud-server-docker).
    (below).
    Re-enrollment on the same volume carries the protected key from the previous registration into the new state directory,
    preserving its permissions. The operator and server must match; another operator's key is never copied, and an existing
-   key in the new registration is kept. The previous key remains available for rollback.
-   Health warns when an assigned teammate's Tool reports a missing Credential, naming the Tool and Computer.
+   key in the new registration is kept. Carryover is recorded once per registration after copying, finding an existing
+   key or confirming there is no previous key. Deleting that registration's key later is respected on restart;
+   a missing previous key is quiet, while failed reads or copies can retry. The previous key remains available for rollback.
+   Health warns when an assigned teammate's online Computer reports a missing Tool Credential, naming the Tool and Computer.
 3. Wait a minute. `docker logs '<container-name>'` says `Tico side jobs: started connectors (mail, calendar)`. The first start builds
    the Python environment into the runner's volume (`/home/runner/tools/mail-venv`, or `/var/lib/tico-runner/tools/mail-venv`),
    about a minute, needing outbound access to PyPI once. It is not in the image, so the image stays slim for runners that never sync mail;

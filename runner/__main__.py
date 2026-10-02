@@ -116,10 +116,10 @@ def main(argv=None):
         print(json.dumps({"runner_id": result["runner_id"], "config": str(args.config), "operator": result["operator"]}))
         return
     config = json.loads(args.config.read_text())
-    config.setdefault("state_dir", str(args.config.parent / ("state-" + config["runner_id"])))
-    mail_key.carry_protected(config, args.config)
     if args.command == "profile":
         return profile_command(parser, args, config)
+    config.setdefault("state_dir", str(args.config.parent / ("state-" + config["runner_id"])))
+    mail_key.carry_protected(config, args.config)
     client = Client(config["url"], config["token"])
     if args.command == "status":
         print(json.dumps({"runner_id": config["runner_id"], "assignments": client.get("runners/assignments"),

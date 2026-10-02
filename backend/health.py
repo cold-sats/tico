@@ -93,12 +93,14 @@ def _unpublished(c):
     return sorted(set(out))
 
 
-def _missing_tool_credentials(c):
-    """Tool and Computer names only, for current assignments with effective credentials missing."""
+def _missing_tool_credentials(c, online_ids):
+    """Tool and Computer names only, for online assignments with effective credentials missing."""
     from .bot_tools import granted, service_name
     out = set()
-    for row in c.execute("SELECT a.bot,r.label,r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
+    for row in c.execute("SELECT a.bot,r.id,r.label,r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
                          "JOIN bots b ON b.slug=a.bot WHERE b.state<>'archived' AND r.revoked_at IS NULL"):
+        if row["id"] not in online_ids:
+            continue
         report = (readiness_document(row["readiness_json"]).get("bots") or {}).get(row["bot"]) or {}
         for tool in granted(c, row["bot"], report.get("tools") or []):
             if tool.get("credential") == "missing":
@@ -402,7 +404,7 @@ def view(c, who, settings, auth, github, config):
                 checks.append(_check('worktrees', 'Task worktrees', 'warn' if errors else 'ok',
                                      '; '.join(errors[:3]) if errors else '; '.join(f'{bot}: {size:g} MB' for bot, size in sorted(usage.items())),
                                      [_fix('Open tasks', '#/tasks')]))
-    if full and (missing_tools := _missing_tool_credentials(c)):
+    if full and (missing_tools := _missing_tool_credentials(c, online_ids)):
         checks.append(_check("tool_credentials", "Tool credentials", "warn",
                              "Missing Credential: " + "; ".join(f"{tool} on {label}" for tool, label in missing_tools[:5])
                              + ("." if len(missing_tools) <= 5 else f"; and {len(missing_tools) - 5} more."),

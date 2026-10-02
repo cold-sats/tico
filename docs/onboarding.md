@@ -308,8 +308,9 @@ nothing else until it is set up. A ready bot has an **Activate** action when its
 reported present. BotOps can activate it for an authorized human chat request; an unattended
 setup task reports readiness for the owner to act.
 
-Automatic placement when a Computer enrolls skips archived teammates and teammates draining their current work.
-Existing assignments and repository grants stay in place.
+Automatic placement when a Computer enrolls skips only archived teammates. Paused or draining teammates
+receive an assignment too; their pause or drain still holds their work. Legacy configurations without a teammate
+state are also placed. Existing assignments and repository grants stay in place.
 
 ## Adding a bot later
 
