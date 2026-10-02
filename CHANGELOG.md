@@ -10,6 +10,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [0.3.3] - 2026-10-02
 
 ### Fixed
+- A computer whose recent error lines ran past 300 characters had its whole status report refused and could not become ready. Computers now cut each line to 300 characters and the server trims instead of refusing.
 - Connecting a Granola account works: Granola requires a redirect address when Tico registers, even for the code-based sign-in.
 
 ## [0.3.2] - 2026-10-02

@@ -616,7 +616,9 @@ class StructuredReadiness(Contract):
     mail_key: Literal["exposed"] | None = None      # the mail key is where bots can read it (runner/mail_key.py)
     shared_env: Literal[True] | None = None         # secrets/_shared.env holds keys every bot there receives
     # The runner's last WARN/ERROR-like log lines, for a support bundle a person chooses to send (backend/diagnostics.py).
-    recent_errors: list[Annotated[str, Field(max_length=300)]] = Field(default_factory=list, max_length=50)
+    # Long lines are cut, never refused: a refused report would hide the computer (0.3.2 runners sent 301 characters).
+    recent_errors: list[Annotated[str, BeforeValidator(lambda v: v[:300] if isinstance(v, str) else v),
+                                  Field(max_length=300)]] = Field(default_factory=list, max_length=50)
 
     @model_serializer(mode="wrap")
     def _without_empty_errors(self, handler):
