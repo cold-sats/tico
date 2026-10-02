@@ -790,6 +790,8 @@ def migrate(conn, adopt_legacy=False):
                  "ON conversations(owner_actor,room_key) WHERE scope='personal' AND closed_at IS NULL")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_shared_room "
                  "ON conversations(room_key) WHERE scope='shared' AND closed_at IS NULL")
+    # What every bot may do with a type's tasks (TYPE_BOTS); NULL keeps them to the parties.
+    add_column(conn, "task_types", "bots", "TEXT")
     # The tasks board columns. The cloud store backfills rank
     # and lane once (its migration 29); here the columns simply exist.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
@@ -1747,6 +1749,47 @@ def type_list(conn):
     return rows
 
 
+# What every bot may do with the tasks of a type, beyond the tasks it is a party to. A team's board
+# (a developer board, a support queue) is shared work: the bots that file, build and hand it on need
+# to read all of it, where a person's own to-dos stay with the people and bots on them.
+#   read: read every task of the type, comment on it and file a subtask under it.
+#   work: also change it as its owner or requester could (step, owner, due, body, rank) and add or
+#         remove its links. Closing it, a ready step and its labels stay with people.
+TYPE_BOTS = ("read", "work")
+
+
+def _type_bots(conn, actor, bots):
+    if bots in (None, "", "parties"):
+        return None
+    if bots not in TYPE_BOTS:
+        refuse(conn, actor, "kind", f"bots is parties, {' or '.join(TYPE_BOTS)}, not {bots}")
+    return bots
+
+
+def type_bots(conn, row):
+    """What every bot may do with this task because of its type: None, "read" or "work"."""
+    type_id = row.get("type_id") if "type_id" in row else (
+        (_one(conn, "SELECT type_id FROM tasks WHERE id=?", (row["id"],)) or {}).get("type_id"))
+    if not type_id:
+        return None
+    found = _one(conn, "SELECT bots FROM task_types WHERE id=?", (type_id,))
+    return (found or {}).get("bots") or None
+
+
+def type_bot_reads(conn, actor, row):
+    return is_bot(actor) and type_bots(conn, row) in TYPE_BOTS
+
+
+def type_bot_works(conn, actor, row):
+    return is_bot(actor) and type_bots(conn, row) == "work"
+
+
+def bot_readable_types(conn):
+    """The ids of the types whose every task any bot may read."""
+    return [r[0] for r in conn.execute("SELECT id FROM task_types WHERE bots IN (%s)"
+                                       % ",".join("?" * len(TYPE_BOTS)), TYPE_BOTS)]
+
+
 def _type_writer(conn, actor, mover):
     _writer(conn, actor)
     if not (actor == KEEPER or mover or mover is None and can_move(conn, actor)):
@@ -1800,18 +1843,19 @@ def _type_steps(conn, actor, type_id, steps):
                 conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_row["id"],))
 
 
-def type_create(conn, actor, name, steps=(), mover=None):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
+    bots = _type_bots(conn, actor, bots)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,created,updated) VALUES(?,?,?,?)", (ident, name, ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,bots,created,updated) VALUES(?,?,?,?,?)", (ident, name, bots, ts, ts))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -1823,6 +1867,8 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None):
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
     if steps is not None:
         _type_steps(conn, actor, row["id"], steps)
+    if bots is not None:
+        conn.execute("UPDATE task_types SET bots=? WHERE id=?", (_type_bots(conn, actor, bots), row["id"]))
     conn.execute("UPDATE task_types SET updated=? WHERE id=?", (now(), row["id"]))
     after = type_get(conn, row["id"])
     event(conn, actor, "task_type.update", row["id"], after)
@@ -2113,7 +2159,8 @@ def _task_link_allowed(conn, actor, row, mover=None, kind=None):
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     delegated = _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
                      (row["id"], actor, now()))
-    if not mover and actor not in (row["owner"], row["requester"]) and not delegated and not task_ancestor_party(conn, actor, row):
+    if (not mover and actor not in (row["owner"], row["requester"]) and not delegated
+            and not task_ancestor_party(conn, actor, row) and not type_bot_works(conn, actor, row)):
         refuse(conn, actor, "identity", "This task is not yours to change")
 
 
@@ -2483,7 +2530,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     mine = actor in (row["owner"], row["requester"])
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
                      (task_id, actor, now()))
-    mine = mine or bool(delegated) or task_ancestor_party(conn, actor, row)
+    mine = mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     if not mine and not mover and actor != KEEPER:

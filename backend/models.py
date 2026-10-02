@@ -147,14 +147,21 @@ class TaskStepInput(Contract):
     status: Literal["open", "doing", "waiting", "review", "ready", "done", "closed", "declined"]
 
 
+# What every bot may do with a type's tasks beyond its own (hubdb.TYPE_BOTS): parties keeps them to
+# the bots on each task; read opens all of them to read and comment on; work also to change.
+TypeBots = Literal["parties", "read", "work"]
+
+
 class TaskTypeCreate(Contract):
     name: ID
     steps: list[TaskStepInput] = Field(default_factory=list)
+    bots: TypeBots | None = None
 
 
 class TaskTypeUpdate(Contract):
     name: ID | None = None
     steps: list[TaskStepInput] | None = None
+    bots: TypeBots | None = None
 
 
 class QuestionOption(Contract):

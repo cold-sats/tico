@@ -234,6 +234,8 @@ def run(args, who=None):
                 body["name"] = args.name
             if args.steps_file:
                 body["steps"] = json.loads(Path(args.steps_file).read_text())
+            if args.bots:
+                body["bots"] = args.bots
             return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
         if sub == "types":
             if args.delete:

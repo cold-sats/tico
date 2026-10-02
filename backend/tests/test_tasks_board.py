@@ -704,3 +704,53 @@ def test_tree_visibility_query_only_reads_descendant_ids(api, monkeypatch):
     assert get(api, 'tasks/' + parent['id'] + '/tree')[0]['id'] == child['id']
     visibility = [q for q in queries if q.startswith('SELECT id FROM tasks WHERE')]
     assert visibility and all('id IN (' in q and child['id'] in q and unrelated['id'] not in q for q in visibility)
+
+
+def test_a_type_opened_to_bots_is_read_or_worked_whole_and_nothing_else_is(api):
+    """A type's `bots` opens its tasks to every bot, read or worked, and only its tasks: a person's
+    own to-dos stay with the bots on them, and closing, a ready step and labels stay with people."""
+    typ = post(api, 'task-types', {'name': 'Dev ticket', 'steps': [
+        {'name': 'On Deck', 'status': 'open'}, {'name': 'PR Review', 'status': 'review'},
+        {'name': 'Shipped', 'status': 'ready'}, {'name': 'Done', 'status': 'closed'}]})['type']
+    assert typ['bots'] is None
+    ticket = post(api, 'tasks', {'owner': 'ben', 'title': 'Fix the guest message times',
+                                 'body': 'Please.', 'type': typ['id'], 'step': 'On Deck'})
+    todo = post(api, 'tasks', {'owner': 'ben', 'title': 'Book the offsite', 'body': 'Please.'})
+    token = bot_token(api, 'ops')
+    listed = lambda: {t['id'] for t in get(api, 'tasks?limit=500', token=token)['tasks']}
+    sql = lambda: {r[0] if isinstance(r, list) else r['id'] for r in post(
+        api, 'sql', {'sql': 'SELECT id FROM tasks'}, token=token)['rows']}
+
+    get(api, 'tasks/' + ticket['id'], token=token, expected=403)
+    assert ticket['id'] not in listed() and ticket['id'] not in sql()
+
+    post(api, 'task-types/' + typ['id'], {'bots': 'read'}, token='priya-test', expected=403)
+    assert post(api, 'task-types/' + typ['id'], {'bots': 'read'})['type']['bots'] == 'read'
+    assert get(api, 'tasks/' + ticket['id'], token=token)['task']['id'] == ticket['id']
+    assert ticket['id'] in listed() and ticket['id'] in sql()
+    assert todo['id'] not in listed() and todo['id'] not in sql()
+    get(api, 'tasks/' + todo['id'], token=token, expected=403)
+    post(api, 'tasks/' + ticket['id'] + '/comments', {'text': 'The same gap shows on two more threads.'}, token=token)
+    child = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the fix', 'body': 'Please.',
+                                'parent_id': ticket['id']}, token=token)
+    assert child['parent_id'] == ticket['id']
+    ticket = get(api, 'tasks/' + ticket['id'])['task']
+    post(api, 'tasks/' + ticket['id'], {'version': ticket['version'], 'step': 'PR Review'}, token=token, expected=403)
+    post(api, 'tasks/' + ticket['id'] + '/links', {'url': 'https://github.com/acme/app/pull/7'}, token=token, expected=403)
+
+    post(api, 'task-types/' + typ['id'], {'bots': 'work'})
+    moved = post(api, 'tasks/' + ticket['id'], {'version': ticket['version'], 'step': 'PR Review',
+                                               'owner': 'priya'}, token=token)
+    assert moved['status'] == 'review' and moved['owner'] == 'human:priya'
+    post(api, 'tasks/' + ticket['id'] + '/links', {'url': 'https://github.com/acme/app/pull/7'}, token=token)
+    for refused in ({'step': 'Shipped'}, {'step': 'Done'}, {'close': True}, {'labels': ['bug']}):
+        r = api.post('/api/v2/tasks/' + ticket['id'], json={'version': moved['version'], **refused},
+                     headers=headers(token))
+        assert r.status_code in (403, 422), (refused, r.text)
+    todo = get(api, 'tasks/' + todo['id'])['task']
+    post(api, 'tasks/' + todo['id'], {'version': todo['version'], 'status': 'doing'}, token=token, expected=403)
+
+    post(api, 'task-types/' + typ['id'], {'bots': 'anyone'}, expected=422)
+    assert post(api, 'task-types/' + typ['id'], {'bots': 'parties'})['type']['bots'] is None
+    get(api, 'tasks/' + ticket['id'], token=token, expected=403)
+    assert ticket['id'] not in listed()

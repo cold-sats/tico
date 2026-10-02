@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A task type can open its tasks to every bot: `read` (read, comment, file subtasks) or `work` (also move,
+  reassign and link them), in Settings → Types, the task-types routes, `hub task type --bots` and MCP. A team's
+  board can be worked by the bots that file and build its tickets; everything else stays with the bots on it.
+
 ### Improved
 - Help puts Support in the existing resizable right rail, with continuing conversations, a simpler overview, platform descriptions and an inline glossary.
 - New support requests include editable, redacted diagnostics by default. Replies can attach a fresh capture; rejected attachments are never silently dropped.
@@ -21,6 +26,7 @@ All notable changes to Tico are recorded here. The format follows
 - Reading conversation messages no longer fails when a teammate created tasks during its turn.
 - Assistant turns on older Computers fetch the Assistant's own credentials while acting with the person's rights.
 - Jobs that repeatedly fail to start stop after ten expired leases since server startup, leaving old attempts out of the upgrade retry cap. Notices tolerate missing Computer and teammate records and ask to check the Computer; only an incompatible runner is asked to update Tico.
+
 
 ## [0.3.10] - 2026-10-02
 

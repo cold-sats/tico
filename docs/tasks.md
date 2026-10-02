@@ -33,6 +33,26 @@ the PR opens, ready when it merges, and done when the configured release include
 uses the mapping above, including clearing the step when the type has no match. General tasks
 keep their existing behavior.
 
+## Types bots work on
+
+A bot reads and changes only the tasks it is on: those it owns or asked for, the subtasks under
+them, and a task a person handed it in a comment for a day. That keeps a person's own to-dos away
+from every bot. A team's board is different: the bots that file its tickets, build them and hand
+them on need all of it, as a person standing at the board would. So a type says what **every** bot
+may do with its tasks, in **Settings → Types** (**Bots**), with `bots` on the task-types routes, or
+`hub task type update "Dev ticket" --bots work`:
+
+| `bots` | Every bot may |
+|---|---|
+| `parties` (the default) | nothing beyond the tasks it is on |
+| `read` | read every task of the type (the task, its comments, links and files, lists and SQL), comment on it and file a subtask under it |
+| `work` | also change it as its owner or requester could: its step, owner, due date, description and order, and its links |
+
+Closing a task, moving it to a step that means ready or closed, and its labels stay with people,
+as they do for a bot on its own tasks. A task involving a bot the reader may not read stays hidden,
+whatever its type. A task moved onto General or another type leaves the bots it was opened to.
+A bot's comment is a message to the people on the task, under the usual rules for reaching them.
+
 ## CLI and MCP
 
 ```sh
@@ -63,7 +83,8 @@ explicit positions are provided. Omitted steps are removed; new steps omit `id`.
 
 `GET/POST /api/v2/task-types` list and create types. `GET/POST /api/v2/task-types/{id}` read and
 update one. `DELETE /api/v2/task-types/{id}`, or `POST /api/v2/task-types/{id}/delete`, deletes an
-unused type. Updates accept `name` and a replacement `steps` array, retaining existing step ids.
+unused type. Updates accept `name`, a replacement `steps` array, retaining existing step ids, and
+`bots` (`parties`, `read` or `work`; a type answers `null`, `read` or `work`).
 All writes use the existing Idempotency-Key contract. Task create and update accept `type` and
 `step`; task answers include `type_id`, `step_id`, a `type` object and a `step` object (null when
 unmapped).

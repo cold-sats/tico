@@ -17782,9 +17782,22 @@
             "items": {
               "$ref": "#/components/schemas/TaskStep"
             }
+          },
+          "bots": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "read",
+              "work",
+              null
+            ],
+            "description": "What every bot may do with the type's tasks beyond its own: read (read, comment, file subtasks) or work (also change them); null keeps each task to the bots on it"
           }
         },
         "required": [
+          "bots",
           "created",
           "id",
           "name",
@@ -17807,6 +17820,22 @@
             },
             "type": "array",
             "title": "Steps"
+          },
+          "bots": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "parties",
+                  "read",
+                  "work"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bots"
           }
         },
         "additionalProperties": false,
@@ -17871,6 +17900,22 @@
               }
             ],
             "title": "Steps"
+          },
+          "bots": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "parties",
+                  "read",
+                  "work"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bots"
           }
         },
         "additionalProperties": false,
