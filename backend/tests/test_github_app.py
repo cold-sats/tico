@@ -29,6 +29,8 @@ PUBLIC = "https://tico.acme.example"
 class FakeGitHub:
     def __init__(self):
         self.calls, self.installations = [], [{"id": 77, "account": {"login": "Acme"}}]
+        self.repositories = []
+        self.setup_files = {}
         self.ttl = 3600
         self.generate_status = 201
         self.delete_status = 204
@@ -40,6 +42,15 @@ class FakeGitHub:
         body = json.loads(request.content) if request.content else None
         self.calls.append((request.method, request.url.path, body, request.headers.get("authorization", "")))
         path = request.url.path
+        if path == "/installation/repositories":
+            page = int(request.url.params.get("page", 1))
+            return httpx.Response(200, json={"repositories": self.repositories[(page-1)*100:page*100]})
+        if "/contents/" in path:
+            config = self.setup_files.get(path)
+            if config is None:
+                return httpx.Response(404)
+            import base64
+            return httpx.Response(200, json={"content": base64.b64encode(json.dumps(config).encode()).decode()})
         if path.startswith("/app-manifests/"):
             return httpx.Response(201, json={"id": 4242, "slug": "acme-tico", "client_id": "Iv1.abc", "client_secret": "cs",
                                              "webhook_secret": "whs", "pem": PEM, "html_url": "https://github.com/apps/acme-tico"})
@@ -128,7 +139,7 @@ def test_manifest_contents_and_owner_only(api):
     assert data["action"] == f"https://github.com/organizations/Acme/settings/apps/new?state={data['state']}"
     assert m["name"] == "Acme Tico" and m["url"] == PUBLIC and m["public"] is False
     assert m["redirect_url"] == PUBLIC + "/api/v2/github/app/callback"
-    assert m["hook_attributes"]["active"] is False
+    assert m["hook_attributes"]["active"] is True
     assert m["default_permissions"] == {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
     assert manifest(api, administration="true", name="Custom")["manifest"]["default_permissions"]["administration"] == "write"
     assert manifest(api, name="Custom")["manifest"]["name"] == "Custom"
@@ -271,11 +282,11 @@ def test_extra_repositories_join_the_turn_token_with_the_same_permissions(api, g
     assert r.json()["repositories"] == ["Acme/shared-docs", "Acme/design-system", "Acme/infra"]
     data = turn_token(api).json()
     assert data["repository"] == "Acme/emp-cpo"
-    assert data["repositories"] == ["Acme/emp-cpo", "Acme/shared-docs", "Acme/design-system", "Acme/infra"]
+    assert set(data["repositories"]) == {"Acme/emp-cpo", "Acme/shared-docs", "Acme/design-system", "Acme/infra"}
     _, _, body, _ = gh.of("/access_tokens")[-1]
     assert body["repositories"] == ["design-system", "emp-cpo", "infra", "shared-docs"]
     assert body["permissions"] == {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
-    assert api.get("/api/v2/bots/cpo/github-repos", headers=auth()).json()["repositories"] == data["repositories"][1:]
+    assert set(api.get("/api/v2/bots/cpo/github-repos", headers=auth()).json()["repositories"]) == set(data["repositories"]) - {"Acme/emp-cpo"}
 
 
 def test_repositories_not_on_the_list_are_not_in_the_token(api, gh):

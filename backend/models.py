@@ -627,7 +627,16 @@ class StructuredReadiness(Contract):
         return data
 
 
+class RepositoryStatus(Contract):
+    full_name: str
+    state: Literal["cloned", "cloning", "failed", "disk_low", "removed"]
+    last_fetch: str | None = None
+    size_mb: float = Field(default=0, ge=0)
+    error: str | None = None
+
+
 class Heartbeat(Contract):
+    repositories: list[RepositoryStatus] | None = None
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=32)

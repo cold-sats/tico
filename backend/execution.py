@@ -196,6 +196,9 @@ class Execution:
         self.served_at = now
         del row
         readiness = readiness_document(body.readiness)
+        from .repositories import save_metadata
+        save_metadata(c, "computer-repositories:" + who.runner_id,
+                      {"repositories": [r.model_dump() for r in body.repositories] if body.repositories is not None else "unknown"})
         # Store what the runner actually reported: optional fields a runner left unset,
         # such as the per-profile rows older runners cannot produce, never enter the record.
         # Routines are the hub's own rows now; what a runner before 0.5.4 read from a

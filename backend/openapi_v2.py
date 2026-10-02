@@ -21,6 +21,7 @@ COPY = Path(__file__).resolve().parents[1] / "docs" / "openapi" / "v2.json"
 TAGS = {
     "Session": "Who is calling, and how a frontend signs in (docs/custom-frontend.md).",
     "Team": "This installation's names and settings.",
+    "Repositories": "Team repositories and bot repository access.",
     "Team chart": "Humans and bots, and who reports to whom.",
     "Bots": "The bots a person can see, and their live status.",
     "Conversations": "Chats with bots: send, list, and stream replies.",
@@ -41,6 +42,14 @@ TAGS = {
 
 # Path, method, tag, operationId, summary, name of the 200 answer in ANSWERS.
 STABLE = [
+    ("/api/v2/repositories", "get", "Repositories", "listRepositories", "Team repositories", "RepositoryList"),
+    ("/api/v2/repositories/refresh", "post", "Repositories", "refreshRepositories", "Refresh from GitHub", "RepositoryList"),
+    ("/api/v2/repositories/settings", "put", "Repositories", "setRepositoryDefaults", "New bot repository default", None),
+    ("/api/v2/repositories/{owner}/{repo}", "put", "Repositories", "updateRepository", "Tick or edit a repository", None),
+    ("/api/v2/bots/{bot}/repositories", "get", "Repositories", "getBotRepositories", "Bot repository access", "BotRepositories"),
+    ("/api/v2/bots/{bot}/repositories", "put", "Repositories", "setBotRepositories", "Set bot repository access", "BotRepositories"),
+    ("/api/v2/bots/{bot}/github-repos", "get", "Repositories", "getExtraRepositories", "Chosen write repositories (legacy alias)", None),
+    ("/api/v2/bots/{bot}/github-repos", "put", "Repositories", "setExtraRepositories", "Set chosen write repositories (legacy alias)", None),
     ("/api/v2/me", "get", "Session", "getMe", "The signed-in caller", "Me"),
     ("/auth/login", "get", "Session", "startSignIn",
      "Start browser sign-in (redirects); a frontend passes next and code_challenge", None),
@@ -647,6 +656,15 @@ SCHEMAS.update({
 })
 SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
 
+SCHEMAS.update({
+    "Repository": obj({"full_name": "s", "enabled": "b", "bot_repo": "b", "default_branch": "n",
+                       "setup_command": "n", "setup_source": "n", "reachable": "b", "last_seen": "n"}),
+    "RepositoryList": obj({"repositories": items(ref("Repository")), "new_bot_default": {"enum": ["own", "all"]},
+                           "github_connected": "b"}),
+    "RepositoryGrant": obj({"full_name": "s", "access": {"enum": ["read", "write"]}}),
+    "BotRepositories": obj({"mode": {"enum": ["own", "all", "chosen"]}, "all_access": {"enum": ["read", "write"]},
+                            "chosen": items(ref("RepositoryGrant")), "effective": items(ref("RepositoryGrant"))}),
+})
 ANSWERS = SCHEMAS
 
 # Documentation for the two sign-in routes whose bodies the handlers read by hand.

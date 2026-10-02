@@ -930,6 +930,19 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=49").fetchone():
                     H._apply(c, H.CHAT_GOALS_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(49,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=50").fetchone():
+                    H._apply(c, H.REPOSITORIES_SCHEMA)
+                    from .repositories import migrate
+                    migrate(c)
+                    c.execute("INSERT INTO cloud_migrations VALUES(50,?)", (H.now(),))
+                c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
+                    AFTER INSERT ON bot_config
+                    WHEN json_extract(NEW.config_json,'$.repo_access_mode') IS NULL
+                    BEGIN
+                    UPDATE bot_config SET config_json=json_set(config_json,'$.repo_access_mode',
+                        coalesce((SELECT json_extract(value_json,'$.new_bot_default')
+                            FROM registry_metadata WHERE key='repos_new_bot_default'),'own')) WHERE bot=NEW.bot;
+                    END""")
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,

@@ -53,6 +53,10 @@ INSTRUCTIONS = ("Tico: tasks, messages, Decisions, status. "
                 "Every rule is enforced server-side; a refusal says which.\n\n" + WHO_NEEDS_ME)
 
 TOOLS = []
+CLI_TOOL_ALIASES = {
+    "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
+    "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
+}
 
 
 def _s(description, **extra):
@@ -2217,6 +2221,37 @@ def calendar_status(api, args):
     return api.get("calendar/actions/" + args["id"])
 
 
+@tool("hub_repo_list", "List the team’s repositories and new bot default.", {})
+def repo_list(api, args):
+    return _as_person(api).get("repositories")
+
+
+@tool("hub_repo_update", "Tick a repository or set its setup command (owner or admin).",
+      {"full_name": _s("owner/repo"), "enabled": {"type": "boolean"}, "setup_command": _s("Setup command")},
+      required=("full_name",), writes=True)
+def repo_update(api, args):
+    return _as_person(api).call("PUT", "repositories/" + args["full_name"],
+        {k: args[k] for k in ("enabled", "setup_command") if k in args}, key=_key(args))
+
+
+@tool("hub_bot_repos_get", "Read a bot’s own, all or chosen repository access.",
+      {"bot": _s("Bot slug")}, required=("bot",))
+def bot_repos_get(api, args):
+    return _as_person(api).get(f"bots/{args['bot']}/repositories")
+
+
+@tool("hub_bot_repos_set", "Set a bot’s repository access (owner or admin).",
+      {"bot": _s("Bot slug"), "mode": _s("Access mode", enum=["own", "all", "chosen"]),
+       "all_access": _s("Default access for all repos", enum=["read", "write"]),
+       "chosen": {"type": "array", "items": {"type": "object", "properties": {
+           "full_name": _s("owner/repo"), "access": _s("Access", enum=["read", "write"])},
+           "required": ["full_name", "access"], "additionalProperties": False}}},
+      required=("bot", "mode"), writes=True)
+def bot_repos_set(api, args):
+    return _as_person(api).call("PUT", f"bots/{args['bot']}/repositories",
+        {k: args[k] for k in ("mode", "all_access", "chosen") if k in args}, key=_key(args))
+
+
 @tool("hub_bot_repo_create", "Owner or the BotOps bot: create the private repository bot-<slug> in the "
       "connected GitHub organization from a template (default ticoteam/botops), or empty when the bot's "
       "repository already exists on a computer. Answers with how to create it by hand when the team's "
@@ -2516,6 +2551,7 @@ HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are
 ASSISTANT_WRITES = {"hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
                     "hub_update_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
+    **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,
     "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,

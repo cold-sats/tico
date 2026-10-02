@@ -48,6 +48,8 @@ DO = _routes(
     ("POST", rf"bots/{_S}/(archive|restore)"), ("POST", rf"bots/{_S}/agent-credential"), ("POST", rf"bots/{_S}/agent-credential/revoke"),
     ("POST", r"agents/pairings/(approve|decline)"),
     ("POST", rf"bots/{_S}/access"), ("PUT", rf"bots/{_S}/access"),
+    ("PUT", rf"bots/{_S}/repositories"), ("PUT", rf"repositories/{_S}/{_S}"),
+    ("PUT", "repositories/settings"), ("POST", "repositories/refresh"),
     ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
     ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),
     ("POST", rf"settings/history/{_S}/undo"),

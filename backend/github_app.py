@@ -100,6 +100,7 @@ class GitHubApp:
         self.cache = {}
         self.live = {}
         self.lock = threading.Lock()
+        self.repository_sync_attempt = 0
         with store.transaction() as c:
             c.executescript(SCHEMA)
 
@@ -145,8 +146,20 @@ class GitHubApp:
         except Exception:
             raise Problem("github_unavailable", "The stored GitHub App key could not be decrypted", 503) from None
 
+    def webhook_secret(self):
+        with self.store.read() as c:
+            row = self.row(c)
+            if not row:
+                return ""
+            try:
+                blob = AESGCM(self._key(c)).decrypt(row["nonce"], row["ciphertext"], b"tico-github-app:v1")
+                return json.loads(blob).get("webhook_secret") or ""
+            except Exception:
+                return ""
+
     def forget(self, c):
         c.execute("DELETE FROM github_app")
+        c.execute("UPDATE repositories SET reachable=0 WHERE reachable<>0")
         c.execute("DELETE FROM github_app_states")
         c.execute("DELETE FROM service_health WHERE service=?", (GITHUB_HEALTH,))   # nothing left to be unhealthy
         self.cache.clear()
@@ -290,6 +303,9 @@ class GitHubApp:
         data = r.json()
         entry = {"token": data["token"], "expires_at": data["expires_at"], "exp": _iso(data["expires_at"])}
         with self.lock:
+            self.cache = {k: v for k, v in self.cache.items() if v["exp"] > time.time()}
+            if len(self.cache) >= 256:
+                self.cache.pop(next(iter(self.cache)))
             self.cache[key] = entry
         return entry["token"], entry["expires_at"]
 
@@ -385,6 +401,7 @@ class ExtraRepos(BaseModel):
 class TokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bot: str = Field(min_length=1, max_length=100)
+    repository: str | None = None
 
 
 def _said(response):
@@ -402,8 +419,7 @@ def manifest(settings, name, administration):
         permissions["administration"] = "write"
     return {"name": name[:34], "url": public, "redirect_url": public + "/api/v2/github/app/callback",
             "setup_url": public + "/api/v2/github/app/installed",
-            # Nothing here needs GitHub to call us, so the hook stays off; the required url is a placeholder.
-            "hook_attributes": {"url": public + "/api/v2/github/webhook", "active": False},
+            "hook_attributes": {"url": public + "/api/v2/github/webhook", "active": True},
             "public": False, "default_permissions": permissions, "default_events": []}
 
 
@@ -429,6 +445,9 @@ def save_extra_repos(c, bot, repos):
 
 def install_github_app(app, settings, store):
     service = app.state.github_app = GitHubApp(settings, store, getattr(app.state, "vault", None))
+
+    from . import repositories as R
+    R.install(app, store, service)
 
     def owner(request):
         who = request.state.identity
@@ -501,6 +520,11 @@ def install_github_app(app, settings, store):
     def installed(request: Request):
         who = owner(request)
         found = service.installation(refresh=True)
+        if found:
+            try:
+                R.sync(service)
+            except Problem as exc:
+                log.warning("Repository sync failed: %s", exc.code)
         with store.transaction() as c:
             H.event(c, who.actor, "github.app_installed", "", {"installed": bool(found)})
         return RedirectResponse("/#/settings?github=" + ("connected" if found else "pending"), status_code=302)
@@ -539,11 +563,28 @@ def install_github_app(app, settings, store):
             repo = repo_of(config["repo"] if config else "", row["org"] or settings.github_owner)
             if not repo or repo.split("/")[0].lower() != row["org"].lower():
                 raise Problem("forbidden", f"That bot's repository is not in the connected organization ({row['org']})", 403)
-            # The owner's list, re-checked against the organization in case the connection changed since.
-            extras = [r for r in extra_repos(c, body.bot) if r.split("/")[0].lower() == row["org"].lower()]
-        repos = [repo] + [r for r in extras if r.lower() != repo.lower()]
+            grants = R.access(c, body.bot, row['org'])['effective']
+        repos = [r['full_name'] for r in grants]
+        write_repos = [r['full_name'] for r in grants if r['access'] == 'write']
+        read_repos = [r['full_name'] for r in grants if r['access'] == 'read']
+        if body.repository:
+            requested = repo_of(body.repository, row['org'])
+            grant = next((g for g in grants if requested and g['full_name'].lower() == requested.lower()), None)
+            if not grant:
+                raise Problem('forbidden', 'That repository is outside this bot’s access', 403)
+            write_repos = [grant['full_name']] if grant['access'] == 'write' else []
+            read_repos = [grant['full_name']] if grant['access'] == 'read' else []
+            repos = [grant['full_name']]
+        tokens = []
         try:
-            value, expires = service.mint(repos, TURN_PERMISSIONS)
+            # GitHub permissions are token-wide. Never put read grants in a write token.
+            if write_repos:
+                value, expires = service.mint(write_repos, TURN_PERMISSIONS)
+                tokens.append({'token': value, 'expires_at': expires, 'repositories': write_repos, 'access': 'write'})
+            if read_repos:
+                read_value, read_expires = service.mint(read_repos, {'contents': 'read', 'metadata': 'read'})
+                tokens.append({'token': read_value, 'expires_at': read_expires, 'repositories': read_repos, 'access': 'read'})
+            value, expires = tokens[0]['token'], tokens[0]['expires_at']
         except Problem as problem:
             if problem.code not in BOT_SCOPED:
                 note_github_token(store, problem.detail, "Open Settings > Tools and check the GitHub connection.")
@@ -551,7 +592,7 @@ def install_github_app(app, settings, store):
         note_github_token(store)
         with store.transaction() as c:
             H.event(c, who.actor, "github.token", body.bot, {"repository": repo, "repositories": repos})
-        return {"configured": True, "token": value, "expires_at": expires, "repository": repo, "repositories": repos}
+        return {"configured": True, "token": value, "expires_at": expires, "repository": repo, "repositories": repos, "tokens": tokens}
 
     def bot_repos(c, bot):
         if not c.execute("SELECT 1 FROM bot_config WHERE bot=?", (bot,)).fetchone():
@@ -567,7 +608,7 @@ def install_github_app(app, settings, store):
         with store.read() as c:
             row, own = bot_repos(c, bot)
             return {"connected": bool(row), "org": row["org"] if row else "", "repository": own or "",
-                    "repositories": extra_repos(c, bot)}
+                    "repositories": [r["full_name"] for r in R.access(c, bot, row["org"] if row else settings.github_owner)["chosen"] if r["access"] == "write"]}
 
     @app.put("/api/v2/bots/{bot}/github-repos")
     def extra_put(request: Request, bot: str, body: ExtraRepos):
@@ -584,10 +625,8 @@ def install_github_app(app, settings, store):
                                   "must be in the connected organization", 422)
                 if (own or "").lower() != repo.lower() and repo.lower() not in [w.lower() for w in wanted]:
                     wanted.append(repo)
-            before = extra_repos(c, bot)
-            if wanted != before:
-                save_extra_repos(c, bot, wanted)
-                H.event(c, who.actor, "github.bot_repos_changed", bot, {"before": before, "after": wanted})
+            R.set_access(c, bot, R.RepoAccessUpdate(mode='chosen', chosen=[R.Grant(full_name=r) for r in wanted]),
+                         row['org'], who.actor, legacy=True)
         return {"connected": True, "org": row["org"], "repository": own or "", "repositories": wanted}
 
     @app.post("/api/v2/github/repos")

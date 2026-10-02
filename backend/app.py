@@ -134,6 +134,8 @@ def create_app(settings=None):
                     # The release check (and the anonymous count that rides on it) runs even when nobody has the
                     # page open; it is a no-op until its six hours are up.
                     await asyncio.to_thread(releases.notice)
+                    from .repositories import daily
+                    await asyncio.to_thread(daily, app.state.github_app)
                 except Exception as exc:
                     telemetry.capture("scheduler", exc)
                     import logging

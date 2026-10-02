@@ -2,7 +2,7 @@
 
 Your team gets GitHub access through a GitHub App that the owner creates in the team's own
 GitHub organization. Tico holds no shared token: for every run Tico asks GitHub for a token that
-works on that one bot's repository (and any extra ones the owner allowed) and expires within the hour. Without a connected app nothing
+works on that bot's own repository and its effective repository grants and expires within the hour. Without a connected app nothing
 changes; bots keep using whatever git access their computer already has.
 
 ## Permissions and why
@@ -15,14 +15,11 @@ changes; bots keep using whatever git access their computer already has.
 | Metadata | read | required by GitHub for every app |
 | Administration | write, optional | create bot repositories and delete repositories the Owner requests; omit it by leaving the box unchecked |
 
-The app is private, has no webhook (nothing here needs GitHub to call Tico), and requests no
+The app is private, receives installation change webhooks to refresh the repository list, and requests no
 workflow permission, so a bot cannot change `.github/workflows` files. Add Workflows: write on the
 app's GitHub settings page if a bot's repository needs that.
 
-Run tokens ask for exactly the four non-administration permissions and only the bot's own repository
-plus the extra repositories the owner listed for it.
-The runner cannot pick the repository: Tico reads it from the bot's configuration, and refuses a
-bot the caller does not run or a repository outside the connected organization.
+Run tokens carry write permissions for write grants and contents read for read grants. Mixed grants use separate tokens; see [Repositories](repositories.md). Tico checks the bot's own repository and effective grants, and refuses a bot the caller does not run or a repository outside the connected organization.
 
 ## Set up
 
@@ -32,7 +29,7 @@ bot the caller does not run or a repository outside the connected organization.
    credentials and sends you to install the app on the organization.
 3. On the install page, choose **All repositories** (recommended). Bots then get new repositories
    automatically, with nothing to add each time a bot is created. This does not widen what a bot can
-   touch: each bot's token names its own repository plus any extra repositories you allow (below), and
+   touch: each bot's token names its own repository plus its repository access (below), and
    nothing else. Choosing selected repositories works too, but every new bot repository, and every
    extra repository, must be added to the installation by hand. Settings then shows the app as installed.
 
@@ -44,15 +41,9 @@ the per-bot limit is enforced by Tico when it asks GitHub for a token.
 Bots' repositories must live in the connected organization. A bare repository name is completed by
 `TICO_GITHUB_OWNER`, then by the connected organization.
 
-## Extra repositories for one bot
+## Bot repository access
 
-A bot sometimes needs a second repository, such as shared documentation or a design system. Whoever manages the
-bot (the owner, an admin, its owners, the people it reports up to) adds it in Settings, Bots, the bot's settings, Extra GitHub
-repositories (one per line, in the connected organization), or asks BotOps to. From then on that bot's token covers its own
-repository and those, with the same four permissions. Other bots are unaffected, and each change is an audit
-event (`github.bot_repos_changed`, with the list before and after). The API is
-`GET` and `PUT /api/v2/bots/{bot}/github-repos`. A repository outside the connected organization is
-refused. Remove a repository from the list to take it back out; tokens already issued expire within the hour.
+Tick the team's repositories in Settings → Repositories, then choose own only, all ticked, or chosen repositories for each bot. Grants can be read or write. Existing extra repositories become chosen write access automatically. See [Repositories](repositories.md) for settings, tokens, tools and the legacy API alias.
 
 ## Creating bot repositories
 

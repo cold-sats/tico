@@ -1,0 +1,184 @@
+"""Repository contracts: migrations, sync, scoped grants and mixed computers."""
+import hashlib
+import hmac
+import json
+import uuid
+
+from backend import hubdb as H, repositories as R
+from backend.store import Store
+from backend.tests.test_github_app import api, gh, auth, connect, runner_token, turn_token, put_extras  # noqa: F401
+
+
+def put(api, path, body, token='owner-test'):
+    response = api.put('/api/v2/' + path, json=body, headers={**auth(token), 'Idempotency-Key': uuid.uuid4().hex})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def catalog(api, gh):
+    connect(api)
+    gh.repositories = [{'full_name': 'Acme/' + name, 'default_branch': 'main'}
+                       for name in ('product', 'docs', 'bot-sales', 'emp-cpo')]
+    response = api.post('/api/v2/repositories/refresh', headers=auth())
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_sync_bot_repos_setup_overrides_and_unreachable(api, gh):
+    gh.setup_files['/repos/Acme/product/contents/tico.json'] = {'setup': 'npm ci'}
+    gh.setup_files['/repos/Acme/docs/contents/conductor.json'] = {'scripts': {'setup': 'make setup'}}
+    rows = {r['full_name']: r for r in catalog(api, gh)['repositories']}
+    assert rows['Acme/bot-sales']['bot_repo'] and rows['Acme/emp-cpo']['bot_repo']
+    assert not rows['Acme/product']['bot_repo']
+    assert rows['Acme/product']['setup_command'] == 'npm ci'
+    assert rows['Acme/docs']['setup_source'] == 'conductor.json'
+    put(api, 'repositories/Acme/product', {'enabled': True, 'setup_command': 'make install'})
+    gh.repositories = [r for r in gh.repositories if r['full_name'] != 'Acme/docs']
+    response = api.post('/api/v2/repositories/refresh', headers=auth()).json()
+    rows = {r['full_name']: r for r in response['repositories']}
+    assert not rows['Acme/docs']['reachable']
+    assert rows['Acme/product']['setup_command'] == 'make install'
+    assert rows['Acme/product']['setup_source'] == 'settings'
+    assert api.get('/api/v2/repositories', headers=auth('person-test')).status_code == 200
+    assert api.put('/api/v2/repositories/Acme/product', json={'enabled': False}, headers=auth('person-test')).status_code == 403
+
+
+def test_modes_mixed_scopes_alias_and_default(api, gh):
+    catalog(api, gh)
+    runner_token(api, 'cpo')
+    for name in ('product', 'docs'):
+        put(api, 'repositories/Acme/' + name, {'enabled': True})
+    data = put(api, 'bots/cpo/repositories', {'mode': 'all', 'all_access': 'read'})
+    assert {r['full_name']: r['access'] for r in data['effective']} == {
+        'Acme/emp-cpo': 'write', 'Acme/product': 'read', 'Acme/docs': 'read'}
+    token = turn_token(api).json()
+    assert len(token['tokens']) == 2
+    bodies = [r[2] for r in gh.of('/access_tokens')[-2:]]
+    assert bodies[0]['repositories'] == ['emp-cpo']
+    assert bodies[0]['permissions']['contents'] == 'write'
+    assert bodies[1]['repositories'] == ['docs', 'product']
+    assert bodies[1]['permissions'] == {'contents': 'read', 'metadata': 'read'}
+    specific = api.post('/api/v2/github/token', json={'bot': 'cpo', 'repository': 'Acme/product'}, headers=auth('runner-test'))
+    assert specific.status_code == 200 and specific.json()['tokens'][0]['access'] == 'read'
+    assert api.post('/api/v2/github/token', json={'bot': 'cpo', 'repository': 'Acme/secret'}, headers=auth('runner-test')).status_code == 403
+    put(api, 'bots/cpo/repositories', {'mode': 'chosen', 'chosen': [
+        {'full_name': 'Acme/docs', 'access': 'read'}, {'full_name': 'Acme/product', 'access': 'write'}]})
+    assert api.get('/api/v2/bots/cpo/github-repos', headers=auth()).json()['repositories'] == ['Acme/product']
+    assert put_extras(api, 'cpo', ['legacy']).status_code == 200
+    assert api.get('/api/v2/bots/cpo/repositories', headers=auth()).json()['chosen'] == [{'full_name': 'Acme/legacy', 'access': 'write'}]
+    put(api, 'bots/cpo/repositories', {'mode': 'own'})
+    assert turn_token(api).json()['repositories'] == ['Acme/emp-cpo']
+    put(api, 'repositories/settings', {'new_bot_default': 'all'})
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,created) VALUES('new-test','Sam',?)", (H.now(),))
+        c.execute("INSERT INTO bot_config(bot,config_json,team,operator,repo) VALUES('new-test','{}','t','ana','bot-new-test')")
+        assert json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='new-test'").fetchone()[0])['repo_access_mode'] == 'all'
+
+
+def test_upgrade_migrates_existing_extras_once(api):
+    store = api.app_state.store
+    with store.transaction() as c:
+        c.execute('DELETE FROM cloud_migrations WHERE version=50')
+        c.execute("DELETE FROM registry_metadata WHERE key='repositories-access-migrated'")
+        R.save_metadata(c, 'github-extra-repos', {'cpo': ['Acme/product', 'Acme/docs'], 'oldie': ['Acme/archive']})
+    Store(store.settings).initialize(seed_market=False)
+    with store.transaction() as c:
+        data = R.access(c, 'cpo', 'Acme')
+        assert data['mode'] == 'chosen'
+        assert {r['full_name']: r['access'] for r in data['chosen']} == {'Acme/product': 'write', 'Acme/docs': 'write'}
+        assert R.access(c, 'oldie', 'Acme')['mode'] == 'chosen'
+        assert R.access(c, 'cmo', 'Acme')['mode'] == 'own'
+        assert c.execute('SELECT count(*) FROM repositories WHERE enabled=1').fetchone()[0] == 3
+        R.set_access(c, 'cpo', R.RepoAccessUpdate(mode='own'), 'Acme', 'human:ana')
+        R.migrate(c)
+        assert R.access(c, 'cpo', 'Acme')['mode'] == 'own'
+        assert c.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
+
+
+def test_computer_union_token_and_old_heartbeat(api, gh):
+    catalog(api, gh)
+    runner_token(api, 'cpo')
+    runner_token(api, 'cmo')
+    for name in ('product', 'docs'):
+        put(api, 'repositories/Acme/' + name, {'enabled': True})
+    put(api, 'bots/cpo/repositories', {'mode': 'all', 'all_access': 'read'})
+    put(api, 'bots/cmo/repositories', {'mode': 'chosen', 'chosen': [{'full_name': 'Acme/product', 'access': 'write'}]})
+    path = '/api/v2/runners/me/repositories'
+    response = api.get(path, headers=auth('runner-test'))
+    assert response.status_code == 200, response.text
+    rows = {r['full_name']: r for r in response.json()['repositories']}
+    assert set(rows) == {'Acme/product', 'Acme/docs'}
+    assert set(rows['Acme/product']['bots']) == {'cpo', 'cmo'}
+    assert rows['Acme/product']['access'] == 'write' and rows['Acme/docs']['access'] == 'read'
+    response = api.post(path + '/token', headers=auth('runner-test'))
+    assert response.status_code == 200, response.text
+    assert gh.of('/access_tokens')[-1][2] == {'repositories': ['docs', 'product'], 'permissions': {'contents': 'read', 'metadata': 'read'}}
+    assert api.get(path, headers=auth()).status_code == 403
+    body = {'version': '0.2.23', 'platform': 'mac', 'readiness': {}}
+    assert api.post('/api/v2/runners/heartbeat', json=body, headers={**auth('runner-test'), 'Idempotency-Key': uuid.uuid4().hex}).status_code == 200
+    with api.app_state.store.read() as c:
+        assert R.metadata(c, 'computer-repositories:r1')['repositories'] == 'unknown'
+    operations = api.get('/api/v2/operations', headers=auth()).json()
+    assert next(r for r in operations['computers'] if r['id'] == 'r1')['repositories'] == 'unknown'
+    body['repositories'] = [{'full_name': 'Acme/product', 'state': 'cloned', 'size_mb': 12}]
+    assert api.post('/api/v2/runners/heartbeat', json=body, headers={**auth('runner-test'), 'Idempotency-Key': uuid.uuid4().hex}).status_code == 200
+    with api.app_state.store.read() as c:
+        assert R.metadata(c, 'computer-repositories:r1')['repositories'][0]['size_mb'] == 12
+    operations = api.get('/api/v2/operations', headers=auth()).json()
+    assert next(r for r in operations['computers'] if r['id'] == 'r1')['repositories'][0]['state'] == 'cloned'
+    put(api, 'bots/cpo/repositories', {'mode': 'own'})
+    put(api, 'bots/cmo/repositories', {'mode': 'own'})
+    count = len(gh.of('/access_tokens'))
+    assert api.post(path + '/token', headers=auth('runner-test')).json()['token'] is None
+    assert len(gh.of('/access_tokens')) == count
+
+
+def test_installation_webhook_refreshes_with_app_secret(api, gh):
+    catalog(api, gh)
+    gh.repositories.append({'full_name': 'Acme/new-product', 'default_branch': 'develop'})
+    body = json.dumps({'action': 'added', 'installation': {'id': 77}}).encode()
+    signature = 'sha256=' + hmac.new(b'whs', body, hashlib.sha256).hexdigest()
+    response = api.post('/api/v2/github/webhook', content=body, headers={
+        'X-GitHub-Event': 'installation_repositories', 'X-Hub-Signature-256': signature})
+    assert response.status_code == 200, response.text
+    assert 'Acme/new-product' in {r['full_name'] for r in api.get('/api/v2/repositories', headers=auth()).json()['repositories']}
+
+
+def test_mcp_and_cli_repository_commands_use_routes(api, gh, monkeypatch):
+    from clients import hubcli, remotecli
+    from backend.tests.test_mcp import call
+    catalog(api, gh)
+    error, data = call(api, 'hub_repo_list', token='owner-test')
+    assert not error and len(data['repositories']) == 4
+    error, data = call(api, 'hub_repo_update', {'full_name': 'Acme/product', 'enabled': True}, token='owner-test')
+    assert not error and data['enabled']
+    error, data = call(api, 'hub_bot_repos_set', {'bot': 'cpo', 'mode': 'chosen', 'chosen': [
+        {'full_name': 'Acme/product', 'access': 'read'}]}, token='owner-test')
+    assert not error and data['chosen'][0]['access'] == 'read'
+    error, data = call(api, 'hub_bot_repos_get', {'bot': 'cpo'}, token='owner-test')
+    assert not error and data['mode'] == 'chosen'
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get(self, path):
+            if path == 'me':
+                return {'role': 'owner'}
+            return {'path': path}
+
+        def call(self, method, path, body=None, **kwargs):
+            return {'method': method, 'path': path, 'body': body}
+
+    monkeypatch.setattr(remotecli, 'Client', Client)
+    monkeypatch.setenv('HUB_API_URL', 'https://example.com')
+    def run(*args):
+        return remotecli.run(hubcli.parser().parse_args(args))
+    assert run('repo', 'list')['path'] == 'repositories'
+    assert run('repo', 'tick', 'example/product')['body'] == {'enabled': True}
+    assert run('repo', 'untick', 'example/product')['body'] == {'enabled': False}
+    assert run('bot', 'repos', 'sales')['path'] == 'bots/sales/repositories'
+    assert run('bot', 'repos', 'sales', '--all')['body'] == {'mode': 'all'}
+    assert run('bot', 'repos', 'sales', '--own')['body'] == {'mode': 'own'}
+    assert run('bot', 'repos', 'sales', '--chosen', 'example/docs:read', 'example/product')['body'] == {
+        'mode': 'chosen', 'chosen': [{'full_name': 'example/docs', 'access': 'read'}, {'full_name': 'example/product', 'access': 'write'}]}

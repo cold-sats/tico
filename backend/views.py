@@ -101,7 +101,9 @@ def computer_details(c, row, who, auth):
                          if bot in assigned and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
     update = runner_versions.view(runner_versions.load(c).get(row["id"]))
     update["wanted_release"] = runner_versions.desired()["version"]
-    return {"version": value.get("version") or "", "last_seen": value.get("last_seen"),
+    from .repositories import metadata
+    return {"repositories": metadata(c, "computer-repositories:" + row["id"]).get("repositories", "unknown"),
+            "version": value.get("version") or "", "last_seen": value.get("last_seen"),
             "readiness": readiness, "update": update, "fix": "Open Settings > Computers to retry the update" if update.get("error") else "Open Settings > Computers",
             "services": [], "services_scope": "team"}
 
@@ -968,6 +970,8 @@ def install_views(app, store, auth, mutate, task_view):
                 value = dict(row)
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
+                from .repositories import metadata
+                value["repositories"] = metadata(c, "computer-repositories:" + row["id"]).get("repositories", "unknown")
                 assigned_here = {a[0] for a in c.execute(
                     "SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot "
                     "WHERE a.runner_id=? AND b.state<>'archived'", (row["id"],))}

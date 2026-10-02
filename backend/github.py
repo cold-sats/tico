@@ -139,7 +139,8 @@ def install_github(app, settings, store):
     @app.post(PATH)
     async def webhook(request: Request):
         body = await request.body()
-        if not verify(settings.github_webhook_secret, request.headers, body):
+        app_secret = app.state.github_app.webhook_secret()
+        if not (verify(settings.github_webhook_secret, request.headers, body) or verify(app_secret, request.headers, body)):
             # unset: nothing to verify against, and the path does not exist for anyone
             raise Problem("forbidden", "Bad signature", 403 if settings.github_webhook_secret else 404)
         try:
@@ -148,6 +149,13 @@ def install_github(app, settings, store):
             raise Problem("payload", "Send JSON", 400)
         event = str(request.headers.get("x-github-event") or "")
         if event == "ping":
+            return {"ok": True}
+        if event in ("installation", "installation_repositories"):
+            from .repositories import sync
+            app.state.github_app.cache.clear()
+            app.state.github_app.live.clear()
+            app.state.github_app.installation(refresh=True)
+            sync(app.state.github_app)
             return {"ok": True}
         with store.transaction() as c:
             if event == "pull_request":

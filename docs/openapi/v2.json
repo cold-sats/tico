@@ -15,6 +15,10 @@
       "description": "This installation's names and settings."
     },
     {
+      "name": "Repositories",
+      "description": "Team repositories and bot repository access."
+    },
+    {
       "name": "Team chart",
       "description": "Humans and bots, and who reports to whom."
     },
@@ -923,6 +927,114 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/github-repos": {
+      "get": {
+        "summary": "Chosen write repositories (legacy alias)",
+        "operationId": "getExtraRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      },
+      "put": {
+        "summary": "Set chosen write repositories (legacy alias)",
+        "operationId": "setExtraRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtraRepos"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/instructions": {
       "get": {
         "summary": "Latest Instructions snapshot published by the Computer; requires Read, published is false until content arrives",
@@ -1095,6 +1207,118 @@
         },
         "tags": [
           "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/repositories": {
+      "get": {
+        "summary": "Bot repository access",
+        "operationId": "getBotRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotRepositories"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      },
+      "put": {
+        "summary": "Set bot repository access",
+        "operationId": "setBotRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoAccessUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotRepositories"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
         ]
       }
     },
@@ -6811,6 +7035,217 @@
         ]
       }
     },
+    "/api/v2/repositories": {
+      "get": {
+        "summary": "Team repositories",
+        "operationId": "listRepositories",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/api/v2/repositories/refresh": {
+      "post": {
+        "summary": "Refresh from GitHub",
+        "operationId": "refreshRepositories",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/repositories/settings": {
+      "put": {
+        "summary": "New bot repository default",
+        "operationId": "setRepositoryDefaults",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/api/v2/repositories/{owner}/{repo}": {
+      "put": {
+        "summary": "Tick or edit a repository",
+        "operationId": "updateRepository",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Owner"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Repo"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
     "/api/v2/tags": {
       "get": {
         "summary": "Tags and templates",
@@ -9572,6 +10007,43 @@
         ],
         "additionalProperties": true
       },
+      "BotRepositories": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "enum": [
+              "own",
+              "all",
+              "chosen"
+            ]
+          },
+          "all_access": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          },
+          "chosen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryGrant"
+            }
+          },
+          "effective": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryGrant"
+            }
+          }
+        },
+        "required": [
+          "all_access",
+          "chosen",
+          "effective",
+          "mode"
+        ],
+        "additionalProperties": true
+      },
       "BotTool": {
         "type": "object",
         "properties": {
@@ -10572,6 +11044,24 @@
           "text"
         ],
         "additionalProperties": true
+      },
+      "ExtraRepos": {
+        "properties": {
+          "repositories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Repositories"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "repositories"
+        ],
+        "title": "ExtraRepos"
       },
       "FileActivity": {
         "type": "object",
@@ -11949,6 +12439,29 @@
           "items"
         ],
         "additionalProperties": true
+      },
+      "Grant": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ],
+            "title": "Access",
+            "default": "write"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "full_name"
+        ],
+        "title": "Grant"
       },
       "Group": {
         "type": "object",
@@ -14152,6 +14665,198 @@
           "actor",
           "bots",
           "since"
+        ],
+        "additionalProperties": true
+      },
+      "RepoAccessUpdate": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "own",
+              "all",
+              "chosen"
+            ],
+            "title": "Mode"
+          },
+          "all_access": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Access"
+          },
+          "chosen": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Grant"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "RepoAccessUpdate"
+      },
+      "RepoSettings": {
+        "properties": {
+          "new_bot_default": {
+            "type": "string",
+            "enum": [
+              "own",
+              "all"
+            ],
+            "title": "New Bot Default"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "new_bot_default"
+        ],
+        "title": "RepoSettings"
+      },
+      "RepoUpdate": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "setup_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Command"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RepoUpdate"
+      },
+      "Repository": {
+        "type": "object",
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "bot_repo": {
+            "type": "boolean"
+          },
+          "default_branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setup_command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setup_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "last_seen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bot_repo",
+          "default_branch",
+          "enabled",
+          "full_name",
+          "last_seen",
+          "reachable",
+          "setup_command",
+          "setup_source"
+        ],
+        "additionalProperties": true
+      },
+      "RepositoryGrant": {
+        "type": "object",
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "access": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
+        },
+        "required": [
+          "access",
+          "full_name"
+        ],
+        "additionalProperties": true
+      },
+      "RepositoryList": {
+        "type": "object",
+        "properties": {
+          "repositories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Repository"
+            }
+          },
+          "new_bot_default": {
+            "enum": [
+              "own",
+              "all"
+            ]
+          },
+          "github_connected": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "github_connected",
+          "new_bot_default",
+          "repositories"
         ],
         "additionalProperties": true
       },
