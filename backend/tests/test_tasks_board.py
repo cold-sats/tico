@@ -20,6 +20,8 @@ def api(tmp_path, monkeypatch):
         "ana-test": Identity("human:ana", "owner", "ana@acme.example"),
         "ben-test": Identity("human:ben", "human", "ben@acme.example"),
         "priya-test": Identity("human:priya", "human", "priya@acme.example"),
+        # BotOps acting for Ben (backend/botops_act.py): his rights, not Ben signed in.
+        "ben-via-botops": Identity("human:ben", "human", "ben@acme.example", via="botops", confirmed=True),
     }))
     with TestClient(app) as client:
         with app.state.store.transaction() as c:
@@ -102,6 +104,74 @@ def test_finishing_the_blocker_clears_blocked_by_and_wakes_the_bot_owner(api):
 
 # ----------------------------------------------------------------------------- links
 # ----------------------------------------------------------------------------- comments
+def jobs_for(api, bot):
+    with api.app.state.store.read() as c:
+        return c.execute("SELECT count(*) FROM jobs WHERE bot=?", (bot,)).fetchone()[0]
+
+
+def test_the_author_edits_a_comment_and_nobody_wakes(api):
+    task = post(api, "tasks", {"owner": "ops", "title": "Draft the newsletter", "body": "x"})
+    said = post(api, f"tasks/{task['id']}/comments", {"text": "Use the Agust numbers."})
+    assert said["woke"] and said["comment"]["edited_at"] is None
+    before, queued = get(api, "tasks/" + task["id"]), jobs_for(api, "ops")
+    edited = post(api, f"tasks/{task['id']}/comments/{said['comment']['id']}", {"text": "Use the August numbers."})
+    assert edited["woke"] is False and edited["comment"]["edited_at"]
+    after = get(api, "tasks/" + task["id"])
+    assert [(m["body"], bool(m["edited_at"])) for m in after["comments"]] == [("Use the August numbers.", True)]
+    assert len(after["messages"]) == len(before["messages"]) and jobs_for(api, "ops") == queued, "nothing sent, nobody woken"
+    assert after["task"]["updated"] > before["task"]["updated"]
+    assert any(e["field"] == "comment" and e["new"] == said["comment"]["id"] for e in after["events"])
+    with api.app.state.store.read() as c:
+        audit = c.execute("SELECT detail_json FROM events WHERE action='message.edited' AND target=?",
+                          (said["comment"]["id"],)).fetchone()[0]
+    assert "Agust" in audit, "the audit keeps the old text"
+
+
+def test_only_its_author_edits_or_deletes_a_comment_signed_in_as_themselves(api):
+    task = post(api, "tasks", {"owner": "ops", "title": "Draft the newsletter", "body": "x"})
+    said = post(api, f"tasks/{task['id']}/comments", {"text": "Use the September numbers."}, token="ben-test")
+    path = f"tasks/{task['id']}/comments/{said['comment']['id']}"
+    for token in ("ana-test", "priya-test", "ben-via-botops"):      # Tico's owner, a teammate, BotOps acting for Ben
+        post(api, path, {"text": "Use the October numbers."}, token=token, expected=403)
+        post(api, path + "/delete", {}, token=token, expected=403)
+    assert [m["body"] for m in get(api, "tasks/" + task["id"])["comments"]] == ["Use the September numbers."]
+    assert post(api, path, {"text": "Use the October numbers."}, token="ben-test")["comment"]["edited_at"]
+
+
+def test_a_question_an_answer_or_a_chat_line_is_not_a_comment_to_edit(api):
+    # A person's task has a thread of its own: Ben asks, Ana answers.
+    task = post(api, "tasks", {"owner": "ben", "title": "Draft the newsletter", "body": "Draft it."})
+    ask = post(api, f"tasks/{task['id']}/ask", {"text": "Which month?"}, token="ben-test")
+    answer = post(api, f"messages/{ask['id']}/answer", {"text": "September"})
+    # A bot's task lives in its chat room, where a chat line that mentions the task is not a comment.
+    work = post(api, "tasks", {"owner": "ops", "title": "Draft the update", "body": "x"})
+    with api.app.state.store.transaction() as c:
+        chat = H.say(c, "human:ana", "bot:ops", "Also the footer.", conversation_id=work["conversation_id"],
+                     refs={"task": work["id"]})
+    for tid, mid in ((task["id"], ask["id"]), (task["id"], answer["id"]), (work["id"], chat["id"])):
+        refused = post(api, f"tasks/{tid}/comments/{mid}", {"text": "October"}, expected=403)
+        assert "not a question, an answer" in refused["error"]["detail"]
+        post(api, f"tasks/{tid}/comments/{mid}/delete", {}, expected=403)
+
+
+def test_a_deleted_comment_leaves_the_task_and_never_reaches_the_bot(api):
+    task = post(api, "tasks", {"owner": "ops", "title": "Draft the newsletter", "body": "x"})
+    with api.app.state.store.transaction() as c:
+        ask = H.task_ask(c, "bot:ops", task["id"], "Which month?")
+    said = post(api, f"tasks/{task['id']}/comments", {"text": "September, and call me first."})["comment"]
+    before = get(api, "tasks/" + task["id"])
+    assert before["task"]["ask"] is None, "writing back answered the question"
+    gone = post(api, f"tasks/{task['id']}/comments/{said['id']}/delete", {})
+    assert gone["comment"]["deleted_at"] and gone["woke"] is False
+    after = get(api, "tasks/" + task["id"])
+    assert said["id"] not in {m["id"] for m in gone["comments"] + after["comments"] + after["messages"]}
+    assert after["task"]["updated"] > before["task"]["updated"]
+    assert after["task"]["ask"]["id"] == ask["id"], "the question it answered is open again"
+    get(api, "messages/" + said["id"], expected=404)
+    post(api, f"tasks/{task['id']}/comments/{said['id']}", {"text": "October"}, expected=404)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE message_id=?", (said["id"],)).fetchone()[0] == "cancelled"
+        assert c.execute("SELECT expires FROM task_delegations WHERE message_id=?", (said["id"],)).fetchone()[0] <= H.now()
 
 
 # ----------------------------------------------------------------------------- movers

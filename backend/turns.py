@@ -223,8 +223,8 @@ def annotate(c, auth, who, messages):
             did[aid].append({"kind": "link", "url": row["url"], "title": row["title"] or "", "at": row["created"]})
     rooms_of = {aid: replies[aid]["conversation_id"] for aid in turns}
     for row in c.execute(f"SELECT id,conversation_id,from_actor,to_actor,kind,body,created FROM messages "
-                         f"WHERE from_actor IN ({who_marks}) AND kind IN ('ask','say') AND created BETWEEN ? AND ?",
-                         (*actors, lo, hi)):
+                         f"WHERE from_actor IN ({who_marks}) AND kind IN ('ask','say') AND created BETWEEN ? AND ? "
+                         "AND deleted_at IS NULL", (*actors, lo, hi)):
         aid = owner_of(row["from_actor"], row["created"])
         if not aid or row["conversation_id"] == rooms_of[aid] or row["to_actor"] == row["from_actor"]:
             continue

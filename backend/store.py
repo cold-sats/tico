@@ -439,8 +439,9 @@ def digest(value):
 
 
 def message_page(c, cid, *, before=None, since=None, limit=200):
-    """Newest page, in display order; rowid breaks ties for messages in the same millisecond."""
-    clauses, args = ["conversation_id=?"], [cid]
+    """Newest page, in display order; rowid breaks ties for messages in the same millisecond. A
+    deleted task comment is left out: this page is also what a bot's run is handed."""
+    clauses, args = ["conversation_id=?", "deleted_at IS NULL"], [cid]
     if before:
         anchor = c.execute("SELECT rowid FROM messages WHERE id=? AND conversation_id=?", (before, cid)).fetchone()
         if not anchor:
@@ -1139,4 +1140,5 @@ class Store:
         with self.transaction() as c:
             c.execute("INSERT OR IGNORE INTO jobs(id,message_id,bot,created) "
                       "SELECT id,id,substr(to_actor,5),created FROM messages NEW "
-                      "WHERE to_actor LIKE 'bot:%' AND delivered_at IS NULL AND NOT " + EXTERNAL_BOT_SQL)
+                      "WHERE to_actor LIKE 'bot:%' AND delivered_at IS NULL AND deleted_at IS NULL AND NOT "
+                      + EXTERNAL_BOT_SQL)

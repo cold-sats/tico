@@ -144,6 +144,10 @@ STABLE = [
     ("/api/v2/tasks/{tid}", "post", "Tasks", "updateTask",
      "Change a task; send the version you read (409 version_conflict otherwise)", "TaskResult"),
     ("/api/v2/tasks/{tid}/comments", "post", "Tasks", "commentOnTask", "Comment on a task", "CommentResult"),
+    ("/api/v2/tasks/{tid}/comments/{mid}", "post", "Tasks", "editTaskComment",
+     "Change the text of a comment you wrote; it wakes nobody and is marked edited_at", "CommentResult"),
+    ("/api/v2/tasks/{tid}/comments/{mid}/delete", "post", "Tasks", "deleteTaskComment",
+     "Delete a comment you wrote; it is never listed again or handed to a bot", "CommentResult"),
     ("/api/v2/updates", "get", "Updates", "listUpdates", "Daily and weekly updates", "UpdateList"),
     ("/api/v2/updates/unread", "get", "Updates", "countUnreadUpdates", "How many updates are unread", "Unread"),
     ("/api/v2/updates/read", "post", "Updates", "markUpdatesRead", "Mark updates read or unread", None),
@@ -346,6 +350,10 @@ SCHEMAS = {
                    from_name={"type": "string", "description": "Display name of from_actor, when it is a person or a bot"},
                    to_name={"type": "string", "description": "Display name of to_actor"},
                    body_raw={"type": "string", "description": "A notice Tico wrote, as stored (with actor ids); `body` shows names to people"},
+                   edited_at={"type": ["string", "null"], "description": "When the author last changed a task comment's text; "
+                              "null when never edited"},
+                   deleted_at={"type": ["string", "null"], "description": "When the author deleted a task comment. Set only on "
+                               "the answer to deleteTaskComment: a deleted comment is never listed"},
                    run={"type": "object", "description": "The run that handled this message, once one has: on a person's message "
                         "`{job_id, attempt_id, state}` where `state` is `started_run` (it started the run) or `added_to_run` "
                         "(it was folded into a run already working); on a bot's reply `{job_id, attempt_id}` (the run that "

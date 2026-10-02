@@ -109,7 +109,10 @@ def test_the_declared_answers_match_the_live_ones(api):
     call("listTasks", "get", "/api/v2/tasks")
     detail = call("getTask", "get", "/api/v2/tasks/" + task["id"])
     call("updateTask", "post", "/api/v2/tasks/" + task["id"], json={"version": detail["task"]["version"], "status": "doing"})
-    call("commentOnTask", "post", "/api/v2/tasks/" + task["id"] + "/comments", json={"text": "looks good"})
+    said = call("commentOnTask", "post", "/api/v2/tasks/" + task["id"] + "/comments", json={"text": "looks good"})
+    comment = "/api/v2/tasks/" + task["id"] + "/comments/" + said["comment"]["id"]
+    call("editTaskComment", "post", comment, json={"text": "looks good to me"})
+    call("deleteTaskComment", "post", comment + "/delete", json={})
     call("listUpdates", "get", "/api/v2/updates")
     call("countUnreadUpdates", "get", "/api/v2/updates/unread")
     call("getAssistant", "get", "/api/v2/assistant")

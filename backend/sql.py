@@ -114,7 +114,8 @@ def guarded(c, auth, who, inner):
                   "OR target IN (SELECT slug FROM bots) OR target IN (SELECT 'bot:'||slug FROM bots)")
     rules = {
         "conversations": conversations,
-        "messages": "conversation_id IN (SELECT id FROM conversations)",
+        # A deleted task comment stays in the audit trail, which the owner reads whole; nobody else reads it.
+        "messages": "conversation_id IN (SELECT id FROM conversations)" + ("" if owner else " AND deleted_at IS NULL"),
         "tasks": tasks,
         "tags": "1", "task_tags": by_task,
         "task_events": by_task, "task_delegations": by_task,

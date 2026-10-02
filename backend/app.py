@@ -1608,7 +1608,7 @@ def create_app(settings=None):
     def message(request: Request, mid: str):
         with store.read() as c:
             row = H.message(c, mid)
-            if not row:
+            if not row or row.get("deleted_at"):
                 raise Problem("not_found", "Message not found", 404)
             who = request.state.identity
             if who.role == "bot" and (row.get("to_actor") == who.actor or row.get("from_actor") == who.actor):
@@ -1782,7 +1782,7 @@ def create_app(settings=None):
             said = []
             for m in c.execute("SELECT from_actor,kind,body,created FROM messages WHERE to_actor=? AND "
                                "from_actor LIKE 'bot:%' AND kind IN ('say','ask','answer') AND created>? "
-                               "ORDER BY created DESC LIMIT 6", (who.actor, start)).fetchall():
+                               "AND deleted_at IS NULL ORDER BY created DESC LIMIT 6", (who.actor, start)).fetchall():
                 said.append({"from": batch._name(c, m["from_actor"]), "kind": m["kind"],
                              "when": m["created"], "text": batch._clip(m["body"] or "", 240)})
             stuck = H.stuck_tasks(c, hidden=auth.unreadable_bots(c, who))
@@ -2152,6 +2152,18 @@ def create_app(settings=None):
             return H.task_ask(c, request.state.identity.actor, task_id, body.text)
         return mutate(request, body, work)
 
+    def may_comment(c, who, row):
+        # A comment goes to the bot on the other side of the task (`H.task_comment`), so it is
+        # a request to it: Write, and the same bot-to-bot limits a message has. The owner
+        # answering whoever asked for the work is the reply path, which needs no Write.
+        others = [a for a in dict.fromkeys([row["owner"], row["requester"], H.task_origin(c, row)])
+                  if a and a not in (who.actor, H.KEEPER)]
+        target = next((a for a in others if H.is_bot(a)), None)
+        if target and who.actor != row["owner"]:
+            auth.require_write(c, who, H.actor_id(target))
+        if target:
+            auth.require_bot_contact(c, who, target, task_id=row["id"], kind="comment")
+
     @app.post("/api/v2/tasks/{tid}/comments")
     def task_comment(request: Request, tid: str, body: M.TaskComment):
         """A comment on a task. It wakes the bot on the task when a mover, the owner or the
@@ -2160,16 +2172,7 @@ def create_app(settings=None):
         def work(c):
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
-            # The comment goes to the bot on the other side of the task (`H.task_comment`), so it is
-            # a request to it: Write, and the same bot-to-bot limits a message has. The owner
-            # answering whoever asked for the work is the reply path, which needs no Write.
-            others = [a for a in dict.fromkeys([row["owner"], row["requester"], H.task_origin(c, row)])
-                      if a and a not in (who.actor, H.KEEPER)]
-            target = next((a for a in others if H.is_bot(a)), None)
-            if target and who.actor != row["owner"]:
-                auth.require_write(c, who, H.actor_id(target))
-            if target:
-                auth.require_bot_contact(c, who, target, task_id=task_id, kind="comment")
+            may_comment(c, who, row)
             wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or mover(c, who)
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake)
             return {"comment": msg, "comments": H.task_comments(c, task_id), "woke": bool(wake)}
@@ -2205,6 +2208,45 @@ def create_app(settings=None):
             H.task_unlink(c, who.actor, task_id, link_id, mover=mover(c, who))
             return {"links": H.task_links(c, task_id)}
         return mutate(request, M.Empty(), work)
+
+    def own_comment(c, who, tid, mid):
+        """The task that comment `mid` is on, when the caller wrote the comment; a refusal otherwise."""
+        task_id = auth.resolve_task(c, who, tid)
+        row = auth.task(c, who, task_id)
+        msg = H.comment_on(c, row, mid)
+        if not msg or msg.get("deleted_at"):
+            raise Problem("not_found", "No such comment on this task", 404)
+        # The Assistant and BotOps act with a person's rights, but the words are the person's own.
+        if who.via:
+            raise Problem("forbidden", "Only a comment's author edits or deletes it, signed in as themselves", 403)
+        if not H.is_comment(msg):
+            raise Problem("forbidden", "Only a comment can be edited or deleted, not a question, an answer, "
+                                       "a notice or a chat message", 403)
+        if msg["from_actor"] != who.actor:
+            raise Problem("forbidden", "Only the person or bot who wrote a comment can edit or delete it", 403)
+        return row
+
+    @app.post("/api/v2/tasks/{tid}/comments/{mid}")
+    def task_comment_edit(request: Request, tid: str, mid: str, body: M.TaskComment):
+        """The author changes a comment's text. It wakes nobody and is not sent again; the new text
+        is new words to the bot on the task, so it needs what a new comment needs."""
+        who = request.state.identity
+        def work(c):
+            row = own_comment(c, who, tid, mid)
+            may_comment(c, who, row)
+            msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text)
+            return {"comment": msg, "comments": H.task_comments(c, row["id"]), "woke": False}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/tasks/{tid}/comments/{mid}/delete")
+    def task_comment_delete(request: Request, tid: str, mid: str, body: M.Empty):
+        """The author takes a comment back: never listed again, never handed to a bot."""
+        who = request.state.identity
+        def work(c):
+            row = own_comment(c, who, tid, mid)
+            msg = H.task_comment_delete(c, who.actor, row["id"], mid)
+            return {"comment": msg, "comments": H.task_comments(c, row["id"]), "woke": False}
+        return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/links")
     def task_links(request: Request, tid: str, body: M.TaskLink):

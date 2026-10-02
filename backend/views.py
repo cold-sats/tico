@@ -308,7 +308,8 @@ def operation_issues(c, who, auth):
         queued = c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='queued'", (slug,)).fetchone()[0]
         if location.get("agent"):
             queued = c.execute("SELECT count(*) FROM messages WHERE to_actor=? AND read_at IS NULL "
-                               "AND (expires_at IS NULL OR expires_at > ?)", ("bot:" + slug, H.now())).fetchone()[0]
+                               "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL",
+                               ("bot:" + slug, H.now())).fetchone()[0]
         uncertain = c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='uncertain'", (slug,)).fetchone()[0]
         if uncertain and not mac_offline:
             noun = "run" if uncertain == 1 else "runs"
@@ -598,9 +599,9 @@ def recent_bots(c, auth, who, since, limit, needs):
         status = (H.status(c, slug) or {}) if access.get(slug, auth.FULL)["read"] else {}
         actor = H.bot_actor(slug)
         mine = c.execute("SELECT body, created, conversation_id FROM messages WHERE from_actor=? AND to_actor=? "
-                         "ORDER BY created DESC LIMIT 1", (me, actor)).fetchone()
+                         "AND deleted_at IS NULL ORDER BY created DESC LIMIT 1", (me, actor)).fetchone()
         theirs = c.execute("SELECT body, created, conversation_id FROM messages WHERE from_actor=? AND to_actor=? "
-                           "ORDER BY created DESC LIMIT 1", (actor, me)).fetchone()
+                           "AND deleted_at IS NULL ORDER BY created DESC LIMIT 1", (actor, me)).fetchone()
         conversation = next((m["conversation_id"] for m in sorted(filter(None, (mine, theirs)),
                              key=lambda m: m["created"], reverse=True) if m["conversation_id"]), None)
         tasks = c.execute("SELECT id, title, status, owner, updated FROM tasks WHERE status IN "
