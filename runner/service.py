@@ -734,9 +734,11 @@ class Runner:
         requested = attempt.get("profile")
         profile = profiles.select(self.config, attempt["bot"], requested)
         if requested:
-            if profile is None:
-                raise SubscriptionUnavailable(self.subscription_problem(requested, computer=attempt.get("computer_label")))
             runtime = (attempt.get("config") or {}).get("runtime") or ""
+            if not profiles.covers(attempt.get("config") or {}):
+                raise SubscriptionUnavailable(f"Subscription {requested} doesn't cover {runtime}", requested, runtime)
+            if profile is None:
+                raise SubscriptionUnavailable(self.subscription_problem(requested, computer=attempt.get("computer_label")), requested, runtime)
             row = (getattr(self, "runtime_rows", None) or {}).get(runtime) or {}
             status = (row.get("profiles") or {}).get(profile.name) or {}
             cached = self.__dict__.get("_profile_report_cache")
@@ -746,7 +748,7 @@ class Runner:
                           status.get("authenticated") in ("missing", "rejected"))
             if signed_out or self.rejection(runtime, profile.name):
                 raise SubscriptionUnavailable(self.subscription_problem(requested, signed_out=True,
-                                              computer=attempt.get("computer_label")) + f" for {runtime}")
+                                              computer=attempt.get("computer_label")), requested, runtime)
         return profile
 
     def add_profile(self, name):
@@ -1237,7 +1239,7 @@ class Runner:
             rows = {name: dict(self.runtime_readiness(runtime, assignments, used[name])) for name in sorted(used)}
             worst = min(rows, key=lambda name: (profiles.SIGN_IN_ORDER.index(rows[name]["authenticated"]), name))
             report[runtime] = {**rows[worst], "profiles": rows,
-                               "detail": "; ".join(f"{name}: {row['detail']}" for name, row in rows.items())[:500]}
+                               "detail": "; ".join((f"{name}: {row['detail']}" if name else row["detail"]) for name, row in rows.items())[:500]}
         for runtime, row in report.items():
             targets = row.get("profiles") or {"": row}
             for name, status in targets.items():
@@ -1252,7 +1254,7 @@ class Runner:
                             profiles.SIGN_IN_ORDER.index(targets[name]["authenticated"])
                             if targets[name]["authenticated"] != "rejected" else -1))
                 report[runtime] = {**targets[worst], "profiles": targets,
-                                   "detail": "; ".join(f"{name}: {status['detail']}" for name, status in targets.items())[:500]}
+                                   "detail": "; ".join((f"{name}: {status['detail']}" if name else status["detail"]) for name, status in targets.items())[:500]}
         return report
 
     def profile_report(self):
@@ -1349,6 +1351,8 @@ class Runner:
                       else None) or runtimes.get(runtime, {})
             problems, warnings = [], []
             missing_profile = profiles.missing(self.config, entry.get("profile"))
+            if entry.get("profile") and not profiles.covers(entry["config"]):
+                problems.append(f"Subscription {entry['profile']} doesn't cover {runtime}")
             if missing_profile:
                 problems.append(self.subscription_problem(entry["profile"], computer=entry.get("computer_label")))
             repository_present = (path / "AGENT.md").is_file()
@@ -2036,6 +2040,7 @@ class Runner:
         reply, outcome, tokens, limited, retryable, fallback = "", "interrupted", {}, False, False, None
         unavailable, base_env, execution_path, drive = False, None, None, None
         auth_rejected = {}
+        subscription_unavailable = None
         goal_controlled = [False]
         goal_failure = [None]
         redactor, started_at, tree = None, "", {}
@@ -2217,10 +2222,10 @@ class Runner:
                 unavailable = limited or retryable
             except Exception as exc:
                 if isinstance(exc, SubscriptionUnavailable):
-                    reply, outcome, limited, retryable = str(exc), "failed", False, False
+                    reply, outcome, limited, retryable = str(exc), "failed", False, True
                     auth_rejected.clear()
-                    self.state.append(aid, "diagnostic", {"text": reply})
-                    self.state.append(aid, "message", {"text": reply, "final": True})
+                    self.state.append(aid, "diagnostic", {"text": reply, "detail": {"runtime": exc.detail["runtime"]}})
+                    subscription_unavailable = exc.detail
                     self.last_heartbeat = float("-inf")
                     unavailable = False
                 else:
@@ -2267,10 +2272,10 @@ class Runner:
                         + ("" if outcome == "completed" else f" ({outcome})"))
                 except Exception as exc:
                     if isinstance(exc, SubscriptionUnavailable):
-                        reply, outcome, limited, retryable = str(exc), "failed", False, False
+                        reply, outcome, limited, retryable = str(exc), "failed", False, True
                         auth_rejected.clear()
-                        self.state.append(aid, "diagnostic", {"text": reply})
-                        self.state.append(aid, "message", {"text": reply, "final": True})
+                        self.state.append(aid, "diagnostic", {"text": reply, "detail": {"runtime": exc.detail["runtime"]}})
+                        subscription_unavailable = exc.detail
                         self.last_heartbeat = float("-inf")
                     else:
                         self.state.append(aid, "diagnostic",
@@ -2332,6 +2337,7 @@ class Runner:
                                                 **({"limited": True} if limited else {}),
                                                 **({"retryable": True} if retryable and not limited else {}),
                                                 **({"fallback": fallback} if fallback else {}),
+                                                **({"subscription_unavailable": subscription_unavailable} if subscription_unavailable else {}),
                                                 **({"auth_rejected": {"runtime": auth_rejected["runtime"],
                                                                       "reason": rejection_reason(auth_rejected["reason"])}}
                                                    if auth_rejected and outcome == "failed" else {})})
@@ -2385,13 +2391,15 @@ class Runner:
         pending = dict(completion)
         if not pending.get("profile_used"):
             pending.pop("profile_used", None)
-        for retry in range(3):
+        for retry in range(5):
             try:
                 return self.client.post(f"attempts/{aid}/complete", pending, key=f"complete:{aid}" if retry == 0 else f"complete:{aid}:compat-{retry}")
             except APIError as exc:
                 if exc.status != 422:
                     raise
-                if "profile_used" in pending and ("profile_used" in str(exc.detail) or "extra" in str(exc.detail).lower() and "body." not in str(exc.detail)):
+                if "subscription_unavailable" in pending:
+                    pending.pop("subscription_unavailable", None)
+                elif "profile_used" in pending and ("profile_used" in str(exc.detail) or "extra" in str(exc.detail).lower() and "body." not in str(exc.detail)):
                     pending.pop("profile_used", None)
                     if pending.get("usage"):
                         pending["usage"] = {k: v for k, v in pending["usage"].items() if k != "profile_used"}

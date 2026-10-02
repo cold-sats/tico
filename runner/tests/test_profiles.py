@@ -325,7 +325,7 @@ class Readiness(unittest.TestCase):
             self.runner.runtime_rows = {}
             self.assertEqual(self.runner.turn_profile(work).name, 'one')
             self.runner._profile_report_cache = (0, [{'name': 'one', 'runtimes': {'codex': {'signed_in': False}}}])
-            with self.assertRaisesRegex(RuntimeError, "Subscription one isn't signed in on Build Computer for codex"):
+            with self.assertRaisesRegex(RuntimeError, "Subscription one isn't signed in on Build Computer"):
                 self.runner.turn_profile(work)
             self.runner._profile_report_cache[1][0]['runtimes']['codex']['signed_in'] = None
             self.assertEqual(self.runner.turn_profile(work).name, 'one')
@@ -375,13 +375,13 @@ class Readiness(unittest.TestCase):
             else:
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(completion['outcome'], 'failed')
-                self.assertEqual(completion['text'], "Subscription one isn't signed in on Build Computer for claude")
+                self.assertEqual(completion['text'], "Subscription one isn't signed in on Build Computer")
                 self.assertNotIn('limited', completion)
-                self.assertNotIn('retryable', completion)
+                self.assertTrue(completion['retryable'])
                 self.assertNotIn('auth_rejected', completion)
                 self.assertEqual(runner.last_heartbeat, float('-inf'))
 
-    def test_start_refusal_records_message_and_prevents_fallback(self):
+    def test_start_refusal_is_retryable_without_chat_and_prevents_fallback(self):
         import json
         from unittest import mock
         from runner.tests.test_runner_resilience import FakeClient, attempt
@@ -397,13 +397,14 @@ class Readiness(unittest.TestCase):
         completion = client.completion()
         message = "Subscription absent isn't on Build Computer"
         self.assertEqual((completion['outcome'], completion['text']), ('failed', message))
-        self.assertNotIn('retryable', completion)
+        self.assertTrue(completion['retryable'])
         factory.assert_not_called()
         self.assertEqual(runner.last_heartbeat, float('-inf'))
         with runner.state.connect() as c:
             events = [(row['kind'], json.loads(row['payload'])) for row in c.execute('SELECT kind,payload FROM events')]
-        self.assertIn(('diagnostic', {'text': message}), events)
-        self.assertIn(('message', {'text': message, 'final': True}), events)
+        self.assertIn(('diagnostic', {'text': message, 'detail': {'runtime': 'codex'}}), events)
+        self.assertFalse(any(kind == 'message' for kind, payload in events))
+        self.assertEqual(completion['subscription_unavailable'], {'profile': 'absent', 'runtime': 'codex', 'problem': message})
 
     def test_profile_probe_timeout_is_unknown_in_heartbeat_and_turn_guard(self):
         import subprocess
@@ -419,3 +420,51 @@ class Readiness(unittest.TestCase):
             checks = self.runner.preflight([work], self.runner.runtime_rows)
             self.assertFalse(any('signed in' in problem for problem in checks[0]['problems']))
             self.assertEqual(self.runner.turn_profile(work).name, 'one')
+
+    def test_mixed_runtime_detail_has_no_empty_profile_prefix(self):
+        from unittest import mock
+        self.runner.config.update(default_profile=None, bot_profiles={})
+        with mock.patch.object(self.runner, 'runtime_readiness', return_value={
+                'installed': True, 'authenticated': 'ready', 'detail': 'Signed in'}):
+            row = self.runner.runtime_report([BOT, {**BOT, 'bot': 'other', 'profile': 'one'}])['codex']
+        self.assertEqual(row['detail'], 'Signed in; one: Signed in')
+
+    def test_assigned_profile_refuses_runtimes_without_home_mapping(self):
+        from unittest import mock
+        from runner.tests.test_runner_resilience import FakeClient, attempt as run_attempt
+        root = Path(self.tmp.name)
+        (root / 'emp-coo').mkdir()
+        for runtime, harness in [('cursor', 'cursor-agent'), ('pi', 'pi'), ('gemini', 'antigravity'), ('other', 'other')]:
+            client, factory = FakeClient(), mock.Mock()
+            runner = Runner(self.runner.config, root / ('unsupported-' + runtime), host_factory=factory,
+                            client=client, push=lambda path, env=None: (0, ''))
+            runner.renew_interval = 0.05
+            work = {**run_attempt(), 'profile': 'one'}
+            work['config'].update(runtime=runtime, harness=harness)
+            runner.execute(work)
+            result = client.completion()
+            self.assertTrue(result['retryable'])
+            self.assertEqual(result['text'], f"Subscription one doesn't cover {runtime}")
+            self.assertEqual(result['subscription_unavailable']['runtime'], runtime)
+            factory.assert_not_called()
+            status = {'installed': True, 'authenticated': 'ready', 'detail': 'Signed in'}
+            row = self.runner.preflight([work], {runtime: status})[0]
+            self.assertFalse(row['ready'])
+            self.assertIn(result['text'], row['problems'])
+
+    def test_subscription_refusal_completion_supports_older_server(self):
+        from clients.tico import APIError
+        from unittest import mock
+        calls = []
+        def post(path, body, key=None):
+            calls.append(dict(body))
+            if 'subscription_unavailable' in body:
+                raise APIError('validation', 'body.subscription_unavailable: Extra inputs are not permitted', 422)
+            return {}
+        self.runner.client = mock.Mock(post=post)
+        self.runner.complete('attempt', {'outcome': 'failed', 'last_seq': 0, 'retryable': True,
+            'subscription_unavailable': {'profile': 'one', 'runtime': 'codex',
+                                         'problem': "Subscription one isn't on Build Computer"}})
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[-1]['retryable'])
+        self.assertNotIn('subscription_unavailable', calls[-1])

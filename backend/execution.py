@@ -196,7 +196,7 @@ class Execution:
         self.served_at = now
         del row
         from .subscriptions import record
-        record(c, who.runner_id, body.profiles)
+        record(c, who.runner_id, body.profiles, body.readiness)
         readiness = readiness_document(body.readiness)
         from .repositories import save_metadata
         save_metadata(c, "computer-repositories:" + who.runner_id,
@@ -448,7 +448,7 @@ class Execution:
                         (who.runner_id, body.bot, body.bot)).fetchall()
         cooling, over = {}, {}
         default = usage_limits.company(c)
-        from .subscriptions import context, effective
+        from .subscriptions import context, effective, covers, refusal
         from .repositories import metadata
         subscription_context = context(c)
         def claimable(job):
@@ -457,7 +457,13 @@ class Execution:
                 if not metadata(c, "computer-profiles:" + runner["id"]).get("reported"):
                     return False
                 config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (job["bot"],)).fetchone()
-                runtime = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})[0]
+                config = json.loads(config[0]) if config else {}
+                runtime = providers.bot_choice(c, self.store.settings, config)[0]
+                blocked = refusal(c, runner['id'], job['bot'])
+                if not covers({**config, 'runtime': runtime}) or (blocked.get('profile') == profile
+                        and blocked.get('primary_runtime') == runtime
+                        and blocked.get('primary_harness') == config.get('harness')):
+                    return False
                 report = c.execute("SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?",
                                    (runner["id"], profile)).fetchone()
                 if not report or json.loads(report[0] or "{}").get(runtime, {}).get("signed_in") is False:
@@ -960,6 +966,14 @@ class Execution:
         # the job waits queued, and the runner takes no work for that runtime meanwhile, so it
         # neither loops (silent) nor blocks the bot behind a review.
         rejected = body.outcome == "failed" and body.auth_rejected is not None
+        if retryable and body.subscription_unavailable:
+            from .repositories import save_metadata
+            config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row['bot'],)).fetchone()
+            config = json.loads(config[0]) if config else {}
+            primary_runtime = providers.bot_choice(c, self.store.settings, config)[0]
+            save_metadata(c, f"subscription-unavailable:{row['bot']}",
+                          {**body.subscription_unavailable.model_dump(), "runner_id": row["runner_id"],
+                           "primary_runtime": primary_runtime, "primary_harness": config.get("harness")})
         requeue = limited or retryable or silent or rejected
         c.execute("UPDATE jobs SET state=? WHERE id=?",
                   ("completed" if body.outcome == "completed" else "queued" if requeue else "uncertain", row["job_id"]))
