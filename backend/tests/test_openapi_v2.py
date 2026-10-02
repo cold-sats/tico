@@ -59,6 +59,11 @@ def test_served_to_the_signed_in_only_and_limited_to_the_stable_resources(api):
         assert not any(path.startswith(internal) for path in document["paths"])
     ids = [op["operationId"] for ops in document["paths"].values() for op in ops.values()]
     assert len(ids) == len(set(ids)) and all(re.fullmatch(r"[a-z][A-Za-z0-9]+", i) for i in ids)
+    for ops in document['paths'].values():
+        for op in ops.values():
+            parameters = [(p['name'], p['in']) for p in op.get('parameters', [])]
+            assert len(parameters) == len(set(parameters))
+    assert '#/$defs/' not in str(document)
     tagged = {tag for ops in document["paths"].values() for op in ops.values() for tag in op["tags"]}
     assert tagged == set(openapi_v2.TAGS) == {t["name"] for t in document["tags"]}
     text = str(document)

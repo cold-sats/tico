@@ -20,6 +20,7 @@ def snapshot(meta, transcript='', notes='', conn=None, readable=None):
             return snapshot(meta, transcript, notes, db, readable)
     rid = meta['id']
     old = conn.execute('SELECT * FROM meetings WHERE id=?', (rid,)).fetchone()
+    meta = {**meta, 'review_state': meta.get('review_state') or (old['review_state'] if old else 'live')}
     transcript = transcript or (old['transcript_original'] if old else '')
     notes = notes or (old['notes'] if old else '')
     recorded = meta.get('recorded_by') or (old['recorded_by'] if old else None)
@@ -29,14 +30,17 @@ def snapshot(meta, transcript='', notes='', conn=None, readable=None):
                            'readability_version': 'paragraphs-v1'}, sort_keys=True)
     digest = hashlib.sha256((metadata + transcript + notes).encode()).hexdigest()
     ts = H.now()
-    conn.execute('''INSERT INTO meetings VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    conn.execute('''INSERT INTO meetings
+        (id,title,owner,recorded_by,uploaded_by,metadata_json,transcript_original,
+         transcript_readable,notes,content_hash,created,updated,review_state)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET title=excluded.title, owner=excluded.owner,
         recorded_by=excluded.recorded_by, uploaded_by=excluded.uploaded_by,
         metadata_json=excluded.metadata_json, transcript_original=excluded.transcript_original,
         transcript_readable=excluded.transcript_readable, notes=excluded.notes,
-        content_hash=excluded.content_hash, updated=excluded.updated''',
+        content_hash=excluded.content_hash, updated=excluded.updated, review_state=excluded.review_state''',
         (rid, meta.get('title') or 'Meeting', meta.get('owner') or '', recorded, uploaded,
-         metadata, transcript, readable, notes, digest, old['created'] if old else ts, ts))
+         metadata, transcript, readable, notes, digest, old['created'] if old else ts, ts, meta['review_state']))
     if transcript or notes:
         conn.execute('''INSERT OR IGNORE INTO meeting_versions
           (meeting_id,content_hash,metadata_json,transcript_original,transcript_readable,notes,created)
@@ -53,11 +57,55 @@ def get(rid, conn=None):
         return None
     result = dict(row)
     result['metadata'] = json.loads(result.pop('metadata_json'))
+    result['metadata']['review_state'] = result['review_state']
     delivery = conn.execute('SELECT * FROM meeting_deliveries WHERE meeting_id=?', (rid,)).fetchone()
     result['delivery'] = dict(delivery) if delivery else None
     if result['delivery']:
         result['delivery']['attachments'] = json.loads(result['delivery'].pop('attachments_json'))
     return result
+
+
+def filed_for(record, who):
+    return who.role in ('owner', 'human') and bool(who.email) and record['owner'].lower() == who.email.lower()
+
+
+def pending_count(c, who):
+    if who.role not in ('owner', 'human') or not who.email:
+        return 0
+    return c.execute("SELECT count(*) FROM meetings m LEFT JOIN media_control mc ON mc.meeting_id=m.id "
+                     "WHERE m.review_state='pending' AND m.owner=? COLLATE NOCASE AND mc.deleted_at IS NULL",
+                     (who.email.lower(),)).fetchone()[0]
+
+
+def review_settings(c, who):
+    personal = c.execute("SELECT value_json FROM preferences WHERE actor=? AND key='meetings.auto_share'",
+                         (who.actor,)).fetchone()
+    team = c.execute("SELECT value_json FROM registry_metadata WHERE key='meetings.review_default'").fetchone()
+    default = json.loads(team[0]) if team else 'review'
+    choice = json.loads(personal[0]) if personal else None
+    return {'auto_share': choice, 'review_default': default,
+            'effective_auto_share': choice if isinstance(choice, bool) else default == 'auto'}
+
+
+def initial_review(c, who):
+    return 'live' if review_settings(c, who)['effective_auto_share'] else 'pending'
+
+
+def announce(c, auth, rid, meta):
+    """Publish a shared transcript once, in the transaction that makes it live."""
+    if meta.get('review_state', 'live') != 'live' or meta.get('private') or meta.get('ready_announced'):
+        return
+    done = get(rid, c)
+    if not done['transcript_original'] and not meta.get('turns'):
+        return
+    from .routines import emit
+    meta['ready_announced'] = True
+    snapshot(meta, conn=c, readable=done['transcript_readable'])
+    content = '\n\n'.join(part for part in (done['notes'], done['transcript_readable'], context(done)) if part)
+    facts = {'kind': 'meeting', 'recorded_by': meta.get('recorded_by'), 'source': meta.get('source'),
+             'ended': meta.get('ended'), 'duration_ms': meta.get('duration_ms')}
+    for event in ('meeting.ready', 'recording.ready'):
+        emit(c, event, rid, facts, title=meta.get('title') or rid, content=content, auth=auth)
 
 
 def request_send(rid, email, sender, destination, instructions, attachments):

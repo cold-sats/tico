@@ -954,6 +954,9 @@ class Store:
                 # What every bot may do with a type's tasks (hubdb.TYPE_BOTS). Checked on every start
                 # rather than numbered, so no migration number collides with another branch's.
                 H.add_column(c, "task_types", "bots", "TEXT")
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=55").fetchone():
+                    H._apply(c, H.MEETING_REVIEW_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(55,?)", (H.now(),))
                 c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
                     AFTER INSERT ON bot_config
                     WHEN json_extract(NEW.config_json,'$.repo_access_mode') IS NULL

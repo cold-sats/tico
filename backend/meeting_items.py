@@ -286,6 +286,7 @@ def push_feature(c, settings, task_create, who, record, row, detail, force):
 
 def pushable(c, who, rid, iid):
     record = media.authorized(c, who, rid)
+    media.require_live(record)
     if not media.may_write(who, record):
         raise Problem("forbidden", "The meeting's owner pushes its items", 403)
     row = one(c, rid, iid)

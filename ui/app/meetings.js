@@ -14,12 +14,19 @@ function meetStop() {
 }
 async function pageNotes() {
   meetStop();
-  const state = MEET = {filter: 'all', when: 'all', person: '', source: '', people: new Map(), selected: '', list: [], poll: 0,
+  const state = MEET = {review: 'live', checked: new Set(), pendingCount: 0, loadSeq: 0, filter: 'all', when: 'all', person: '', source: '', people: new Map(), selected: '', list: [], poll: 0,
     sourcesPoll: 0, items: {}, itemEdit: '', itemAdd: '', itemConfirm: '', itemDup: {},
     confirmDelete: '', editing: false, open: false};
   $('#main').innerHTML = `<div class="notes-head"><h1>Meetings</h1>
       <input type="search" id="notes-search" autocomplete="off" aria-label="Search meetings" placeholder="Search meetings">
       <button class="primary" type="button" id="notes-manual">Add notes</button></div>
+    <div class="meet-review-bar"><div class="meet-review-tabs" role="tablist" aria-label="Meeting views">
+      <button type="button" role="tab" data-review="live" aria-selected="true">Shared</button>
+      <button type="button" role="tab" data-review="pending" aria-selected="false">Pending <span id="meet-pending-count"></span></button>
+      <button type="button" role="tab" data-review="dismissed" aria-selected="false">Dismissed</button></div>
+      <button class="linkish" type="button" id="meet-settings">Settings</button></div>
+    <div class="meet-review-help muted" id="meet-review-help" hidden></div>
+    <div class="meet-review-bulk" id="meet-review-bulk" hidden></div>
     <section class="meet-granola" id="meet-granola" aria-label="Granola" hidden></section>
     <section class="meet-sources" id="meet-sources" aria-label="Sources"></section>
     <div class="notes" id="notes">
@@ -27,6 +34,14 @@ async function pageNotes() {
     </div>
     <dialog class="tmodal notes-modal" id="notes-modal" aria-label="Meeting details"><div class="notes-modal-close"><button class="ghost" type="button" id="notes-modal-close" aria-label="Close meeting">✕</button></div><section class="notes-detail" id="notes-detail"></section></dialog>
     <dialog class="tmodal import-modal" id="manual-modal" aria-label="Add notes"></dialog>`;
+  document.querySelectorAll('[data-review]').forEach(button => button.onclick = () => {
+    if (state.review === button.dataset.review) return;
+    state.review = button.dataset.review; state.checked.clear(); state.selected = ''; state.people.clear();
+    state.person = ''; state.source = ''; state.filter = 'all'; state.when = 'all';
+    $('#notes-rows').innerHTML = '<div class="notes-empty">Loading…</div>';
+    $('#meet-review-bulk').hidden = true; meetReviewTabs(state); meetLoad(state, true);
+  });
+  $('#meet-settings').onclick = () => meetSettingsOpen(state);
   const dialog = $('#notes-modal');
   const closeNote = () => {
     if (state.editing && !confirm('Discard unsaved changes?')) return;
@@ -58,6 +73,85 @@ async function pageNotes() {
   if (linked) { state.selected = linked; meetShow(state, true); meetDetail(state, linked); }
   state.poll = setInterval(() => { if (!state.editing && !state.open) meetLoad(state, false); }, 30000);
   state.sourcesPoll = setInterval(() => meetSources(state), 60000);
+}
+
+// Review stays personal until approval; counts are quiet and never enter Needs you.
+function meetPendingBadge(count) {
+  for (const el of document.querySelectorAll('[data-meet-pending]')) {
+    el.textContent = count > 99 ? '99+' : String(count || ''); el.hidden = !count;
+    el.setAttribute('aria-label', `${count} pending meetings`);
+  }
+}
+function meetReviewTabs(state) {
+  document.querySelectorAll('[data-review]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.review === state.review)));
+  const count = $('#meet-pending-count'); if (count) count.textContent = state.pendingCount || '';
+  const help = $('#meet-review-help');
+  if (help) { help.hidden = state.review === 'live'; help.textContent = state.review === 'pending'
+    ? 'Only you can see these meetings. Review before sharing.' : 'Only you can see dismissed meetings. Restore to review them again.'; }
+}
+function meetReviewBulk(state) {
+  const el = $('#meet-review-bulk'); if (!el) return;
+  el.hidden = state.review !== 'pending' || !state.list.length;
+  const visible = meetVisible(state), selected = state.checked.size;
+  el.innerHTML = `<label><input type="checkbox" id="meet-select-all" aria-label="Select visible meetings"${visible.length && visible.every(r => state.checked.has(r.id)) ? ' checked' : ''}> Select all</label>
+    <span class="muted">${selected ? `${selected} selected` : `${state.list.length} pending`}</span><span class="spacer"></span>
+    <button class="primary" type="button" data-review-bulk="approve_all">${selected ? 'Share selected' : 'Share all'}</button>
+    <button class="ghost" type="button" data-review-bulk="dismiss_all">${selected ? 'Dismiss selected' : 'Dismiss all'}</button>`;
+  $('#meet-select-all').onchange = e => { for (const r of visible) e.target.checked ? state.checked.add(r.id) : state.checked.delete(r.id); meetList(state); };
+  el.querySelectorAll('[data-review-bulk]').forEach(b => b.onclick = () => meetReviewAct(state, b, b.dataset.reviewBulk));
+}
+function meetReviewWire(state, host) {
+  host.querySelectorAll('[data-review-action]').forEach(b => b.onclick = () => meetReviewAct(state, b, b.dataset.reviewAction, b.dataset.id));
+  host.querySelectorAll('[data-review-check]').forEach(b => b.onchange = () => {
+    b.checked ? state.checked.add(b.dataset.reviewCheck) : state.checked.delete(b.dataset.reviewCheck); meetReviewBulk(state);
+  });
+}
+async function meetReviewAct(state, button, action, id) {
+  if (state.reviewBusy) return;
+  state.reviewBusy = true; button.disabled = true;
+  const body = {action};
+  if (!id && state.checked.size) body.ids = [...state.checked];
+  const privacy = id && button.closest('#notes-detail')?.querySelector('#meet-review-private');
+  if (action === 'approve' && privacy) body.private = privacy.value === 'private';
+  try {
+    await post(id ? `/v2/meetings/${encodeURIComponent(id)}/review` : '/v2/meetings/review', body);
+    if (MEET !== state) return;
+    state.checked.clear();
+    if (state.open && (!id || state.selected === id)) meetShow(state, false);
+    await meetLoad(state, true);
+    toast(action.startsWith('approve') ? 'Shared' : action === 'restore' ? 'Restored to Pending' : 'Dismissed');
+  } catch (e) { toast(e.message, true); }
+  finally { state.reviewBusy = false; button.disabled = false; }
+}
+function meetReviewDetail(rec) {
+  return `<div class="note-send meet-review-detail"><span class="hint">${rec.review_state === 'pending' ? 'Pending · Only you can see this meeting.' : 'Dismissed · Only you can see this meeting.'}</span>
+    ${rec.review_state === 'pending' ? `<select id="meet-review-private" aria-label="Visibility after approval"><option value="team"${!rec.private ? ' selected' : ''}>Team</option><option value="private"${rec.private ? ' selected' : ''}>Private</option></select>
+    <button class="primary" type="button" data-review-action="approve" data-id="${esc(rec.id)}">Share</button><button class="ghost" type="button" data-review-action="dismiss" data-id="${esc(rec.id)}">Dismiss</button>`
+    : `<button class="primary" type="button" data-review-action="restore" data-id="${esc(rec.id)}">Restore to Pending</button>`}</div>`;
+}
+async function meetSettingsOpen(state) {
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal meet-settings-modal'; dialog.setAttribute('aria-label', 'Meeting settings');
+  dialog.innerHTML = '<div class="empty">Loading…</div>'; document.body.append(dialog); dialog.showModal();
+  dialog.addEventListener('close', () => dialog.remove());
+  try {
+    const settings = await get('/v2/meetings/settings'); if (!dialog.isConnected) return;
+    const personal = settings.auto_share === null ? 'default' : settings.auto_share ? 'auto' : 'review';
+    dialog.innerHTML = `<form id="meet-settings-form"><h2>Meeting settings</h2>
+      <label>Your imports<select name="personal" aria-label="Your imports"><option value="default">Use Team default (${settings.review_default === 'auto' ? 'auto-share' : 'review'})</option><option value="review">Review before sharing</option><option value="auto">Auto-share</option></select></label>
+      <p class="hint">Auto-share applies to new imports. Existing Pending meetings stay pending.</p>
+      ${S.me?.role === 'owner' ? '<label>Team default<select name="team" aria-label="Team default"><option value="review">Review before sharing</option><option value="auto">Auto-share</option></select></label><p class="hint">Each person can choose their own setting.</p>' : ''}
+      <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-close>Close</button><span class="err" role="status" id="meet-settings-error"></span></div></form>`;
+    const form = dialog.querySelector('form'); form.elements.personal.value = personal;
+    if (form.elements.team) form.elements.team.value = settings.review_default;
+    dialog.querySelector('[data-close]').onclick = () => dialog.close();
+    form.onsubmit = async e => {
+      e.preventDefault(); const submit = form.querySelector('[type=submit]'); submit.disabled = true;
+      const body = {auto_share: form.elements.personal.value === 'default' ? null : form.elements.personal.value === 'auto'};
+      if (form.elements.team) body.review_default = form.elements.team.value;
+      try { await post('/v2/meetings/settings', body); dialog.close(); toast('Saved'); }
+      catch (error) { $('#meet-settings-error').textContent = error.message; submit.disabled = false; }
+    };
+  } catch (e) { dialog.close(); toast(e.message, true); }
 }
 
 // The meeting sources Tico takes from, in the order they are offered. `logo` is a key in ui/tool-icons.js;
@@ -197,17 +291,21 @@ function meetShow(state, open) {
 }
 async function meetLoad(state, first) {
   let list;
+  const seq = ++state.loadSeq, review = state.review;
   const query = state.query || '';
-  try { list = await get('/meetings?q=' + encodeURIComponent(query)); }
+  try { list = await get('/v2/meetings?review=' + review + '&q=' + encodeURIComponent(query)); }
   catch (e) {
-    if (MEET !== state || !first) return;
+    if (MEET !== state || seq !== state.loadSeq || !first) return;
     $('#notes-rows').innerHTML = `<div class="err" style="padding:14px">${esc(e.message)}</div>`;
     $('#notes-detail').innerHTML = `<div class="empty">Meetings are not available yet.</div>`;
     state.loaded = true; state.empty = false; meetPaintTiles(state);
     return;
   }
-  if (MEET !== state || query !== (state.query || '')) return;
-  state.list = Array.isArray(list) ? list : [];
+  if (MEET !== state || seq !== state.loadSeq) return;
+  state.list = Array.isArray(list?.meetings) ? list.meetings : [];
+  state.pendingCount = list.pending_count || 0; meetPendingBadge(state.pendingCount);
+  for (const id of state.checked) if (!state.list.some(r => r.id === id)) state.checked.delete(id);
+  meetReviewTabs(state);
   meetFilterOptions(state);
   if (!state.selected || !meetVisible(state).some(r => r.id === state.selected)) state.selected = meetVisible(state)[0]?.id || '';
   meetList(state);
@@ -307,7 +405,7 @@ function meetList(state) {
   const list = meetVisible(state);
   const filtered = meetFiltersOn(state);
   state.loaded = true;
-  state.empty = !state.list.length && !filtered && !state.query;
+  state.empty = state.review === 'live' && !state.list.length && !filtered && !state.query;
   const bar = $('#notes-filters'); if (bar) bar.hidden = !(state.list.length || filtered);
   const count = $('#notes-count');
   if (count) count.textContent = state.list.length ? (list.length === state.list.length ? `${list.length} total` : `${list.length} of ${state.list.length}`) : '';
@@ -315,16 +413,18 @@ function meetList(state) {
       const tasks = meetTasks(r), when = meetWhen(r.started || r.created);
       const meta = [when ? `<span>${esc(when)}</span>` : '', r.duration_ms ? `<span>${esc(mmss(r.duration_ms))}</span>` : '', meetWhoHTML(r)].filter(Boolean).join('');
       const fail = /fail/.test(meetPill(r)) ? meetPill(r) : '';
-      return `<li class="meet-row" data-note-row="${esc(r.id)}" title="${esc(meetSourceLabel(r.source))}">${meetLogo(r.source || 'tico', 34)}
+      return `<li class="meet-row review-${state.review}" data-note-row="${esc(r.id)}" title="${esc(meetSourceLabel(r.source))}">${state.review === 'pending' ? `<input type="checkbox" data-review-check="${esc(r.id)}" aria-label="Select ${esc(noteTitle(r))}"${state.checked.has(r.id) ? ' checked' : ''}>` : ''}${meetLogo(r.source || 'tico', 34)}
         <div class="meet-main"><button class="note-title" type="button" data-rec="${esc(r.id)}">${esc(noteTitle(r))}</button><div class="meet-meta">${meta}</div></div>
-        <div class="meet-side">${fail}${tasks.length ? `<span class="meet-tasks" title="${esc(tasks.map(t => String(t.text || '').trim()).filter(Boolean).join('\n'))}">${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}</span>` : ''}</div></li>`;
+        <div class="meet-side">${state.review === 'pending' ? `<button class="primary" type="button" data-review-action="approve" data-id="${esc(r.id)}">Share</button><button class="ghost" type="button" data-review-action="dismiss" data-id="${esc(r.id)}">Dismiss</button>` : state.review === 'dismissed' ? `<button class="ghost" type="button" data-review-action="restore" data-id="${esc(r.id)}">Restore</button>` : ''}${fail}${tasks.length ? `<span class="meet-tasks" title="${esc(tasks.map(t => String(t.text || '').trim()).filter(Boolean).join('\n'))}">${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}</span>` : ''}</div></li>`;
     }).join('')}</ul>`
-    : state.empty ? meetEmptyHTML(state) : '<div class="notes-empty">No meetings match.</div>';
-  el.querySelectorAll('[data-note-row]').forEach(b => b.onclick = () => {
+    : state.empty ? meetEmptyHTML(state) : `<div class="notes-empty">${state.review === 'pending' && !state.query && !filtered ? 'No pending meetings. New imports wait here for your review.' : state.review === 'dismissed' && !state.query && !filtered ? 'No dismissed meetings.' : 'No meetings match.'}</div>`;
+  el.querySelectorAll('[data-note-row]').forEach(b => b.onclick = event => {
+    if (event.target.closest('[data-review-check], [data-review-action]')) return;
     if (meetWindow(b.dataset.noteRow)) return;
     state.selected = b.dataset.noteRow; state.confirmDelete = ''; state.editing = false;
     meetShow(state, true); meetDetail(state, state.selected);
   });
+  meetReviewWire(state, el); meetReviewBulk(state);
   const add = el.querySelector('[data-add]'); if (add) add.onclick = () => meetNotesOpen(state);
   meetPaintTiles(state);
 }
@@ -346,6 +446,7 @@ function meetPaint(state, rec) {
   const outcome = rec.outcome && rec.outcome.status !== 'not_sent' ? rec.outcome : null;   // "Not sent" is said once, by the send bar
   // The server decides who may change a meeting; `can_edit: false` is somebody else's, open here to read.
   const mayEdit = rec.can_edit !== false;
+  const reviewing = rec.review_state === 'pending' || rec.review_state === 'dismissed';
   const transcript = turns.length ? `<div class="note-transcript">${turns.map(t => `<p><span class="muted mono">[${mmss(t.start_ms)}]</span> ${t.speaker ? `<strong>${esc(t.speaker)}</strong> ` : ''}${esc(t.text)}</p>`).join('')}</div>`
     : rec.transcript_readable ? `<div class="md">${safeMd(rec.transcript_readable)}</div>`
     : '<div class="empty">No transcript yet.</div>';
@@ -370,7 +471,7 @@ function meetPaint(state, rec) {
     : typed && !voiceText ? '<div class="muted">Nothing logged yet.</div>' : '');
   // Private is the owner's switch: on, only its participants and the owner can open it;
   // off, everyone signed in can.
-  const privateLink = typed ? ''
+  const privateLink = typed || reviewing ? ''
     : mayEdit ? `<button class="linkish" type="button" id="meet-private">${rec.private ? 'Private — make it visible to the team' : 'Make this meeting private'}</button>`
     : rec.private ? '<span class="muted">Private: participants, its owner and the team owner only</span>' : '';
   const content = state.editing
@@ -386,7 +487,7 @@ function meetPaint(state, rec) {
   const delBtn = mayEdit ? `<button class="ghost danger" type="button" id="meet-del">${state.confirmDelete === id ? 'Really delete?' : 'Delete'}</button>` : '';
   // What was said and written on the left, the sections on the right. The outcome is only a
   // section once there is one; until then the send row says so.
-  const body = typed ? content
+  const body = typed || reviewing ? content
     : `<div class="meet-done-cols"><section class="meet-done-main">${content}<div class="meet-comments" id="live-comments"></div></section>
        <section class="meet-live-items"><section class="meet-sections" id="meet-sections"></section></section></div>`;
   el.innerHTML = `<div class="note-head"><div>
@@ -402,7 +503,7 @@ function meetPaint(state, rec) {
     ${rec.delivery?.status === 'pending' ? '<p class="hint">Saved. Delivery continues in the background.</p>' : ''}
     ${rec.delivery?.error ? `<p class="err">Delivery failed: ${esc(rec.delivery.error)}. Press Send to retry.</p>` : ''}
     ${body}
-    ${sent ? `<div class="note-send"><span>Sent to ${sentLink(sent)}${sent.picked_by === 'auto' ? ' <span class="muted">(the sender\'s own bot)</span>' : sent.picked_by === 'coo' ? ' <span class="muted">(Auto)</span>' : ''}.</span>
+    ${reviewing ? meetReviewDetail(rec) : sent ? `<div class="note-send"><span>Sent to ${sentLink(sent)}${sent.picked_by === 'auto' ? ' <span class="muted">(the sender\'s own bot)</span>' : sent.picked_by === 'coo' ? ' <span class="muted">(Auto)</span>' : ''}.</span>
         <span class="spacer"></span>${delBtn}
         ${sent.reason ? `<div class="hint">${esc(sent.reason)}</div>` : ''}</div>`
     : !mayEdit ? `<div class="note-send"><span class="hint">${esc(meetRecorder(rec))} owns this meeting; only ${esc(meetRecorder(rec))} sends it on.</span></div>`
@@ -414,7 +515,8 @@ function meetPaint(state, rec) {
         <textarea id="meet-instructions" aria-label="Anything else for the bot" placeholder="Anything else the bot should know" hidden></textarea>
         <span class="hint" id="meet-msg">${outcome || sent ? '' : 'Not sent to a bot yet.'}</span></div>`}`;
   if (mayEdit && !state.editing) meetRenameable(state, rec, $('#meet-heading'), () => meetPaint(state, rec));
-  if (!typed) meetComments(state, rec);
+  if (!typed && !reviewing) meetComments(state, rec);
+  if (reviewing) meetReviewWire(state, el);
 
   el.querySelectorAll('[data-note-section]').forEach(section => {
     section.ontoggle = () => {
@@ -485,7 +587,7 @@ function meetPaint(state, rec) {
       await refresh(true); await meetLoad(state, true);
     } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; send.disabled = false; }
   };
-  if (!typed) meetItemsWire(state, rec);
+  if (!typed && !reviewing) meetItemsWire(state, rec);
 }
 
 // ---- Add notes: typed notes, an uploaded or pasted transcript, or both, filed through POST /api/v2/meetings/import ----
@@ -563,6 +665,7 @@ function meetNotesOpen(state) {
     const participants = [...dialog.querySelectorAll('input[name=manual-person]:checked')].map(i => i.value);
     for (const other of meetSplitList(q('#manual-others').value)) if (!participants.includes(other)) participants.push(other);
     const body = withTranscript ? {source: q('#manual-source').value, transcript} : {source: 'manual'};
+    body.review = 'live';
     if (title) body.title = title;
     if (notes) body.notes = notes;
     const at = meetLocalIso(q('#manual-when').value);

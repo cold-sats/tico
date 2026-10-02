@@ -82,6 +82,17 @@ def task_file_contract():
 def upload_contract(model):
     """Document the same strict fields the bounded multipart parser validates."""
     schema = model.model_json_schema()
+    definitions = schema.pop("$defs", {})
+    def inline(value):
+        if isinstance(value, dict):
+            if value.get("$ref", "").startswith("#/$defs/"):
+                return inline(definitions[value["$ref"].rsplit("/", 1)[1]])
+            return {key: inline(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [inline(item) for item in value]
+        return value
+    schema = inline(schema)
+    json_schema = json.loads(json.dumps(schema))
     for name in ("refs", "acceptance_criteria"):
         if name in schema["properties"]:
             schema["properties"][name] = {"type": "string", "description": "JSON-encoded " + name}
@@ -92,7 +103,7 @@ def upload_contract(model):
                             "schema": {"type": "string", "minLength": 1, "maxLength": 200}}],
             "requestBody": {"required": True, "content": {
                 "multipart/form-data": {"schema": schema},
-                "application/json": {"schema": model.model_json_schema()}}}}
+                "application/json": {"schema": json_schema}}}}
 
 
 def calendar(value):
@@ -207,6 +218,8 @@ def save(c, meta, *, transcript=None, notes=None, readable=None):
 
 def may_write(who, record):
     """Only the company owner and the person the source belongs to may change or send it."""
+    if record.get("review_state", "live") != "live":
+        return MS.filed_for(record, who)
     return who.role == "owner" or (who.role == "human" and bool(who.email)
                                    and record["owner"].lower() == who.email.lower())
 
@@ -219,6 +232,8 @@ def shared_meeting(record, who):
     spelling, so compare without case.
     """
     meta = record["metadata"]
+    if record.get("review_state", "live") != "live":
+        return False
     if meta.get("kind") != "meeting":
         return False
     if not meta.get("private"):
@@ -235,6 +250,8 @@ def authorized(c, who, rid, *, include_deleted=False, write=False):
         raise Problem("not_found", "Note or meeting not found", 404)
     state = c.execute("SELECT * FROM media_control WHERE meeting_id=?", (rid,)).fetchone()
     if state and state["deleted_at"] and not include_deleted:
+        raise Problem("not_found", "Note or meeting not found", 404)
+    if record.get("review_state", "live") != "live" and not MS.filed_for(record, who):
         raise Problem("not_found", "Note or meeting not found", 404)
     if may_write(who, record):
         return record
@@ -312,8 +329,14 @@ def new_note(c, who, body, uploads):
     return meta
 
 
+def require_live(record):
+    if record.get("review_state", "live") != "live":
+        raise Problem("meeting_review", "Share this meeting before sending it to a teammate", 409)
+
+
 def deliver(c, auth, who, rid, body, uploads):
     record = authorized(c, who, rid, write=True)
+    require_live(record)
     meta = record["metadata"]
     person = P.person(H.actor_id(who.actor), roster(c)) or {}
     slug = body.slug if body.slug != "auto" else person.get("bot") or default_bot(c, auth.settings)
@@ -340,6 +363,7 @@ def deliver(c, auth, who, rid, body, uploads):
 
 def finish_delivery(c, auth, who, rid):
     record = authorized(c, who, rid, write=True)
+    require_live(record)
     meta, delivery = record["metadata"], record["delivery"]
     if not delivery or delivery["task_id"]:
         return None
@@ -575,15 +599,19 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             ] + extra}
 
     @app.get("/api/meetings")
-    def listing(request: Request, q: str = ""):
+    def listing(request: Request, q: str = "", review: str = "live"):
         who = request.state.identity
         human_only(who)
+        if review not in ("live", "pending", "dismissed"):
+            raise Problem("review", "review is pending, live or dismissed", 422)
         with store.read() as c:
             rows = []
             for r in c.execute("SELECT id FROM meetings ORDER BY created DESC"):
                 try:
                     item = view(c, who, r[0])
                 except Problem:
+                    continue
+                if item["review_state"] != review:
                     continue
                 if q and q.lower() not in encode(item).lower():
                     continue

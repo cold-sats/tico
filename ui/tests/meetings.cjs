@@ -52,7 +52,7 @@ async function open(browser, viewport, world, options = {}) {
     if (p === '/api/v2/setup/getting-started') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true, cards_dismissed: [],
       can_build: true, owner: true, empty: {docs: true, market: true, tasks: true, updates: true, goals: true, meetings: true}});
     if (p === '/api/meetings/sources') return json({sources: world.sources});
-    if (p === '/api/meetings') return json(world.meetings);
+    if (p === '/api/v2/meetings') return json({meetings: world.meetings, pending_count: 0});
     if (p === '/api/v2/meeting-importers' && method === 'GET') return json({computers: [{id: 'mac', label: 'Test Mac', platform: 'macos', online: true}], importers: world.importers});
     if (p.startsWith('/api/v2/meeting-importers/') && method === 'POST') {
       const body = JSON.parse(route.request().postData());

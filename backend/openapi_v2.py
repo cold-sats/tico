@@ -159,6 +159,13 @@ STABLE = [
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
     ("/api/v2/approvals/{aid}", "get", "Needs you", "getApproval", "One approval request", None),
     ("/api/v2/approvals/{aid}", "post", "Needs you", "decideApproval", "Approve or reject", None),
+    ("/api/v2/meetings", "get", "Meetings", "listMeetings", "Meetings; review=pending reads your own queue", "MeetingReviewList"),
+    ("/api/v2/meetings/import", "post", "Meetings", "importMeeting", "Import into your Pending queue unless shared explicitly or automatically", None),
+    ("/api/v2/meetings/settings", "get", "Meetings", "getMeetingReviewSettings", "Your meeting review preference and Team default", "MeetingReviewPreferences"),
+    ("/api/v2/meetings/settings", "post", "Meetings", "setMeetingReviewSettings", "Set auto-share; only the owner sets the Team default", "MeetingReviewPreferences"),
+    ("/api/v2/meetings/review", "post", "Meetings", "reviewMeetings", "Share or dismiss your Pending meetings", "MeetingReviewList"),
+    ("/api/v2/meetings/{id}/review", "post", "Meetings", "reviewMeeting", "Approve, dismiss or restore your own meeting", "ReviewedMeeting"),
+    ("/api/v2/meetings/{id}", "get", "Meetings", "getMeeting", "Read a meeting with its notes and transcripts", "ReviewedMeeting"),
     ("/api/v2/meetings/granola", "get", "Meetings", "getGranolaStatus", "Your Granola connection", "GranolaStatus"),
     ("/api/v2/meetings/granola/connect", "post", "Meetings", "connectGranola", "Start personal Granola browser sign-in", "GranolaDevice"),
     ("/api/v2/meetings/granola/connect/status", "get", "Meetings", "pollGranolaSignIn", "Poll personal sign-in at the provider interval", "GranolaSignIn"),
@@ -488,7 +495,7 @@ SCHEMAS = {
                              "comments": items(ref("Message")), "woke": "b"}),
     "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b"}),
     "UpdateList": obj({"updates": "a", "unread": "i", "next_before": "n"}, required=["updates", "unread"]),
-    "Unread": obj({"unread": "i"}),
+    "Unread": obj({"unread": "i"}, meetings_pending={"type": "integer", "description": "Pending meetings filed for the caller; never part of Needs you"}),
     "NeedsYou": {"oneOf": [obj({"actor": "s", "items": items({
         "type": "object", "required": ["id", "kind", "title"], "additionalProperties": True,
         "properties": {"id": {"type": "string"}, "kind": {"enum": ["task", "question", "declined", "approval"]},
@@ -503,6 +510,10 @@ SCHEMAS = {
     "GranolaSync": obj({"state": {"type": "string", "enum": ["syncing", "recent", "off", "needs_signin"]}, "last_sync": "n"}),
     "GranolaDisconnect": obj({"ok": "b"}),
     "MeetingSearch": obj({"results": "a", "next_offset": {"type": ["integer", "null"]}, "mode": "s"}),
+    "ReviewedMeeting": obj({"id": "s", "title": "s", "review_state": {"type": "string", "enum": ["pending", "live", "dismissed"]}}),
+    "MeetingReviewList": obj({"meetings": items(ref("ReviewedMeeting")), "count": "i", "pending_count": "i"}),
+    "MeetingReviewPreferences": obj({"auto_share": {"type": ["boolean", "null"]},
+                                     "review_default": {"type": "string", "enum": ["review", "auto"]}, "effective_auto_share": "b"}),
     "InternalDocRow": obj({"id": "s", "path": "s", "title": "s", "updated": "s", "updated_by": "s", "locked": "b", "version": "i"},
                           updated_by_name={"type": "string", "description": "Display name of updated_by"}),
     "InternalDoc": obj({"id": "s", "path": "s", "title": "s", "body": "s", "locked": "b", "version": "i", "created_by": "s",
@@ -795,7 +806,9 @@ def spec(app):
             op["security"] = []
         op["responses"] = dict(sorted(responses.items()))
         if method in ("post", "patch", "delete") and path.startswith("/api/v2/"):
-            op.setdefault("parameters", []).append({
+            parameters = op.setdefault("parameters", [])
+            parameters[:] = [p for p in parameters if (p.get("name"), p.get("in")) != ("Idempotency-Key", "header")]
+            parameters.append({
                 "name": "Idempotency-Key", "in": "header", "required": not path.startswith("/api/v2/meetings/granola"), "schema": {"type": "string"},
                 "description": ("Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
                                 if path.startswith("/api/v2/meetings/granola") else

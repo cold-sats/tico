@@ -33,6 +33,32 @@ def run_hub(*args, env=None):
         return done.returncode, {"_stdout": done.stdout, "_stderr": done.stderr}
 
 
+def test_meeting_review_commands_use_the_same_personal_routes_as_mcp(monkeypatch):
+    from clients import remotecli
+    sent = []
+    class Api:
+        def __init__(self, *args, **kwargs):
+            pass
+        def get(self, path, **query):
+            if path == 'me':
+                return {'kind': 'member'}
+            sent.append(('GET', path, query))
+            return {}
+        def post(self, path, body, key=None):
+            sent.append(('POST', path, body))
+            return {}
+    monkeypatch.setattr(remotecli, 'Client', Api)
+    monkeypatch.setenv('HUB_API_URL', 'http://example.test')
+    monkeypatch.setenv('HUB_TOKEN', 'test-token')
+    for argv in (['pending'], ['approve', 'm1'], ['approve', '--all'], ['dismiss', 'm1'], ['restore', 'm1']):
+        remotecli.run(hubcli.parser().parse_args(['meeting', *argv]))
+    assert sent == [('GET', 'meetings', {'review': 'pending'}),
+                    ('POST', 'meetings/m1/review', {'action': 'approve'}),
+                    ('POST', 'meetings/review', {'action': 'approve_all'}),
+                    ('POST', 'meetings/m1/review', {'action': 'dismiss'}),
+                    ('POST', 'meetings/m1/review', {'action': 'restore'})]
+
+
 class Parser(unittest.TestCase):
     def test_every_subcommand_is_still_there(self):
         text = hubcli.parser().format_help()

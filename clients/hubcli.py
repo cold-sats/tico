@@ -54,6 +54,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            sitemap) as text; runs on this computer, public addresses only
     hub meeting search ["<words>"] [--person P] [--since D] [--until D]
     hub meeting read <id> [--offset N]     a transcript
+    hub meeting pending                    your Pending queue
+    hub meeting approve <id>|--all         share your meetings
+    hub meeting dismiss <id>               keep a meeting out of the queue
     hub meeting import <file> [--title T] [--date D] [--participant P ...]
     hub assistant propose --summary "..." --path /api/v2/... [--method POST] [--body '{...}']
                                            Assistant only: ask the person to confirm a side effect (an
@@ -398,6 +401,17 @@ def parser():
     s = meeting.add_parser("delete", help="delete a Meeting you may edit")
     s.add_argument("id")
     s.set_defaults(fn="meeting delete")
+    meeting.add_parser("pending", help="your Pending queue").set_defaults(fn="meeting pending")
+    s = meeting.add_parser("approve", help="share your Pending meetings")
+    target = s.add_mutually_exclusive_group(required=True)
+    target.add_argument("id", nargs="?")
+    target.add_argument("--all", action="store_true")
+    s.add_argument("--private", action="store_true", default=None)
+    s.set_defaults(fn="meeting approve")
+    for action in ("dismiss", "restore"):
+        s = meeting.add_parser(action)
+        s.add_argument("id")
+        s.set_defaults(fn="meeting " + action)
     s = meeting.add_parser("import", help="file a transcript (text, WebVTT, SRT or JSON segments) as one of your meetings")
     s.add_argument("file", help="the transcript file; - reads standard input")
     s.add_argument("--title", help="default: the file's name")
@@ -410,6 +424,7 @@ def parser():
     s.add_argument("--media-url", help="an https link to the recording, if there is one")
     s.add_argument("--send-to", help="a bot to hand the meeting to, as Send does")
     s.add_argument("--private", action="store_true", default=None)
+    s.add_argument("--review", choices=["pending", "live"], help="share immediately with live; otherwise your review setting applies")
     s.set_defaults(fn="meeting import")
 
     message = sub.add_parser("message", help="send a message, read what waits for you, mark one read").add_subparsers(dest="sub")

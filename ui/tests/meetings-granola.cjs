@@ -44,7 +44,7 @@ async function open(browser, viewport, w, scheme = 'dark') {
     if (p === '/api/v2/setup/getting-started') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true, cards_dismissed: [],
       can_build: true, owner: true, empty: {docs: true, market: true, tasks: true, updates: true, goals: true, meetings: true}});
     if (p === '/api/meetings/sources') return json({sources: [{id: 'import', name: 'Import', status: 'available'}]});
-    if (p === '/api/meetings') { w.listed++; return json(w.meetings); }
+    if (p === '/api/v2/meetings') { w.listed++; return json({meetings: w.meetings, pending_count: 0}); }
     if (p === '/api/v2/meeting-importers') return json({computers: [{id: 'mac', label: 'Test Mac', platform: 'macos', online: true}],
       importers: [{source: 'granola', name: 'Granola', enabled: false, runner_id: '', status: 'off', imported_total: 0, error: '',
         setup: {file: 'secrets/granola.env', keys: ['GRANOLA_API_KEY'], doc: 'docs/meetings.md'}}]});

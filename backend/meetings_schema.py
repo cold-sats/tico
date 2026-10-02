@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS task_delegations (
 );
 """
 
+MEETING_REVIEW_SCHEMA = """
+ALTER TABLE meetings ADD COLUMN review_state TEXT NOT NULL DEFAULT 'live'
+ CHECK (review_state IN ('pending','live','dismissed'));
+UPDATE meetings SET metadata_json=json_set(metadata_json,'$.review_state','live','$.ready_announced',json('true'))
+ WHERE review_state='live';
+CREATE INDEX IF NOT EXISTS meetings_review_owner ON meetings(review_state,owner COLLATE NOCASE);
+"""
+
 # The three sections a meeting fills up, plus the two read-only context lists
 # Items live beside
 # the meeting rather than inside its notes so they can be edited and pushed for as long as the
