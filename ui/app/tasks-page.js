@@ -156,7 +156,7 @@ function pageTasks(forced, openId = '') {
   void (async () => {
     // Start the task request immediately. A slow preference read must never hold the board blank.
     const loading = tasksLoad(state);
-    const pref = S.me?.cloud ? await v2Get('/v2/preferences/' + TASK_PREF) : null;
+    const pref = await v2Get('/v2/preferences/' + TASK_PREF);
     if (TASKS_ST !== state) return;
     if (pref?.value && typeof pref.value === 'object') {
       if (!hadQuery && pref.value.type != null) state.type = String(pref.value.type);
@@ -195,11 +195,9 @@ function tasksRemember(state) {
     localStorage.setItem('hub.tasks.view2', state.view);
     localStorage.setItem('hub.tasks.layout', JSON.stringify(tasksPrefsValue(state)));
   } catch {}
-  if (S.me?.cloud) {
-    clearTimeout(state.saveTimer);
-    state.saveTimer = setTimeout(() => { void post('/v2/preferences/' + TASK_PREF,
-      {value: {type: state.type, view: state.view, views: 2, ...tasksPrefsValue(state)}}).catch(() => {}); }, 400);
-  }
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(() => { void post('/v2/preferences/' + TASK_PREF,
+    {value: {type: state.type, view: state.view, views: 2, ...tasksPrefsValue(state)}}).catch(() => {}); }, 400);
 }
 function taskOwnerOptions(selected = '') {
   const people = (S.people || []).filter(p => !p.hidden)
@@ -240,7 +238,7 @@ function openTaskCreate(owner = '', opts = {}) {
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
         <label>Details (required)<textarea name="body" required aria-label="Details" placeholder="Details"></textarea></label>
         <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Link (pull request, doc)" aria-label="Link">
-        ${S.me?.cloud ? '<label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>' : ''}
+        <label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>
         <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="task-create-msg"></span></div>
         <p class="muted hint">You close it. For a human, start the title with a verb.</p>
       </form>

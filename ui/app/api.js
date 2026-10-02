@@ -91,7 +91,6 @@ const formFetch = (url, body) => window.TicoObservability
   ? window.TicoObservability.run(url.startsWith(API) ? url.slice(API.length) : '', () => formRequest(url, body)) : formRequest(url, body);
 async function cloudCompose(path, body, files = []) {
   if (!files.length) return post(path, body);
-  if (!S.me?.cloud) throw new Error('This composer cannot send files on the local backend. Keep the files and use Meetings to send them.');
   const fd = new FormData();
   for (const [key, value] of Object.entries(body)) fd.append(key, typeof value === 'object' ? JSON.stringify(value) : value);
   files.forEach(file => fd.append('files', file, file.name));
