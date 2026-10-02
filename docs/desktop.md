@@ -28,8 +28,10 @@ No company build is needed.
 identifier, server address and hub updater endpoint. See [Environments](environments.md).
 `TICO_HUB_URL` can also bake in a server address at build time. An address supplied in the
 process environment as `HUB_URL` wins over the baked address, which wins over the saved address.
-Without any of those addresses, the local first-launch page opens. **Change server…** saves a
-new address, while environment and baked overrides retain priority on the next launch.
+Without any of those addresses, the local first-launch page opens. Environment builds hide
+**Change server…** and ignore attempts to change the saved address; their built-in server
+retains priority. Built-in, process and saved addresses may use HTTP for existing deployments;
+only a newly entered first-launch or **Change server…** address requires HTTPS or loopback HTTP.
 
 Servers offer the desktop assets from their running GitHub release when no bucket build exists
 or that build is older. A bucket build of the same or a newer version remains available. If

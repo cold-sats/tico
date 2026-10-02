@@ -19,14 +19,22 @@ pub fn is_generic() -> bool {
 }
 
 pub fn resolve(env: Option<&str>, baked: Option<&str>, saved: Option<&str>) -> Result<Option<Url>, String> {
-    env.into_iter().chain(baked).chain(saved).find(|s| !s.trim().is_empty()).map(validate_url).transpose()
+    env.into_iter().chain(baked).chain(saved).find(|s| !s.trim().is_empty()).map(configured_url).transpose()
 }
 
 pub fn validate_url(raw: &str) -> Result<Url, String> {
-    let mut hub = Url::parse(raw.trim()).map_err(|_| "Enter a full server address, such as https://tico.example.com.")?;
+    let hub = configured_url(raw)?;
     let local = matches!(hub.host_str(), Some("localhost") | Some("127.0.0.1"));
-    if hub.host_str().is_none() || !(hub.scheme() == "https" || hub.scheme() == "http" && local) {
+    if hub.scheme() == "http" && !local {
         return Err("Use HTTPS (HTTP is allowed only for localhost or 127.0.0.1).".into());
+    }
+    Ok(hub)
+}
+
+fn configured_url(raw: &str) -> Result<Url, String> {
+    let mut hub = Url::parse(raw.trim()).map_err(|_| "Enter a full server address, such as https://tico.example.com.")?;
+    if hub.host_str().is_none() || !matches!(hub.scheme(), "https" | "http") {
+        return Err("Use an HTTP or HTTPS server address.".into());
     }
     if !hub.username().is_empty() || hub.password().is_some() || hub.query().is_some() || hub.fragment().is_some() {
         return Err("Use a server address without a login, query or fragment.".into());
@@ -131,6 +139,15 @@ mod tests {
         Config::load_selected(&path, None, Some("https://other.example.com"), Some(&saved)).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn configured_http_servers_keep_working() {
+        for values in [(Some("http://team.example.com"), None, None),
+                       (None, Some("http://team.example.com"), None),
+                       (None, None, Some("http://team.example.com"))] {
+            assert_eq!(resolve(values.0, values.1, values.2).unwrap().unwrap().as_str(), "http://team.example.com/");
+        }
     }
 
     #[test]

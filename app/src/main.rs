@@ -158,6 +158,7 @@ fn server_address(app: App) -> String {
 
 #[tauri::command]
 async fn connect_server(app: App, address: String) -> Result<(), String> {
+    if !config::is_generic() { return Err("This app uses its built-in server.".into()); }
     let hub = config::validate_server(&address).await?;
     let path = server_path(&app).map_err(|_| "Could not open the app's settings folder.")?;
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|_| "Could not create the app's settings folder.")?;
@@ -454,9 +455,12 @@ fn open_deep_link(app: &App, url: &url::Url) {
 // ----------------------------------------------------------------------------- app menu
 fn build_menu(app: &App) -> tauri::Result<()> {
     let name = config::app_name();
-    let app_menu = Submenu::with_items(app, &name, true, &[
-        &PredefinedMenuItem::about(app, Some(&format!("About {name}")), None)?,
-        &MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?,
+    let app_menu = Submenu::new(app, &name, true)?;
+    app_menu.append(&PredefinedMenuItem::about(app, Some(&format!("About {name}")), None)?)?;
+    if config::is_generic() {
+        app_menu.append(&MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?)?;
+    }
+    app_menu.append_items(&[
         &PredefinedMenuItem::separator(app)?,
         &PredefinedMenuItem::hide(app, None)?,
         &PredefinedMenuItem::quit(app, Some(&format!("Quit {name}")))?,
@@ -481,7 +485,7 @@ fn build_menu(app: &App) -> tauri::Result<()> {
 
 fn menu_event(app: &App, id: &str) {
     match id {
-        "server" => { let _ = build_server_window(app); }
+        "server" if config::is_generic() => { let _ = build_server_window(app); }
         "search" => open_search(app),
         "reload" => reload(app),
         "mode" => toggle_window_mode(app),
@@ -501,11 +505,14 @@ fn build_tray(app: &App) -> tauri::Result<()> {
     let reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
     let state: State<AppState> = app.state();
     let quit = MenuItem::with_id(app, "quit", format!("Quit {}", config::app_name()), true, None::<&str>)?;
-    let server = MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[
         &headline, &counts, &PredefinedMenuItem::separator(app)?,
-        &toggle, &mode, &search, &reload, &server, &PredefinedMenuItem::separator(app)?, &quit,
+        &toggle, &mode, &search, &reload,
     ])?;
+    if config::is_generic() {
+        menu.append(&MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?)?;
+    }
+    menu.append_items(&[&PredefinedMenuItem::separator(app)?, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     let tray = TrayIconBuilder::with_id("tico")
         .icon(icon)
