@@ -4,11 +4,15 @@ Tokens and pending device codes are encrypted with the credential vault's cipher
 separate store without reveal, grant, runner or SQL access. HTTP work runs outside transactions.
 """
 import asyncio
+import base64
 import json
+import logging
+import re
 import time
 import uuid
 import weakref
 from datetime import datetime, timedelta, timezone
+from html import unescape
 
 import httpx
 from fastapi import Request
@@ -22,11 +26,13 @@ AUTH = "https://mcp-auth.granola.ai"
 SCOPES = "openid profile email offline_access mcp"
 SCHEDULE = 25 * 60
 DEBOUNCE = 120
+log = logging.getLogger(__name__)
 
 
 class GranolaError(Exception):
-    def __init__(self, code="provider_error"):
+    def __init__(self, code="provider_error", step=None):
         self.code = code
+        self.step = step
         super().__init__(code)
 
 
@@ -208,7 +214,7 @@ class GranolaMCP:
             api_key = c.execute("SELECT enabled FROM meeting_importers WHERE source='granola'").fetchone()
         meta = json.loads(row["metadata_json"]) if row else {}
         return {"mode": "account" if row else "api_key" if api_key and api_key[0] else "off",
-                "connected": meta.get("state") == "connected" or bool(meta.get("previous_meta")), "email": None,
+                "connected": meta.get("state") == "connected" or bool(meta.get("previous_meta")), "email": meta.get("email"),
                 "plan_hint": meta.get("plan_hint"), "last_sync": meta.get("last_sync"),
                 "last_error": meta.get("last_error"), "imported_count": meta.get("imported_count", 0),
                 "needs_signin": meta.get("needs_signin", False), "syncing": who.actor in self.jobs,
@@ -218,6 +224,25 @@ class GranolaMCP:
         meta.update(state="needs_signin", needs_signin=True, last_error="Granola needs sign-in again")
         # Do not keep a rejected access token or device code.
         self.save(row, meta, {"client_id": secret.get("client_id", "")})
+
+    @staticmethod
+    def account_email(value):
+        """Display-only claims received from the trusted token endpoint; never used for rights."""
+        from runner.importers.base import email_of
+        claims = [value, value.get("userinfo")]
+        token = value.get("id_token")
+        if isinstance(token, str) and len(token) < 100_000:
+            try:
+                part = token.split(".")[1]
+                claims.append(json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))))
+            except (ValueError, IndexError, UnicodeError):
+                pass
+        for claim in claims:
+            if isinstance(claim, dict) and claim.get("email_verified") is not False:
+                email = email_of(claim.get("email"))
+                if email:
+                    return email
+        return None
 
     async def poll(self, who):
         async with self.lock(who.actor):
@@ -265,7 +290,8 @@ class GranolaMCP:
                               "expiry": self.clock() + self.seconds(value.get("expires_in"), 3600)}
                     revoke_after_save = old_secret.get("previous_secret", {})
                     meta.pop("previous_meta", None)
-                    meta.update(state="connected", needs_signin=False, last_error=None)
+                    meta.update(state="connected", needs_signin=False, last_error=None, plan_hint="free",
+                                email=self.account_email(value))
                 await asyncio.to_thread(self.save, row, meta, secret)
                 if revoke_after_save:
                     self.queue_revoke(revoke_after_save)
@@ -337,7 +363,7 @@ class GranolaMCP:
 
     async def rpc(self, row, meta, secret, session, method, params=None, notification=False):
         if secret.get("expiry", 0) <= self.clock() + 30:
-            await self.refresh(row, meta, secret)
+            await self.refresh_for_sync(row, meta, secret)
         for attempt in range(4):
             headers = {"Authorization": "Bearer " + secret["access_token"],
                        "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": session.get("version", "2025-03-26")}
@@ -349,7 +375,7 @@ class GranolaMCP:
             response = await self.http("POST", MCP, headers=headers, json=body)
             if response.status_code == 401 and not session.get("refreshed"):
                 session["refreshed"] = True
-                await self.refresh(row, meta, secret)
+                await self.refresh_for_sync(row, meta, secret)
                 continue
             if response.status_code == 429:
                 try:
@@ -387,14 +413,26 @@ class GranolaMCP:
                 code = error.get("code") if isinstance(error, dict) else None
                 raise GranolaError("forbidden" if code in (403, -32003) else "provider_error")
             result = value.get("result", {})
+            if not isinstance(result, dict):
+                raise GranolaError("bad_response")
             if result.get("isError"):
                 # Read only to classify; never save/return/log the tool's free-form error message.
                 message = encode(result).lower()
+                if (params or {}).get("name") == "get_meeting_transcript" and any(word in message for word in
+                        ("paid", "upgrade", "business", "enterprise")):
+                    raise GranolaError("transcripts_unavailable")
                 raise GranolaError("forbidden" if any(word in message for word in
                                    ("permission", "paid", "upgrade", "forbidden", "not authorized", "access denied"))
                                    else "provider_error")
             return result
         raise GranolaError("rate_limited")
+
+    async def refresh_for_sync(self, row, meta, secret):
+        try:
+            await self.refresh(row, meta, secret)
+        except GranolaError as exc:
+            exc.step = "refresh_token"
+            raise
 
     @staticmethod
     def content(result, allow_text=False):
@@ -416,34 +454,90 @@ class GranolaMCP:
 
     @staticmethod
     def xml_content(raw):
-        """Some MCP tools return XML text. Read only known shared fields; discard private notes."""
-        from xml.etree import ElementTree as ET
+        """Granola's XML-like text contains bare emails and markdown, so never parse it as XML."""
         if "<!DOCTYPE" in raw.upper() or "<!ENTITY" in raw.upper():
             raise GranolaError("bad_response")
-        try:
-            root = ET.fromstring(raw)
-        except ET.ParseError:
+
+        def attributes(value):
+            return {m[1]: unescape(m[3]) for m in re.finditer(
+                r'''([\w:-]+)\s*=\s*(["'])(.*?)\2''', value, re.S)}
+
+        def field(body, key):
+            # Only direct fields count. Skip whole unknown/private sections without altering
+            # markup inside a shared summary (which may itself contain literal tag examples).
+            position = 0
+            while match := re.search(r"<([\w:-]+)\b[^>]*>", body[position:]):
+                start = position + match.end()
+                if match[0].rstrip().endswith("/>"):
+                    if match[1] == key:
+                        return ""
+                    position = start
+                    continue
+                close = re.search(r"</" + re.escape(match[1]) + r"\s*>", body[start:])
+                if close is None:
+                    return None
+                if match[1] == key:
+                    return body[start:start + close.start()].strip()
+                position = start + close.end()
             return None
-        rows = [root] if root.tag in ("meeting", "note") else list(root.iter("meeting")) + list(root.iter("note"))
+
+        # Bound each body by the next meeting opener: a broken row cannot swallow a healthy one.
+        # Hide opaque sections while locating rows, keeping offsets into the original text.
+        scan = re.sub(r"<(summary_markdown|summary_text|ai_summary|enhanced_notes|summary|private_notes|raw_notes|note_taker_notes)\b[^>]*>.*?</\1\s*>",
+                      lambda match: " " * len(match[0]), raw, flags=re.S)
+        nodes = list(re.finditer(r'''<(meeting|note)\b((?:[^<>"']|"[^"]*"|'[^']*')*?)(/?)>''', scan, re.S))
         out = []
-        for node in rows:
-            row = {"id": node.get("id") or node.get("meeting_id")}
+        for index, node in enumerate(nodes):
+            end = nodes[index + 1].start() if index + 1 < len(nodes) else len(raw)
+            close = re.search(r"</" + node[1] + r"\s*>", scan[node.end():end])
+            if not node[3] and close is None:
+                out.append({})
+                continue
+            body = "" if node[3] else raw[node.end():node.end() + close.start()]
+            attrs = attributes(node[2])
+            row = {"id": attrs.get("id") or attrs.get("meeting_id")}
             for key in ("id", "meeting_id", "note_id", "title", "date", "created_at", "start_time", "summary_markdown",
                         "summary_text", "ai_summary", "enhanced_notes", "summary", "web_url"):
-                if node.get(key) is not None:
-                    row[key] = node.get(key)
-                field = node.find(key)
-                if field is not None:
-                    row[key] = "".join(field.itertext()).strip()
-            row["attendees"] = [{"name": a.get("name") or a.findtext("name") or (a.text or "").strip(),
-                                 "email": a.get("email") or a.findtext("email") or ""}
-                                for a in node.findall("./attendees/attendee")]
+                if key in attrs:
+                    row[key] = attrs[key]
+                value = field(body, key)
+                if value is not None:
+                    row[key] = value if key in ("summary_markdown", "summary_text", "ai_summary", "enhanced_notes", "summary") else unescape(value)
+            row["attendees"] = []
+            for attendee in re.finditer(r"<attendee\b([^>]*?)(?:/\s*>|>(.*?)</attendee\s*>)", field(body, "attendees") or "", re.S):
+                attrs, inner = attributes(attendee[1]), attendee[2] or ""
+                row["attendees"].append({"name": attrs.get("name") or unescape(field(inner, "name") or re.sub(r"<[^>]*>", "", inner).strip()),
+                                         "email": attrs.get("email") or unescape(field(inner, "email") or "")})
+            for line in (field(body, "known_participants") or "").splitlines():
+                line = unescape(line).strip()
+                if not line:
+                    continue
+                email = re.search(r"<([^<>\s]+@[^<>\s]+)>", line)
+                name = line[:email.start()].strip() if email else line
+                name = re.sub(r"\s*\(note creator\)", "", name, flags=re.I)
+                name = re.split(r"(?:^|\s+)from\s+", name, maxsplit=1, flags=re.I)[0].strip()
+                row["attendees"].append({"name": name, "email": email[1] if email else ""})
             out.append(row)
-        if out:
-            return {"meetings": out, "next_cursor": root.findtext("next_cursor")}
-        if root.tag == "transcript":
-            return {"transcript": "".join(root.itertext()).strip()}
+        if out or re.search(r"<(meetings_data|meetings|notes)\b", raw):
+            wrapper = re.match(r"\s*<(meetings_data|meetings|notes)\b[^>]*>(.*)</\1\s*>\s*$", raw, re.S)
+            return {"meetings": out, "next_cursor": unescape(field(wrapper[2] if wrapper else raw, "next_cursor") or "") or None}
+        transcript = field(raw, "transcript")
+        if transcript is not None:
+            return {"transcript": transcript}
         return None
+
+    @staticmethod
+    def meeting_date(value):
+        """Provider dates without a timezone (including English month names) are treated as UTC."""
+        from runner.importers.base import moment
+        parsed = moment(value)
+        if parsed is None and isinstance(value, str):
+            for format in ("%b %d, %Y %I:%M %p", "%b %d, %Y"):
+                try:
+                    return datetime.strptime(value.strip(), format).replace(tzinfo=timezone.utc)
+                except ValueError:
+                    pass
+        return parsed
 
     @staticmethod
     def arguments(tool, values):
@@ -499,11 +593,11 @@ class GranolaMCP:
         external_id = note.get("note_id") or note.get("id") or note.get("meeting_id")
         if not external_id:
             raise GranolaError("bad_response")
-        from runner.importers.base import moment, people, text, https_url
+        from runner.importers.base import people, text, https_url
         attendees = note.get("attendees") or note.get("participants") or []
         participants = people(*[(a.get("name", ""), a.get("email", "")) if isinstance(a, dict) else str(a)
                                 for a in attendees])
-        started = moment(note.get("created_at") or note.get("date") or note.get("start_time"))
+        started = GranolaMCP.meeting_date(note.get("created_at") or note.get("date") or note.get("start_time"))
         return MeetingImport(source="granola", external_id=str(external_id), private=True,
                              title=text(note.get("title"), 300) or "Granola meeting",
                              started_at=started.isoformat() if started else None, participants=participants,
@@ -531,16 +625,21 @@ class GranolaMCP:
             who = Identity(actor, "human", row["email"])
             meta["last_attempt"] = self.clock()
             await asyncio.to_thread(self.save, row, meta, secret)
+            step = "initialize"
+            skipped_error = None
             try:
                 meta["transcripts_unavailable"] = False
+                meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else "free"
                 meta["skipped"] = 0
                 transcript_errors = 0
                 session = {}
                 initialized = await self.rpc(row, meta, secret, session, "initialize", {
                     "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "Tico", "version": "0.3.2"}})
                 session["version"] = initialized.get("protocolVersion", "2025-03-26")
+                step = "notifications/initialized"
                 await self.rpc(row, meta, secret, session, "notifications/initialized", notification=True)
                 tools, cursor = {}, None
+                step = "tools/list"
                 for _ in range(20):
                     page = await self.rpc(row, meta, secret, session, "tools/list", {"cursor": cursor} if cursor else {})
                     tools.update({t["name"]: t for t in page.get("tools", []) if isinstance(t, dict) and "name" in t})
@@ -551,7 +650,6 @@ class GranolaMCP:
                     raise GranolaError("import_limit")
                 if not all(name in tools for name in ("list_meetings", "get_meetings")):
                     raise GranolaError("feature_unavailable")
-                meta["plan_hint"] = "paid" if "get_meeting_transcript" in tools or "list_meeting_folders" in tools else "free"
                 until = datetime.fromtimestamp(self.clock(), timezone.utc)
                 since = meta.get("cursor") or (until - timedelta(days=30)).isoformat()
                 if meta.get("cursor"):
@@ -560,6 +658,7 @@ class GranolaMCP:
                 if meta["plan_hint"] == "free":
                     since = max(datetime.fromisoformat(since), until - timedelta(days=30)).isoformat()
                 cursor, listed = None, []
+                step = "list_meetings"
                 for _ in range(100):
                     value = await self.call(row, meta, secret, session, tools["list_meetings"], {
                         "since": since, "start_date": since, "after": since, "created_after": since,
@@ -575,11 +674,10 @@ class GranolaMCP:
                         break
                 else:
                     raise GranolaError("import_limit")
-                from runner.importers.base import moment
                 ids, dates = [], {}
                 for entry in listed:
                     try:
-                        date = moment(entry.get("created_at") or entry.get("date") or entry.get("start_time"))
+                        date = self.meeting_date(entry.get("created_at") or entry.get("date") or entry.get("start_time"))
                         if date and not datetime.fromisoformat(since) <= date <= until:
                             continue
                         nid = entry.get("id") or entry.get("meeting_id") or entry.get("note_id")
@@ -589,6 +687,7 @@ class GranolaMCP:
                         dates[str(nid)] = date or datetime.fromisoformat(since)
                     except Exception:
                         meta["skipped"] += 1
+                        skipped_error = "bad_response: list_meetings"
                 ids = sorted(dict.fromkeys(ids), key=dates.get)
                 if len(ids) > 5000:
                     raise GranolaError("import_limit")
@@ -597,6 +696,7 @@ class GranolaMCP:
                                                 if k in ("meeting_ids", "ids", "note_ids") and isinstance(v.get("maxItems"), int)]))
                 for offset in range(0, len(ids), batch_size):
                     batch = ids[offset:offset + batch_size]
+                    step = "get_meetings"
                     try:
                         value = await self.call(row, meta, secret, session, tools["get_meetings"],
                                                 {"meeting_ids": batch, "ids": batch, "note_ids": batch})
@@ -615,22 +715,34 @@ class GranolaMCP:
                                 if exc.code in ("unreachable", "rate_limited", "needs_signin"):
                                     raise
                                 meta["skipped"] += 1
+                                skipped_error = exc.code + ": get_meetings"
                     for note in notes:
                         transcript = ""
                         nid = note.get("id") or note.get("meeting_id") or note.get("note_id")
+                        if not nid:
+                            meta["skipped"] += 1
+                            skipped_error = "bad_response: get_meetings"
+                            continue
                         if "get_meeting_transcript" in tools and not meta.get("transcripts_unavailable"):
+                            step = "get_meeting_transcript"
                             try:
                                 data = await self.call(row, meta, secret, session, tools["get_meeting_transcript"],
                                                        {"meeting_id": nid, "id": nid, "note_id": nid})
                                 transcript = data.get("transcript", "") if isinstance(data, dict) else data if isinstance(data, (list, str)) else ""
-                                segments_of(MeetingImport(transcript=transcript))
+                                if not segments_of(MeetingImport(transcript=transcript)):
+                                    raise GranolaError("bad_response")
                                 transcript_errors = 0
-                            except Exception:
+                                meta.update(transcript_succeeded=True, plan_hint="paid")
+                            except Exception as exc:
                                 transcript = ""
                                 transcript_errors += 1
-                                if transcript_errors >= 3:
+                                if isinstance(exc, GranolaError) and exc.code == "transcripts_unavailable":
                                     meta["transcripts_unavailable"] = True
-                                meta["plan_hint"] = "free"
+                                    meta.pop("transcript_succeeded", None)
+                                elif transcript_errors >= 3:
+                                    meta["transcripts_unavailable"] = True
+                                meta["plan_hint"] = "paid" if meta.get("transcript_succeeded") else "free"
+                        step = "import_meeting"
                         try:
                             item = self.item(note, transcript)
                             if item:
@@ -649,6 +761,7 @@ class GranolaMCP:
                                     raise
                         except Exception:
                             meta["skipped"] += 1
+                            skipped_error = "bad_response: import_meeting"
                         await asyncio.to_thread(self.save, row, meta, secret)
                     # IDs are processed by list date, so this checkpoint cannot pass an unprocessed batch.
                     checkpoint = max(dates[nid] for nid in batch)
@@ -660,16 +773,21 @@ class GranolaMCP:
                 meta["failures"] = 0
                 meta.pop("retry_after", None)
                 meta.update(last_sync=H.now(), last_finished=self.clock(), cursor=until.isoformat(),
-                            last_error=f"{meta['skipped']} notes skipped" if meta["skipped"] else None)
+                            last_error=skipped_error)
+                if skipped_error:
+                    log.warning("%s", skipped_error)
             except GranolaError as exc:
+                failure = exc.code + ": " + (exc.step or step)
+                log.warning("%s", failure)
                 if exc.code == "needs_signin":
                     return
-                meta["last_error"] = "Granola sync: " + exc.code
+                meta["last_error"] = failure
                 meta["failures"] = min(meta.get("failures", 0) + 1, 4)
                 meta["retry_after"] = self.clock() + SCHEDULE * 2 ** (meta["failures"] - 1)
             except Exception:
                 # In particular never persist validation errors containing provider data.
-                meta["last_error"] = "Granola sync failed; retry or reconnect in Meetings"
+                meta["last_error"] = "sync_error: " + step
+                log.warning("%s", meta["last_error"])
             await asyncio.to_thread(self.save, row, meta, secret)
 
     async def trigger(self, who, interval=DEBOUNCE):
@@ -696,7 +814,7 @@ class GranolaMCP:
                 row = c.execute("SELECT metadata_json FROM granola_connections WHERE actor=?", (who.actor,)).fetchone()
                 if row:
                     meta = json.loads(row[0])
-                    meta.update(last_attempt=self.clock(), last_error="Granola sync failed; check Credential encryption in Health")
+                    meta.update(last_attempt=self.clock(), last_error="credential_error: load_connection")
                     c.execute("UPDATE granola_connections SET metadata_json=? WHERE actor=?", (encode(meta), who.actor))
         async def run():
             try:
@@ -704,6 +822,7 @@ class GranolaMCP:
             except asyncio.CancelledError:
                 raise
             except Exception:
+                log.warning("credential_error: load_connection")
                 await asyncio.to_thread(record_failure)
         task = asyncio.create_task(run())
         self.jobs[who.actor] = task

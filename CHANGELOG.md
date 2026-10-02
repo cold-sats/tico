@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-10-02
+
+### Fixed
+- Granola (account sign-in, including the free plan) now imports notes: Granola's answers with participant emails and markdown summaries are read correctly, dates like "Feb 4, 2026 7:30 PM" are understood, the free plan is recognized, and a failed sync names the step that failed.
+
 ### Changed
 - Every release builds the desktop app first; if it fails, the release isn't published. The desktop app now carries the release's version (0.3.6, not 2.0.x) and the current Tico icon; an installed 2.0.x app needs one reinstall from the download page, then it updates itself with each release.
 

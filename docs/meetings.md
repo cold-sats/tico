@@ -342,6 +342,11 @@ with backoff. Meetings and your Health page say
 **Granola needs sign-in again** when the grant is rejected; connect again to continue.
 Transcript failures still import shared notes. Unmappable meetings are skipped, counted in status,
 and do not block later notes. Transcript access is checked again on each sync after a plan change.
+The plan hint stays free until a transcript is successfully read; an advertised transcript tool
+alone does not indicate a paid plan. A paid-tier denial stops further transcript requests for that sync.
+Granola's XML-like responses accept bare participant emails and markdown containing `<` and `&`;
+shared summaries retain their markdown. Dates such as `Feb 4, 2026 7:30 PM` and `Feb 4, 2026` are
+treated as UTC. Unknown dates do not prevent importing a meeting's notes.
 Calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
 Disconnect cancels an active sync and removes the stored token promptly; revocation is attempted in
 background when Granola advertises a trusted endpoint. Connections are removed when a person leaves
@@ -351,7 +356,11 @@ new sign-in starts a fresh 30-day backfill.
 `hub meetings granola status` shows your connection and `hub meetings granola sync` starts a background
 sync. `POST /api/v2/meetings/granola/sync` returns `state: "syncing"` when a job is running
 (or `recent`, `off`, `needs_signin`). `GET /api/v2/meetings/granola` includes `syncing: bool`
-and `skipped` for the last attempt. The account email is omitted unless verified by the provider.
+and `skipped` for the last attempt. The account email comes only from display claims supplied by
+Granola's token endpoint (including userinfo or ID-token claims), unless marked unverified, and is
+null when absent. These claims never change the person's Tico rights; the ID token is not retained.
+Sync failures show and log a fixed code with the failed step, such as `bad_response: list_meetings`,
+without provider content or tokens. Skipped notes also name the step while retaining their count.
 The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use the caller's person
 rights; BotOps can give the Meetings link but cannot complete the browser sign-in.
 
