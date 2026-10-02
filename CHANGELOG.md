@@ -11,6 +11,7 @@ All notable changes to Tico are recorded here. The format follows
 - The team chart shows personal branches only to their operator, labeled Your branch. Original bots remain visible in their groups; administrators can still inspect other branches through the branch picker and Settings.
 
 ### Improved
+- Tasks always show one selected type. General and Dev tickets sit beside search, with other types in the arrow menu; switching views, clearing filters, creating tasks and pinning views retain the selected type.
 - The team chart refreshes groups, people and bots during normal polling, so changes made by BotOps or another session appear without a reload while preserving collapsed groups.
 - Help puts Support in the existing resizable right rail, with continuing conversations, a simpler overview, platform descriptions and an inline glossary.
 - New support requests include editable, redacted diagnostics by default. Replies can attach a fresh capture; rejected attachments are never silently dropped.

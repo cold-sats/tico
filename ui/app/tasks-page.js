@@ -21,7 +21,7 @@ function pageTasks(forced, openId = '') {
     state.armed = localStorage.getItem('hub.recurring.armed') || 'all';
   } catch { state.view = forced || 'foryou'; }
   taskPipelineState(state);
-  if (hadQuery) state.type = state.urlType;
+  if (hadQuery) state.type = state.urlType || 'general';
   tasksPrefsFromLocal(state);
   // Filters an older page saved (Mine, Asked by me, an owner, a tag) come over once as chips, unless the address has its own.
   state.migrate = !hadQuery;
@@ -34,7 +34,8 @@ function pageTasks(forced, openId = '') {
         <h1>Tasks</h1>
         <div class="tl-tabs" id="task-view" role="tablist" aria-label="Task views"></div>
         <span class="spacer"></span>
-        <div class="tl-search">${TL_ICON.search}<input type="search" id="task-q" spellcheck="false" aria-label="Search tasks" placeholder="Search" autocomplete="off"><kbd aria-hidden="true">/</kbd></div>
+        <div class="tl-type-search"><div class="tl-types" id="task-type" role="group" aria-label="Task type"></div>
+        <div class="tl-search">${TL_ICON.search}<input type="search" id="task-q" spellcheck="false" aria-label="Search tasks" placeholder="Search" autocomplete="off"><kbd aria-hidden="true">/</kbd></div></div>
         <button class="primary tl-new" type="button" id="task-new" aria-label="New task" title="New task (C)">${TL_ICON.plus}<span>New task</span></button>
       </header>
       <div class="tl-bar" id="task-bar">
@@ -51,6 +52,11 @@ function pageTasks(forced, openId = '') {
       <div class="tl-bulk" id="task-bulk" role="toolbar" aria-label="Selected tasks" hidden></div>
     </div></div>
     <div id="task-filter-pop" class="tl-pop" popover></div>`;
+  $('#task-type').onclick = ev => {
+    const button = ev.target.closest('[data-task-type]');
+    if (button) taskPipelineSelect(state, button.dataset.taskType);
+    else if (ev.target.closest('#task-type-more')) taskPipelineMenu(state, $('#task-type-more'));
+  };
   $('#task-pin').onclick = () => tasksPinToggle(state);
   $('#task-new').onclick = () => { const p = tasksCreatePrefill(state); openTaskCreate(p.owner, {labels: p.labels}); };
   const search = $('#task-q');
@@ -91,7 +97,7 @@ function pageTasks(forced, openId = '') {
     const drop = ev.target.closest('[data-chip-drop]');
     if (drop) {
       const field = drop.dataset.chipDrop;
-      if (field === 'type') { state.type = ''; taskPipelineRemember(state); tasksRemember(state); } else state.filters[field] = [];
+      state.filters[field] = [];
       tasksFiltersChanged(state);
       $('#task-filter')?.focus();
       return;
@@ -100,7 +106,7 @@ function pageTasks(forced, openId = '') {
     if (edit) tasksFilterMenu(state, edit.dataset.chipEdit, edit);
   };
   $('#task-filter-clear').onclick = () => {
-    state.filters = tasksEmptyFilters(); state.type = ''; taskPipelineRemember(state); tasksRemember(state);
+    state.filters = tasksEmptyFilters();
     tasksFiltersChanged(state);
     $('#task-filter')?.focus();
   };
@@ -118,6 +124,7 @@ function pageTasks(forced, openId = '') {
   pop.addEventListener('keydown', tasksMenuKeys);
   pop.addEventListener('toggle', ev => {
     if (ev.newState !== 'closed') return;
+    $('#task-type-more')?.setAttribute('aria-expanded', 'false');
     const anchor = state.menuAnchor; state.menuAnchor = null;
     if (anchor?.isConnected && (pop.contains(document.activeElement) || document.activeElement === document.body)) anchor.focus();
   });
@@ -150,7 +157,7 @@ function pageTasks(forced, openId = '') {
   state.layoutAbort = new AbortController();
   document.addEventListener('keydown', ev => tasksKeys(state, ev), {signal: state.layoutAbort.signal});
   tasksTools(state); tasksRender(state);
-  if (hadQuery || state.type || state.migrated) tasksURLWrite(state);
+  if (!openId && (hadQuery || state.type !== 'general' || state.migrated)) tasksURLWrite(state);
   if (state.migrated) tasksRemember(state);
   // the remembered view lives with the person, not the browser; the local copy is the fallback
   void (async () => {
@@ -159,19 +166,19 @@ function pageTasks(forced, openId = '') {
     const pref = await v2Get('/v2/preferences/' + TASK_PREF);
     if (TASKS_ST !== state) return;
     if (pref?.value && typeof pref.value === 'object') {
-      if (!hadQuery && pref.value.type != null) state.type = String(pref.value.type);
+      if (!hadQuery && !state.typeChosen && pref.value.type != null) state.type = String(pref.value.type) || 'general';
       // Before `views: 2`, List and Board both showed Needs you, so an old choice means Needs you.
       if (!forced && pref.value.view) state.view = pref.value.views === 2 ? String(pref.value.view) : 'foryou';
       tasksPrefsApply(state, pref.value);
       tasksNormalise(state, forced);
       tasksTypeCheck(state);
       const migrated = state.migrate && tasksMigrateOldFilters(state, pref.value);
-      if (state.type || migrated) tasksURLWrite(state);
+      if (!openId && (hadQuery || state.type !== 'general' || migrated)) tasksURLWrite(state);
       if (migrated) tasksRemember(state);       // the saved value is written again without the old keys
     }
     tasksTools(state);
     tasksRender(state);
-    if ((state.view === 'done' || state.type) && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+    if ((state.view === 'done' || state.view === 'board') && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
     await loading;
   })();
 }
@@ -181,7 +188,7 @@ function tasksSetView(state, view) {
   state.selectMode = false;
   if (state.selected.size || state.bulkMsg) tasksSelectionClear(state);
   tasksRemember(state); tasksURLWrite(state); tasksTools(state); tasksRender(state);
-  if (state.view === 'done' && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+  if ((state.view === 'done' || state.view === 'board') && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
   else if (state.view === 'done') void tasksDoneMerge(state);
 }
 function tasksNormalise(state, forced) {
@@ -286,7 +293,7 @@ async function tasksLoad(state, opts = {}) {
   const seq = ++state.loadSeq;
   // Done keeps its own paging. A reload after a change folds in its newest page; the poll does that too, but only while
   // Done (or a type's board, which shows finished steps) is on screen, and never more than that one page.
-  const doneShown = state.view === 'done' || !!state.type;
+  const doneShown = state.view === 'done' || state.view === 'board';
   const reloadDone = opts.poll ? doneShown && state.doneLoaded : (state.doneLoaded || doneShown);
   state.loading = !(state.tasks || []).some(t => !['done', 'closed'].includes(String(t.status)));
   tasksRender(state);
@@ -336,12 +343,13 @@ function tasksFinishPending(state, seq) {
   state.pendingFinish = null;
   if (state.peek === p.key) tasksAfterFinish(state, p.key, p.at);
 }
-// A saved or linked type that no longer exists (deleted, or from another install) would hide every task: it goes.
+// Old combined views and deleted types fall back to General, never a mixture of types.
 function tasksTypeCheck(state) {
-  if (!state.type || TASK_TYPES.some(type => type.id === state.type)) return;
-  if (TASK_TYPES.length || !S.me?.cloud || state.typesLoaded) {
-    state.type = '';
-    taskPipelineRemember(state); tasksRemember(state); tasksURLWrite(state);
+  if (state.type === 'general' || TASK_TYPES.some(type => type.id === state.type)) return;
+  if (!state.type || !S.me?.cloud || state.typesLoaded) {
+    state.type = 'general';
+    taskPipelineRemember(state); tasksRemember(state);
+    if (isTasksRoute(location.hash)) tasksURLWrite(state);
   }
 }
 async function tasksLoadDone(state, reset = false) {
