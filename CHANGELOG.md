@@ -13,6 +13,8 @@ All notable changes to Tico are recorded here. The format follows
 - Owners can set a public team icon in Settings or through the API and CLI.
 
 ### Improved
+- Granola retries rate limits sooner, reports current sync counts and account status, and keeps sign-in responsive during background sync. Regenerated summaries update only notes that have not been edited by a person.
+- Meetings bulk review applies to the visible rows, so a filtered view cannot accidentally share hidden meetings.
 - Tasks always show one selected type. General and Dev tickets sit beside search, with other types in the arrow menu; switching views, clearing filters, creating tasks and pinning views retain the selected type.
 - The team chart refreshes groups, people and bots during normal polling, so changes made by BotOps or another session appear without a reload while preserving collapsed groups.
 - Help puts Support in the existing resizable right rail, with continuing conversations, a simpler overview, platform descriptions and an inline glossary.
@@ -20,9 +22,13 @@ All notable changes to Tico are recorded here. The format follows
 - Support diagnostics group repeated server failures, include safe exception locations, runner heartbeat/recovery context and bounded browser failure counts, and report missing capture coverage without verbose logging.
 
 ### Fixed
+- Oversized multipart headers return a consistent upload error and release temporary files. Linux runner configuration checks handle GNU and BSD file metadata tools consistently.
 - The team chart shows personal branches only to their operator, labeled Your branch. Original bots remain visible in their groups; administrators can still inspect other branches through the branch picker and Settings.
 - Human desktop downloads prefer valid company builds even when older than the server; company updater feeds reject generic manifests.
 - S3 attachments and desktop downloads share the first credential source that passes a bounded write check, with optional explicit selection. Uploads wait for a writable source and keep that identity through multipart cleanup. Health reports the source and denied permission; failed checks retry every 30 minutes, and denied reads try other sources before retained local copies. Concurrent probes and download manifest fetches share bounded work, including delayed credential discovery.
+
+### Changed
+- Fireflies is no longer offered for new imports. Existing meetings, notes, recordings, file versions and historical source filters remain available.
 
 ## [0.3.11] - 2026-10-02
 
