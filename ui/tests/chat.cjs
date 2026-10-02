@@ -12,6 +12,7 @@ const {html, uiFile} = require('./support/page.cjs');
 
 async function offlineRetry(browser) {
   const page = await browser.newPage({viewport:{width:390,height:844},serviceWorkers:'block'});
+  await page.clock.install();
   const errors=[],uploads=[],sends=[];let offline=true;
   page.on('pageerror',e=>errors.push(e.message));
   const bots=[{name:'legal',display_name:'Legal',host:'keeper',status:'active',can_chat:true,schedules:[]}];
@@ -55,7 +56,8 @@ async function offlineRetry(browser) {
   assert.equal(sends.length,4,'sent once when back online');
   assert.equal(new Set(sends).size,1,'every try carries the same request id');
   // Waiting out the backoff sends nothing more.
-  await page.waitForTimeout(5500);
+  await page.clock.fastForward(60000);
+  await page.waitForFunction(()=>!BOT_PILL.sending);
   assert.equal(sends.length,4);
   assert.deepEqual(errors,[]);
   console.log('chat offline retry: ok');

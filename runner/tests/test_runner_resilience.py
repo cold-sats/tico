@@ -619,7 +619,7 @@ def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
     runner = Runner({'url': 'https://runner.example', 'token': 'machine', 'projects_dir': str(tmp_path)},
                     tmp_path / 'state', client=client, host_factory=lambda *args: host,
                     push=lambda *args, **kw: (0, ''))
-    runner.renew_interval = 0.01
+    runner.renew_interval = 60
     (tmp_path / 'emp-coo').mkdir()
     renewed = threading.Event()
     original = client.post
@@ -629,12 +629,44 @@ def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
             renewed.set()
         return result
     client.post = post
+    # Advance one renewal only after execute reaches the held maintenance lock.
+    tick, timer_waiting, lock_waiting = threading.Event(), threading.Event(), threading.Event()
+    renew_loop = runner.renew_loop
+    def renew(aid, lost, done, deadline):
+        real_wait = done.wait
+        first = True
+        def wait(interval):
+            nonlocal first
+            if not first:
+                return real_wait(interval)
+            first = False
+            assert interval == 60
+            timer_waiting.set()
+            assert tick.wait(10)
+            return done.is_set()
+        with mock.patch.object(done, 'wait', side_effect=wait):
+            renew_loop(aid, lost, done, deadline)
+    runner.renew_loop = renew
+    lock = runner.worktrees.bot_lock('coo')
+    class WaitingLock:
+        def acquire(self, **kwargs):
+            lock_waiting.set()
+            return lock.acquire(**kwargs)
+        def release(self):
+            lock.release()
+    runner.worktrees.bot_lock = lambda bot: WaitingLock()
     with ThreadPoolExecutor(max_workers=1) as pool:
-        with runner.worktrees.bot_lock('coo'):
+        with lock:
             future = pool.submit(runner.execute, attempt())
-            assert renewed.wait(2)
-            assert not host.replies == [] and not future.done()
-        future.result(timeout=5)
+            try:
+                assert timer_waiting.wait(10)
+                assert lock_waiting.wait(10)
+                tick.set()
+                assert renewed.wait(10)
+                assert host.replies == ['done'] and not future.done()
+            finally:
+                tick.set()
+        future.result(timeout=10)
     assert client.completion()['outcome'] == 'completed'
 
 

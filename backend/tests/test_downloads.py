@@ -237,27 +237,32 @@ def test_bucket_manifest_fetch_is_single_flight_without_holding_lock(warm):
 
 
 @pytest.mark.parametrize("warm", [False, True])
-def test_github_fetch_is_single_flight_and_does_not_hold_lock(warm):
+def test_github_fetch_is_single_flight_and_does_not_hold_lock(warm, monkeypatch):
     import threading
     from concurrent.futures import ThreadPoolExecutor
     downloads = Downloads(SimpleNamespace(blob_bucket="", runner_url="", public_url=""))
     stale = {"version": "0.3.6"} if warm else None
-    downloads._github = (1.0, stale)
+    # Expiry is independent of machine uptime, including a freshly booted CI worker.
+    monkeypatch.setattr("backend.downloads.time", SimpleNamespace(monotonic=lambda: 1000.0))
+    downloads._github = (399.0, stale)
     entered, finish = threading.Event(), threading.Event()
     calls = []
     def fetch():
         calls.append(True)
         entered.set()
-        assert finish.wait(2)
+        assert finish.wait(10)
         return MANIFEST
     downloads._fetch_github_manifest = fetch
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(downloads.manifest)
-        assert entered.wait(1)
+        assert entered.wait(10)
         try:
-            assert pool.submit(downloads.manifest).result(timeout=0.5) is stale
+            waits = []
+            monkeypatch.setattr(downloads._github_ready, "wait", lambda timeout: waits.append(timeout) or False)
+            assert pool.submit(downloads.manifest).result(timeout=10) is stale
+            assert waits == ([] if warm else [0.1]), "only cold callers take the bounded wait"
             assert len(calls) == 1
         finally:
             finish.set()
-        assert first.result(timeout=1) == MANIFEST
+        assert first.result(timeout=10) == MANIFEST
     assert downloads.manifest() == MANIFEST and len(calls) == 1

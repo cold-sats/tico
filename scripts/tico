@@ -85,7 +85,11 @@ command_for() {
   case "$1" in bot) echo run ;; connectors) echo connectors ;; close-calls) echo close-calls ;; importers) echo importers ;; esac
 }
 # BSD stat takes -f, GNU stat takes -c.
-file_mode() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+file_mode() {
+  # GNU stat -f prints filesystem information before failing on BSD's format.
+  local tico_file_mode
+  tico_file_mode="$(stat -f %Lp "$1" 2>/dev/null)" && printf '%s\n' "$tico_file_mode" || stat -c %a "$1"
+}
 open_url() {
   if command -v open >/dev/null 2>&1; then open "$1"
   elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1"

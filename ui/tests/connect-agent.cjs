@@ -17,6 +17,9 @@ async function open(browser, viewport, colorScheme, bypass) {
     isMobile: viewport.width < 760});
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], {origin: 'https://tico-ui.test'});
   const page = await context.newPage();
+  const now = new Date();
+  await page.clock.install({time: new Date(now.getTime() - 3600000)});
+  await page.clock.pauseAt(now);
   const state = {tokens: [{id: 'old-grok', label: 'grok-bot', created: '2026-09-01T10:00:00Z', last_used: '2026-09-29T09:00:00Z',
     expires_at: '2026-12-01T10:00:00Z', revoked_at: null},
   {id: 'ci', label: 'CI script', created: '2026-09-02T10:00:00Z', last_used: null, expires_at: '2026-12-01T10:00:00Z', revoked_at: null}],
@@ -139,6 +142,10 @@ const shot = (page, name) => shots ? page.screenshot({path: path.join(shots, `co
 
         // The agent's first call lands: the next poll says Connected.
         state.tokens[0].last_used = new Date().toISOString();
+        const beforePoll = state.urls.filter(u => u.endsWith('/api/v2/me/tokens')).length;
+        await page.clock.fastForward(2999);
+        assert.equal(state.urls.filter(u => u.endsWith('/api/v2/me/tokens')).length, beforePoll, 'no poll before three seconds');
+        await page.clock.fastForward(1);
         await page.waitForFunction(() => document.querySelector('[data-status]')?.dataset.state === 'connected', null, {timeout: 8000});
         assert.equal(await dialog.locator('[data-status-text]').innerText(), 'Connected');
         await shot(page, `connected-${tag}`);
@@ -154,7 +161,7 @@ const shot = (page, name) => shots ? page.screenshot({path: path.join(shots, `co
         await page.waitForFunction(() => !document.querySelector('dialog.connect-agent'));
         assert.equal(await page.evaluate(secret => document.body.innerHTML.includes(secret), SECRET), false);
         if (tag === 'desktop-light') {
-          await page.waitForTimeout(3500);
+          await page.clock.fastForward(300000);
           assert.equal(state.urls.filter(u => u.endsWith('/api/v2/me/tokens')).length, polls, 'polling stops on close');
         }
         await context.close();
