@@ -2035,7 +2035,8 @@ def create_app(settings=None):
             raise Problem("not_found", "Unknown goal", 404)
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, body.parent_id,
                             conversation_id=rooms.task_conversation_id(c, auth, owner,
-                                H.task(c, body.parent_id)["requester"] if body.parent_id and H.is_human(who.actor) else who.actor),
+                                H.task(c, body.parent_id)["requester"] if body.parent_id and H.is_human(who.actor)
+                                and H.is_human(H.task(c, body.parent_id)["requester"]) else who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
@@ -2044,7 +2045,7 @@ def create_app(settings=None):
         if H.is_human(who.actor) and (request_id or inherited_request):
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))
         for url in body.links:
-            H.task_link(c, who.actor, row["id"], url)
+            H.task_link(c, who.actor, row["id"], url, mover=True)
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who))}
 
     @app.post("/api/v2/tasks")
@@ -2172,7 +2173,12 @@ def create_app(settings=None):
             who = request.state.identity
             task_id = auth.resolve_task(c, who, tid)
             auth.task(c, who, task_id)
-            visible_ids = {r[0] for r in c.execute("SELECT id FROM tasks WHERE " + auth.task_sql(c, who))}
+            ids = [r["id"] for r in H.descendants(c, task_id)]
+            if not ids:
+                return []
+            marks = ",".join("?" * len(ids))
+            visible_ids = {r[0] for r in c.execute(f"SELECT id FROM tasks WHERE id IN ({marks}) AND ("
+                                                  + auth.task_sql(c, who) + ")", ids)}
             return H.task_tree(c, task_id, visible_ids)
 
     @app.get("/api/v2/tasks/{tid}/links")
@@ -2188,7 +2194,7 @@ def create_app(settings=None):
             who = request.state.identity
             task_id = auth.resolve_task(c, who, tid)
             auth.task(c, who, task_id)
-            H.task_unlink(c, who.actor, task_id, link_id)
+            H.task_unlink(c, who.actor, task_id, link_id, mover=mover(c, who))
             return {"links": H.task_links(c, task_id)}
         return mutate(request, M.Empty(), work)
 
@@ -2199,9 +2205,9 @@ def create_app(settings=None):
             task_id = auth.resolve_task(c, who, tid)
             auth.task(c, who, task_id)
             if body.remove:
-                H.task_unlink(c, who.actor, task_id, body.remove)
+                H.task_unlink(c, who.actor, task_id, body.remove, mover=mover(c, who))
             elif body.url:
-                H.task_link(c, who.actor, task_id, body.url, body.title)
+                H.task_link(c, who.actor, task_id, body.url, body.title, mover=mover(c, who))
             else:
                 raise Problem("kind", "Send a url to add or remove with a link id", 422)
             return {"links": H.task_links(c, task_id)}

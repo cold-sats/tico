@@ -2049,16 +2049,21 @@ def link_kind(url):
     return "url"
 
 
-def task_link(conn, actor, task_id, url, title=None, kind=None):
+def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
     """Attach a link to a task. A pull request link is what moves a product-lane task."""
     _writer(conn, actor)
     row = task(conn, task_id)
     if not row:
         refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_link_allowed(conn, actor, row, mover)
     url = str(url or "").strip()
     if not re.match(r"^https?://\S+$", url):
         refuse(conn, actor, "kind", "a link is an http(s) URL")
     kind = kind or link_kind(url)
+    match = PR_URL.match(url)
+    app = _one(conn, "SELECT org FROM github_app LIMIT 1") if _has_table(conn, "github_app") else None
+    if kind == "pr" and match and app and match.group(1).lower() != app["org"].lower():
+        kind = "url"
     if kind not in LINK_KINDS:
         refuse(conn, actor, "kind", f"a link is {'|'.join(LINK_KINDS)}, not {kind}")
     have = _one(conn, "SELECT * FROM task_links WHERE task_id=? AND url=?", (task_id, url))
@@ -2083,14 +2088,30 @@ def task_link(conn, actor, task_id, url, title=None, kind=None):
     return link
 
 
-def task_unlink(conn, actor, task_id, link_id):
+def _task_link_allowed(conn, actor, row, mover=None):
+    if mover is None:
+        mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
+    delegated = _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
+                     (row["id"], actor, now()))
+    if not mover and actor not in (row["owner"], row["requester"]) and not delegated and not task_ancestor_party(conn, actor, row):
+        refuse(conn, actor, "identity", "This task is not yours to change")
+
+
+def task_unlink(conn, actor, task_id, link_id, mover=None):
     _writer(conn, actor)
+    row = task(conn, task_id)
+    if not row:
+        refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_link_allowed(conn, actor, row, mover)
     have = _one(conn, "SELECT * FROM task_links WHERE id=? AND task_id=?", (link_id, task_id))
     if not have:
         refuse(conn, actor, "not-found", f"no link {link_id} on {task_id}")
     conn.execute("DELETE FROM task_links WHERE id=?", (link_id,))
     _task_event(conn, task_id, actor, "link", have["url"], None, "removed")
     event(conn, actor, "task.unlink", task_id, {"url": have["url"]})
+    if have["kind"] == "pr":
+        from .github import _pr_status
+        _pr_status(conn, row, "Pull request link removed.")
     return have
 
 
@@ -2289,7 +2310,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     owner = route(conn, actor, owner)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
-    requester = parent["requester"] if parent and is_human(actor) else actor
+    requester = parent["requester"] if parent and is_human(actor) and is_human(parent["requester"]) else actor
     title = str(title or "").strip()
     body = str(body or "")
     severity = classify(f"{title}\n{body}", to_actor=target, actor=actor, conn=conn)
@@ -2469,6 +2490,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _task_event(conn, task_id, actor, "blocked_by", row.get("blocked_by"), blocker, note or "")
     if parent_id is not None:
         parent = str(parent_id or "").strip() or None
+        if row.get("parent_id") and parent != row["parent_id"] and not mover:
+            old_parent = task(conn, row["parent_id"])
+            if old_parent and actor not in (old_parent["owner"], old_parent["requester"]):
+                refuse(conn, actor, "identity", "Only the parent's owner, requester or a mover can move a subtask away")
         if parent:
             target_parent = _task_parent(conn, actor, task_id, parent)
             if not mover and actor not in (target_parent["owner"], target_parent["requester"]) and not task_ancestor_party(conn, actor, target_parent):

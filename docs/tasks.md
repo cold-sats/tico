@@ -73,19 +73,23 @@ using `tasks.type_id` and `tasks.step_id`; the task visibility rules still apply
 
 ## Subtasks and PRs
 
-Subtasks can nest to any depth. A human-created subtask keeps the parent's requester for
-notices; a bot-created subtask is requested by the filing bot, which receives its completion
+Subtasks can nest to any depth. A human-created subtask keeps a human parent's requester for
+notices; under a bot-requested parent, the person filing it is its requester.
+A bot-created subtask is requested by the filing bot, which receives its completion
 notice and may close it. It auto-closes after three quiet days like other bot-requested tasks.
 Subtasks never inherit a human's delegation anchor from a bot's request. BotOps acts with the
 filing bot's rights when that bot asks it to work on a subtask.
 
 Parent owners can track descendants they can read, without gaining Read on hidden bots.
 Only the task's owner or requester, or a human mover, can re-parent it; bots must also own,
-request or manage the new parent. Moving a task moves its whole subtree, and cycles are refused.
+request or manage the new parent. Moving or detaching a subtask also requires its current
+parent's owner or requester, or a human mover. Moving a task moves its whole subtree,
+and cycles are refused.
 Bots finish open subtasks before marking a parent Done. Humans can always choose Ready or Done,
 or close a parent to cancel work. The keeper accepts completed routine work and old bot deliveries
 even when they have open subtasks. Finishing or moving away the last open subtask wakes the
 parent's owner with “All subtasks done”, unless that owner made the change.
+Closing a parent cancels it; later subtask completion does not wake its owner.
 Done, Closed and Declined count as finished. Open descendants under a finished subtask do not
 block its parent.
 
@@ -107,19 +111,26 @@ excluded from the PR totals.
 
 Attach as many PRs as the task needs with `hub task link`. `GET/POST /api/v2/tasks/{id}/links`
 list or attach links; `DELETE /api/v2/tasks/{id}/links/{link_id}` removes one. The older POST
-with `remove` still works. PR links include repository, number, branch, checks, mergeability,
-review state and pending review comments. The task's `pr_state` shows the worst active PR:
+with `remove` still works. Changing links requires the same rights as moving the task.
+PR URLs outside the connected GitHub org are plain links. PR links include repository,
+number, branch, checks, mergeability, review state and pending review comments. The task's `pr_state` shows the worst active PR:
 Failing, Conflict, Changes requested, Open, then Merged. Closed PRs are excluded; shipped PRs
-count as merged. Automatic Ready requires at least one merged PR and every attached PR
-merged or closed. Abandoning every PR returns a task in Review or Ready to Doing. Adding a PR
-keeps a Ready task in Ready. Automatic PR moves retain the existing custom-type and legacy
+count as merged. Automatic Ready requires at least one merged PR and every tracked PR
+merged or closed. Links without PR webhooks do not block automatic Ready. Removing a PR link
+recomputes the automatic status. Abandoning every PR returns a task in Review or Ready
+to Doing. Adding a PR keeps a Ready task in Ready. Automatic PR moves retain the existing custom-type and legacy
 product-lane behavior and preserve a human's status choice for one hour.
 
-Opening a task refreshes each tracked PR from GitHub, cached for three minutes. If GitHub is
-unavailable or the App cannot reach that repository, the last known state remains. People
+Opening a task returns its last known PR state immediately and schedules a background
+refresh for repositories the App can reach. Refreshes are grouped, capped at 20 links and
+cached for three minutes; failures back off from five minutes up to one hour. People
 can still move tasks without webhooks or a successful refresh.
 
 Failing checks, new conflicts, requests for changes, review comments from others and PRs
 closed without merging wake the owner with the specific item, grouped into one notice within
-three minutes. Pending or passing checks and the bot's own comments do not wake it. Automatic shipping waits until every merged PR is included in the configured release;
+three minutes. Conflicts wake once until a known mergeability change clears them. Label
+and text edits keep the last known mergeability. Pending or passing checks and the bot's
+own comments do not wake it. Tico recognises the GitHub App identity and suppresses comments
+from the login that pushed the head commit when the bot's login is unknown.
+Automatic shipping waits until every merged PR is included in the configured release;
 PRs in another repository remain Ready for their release or a human's completion.

@@ -628,3 +628,74 @@ def test_tree_visibility_and_link_reads_are_batched(api, monkeypatch):
         c.set_trace_callback(queries.append)
         assert len(H.task_tree(c, parent['id'])) == 25
         assert len([q for q in queries if q.startswith('SELECT') or q.startswith('WITH')]) == 2
+
+
+def test_task_link_mutations_require_move_rights(api):
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Protect task links', 'body': 'x'})
+    path = 'tasks/' + task['id'] + '/links'
+    get(api, 'tasks/' + task['id'], token='priya-test')
+    post(api, path, {'url': 'https://example.com/work'}, token='priya-test', expected=403)
+    link = post(api, path, {'url': 'https://example.com/work'})['links'][0]
+    post(api, path, {'remove': link['id']}, token='priya-test', expected=403)
+    assert api.delete('/api/v2/' + path + '/' + link['id'], headers=headers('priya-test')).status_code == 403
+    # A mover can edit links on somebody else's task.
+    post(api, path, {'url': 'https://example.com/release'}, token='ben-test')
+    # The owning bot and an ancestor party have the same rights as task updates.
+    token = bot_token(api, 'ops')
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Track linked work', 'body': 'x'})
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build linked work', 'body': 'x', 'parent_id': parent['id']})
+    post(api, 'tasks/' + parent['id'] + '/links', {'url': 'https://example.com/plan'}, token=token)
+    linked = post(api, 'tasks/' + child['id'] + '/links', {'url': 'https://example.com/component'}, token=token)['links'][0]
+    post(api, 'tasks/' + child['id'] + '/links', {'remove': linked['id']}, token=token)
+
+
+def test_child_owner_cannot_detach_or_move_away_from_uncontrolled_parent(api):
+    token = bot_token(api, 'ops')
+    parent = post(api, 'tasks', {'owner': 'cpo', 'title': 'Keep manager plan', 'body': 'x'})
+    child = post(api, 'tasks', {'owner': 'ops', 'title': 'Implement manager plan', 'body': 'x', 'parent_id': parent['id']})
+    destination = post(api, 'tasks', {'owner': 'ops', 'title': 'Track own plan', 'body': 'x'})
+    for target in ['', destination['id']]:
+        post(api, 'tasks/' + child['id'], {'version': child['version'], 'parent_id': target}, token=token, expected=403)
+    assert get(api, 'tasks/' + child['id'])['task']['parent_id'] == parent['id']
+    # The parent requester can detach; a mover can move the whole subtree.
+    detached = post(api, 'tasks/' + child['id'], {'version': child['version'], 'parent_id': ''})
+    post(api, 'tasks/' + child['id'], {'version': detached['version'], 'parent_id': destination['id']}, token='ben-test')
+
+
+def test_person_filing_under_bot_request_is_the_subtask_requester(api):
+    with api.app.state.store.transaction() as c:
+        parent = H.task_create(c, 'bot:ops', 'Coordinate bot request', 'x', 'bot:cpo', lint=False)
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Follow up on bot request', 'body': 'x', 'parent_id': parent['id']})
+    assert child['requester'] == 'human:ana'
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, 'bot:cpo', child['id'], status='done')
+        notices = c.execute("SELECT to_actor FROM messages WHERE json_extract(refs_json,'$.task')=? AND body LIKE 'Finished:%'",
+                            (child['id'],)).fetchall()
+        assert notices and {r[0] for r in notices} == {'human:ana'}
+
+
+def test_cancelled_parent_does_not_wake_when_last_child_finishes(api):
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Cancel a plan', 'body': 'x'})
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Finish cancelled work', 'body': 'x', 'parent_id': parent['id']})
+    post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'close': True})
+    post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'})
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM messages WHERE json_extract(refs_json,'$.task')=? AND body LIKE 'All subtasks done%'",
+                             (parent['id'],)).fetchone()
+
+
+def test_tree_visibility_query_only_reads_descendant_ids(api, monkeypatch):
+    parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Read one task tree', 'body': 'x'})
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Read one child', 'body': 'x', 'parent_id': parent['id']})
+    unrelated = post(api, 'tasks', {'owner': 'cpo', 'title': 'Keep other task outside', 'body': 'x'})
+    store = api.app.state.store
+    connect = store.connect
+    queries = []
+    def traced():
+        c = connect()
+        c.set_trace_callback(queries.append)
+        return c
+    monkeypatch.setattr(store, 'connect', traced)
+    assert get(api, 'tasks/' + parent['id'] + '/tree')[0]['id'] == child['id']
+    visibility = [q for q in queries if q.startswith('SELECT id FROM tasks WHERE')]
+    assert visibility and all('id IN (' in q and child['id'] in q and unrelated['id'] not in q for q in visibility)

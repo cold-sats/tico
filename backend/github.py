@@ -18,6 +18,7 @@ import hmac
 import json
 import logging
 import re
+import threading
 import time
 from urllib.parse import quote
 
@@ -98,6 +99,10 @@ def _pr_status(c, task, note):
     if not product or task["status"] not in H.ACTIVE_STATUSES:
         return None
     links = [l for l in H.task_links(c, task["id"]) if l["kind"] == "pr"]
+    tracked_repos = {str(l.get("repo") or "").lower() for l in links
+                     if (H._json(l.get("detail_json"), {}) or {}).get("tracked")}
+    links = [l for l in links if l["state"] in ("merged", "closed", "shipped")
+             or str(l.get("repo") or "").lower() in tracked_repos]
     finished = links and all(l["state"] in ("merged", "closed", "shipped") for l in links)
     if finished and any(l["state"] in ("merged", "shipped") for l in links):
         status = "ready"
@@ -127,8 +132,12 @@ def pull_request(c, payload):
                 else "draft" if pr.get("draft") or action == "converted_to_draft" else "open")
         if link["state"] == "shipped" and state == "merged":
             state = "shipped"
-        mergeable = "conflict" if pr.get("mergeable") is False or pr.get("mergeable_state") == "dirty" else (
-                    "clean" if pr.get("mergeable") is True else "unknown")
+        mergeable = link.get("mergeable") or "unknown"
+        if action in ("opened", "reopened", "synchronize", "ready_for_review", "refresh"):
+            if pr.get("mergeable") is False or pr.get("mergeable_state") == "dirty":
+                mergeable = "conflict"
+            elif pr.get("mergeable") is True or pr.get("mergeable_state") == "clean":
+                mergeable = "clean"
         match = PR_LINK.match(url)
         c.execute("UPDATE task_links SET state=?,mergeable=?,repo=?,number=?,branch=?,updated=?,"
                   "pr_sha=coalesce(?,pr_sha),pr_merged_at=coalesce(?,pr_merged_at) WHERE id=?",
@@ -137,13 +146,20 @@ def pull_request(c, payload):
                    pr.get("merge_commit_sha") if state == "merged" else None,
                    pr.get("merged_at") or H.now() if state == "merged" else None, link["id"]))
         detail = H._json(link.get("detail_json"), {}) or {}
+        if action != "refresh":
+            detail["tracked"] = True
         head_sha = (pr.get("head") or {}).get("sha")
         if head_sha:
             if detail.get("head_sha") != head_sha:
                 detail.pop("checks", None)
+                detail.pop("head_login", None)
                 c.execute("UPDATE task_links SET checks='pending' WHERE id=?", (link["id"],))
             detail["head_sha"] = head_sha
-            c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
+            if action == "synchronize":
+                detail["head_login"] = str((payload.get("sender") or {}).get("login") or "").lower()
+            elif payload.get("head_login"):
+                detail["head_login"] = payload["head_login"]
+        c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
         item = f"{link['title']} {state}" if state != "closed" else f"{link['title']} was closed without merging"
         if mergeable == "conflict":
             item += ": Merge conflict"
@@ -159,7 +175,7 @@ def pull_request(c, payload):
     return {"pr": url, "action": action, "tasks": len(links), "moved": moved}
 
 
-def _own_comment(c, task, payload, key):
+def _own_comment(c, task, payload, key, detail):
     login = str(((payload.get(key) or {}).get("user") or {}).get("login") or "").lower()
     if not login:
         return False
@@ -167,7 +183,10 @@ def _own_comment(c, task, payload, key):
     app = c.execute("SELECT slug FROM github_app LIMIT 1").fetchone()
     config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(task["owner"]),)).fetchone()
     bot_login = (H._json(config[0], {}) or {}).get("github_login", "") if config else ""
-    return login in {author, str(bot_login).lower(), (str(app[0]) + "[bot]").lower() if app else ""}
+    via_app = (payload.get(key) or {}).get("performed_via_github_app") or {}
+    return (app and str(via_app.get("slug") or "").lower() == str(app[0]).lower()
+            or login in {author, str(bot_login).lower(), str(detail.get("head_login") or "").lower() if not bot_login else "",
+                         (str(app[0]) + "[bot]").lower() if app else ""})
 
 
 def pr_signal(c, event, payload):
@@ -184,11 +203,11 @@ def pr_signal(c, event, payload):
     links = []
     for url in urls:
         links.extend(_links_for(c, url))
-    if event == "status":
-        # GitHub commit statuses have no PR list. Remember the head SHA from PR events.
-        sha = payload.get("sha")
-        links = H._rows(c.execute("SELECT * FROM task_links WHERE kind='pr' AND repo=? "
-                                  "AND json_extract(detail_json,'$.head_sha')=?", (repo, sha)))
+    if event == "status" or event in ("check_run", "check_suite") and not prs:
+        # Fork checks and commit statuses can omit the PR list.
+        sha = payload.get("sha") if event == "status" else signal.get("head_sha")
+        links = H._rows(c.execute("SELECT * FROM task_links WHERE kind='pr' AND lower(repo)=? "
+                                  "AND json_extract(detail_json,'$.head_sha')=?", (repo.lower(), sha)))
     for link in links:
         task = H.task(c, link["task_id"])
         if not task:
@@ -226,7 +245,7 @@ def pr_signal(c, event, payload):
                 reviews[review_id] = signature
                 detail["reviews"] = dict(list(reviews.items())[-100:])
             fields["review_state"] = state
-            wake = fresh and payload.get("action") != "dismissed" and not _own_comment(c, task, payload, "review") and (
+            wake = fresh and payload.get("action") != "dismissed" and not _own_comment(c, task, payload, "review", detail) and (
                 state == "changes_requested" or state == "commented")
             item = f"Review {state.replace('_', ' ')} on {label}"
         else:
@@ -243,7 +262,7 @@ def pr_signal(c, event, payload):
                 comments[comment_id] = action
                 detail["comments"] = dict(list(comments.items())[-100:])
             fields["pending_comments"] = max(0, (link.get("pending_comments") or 0) + (1 if action == "created" else -1))
-            wake = action == "created" and not _own_comment(c, task, payload, "comment")
+            wake = action == "created" and not _own_comment(c, task, payload, "comment", detail)
             item = f"{fields['pending_comments']} review comments on {label}"
         fields.update(detail_json=json.dumps(detail), updated=H.now())
         c.execute("UPDATE task_links SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?",
@@ -254,33 +273,75 @@ def pr_signal(c, event, payload):
 
 
 def refresh_task_prs(service, task_id):
-    """Refresh only on opening a task, bounded and cached; failures keep the last known state."""
-    with service.store.read() as c:
-        if not service.row(c):
+    """Schedule a bounded refresh; task reads always use the last known state."""
+    with service.lock:
+        if getattr(service, "pr_refresh_running", False):
             return
-        links = [l for l in H.task_links(c, task_id) if l["kind"] == "pr" and l.get("repo") and l.get("number")]
-    for link in links:
-        key = (link["repo"].lower(), link["number"])
-        with service.lock:
-            cache = getattr(service, "pr_refresh_cache", {})
-            if cache.get(key, 0) > time.monotonic() - 180:
-                continue
-            if len(cache) >= 512:
-                cache.pop(next(iter(cache)))
-            cache[key] = time.monotonic()
-            service.pr_refresh_cache = cache
+        cache = getattr(service, "pr_refresh_cache", {})
+        cached = [repo + "#" + str(number) for (repo, number), entry in cache.items()
+                  if entry.get("next", 0) > time.monotonic()]
+        with service.store.read() as c:
+            app = service.row(c)
+            if not app:
+                return
+            sql = ("SELECT l.* FROM task_links l JOIN repositories r ON lower(r.full_name)=lower(l.repo) "
+                   "WHERE l.task_id=? AND l.kind='pr' AND l.number IS NOT NULL AND r.reachable=1 "
+                   "AND lower(l.repo) LIKE ?")
+            args = [task_id, str(app["org"] or "").lower() + "/%"]
+            if cached:
+                sql += " AND (lower(l.repo)||'#'||l.number) NOT IN (" + ",".join("?" * len(cached)) + ")"
+                args.extend(cached)
+            links = H._rows(c.execute(sql + " ORDER BY coalesce(l.updated,l.created),l.id LIMIT 20", args))
+        due = list({(l["repo"].lower(), l["number"]): l for l in links}.values())
+        if not due:
+            return
+        service.pr_refresh_running = True
+        service.pr_refresh_cache = cache
+
+    def refresh():
         try:
-            token, _ = service.mint([link["repo"]], {"pull_requests": "read"})
-            response = service._call("GET", f"/repos/{quote(link['repo'], safe='/')}/pulls/{link['number']}",
-                                     headers={"Authorization": "Bearer " + token})
-            if response.status_code != 200:
-                continue
-            pr = response.json()
-            pr["html_url"] = link["url"]
-            with service.store.transaction() as c:
-                pull_request(c, {"action": "refresh", "pull_request": pr})
-        except Exception:
-            logging.getLogger("tico.github").exception("PR refresh failed for %s #%s", *key)
+            for link in due:
+                key = (link["repo"].lower(), link["number"])
+                success = False
+                try:
+                    token, _ = service.mint([link["repo"]], {"pull_requests": "read", "contents": "read"})
+                    response = service._call("GET", f"/repos/{quote(link['repo'], safe='/')}/pulls/{link['number']}",
+                                             headers={"Authorization": "Bearer " + token})
+                    if response.status_code == 200:
+                        pr = response.json()
+                        pr["html_url"] = link["url"]
+                        head = (pr.get("head") or {}).get("sha")
+                        head_login = None
+                        if head:
+                            try:
+                                commit_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or link["repo"]
+                                commit = service._call("GET", f"/repos/{quote(commit_repo, safe='/')}/commits/{quote(head, safe='')}",
+                                                       headers={"Authorization": "Bearer " + token})
+                                if commit.status_code == 200:
+                                    data = commit.json()
+                                    head_login = str((data.get("author") or {}).get("login") or
+                                                     (data.get("committer") or {}).get("login") or "").lower()
+                            except Exception:
+                                logging.getLogger("tico.github").debug("Head identity unavailable for %s #%s", *key)
+                        with service.store.transaction() as c:
+                            current = c.execute("SELECT updated FROM task_links WHERE id=?", (link["id"],)).fetchone()
+                            if not current or current[0] != link.get("updated"):
+                                success = True
+                                continue
+                            pull_request(c, {"action": "refresh", "pull_request": pr, "head_login": head_login})
+                        success = True
+                except Exception:
+                    logging.getLogger("tico.github").exception("PR refresh failed for %s #%s", *key)
+                finally:
+                    with service.lock:
+                        failures = 0 if success else min(cache.get(key, {}).get("failures", 0) + 1, 5)
+                        if key not in cache and len(cache) >= 512:
+                            cache.pop(next(iter(cache)))
+                        cache[key] = {"failures": failures, "next": time.monotonic() + (180 if success else min(300 * 2 ** (failures - 1), 3600))}
+        finally:
+            with service.lock:
+                service.pr_refresh_running = False
+    threading.Thread(target=refresh, name="tico-pr-refresh", daemon=True).start()
 
 
 def push(c, payload):
@@ -288,6 +349,17 @@ def push(c, payload):
     ref = str(payload.get("ref") or "")
     repo = str((payload.get("repository") or {}).get("full_name") or "")
     default = str((payload.get("repository") or {}).get("default_branch") or "main")
+    head_commit = payload.get("head_commit") or {}
+    head_sha = str(head_commit.get("id") or payload.get("after") or "")
+    login = str((payload.get("sender") or {}).get("login") or
+                (head_commit.get("committer") or {}).get("username") or
+                (head_commit.get("author") or {}).get("username") or "").lower()
+    if head_sha and login:
+        for link in H._rows(c.execute("SELECT id,detail_json FROM task_links WHERE kind='pr' AND lower(repo)=? "
+                                       "AND json_extract(detail_json,'$.head_sha')=?", (repo.lower(), head_sha))):
+            detail = H._json(link["detail_json"], {}) or {}
+            detail["head_login"] = login
+            c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
     if ref != "refs/heads/" + default:
         return {"ref": ref, "commits": 0}
     shas = [str(x.get("id") or "") for x in (payload.get("commits") or [])]

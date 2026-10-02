@@ -322,20 +322,225 @@ def test_pr_matching_preserves_shipped_and_uses_base_repo_for_checks(api):
     assert get(api, 'tasks/' + task['id'])['task']['links'][0]['checks'] == 'failing'
 
 
-def test_task_open_refreshes_each_pr_once_and_keeps_last_known_on_failure(api, monkeypatch):
+def test_task_open_refreshes_in_background_with_coalescing_and_backoff(api, monkeypatch):
     from types import SimpleNamespace
-    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Refresh without webhooks', 'body': 'x', 'links': [PR, PR.replace('/412', '/413')]})
+    from threading import Event
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Refresh without webhooks', 'body': 'x',
+                             'links': [PR, PR.replace('/412', '/413'), PR.replace('ticoteam/tico', 'example/service')]})
     service = api.app.state.github_app
-    monkeypatch.setattr(service, 'row', lambda c=None: {'slug': 'test-app'})
-    monkeypatch.setattr(service, 'mint', lambda *args: ('test-token', 'later'))
+    monkeypatch.setattr(service, 'row', lambda c=None: {'slug': 'test-app', 'org': 'ticoteam'})
+    with service.store.transaction() as c:
+        c.execute("INSERT INTO repositories(full_name,reachable,enabled,added_by,updated) VALUES(?,1,1,?,?)",
+                  ('ticoteam/tico', 'human:ana', H.now()))
+    entered, release, finished = Event(), Event(), Event()
     calls = []
+    def mint(*args):
+        entered.set()
+        assert release.wait(3)
+        return 'test-token', 'later'
+    monkeypatch.setattr(service, 'mint', mint)
     def fetch(method, path, **kw):
         calls.append(path)
         if path.endswith('/413'):
             raise RuntimeError('offline')
-        return SimpleNamespace(status_code=200, json=lambda: {'state': 'closed', 'merged': True, 'merge_commit_sha': 'merged'})
+        if '/commits/' in path:
+            return SimpleNamespace(status_code=200, json=lambda: {'committer': {'login': 'computer-login'}})
+        return SimpleNamespace(status_code=200, json=lambda: {'state': 'closed', 'merged': True,
+            'merge_commit_sha': 'merged', 'head': {'sha': 'cur'}})
     monkeypatch.setattr(service, '_call', fetch)
+    real = G.pull_request
+    def update(*args):
+        result = real(*args)
+        finished.set()
+        return result
+    monkeypatch.setattr(G, 'pull_request', update)
+    try:
+        links = get(api, 'tasks/' + task['id'])['task']['links']
+        assert [l['state'] for l in links] == ['open', 'open', 'open']
+        assert entered.wait(1)
+        get(api, 'tasks/' + task['id'])
+        assert calls == []  # a blocked token mint cannot delay or duplicate task reads
+    finally:
+        release.set()
+    assert finished.wait(2)
+    # Join the actual worker so the store is not torn down while it is writing.
+    import threading
+    for worker in threading.enumerate():
+        if worker.name == 'tico-pr-refresh':
+            worker.join(2)
+    assert not service.pr_refresh_running
     for _ in range(2):
         links = get(api, 'tasks/' + task['id'])['task']['links']
-        assert [l['state'] for l in links] == ['merged', 'open']
-    assert len(calls) == 2
+        assert [l['state'] for l in links] == ['merged', 'open', 'open']
+    assert len(calls) == 3  # two PRs plus head identity; unreachable repo skipped
+    with service.store.read() as c:
+        detail = H._json(H.task_links(c, task['id'])[0]['detail_json'], {})
+        assert detail['head_login'] == 'computer-login'
+    failures = service.pr_refresh_cache[('ticoteam/tico', 413)]
+    assert failures['failures'] == 1
+    import time
+    assert failures['next'] > time.monotonic() + 290
+    failures['next'] = 0
+    G.refresh_task_prs(service, task['id'])
+    for worker in threading.enumerate():
+        if worker.name == 'tico-pr-refresh':
+            worker.join(2)
+    assert service.pr_refresh_cache[('ticoteam/tico', 413)]['failures'] == 2
+    assert service.pr_refresh_cache[('ticoteam/tico', 413)]['next'] > time.monotonic() + 590
+
+
+def test_conflict_survives_unrelated_events_and_wakes_once_until_clear(api):
+    from backend.repositories import metadata
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Resolve conflict', 'body': 'x', 'links': [PR]})
+    def wake_items():
+        with api.app.state.store.read() as c:
+            return metadata(c, 'github-task-wake:' + task['id']).get('items', [])
+    def clear():
+        with api.app.state.store.transaction() as c:
+            c.execute("DELETE FROM registry_metadata WHERE key=?", ('github-task-wake:' + task['id'],))
+    hook(api, 'pull_request', pr_event('synchronize', mergeable=False, head={'sha': 'a'}))
+    assert wake_items()
+    clear()
+    for action, value in [('labeled', None), ('edited', True), ('synchronize', None), ('synchronize', False)]:
+        hook(api, 'pull_request', pr_event(action, mergeable=value, head={'sha': 'a'}))
+        assert get(api, 'tasks/' + task['id'])['task']['pr_state'] == 'conflict'
+        assert not wake_items()
+    hook(api, 'pull_request', pr_event('synchronize', mergeable=True))
+    assert get(api, 'tasks/' + task['id'])['task']['pr_state'] == 'open'
+    hook(api, 'pull_request', pr_event('synchronize', mergeable=False))
+    assert wake_items()
+
+
+@pytest.mark.parametrize('event', ['check_run', 'check_suite', 'status'])
+def test_checks_without_pr_list_match_head_sha_and_repo_case(api, event):
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Check fork head', 'body': 'x',
+                             'links': [PR.replace('ticoteam/tico', 'TicoTeam/Tico')]})
+    hook(api, 'pull_request', pr_event('synchronize', head={'sha': 'cur'}))
+    payload = {'repository': {'full_name': 'TicoTeam/Tico'}}
+    signal = {'name': 'Tests', 'head_sha': 'cur', 'conclusion': 'failure', 'pull_requests': []}
+    if event == 'status':
+        payload.update(sha='cur', context='Tests', state='failure')
+    else:
+        payload[event] = signal
+    hook(api, event, payload)
+    link = get(api, 'tasks/' + task['id'])['task']['links'][0]
+    assert link['checks'] == 'failing'
+    from backend.repositories import metadata
+    with api.app.state.store.read() as c:
+        assert metadata(c, 'github-task-wake:' + task['id'])['items']
+
+
+def test_comments_from_head_pusher_or_app_do_not_wake_without_configured_login(api):
+    from backend.repositories import metadata
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ignore own replies', 'body': 'x', 'links': [PR]})
+    payload = pr_event('synchronize', head={'sha': 'cur'}, user={'login': 'original-author'})
+    payload['sender'] = {'login': 'computer-login'}
+    hook(api, 'pull_request', payload)
+    for n, login in enumerate(['computer-login', 'original-author']):
+        hook(api, 'pull_request_review_comment', {'action': 'created', 'pull_request': payload['pull_request'],
+            'comment': {'id': n, 'user': {'login': login}}})
+    hook(api, 'pull_request_review', {'action': 'submitted', 'pull_request': payload['pull_request'],
+        'review': {'id': 42, 'state': 'commented', 'user': {'login': 'computer-login'}}})
+    with api.app.state.store.read() as c:
+        assert not metadata(c, 'github-task-wake:' + task['id'])
+    hook(api, 'push', {'ref': 'refs/heads/feature', 'repository': {'full_name': 'TicoTeam/Tico'},
+                      'head_commit': {'id': 'cur'}, 'sender': {'login': 'another-login'}})
+    hook(api, 'pull_request_review_comment', {'action': 'created', 'pull_request': {'html_url': PR},
+        'comment': {'id': 43, 'user': {'login': 'another-login'}}})
+    with api.app.state.store.transaction() as c:
+        assert not metadata(c, 'github-task-wake:' + task['id'])
+        c.execute("INSERT INTO github_app(id,app_id,slug,client_id,org,administration,ciphertext,nonce,created,created_by) "
+                  "VALUES('app',1,'example-app','client','ticoteam',0,X'00',X'00',?,?)", (H.now(), 'human:ana'))
+    hook(api, 'pull_request_review_comment', {'action': 'created', 'pull_request': {'html_url': PR},
+        'comment': {'id': 44, 'user': {'login': 'token-login'}, 'performed_via_github_app': {'slug': 'example-app'}}})
+    with api.app.state.store.read() as c:
+        assert not metadata(c, 'github-task-wake:' + task['id'])
+    hook(api, 'pull_request_review_comment', {'action': 'created', 'pull_request': {'html_url': PR},
+        'comment': {'id': 45, 'user': {'login': 'reviewer'}}})
+    with api.app.state.store.read() as c:
+        assert metadata(c, 'github-task-wake:' + task['id'])['items']
+
+
+def test_untracked_pr_does_not_block_ready_and_unlink_recomputes(api):
+    second = PR.replace('/412', '/413')
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ship tracked work', 'body': 'x',
+                             'links': [PR, second, 'https://github.com/example/service/pull/1']})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET lane='product' WHERE id=?", (task['id'],))
+    hook(api, 'pull_request', pr_event('opened', html_url=second))
+    hook(api, 'pull_request', pr_event('closed', merged=True, merge_commit_sha='abc'))
+    detail = get(api, 'tasks/' + task['id'])['task']
+    assert detail['status'] == 'review'
+    open_link = next(l for l in detail['links'] if l['url'] == second)
+    assert api.delete('/api/v2/tasks/' + task['id'] + '/links/' + open_link['id'], headers=headers()).status_code == 200
+    assert get(api, 'tasks/' + task['id'])['task']['status'] == 'ready'
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO github_app(id,app_id,slug,client_id,org,administration,ciphertext,nonce,created,created_by) "
+                  "VALUES('app',1,'example-app','client','ticoteam',0,X'00',X'00',?,?)", (H.now(), 'human:ana'))
+    links = post(api, 'tasks/' + task['id'] + '/links', {'url': 'https://github.com/outside/service/pull/2'})['links']
+    assert links[-1]['kind'] == 'url'
+    # A repo inside the org without PR events also cannot hold up automatic Ready.
+    other = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ship without stale links', 'body': 'x',
+                              'links': [PR, PR.replace('ticoteam/tico', 'ticoteam/other')]})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET lane='product' WHERE id=?", (other['id'],))
+    with api.app.state.store.transaction() as c:
+        G.pull_request(c, {'action': 'refresh', 'pull_request': {
+            'html_url': PR.replace('ticoteam/tico', 'ticoteam/other'), 'state': 'open'}})
+    hook(api, 'pull_request', pr_event('closed', merged=True))
+    assert get(api, 'tasks/' + other['id'])['task']['status'] == 'ready'
+
+
+def test_background_refresh_caps_batches_without_starving_later_links(api, monkeypatch):
+    from types import SimpleNamespace
+    import threading
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Refresh a large PR set', 'body': 'x'})
+    service = api.app.state.github_app
+    with service.store.transaction() as c:
+        c.execute("INSERT INTO repositories(full_name,reachable,enabled,added_by,updated) VALUES(?,1,1,?,?)",
+                  ('ticoteam/tico', 'human:ana', H.now()))
+        for number in range(25):
+            H.task_link(c, 'human:ana', task['id'], PR.rsplit('/', 1)[0] + '/' + str(number + 1))
+    monkeypatch.setattr(service, 'row', lambda c=None: {'slug': 'test-app', 'org': 'ticoteam'})
+    monkeypatch.setattr(service, 'mint', lambda *args: ('test-token', 'later'))
+    calls = []
+    def fetch(method, path, **kw):
+        calls.append(path)
+        return SimpleNamespace(status_code=200, json=lambda: {'state': 'open'})
+    monkeypatch.setattr(service, '_call', fetch)
+    def refresh():
+        G.refresh_task_prs(service, task['id'])
+        for worker in threading.enumerate():
+            if worker.name == 'tico-pr-refresh':
+                worker.join(3)
+        assert not service.pr_refresh_running
+    refresh()
+    assert len(calls) == 20
+    refresh()
+    assert len(calls) == 25 and len(set(calls)) == 25
+    refresh()
+    assert len(calls) == 25
+
+
+def test_background_refresh_keeps_newer_webhook_state(api, monkeypatch):
+    from types import SimpleNamespace
+    import threading
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Keep newest PR facts', 'body': 'x', 'links': [PR]})
+    service = api.app.state.github_app
+    with service.store.transaction() as c:
+        c.execute("INSERT INTO repositories(full_name,reachable,enabled,added_by,updated) VALUES(?,1,1,?,?)",
+                  ('ticoteam/tico', 'human:ana', H.now()))
+    monkeypatch.setattr(service, 'row', lambda c=None: {'slug': 'test-app', 'org': 'ticoteam'})
+    monkeypatch.setattr(service, 'mint', lambda *args: ('test-token', 'later'))
+    def fetch(method, path, **kw):
+        with service.store.transaction() as c:
+            G.pull_request(c, pr_event('closed', merged=True))
+        return SimpleNamespace(status_code=200, json=lambda: {'state': 'open'})
+    monkeypatch.setattr(service, '_call', fetch)
+    G.refresh_task_prs(service, task['id'])
+    for worker in threading.enumerate():
+        if worker.name == 'tico-pr-refresh':
+            worker.join(2)
+    assert not service.pr_refresh_running
+    with service.store.read() as c:
+        assert H.task_links(c, task['id'])[0]['state'] == 'merged'
