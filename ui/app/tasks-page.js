@@ -155,7 +155,7 @@ function taskCreateModal() {
 function openTaskCreate(owner = '', opts = {}) {
   const d = taskCreateModal();
   const parent = opts.parent || null;
-  d.innerHTML = `<div class="tmodal-head"><h2 class="tmodal-title" style="margin:0">${parent ? 'New part' : 'New task'}</h2>
+  d.innerHTML = `<div class="tmodal-head"><h2 class="tmodal-title" style="margin:0">${parent ? 'New subtask' : 'New task'}</h2>
       <span class="spacer"></span>
       <button class="ghost tmodal-x" type="button" data-modal-close aria-label="Close">✕</button></div>
     <div class="tmodal-body">

@@ -131,10 +131,13 @@ async function taskModalShow(task) {
   const full = {...detail.task, children: detail.children || [], parent: detail.parent || null};
   d.innerHTML = hubModalHTML(full, taskItem(full));
   taskModalBind(d, full);
+  void taskRailLoad(d, full, detail);
   void taskChatLoad(task.id, d, detail);
 }
 function taskModalBind(d, task) {
   d.taskAttachments = task.attachments || [];
+  if (d.taskRail?.id !== String(task.id)) d.taskRail = {id: String(task.id), open: new Set()};
+  taskRailPaint(d, task); taskRailBind(d, task);
   $('[data-modal-close]', d).onclick = () => d.close();
   void taskGoalTitle(d);
   d.querySelectorAll('[data-modal-task]').forEach(b => {
@@ -196,7 +199,7 @@ function taskModalBind(d, task) {
     } catch (e) { toast(e.message, true); }
   });
   d.querySelectorAll('[data-open-task]').forEach(b => b.onclick = ev => { ev.preventDefault(); taskModalOpen(b.dataset.openTask); });
-  d.querySelectorAll('[data-modal-child]').forEach(b => b.onclick = () => { d.close(); openTaskCreate(task.owner, {parent: task}); });
+  d.querySelectorAll('[data-modal-child]').forEach(b => b.onclick = () => taskRailAdd(d, task));
 }
 // ---- comments: one flat list of what was said and what changed, then a box. Not a chat.
 // `taskChatStop` and `taskChatLoad` keep their names: the router and the chat cards call them.
@@ -330,13 +333,13 @@ function hubModalHTML(t, it) {
   const askToYou = taskAskToPerson(t);
   const waitText = clipLine(taskWaitLine(t), 400);
   const waitLabel = askToYou ? needsWho(t) : t.blocker ? 'Blocked by' : (t.status === 'waiting' ? 'Waiting on' : '');
-  const original = taskBody(t);
+  const original = taskBody(t).trim() === String(t.title || '').trim() ? '' : taskBody(t);   // a quick subtask's details are its title
   const note = String(t.note || '');
   const statusWord = (pipelineTypeId(t) !== 'general' && t.step?.name) || (open && (askToYou || (t.status === 'open' && actorPerson(t.owner))) ? needsWho(t) : (STATUS_WORD[t.status] || t.status || ''));
   const mover = canMove();
   const mayReopen = mover || t.owner === myActor() || t.requester === myActor();
   const statuses = ['open', 'doing', 'waiting', 'review', 'ready', 'done', 'declined'];
-  const links = (t.links || []);
+  const links = (t.links || []).filter(l => l.kind !== 'pr' && l.kind !== 'worktree');   // those are Code, in the rail
   const files = (t.attachments || []);
   return `<div class="tmodal-head">${it.slug ? avatar(it.slug, 22, stateOf(it.slug)) : personCircle(actorLabel(t.owner), 22)}
       <span class="who">${esc(actorLabel(t.owner))}</span>
@@ -345,6 +348,7 @@ function hubModalHTML(t, it) {
       <button class="ghost tmodal-x" type="button" data-modal-close aria-label="Close">✕</button></div>
     <h2 class="tmodal-title">${esc(t.title)}</h2>
     <div class="tmodal-body">
+      <div class="tmodal-main">
       <div class="muted tmeta">${esc(taskSourceLine(t))} ${esc(ago(t.created))}${t.due ? ` · due ${esc(fmt(t.due))}` : ''}${t.parent ? ` · part of <button class="linkish" type="button" data-open-task="t${esc(t.parent.id)}">${esc(clipLine(t.parent.title, 60))}</button>` : ''}${t.goal_id ? ` · <a href="#/goals/${encodeURIComponent(t.goal_id)}" class="task-goal" data-goal-title="${esc(t.goal_id)}">serves a goal</a>` : ''}</div>
       ${waitLabel && waitText ? `<div class="task-ask"><div class="lbl">${esc(waitLabel)}</div><div class="task-ask-body">${esc(waitText)}</div></div>` : ''}
       ${original ? (waitText ? `<details class="task-orig"><summary>Original request</summary><div class="q md">${safeMd(original)}</div></details>`
@@ -360,13 +364,11 @@ function hubModalHTML(t, it) {
           <form class="inline" data-modal-link><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" aria-label="Add a link" size="22"></form></div></div>
       </div>
       <div class="task-file-preview" data-task-file-preview hidden></div>
-      ${(t.children || []).length || t.parts?.total ? `<div class="tsection"><div class="lbl">Parts ${t.parts?.total ? `<span class="muted">${t.parts.done} of ${t.parts.total} done</span>` : ''}</div>
-        <div class="tchildren">${(t.children || []).map(k => `<button class="trow-btn small" type="button" data-open-task="t${esc(k.id)}"><span class="trow-who">${actorSlug(k.owner) ? avatar(actorSlug(k.owner), 16, stateOf(actorSlug(k.owner))) : personCircle(actorLabel(k.owner), 16)}</span><span class="ttl">${esc(k.title)}</span><span class="pill ${V2_PILL[k.status] ?? ''}">${esc(STATUS_WORD[k.status] || k.status)}</span></button>`).join('')}</div></div>` : ''}
       ${mover && open ? `<div class="tsection tcontrols">
         ${taskPipelineControl(t, statuses)}
         <label>Blocked by <select data-modal-blocked aria-label="Blocked by">${taskPickOptions(t.id, t.blocked_by || '')}</select></label>
         <label>Part of <select data-modal-parent aria-label="Parent task">${taskPickOptions(t.id, t.parent_id || '')}</select></label>
-        <button class="ghost" type="button" data-modal-child>Add a part</button>
+        <button class="ghost" type="button" data-modal-child>Add subtask</button>
       </div>` : ''}
       ${taskPipelineExtraControl(t, mover, open)}
       <div class="issue-actions">
@@ -374,6 +376,8 @@ function hubModalHTML(t, it) {
           <button class="linkish danger" type="button" data-modal-task="closed" data-modal-close-task="1">Close</button>`
           : mayReopen ? `<button class="linkish" type="button" data-modal-task="open">Reopen</button>` : '<span class="muted">Finished</span>'}
       </div>
+      </div>
+      <aside class="task-rail" data-task-rail aria-label="Code and subtasks" hidden></aside>
       <section class="task-chat" aria-label="Comments"><p class="muted" role="status">Loading comments…</p></section>
     </div>`;
 }

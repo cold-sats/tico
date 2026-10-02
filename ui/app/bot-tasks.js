@@ -42,7 +42,7 @@ function v2TaskRow(t, slug) {
                 `<button class="linkish danger" type="button" data-v2-task="${esc(t.id)}" data-v2-close="1">Close</button>`];
   return `<details class="trow" data-task-version="${esc(t.version || '')}"><summary>
       <span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>
-      ${taskStateIcon(t)}<span class="ttl" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</span>
+      ${taskStateIcon(t)}<span class="ttl" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</span>${prStateBadge(t.pr_state)}
       <span class="tags">${actorChip(other)}</span>${actorAvatarOnly(t.owner)}
       <span class="muted tnum">${esc(ago(t.updated || t.created))}</span></summary>
     <div class="tbody">

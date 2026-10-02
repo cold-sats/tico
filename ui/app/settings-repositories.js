@@ -169,26 +169,52 @@ async function botReposMount(host, slug) {
         `<span class="brepo-eff-item">${esc(r.full_name)} <span class="brepo-acc">${esc(r.access || 'write')}</span></span>`).join('')}</span></div>` : ''}`;
     host.hidden = false;
   };
+  // What the server holds, drawn as it is: after the latest save, and after a refused one.
+  const adopt = view => {
+    state.mode = view.mode || 'own'; state.all_access = view.all_access || 'write';
+    state.chosen = new Map((view.chosen || []).map(c => [c.full_name, c.access === 'read' ? 'read' : 'write']));
+    state.effective = view.effective || [];
+  };
+  const say = html => { const el = host.querySelector('[data-brepo-status]'); if (el) el.innerHTML = html; };
+  // Redraw, keeping the keyboard on the control it was on.
+  const repaint = () => {
+    const at = document.activeElement, keep = host.contains(at) ? (at.type === 'radio'
+      ? `input[name="${CSS.escape(at.name)}"][value="${CSS.escape(at.value)}"]`
+      : at.closest('[data-brepo]') ? `[data-brepo="${CSS.escape(at.closest('[data-brepo]').dataset.brepo)}"] [data-brepo-pick]` : '') : '';
+    paint();
+    if (keep) host.querySelector(keep)?.focus();
+  };
+  // One save at a time per bot: a change made while one is on its way waits, and only the latest choice is sent
+  // after it, so an earlier save can never land last and undo it.
+  let saving = false, again = false;
+  const read = () => get(`/v2/bots/${encodeURIComponent(slug)}/repositories`);
   const save = async () => {
-    const status = host.querySelector('[data-brepo-status]');
-    if (status) status.textContent = 'Saving…';
-    const body = {mode: state.mode, all_access: state.all_access,
-      chosen: [...state.chosen].map(([full_name, access]) => ({full_name, access}))};
+    if (saving) { again = true; say('Saving…'); return; }
+    saving = true;
     try {
-      const saved = await put(`/v2/bots/${encodeURIComponent(slug)}/repositories`, body);
-      const fresh = saved?.effective ? saved : await get(`/v2/bots/${encodeURIComponent(slug)}/repositories`);
-      state.effective = fresh.effective || state.effective;
-      paint();
-      const done = host.querySelector('[data-brepo-status]'); if (done) done.textContent = 'Saved';
-    } catch (error) {
-      if (status) status.innerHTML = `<span class="err">${esc(error.message)}</span>`;
-      try {   // back to what the server holds
-        const back = await get(`/v2/bots/${encodeURIComponent(slug)}/repositories`);
-        state.mode = back.mode || 'own'; state.all_access = back.all_access || 'write';
-        state.chosen = new Map((back.chosen || []).map(c => [c.full_name, c.access === 'read' ? 'read' : 'write']));
-        state.effective = back.effective || [];
-      } catch { /* keep the screen as it is */ }
-    }
+      let failure = null, view = null;
+      for (;;) {
+        again = false; failure = null; view = null;
+        say('Saving…');
+        const body = {mode: state.mode, all_access: state.all_access,
+          chosen: [...state.chosen].map(([full_name, access]) => ({full_name, access}))};
+        try {
+          const saved = await put(`/v2/bots/${encodeURIComponent(slug)}/repositories`, body);
+          view = saved?.mode ? saved : await read();
+        } catch (error) {
+          failure = error;
+          try { view = await read(); } catch { view = null; }   // refused: back to what the server holds
+        }
+        // A choice made while that was on its way (or while the server's copy was read back) goes next; the copy
+        // in hand is already out of date.
+        if (!again) break;
+      }
+      if (view) adopt(view);
+      repaint();
+      if (!failure) say('Saved');
+      else if (view) say(`<span class="err">${esc(failure.message)}</span>`);
+      else say(`<span class="err">Not saved: ${esc(failure.message)}</span>`);   // the choice on screen is not what is saved
+    } finally { saving = false; }
   };
   host.onchange = event => {
     if (!admin) return;
@@ -199,9 +225,9 @@ async function botReposMount(host, slug) {
     else if (row && t.type === 'radio') state.chosen.set(row, t.value);
     else return;
     // Redraw, then put the keyboard back on the control that changed.
-    const again = t.type === 'radio' ? `input[name="${CSS.escape(t.name)}"][value="${CSS.escape(t.value)}"]`
+    const back = t.type === 'radio' ? `input[name="${CSS.escape(t.name)}"][value="${CSS.escape(t.value)}"]`
       : `[data-brepo="${CSS.escape(row)}"] [data-brepo-pick]`;
-    paint(); host.querySelector(again)?.focus();
+    paint(); host.querySelector(back)?.focus();
     void save();
   };
   paint();

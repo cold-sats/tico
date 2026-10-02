@@ -22,12 +22,16 @@
 .cg-edit textarea:focus{outline:none;border-color:var(--accent)}
 .cg-edit-go{grid-column:2;display:flex;justify-content:flex-end;gap:6px}
 .cg-edit-go button{height:30px;padding:0 12px;font-size:12.5px}
+.cg-why{flex:1;align-self:center;min-width:0;font-size:12px}
+.cg-why:empty{display:none}
 
 /* A met or stopped goal: one line in the thread. */
 .chat-goal-line{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}
 .chat-goal-line b{flex:none}
 .chat-goal-line .cg-line-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .chat-goal-line .cg-line-note{flex:0 1 auto;max-width:45%;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.chat-goal-line .chat-time{flex:none;margin-left:auto}
+.chat-goal-line.stopped .cg-icon{color:var(--muted)}
 
 /* The composer's target: filled while a goal is pinned. */
 .p-goal[hidden]{display:none}
