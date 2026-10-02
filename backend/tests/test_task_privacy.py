@@ -53,12 +53,15 @@ def test_private_defaults_reassignment_and_human_publication(api):
     ops = bot_token(api, 'ops')
     cpo = bot_token(api, 'cpo')
     with api.app.state.store.transaction() as c:
-        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='ops'").fetchone()[0])
-        config['private_tasks_default'] = True
-        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'", (json.dumps(config),))
+        for slug in ('ops', 'cpo'):
+            config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0])
+            config['private_tasks_default'] = True
+            c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (json.dumps(config), slug))
     assigned = post(api, 'tasks', {'owner': 'ops', 'title': 'Review the request', 'body': 'Review it.'})
-    created = post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft the response', 'body': 'Draft it.'}, token=ops)
+    created = post(api, 'tasks', {'owner': 'cmo', 'title': 'Draft the response', 'body': 'Draft it.', 'private': False}, token=cpo)
     assert assigned['private'] and created['private']
+    explicit = post(api, 'tasks', {'owner': 'ops', 'title': 'Review the public request', 'body': 'Review it.', 'private': False})
+    assert not explicit['private']
     post(api, 'tasks/' + assigned['id'], {'version': assigned['version'], 'private': False}, token=ops, expected=422)
     changed = post(api, 'tasks/' + assigned['id'], {'version': assigned['version'], 'owner': 'cpo'})
     assert changed['private']
@@ -68,6 +71,17 @@ def test_private_defaults_reassignment_and_human_publication(api):
     assert not published['private']
     assert get(api, 'tasks/' + assigned['id'], token=ops)['task']['id'] == assigned['id']
     post(api, 'tasks/' + created['id'], {'version': created['version'], 'private': False}, token=cpo, expected=422)
+
+
+def test_acted_sensitive_default_refuses_private_creation_outside_actual_bot_parties(api):
+    ops = bot_token(api, 'ops')
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.private_tasks_default',json('true')) WHERE bot='ops'")
+        count = c.execute('SELECT count(*) FROM tasks').fetchone()[0]
+    post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft the sensitive response',
+                        'body': 'Draft it.', 'private': False}, token=ops, expected=403)
+    with api.app.state.store.read() as c:
+        assert c.execute('SELECT count(*) FROM tasks').fetchone()[0] == count
 
 
 def test_private_parent_has_no_ancestry_bypass_and_requires_detachment(api):
