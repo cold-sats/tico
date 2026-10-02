@@ -299,7 +299,8 @@ def test_real_assistant_lease_keeps_actual_bot_private_boundaries_and_revocation
     attached = post(api, 'tasks/' + private['id'] + '/files', {'name': 'packet.md', 'text': 'Confidential attachment.'})
     r, attempt = assistant_turn(api, 'ben-test')
     token = attempt['token']
-    who = api.app.state.auth.authenticate(headers(token), '/api/v2/tasks/' + private['id'], 'GET')
+    who = api.app.state.auth.authenticate({'authorization': 'Bearer ' + token},
+                                          '/api/v2/tasks/' + private['id'], 'GET')
     assert who.task_actor == 'bot:coo' and who.attempt_id == attempt['id']
     for path in ('tasks/' + private['id'],
                  'conversations/' + private['conversation_id'] + '/messages',
@@ -309,11 +310,22 @@ def test_real_assistant_lease_keeps_actual_bot_private_boundaries_and_revocation
         assert 'Confidential' not in response.text
     sql = api.post('/api/v2/sql', json={'sql': 'SELECT id,body FROM tasks WHERE id=?',
                                       'params': [private['id']]}, headers=headers(token))
-    assert sql.status_code == 200 and sql.json()['rows'] == [], sql.text
+    assert sql.status_code == 403 and sql.json()['error']['code'] == 'confirm_required', sql.text
+    assert 'Confidential' not in sql.text
+    from backend.sql import connect, run
+    with api.app.state.store.read() as c:
+        conn = connect(api.app.state.store.settings.db_path, c, api.app.state.auth, who)
+        try:
+            assert run(conn, 'SELECT id,body FROM tasks WHERE id=?', [private['id']], 500, 5)['rows'] == []
+        finally:
+            conn.close()
     own = post(api, 'tasks', {'owner': 'bot:coo', 'title': 'Review the assistant packet',
                             'body': 'Review it.', 'private': True}, token='ben-test')
     assert get(api, 'tasks/' + own['id'], token)['task']['id'] == own['id']
-    post(api, 'tasks/' + own['id'], {'version': own['version'], 'private': False}, token=token, expected=403)
+    published = api.post('/api/v2/tasks/' + own['id'], json={'version': own['version'], 'private': False},
+                         headers=headers(token))
+    assert published.status_code in (403, 422) and published.json()['error']['code'] in ('privacy', 'confirm_required')
+    assert get(api, 'tasks/' + own['id'], 'ben-test')['task']['private']
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id=?", (attempt['id'],))
     with pytest.raises(Problem) as revoked:
