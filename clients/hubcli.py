@@ -241,6 +241,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub slack channel remove <channel> [--reader BOT]   take the channel off the list, or only that reader off it
     hub slack channel import               store the channels of the old registry/slack-channels.yaml, once
     hub support file "<message>"           tell the Tico team about a gap or fault (a Confirm card first)
+    hub service-key create --label "Billing backend"
+                                           the owner or an admin: a key another system uses to file, update and close
+                                           tasks (POST /api/v2/inbound/tasks, docs/service-keys.md); shown once
+    hub service-key list | revoke <id>     every service key, never its secret; stop one at once
     hub grokbot sync --file f.json         sync your Grok Bots into Tico
 
 The commands of the last release keep working for one more release, hidden: each prints a one-line "renamed to"
@@ -1448,6 +1452,14 @@ def parser():
     s = support.add_parser("file", help="a Confirm card shows the message; nothing is sent until the person confirms")
     s.add_argument("message")
     s.set_defaults(fn="support file")
+    keys = sub.add_parser("service-key", help="keys another system uses to file, update and close tasks (owner and admins)").add_subparsers(dest="sub")
+    s = keys.add_parser("create", help="make a key; it is shown this once")
+    s.add_argument("--label", required=True, help="the system that holds it; every task it files says so")
+    s.set_defaults(fn="service-key create")
+    keys.add_parser("list", help="every service key, never its secret").set_defaults(fn="service-key list")
+    s = keys.add_parser("revoke", help="stop a key at once")
+    s.add_argument("id")
+    s.set_defaults(fn="service-key revoke")
     return p
 
 

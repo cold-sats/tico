@@ -8,9 +8,14 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Security
-- New ordinary tasks are readable by company people and bots. Private tasks limit future access to the requester and current assignee; bot defaults also protect requests assigned to sensitive bots. Existing tasks upgrade privately, preserving attachments and requiring human requester publication.
+- New ordinary tasks are readable by company people and bots. Private tasks limit future access to the requester and current assignee; bot defaults also protect requests assigned to sensitive bots. Existing known ordinary work remains visible; sensitive or ambiguous origins upgrade privately while retaining messages and attachments.
 
 ### Added
+- Service keys: a key another system, such as your product's backend, uses to file, update, close and reopen tasks,
+  and nothing else. `POST /api/v2/inbound/tasks` takes the system's own `key` for each piece of work and makes one task
+  match what it says now, so calls may come in any order and twice. The owner and the admins manage keys with
+  `hub service-key create|list|revoke` (or `/api/v2/service-keys`); there is no Settings page for them yet
+  (docs/service-keys.md).
 - A task type can open its tasks to every bot: `read` (read, comment, file subtasks) or `work` (also move,
   reassign and link them), in Settings → Types, the task-types routes, `hub task type --bots` and MCP. A team's
   board can be worked by the bots that file and build its tickets; everything else stays with the bots on it.

@@ -196,6 +196,9 @@ with a token is the way.
 
 ## Other services
 
+This page is about a bot reaching another service. The other way round, when your own product's backend has to file
+tasks in Tico and close them (a report is ready for its account manager), give it a [service key](service-keys.md).
+
 Look for the vendor's own MCP server first: search "`<vendor>` MCP server", open the vendor's docs, and check for an
 address and whether it takes an API token or key in a header (not only OAuth). If the vendor has
 none, or it is OAuth-only, write a skill like Trello's that calls its REST API with an API token. Either way, say in the tool's `note:` who approved it and what is out of bounds.

@@ -3602,6 +3602,8 @@ def create_app(settings=None):
     from .views import install_views
     from .task_types import install_task_types
     install_task_types(app, store, auth, mutate, mover)
+    from .service_keys import install_service_keys
+    install_service_keys(app, store, auth, mutate)
     install_views(app, store, auth, mutate, task_view)
     @app.get("/api/v2/attempts/{aid}/goal")
     def attempt_goal(request: Request, aid: str):
