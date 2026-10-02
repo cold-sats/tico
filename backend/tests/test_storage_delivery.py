@@ -294,9 +294,10 @@ def test_health_warns_about_s3_write_check_even_with_no_files(api, failure):
     response = api.get('/api/v2/health', headers=headers()).json()
     check = next(check for check in response['checks'] if check['id'] == 'blob_storage')
     assert response['storage']['mode'] == 's3'
+    assert response['storage']['credentials'] == 'role'
     assert response['storage']['copy'] == {'done': 0, 'total': 0, 'failed': 0}
     assert check['status'] == 'warn'
-    assert check['summary'] == f"S3 storage can't write: {failure} on acme-files"
+    assert check['summary'] == f"S3 storage can't write: {failure} on acme-files" + (" (s3:PutObject)" if failure == "AccessDenied" else "")
     assert 'private credential detail' not in json.dumps(response)
     assert not s3.objects
     s3.create_multipart_upload = S3.create_multipart_upload.__get__(s3)
@@ -322,7 +323,7 @@ def test_denied_writes_keep_s3_mode_and_local_read_fallback(api):
     assert not s3.objects
     response = api.get('/api/v2/health', headers=headers()).json()
     assert response['storage']['mode'] == 's3'
-    assert response['storage']['copy']['failed'] == 1
+    assert response['storage']['copy']['failed'] == 0
     assert next(check for check in response['checks'] if check['id'] == 'blob_storage')['status'] == 'warn'
 
 

@@ -356,7 +356,12 @@ def storage_view(c, settings):
                       "(SELECT digest,MAX(size) AS size FROM blobs GROUP BY digest)").fetchone()
     row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-copy'").fetchone()
     detail = json.loads(row["detail_json"] or "{}") if row else {}
+    row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()
+    write_detail = json.loads(row["detail_json"] or "{}") if row else {}
+    location = settings.blob_bucket + ("/" + settings.blob_prefix if settings.blob_prefix else "")
+    credentials = write_detail.get("credentials") if write_detail.get("location") == location else None
     return {"mode": "s3" if settings.blob_bucket else "local", "bucket": settings.blob_bucket,
+            **({"credentials": credentials} if credentials in ("keys", "backup", "role") else {}),
             "region": blob_s3.region(settings) or "", "files": usage["files"], "bytes": usage["bytes"],
             "copy": {key: detail.get(key, 0) for key in ("done", "total", "failed")}}
 

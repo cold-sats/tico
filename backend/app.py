@@ -171,7 +171,7 @@ def create_app(settings=None):
         # A demo runs no scheduler: nothing fires, and nothing waits for a bot that will never run.
         import threading
         copy_stop = threading.Event()
-        copy_task = asyncio.create_task(asyncio.to_thread(app.state.blobs.copy_local, store, copy_stop))
+        copy_task = asyncio.create_task(asyncio.to_thread(app.state.blobs.storage_loop, store, copy_stop))
         media_task = asyncio.create_task(asyncio.to_thread(app.state.file_metadata.loop))
         demo_task = None
         if settings.demo:
