@@ -898,7 +898,7 @@ def private_task_write(fn):
         row = task(conn, values.get('task_id')) if values.get('task_id') else None
         private = bool(row and task_private(conn, row) or values.get('private'))
         if fn.__name__ == 'task_create':
-            if values.get('private') is False and not is_human(actor):
+            if values.get('private') is False and (not is_human(actor) or VIA.get()):
                 values['private'] = None
             target = resolve_actor(conn, values.get('owner'))
             parent = task(conn, values.get('parent_id')) if values.get('parent_id') else None
@@ -2798,7 +2798,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     requester = parent["requester"] if parent and is_human(actor) and is_human(parent["requester"]) else actor
-    if private is False and not is_human(actor):
+    if private is False and (not is_human(actor) or VIA.get()):
         private = None              # a bot cannot override a sensitive default to publish
     private = bool((private if private is not None else
                     private_tasks_default(conn, actor) or private_tasks_default(conn, target))
@@ -2957,7 +2957,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if private is not None and bool(private) != task_private(conn, row):
         if actor not in (row["owner"], row["requester"]):
             refuse(conn, actor, "private", "Only the requester or assignee can change task privacy")
-        if not private and (actor != row["requester"] or not is_human(actor)):
+        if not private and (actor != row["requester"] or not is_human(actor) or VIA.get()):
             refuse(conn, actor, "private", "Only the human requester can publish a private task")
         if not private and row.get("parent_id") and parent_id != "":
             parent = task(conn, row["parent_id"])

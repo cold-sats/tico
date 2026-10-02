@@ -171,3 +171,15 @@ def test_private_dependency_and_refusal_audit_never_copy_sensitive_content(api):
         assert exc.value.private
         audit = c.execute("SELECT detail_json FROM events WHERE action='refused'").fetchall()
         assert all('SECRET-PACKET' not in row[0] for row in audit)
+
+
+def test_bot_acting_for_human_cannot_publish_in_domain(api):
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, 'human:ben', 'Review confidential work', 'Review it.', 'bot:cpo', private=True, lint=False)
+        token = H.VIA.set('assistant')
+        try:
+            with pytest.raises(H.Refused):
+                H.task_update(c, 'human:ben', task['id'], private=False)
+        finally:
+            H.VIA.reset(token)
+        assert H.task_private(c, H.task(c, task['id']))
