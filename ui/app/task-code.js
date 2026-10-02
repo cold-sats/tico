@@ -25,6 +25,18 @@ function taskLinkRepo(l) {
   return m ? m[1] : '';
 }
 const repoShort = repo => String(repo || '').split('/').pop();
+// A worktree row without a repo: the repo its folder names (tasks/<task>/<bot>__<repo>, or a folder named after a repo
+// this task or the install knows); '' when it cannot be told. The Repo filter uses the same answer.
+function taskWorktreeRepo(l, siblings = []) {
+  const repo = taskLinkRepo(l);
+  if (repo) return repoShort(repo);
+  const detail = taskLinkDetail(l);
+  const last = String(l.path || detail.path || '').split(/[\\/]/).filter(Boolean).pop() || '';
+  if (last.includes('__')) return last.split('__').pop();
+  const known = [...new Set([...siblings.map(taskLinkRepo), ...((typeof REPOS !== 'undefined' && REPOS?.repositories) || []).map(r => r.full_name)]
+    .filter(Boolean).map(repoShort))];
+  return known.includes(last) ? last : '';     // a branch name is never taken for a repo: it would be a guess
+}
 function taskWorktreeURL(l) {
   if (/^https?:/.test(String(l.url || ''))) return l.url;
   const repo = taskLinkRepo(l);
@@ -44,24 +56,25 @@ function taskPRChips(l) {
   if (l.state === 'draft') out.push(chip('draft'));
   if (l.checks === 'passing') out.push(chip('✓', 'ok', 'Checks passing'));
   else if (l.checks === 'failing') out.push(chip('✕', 'fail', 'Checks failing'));
-  else if (l.checks === 'pending') out.push(chip('…', '', 'Checks running'));
+  else if (l.checks === 'pending') out.push(chip('checks running'));
   if (l.mergeable === 'conflict') out.push(chip('conflict', 'fail', 'Merge conflict'));
   if (l.review_state === 'changes_requested') out.push(chip('changes requested', 'waiting'));
   else if (l.review_state === 'approved') out.push(chip('approved', 'ok'));
   if (comments) out.push(chip(`${comments} comment${comments === 1 ? '' : 's'}`, 'waiting', 'Comments still to address'));
   return out.join('');
 }
-function taskCodeLineHTML(l, mover) {
+function taskCodeLineHTML(l, mover, siblings = []) {
   // A live worktree is cleaned up when its task closes (its computer saves and removes it); only a removed one, or a
   // pull request, can be taken off the task here.
-  const what = l.kind === 'pr' ? (taskPRNumber(l) ? `#${taskPRNumber(l)}` : 'pull request') : [repoShort(taskLinkRepo(l)), l.branch].filter(Boolean).join(' · ') || 'worktree';
+  const wtRepo = l.kind === 'worktree' ? taskWorktreeRepo(l, siblings) : '';
+  const what = l.kind === 'pr' ? (taskPRNumber(l) ? `#${taskPRNumber(l)}` : 'pull request') : [wtRepo || 'unknown repo', l.branch].filter(Boolean).join(' · ');
   const x = mover && l.id && (l.kind === 'pr' || l.state === 'removed')
     ? `<button type="button" class="code-x" data-code-drop="${esc(l.id)}" aria-label="Remove ${esc(what)}" title="Remove">✕</button>` : '';
   if (l.kind === 'worktree') {
     const repo = taskLinkRepo(l), ahead = taskLinkNum(l, 'ahead'), behind = taskLinkNum(l, 'behind'), files = taskLinkNum(l, 'dirty_files');
     const error = String(taskLinkDetail(l).error || '');
     const url = taskWorktreeURL(l);
-    const bits = [`<span class="code-repo">${esc(repoShort(repo) || 'worktree')}</span>`];
+    const bits = [wtRepo ? `<span class="code-repo">${esc(wtRepo)}</span>` : '<span class="code-repo unknown">unknown repo</span>'];
     if (l.branch) bits.push(`<span class="code-branch mono">${esc(l.branch)}</span>`);
     const sync = [ahead ? `↑${ahead}` : '', behind ? `↓${behind}` : ''].filter(Boolean).join(' ');
     if (sync) bits.push(`<span class="tnum">${sync}</span>`);
@@ -84,7 +97,7 @@ function taskCodeHTML(t) {
   // Worktrees first, then pull requests; each in the order they were added.
   const sorted = [...links.filter(l => l.kind === 'worktree'), ...links.filter(l => l.kind === 'pr')];
   return `<section class="rail-sec task-code" aria-labelledby="task-code-h"><h3 class="rail-h" id="task-code-h">Code</h3>
-    <ul class="code-list">${sorted.map(l => taskCodeLineHTML(l, mover)).join('')}</ul></section>`;
+    <ul class="code-list">${sorted.map(l => taskCodeLineHTML(l, mover, links)).join('')}</ul></section>`;
 }
 
 // ---- Subtasks: the children (one level shown, each expandable), with the roll-up line
@@ -95,38 +108,41 @@ function taskTreeKids(res, id) {
   if (list.length === 1 && String(list[0]?.id) === String(id)) return list[0].children || [];
   return list;
 }
-function taskSubSummary(t, kids) {
+function taskSubCounts(t, kids) {
   const s = t.children_summary;
-  if (s && s.total) {
-    const prs = s.prs_total ? ` · ${s.prs_merged || 0} PR${(s.prs_merged || 0) === 1 ? '' : 's'} merged` : '';
-    return `${s.done || 0} of ${s.total} done${prs}`;
-  }
-  if (!kids.length) return '';
-  const done = kids.filter(k => ['done', 'closed', 'declined'].includes(String(k.status))).length;
-  return `${done} of ${kids.length} done`;
+  if (s && s.total) return {done: Number(s.done) || 0, total: Number(s.total), prs: s.prs_total ? Number(s.prs_merged) || 0 : null};
+  if (!kids.length) return null;
+  return {done: kids.filter(k => ['done', 'closed', 'declined'].includes(String(k.status))).length, total: kids.length, prs: null};
 }
-const SUB_TONE = {doing: 'run', review: 'run', ready: 'ok', done: 'ok', waiting: 'waiting', declined: 'fail'};
+function taskSubSummary(t, kids) {
+  const c = taskSubCounts(t, kids);
+  if (!c) return '';
+  return `${c.done} of ${c.total} done${c.prs != null ? ` · ${c.prs} PR${c.prs === 1 ? '' : 's'} merged` : ''}`;
+}
+// One line per child: the same status icon as the list, the title, its PR badge, then the owner's face.
 function taskSubRowHTML(k, open) {
-  const slug = actorSlug(k.owner), kids = k.children || [];
-  const who = slug ? avatar(slug, 16, stateOf(slug)) : k.owner ? personCircle(actorLabel(k.owner), 16) : '';
+  const kids = k.children || [];
+  const who = k.owner ? actorFace(k.owner, 16) : '';
   const key = String(k.id);
   return `<li class="sub-row${['done', 'closed', 'declined'].includes(String(k.status)) ? ' finished' : ''}" data-sub="${esc(key)}">
     <div class="sub-line">${kids.length ? `<button type="button" class="sub-chev${open.has(key) ? ' open' : ''}" data-sub-toggle="${esc(key)}" aria-expanded="${open.has(key)}" aria-label="${open.has(key) ? 'Hide' : 'Show'} subtasks of ${esc(k.title || '')}">›</button>` : '<span class="sub-chev-pad"></span>'}
-      <button type="button" class="sub-open" data-sub-open="${esc(key)}" title="${esc(`${k.title || ''} · ${actorLabel(k.owner)}`)}"><span class="sub-who">${who}</span><span class="sub-title">${esc(k.title || 'Untitled')}</span></button>
-      ${prStateBadge(k.pr_state)}<span class="sub-status ${SUB_TONE[k.status] || ''}">${esc(STATUS_WORD[k.status] || k.status || '')}</span></div>
+      ${taskStatusIcon(k)}<button type="button" class="sub-open" data-sub-open="${esc(key)}" title="${esc(`${k.title || ''} · ${taskStatusLabel(k)} · ${actorLabel(k.owner)}`)}"><span class="sub-title">${esc(k.title || 'Untitled')}</span></button>
+      ${prStateBadge(k.pr_state)}<span class="sub-who" title="${esc(actorLabel(k.owner))}">${who}</span></div>
     ${kids.length && open.has(key) ? `<ul class="sub-list">${kids.map(c => taskSubRowHTML(c, open)).join('')}</ul>` : ''}</li>`;
 }
 const taskSubAdder = t => canMove() && !['done', 'closed'].includes(String(t.status || ''));
 function taskSubtasksHTML(t, kids, open, adding, owner) {
   if (!kids.length && !adding) return '';
-  const summary = taskSubSummary(t, kids);
-  // The heading counts the children shown here; the line under it rolls up the whole tree.
+  const summary = taskSubSummary(t, kids), counts = taskSubCounts(t, kids);
+  // The heading counts the children shown here; the line under it rolls up the whole tree, with a thin bar.
   const count = t.children_summary?.direct_total ?? kids.length;
+  const pick = owner || actorSlug(t.owner) || t.owner || '';
+  const actor = pick.includes(':') ? pick : 'bot:' + pick;
   return `<section class="rail-sec task-subs" aria-labelledby="task-subs-h"><h3 class="rail-h" id="task-subs-h">Subtasks${count ? ` <span class="cnt">${count}</span>` : ''}</h3>
-    ${summary ? `<div class="sub-sum tnum">${esc(summary)}</div>` : ''}
+    ${summary ? `<div class="sub-sum tnum"><span>${esc(summary)}</span><span class="sub-bar" aria-hidden="true"><i style="width:${Math.round(100 * counts.done / counts.total)}%"></i></span></div>` : ''}
     ${kids.length ? `<ul class="sub-list">${kids.map(k => taskSubRowHTML(k, open)).join('')}</ul>` : ''}
     ${taskSubAdder(t) ? `<form class="sub-add" data-sub-add><input name="title" type="text" maxlength="300" autocomplete="off" placeholder="Add subtask" aria-label="Add subtask">
-      <select name="owner" aria-label="Who the subtask is for">${taskOwnerOptions(owner || t.owner)}</select></form>` : ''}</section>`;
+      <input type="hidden" name="owner" value="${esc(pick)}"><button type="button" class="sub-owner" data-sub-owner aria-haspopup="menu" aria-label="For ${esc(actorLabel(actor))}. Change" title="For ${esc(actorLabel(actor))}">${actorFace(actor, 18)}</button></form>` : ''}</section>`;
 }
 
 // The rail on the open task: drawn from what the modal knows, then again once the tree is in.
@@ -143,8 +159,6 @@ function taskRailPaint(d, t) {
   rail.innerHTML = html;
   rail.hidden = !html;
   d.classList.toggle('has-rail', !!html);
-  // One "Add subtask": the controls' button only while the rail has no Subtasks section to hold the field.
-  d.querySelectorAll('[data-modal-child]').forEach(b => { b.hidden = !!$('[data-sub-add]', rail); });
   const form = $('[data-sub-add]', rail);
   if (form && typed) form.elements.title.value = typed;
   // st.focus holds through the modal's redraws after adding one, until the tree is in (taskRailLoad).
@@ -176,6 +190,19 @@ function taskRailFind(list, id) {
 function taskRailBind(d, t) {
   const rail = $('[data-task-rail]', d); if (!rail) return;
   rail.onclick = async ev => {
+    const who = ev.target.closest('[data-sub-owner]');
+    if (who) {
+      const opts = new DOMParser().parseFromString(`<select>${taskOwnerOptions('')}</select>`, 'text/html').querySelectorAll('option[value]:not([value=""])');
+      const st = d.taskRail, current = $('[data-sub-add]', rail)?.elements.owner.value;
+      propMenu(d, who, {label: 'For', find: 'Find a person or bot', items: [...opts].map(o => {
+        const actor = o.value.includes(':') ? o.value : 'bot:' + o.value;
+        return {value: o.value, text: o.textContent, html: `<span class="tl-opt-face">${actorFace(actor, 16)}</span><span>${esc(o.textContent)}</span>`, checked: o.value === current};
+      }), onPick: it => {
+        const form = $('[data-sub-add]', rail); if (form) form.elements.owner.value = it.value;
+        st.owner = it.value; taskRailPaint(d, t); $('[data-sub-owner]', rail)?.focus();
+      }});
+      return;
+    }
     const toggle = ev.target.closest('[data-sub-toggle]');
     if (toggle) {
       const st = d.taskRail, key = toggle.dataset.subToggle;
@@ -187,7 +214,7 @@ function taskRailBind(d, t) {
     const opener = ev.target.closest('[data-sub-open]');
     if (opener) {
       const k = taskRailFind(d.taskRail?.kids, opener.dataset.subOpen);
-      if (k) void taskModalShow({...k, links: k.links || [], labels: k.labels || []});
+      if (k) void taskModalShow({...k, links: k.links || [], labels: k.labels || []}, d);
       return;
     }
     const drop = ev.target.closest('[data-code-drop]');
@@ -199,7 +226,7 @@ function taskRailBind(d, t) {
         catch (e) { if (![404, 405].includes(e.status)) throw e; await post(base, {remove: drop.dataset.codeDrop}); }   // an older server
         const data = await get(`/v2/tasks/${encodeURIComponent(t.id)}`);
         if (TASKS_ST) void tasksLoad(TASKS_ST);
-        if (d.open && d.dataset.task === String(t.id)) { if (d.taskRail) d.taskRail.full = data.task; taskModalShow(data.task); }
+        if (d.open && d.dataset.task === String(t.id)) { if (d.taskRail) d.taskRail.full = data.task; taskModalShow(data.task, d); }
       } catch (e) { toast(e.message, true); drop.disabled = false; }
     }
   };
@@ -219,7 +246,7 @@ function taskRailBind(d, t) {
       if (TASKS_ST) void tasksLoad(TASKS_ST);
       if (d.open && d.dataset.task === String(t.id)) {
         d.taskRail.focus = true;
-        taskModalShow(data.task);
+        taskModalShow(data.task, d);
       }
     } catch (e) { toast(e.message, true); }
     finally { delete form.dataset.busy; input.disabled = false; }

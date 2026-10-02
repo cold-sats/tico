@@ -522,7 +522,7 @@ function renderTree() {
     const isCurrent = (a.dataset.nav === 'welcome' && S.route === WELCOME) ||
       (a.dataset.nav === 'meetings' && (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?'))) ||
       (a.dataset.nav === 'mail' && (S.route === MAIL || S.route.startsWith(MAIL + '?') || S.route.startsWith(MESSAGING))) ||
-      (a.dataset.nav === 'tasks' && ([TASKS, BOARD, ISSUES, RECURRING].includes(S.route) || S.route.startsWith('#/task/'))) ||
+      (a.dataset.nav === 'tasks' && (isTasksRoute(S.route) || S.route.startsWith('#/task/'))) ||
       (a.dataset.nav === 'settings' && S.route === SETTINGS) ||
       (a.dataset.nav === 'help' && S.route === HELP) ||
       (a.dataset.nav === 'credentials' && S.route === CREDENTIALS) ||

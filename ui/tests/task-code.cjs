@@ -2,8 +2,9 @@
 //  - the task modal's right rail: Code has one line per worktree (repo · branch · ↑ahead ↓behind · N files, a missing
 //    or removed one says so) and per pull request (#212 title and its checks, conflict, review and comment chips), each
 //    a GitHub link; a mover removes one with its ✕ (DELETE .../links/{id});
-//  - Subtasks: the roll-up line from children_summary, one level of children from GET /tasks/{id}/tree (status, owner,
-//    PR badge), a child's own children on expand, and "Add subtask" posting a task with parent_id;
+//  - Subtasks: the roll-up line from children_summary, one level of children from GET /tasks/{id}/tree (the list's status
+//    icon, PR badge, owner), a child's own children on expand, and "Add subtask" posting a task with parent_id;
+//  - a worktree with no repo names it from its folder, else says "unknown repo" (muted);
 //  - a task with no code links and no children has no rail at all; on a phone the rail sits under the details;
 //  - the bot page's Active rows carry one small PR badge each, from the task's pr_state, and none without PRs.
 // TASK_CODE_SHOTS=<dir> saves the screenshots for the owner.
@@ -28,7 +29,8 @@ function fixtures() {
       {id: 'w1', kind: 'worktree', url: 'worktree:9f2c1a', title: 'acme/web worktree', repo: 'acme/web', branch: 'tico/t-check-checkout',
        state: 'present', path: 'tasks/t-check/eng__web', computer_id: 'r1', number: null, checks: null,
        detail_json: JSON.stringify({link_id: 'w1', state: 'present', branch: 'tico/t-check-checkout', ahead: 2, behind: 1, dirty_files: 3, last_commit: 'Add the summary step', size_mb: 41})},
-      {id: 'w2', kind: 'worktree', url: 'worktree:77ab03', title: 'worktree', repo: null, branch: 'tico/t-check-api', state: 'unknown',
+      // No repo on the row: the folder (<bot>__<repo>) still names it.
+      {id: 'w2', kind: 'worktree', url: 'worktree:77ab03', title: 'worktree', repo: null, branch: 'tico/t-check-api', state: 'unknown', path: 'tasks/t-check/api__payments-api',
        detail_json: JSON.stringify({error: 'This bot needs write access to the attached repository'})},
       {id: 'w3', kind: 'worktree', url: 'worktree:0c11de', title: 'acme/docs worktree', repo: 'acme/docs', branch: 'tico/t-check-docs', state: 'removed',
        detail_json: JSON.stringify({state: 'removed', ahead: 0, behind: 0, dirty_files: 0})},
@@ -122,10 +124,26 @@ async function desktop(browser) {
   const lines = await rail.locator('.code-line').allInnerTexts();
   assert.equal(lines.length, 6);
   assert.match(lines[0], /^web\s*·\s*tico\/t-check-checkout\s*·\s*↑2 ↓1\s*·\s*3 files/);
-  assert.match(lines[1], /^worktree\s*·\s*tico\/t-check-api\s*unknown/);
+  assert.match(lines[1], /^payments-api\s*·\s*tico\/t-check-api\s*unknown/);
+  // With neither a repo, a folder nor a branch that names one: "unknown repo", muted; never the word "worktree".
+  const bare = await page.evaluate(() => {
+    const host = document.createElement('ul'); host.className = 'code-list';
+    host.innerHTML = taskCodeLineHTML({id: 'w9', kind: 'worktree', url: 'worktree:1', repo: null, branch: 'tico/t-check-misc', state: 'present'}, true, [{kind: 'pr', repo: 'acme/web'}]);
+    document.querySelector('#task-modal [data-task-rail]').append(host);
+    const repo = host.querySelector('.code-repo');
+    const out = {text: host.innerText, cls: repo.className, color: getComputedStyle(repo).color, muted: getComputedStyle(document.querySelector('#task-modal .tmeta')).color};
+    host.remove();
+    return out;
+  });
+  assert.match(bare.text, /^unknown repo\s*·\s*tico\/t-check-misc/);
+  assert.equal(bare.cls, 'code-repo unknown');
+  assert.equal(bare.color, bare.muted, 'unknown repo is muted');
+  // A branch name is never taken for a repo (fix-api in the web repo is not "api"); only the folder says.
+  assert.equal(await page.evaluate(() => taskWorktreeRepo({kind: 'worktree', branch: 'tico/fix-web'}, [{kind: 'pr', repo: 'acme/web'}])), '');
+  assert.equal(await page.evaluate(() => taskWorktreeRepo({kind: 'worktree', path: 'tasks/t1/eng__web'}, [])), 'web');
   assert.match(lines[2], /^docs\s*·\s*tico\/t-check-docs\s*removed/);
   assert.match(lines[3], /#212\s*Checkout summary step\s*✕\s*changes requested\s*2 comments/);
-  assert.match(lines[4], /#214\s*Price rounding\s*…\s*conflict/);
+  assert.match(lines[4], /#214\s*Price rounding\s*checks running\s*conflict/, 'a chip says what it means');
   assert.match(lines[5], /#198\s*Cart badge\s*merged/);
   assert.equal(await rail.locator('.code-line.wt a').first().getAttribute('href'), 'https://github.com/acme/web/tree/tico/t-check-checkout');
   // No repo, no GitHub link; the computer's error is the state's tooltip.
@@ -143,12 +161,17 @@ async function desktop(browser) {
   assert.equal(await modal.locator('.tlinks a', {hasText: 'Checkout summary step'}).count(), 0, 'a PR is not listed twice');
   // Subtasks: the roll-up, one level, PR badges, expand a child.
   assert.equal(await rail.locator('.sub-sum').innerText(), '4 of 10 done · 7 PRs merged');
+  assert.equal(await rail.locator('.sub-sum .sub-bar > i').evaluate(i => i.style.width), '40%', 'a thin bar beside it');
   assert.equal(await rail.locator('#task-subs-h .cnt').innerText(), '4', 'the heading counts the direct children');
   // One "Add subtask": the rail's field, and no second button in the controls.
   assert.equal(await modal.getByRole('button', {name: 'Add subtask'}).count(), 0);
   assert.equal(await rail.locator('.task-subs > .sub-list > .sub-row').count(), 4);
   const first = rail.locator('.sub-row[data-sub="k1"]');
-  assert.match(await first.locator('> .sub-line').innerText(), /Summary step on web\s*PR ✕\s*In review/);
+  assert.match(await first.locator('> .sub-line').innerText(), /Summary step on web\s*PR ✕/);
+  // The same status icon as the Tasks list, with its words for screen readers.
+  assert.equal(await first.locator('> .sub-line > .si').getAttribute('data-status-kind'), 'review');
+  assert.equal(await first.locator('> .sub-line > .si').getAttribute('aria-label'), 'In review');
+  assert.equal(await rail.locator('.sub-row[data-sub="k3"] > .sub-line > .si').getAttribute('data-status-kind'), 'done');
   assert.equal(await rail.locator('.sub-row[data-sub="k4"] .pr-badge').count(), 0, 'no PRs, no badge');
   assert.equal(await rail.locator('[data-sub="k1a"]').count(), 0, 'one level shown');
   await first.locator('[data-sub-toggle]').click();
@@ -162,14 +185,19 @@ async function desktop(browser) {
 
   // Add subtask: a task with parent_id, for whoever is picked (the parent's owner to start with).
   const form = rail.locator('[data-sub-add]');
-  assert.equal(await form.locator('select[name=owner]').inputValue(), 'eng');
-  await form.locator('select[name=owner]').selectOption('api');
+  // For whom: an avatar picker, not a native select.
+  assert.equal(await form.locator('select').count(), 0);
+  assert.equal(await form.locator('input[name=owner]').inputValue(), 'eng');
+  await form.locator('[data-sub-owner]').click();
+  await modal.locator('.prop-pop [data-prop-pick="api"]').click();
+  await page.waitForFunction(() => document.querySelector('#task-modal [data-sub-add] input[name=owner]')?.value === 'api');
+  assert.match(await form.locator('[data-sub-owner]').getAttribute('aria-label'), /^For API Engineer/);
   const add = form.locator('input[name=title]');
   await add.fill('Check the receipts in the app'); await add.press('Enter');
   await rail.locator('.sub-row[data-sub="k5"]').waitFor();
   assert.deepEqual(writes.at(-1), {method: 'POST', p: '/api/v2/tasks', body: {title: 'Check the receipts in the app', body: 'Check the receipts in the app', owner: 'api', parent_id: 't-checkout'}});
   assert.equal(await rail.locator('#task-subs-h .cnt').innerText(), '5');
-  assert.equal(await form.locator('select[name=owner]').inputValue(), 'api', 'the pick stays for the next one');
+  assert.equal(await form.locator('input[name=owner]').inputValue(), 'api', 'the pick stays for the next one');
   assert.equal(await page.evaluate(() => document.activeElement?.name), 'title', 'ready for the next subtask');
   // Remove a link with its ✕ (shown on hover).
   const line = rail.locator('.code-line[data-code-link="p2"]');
@@ -185,12 +213,13 @@ async function desktop(browser) {
   assert.equal(await modal.locator('[data-task-rail]').isHidden(), true);
   assert.equal(await modal.evaluate(d => d.classList.contains('has-rail')), false);
   assert.equal(await modal.locator('text=Subtasks').count(), 0);
-  // "Add subtask" in the controls opens the rail's field, which then is the only one.
-  await modal.getByRole('button', {name: 'Add subtask'}).click();
-  await modal.locator('[data-sub-add] input').waitFor();
+  // "Add subtask" in the task's "…" menu opens the rail's field, which then is the only one.
+  await modal.locator('[data-task-more]').click();
+  await modal.locator('.prop-pop .tl-mi', {hasText: 'Add subtask'}).click();
+  await modal.locator('[data-sub-add] input[name=title]').waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Add subtask');
   assert.equal(await modal.getByRole('button', {name: 'Add subtask'}).count(), 0);
-  assert.equal(await modal.locator('[data-sub-add] select[name=owner]').inputValue(), 'human:ana');
+  assert.equal(await modal.locator('[data-sub-add] input[name=owner]').inputValue(), 'human:ana');
   assert.deepEqual(errors, []);
   console.log('task rail desktop: ok');
   await page.close();
