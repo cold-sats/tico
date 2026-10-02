@@ -5,10 +5,9 @@
 html.demo .rail-edge[data-rail="left"]{top:var(--demo-h)}
 .rail-edge::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;border-radius:1px;background:var(--accent);opacity:0;transition:opacity .12s}
 .rail-edge:hover::after,.rail-edge.active::after,.rail-edge:focus-visible::after{opacity:.7}
-/* The bot page's right rail is the tasks column beside the chat, on a wide window only. */
+/* The bot page's right rail runs the page's full height beside the chat, on a wide window only; its edge is its left border. */
 .rail-edge[data-rail="right"]{display:none}
-#main.bot-split-layout>#bot-work{position:relative}
-#main.bot-split-layout .rail-edge[data-rail="right"]{display:block;position:absolute;left:auto;right:calc(var(--rail-right) + var(--s4) / 2 - 4px)}
+#main.bot-split-layout .rail-edge[data-rail="right"]{display:block;position:absolute;left:auto;right:calc(var(--rail-right) - 4px)}
 body.rail-dragging,body.rail-dragging *{cursor:col-resize!important;user-select:none}
 /* A phone keeps its drawer and one column. */
 @media (max-width:760px){.rail-edge{display:none!important}}

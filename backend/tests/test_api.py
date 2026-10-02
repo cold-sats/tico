@@ -398,3 +398,63 @@ def test_messages_since_a_whole_second_include_later_messages_in_that_second(api
         assert get(api, path + since)["messages"], since
     assert not get(api, path + "2026-10-01T19:36:15Z")["messages"]
     get(api, path + "yesterday", expected=422)
+
+
+def test_update_status_reports_the_release_this_server_really_ran_before(api, monkeypatch):
+    """A rollout outside the in-app updater leaves its `from` stale; the server's own history does not."""
+    from backend import releases
+    store = api.app.state.store
+    for v in ("0.2.41", "0.3.0"):
+        monkeypatch.setenv("TICO_VERSION", "v" + v)
+        with store.transaction() as c:
+            releases.record_start(c, H.now())
+    with store.transaction() as c:
+        releases.record_start(c, H.now())                 # a restart on the same release adds nothing
+    r = api.get("/api/v2/system/update", headers=headers())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["running"] == "0.3.0" and body["previous"] == "0.2.41"
+    assert [h["version"] for h in body["history"]][-2:] == ["0.2.41", "0.3.0"]
+
+
+def test_busy_bot_stays_out_of_claims_after_lease_expiry(api):
+    r, _, first = setup_attempt(api)
+    post(api, f"attempts/{first['id']}/started", {"thread_id": "live-turn"}, token=r["token"])
+    post(api, "chat/ops", {"text": "A separate request"})
+    expire(api, first["id"])
+    for _ in range(2):
+        assert post(api, "jobs/claim", {"busy_bots": ["ops"]}, token=r["token"]) == {"attempt": None}
+    # No durable fence: once the supervisor reports the process gone, work resumes.
+    replacement = post(api, "jobs/claim", {"busy_bots": []}, token=r["token"])["attempt"]
+    assert replacement and replacement["id"] != first["id"]
+
+
+def test_old_runner_claims_without_busy_bots(api):
+    r, _, first = setup_attempt(api)
+    expire(api, first["id"])
+    replacement = claim(api, r)
+    assert replacement and replacement["id"] != first["id"]
+    assert "checkout_retry" not in replacement
+    with api.app.state.store.read() as c:
+        tables = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert not tables & {"attempt_processes", "checkout_waits"}
+
+
+def test_healthy_run_keeps_its_focus_with_queued_work(api):
+    r, _, a = setup_attempt(api)
+    post(api, f"attempts/{a['id']}/started", {"thread_id": "live"}, token=r["token"])
+    post(api, "chat/ops", {"text": "Next"})
+    assert get(api, "bots/ops")["status"]["focus"] == "Responding to queued work"
+    assert get(api, "status?bot=ops")["status"]["focus"] == "Responding to queued work"
+    assert not any(i["kind"] == "checkout" for i in get(api, "operations")["issues"])
+
+
+def test_malformed_bot_config_does_not_block_other_claims(api):
+    r = runner(api)
+    for bot in ("ops", "finance"):
+        assign(api, r, bot)
+        post(api, f"chat/{bot}", {"text": "Review"})
+    ready(api, r, ["ops", "finance"])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json='{' WHERE bot='ops'")
+    assert claim(api, r)["bot"] == "finance"

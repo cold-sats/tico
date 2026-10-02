@@ -14,6 +14,7 @@ import re
 import secrets
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -100,6 +101,15 @@ class GitHubApp:
         self.cache = {}
         self.live = {}
         self.lock = threading.Lock()
+        self.repository_sync_attempt = 0
+        self.repository_sync_failures = 0
+        self.repository_queue_lock = threading.Lock()
+        self.repository_sync_lock = threading.Lock()
+        self.repository_sync_wanted = False
+        self.repository_refresh_wanted = False
+        self.repository_worker = None
+        self.repository_running = False
+        self.repository_stop = threading.Event()
         with store.transaction() as c:
             c.executescript(SCHEMA)
 
@@ -145,9 +155,22 @@ class GitHubApp:
         except Exception:
             raise Problem("github_unavailable", "The stored GitHub App key could not be decrypted", 503) from None
 
+    def webhook_secret(self):
+        with self.store.read() as c:
+            row = self.row(c)
+            if not row:
+                return ""
+            try:
+                blob = AESGCM(self._key(c)).decrypt(row["nonce"], row["ciphertext"], b"tico-github-app:v1")
+                return json.loads(blob).get("webhook_secret") or ""
+            except Exception:
+                return ""
+
     def forget(self, c):
         c.execute("DELETE FROM github_app")
+        c.execute("UPDATE repositories SET reachable=0 WHERE reachable<>0")
         c.execute("DELETE FROM github_app_states")
+        c.execute("DELETE FROM registry_metadata WHERE key IN ('repositories-reachability-verified','repositories-confirmed-missing')")
         c.execute("DELETE FROM service_health WHERE service=?", (GITHUB_HEALTH,))   # nothing left to be unhealthy
         self.cache.clear()
         self.live.clear()
@@ -256,7 +279,7 @@ class GitHubApp:
             self.cache = {key: value for key, value in self.cache.items() if repository not in key[0]}
         return {"repository": repository, "deleted": True}
 
-    def mint(self, repos, permissions):
+    def mint(self, repos, permissions, diagnose=True):
         """A token for the repositories (`owner/name` each), or the whole installation when there are none.
         Cached until shortly before it expires."""
         repos = sorted(set(repos or ()))
@@ -281,7 +304,9 @@ class GitHubApp:
                           "The GitHub App has not been granted the permissions bots need (contents, pull requests, issues). "
                           "Accept its updated permissions on the installation page in GitHub, or " + RECONNECT[0].lower() + RECONNECT[1:], 409)
         if r.status_code in (403, 404, 422) and repos:
-            raise self._unreachable(installation, repos, r.status_code)
+            if diagnose:
+                raise self._unreachable(installation, repos, r.status_code)
+            raise Problem('github_repo_not_accessible', 'GitHub could not reach the requested repositories', 409)
         if r.status_code == 401:
             raise Problem("github_app_key", "GitHub rejected the App's key (" + (said or "HTTP 401") + "). " + RECONNECT, 502)
         if r.status_code >= 300:
@@ -290,10 +315,56 @@ class GitHubApp:
         data = r.json()
         entry = {"token": data["token"], "expires_at": data["expires_at"], "exp": _iso(data["expires_at"])}
         with self.lock:
+            self.cache = {k: v for k, v in self.cache.items() if v["exp"] > time.time()}
+            if len(self.cache) >= 256:
+                self.cache.pop(next(iter(self.cache)))
             self.cache[key] = entry
         return entry["token"], entry["expires_at"]
 
-    def _unreachable(self, installation, repos, status):
+    def mint_reachable(self, repos, permissions, diagnose_empty=False, own=None):
+        """Discard confirmed missing repositories and retry the remaining scope once."""
+        from .repositories import unreachable, metadata, save_metadata
+        with self.store.read() as c:
+            missing = unreachable(c)
+            names = [name for name in repos if name.lower() not in missing or name.lower() == str(own).lower()]
+        if not names:
+            if diagnose_empty:
+                raise Problem('github_repo_not_accessible', 'Repository is not reachable; check the GitHub App installation (retry in five minutes)', 409)
+            return None, None, []
+        try:
+            token, expires = self.mint(names, permissions, diagnose=False)
+        except Problem as problem:
+            if problem.code not in ('github_repo_not_accessible', 'github_repo_missing'):
+                raise
+            wide, _ = self.mint(None, {'metadata': 'read'})
+            absent = [name for name in names if name.lower() in missing]
+            if not absent:
+                absent = [name for name in names if self._call(
+                    'GET', '/repos/' + name, headers={'Authorization': 'Bearer ' + wide}).status_code == 404]
+            if not absent:
+                raise
+            with self.store.transaction() as c:
+                confirmed = metadata(c, 'repositories-confirmed-missing')
+                confirmed = {name: stamp for name, stamp in confirmed.items() if name in unreachable(c)}
+                confirmed.update({name.lower(): confirmed.get(name.lower(), time.time()) if name.lower() in missing else time.time() for name in absent})
+                save_metadata(c, 'repositories-confirmed-missing', confirmed)
+                for name in absent:
+                    c.execute('INSERT INTO repositories(id,full_name,reachable,updated) VALUES(?,?,0,?) '
+                              'ON CONFLICT(full_name) DO UPDATE SET reachable=0', (uuid.uuid4().hex, name, H.now()))
+            from .repositories import repository_health
+            repository_health(self)
+            names = [name for name in names if name not in absent]
+            if not names:
+                if diagnose_empty:
+                    raise self._unreachable(self.installation(), repos, 404, known_absent=absent)
+                return None, None, []
+            token, expires, names = self.mint_reachable(names, permissions, diagnose_empty=diagnose_empty)
+        from .repositories import reachable
+        with self.store.transaction() as c:
+            reachable(c, names)
+        return token, expires, names
+
+    def _unreachable(self, installation, repos, status, known_absent=None):
         """Why GitHub would not scope a token to `repos`. A repository that does not exist yet answers
         404, the same as one the app cannot see, so ask GitHub what the installation can see: with
         access to every repository a 404 means it is not there yet; with selected repositories it could
@@ -308,9 +379,11 @@ class GitHubApp:
                 token = self.app_jwt(c, self.row(c))
             info = self._call("GET", f"/app/installations/{installation}", headers={"Authorization": "Bearer " + token})
             selection = info.json().get("repository_selection") if info.status_code < 300 else ""
-            wide, _ = self.mint(None, {"metadata": "read"})
-            absent = [repo for repo in repos
-                      if self._call("GET", f"/repos/{repo}", headers={"Authorization": "Bearer " + wide}).status_code == 404]
+            absent = known_absent
+            if absent is None:
+                wide, _ = self.mint(None, {"metadata": "read"})
+                absent = [repo for repo in repos
+                          if self._call("GET", f"/repos/{repo}", headers={"Authorization": "Bearer " + wide}).status_code == 404]
         except Problem:
             return problem
         if not absent:
@@ -353,6 +426,9 @@ class GitHubApp:
                 raise Problem("github_create_failed", f"GitHub would not create {row['org']}/{name} "
                               f"(HTTP {r.status_code}). Create it manually if this persists.", 502)
             data = r.json()
+            from .repositories import reachable
+            with self.store.transaction() as c:
+                reachable(c, [data.get("full_name") or f"{row['org']}/{name}"])
             return {"repository": data.get("full_name") or f"{row['org']}/{name}", "html_url": data.get("html_url", ""),
                     "empty": True, "note": "Empty repository. Push the bot's existing history to it; if the app is "
                     "installed on selected repositories only, add this repository to the installation first."}
@@ -366,6 +442,9 @@ class GitHubApp:
             raise Problem("github_create_failed", f"GitHub would not create {row['org']}/{name} from {template} "
                           f"(HTTP {r.status_code}). Create it manually if this persists.", 502)
         data = r.json()
+        from .repositories import reachable
+        with self.store.transaction() as c:
+            reachable(c, [data.get("full_name") or f"{row['org']}/{name}"])
         return {"repository": data.get("full_name") or f"{row['org']}/{name}", "html_url": data.get("html_url", ""),
                 "note": "If the app is installed on selected repositories only, add this repository to the installation."}
 
@@ -385,6 +464,7 @@ class ExtraRepos(BaseModel):
 class TokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bot: str = Field(min_length=1, max_length=100)
+    repository: str | None = None
 
 
 def _said(response):
@@ -397,14 +477,15 @@ def _said(response):
 
 def manifest(settings, name, administration):
     public = settings.public_url
-    permissions = dict(TURN_PERMISSIONS)
+    permissions = {**TURN_PERMISSIONS, "checks": "read", "statuses": "read"}
     if administration:
         permissions["administration"] = "write"
     return {"name": name[:34], "url": public, "redirect_url": public + "/api/v2/github/app/callback",
             "setup_url": public + "/api/v2/github/app/installed",
-            # Nothing here needs GitHub to call us, so the hook stays off; the required url is a placeholder.
-            "hook_attributes": {"url": public + "/api/v2/github/webhook", "active": False},
-            "public": False, "default_permissions": permissions, "default_events": []}
+            "hook_attributes": {"url": public + "/api/v2/github/webhook", "active": True},
+            "public": False, "default_permissions": permissions,
+            "default_events": ["pull_request", "pull_request_review", "pull_request_review_comment",
+                               "check_run", "check_suite", "status", "push"]}
 
 
 def extra_repos(c, bot):
@@ -429,6 +510,9 @@ def save_extra_repos(c, bot, repos):
 
 def install_github_app(app, settings, store):
     service = app.state.github_app = GitHubApp(settings, store, getattr(app.state, "vault", None))
+
+    from . import repositories as R
+    R.install(app, store, service)
 
     def owner(request):
         who = request.state.identity
@@ -501,6 +585,11 @@ def install_github_app(app, settings, store):
     def installed(request: Request):
         who = owner(request)
         found = service.installation(refresh=True)
+        if found:
+            try:
+                R.sync(service)
+            except Problem as exc:
+                log.warning("Repository sync failed: %s", exc.code)
         with store.transaction() as c:
             H.event(c, who.actor, "github.app_installed", "", {"installed": bool(found)})
         return RedirectResponse("/#/settings?github=" + ("connected" if found else "pending"), status_code=302)
@@ -539,19 +628,41 @@ def install_github_app(app, settings, store):
             repo = repo_of(config["repo"] if config else "", row["org"] or settings.github_owner)
             if not repo or repo.split("/")[0].lower() != row["org"].lower():
                 raise Problem("forbidden", f"That bot's repository is not in the connected organization ({row['org']})", 403)
-            # The owner's list, re-checked against the organization in case the connection changed since.
-            extras = [r for r in extra_repos(c, body.bot) if r.split("/")[0].lower() == row["org"].lower()]
-        repos = [repo] + [r for r in extras if r.lower() != repo.lower()]
+            grants = R.access(c, body.bot, row['org'])['effective']
+        repos = [r['full_name'] for r in grants]
+        write_repos = [r['full_name'] for r in grants if r['access'] == 'write']
+        read_repos = [r['full_name'] for r in grants if r['access'] == 'read']
+        if body.repository:
+            requested = repo_of(body.repository, row['org'])
+            grant = next((g for g in grants if requested and g['full_name'].lower() == requested.lower()), None)
+            if not grant:
+                raise Problem('forbidden', 'That repository is outside this bot’s access', 403)
+            write_repos = [grant['full_name']] if grant['access'] == 'write' else []
+            read_repos = [grant['full_name']] if grant['access'] == 'read' else []
+            repos = [grant['full_name']]
+        tokens = []
         try:
-            value, expires = service.mint(repos, TURN_PERMISSIONS)
+            # GitHub permissions are token-wide. Never put read grants in a write token.
+            if write_repos:
+                value, expires, write_repos = service.mint_reachable(write_repos, TURN_PERMISSIONS, diagnose_empty=write_repos == [repo], own=repo)
+                if value:
+                    tokens.append({'token': value, 'expires_at': expires, 'repositories': write_repos, 'access': 'write'})
+            if read_repos:
+                read_value, read_expires, read_repos = service.mint_reachable(read_repos, {'contents': 'read', 'metadata': 'read'})
+                if read_value:
+                    tokens.append({'token': read_value, 'expires_at': read_expires, 'repositories': read_repos, 'access': 'read'})
+            if not tokens:
+                raise Problem('github_repo_not_accessible', f'{repo} is not reachable; check the GitHub App installation', 409)
+            repos = write_repos + read_repos
+            value, expires = tokens[0]['token'], tokens[0]['expires_at']
         except Problem as problem:
             if problem.code not in BOT_SCOPED:
                 note_github_token(store, problem.detail, "Open Settings > Tools and check the GitHub connection.")
             raise
-        note_github_token(store)
+        R.repository_health(service)
         with store.transaction() as c:
             H.event(c, who.actor, "github.token", body.bot, {"repository": repo, "repositories": repos})
-        return {"configured": True, "token": value, "expires_at": expires, "repository": repo, "repositories": repos}
+        return {"configured": True, "token": value, "expires_at": expires, "repository": repo, "repositories": repos, "tokens": tokens}
 
     def bot_repos(c, bot):
         if not c.execute("SELECT 1 FROM bot_config WHERE bot=?", (bot,)).fetchone():
@@ -567,7 +678,7 @@ def install_github_app(app, settings, store):
         with store.read() as c:
             row, own = bot_repos(c, bot)
             return {"connected": bool(row), "org": row["org"] if row else "", "repository": own or "",
-                    "repositories": extra_repos(c, bot)}
+                    "repositories": [r["full_name"] for r in R.access(c, bot, row["org"] if row else settings.github_owner)["chosen"] if r["access"] == "write"]}
 
     @app.put("/api/v2/bots/{bot}/github-repos")
     def extra_put(request: Request, bot: str, body: ExtraRepos):
@@ -584,10 +695,15 @@ def install_github_app(app, settings, store):
                                   "must be in the connected organization", 422)
                 if (own or "").lower() != repo.lower() and repo.lower() not in [w.lower() for w in wanted]:
                     wanted.append(repo)
-            before = extra_repos(c, bot)
-            if wanted != before:
-                save_extra_repos(c, bot, wanted)
-                H.event(c, who.actor, "github.bot_repos_changed", bot, {"before": before, "after": wanted})
+            before = R.access(c, bot, row['org'])
+            old = {r['full_name'].lower() for r in before['chosen'] if r['access'] == 'write'}
+            if {r.lower() for r in wanted} == old:
+                return {"connected": True, "org": row['org'], "repository": own or '', "repositories": wanted}
+            if before['mode'] != 'chosen':
+                raise Problem('github_repo', 'This bot uses repository access; change it in Settings', 409)
+            R.set_access(c, bot, R.RepoAccessUpdate(mode='chosen', chosen=[R.Grant(**r) for r in before['chosen']] +
+                                                   [R.Grant(full_name=r) for r in wanted if r.lower() not in {g['full_name'].lower() for g in before['chosen']}]),
+                         row['org'], who.actor, legacy=True, team_list=app.state.auth.bot_admin(who))
         return {"connected": True, "org": row["org"], "repository": own or "", "repositories": wanted}
 
     @app.post("/api/v2/github/repos")

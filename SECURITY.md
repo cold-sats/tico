@@ -80,7 +80,10 @@ work of any bot assigned to that computer, so code a bot runs must not be able t
   that executes bot code (the model CLI of a run, `git` in a bot's checkout, sign-in flows) as the unprivileged `bot` user. A
   run gets its own run token and the environment the runner passes it, nothing of the registration.
   Its GitHub token comes from a local socket that answers only "a token for the bot this run belongs
-  to", given the run token; the registration never crosses it.
+  to", given the run token; the registration never crosses it. Authenticated repository fetches use
+  supervisor-owned bare mirrors with read-only access for bots (0755 directories, 0644 files). The state
+  directory allows traversal (0711) so bots can read mirrors; its existing private files remain 0600 and
+  private subdirectories 0700. Base clones refresh from mirrors as the bot user, without a token.
 - **Mac runner:** one user runs the runner and the bots, so the registration sits in the same account the
   bots run as: treat the Mac as one trust group. A second macOS account for the bots is possible by hand but
   not built in.

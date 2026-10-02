@@ -164,10 +164,13 @@ def main(argv=None):
         runtimes = service.runtime_report(candidates)
         rows = service.preflight(candidates, runtimes)
         readiness = service.readiness(candidates, rows, runtimes)
+        from .repositories import Repositories
+        repos = Repositories(config["projects_dir"], args.config.parent / ("state-" + config["runner_id"]) / "repositories.json", client)
         print(json.dumps({"runner_id": config["runner_id"], "checks": rows,
-                          "readiness": readiness,
+                          "readiness": readiness, "repositories": repos.inspect(),
                           "credentials_directory": str(Path(config["projects_dir"]) / "secrets"),
                           "note": "Checks repositories, runtime installation, and supported non-model sign-in status. No model calls were made."}, indent=2))
+        repos.close()
         if any(not row["ready"] for row in rows):
             raise SystemExit(1)
         return

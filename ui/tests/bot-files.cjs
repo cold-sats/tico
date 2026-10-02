@@ -1,5 +1,5 @@
-// The Files card on a bot's page (ui/bot-files.js): a plain list of icon and name, three rows and
-// Show all / Show less inline, no counts, subtitle or buttons. A linked document opens at its provider
+// The Files section of a bot's right rail (ui/bot-files.js): a plain list of names, three rows and a small
+// "+N" / "Less" inline, no counts, subtitle or buttons. A linked document opens at its provider
 // (a new tab), a stored file in the app's viewer (a CSV as a table, a quoted comma kept in one cell),
 // a file that did not sync is plain text, never a storage address; on a computer and on a phone.
 // Fixtures only, no network.
@@ -82,7 +82,9 @@ async function open(browser, viewport, state) {
       const card = page.locator('#bot-files');
       await card.locator('.bf-row').first().waitFor();
       assert.equal(await card.locator('.bf-row').count(), 3, tag + ': three rows');
-      assert.equal((await card.locator('h2').innerText()).trim(), 'Files', tag + ': no count in the title');
+      assert.equal((await card.locator('h2').textContent()).trim(), 'Files', tag + ': no count in the title');
+      assert.equal(await card.locator('.nav-icon').count(), 0, tag + ': names only, no icon');
+      assert.equal((await card.locator('[data-bf-all]').innerText()).trim(), '+2', tag + ': a small +N for the rest');
       assert.equal(await card.locator('.sub, [data-bf-add], [data-bf-remove], [data-bf-promote], .bf-meta, .bf-open, button.ghost:not([data-bf-all])').count(), 0, tag + ': just icons and names');
       assert.deepEqual(await card.locator('.bf-name').allInnerTexts(), ['Q4 launch plan', 'Weekly report', 'Budget'], tag + ': newest activity first');
       const link = card.locator('.bf-row').nth(0).locator('a.bf-name');

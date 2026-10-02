@@ -179,7 +179,7 @@ async function routineChanged() {
   const e = BOT && S.emps.find(x => x.name === BOT.slug);
   if (e) {
     if ($('#bot-routines-list')) $('#bot-routines-list').innerHTML = botRoutinesHTML(e, BOT.slug);
-    if ($('#bot-recurring')) $('#bot-recurring').innerHTML = botRecurringHTML(e, BOT.slug);
+    botRecurringPaint(e, BOT.slug);
   }
   route();
 }

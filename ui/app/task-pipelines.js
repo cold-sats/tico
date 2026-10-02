@@ -24,27 +24,7 @@ function taskPipelineState(state) {
 function taskPipelineRemember(state) {
   try { localStorage.setItem('tico.tasks.type', state.type || ''); } catch {}
 }
-function taskPipelineFilter(state) {
-  const foot = $('#task-filter-foot') || $('#task-filter-pop .task-filter-foot');
-  if (!foot) return;
-  let row = $('#task-type-row');
-  if (!row) {
-    row = document.createElement('div'); row.id = 'task-type-row'; row.className = 'task-filter-row';
-    row.innerHTML = '<label for="board-type">Type</label><select id="board-type" aria-label="Filter by type"></select>';
-    foot.before(row);
-  }
-  row.hidden = TASK_TYPES.length < 2;
-  const select = $('#board-type');
-  select.innerHTML = '<option value="">Any type</option>' + TASK_TYPES.map(type =>
-    `<option value="${esc(type.id)}">${esc(type.name)}</option>`).join('');
-  if (state.type && TASK_TYPES.length && !TASK_TYPES.some(type => type.id === state.type)) state.type = '';
-  select.value = state.type || '';
-  select.onchange = () => {
-    state.type = select.value;
-    tasksRemember(state); tasksFilterCount(state); tasksRender(state);
-    if (state.type && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
-  };
-}
+// The type is one of the Tasks page's filter chips (ui/app/task-list.js); a chosen type turns the board into its steps.
 function taskPipelineMatches(task, state) {
   return !state.type || pipelineTypeId(task) === state.type;
 }
@@ -58,42 +38,15 @@ function taskPipelineBoard(items, state) {
     const list = unmapped.filter(item => item.task.status === status);
     if (list.length) columns.push({id: 'status-' + status, name: STATUS_WORD[status] || status, items: list});
   }
-  const anyWork = columns.some(column => column.items.length);
-  return `<div class="board work">${columns.map(column => {
-    const list = column.items.sort(byRank);
-    return `<section class="bcol${anyWork && !list.length ? ' is-empty' : ''}" data-col="${esc(column.id)}" aria-label="${esc(column.name)}">
-      <header><h2>${esc(column.name)}</h2><span class="cnt">${list.length}</span></header>
-      <div class="bcol-body">${list.map(taskCard).join('') || '<div class="empty">Nothing here</div>'}</div>
-    </section>`;
-  }).join('')}</div>${state.doneNext != null ? '<button class="ghost" type="button" id="board-more">Show more</button>' : ''}`;
+  const STEP_KIND = {open: 'starting', doing: 'doing', waiting: 'waiting', review: 'review', ready: 'review', done: 'done', closed: 'closed', declined: 'needs'};
+  for (const column of columns) {
+    column.items.sort(byRank);
+    const step = type.steps.find(step => step.id === column.id);
+    column.kind = STEP_KIND[step?.status || column.id.replace(/^status-/, '')] || '';
+  }
+  return boardColumnsHTML(columns) + (state.doneNext != null ? '<button class="ghost tl-more" type="button" id="board-more">Show more</button>' : '');
 }
-function taskPipelineControl(task, statuses) {
-  const type = pipelineType(task);
-  const typeSelect = TASK_TYPES.length > 1 ? `<label>Type <select data-modal-type aria-label="Type">${TASK_TYPES.map(t =>
-    `<option value="${esc(t.id)}"${t.id === pipelineTypeId(task) ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>` : '';
-  if (!type || type.id === 'general') return typeSelect + `<label>Status <select data-modal-status aria-label="Status">${statuses.map(status =>
-    `<option value="${status}"${status === task.status ? ' selected' : ''}>${esc(STATUS_WORD[status] || status)}</option>`).join('')}</select></label>`;
-  return typeSelect + `<label>Step <select data-modal-step aria-label="Step">
-    <option value=""${!task.step_id ? ' selected' : ''}>${esc(STATUS_WORD[task.status] || task.status)} · No step</option>
-    ${type.steps.map(step => `<option value="${esc(step.id)}"${step.id === task.step_id ? ' selected' : ''}>${esc(step.name)}</option>`).join('')}
-    </select></label>`;
-}
-function taskPipelineExtraControl(task, mover, open) {
-  const participant = [task.owner, task.requester].includes(myActor());
-  if (pipelineTypeId(task) === 'general' || !(mover || participant) || mover && open) return '';
-  return `<div class="tsection tcontrols">${taskPipelineControl(task, PIPELINE_STATUSES.filter(status => status !== 'closed'))}</div>`;
-}
-function taskPipelineBind(dialog, task, change) {
-  dialog.querySelectorAll('[data-modal-type]').forEach(select => select.onchange = async () => {
-    if (!await change({type: select.value})) select.value = pipelineTypeId(task);
-  });
-  dialog.querySelectorAll('[data-modal-step]').forEach(select => select.onchange = async () => {
-    const step = pipelineType(task)?.steps.find(step => step.id === select.value);
-    const body = {step: select.value};
-    if (step?.status === 'done') body.status = 'done';
-    if (!await change(body)) select.value = task.step_id || '';
-  });
-}
+// A task's Type and Step are rows in its properties (ui/app/task-props.js).
 async function taskPipelineCreate(form, selected = '') {
   try { await taskTypesLoad(); } catch { return; }
   if (!form.isConnected || TASK_TYPES.length < 2 || form.elements.type) return;

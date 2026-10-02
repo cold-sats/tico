@@ -40,6 +40,8 @@ Describe the change and choose **Ask BotOps to change**. BotOps receives your re
 The app displays the Instructions from the latest repository snapshot; refresh after BotOps finishes.
 New repositories default to `bot-<slug>`.
 
+New bots start with their own repository unless the team selected all ticked repositories in Settings → Repositories. An Owner or admin can choose own only, all ticked or chosen repositories, with read or write access. Existing extra repositories keep write access automatically. See [Repositories](repositories.md).
+
 ## Branches
 
 A branch is your own bot for work with an original's instructions and repository. Its chats and tasks are personal,
@@ -477,13 +479,14 @@ into the vault if needed and grants it as them ([credential-vault.md](credential
 
 ### What humans see about a bot's tools
 
-At the top of the right column of a bot's page (above the chat on a phone) is a row of small round
-icons, one per tool the bot uses. It is how a human learns what a bot can reach without opening its
-repository. The row is short by design: past eight tools it shows "+N", which opens the whole list.
+Beside a bot's name at the top of its page, after the mark for the harness it runs on, are up to three
+small tool icons and "+N" for the rest (a phone leaves them out of its short top line). Each names its
+tool on hover, and any of them opens **Tools** under the bot's **More** tab: every tool the bot uses,
+with its details. It is how a human learns what a bot can reach without opening its repository.
 
-- **Where it comes from.** The first icon is the model and harness the bot runs on (for example
-  "Codex · openai/gpt-6-luna"), the second its GitHub repository when it has an address, and the
-  rest are the `tools:` entries above, one each. The runner reads `bot.yaml` from the bot's
+- **Where it comes from.** The list starts with the model and harness the bot runs on (for example
+  "Codex · openai/gpt-6-luna"; the icons beside the name skip it, since the harness mark says it),
+  then its GitHub repository when it has an address, and then the `tools:` entries above, one each. The runner reads `bot.yaml` from the bot's
   checkout and reports the entries on its heartbeat, so an edit shows up once it is in the checkout
   on the computer. A computer running an older runner shows the model and repository only.
 - **An MCP server** shows as `mcp` with its host. The runner makes one cheap request to it (an MCP `initialize`, a few
@@ -493,11 +496,10 @@ repository. The row is short by design: past eight tools it shows "+N", which op
   Calendar, PostHog, MongoDB, PostgreSQL, MySQL, OpenAI, Anthropic, Notion, Linear, Stripe, AWS,
   Cloudflare, Zoom) and the first two letters of the name in a tinted circle for everything else.
   A red dot means the tool has a problem.
-- **Hover, focus or tap** opens the details: the service's name, the identity it acts as
+- **The Tools list** under More gives each tool's details: the service's name, the identity it acts as
   (`identity:`), what it may do (`can:`), its scope (`database:`, `channels:`, `project:`,
   `mailbox:`, `sites:`, `repo:` and a few like them), the `note:`, the name of the environment
   variable, and a status: ready, or the problem, such as "Credential missing on Test Mac".
-  Escape closes it; on a phone it opens as a sheet.
 - **What never appears.** No credential value. The runner sends the service, identity, verbs, the scope
   fields above, the note and the variable's *name*, plus whether that variable is set on its
   computer. Any other field in an entry (a token typed in by mistake, say) stays on the computer,

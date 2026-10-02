@@ -5,7 +5,7 @@
 const mmss = ms => { const t = Math.max(0, Math.round((ms || 0) / 1000)); const h = Math.floor(t / 3600); const m = Math.floor(t % 3600 / 60), s = t % 60;
   return (h ? `${h}:${String(m).padStart(2,'0')}` : String(m)) + ':' + String(s).padStart(2, '0'); };
 const ago = iso => { if (!iso) return ''; const s = (Date.now() - new Date(iso)) / 1000; if (s < 0) return 'just now'; if (s < 60) return `${Math.round(s)}s ago`; if (s < 3600) return `${Math.round(s/60)}m ago`; if (s < 86400) return `${Math.round(s/3600)}h ago`; return `${Math.round(s/86400)}d ago`; };
-const until = iso => { if (!iso) return '—'; const s = (new Date(iso) - Date.now()) / 1000; if (s < 0) return 'due'; if (s < 3600) return `in ${Math.round(s/60)}m`; if (s < 86400) return `in ${(s/3600).toFixed(1)}h`; return `in ${Math.round(s/86400)}d`; };
+const until = iso => { if (!iso) return '—'; const s = (new Date(iso) - Date.now()) / 1000; if (s < 0) return 'due'; if (s < 3600) return `in ${Math.round(s/60)}m`; if (s < 86400) return `in ${Math.round(s/3600)}h`; return `in ${Math.round(s/86400)}d`; };
 const fmt = iso => iso ? new Date(iso).toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 // A routine is a row in the hub (docs/routines.md): the owner or the bot's operator edits it here.

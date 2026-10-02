@@ -3,7 +3,7 @@
   "info": {
     "title": "Tico API (v2)",
     "version": "2.0.0",
-    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Every write needs an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
+    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Granola connection and sync writes do not require an idempotency key. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
   },
   "tags": [
     {
@@ -13,6 +13,14 @@
     {
       "name": "Team",
       "description": "This installation's names and settings."
+    },
+    {
+      "name": "Repositories",
+      "description": "Team repositories and bot repository access."
+    },
+    {
+      "name": "Subscriptions",
+      "description": "Named provider logins on Computers and defaults for groups and bots."
     },
     {
       "name": "Team chart",
@@ -923,6 +931,114 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/github-repos": {
+      "get": {
+        "summary": "Chosen write repositories (legacy alias)",
+        "operationId": "getExtraRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      },
+      "put": {
+        "summary": "Set chosen write repositories (legacy alias)",
+        "operationId": "setExtraRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtraRepos"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/instructions": {
       "get": {
         "summary": "Latest Instructions snapshot published by the Computer; requires Read, published is false until content arrives",
@@ -1098,6 +1214,118 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/repositories": {
+      "get": {
+        "summary": "Bot repository access",
+        "operationId": "getBotRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotRepositories"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      },
+      "put": {
+        "summary": "Set bot repository access",
+        "operationId": "setBotRepositories",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoAccessUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotRepositories"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/routines": {
       "get": {
         "summary": "A bot's routines, its recurring work (Read on the bot; add include_deleted=true for removed ones)",
@@ -1157,6 +1385,58 @@
         },
         "tags": [
           "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/subscription": {
+      "get": {
+        "summary": "Effective bot subscription",
+        "operationId": "getBotSubscription",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotSubscription"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
         ]
       }
     },
@@ -2005,6 +2285,127 @@
             },
             "description": "1-200 characters. Reusing a key with the same body replays the first answer."
           }
+        ]
+      }
+    },
+    "/api/v2/conversations/{cid}/goal": {
+      "get": {
+        "summary": "Read the pinned goal and commands",
+        "operationId": "getChatGoal",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Conversations"
+        ]
+      },
+      "post": {
+        "summary": "Set, edit, pause, resume or clear a native goal",
+        "operationId": "setChatGoal",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Conversations"
         ]
       }
     },
@@ -5872,6 +6273,242 @@
         ]
       }
     },
+    "/api/v2/meetings/granola": {
+      "get": {
+        "summary": "Your Granola connection",
+        "operationId": "getGranolaStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
+    "/api/v2/meetings/granola/connect": {
+      "post": {
+        "summary": "Start personal Granola browser sign-in",
+        "operationId": "connectGranola",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaDevice"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete your encrypted Granola tokens",
+        "operationId": "disconnectGranola",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaDisconnect"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+          }
+        ]
+      }
+    },
+    "/api/v2/meetings/granola/connect/status": {
+      "get": {
+        "summary": "Poll personal sign-in at the provider interval",
+        "operationId": "pollGranolaSignIn",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaSignIn"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ]
+      }
+    },
+    "/api/v2/meetings/granola/sync": {
+      "post": {
+        "summary": "Start a background sync; reuse the last two minutes",
+        "operationId": "syncGranola",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GranolaSync"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Meetings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional. Sync uses a two-minute debounce; connecting starts a new device sign-in."
+          }
+        ]
+      }
+    },
     "/api/v2/meetings/search": {
       "get": {
         "summary": "Search or list recorded meetings",
@@ -6687,6 +7324,307 @@
         },
         "tags": [
           "Goals"
+        ]
+      }
+    },
+    "/api/v2/repositories": {
+      "get": {
+        "summary": "Team repositories",
+        "operationId": "listRepositories",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/api/v2/repositories/refresh": {
+      "post": {
+        "summary": "Refresh from GitHub",
+        "operationId": "refreshRepositories",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/repositories/settings": {
+      "put": {
+        "summary": "New bot repository default",
+        "operationId": "setRepositoryDefaults",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/api/v2/repositories/{owner}/{repo}": {
+      "put": {
+        "summary": "Tick or edit a repository",
+        "operationId": "updateRepository",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Owner"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Repo"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Repositories"
+        ]
+      }
+    },
+    "/api/v2/subscriptions": {
+      "get": {
+        "summary": "Profiles and assignments",
+        "operationId": "listSubscriptions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
+        ]
+      },
+      "put": {
+        "summary": "Assign or clear a subscription",
+        "operationId": "assignSubscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionAssignment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionAssignmentResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
         ]
       }
     },
@@ -9451,6 +10389,97 @@
         ],
         "additionalProperties": true
       },
+      "BotRepositories": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "enum": [
+              "own",
+              "all",
+              "chosen"
+            ]
+          },
+          "all_access": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          },
+          "chosen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryGrant"
+            }
+          },
+          "effective": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryGrant"
+            }
+          }
+        },
+        "required": [
+          "all_access",
+          "chosen",
+          "effective",
+          "mode"
+        ],
+        "additionalProperties": true
+      },
+      "BotSubscription": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "computer": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "runner_id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label",
+                  "runner_id"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signed_in": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "problem": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "computer",
+          "problem",
+          "profile",
+          "signed_in",
+          "source"
+        ],
+        "additionalProperties": true
+      },
       "BotTool": {
         "type": "object",
         "properties": {
@@ -9670,6 +10699,11 @@
       },
       "ChatCreate": {
         "properties": {
+          "command": {
+            "type": "boolean",
+            "title": "Command",
+            "default": false
+          },
           "text": {
             "type": "string",
             "maxLength": 200000,
@@ -9688,6 +10722,85 @@
           "text"
         ],
         "title": "ChatCreate"
+      },
+      "ChatGoal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string"
+          },
+          "bot": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "set_by": {
+            "type": "string"
+          },
+          "set_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bot",
+          "conversation_id",
+          "ended_at",
+          "id",
+          "note",
+          "objective",
+          "set_at",
+          "set_by",
+          "status",
+          "updated_at"
+        ],
+        "additionalProperties": true
+      },
+      "ChatGoalResult": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatGoal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "goal"
+        ],
+        "additionalProperties": true
       },
       "ChatResult": {
         "type": "object",
@@ -10368,6 +11481,24 @@
         ],
         "additionalProperties": true
       },
+      "ExtraRepos": {
+        "properties": {
+          "repositories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Repositories"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "repositories"
+        ],
+        "title": "ExtraRepos"
+      },
       "FileActivity": {
         "type": "object",
         "properties": {
@@ -10570,6 +11701,40 @@
           "updated"
         ],
         "additionalProperties": true
+      },
+      "GoalAction": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "set",
+              "edit",
+              "pause",
+              "resume",
+              "clear"
+            ],
+            "title": "Action"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "GoalAction"
       },
       "GoalCheckin": {
         "properties": {
@@ -11710,6 +12875,227 @@
           "items"
         ],
         "additionalProperties": true
+      },
+      "GranolaDevice": {
+        "type": "object",
+        "properties": {
+          "user_code": {
+            "type": "string"
+          },
+          "verification_uri": {
+            "type": "string"
+          },
+          "verification_uri_complete": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "interval": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expires_in",
+          "interval",
+          "user_code",
+          "verification_uri"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaDisconnect": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaSignIn": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_sync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imported_count": {
+            "type": "integer"
+          },
+          "needs_signin": {
+            "type": "boolean"
+          },
+          "syncing": {
+            "type": "boolean"
+          },
+          "skipped": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connected",
+          "email",
+          "imported_count",
+          "last_error",
+          "last_sync",
+          "mode",
+          "needs_signin",
+          "plan_hint",
+          "skipped",
+          "state",
+          "syncing"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaStatus": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "account",
+              "api_key",
+              "off"
+            ]
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "free",
+              "paid",
+              null
+            ]
+          },
+          "last_sync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imported_count": {
+            "type": "integer"
+          },
+          "needs_signin": {
+            "type": "boolean"
+          },
+          "syncing": {
+            "type": "boolean"
+          },
+          "skipped": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connected",
+          "email",
+          "imported_count",
+          "last_error",
+          "last_sync",
+          "mode",
+          "needs_signin",
+          "plan_hint",
+          "skipped",
+          "syncing"
+        ],
+        "additionalProperties": true
+      },
+      "GranolaSync": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "syncing",
+              "recent",
+              "off",
+              "needs_signin"
+            ]
+          },
+          "last_sync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "last_sync",
+          "state"
+        ],
+        "additionalProperties": true
+      },
+      "Grant": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ],
+            "title": "Access",
+            "default": "write"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "full_name"
+        ],
+        "title": "Grant"
       },
       "Group": {
         "type": "object",
@@ -13434,6 +14820,11 @@
       },
       "MessageCreate": {
         "properties": {
+          "command": {
+            "type": "boolean",
+            "title": "Command",
+            "default": false
+          },
           "to": {
             "type": "string",
             "maxLength": 200,
@@ -13911,6 +15302,198 @@
         ],
         "additionalProperties": true
       },
+      "RepoAccessUpdate": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "own",
+              "all",
+              "chosen"
+            ],
+            "title": "Mode"
+          },
+          "all_access": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Access"
+          },
+          "chosen": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Grant"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "RepoAccessUpdate"
+      },
+      "RepoSettings": {
+        "properties": {
+          "new_bot_default": {
+            "type": "string",
+            "enum": [
+              "own",
+              "all"
+            ],
+            "title": "New Bot Default"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "new_bot_default"
+        ],
+        "title": "RepoSettings"
+      },
+      "RepoUpdate": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "setup_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Command"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RepoUpdate"
+      },
+      "Repository": {
+        "type": "object",
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "bot_repo": {
+            "type": "boolean"
+          },
+          "default_branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setup_command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setup_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "last_seen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bot_repo",
+          "default_branch",
+          "enabled",
+          "full_name",
+          "last_seen",
+          "reachable",
+          "setup_command",
+          "setup_source"
+        ],
+        "additionalProperties": true
+      },
+      "RepositoryGrant": {
+        "type": "object",
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "access": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
+        },
+        "required": [
+          "access",
+          "full_name"
+        ],
+        "additionalProperties": true
+      },
+      "RepositoryList": {
+        "type": "object",
+        "properties": {
+          "repositories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Repository"
+            }
+          },
+          "new_bot_default": {
+            "enum": [
+              "own",
+              "all"
+            ]
+          },
+          "github_connected": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "github_connected",
+          "new_bot_default",
+          "repositories"
+        ],
+        "additionalProperties": true
+      },
       "Revoked": {
         "type": "object",
         "properties": {
@@ -14050,6 +15633,150 @@
           "has_more",
           "messages",
           "next_before"
+        ],
+        "additionalProperties": true
+      },
+      "SubscriptionAssignment": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "group",
+              "bot"
+            ],
+            "title": "Scope"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Target"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scope",
+          "target"
+        ],
+        "title": "SubscriptionAssignment"
+      },
+      "SubscriptionAssignmentResult": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "enum": [
+              "group",
+              "bot"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "profile",
+          "scope",
+          "target"
+        ],
+        "additionalProperties": true
+      },
+      "SubscriptionList": {
+        "type": "object",
+        "properties": {
+          "profiles_by_computer": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runner_id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "profiles": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "runtimes": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "runtimes"
+                    ],
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "label",
+                "profiles",
+                "runner_id"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "profile": {
+                  "type": "string"
+                },
+                "updated": {
+                  "type": "string"
+                },
+                "updated_by": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "profile",
+                "scope",
+                "target",
+                "updated",
+                "updated_by"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "assignments",
+          "profiles_by_computer"
         ],
         "additionalProperties": true
       },

@@ -1,37 +1,9 @@
-/* ui/styles/board.css — Task board columns, company work rows, recurring rows.
+/* ui/styles/board.css — Page toolbars and the recurring rows (the board itself is in task-list.css).
    The cascade runs in the order index.html links these files; keep rules in order. */
-/* board: six workflow columns, scrollable as snap panels on a phone */
 .board-tools{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s3)}
 .board-tools .spacer{flex:1}
 .board-tools select{width:auto;min-width:150px;max-width:220px}
 .tasks-head h1{font-size:16px;font-weight:600;margin:0 6px 0 0}
-.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s3);align-items:start}
-.board.work{grid-template-columns:repeat(4,minmax(0,1fr))}
-.bcol{display:flex;flex-direction:column;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
-.bcol>header{display:flex;align-items:baseline;gap:var(--s2);padding:var(--s3) var(--s3) var(--s2);border-bottom:1px solid var(--line)}
-.bcol>header h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
-.bcol>header .cnt{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.bcol-body{display:flex;flex-direction:column;gap:var(--s2);padding:var(--s2);max-height:calc(100vh - 250px);overflow-y:auto}
-.bcol-body .empty{padding:var(--s2) var(--s1);font-size:12.5px}
-.bcard{background:var(--bg);border-radius:8px;padding:var(--s2);font-size:12.5px;min-width:0;border:0;text-align:left;width:100%;cursor:pointer;color:var(--ink);font:inherit;display:block}
-.bcard .tag,.tmodal .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 6px}
-.trow-btn{display:grid;grid-template-columns:28px 1fr 60px;gap:10px;align-items:center;width:100%;padding:8px 2px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);font:inherit;font-size:13.5px;text-align:left;cursor:pointer}
-.trow-btn:last-child{border-bottom:0}
-.trow-btn:hover{background:var(--surface2);border-radius:6px}
-.trow-btn .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.trow-btn .tnum{text-align:right}
-/* Company work is an inbox of relationships, not a second project board. One row per bot/person
-   lets the owner open that conversation and clear every request from the same counterparty together. */
-.company-needs{padding:0;overflow:hidden}
-.company-needs>header{padding:14px 16px 8px;margin:0!important}.company-needs>header h2{font-size:15px!important}
-.company-need-actor{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:11px;align-items:center;padding:13px 16px;border-top:1px solid var(--line);color:var(--ink);text-decoration:none}
-.company-need-actor:hover{background:var(--surface2);text-decoration:none}
-.company-need-copy{min-width:0}.company-need-name{display:flex;align-items:baseline;gap:7px;font-weight:600}
-.company-need-name .cnt{font-size:11.5px;color:var(--wait);font-weight:600}
-.company-need-titles{display:block;margin-top:3px;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.company-need-go.nav-icon{width:24px;height:24px;font-size:24px}
-.company-need-actor:hover .company-need-go{color:var(--ink)}
-@media (max-width:640px){.company-need-actor{grid-template-columns:34px minmax(0,1fr) auto;padding:11px 12px}}
 /* recurring: one expandable row per routine — how it runs, last run, next fire, then what ran */
 .r-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin:0 0 12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
 .r-filters .group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}

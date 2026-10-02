@@ -189,11 +189,18 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 @media (min-width:761px){#main.chat-layout{height:100%}}
 #main.bot-chat-layout>#bot-work:not([hidden]),#main.bot-chat-layout #pane-chat:not([hidden]){display:flex;flex:1;flex-direction:column;min-height:0}
 #main.bot-chat-layout #pane-chat>.conv{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden;margin-bottom:0}
-/* desktop (#514): chat left, the bot's tasks right, each column scrolling on its own under the goal */
-#main.bot-split-layout{max-width:none}
-#main.bot-split-layout>#bot-work:not([hidden]){display:grid;grid-template-columns:minmax(0,1fr) var(--rail-right);gap:var(--s4)}
-#main.bot-split-layout #pane-tasks:not([hidden]){min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
-#main.bot-split-layout #pane-tasks>.card:last-child{margin-bottom:0}
+/* desktop (#514): the top bar and chat on the left, the right rail running the page's full height beside them
+   with a 1px line at its left edge, each column scrolling on its own. #bot-work steps aside so its two panes
+   sit in #main's own grid. */
+#main.bot-split-layout{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) var(--rail-right);grid-template-rows:auto auto minmax(0,1fr);padding:0;position:relative}
+#main.bot-split-layout>#bot-work:not([hidden]){display:contents}
+/* An empty top strip (no app nudge) takes no room, so the rail starts at the window's top edge. */
+body:has(#main.bot-split-layout) #topbar:not(:has(#app-nudge:not([hidden]))){display:none}
+#main.bot-split-layout>#bot-top{grid-column:1;grid-row:1;margin:14px var(--s4) var(--s3) 28px}
+#main.bot-split-layout>#bot-onboard-host{grid-column:1;grid-row:2;margin:0 var(--s4) 0 28px}
+#main.bot-split-layout #pane-chat:not([hidden]){grid-column:1;grid-row:3;margin:0 var(--s4) max(var(--s3),env(safe-area-inset-bottom)) 28px}
+#main.bot-split-layout #pane-tasks:not([hidden]){grid-column:2;grid-row:1/-1;min-height:0;overflow-y:auto;overscroll-behavior:contain;border-left:1px solid var(--line);background:transparent;padding:6px 0 var(--s4)}
+#main.bot-split-layout .rail-sec{padding-left:14px;padding-right:12px}
 #main.bot-split-layout #bot-chat-tasks{display:none!important}
 #pane-tasks .trow summary{grid-template-columns:auto minmax(0,1fr) auto auto}   /* a long state pill never runs into the title */
 #main.chat-layout #conv-thread{flex:1;min-height:0;max-height:none;scrollbar-gutter:stable}

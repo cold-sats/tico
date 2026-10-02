@@ -13,6 +13,7 @@ The check asks Tico HQ first (`GET <TICO_HQ_URL>/v1/latest`), which is also how 
 answer, it asks GitHub directly and sends no id.
 """
 import logging
+import json
 import os
 import re
 import threading
@@ -47,6 +48,27 @@ def version():
         except OSError:
             value = ""
     return re.sub(r"^v(?=\d)", "", value) or "dev"  # the image is built from a v1.2.3 tag
+
+
+HISTORY = "release-history"
+
+
+def record_start(c, now):
+    """The releases this server actually ran, oldest first, written at startup when the version changes. An update
+    done outside the in-app updater (a manual pull, a rollout script) leaves the updater's `from` stale; this does not."""
+    current = version()
+    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (HISTORY,)).fetchone()
+    seen = json.loads(row[0]) if row else []
+    if seen and seen[-1].get("version") == current:
+        return seen
+    seen = (seen + [{"version": current, "since": now}])[-20:]
+    c.execute("INSERT OR REPLACE INTO registry_metadata VALUES(?,?)", (HISTORY, json.dumps(seen)))
+    return seen
+
+
+def history(c):
+    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (HISTORY,)).fetchone()
+    return json.loads(row[0]) if row else []
 
 
 def parse(value):

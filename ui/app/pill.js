@@ -55,12 +55,15 @@ function makePill(cfg) {
     el: null, files: [], send: cfg.send || null,
   };
   const attach = cfg.files !== false;
+  // A bot's own chat (not the Assistant page) has the goal target and the "/" menu.
+  const goals = P.mode === 'chat' && !!P.slug && !cfg.send;
   const el = P.el = document.createElement('div');
   el.className = 'ask pill-' + P.mode;
   el.innerHTML = `<div class="p-hint muted" hidden></div>
     <div class="p-pill">
       ${P.mode === 'chat' && P.slug ? `<button class="p-bot" type="button" aria-label="Switch bot" aria-haspopup="menu" aria-expanded="false" aria-controls="org-fan" title="Switch bot">${avatar(P.slug, 30)}</button>` : ''}
       <textarea class="p-text" rows="1" autocorrect="on" autocapitalize="sentences" spellcheck="true" aria-label="${esc(cfg.label || 'Message this bot')}" placeholder="${esc(cfg.placeholder || 'Type a message…')}"></textarea>
+      ${goals ? '<button class="p-goal p-icon" type="button" title="Goal" aria-label="Goal" aria-pressed="false" hidden><span class="nav-icon" aria-hidden="true">target</span></button>' : ''}
       ${attach ? `<button class="p-attach p-icon" type="button" title="Attach files" aria-label="Attach files">${ICON_CLIP}</button>
       <input type="file" multiple hidden class="p-file">` : ''}
       <button class="p-send p-send-icon" type="button" aria-label="Send" title="Send">${ICON_SEND}</button>
@@ -106,6 +109,7 @@ function makePill(cfg) {
   });
   box.addEventListener('pointerdown', () => { breaks = 0; });
   if (attach) q('.p-attach').onclick = () => q('.p-file').click();
+  if (goals) { q('.p-goal').onclick = () => chatGoalButton(); slashAttach(P); }
   if (q('.p-bot')) q('.p-bot').onclick = ev => { ev.preventDefault(); $('#org-fan').hidden ? orgFanOpen({chat: P.slug, anchor: q('.p-bot')}) : orgFanClose(); };
   if (attach) q('.p-file').onchange = ev => { P.files.push(...ev.target.files); pillChips(P); chatDraftSave(P); ev.target.value = ''; };
   box.addEventListener('paste', ev => {
@@ -292,7 +296,9 @@ async function pillSend(P) {
   const box = pq(P, '.p-text'), text = box.value.trim();
   if (!text && !(P.action === 'chat' && P.files.length)) { box.focus(); return; }
   if (P.send) return P.send(P, text);
-  if (runCommand(text, pq(P, '.p-cmd'), P.slug)) { pillClear(P, true); return; }
+  const slash = slashRun(P, text);
+  if (slash === true) return;
+  if (slash !== 'plain' && runCommand(text, pq(P, '.p-cmd'), P.slug)) { pillClear(P, true); return; }
   if (isKeeper(P.slug)) {                                     // hub.db, not an Issue comment
     return P.action === 'task' ? v2PillTask(P, text) : v2ChatSend(P, text);
   }

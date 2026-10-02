@@ -220,6 +220,10 @@ CREATE TABLE IF NOT EXISTS credentials(
  ciphertext BLOB, nonce BLOB, source TEXT NOT NULL DEFAULT '',
  revision INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL, updated TEXT NOT NULL,
  updated_by TEXT NOT NULL);
+-- Person-owned remote MCP credentials use the same vault cipher, with no reveal/grant door.
+CREATE TABLE IF NOT EXISTS granola_connections(
+ actor TEXT PRIMARY KEY, id TEXT NOT NULL, email TEXT NOT NULL,
+ ciphertext BLOB NOT NULL, nonce BLOB NOT NULL, metadata_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS credential_grants(
  id TEXT PRIMARY KEY, credential_id TEXT NOT NULL REFERENCES credentials(id),
  subject TEXT NOT NULL, granted_by TEXT NOT NULL, parent_id TEXT REFERENCES credential_grants(id),
@@ -927,16 +931,41 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=48").fetchone():
                     H._apply(c, H.PIPELINES_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(48,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=49").fetchone():
+                    H._apply(c, H.CHAT_GOALS_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(49,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=50").fetchone():
+                    H._apply(c, H.REPOSITORIES_SCHEMA)
+                    from .repositories import migrate
+                    migrate(c)
+                    c.execute("INSERT INTO cloud_migrations VALUES(50,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=51").fetchone():
+                    H._apply(c, H.TASK_LINKS_V2_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(51,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=52").fetchone():
+                    H._apply(c, H.SUBSCRIPTIONS_SCHEMA)
+                    c.execute("INSERT INTO cloud_migrations VALUES(52,?)", (H.now(),))
+                c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
+                    AFTER INSERT ON bot_config
+                    WHEN json_extract(NEW.config_json,'$.repo_access_mode') IS NULL
+                    BEGIN
+                    UPDATE bot_config SET config_json=json_set(config_json,'$.repo_access_mode',
+                        coalesce((SELECT json_extract(value_json,'$.new_bot_default')
+                            FROM registry_metadata WHERE key='repos_new_bot_default'),'own')) WHERE bot=NEW.bot;
+                    END""")
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,
                 # so no migration number to collide with another branch's.
                 for name, spec in (("tasks_goal", "tasks(goal_id, status)"),
+                                   ("task_links_repo_kind", "task_links(repo COLLATE NOCASE, kind)"),
+                                   ("task_links_repo_url", "task_links(kind, state, url COLLATE NOCASE)"),
                                    ("attempts_bot_created", "attempts(bot, created)"),
                                    ("attempts_job", "attempts(job_id)"),
                                    ("attempts_runner_state", "attempts(runner_id, state)"),
                                    ("events_action_target", "events(action, target, ts)")):
                     c.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}")
+                c.execute("DROP INDEX IF EXISTS jobs_state_bot_created")
                 R.ensure_task_sweep(c)
                 # The Assistant's pending actions (backend/assistant.py) and the "via" of a task-history row.
                 from .assistant import ensure_schema as ensure_assistant_schema
@@ -968,6 +997,8 @@ class Store:
                 # so no migration number to collide with another branch's.
                 from . import groups as Groups
                 Groups.migrate(c, self.settings)
+                from . import releases as Releases
+                Releases.record_start(c, H.now())
                 from .credentials import FILE_MIGRATION, HUB_MIGRATION
                 if not c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (FILE_MIGRATION,)).fetchone():
                     pending = [r[0] for r in c.execute("SELECT slug FROM bots")]

@@ -25,9 +25,27 @@
     setTimeout(look, 1500);
   }
 
-  function open({runnerId, runtime, machine}) {
+  // A subscription's sign-in shows on the computer's next heartbeat: redraw Subscriptions until it does (about 30s).
+  function refreshSubsUntilReady(runnerId, profile, runtime) {
+    let tries = 0;
+    const look = async () => {
+      tries += 1;
+      // Read the subscriptions here, so a redraw held back (someone typing a new name) never stops the look.
+      let ready = false;
+      try {
+        if (typeof subsLoad === 'function') await subsLoad();
+        ready = typeof subsSignedIn === 'function' && subsSignedIn(runnerId, profile, runtime) === true;
+        if (typeof renderSettingsSubs === 'function') await renderSettingsSubs(false, true);
+      } catch { /* not on Settings */ }
+      if (!ready && tries < 10) setTimeout(look, 3000);
+    };
+    setTimeout(look, 1500);
+  }
+
+  // `profile` signs in one of the computer's subscriptions (runner/profiles.py) instead of its default login.
+  function open({runnerId, runtime, machine, profile = ''}) {
     const base = `/v2/computers/${encodeURIComponent(runnerId)}/logins`;
-    const name = RUNTIME_NAMES[runtime] || runtime;
+    const name = (RUNTIME_NAMES[runtime] || runtime) + (profile ? ` · ${profile}` : '');
     const dialog = document.createElement('dialog');
     dialog.className = 'tmodal model-login';
     dialog.setAttribute('aria-labelledby', 'model-login-title');
@@ -132,7 +150,10 @@
         const changed = next.state !== login.state;
         login = next;
         if (!closed) draw();
-        if (changed && next.state === 'signed_in') refreshUntilReady(runnerId, runtime);
+        if (changed && next.state === 'signed_in') {
+          if (profile) refreshSubsUntilReady(runnerId, profile, runtime);
+          else refreshUntilReady(runnerId, runtime);
+        }
       } catch (error) { status.textContent = error.message; }
       if (!closed && active(login.state)) timer = setTimeout(tick, POLL_MS);
     };
@@ -140,7 +161,7 @@
       clearTimeout(timer);
       closed = false;
       status.textContent = 'Starting…';
-      try { login = await post(base, {runtime}); }
+      try { login = await post(base, profile ? {runtime, profile} : {runtime}); }
       catch (error) { status.textContent = error.message; actions.innerHTML = '<button class="ghost" type="button" data-close>Close</button>'; return; }
       draw();
       if (active(login.state)) timer = setTimeout(tick, POLL_MS);
@@ -155,6 +176,6 @@
     const button = event.target.closest('[data-model-login]');
     if (!button) return;
     event.preventDefault();
-    open({runnerId: button.dataset.runner, runtime: button.dataset.runtime, machine: button.dataset.machine || ''});
+    open({runnerId: button.dataset.runner, runtime: button.dataset.runtime, machine: button.dataset.machine || '', profile: button.dataset.profile || ''});
   });
 })();

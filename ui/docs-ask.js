@@ -113,7 +113,7 @@ html.demo .dask{top:var(--demo-h)}
   // and what was asked and answered, so closing it does not lose the thread. Docs and Market each have their own.
   const sessions = {docs: {conversationId: '', turns: []}, market: {turns: []}};
   const where = () => /^#\/market(?:[/?]|$)/.test(location.hash) ? 'market' : 'docs';
-  const HINTS = {docs: ['How do we handle a refund?', 'Who owns onboarding?', 'Where is the pricing?'],
+  const HINTS = {docs: ['How do we handle a refund?', 'Who helps new hires?', 'Where is the pricing?'],
     market: ['Who competes with us?', 'What changed this week?', 'Which channels matter?']};
   const PLACEHOLDER = {docs: 'Ask about your docs…', market: 'Ask about the market…'};
   const TURN_LIMIT = 50;

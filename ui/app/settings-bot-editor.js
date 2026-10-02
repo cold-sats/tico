@@ -13,8 +13,10 @@ function settingsBotEditorRows(e) {
     <div class="sb-row"><span>Owners</span><div class="settings-owner-list" data-bot-owners>${chips(e.bot_owners) || '<span class="muted">Its owner</span>'}</div>${change('data-edit-bot-owners', 'owners')}</div>
     ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>`
       : `<div class="sb-row"><span>Model</span>${settingsChoiceCombo(e, 'model')}<span></span></div>
+    <div class="sb-sub" data-bot-sub-line hidden></div>
     <div class="sb-row"><span>Fallback</span>${settingsChoiceCombo(e, 'fallback')}<span></span></div>
-    <div class="sb-row"><span>Computer</span>${settingsMachineSelect(e)}<span></span></div>`}`;
+    <div class="sb-row"><span>Computer</span>${settingsMachineSelect(e)}<span></span></div>
+    <div class="sb-row" data-bot-sub-row hidden><span>Subscription</span><select class="settings-inline-select" data-bot-sub="${esc(e.name)}" aria-label="Subscription for ${esc(e.display_name)}"></select><span></span></div>`}`;
 }
 function settingsEditBot(slug = '') {
   const editing = !!slug, e = editing ? S.emps.find(row => row.name === slug) : null;
@@ -50,7 +52,7 @@ function settingsEditBot(slug = '') {
         <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. Humans are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
         <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `bot-${slug}` : ''))}" placeholder="bot-release-captain" maxlength="200" required></label>
-        ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
+        ${editing ? '<fieldset class="bot-editor-wide brepo" data-bot-repos hidden></fieldset>' : ''}
         <label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}> Allow branches</label>
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
@@ -75,7 +77,7 @@ function settingsEditBot(slug = '') {
   let rev = e?.revision, touched = false;
   const rows = dialog.querySelector('[data-bot-people]');
   if (rows) {
-    const paint = () => { rows.innerHTML = settingsBotEditorRows(S.emps.find(row => row.name === slug) || e); settingsWireCombos(rows); };
+    const paint = () => { rows.innerHTML = settingsBotEditorRows(S.emps.find(row => row.name === slug) || e); settingsWireCombos(rows); void subsBotMount(rows, slug); };
     const refresh = () => { if (!dialog.open) return; if (touched) rev = (S.emps.find(row => row.name === slug) || e).revision; paint(); };
     paint();
     document.addEventListener('tico:settings-loaded', refresh);
@@ -96,15 +98,7 @@ function settingsEditBot(slug = '') {
       if (machine) { touched = true; void settingsMoveBot(machine); }
     });
   }
-  let extraLoaded = null;   // the saved list as text once the server has answered, else null
-  const extraBox = dialog.querySelector('[data-extra-repos]');
-  const extraLines = value => value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean);
-  if (extraBox) get(`/v2/bots/${encodeURIComponent(slug)}/github-repos`).then(r => {
-    if (!r.connected || !dialog.isConnected) return;
-    extraLoaded = (r.repositories || []).map(x => x.replace(/^[^/]+\//, '')).join('\n');
-    form.elements.extra_repos.value = extraLoaded;
-    extraBox.hidden = false;
-  }).catch(() => {});
+  void botReposMount(dialog.querySelector('[data-bot-repos]'), slug);   // ui/app/settings-repositories.js
   const remove = dialog.querySelector('[data-bot-remove]');
   if (remove) remove.onclick = async () => {
     // Remove = archive (#535): off the chart, no routines or new work; open tasks go to the picked heir.
@@ -183,8 +177,6 @@ function settingsEditBot(slug = '') {
           bot_contact: form.elements.bot_contact.value,
           repo: form.elements.repo.value, thread_mode: form.elements.thread_mode.value,
           temp: form.elements.temp.checked, shared: form.elements.shared.checked, expected_revision: rev});
-        if (extraLoaded !== null && extraLines(form.elements.extra_repos.value).join('\n') !== extraLines(extraLoaded).join('\n'))
-          await put(`/v2/bots/${encodeURIComponent(slug)}/github-repos`, {repositories: extraLines(form.elements.extra_repos.value)});
       } else {
         const choice = settingsChoiceFromValue(form.elements.model_effort.value);
         added = await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,

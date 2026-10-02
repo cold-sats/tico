@@ -7,7 +7,7 @@ belongs to, minted with the runner's registration. The socket has no other quest
 name a bot, so an attempt never gets another bot's token, an attempt that has ended gets nothing,
 and the runner's own token never crosses it.
 
-One JSON line each way: {"token": "<attempt token>"} then {"token": "<github token>"} or {"error": "..."}.
+One JSON line each way: {"token": "<attempt token>", "repository": "owner/repo"} (repository optional) then {"token": "<github token>"} or {"error": "..."}.
 
 The same socket serves an inbox bot's mail access (runner/mail_key.py holds the Google key, which
 bots cannot read): {"token": "<attempt token>", "mail": {"service": "gmail", "mailbox": "ana@..."}}
@@ -20,6 +20,7 @@ import os
 import socket
 import socketserver
 import threading
+import tempfile
 from pathlib import Path
 
 from .outage import log
@@ -31,22 +32,34 @@ MAIL_SERVICES = ("gmail", "calendar")
 
 
 class Server:
-    """Serves `mint(bot)` to whoever presents the attempt token registered for that bot."""
+    """Serves `mint(bot, repository)` to the attempt registered for that bot; repository is optional."""
 
-    def __init__(self, path, mint, mail=None):
+    def __init__(self, path, mint, mail=None, refresh=None):
         self.path, self.mint, self.mail = str(path), mint, mail
         self.attempts, self.mailboxes, self.lock = {}, {}, threading.Lock()
         self.server = None
+        self.redactors = {}
+        self.issued = {}
+        self.directory = None
+        self.refresh = refresh
 
     def register(self, attempt_token, bot, mailboxes=()):
         with self.lock:
             self.attempts[attempt_token] = bot
+            self.issued[attempt_token] = set()
             self.mailboxes[attempt_token] = {str(m).strip().lower() for m in mailboxes or ()}
 
     def unregister(self, attempt_token):
         with self.lock:
             self.attempts.pop(attempt_token, None)
             self.mailboxes.pop(attempt_token, None)
+            self.redactors.pop(attempt_token, None)
+            self.issued.pop(attempt_token, None)
+
+    def set_redactor(self, attempt_token, redactor):
+        with self.lock:
+            redactor.add(self.issued.pop(attempt_token, ()))
+            self.redactors[attempt_token] = redactor
 
     def answer(self, line):
         try:
@@ -62,11 +75,26 @@ class Server:
         if "mail" in asked:
             return self.answer_mail(bot, allowed, asked["mail"])
         try:
-            granted = self.mint(bot)
+            repository = asked.get("repository")
+            if repository is not None and not isinstance(repository, str):
+                return {"error": "bad repository"}
+            granted = self.mint(bot, repository) if repository else self.mint(bot)
+            if asked.get('refresh'):
+                if not granted or not repository or not self.refresh:
+                    return {'error': 'mirror refresh unavailable'}
+                return self.refresh(repository, granted)
         except Exception as exc:
             return {"error": type(exc).__name__}
         if not granted:
             return {"error": "no token"}
+        with self.lock:
+            if token not in self.attempts:
+                return {"error": "unknown attempt"}
+            redactor = self.redactors.get(token)
+            if redactor:
+                redactor.add([granted])
+            else:
+                self.issued.setdefault(token, set()).add(granted)
         return {"token": granted}
 
     def answer_mail(self, bot, allowed, asked):
@@ -115,37 +143,62 @@ class Server:
             self.server.shutdown()
             self.server.server_close()
             Path(self.path).unlink(missing_ok=True)
+            if self.directory:
+                self.directory.cleanup()
 
 
-def serve(client, path=None, mail=None):
-    """The supervisor's server when isolation is on (else None): `client` is the runner's own, `mail`
+def serve(client, path=None, mail=None, refresh=None):
+    """The supervisor's server: `client` is the runner's own, `mail`
     (service, mailbox) -> {"token", "expiry"} mints Gmail access."""
     from . import isolation
-    if not isolation.enabled():
-        return None
+    path = path or os.environ.get("TICO_RUNNER_CRED_SOCKET")
+    directory = None
+    if not isolation.enabled() and not path:
+        directory = tempfile.TemporaryDirectory(prefix="tico-credentials-", dir="/tmp")
+        path = str(Path(directory.name) / "credential.sock")
     path = path or os.environ.get("TICO_RUNNER_CRED_SOCKET") or DEFAULT_PATH
 
-    def mint(bot):
+    def mint(bot, repository=None):
+        from .git_credentials import select_token
         granted = client.post("github/token", {"bot": bot})
-        return granted.get("token") if granted.get("configured") else ""
+        return select_token(granted, repository)
     try:
-        return Server(path, mint, mail).start()
+        server = Server(path, mint, mail, refresh).start()
+        server.directory = directory
+        return server
     except OSError as exc:
+        if directory:
+            directory.cleanup()
         log(f"Tico runner: no credential socket at {path} ({type(exc).__name__}); turns keep their start-of-turn token")
         return None
 
 
-def request(path, attempt_token, timeout=20):
+def request(path, attempt_token, timeout=20, repository=None):
     """The GitHub token for the bot this attempt belongs to. Raises OSError/ValueError on failure."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(timeout)
         connection.connect(str(path))
-        connection.sendall(json.dumps({"token": attempt_token}).encode() + b"\n")
+        asked = {"token": attempt_token}
+        if repository:
+            asked["repository"] = repository
+        connection.sendall(json.dumps(asked).encode() + b"\n")
         line = connection.makefile("rb").readline(MAX_LINE)
     reply = json.loads(line)
     if not reply.get("token"):
         raise ValueError(reply.get("error") or "refused")
     return reply["token"]
+
+
+def request_refresh(path, attempt_token, repository, timeout=60):
+    """Refresh only a mirror this attempt can read; no supervisor token is returned."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(timeout)
+        connection.connect(str(path))
+        connection.sendall(json.dumps({'token': attempt_token, 'repository': repository, 'refresh': True}).encode() + b'\n')
+        reply = json.loads(connection.makefile('rb').readline(MAX_LINE))
+    if not reply.get('refreshed') and not reply.get('cached'):
+        raise ValueError(reply.get('error') or 'mirror refresh failed')
+    return reply
 
 
 class MailRefused(ValueError):

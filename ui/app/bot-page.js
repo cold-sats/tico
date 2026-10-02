@@ -124,25 +124,30 @@ function botGoalRender(slug, g, count) {
   const a = el.querySelector('[data-goal-open]');
   a.onclick = ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); openGoal(a.dataset.goalOpen); };
 }
-// The bot's routines under its tasks (#514): what it does on its own, when, and when next.
-// Editing stays in the Routines card under More.
+// The Recurring section of the bot's right rail: each routine on one line, its name and how often, and when
+// it runs next. No routines, no section. Editing stays in the Routines card under More.
 function botRecurringHTML(e, slug) {
   const live = S.status?.schedules || [];
   const rows = (e.schedules || live.filter(r => (r.employee || r.bot) === slug)).map(s => {
     const st = live.find(x => (s.id ? x.id === s.id : (x.employee || x.bot) === slug && x.title === s.title)) || {};
     return {...s, ...st, employee: slug, active: st.active != null ? st.active : s.active};
   }).sort((a, b) => (a.active ? 0 : 1) - (b.active ? 0 : 1) || String(a.next || '~').localeCompare(String(b.next || '~')) || String(a.title).localeCompare(String(b.title)));
+  if (!rows.length) return '';
   const words = r => { const w = cadenceWords(r) || ''; return w.charAt(0).toUpperCase() + w.slice(1) + (r.timezone && !r.on ? ` (${r.timezone})` : ''); };
   const paused = r => r.enabled === false || r.enabled === 0;
-  const next = r => paused(r) ? '<span class="pill" title="kept, not running">paused</span>'
-    : !r.active ? '<span class="pill">not armed</span>'
+  const next = r => paused(r) ? '<span class="muted" title="kept, not running">paused</span>'
+    : !r.active ? '<span class="muted">not armed</span>'
     : r.on ? '<span class="muted">on event</span>'
-    : r.next ? `<span class="tnum" title="${esc(fmt(r.next))}">${esc(until(r.next))}</span>` : '<span class="muted">—</span>';
-  return `<header><h2>Routines</h2><a class="linkish" href="#/bot/${encodeURIComponent(slug)}/more">Manage</a></header>
-    ${rows.length ? `<ul class="bot-recurring-list">${rows.map(r => `<li class="${paused(r) ? 'paused' : ''}" data-routine="${esc(r.id || r.title)}">
-        <span class="bot-recurring-what"><span class="ttl">${esc(r.title)}</span><span class="when">${esc(words(r))}</span></span>
-        <span class="bot-recurring-next">${next(r)}</span></li>`).join('')}</ul>`
-      : '<div class="empty">No routines.</div>'}`;
+    : r.next ? `<span class="tnum" title="${esc(fmt(r.next))}">${esc(until(r.next))}</span>` : '';
+  return `<h2 class="rail-h">Recurring</h2>
+    <ul class="bot-recurring-list">${rows.map(r => `<li class="${paused(r) ? 'paused' : ''}" data-routine="${esc(r.id || r.title)}" title="${esc(r.title + ' · ' + words(r))}">
+        <span class="ttl">${esc(r.title)}</span><span class="when">${esc(words(r))}</span>
+        <span class="bot-recurring-next">${next(r)}</span></li>`).join('')}</ul>`;
+}
+function botRecurringPaint(e, slug) {
+  const host = $('#bot-recurring'); if (!host || !e) return;
+  host.innerHTML = botRecurringHTML(e, slug);
+  host.hidden = !host.innerHTML;
 }
 // Beside the bot's name only when something is wrong (#514): crashed, quarantined, rate limited,
 // blocked, a failed last run, or an agent that is offline while work waits for it. Idle says nothing.
@@ -249,7 +254,7 @@ async function pageBot(slug, tab) {
   <div class="bot-top" id="bot-top">
     <button class="bot-back-arrow" id="bot-back-arrow" type="button" aria-label="Back" title="Back">‹</button>
     <div class="bot-ident"><span data-tip-bot="${esc(slug)}" tabindex="0" role="img" aria-label="${esc(e.display_name || slug)} status">${avatar(slug, 36, stateOf(slug))}</span>
-      <div class="botid"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1>
+      <div class="botid"><div class="bot-nameline"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1><span id="bot-tool-strip" hidden></span></div>
         <div class="meta" id="bot-branches"></div>
         <div class="meta" id="bot-alert">${limited ? '' : botAlertHTML(slug)}</div>
         <div class="bot-ticker" id="bot-ticker" aria-live="polite" hidden></div></div></div>
@@ -258,16 +263,14 @@ async function pageBot(slug, tab) {
         return `<button type="button" data-bt="${t}" role="tab" aria-label="${label}" title="${label}"><span class="nav-icon bt-icon" aria-hidden="true">${BOT_TAB_ICONS[t] || 'more_horiz'}</span><span class="bt-label">${label}</span></button>`; }).join('')}
     </div>
     ${limited ? '' : '<section class="bot-goal" id="bot-goal" aria-label="Goal"><span class="muted">Loading the goal…</span></section>'}
-    ${isKeeper(slug) && !limited ? `<a class="ghost bot-more-btn bot-history-btn" id="bot-history-btn" href="${base}/history" aria-label="Update history" title="Update history"><span class="nav-icon" aria-hidden="true">dynamic_feed</span></a>` : ''}
     <a class="ghost bot-more-btn" id="bot-more-btn" href="${base}/more" aria-label="More" title="More"><span class="nav-icon" aria-hidden="true">more_vert</span></a>
   </div>
   <div id="bot-onboard-host">${frBotBannerHTML(e)}</div>
-  <section class="bot-update" id="bot-update" aria-label="Latest update" hidden></section>
   <a class="bot-back" id="bot-back" href="${base}" hidden>‹ ${work.includes('chat') ? 'Chat and tasks' : 'Tasks'}</a>
 
   <div class="bot-work" id="bot-work">
-  <section class="bot-tools" id="bot-tools" aria-label="Tools" hidden></section>
   <div id="pane-chat" hidden>
+    <section class="chat-goal" id="chat-goal" aria-label="Goal" hidden></section>
     <section class="bot-chat-tasks" id="bot-chat-tasks" aria-label="What needs you" hidden></section>
     <section class="card conv" id="conv"><div class="conv-top"><span class="sub" id="conv-state">Loading…</span><span class="spacer" style="flex:1"></span><span class="sub" id="conv-access"></span></div>
       <div class="conv-older" id="conv-older"></div>
@@ -280,15 +283,17 @@ async function pageBot(slug, tab) {
     <div id="chat-composer"></div>
   </div>
 
-  <div id="pane-tasks" hidden>
-    ${limited ? '' : '<section class="card bot-files" id="bot-files" aria-label="Files" hidden></section>'}
-    <section class="card tasks"><header><h2>Active</h2></header>
-      <div id="t-open" class="tpane">Loading…</div>
+  <aside id="pane-tasks" class="bot-rail" aria-label="Tasks" hidden>
+    <section class="rail-sec bot-active" aria-labelledby="bot-active-h"><h2 class="rail-h" id="bot-active-h">Active</h2>
+      <div id="t-open" class="tpane"><div class="rail-empty">Loading…</div></div>
     </section>
-    <section class="card tasks" id="bot-assigned" hidden><header><h2>Assigned to others</h2></header>
-      <div id="t-assigned" class="tpane"></div></section>
-    <details class="bot-done"><summary>Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane">Loading…</div></details>
-  </div>
+    ${limited ? '' : `<section class="rail-sec bot-latest" id="bot-latest" aria-label="Updates" hidden></section>
+    <section class="rail-sec bot-files" id="bot-files" aria-label="Files" hidden></section>
+    <section class="rail-sec bot-recurring" id="bot-recurring" aria-label="Recurring" hidden></section>`}
+    <details class="rail-sec rail-fold" id="bot-assigned" hidden><summary class="rail-h">Assigned to others <span class="cnt" id="cnt-assigned"></span></summary>
+      <div id="t-assigned" class="tpane"></div></details>
+    <details class="rail-sec rail-fold bot-done"><summary class="rail-h">Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane"><div class="rail-empty">Loading…</div></div></details>
+  </aside>
   ${railEdgeHTML('right')}
   </div>
 
@@ -307,6 +312,7 @@ async function pageBot(slug, tab) {
           : String(e.reports_to || '').startsWith('human:') ? `<dt>Reports to</dt><dd>${esc(botPersonName(e.reports_to.slice(6)))}</dd>` : ''}
         <dt>Your access</dt><dd>${e.my_access.write ? 'See it and send requests' : 'See it only'}</dd>
       </dl></section>
+    <section class="card" id="bot-tools-card"><header><h2>Tools</h2></header><div id="bot-tools"><div class="empty">Loading…</div></div></section>
 ` : `    <section class="card"><header><h2>Setup</h2>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
@@ -317,6 +323,7 @@ async function pageBot(slug, tab) {
         ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>` : ''}
         ${botRepoHTML(e) ? `<dt>Repository</dt><dd>${botRepoHTML(e).replace(/^Repository /, '')}</dd>` : ''}
       </dl></section>
+    <section class="card" id="bot-tools-card"><header><h2>Tools</h2></header><div id="bot-tools"><div class="empty">Loading…</div></div></section>
     ${keeper && v2StatusOf(slug)?.bot_state === 'quarantined' && settingsCanManageBot(e) ? `
     <section class="card" id="bot-quarantine"><header><h2>Paused</h2>
         <button class="primary" type="button" id="bot-quarantine-resume">Resume</button></header>
@@ -373,6 +380,7 @@ async function pageBot(slug, tab) {
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
     $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)} but not send it requests. Ask its owner for Write access.</p></section>`;
   }
+  window.botTools?.mountStrip($('#bot-tool-strip'), {slug, get, esc, href: `${base}/tools`, skipModel: !!runtimeTag(e)});
   if (!limited) void botBranchesLoad(slug);
   if (!limited) void botGoalLoad(slug);
   if (isKeeper(slug) && !limited) void botTickerLoad(slug);
@@ -420,11 +428,11 @@ async function pageBot(slug, tab) {
     void botGoalsCardLoad(slug);
   }
 
-  // task tabs (inside the Tasks pane)
-  // Active, then Assigned to others, Done folded away, and Routines last;
+  // The right rail: Active, Updates, Files, Recurring, then Assigned to others and Done folded away.
   const showTab = t => { if (t === 'done') $('#pane-tasks .bot-done').open = true; };
-  // A click opens Done without focusing it, so its ring shows only for the keyboard.
-  $('#pane-tasks .bot-done>summary')?.addEventListener('mousedown', ev => ev.preventDefault());
+  // A click opens a folded section without focusing it, so its ring shows only for the keyboard.
+  $('#pane-tasks').querySelectorAll('.rail-fold>summary').forEach(sum => sum.addEventListener('mousedown', ev => ev.preventDefault()));
+  if (!limited) botRecurringPaint(e, slug);
   $('#pane-tasks').addEventListener('click', ev => { if (ev.target.dataset.tab) { ev.preventDefault(); showTab(ev.target.dataset.tab); } });
 
   if (!limited) bindRoutineExpand($('#pane-more'));
@@ -444,24 +452,18 @@ function placeBotGoal(view) {
   if (BOT_PHONE.matches && view === 'more') { if (goal.parentElement !== more) more.prepend(goal); }
   else if (goal.parentElement !== top) top.insertBefore(goal, $('#bot-more-btn'));
 }   // the sidebar takes ~300px; below this one column fits
-// The Tools row heads the right column when chat and tasks sit side by side; on one column (a phone) it
-// stays above whichever of the two is showing, so it is near the top either way (ui/bot-tools.js).
-function placeBotTools(split) {
-  const tools = $('#bot-tools'), home = split ? $('#pane-tasks') : $('#bot-work');
-  if (tools && home && tools.parentElement !== home) home.prepend(tools);
-}
 function showBotTab(tab) {
   if (!BOT || !$('#btabs')) return;
   const wantSession = tab === 'session';                         // the old tab, now a card in More
+  const wantTools = tab === 'tools';                             // the Tools card in More, from the icons beside the name
   const tabs = botTabs(BOT.slug);
-  const t = tabs.includes(tab) ? tab : wantSession ? 'more' : tabs[0];
+  const t = tabs.includes(tab) ? tab : wantSession || wantTools ? 'more' : tabs[0];
   BOT.tab = t;
   const view = t === 'docs' ? 'more' : t;                        // Docs live inside More
   const work = view === 'chat' || view === 'tasks';
   const split = work && BOT_WIDE.matches && tabs.includes('chat');
   const chat = split || view === 'chat';
   BOT.split = split;
-  placeBotTools(split);
   $('#main').classList.toggle('chat-layout', chat);
   $('#main').classList.toggle('bot-chat-layout', chat);
   $('#main').classList.toggle('bot-split-layout', split);
@@ -473,10 +475,10 @@ function showBotTab(tab) {
   $('#bot-back').hidden = work;
   $('#pane-chat').hidden = !chat;
   $('#pane-tasks').hidden = !(split || view === 'tasks');
+  $('#pane-tasks').setAttribute('role', split ? 'complementary' : 'region');
   $('#pane-more').hidden = $('#pane-docs').hidden = view !== 'more';
   if ($('#pane-history')) $('#pane-history').hidden = view !== 'history';
-  $('#bot-history-btn')?.classList.toggle('cur', view === 'history');
-  if (view === 'history') { if ($('#bot-update')) $('#bot-update').hidden = true; void botHistoryLoad(BOT.slug); }
+  if (view === 'history') void botHistoryLoad(BOT.slug);
   placeBotGoal(view);
   if (!chat) convStop(); // the thread and microphone stop off-screen
   else if (isKeeper(BOT.slug)) {
@@ -485,13 +487,13 @@ function showBotTab(tab) {
   else if (!CONV || CONV.slug !== BOT.slug) loadConversation(BOT.slug);
   if (chat && !split) void loadBotChatTasks(BOT.slug);            // side by side, the tasks column says it
   const once = (key, fn) => { if (!BOT.loaded.has(key)) { BOT.loaded.add(key); fn(BOT.slug); } };
-  if (work) once('tools', slug => window.botTools?.mount($('#bot-tools'), {slug, get, esc}));
   if (split || view === 'tasks') {
     once('tasks', isKeeper(BOT.slug) ? loadBotTasksV2 : loadBotIssues);
     if (isKeeper(BOT.slug)) once('files', slug => window.botFiles?.mount($('#bot-files'), {slug, get, esc, openFile: openFileLink}));
-    const e = S.emps.find(x => x.name === BOT.slug);                // routines change under More; redraw on return
-    if (e && $('#bot-recurring')) $('#bot-recurring').innerHTML = botRecurringHTML(e, BOT.slug);
+    if (!BOT.limited) botRecurringPaint(S.emps.find(x => x.name === BOT.slug), BOT.slug);   // routines change under More; redraw on return
+    botLatestSeen();
   }
+  if (view === 'more') once('toolslist', slug => window.botTools?.mountList($('#bot-tools'), {slug, get, esc}));
   if (view === 'more' && !BOT.limited) {
     if (isKeeper(BOT.slug)) once('history', v2HistoryLoad);
     once('docs', loadDocs);            // Routines expands playbooks
@@ -501,6 +503,7 @@ function showBotTab(tab) {
   SESS_PICK = null;
   $('#main').scrollTop = 0;
   if (wantSession) $('#sess-card')?.scrollIntoView({block: 'start'});
+  if (wantTools) $('#bot-tools-card')?.scrollIntoView({block: 'start'});
   if (t === 'docs') $('#pane-docs')?.scrollIntoView({block: 'start'});
 }
 BOT_WIDE.addEventListener('change', () => { if (BOT && $('#btabs')) showBotTab(BOT.tab); });

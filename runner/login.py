@@ -278,7 +278,8 @@ class Session:
             self.view = {"url": "", "code": "", "lines": self.view["lines"]}
         log(f"Tico runner: {self.runtime} sign-in {state}")
         if state == "signed_in":
-            getattr(self.manager, "clear_rejection", lambda runtime: None)(self.runtime)
+            self.manager.runner.clear_rejection(self.runtime, self.profile or
+                (self.manager.profile("").name if self.manager.profile("") else ""))
 
 
 class Logins:
@@ -304,14 +305,19 @@ class Logins:
 
     def begin(self, work):
         session = Session(self, work)
-        if session.profile and not self.profile(session.profile):
-            session.finish("failed", "This computer has no profile called " + session.profile)
-        elif session.runtime not in COMMANDS:
+        if session.runtime not in COMMANDS:
             session.finish("failed", "Browser sign-in is not available for " + session.runtime)
         elif any(other.live and other.key() == session.key() for other in self.sessions.values()):
             session.finish("failed", "Another sign-in is already running for " + session.runtime)
+        elif self.profile(session.profile) and self.profile(session.profile).share_operator:
+            session.finish("failed", f"Profile {session.profile} shares the operator's own logins; sign in normally")
         else:
-            session.thread.start()
+            try:
+                if session.profile and not self.profile(session.profile):
+                    self.runner.add_profile(session.profile)
+                session.thread.start()
+            except (OSError, ValueError) as exc:
+                session.finish("failed", "Could not create subscription profile: " + str(exc))
         self.sessions[session.id] = session
 
     def poll(self, force=False):
@@ -346,6 +352,7 @@ class Logins:
                 with session.lock:
                     session.taken = session.taken and not body.get("code_taken")
                 if body["state"] == "signed_in":
+                    self.runner._profile_report_cache = None
                     self.runner.last_heartbeat = 0     # let readiness show it now
             if session.finished and not session.dirty:
                 del self.sessions[lid]

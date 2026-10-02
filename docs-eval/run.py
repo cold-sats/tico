@@ -63,6 +63,10 @@ ARTICLES = {"the", "its", "it", "this", "that", "a", "an", "in", "actually", "ho
 
 def fact_matches(text, fact):
     subject, predicate = fact["subject"], fact["predicate"]
+    # Markdown emphasis says nothing about the value, and a negated uncertainty ("no price variation") confirms it.
+    text = re.sub(r"\*{1,3}|(?<!\w)_{1,3}|_{1,3}(?!\w)", "", text)
+    text = re.sub(r"\b(?:no|not|never|without(?: any)?)\s+(?:\w+\s+)?(?:variation|varies|vary)\b|\b\w+n't\s+vary\b", " ", text,
+                  flags=re.I)
     claims, related = [], False
     for sentence in re.split(r"(?<!\d)\.|\.(?!\d)|[;!?\n]|\b(?:and|but|while|whereas)\b", text, flags=re.I):
         sentence = re.sub(r"^\s*(?:actually|however|instead|in fact|in reality)\b[, :]*", "", sentence, flags=re.I)
@@ -96,10 +100,9 @@ def fact_matches(text, fact):
                 unit = re.sub(r"^[\d.,]+\s*", "", expected)
                 pattern = r"\d+(?:\.\d+)?\s+" + re.escape(unit)
         number = re.match(r"^\$?(\d+(?:[.,]\d+)*)", expected)
-        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s*[:,\-–—]?\s*(?:USD\s*|US\s*)?\$?\d"
+        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s*[:,\-–—(]?\s*(?:USD\s*|US\s*)?\$?\d"
         # Uncertainty words count unless negated: "with some variation" fails, "with no variation" does not.
-        approximate += (r"|(?<!\bno )(?<!\bnot )(?<!n't )(?<!\bnever )(?<!\bwithout )(?<!\bwithout any )"
-                        r"\b(?:(?:some|slight|minor|small|price)\s+)?(?:variation|varies|vary|variable|estimated?|ballpark)\b")
+        approximate += r"|\b(?:variation|varies|vary|variable|estimated?|ballpark)\b"
         approximate += r"|\(\s*(?:approx\w*\.?|about|roughly|around|circa|estimated?)\s*\)"
         approximate += (r"|\d[\d.,]*\s*(?:USD|US dollars|dollars)?\s*[,(]?\s*(?:or so|or thereabouts|give or take|more or less|approximately|roughly|"
                         r"about|or less|or more|tops|at most|at least|-?ish)\b")

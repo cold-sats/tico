@@ -35,11 +35,11 @@ description it was written with. The plain-English check on a title a bot writes
 numbers, no all-caps words) also applies to General tasks only, so a bot can file "#18945 (B/F)
 Fix the account page" as written. It still needs a title. A decision for a person stays on General.
 
-Whoever may change a task's other fields (its owner, its requester, a delegate or a mover) may also
-rename it. A new title gets the checks a new task's title would: never empty, at most 300
-characters, a verb first and no internal codes on a General task for a person, plain English when
-a bot writes it on General, and no other live task between the same requester and owner with that
-title. The old and new titles are in the task's history, and a task's own conversation keeps the
+Whoever may change a task's other fields (its owner, its requester, the owner or requester of a task
+above it, a delegate or a mover) may also rename it. A new title gets the checks a new task's title
+would: never empty, at most 300 characters, a verb first and no internal codes on a General task for
+a person, plain English when a bot writes it on General, and no other live task between the same
+requester and owner, under the same parent, with that title. The old and new titles are in the task's history, and a task's own conversation keeps the
 new title as its subject.
 
 A task on a custom type with a linked pull request follows the existing GitHub flow: review when
@@ -85,3 +85,72 @@ unmapped).
 
 `task_types` and `task_steps` are readable through SQL. Join them to the caller's visible `tasks`
 using `tasks.type_id` and `tasks.step_id`; the task visibility rules still apply.
+
+## Subtasks and PRs
+
+Subtasks can nest to any depth. A human-created subtask keeps a human parent's requester for
+notices; under a bot-requested parent, the person filing it is its requester.
+A bot-created subtask is requested by the filing bot, which receives its completion
+notice and may close it. It auto-closes after three quiet days like other bot-requested tasks.
+Subtasks never inherit a human's delegation anchor from a bot's request. BotOps acts with the
+filing bot's rights when that bot asks it to work on a subtask.
+
+Parent owners can track descendants they can read, without gaining Read on hidden bots.
+Only the task's owner or requester, or a human mover, can re-parent it; bots must also own,
+request or manage the new parent. Moving or detaching a subtask also requires its current
+parent's owner or requester, or a human mover. Moving a task moves its whole subtree,
+and cycles are refused.
+Bots finish open subtasks before marking a parent Done. Humans can always choose Ready or Done,
+or close a parent to cancel work. The keeper accepts completed routine work and old bot deliveries
+even when they have open subtasks. Finishing or moving away the last open subtask wakes the
+parent's owner with “All subtasks done”, unless that owner made the change.
+Closing a parent cancels it; later subtask completion does not wake its owner.
+Done, Closed and Declined count as finished. Open descendants under a finished subtask do not
+block its parent.
+
+```sh
+hub task child <parent-id> --owner engineer --title "Build the service" --body "Use the plan."
+hub task tree <task-id>
+hub task parent <task-id> <new-parent-id>
+hub task parent <task-id> ""
+```
+
+The corresponding MCP tools are `hub_task_child_create`, `hub_task_tree` and `hub_task_reparent`.
+Task create accepts `parent_id`; task update accepts `parent_id` with the current `version`.
+`GET /api/v2/tasks/{id}/tree` returns nested subtasks with `id`, `title`, `status`, `owner`,
+`pr_state` and `children`. Task detail and list answers include `children_summary` with descendant
+counts: `total`, `open`, `done`, `prs_total` and `prs_merged`, plus `direct_total` and
+`direct_done` for direct children. Counts include only visible subtrees. Totals include all
+visible descendants; `open` ignores work below finished subtasks. Closed, unmerged PRs are
+excluded from the PR totals.
+
+Attach as many PRs as the task needs with `hub task link`. `GET/POST /api/v2/tasks/{id}/links`
+list or attach links; `DELETE /api/v2/tasks/{id}/links/{link_id}` removes one. The older POST
+with `remove` still works. People who can read a task can add or remove its links. Bots
+need task rights; worktree links keep their worktree rules.
+PR URLs outside the connected GitHub org are plain links. PR links include repository,
+number, branch, checks, mergeability, review state and pending review comments. The task's `pr_state` shows the worst active PR:
+Failing, Conflict, Changes requested, Open, then Merged. Closed PRs are excluded; shipped PRs
+count as merged. Automatic Ready requires at least one merged PR and every tracked PR
+merged or closed. A repository in the connected org is tracked when it is reachable, ticked,
+or has received a PR webhook on any task. Its PRs block automatic Ready even before their
+first event. Unreachable, unticked repositories with no webhook history do not block it. Removing a PR link
+recomputes the automatic status. Abandoning every PR returns a task in Review or Ready
+to Doing. Adding a PR keeps a Ready task in Ready. Automatic PR moves retain the existing custom-type and legacy
+product-lane behavior and preserve a human's status choice for one hour.
+
+Opening a task returns its last known PR state immediately and schedules a background
+refresh for repositories the App can reach. Refreshes are grouped, capped at 20 links and
+cached for three minutes; failures back off from five minutes up to one hour. People
+can still move tasks without webhooks or a successful refresh.
+
+Failing checks, new conflicts, requests for changes, review comments from others and PRs
+closed without merging wake the owner with the specific item, grouped into one notice within
+three minutes. Conflicts wake once per head until a known clean result clears the marker.
+A new push resets mergeability to Unknown while GitHub recomputes it; label and text edits
+keep the last known mergeability. Pending or passing checks and the bot's own comments
+do not wake it. Tico recognises the GitHub App identity, configured bot login and PR author.
+A head pusher counts as the bot only when their login matches the PR author. Requests for
+changes always wake the owner, including requests from those identities.
+Automatic shipping waits until every merged PR is included in the configured release;
+PRs in another repository remain Ready for their release or a human's completion.

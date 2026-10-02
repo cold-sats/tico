@@ -51,10 +51,13 @@ installed on a computer when a bot there needs one; the server does not need to 
 1. Something creates work: a human files a task or sends a message, a routine comes due (the server
    turns it into a task), or another bot hands work off.
 2. The server queues it for the bot and the computer that bot is assigned to.
-3. That computer's runner, heartbeating every few seconds, claims the work. The claim is a lease, so a
-   crashed computer's work is released and never runs twice.
-4. The runner checks the bot's repository out of the workspace, asks the server for a scoped GitHub
-   token if one is needed, and starts the bot's harness inside that repository.
+3. That computer's runner, heartbeating every few seconds, claims the work with a lease. A lease
+   expiring does not prove the old process stopped: each claim includes optional `busy_bots`,
+   listing bots whose turn processes are still running on that computer. The server skips those
+   bots there until their processes exit, even if their leases have expired. Older runners omit
+   the field; older servers keep their existing claim behavior.
+4. The runner asks the server for a scoped GitHub token if needed and starts the harness inside
+   the bot's repository.
 5. The harness talks to the model provider directly, using the login on that computer, and uses tools
    (`hub` commands, git, shell) to do the work.
 6. The runner streams progress and the reply back to the server; approvals pause the run until a human

@@ -14,11 +14,16 @@ secret (they are left out of what is published) and whether a commit made during
 (then nothing is pushed).
 """
 import base64
+import json
+import os
+import stat
+import uuid
 import re
 import subprocess
 import threading
 from pathlib import Path
 from urllib.parse import quote, quote_plus
+from . import isolation, safe_git
 
 MASK = "••••"
 ERROR = "[redacted: error]"
@@ -65,12 +70,21 @@ def _values(secrets):
 
 class Redactor:
     def __init__(self, secrets):
+        self.update_lock = threading.Lock()
         self.values = sorted(_values(secrets), key=len, reverse=True)
         forms = set()
         for value in self.values:
             forms |= _variants(value)
         forms.discard("")
         self.pattern = re.compile("|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))) if forms else None
+
+    def add(self, secrets):
+        with self.update_lock:
+            added = _values(secrets) - set(self.values)
+            if not added:
+                return
+            updated = Redactor([*self.values, *added])
+            self.values, self.pattern = updated.values, updated.pattern
 
     def scrub_text(self, text):
         if not isinstance(text, str) or self.pattern is None:
@@ -100,21 +114,59 @@ class Redactor:
             return True
 
     # ------------------------------------------------------------------ a checkout
-    def scrub_files(self, paths):
+    def scrub_files(self, paths, root=None):
         """Rewrite the text files in `paths`. (rewritten, left_out): a binary file with a secret is never touched and
         never listed as clean, so the caller can keep it out of what it publishes."""
         rewritten, left_out = [], []
         for path in map(Path, paths):
             try:
-                if path.is_symlink() or not path.is_file():
-                    continue
-                data = path.read_bytes()
-                if not self.holds(data):
-                    continue
-                if b"\0" in data[:8000] or len(data) > _TEXT_LIMIT:
-                    left_out.append(path)
-                    continue
-                path.write_bytes(self.scrub_text(data.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape"))
+                # Anchor every parent by fd so a concurrent rename or symlink swap
+                # cannot redirect either the read or the atomic replacement.
+                anchored = Path(root).resolve() / path.relative_to(root) if root is not None else path.absolute()
+                directory = os.open(anchored.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                temporary = None
+                try:
+                    for part in anchored.parts[1:-1]:
+                        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                        os.close(directory)
+                        directory = child
+                    try:
+                        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                    except OSError:
+                        if stat.S_ISLNK(os.stat(path.name, dir_fd=directory, follow_symlinks=False).st_mode):
+                            continue
+                        raise
+                    with os.fdopen(fd, 'rb') as stream:
+                        info = os.fstat(stream.fileno())
+                        if not stat.S_ISREG(info.st_mode):
+                            continue
+                        if info.st_size > _TEXT_LIMIT:
+                            left_out.append(path)
+                            continue
+                        data = stream.read(_TEXT_LIMIT + 1)
+                    if not self.holds(data):
+                        continue
+                    if b"\0" in data[:8000] or len(data) > _TEXT_LIMIT:
+                        left_out.append(path)
+                        continue
+                    temporary = '.tico-scrub-' + uuid.uuid4().hex
+                    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 stat.S_IMODE(info.st_mode), dir_fd=directory)
+                    with os.fdopen(fd, 'wb') as stream:
+                        os.fchmod(stream.fileno(), stat.S_IMODE(info.st_mode))
+                        stream.write(self.scrub_text(data.decode('utf-8', 'surrogateescape')).encode('utf-8', 'surrogateescape'))
+                    current = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+                    if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                        left_out.append(path)
+                        continue
+                    os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+                finally:
+                    if temporary:
+                        try:
+                            os.unlink(temporary, dir_fd=directory)
+                        except FileNotFoundError:
+                            pass
+                    os.close(directory)
                 rewritten.append(path)
             except Exception:
                 left_out.append(path)
@@ -135,9 +187,9 @@ class Redactor:
             if len(entry) > 3 and entry[:2] != " D" and entry[:2] != "D ":
                 name = entry[3:]
                 paths.append(root / name.split(" -> ")[-1])
-        result["rewritten"], result["left_out"] = self.scrub_files(paths)
+        result["rewritten"], result["left_out"] = self.scrub_files(paths, root)
         if since:
-            patch = _git(root, "log", "-p", "--format=", since + "..HEAD", raw=True)
+            patch = _git(root, "log", "-p", "--no-ext-diff", "--no-textconv", "--format=", since + "..HEAD", raw=True)
             result["committed"] = bool(patch) and self.holds(patch)
         return result
 
@@ -155,6 +207,11 @@ def for_turn(env, vault_values=(), names=("TOKEN", "SECRET", "PASSWORD", "API_KE
     variable whose name says it is one."""
     secrets = list(vault_values)
     secrets.extend(v for k, v in (env or {}).items() if any(s in k.upper() for s in names))
+    try:
+        groups = json.loads((env or {}).get('TICO_GITHUB_TOKENS', '[]'))
+        secrets.extend(group['token'] for group in groups if isinstance(group, dict) and isinstance(group.get('token'), str))
+    except (ValueError, TypeError):
+        pass
     redactor = Redactor(secrets)
     return redactor if redactor.pattern is not None else None
 
@@ -180,7 +237,8 @@ def head(root):
 
 def _git(root, *args, raw=False):
     try:
-        done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+        done = isolation.run([*safe_git.prefix(root), "-C", str(root), *args],
+                             env=safe_git.clean_environment(), capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return b"" if raw else ""
     if done.returncode != 0:

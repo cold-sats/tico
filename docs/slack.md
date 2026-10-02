@@ -44,6 +44,8 @@ file is ignored. A public install has no such file and needs none.
 ## What humans can do
 
 - DM Tico to ask for anything; the router picks the right bot, or asks one clarifying question.
+- Ask BotOps for a change in a DM: it acts with your rights, as in your Tico chat. A request in a channel or thread
+  only gets an answer; BotOps changes nothing for you from there.
 - `@Tico` in a channel; mention it again in the thread to continue.
 - Reply in a thread a bot already talks in; no mention needed.
 - Only humans on the roster (Humans) whose Slack email matches can wake a bot. Guests and Slack Connect
