@@ -9,7 +9,7 @@ lead: true
 icon: developer_board
 suggest: default
 tags: [saas, developer-tools, delivery, github, weekly-review, hiring]
-team_templates: [issue-triage, pr-reviewer, release-notes, incident-scribe, docs-writer, security-engineer, devops-engineer, developer-advocate, software-architect]
+team_templates: [engineering-manager, issue-triage, pr-reviewer, release-notes, incident-scribe, docs-writer, security-engineer, devops-engineer, developer-advocate, software-architect]
 when: "Offer when GitHub is connected and more than one human merges code."
 summary: "Runs the engineering group: a weekly summary from GitHub and the engineering bots (shipped, stuck pull requests, incidents, blockers), routing, and the next hire. Requested assignments and hires use your Tools."
 pains:
