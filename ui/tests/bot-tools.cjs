@@ -134,8 +134,11 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.deepEqual(await strip.locator('.bts-icon').evaluateAll(els => els.map(el => el.dataset.tool)), ['repo', 'posthog', 'slack']);
       assert.equal((await strip.locator('.bts-more').innerText()).trim(), '+5');
       assert.equal(await strip.locator('.bts-more').getAttribute('aria-label'), 'All 9 tools');
-      assert.equal(await strip.locator('[data-tool=slack]').getAttribute('title'), 'Slack');
-      assert.match(await strip.locator('[data-tool=posthog]').getAttribute('aria-label'), /PostHog, PostHog project 12345 \(US\), personal key, Credential missing on Test Mac/);
+      assert.match(await strip.locator('[data-tool=slack]').getAttribute('aria-label'), /^Slack, Acme workspace, can read, post, channels #ops, #launch, Ready$/);
+      assert.match(await strip.locator('[data-tool=posthog]').getAttribute('aria-label'), /PostHog, PostHog project 12345 \(US\), personal key, .*Credential missing on Test Mac$/);
+      await strip.locator('[data-tool=slack]').hover();
+      assert.match(await page.locator('#bts-tip').innerText(), /Slack · Acme workspace[\s\S]*read, post[\s\S]*#ops, #launch[\s\S]*Ready/);
+      await page.mouse.move(700, 500);
       assert.equal(await strip.locator('[data-tool=posthog] .bt-dot').count(), 1, 'a problem shows a dot');
       const rt = await box(page, '.bot-nameline .rt'), first = await box(page, '#bot-tool-strip .bts-icon');
       assert(Math.abs(rt.height - first.height) <= 1 && Math.abs(rt.y - first.y) <= 2, 'the same size and line as the runtime mark');

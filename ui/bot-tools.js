@@ -1,7 +1,8 @@
 /* A bot's tools (docs/creating-bots.md, "What people see about a bot's tools"), in two places.
    Beside the bot's name, after its runtime mark: up to three small icons, the service's logo when
    ui/tool-icons.js has it and the name's first two letters otherwise, then "+N" for the rest; each
-   names its tool on hover and opens the full list. The model the bot runs on is left out there, since
+   shows its tool's details on hover or focus (which account or repository, what it may do, its state, so two
+   tools of one service read apart) and opens the full list. The model the bot runs on is left out there, since
    the runtime mark beside the name already says it. A red dot marks a tool with a problem.
    The full list is the Tools card under More: every tool with what it acts as, what it may do, its
    scope, note, credential name and status.
@@ -32,17 +33,73 @@
 .bt-list dt{color:var(--muted);font-size:12px;padding-top:1px}
 .bt-list dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .bt-list .pill{margin:0 4px 2px 0}
-.bt-list .bt-problem{color:var(--fail)}`;
+.bt-list .bt-problem{color:var(--fail)}
+.bts-tip{max-width:300px}
+.bts-tip .tip-head{display:block;margin-bottom:2px;font-weight:600;overflow-wrap:anywhere}
+.bts-tip .tip-sub{margin-bottom:4px;overflow-wrap:anywhere}
+.bts-tip .bt-problem{color:var(--fail)}`;
 
-  const STATUS = {ready: ['ok', 'Ready'], problem: ['fail', 'Needs attention'], unknown: ['', 'Not checked']};
+  const STATUS = {ready: ['ok', 'Ready'], problem: ['fail', 'Needs attention'], pending: ['', 'Pending'], unknown: ['', 'Not checked']};
   const label = key => String(key).replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase());
   const asList = value => (Array.isArray(value) ? value : [value]).map(String).filter(Boolean);
 
-  function summary(tool) {
-    const [, word] = STATUS[tool.status] || STATUS.unknown;
-    const status = tool.status === 'problem' && tool.problem ? tool.problem : word;
-    return [tool.name, tool.identity, status].filter(Boolean).join(', ');
+  // A GitHub repository: the bot's own (instructions and memory) or one granted to it, read only or read and write.
+  const isRepo = tool => /^github(-app)?$/i.test(String(tool.service || '')) && !!(tool.scope?.repo || tool.url);
+  const ownRepo = tool => tool.id === 'repo' || /own repository/i.test(tool.detail || '');
+  const can = tool => (tool.can || []).map(String);
+  function access(tool) {
+    const write = can(tool).includes('write'), read = write || can(tool).includes('read');
+    const level = write ? 'Read and write' : read ? 'Read only' : '';
+    return [ownRepo(tool) ? 'Own repository' : '', level].filter(Boolean).join(' · ');
   }
+  function stateWord(tool) {
+    if (tool.status === 'problem') return tool.problem || STATUS.problem[1];
+    if (tool.pending === 'remove') return 'Removal pending';
+    if (tool.pending === 'update') return 'Change pending';
+    return (STATUS[tool.status] || STATUS.unknown)[1];
+  }
+  // The lines a tooltip shows, as [label, value]; the identity is the head line.
+  function facts(tool) {
+    const rows = [];
+    if (isRepo(tool)) { if (access(tool)) rows.push(['Access', access(tool)]); }
+    else if (tool.id !== 'model' && can(tool).length) rows.push(['Can', can(tool).join(', ')]);
+    for (const [key, value] of Object.entries(tool.scope || {})) {
+      if (isRepo(tool) && key === 'repo') continue;
+      rows.push([label(key), asList(value).join(', ')]);
+    }
+    if (tool.note) rows.push(['Note', tool.note]);
+    rows.push(['State', stateWord(tool)]);
+    return rows.filter(([, v]) => v);
+  }
+  function summary(tool) {
+    return [tool.name, tool.identity, ...facts(tool).map(([k, v]) => k === 'State' ? v : `${k.toLowerCase()} ${v}`)].filter(Boolean).join(', ');
+  }
+
+  // One tooltip for the strip, moved to whichever icon the pointer or focus is on (the .tip look of ui/app/tooltip.js).
+  let TIP = null;
+  function tipShow(el, tool, esc) {
+    if (!TIP) {
+      TIP = document.createElement('div');
+      TIP.id = 'bts-tip'; TIP.className = 'tip bts-tip'; TIP.setAttribute('role', 'tooltip'); TIP.hidden = true;
+      document.body.append(TIP);
+    }
+    TIP.innerHTML = `<div class="tip-head">${esc(tool.name)}${tool.identity ? ` · ${esc(tool.identity)}` : ''}</div>
+      <dl>${facts(tool).map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === 'State' && tool.status === 'problem' ? ' class="bt-problem"' : ''}>${esc(v)}</dd>`).join('')}</dl>`;
+    TIP.hidden = false;
+    el.setAttribute('aria-describedby', 'bts-tip');
+    const r = el.getBoundingClientRect(), box = TIP.getBoundingClientRect();
+    TIP.style.left = Math.max(8, Math.min(r.left, innerWidth - box.width - 8)) + 'px';
+    TIP.style.top = (r.bottom + box.height + 14 > innerHeight ? Math.max(8, r.top - box.height - 6) : r.bottom + 6) + 'px';
+    TIP.owner = el;
+  }
+  function tipHide(el) {
+    if (!TIP || (el && TIP.owner !== el)) return;
+    TIP.hidden = true;
+    TIP.owner?.removeAttribute('aria-describedby');
+    TIP.owner = null;
+  }
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape') tipHide(); });
+  window.addEventListener('hashchange', () => tipHide());
 
   function style() {
     if (document.getElementById('bot-tools-style')) return;
@@ -82,9 +139,16 @@
       const shown = skipModel ? tools.filter(t => t.id !== 'model') : tools;
       host.hidden = !shown.length;
       const few = shown.slice(0, STRIP_MAX), rest = shown.length - few.length;
+      tipHide();
       host.innerHTML = few.map(tool => `<a class="bts-icon${tint(tool)}" href="${esc(href)}" data-tool="${esc(tool.id)}"
-          title="${esc(tool.name)}" aria-label="${esc(summary(tool))}">${icons().markup(tool)}${tool.status === 'problem' ? '<span class="bt-dot" aria-hidden="true"></span>' : ''}</a>`).join('')
+          aria-label="${esc(summary(tool))}">${icons().markup(tool)}${tool.status === 'problem' ? '<span class="bt-dot" aria-hidden="true"></span>' : ''}</a>`).join('')
         + (rest > 0 ? `<a class="bts-more" href="${esc(href)}" title="All ${tools.length} tools" aria-label="All ${tools.length} tools">+${rest}</a>` : '');
+      for (const el of host.querySelectorAll('.bts-icon')) {
+        const tool = few.find(t => t.id === el.dataset.tool);
+        const show = () => tipShow(el, tool, esc), hide = () => tipHide(el);
+        el.addEventListener('mouseenter', show); el.addEventListener('focus', show);
+        el.addEventListener('mouseleave', hide); el.addEventListener('blur', hide); el.addEventListener('click', hide);
+      }
     }
     async function refresh() {
       try { const got = await load(slug, get); if (!host.isConnected) return; tools = got.tools; }
@@ -103,12 +167,14 @@
     const statusPill = tool => { const [kind, word] = STATUS[tool.status] || STATUS.unknown; return `<span class="pill ${kind}">${esc(word)}</span>`; };
     function detail(tool) {
       const rows = [];
-      const identityLabel = tool.id === 'model' ? 'Runs on' : tool.id === 'repo' ? 'Repository' : 'Acts as';
-      if (tool.identity) rows.push([identityLabel, tool.url && tool.id === 'repo'
+      const repo = isRepo(tool);
+      const identityLabel = tool.id === 'model' ? 'Runs on' : repo ? 'Repository' : 'Acts as';
+      if (tool.identity) rows.push([identityLabel, tool.url && repo
         ? `<a href="${esc(tool.url)}" target="_blank" rel="noopener noreferrer">${esc(tool.identity)}</a>` : esc(tool.identity)]);
-      if (tool.can?.length && tool.id !== 'model') rows.push(['Can', tool.can.map(v => `<span class="pill">${esc(v)}</span>`).join('')]);
+      if (repo && access(tool)) rows.push(['Access', esc(access(tool))]);
+      else if (tool.can?.length && tool.id !== 'model') rows.push(['Can', tool.can.map(v => `<span class="pill">${esc(v)}</span>`).join('')]);
       for (const [key, value] of Object.entries(tool.scope || {})) {
-        if (tool.id === 'repo' && key === 'repo') continue;
+        if (repo && key === 'repo') continue;
         rows.push([label(key), esc(asList(value).join(', '))]);
       }
       if (tool.mcp) rows.push(['mcp', `<code>${esc(tool.mcp.host)}</code> <span class="muted">${esc(tool.mcp.transport)}</span>`]);

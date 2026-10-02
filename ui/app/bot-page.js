@@ -57,7 +57,7 @@ function goalParts(role) {
   return {lead, rest: full.slice(lead.length).trim()};
 }
 // The bot's goal, at the top of its page (#514): its first goal in the owner's order, as words.
-// Tapping it opens it on the Goals page. No goal is one quiet line: "No goal · Set goal".
+// Tapping it opens it on the Goals page. No goal is one quiet link: "Set goal".
 let BOT_GOAL_LOAD = 0;
 async function botGoalLoad(slug) {
   if (!$('#bot-goal')) return;
@@ -110,7 +110,7 @@ function botGoalRender(slug, g, count) {
   }
   if (!g) {
     el.dataset.status = 'none';
-    el.innerHTML = `<span class="muted">No goal</span> · <a href="#" class="bot-goal-set" id="bot-goal-set">Set goal</a>`;
+    el.innerHTML = '<a href="#" class="bot-goal-set" id="bot-goal-set">Set goal</a>';
     $('#bot-goal-set').onclick = async e => {
       e.preventDefault();
       el.innerHTML = '<span class="bot-goal-new"></span>';
