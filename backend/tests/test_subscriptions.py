@@ -120,7 +120,7 @@ def test_computer_default_is_reported_and_deleted_groups_lose_assignment(api):
 
 def test_subscriptions_migrations_are_repeatable_and_follow_repositories(api):
     from backend import hubdb as H
-    assert H.MIGRATIONS[-1] == H.SUBSCRIPTIONS_SCHEMA
+    assert H.MIGRATIONS[16:19] == [H.REPOSITORIES_SCHEMA, H.TASK_LINKS_V2_SCHEMA, H.SUBSCRIPTIONS_SCHEMA]
     with api.app.state.store.transaction() as c:
         H._apply(c, H.SUBSCRIPTIONS_SCHEMA)
         assert c.execute('SELECT 1 FROM cloud_migrations WHERE version=52').fetchone()
