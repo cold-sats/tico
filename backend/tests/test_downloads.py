@@ -150,3 +150,30 @@ def test_download_storage_uses_blob_region_endpoint_and_prefix(monkeypatch, tmp_
     url = downloads.file_url("2.1.0", "Tico_2.1.0_universal.dmg")
     assert url.startswith("https://s3.test/team/files/releases/app/2.1.0/")
     assert calls == [("s3", {"region_name": "us-east-1", "endpoint_url": "https://s3.example.com"})]
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_github_fetch_is_single_flight_and_does_not_hold_lock(warm):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    downloads = Downloads(SimpleNamespace(blob_bucket="", runner_url="", public_url=""))
+    stale = {"version": "0.3.6"} if warm else None
+    downloads._github = (1.0, stale)
+    entered, finish = threading.Event(), threading.Event()
+    calls = []
+    def fetch():
+        calls.append(True)
+        entered.set()
+        assert finish.wait(2)
+        return MANIFEST
+    downloads._fetch_github_manifest = fetch
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(downloads.manifest)
+        assert entered.wait(1)
+        try:
+            assert pool.submit(downloads.manifest).result(timeout=0.5) is stale
+            assert len(calls) == 1
+        finally:
+            finish.set()
+        assert first.result(timeout=1) == MANIFEST
+    assert downloads.manifest() == MANIFEST and len(calls) == 1

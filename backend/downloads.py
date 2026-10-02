@@ -54,7 +54,9 @@ class Downloads:
         self.version = releases.version()
         self._github = (0.0, None)
         self._github_transport = github_transport
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
+        self._github_ready = threading.Event()
+        self._github_ready.set()
 
     @property
     def s3(self):
@@ -66,12 +68,11 @@ class Downloads:
 
     def manifest(self):
         """Prefer a current bucket build; otherwise offer the running release's generic app."""
-        with self._lock:
-            bucket = self.bucket_manifest()
-            if bucket and (not releases.parse(self.version) or
-                           releases.parse(bucket["version"]) >= releases.parse(self.version)):
-                return bucket
-            return self.github_manifest()
+        bucket = self.bucket_manifest()
+        if bucket and (not releases.parse(self.version) or
+                       releases.parse(bucket["version"]) >= releases.parse(self.version)):
+            return bucket
+        return self.github_manifest()
 
     def bucket_manifest(self):
         """Read the bucket at most once a minute, including absent manifests."""
@@ -91,9 +92,30 @@ class Downloads:
         return value
 
     def github_manifest(self):
-        fetched, cached = self._github
-        if fetched and time.monotonic() - fetched < 600:
-            return cached
+        with self._lock:
+            fetched, cached = self._github
+            if fetched and time.monotonic() - fetched < 600:
+                return cached
+            fetching = not self._github_ready.is_set()
+            if not fetching:
+                self._github_ready.clear()
+        if fetching:
+            if cached is not None:
+                return cached
+            # Cold-cache callers wait briefly, never for the network timeout.
+            self._github_ready.wait(0.1)
+            with self._lock:
+                return self._github[1]
+        value = None
+        try:
+            value = self._fetch_github_manifest()
+        finally:
+            with self._lock:
+                self._github = (time.monotonic(), value)
+                self._github_ready.set()
+        return value
+
+    def _fetch_github_manifest(self):
         value = None
         if VERSION_RE.fullmatch(self.version):
             tag = "v" + self.version
@@ -138,7 +160,6 @@ class Downloads:
                     value = {**value, "installers": installers}
             except Exception:
                 value = None
-        self._github = (time.monotonic(), value)
         return value
 
     def file_url(self, version, name):

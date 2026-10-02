@@ -90,7 +90,8 @@ are set. Manual or main-branch builds can still bake in `TICO_HUB_URL` and use `
 (or the hub address) for their updater endpoint. `scripts/app.sh --env <slug>` retains its
 per-environment behavior. Hubs prefer a bucket manifest of their running version or newer;
 otherwise they offer assets from the GitHub release of their running version, with a ten-minute
-cache and no credentials sent to GitHub. This fallback applies only to human download routes
+cache and no credentials sent to GitHub. Concurrent requests share one GitHub fetch;
+other callers use the last cached result or wait at most 100 ms on a cold cache. This fallback applies only to human download routes
 (`/download/{os}` and `/api/download/{os}`). `/download/latest.json` serves only the bucket
 manifest, including older environment builds, and returns 404 when none exists.
 
