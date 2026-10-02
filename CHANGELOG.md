@@ -22,6 +22,7 @@ All notable changes to Tico are recorded here. The format follows
 - Support diagnostics group repeated server failures, include safe exception locations, runner heartbeat/recovery context and bounded browser failure counts, and report missing capture coverage without verbose logging.
 
 ### Fixed
+- Listening uses a valid local question override consistently and reports invalid overrides without exposing their contents. Health warnings explain missing Tool credentials and invalid Listening configuration without repeating noisy diagnostics.
 - Oversized multipart headers return a consistent upload error and release temporary files. Linux runner configuration checks handle GNU and BSD file metadata tools consistently.
 - The team chart shows personal branches only to their operator, labeled Your branch. Original bots remain visible in their groups; administrators can still inspect other branches through the branch picker and Settings.
 - Human desktop downloads prefer valid company builds even when older than the server; company updater feeds reject generic manifests.
@@ -29,6 +30,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Changed
 - Fireflies is no longer offered for new imports. Existing meetings, notes, recordings, file versions and historical source filters remain available.
+
+### Security
+- Backport the GLib string iterator pointer fix used by the Linux desktop app, with a checked vendored source and an optimized regression test.
 
 ## [0.3.11] - 2026-10-02
 
