@@ -90,8 +90,9 @@ const {html, uiFile} = require('./support/page.cjs');
       ['Draft', 'Legal review', 'Copy review', 'Complete', 'Archive', 'Doing']);
     assert.equal(await page.locator('#task-body .bcard').count(), 4, 'a saved type includes finished work');
     assert.equal(await page.locator('#task-body').getByText('General task', {exact: true}).count(), 0);
-    // The saved type shows as a chip, and the address carries it.
-    assert.match(await page.locator('[data-chip="type"]').innerText(), /Type\s*Marketing/);
+    // The saved type appears in the header, and the address carries it.
+    assert.equal(await page.locator('#task-type-more').innerText(), 'Marketing');
+    assert.equal(await page.locator('[data-chip="type"]').count(), 0);
     await page.waitForFunction(() => location.hash.includes('type=marketing'));
     // Each step column shows the status icon of the status it stands for.
     assert.deepEqual(await page.locator('#task-body .bcol > header > .si').evaluateAll(s => s.map(x => x.dataset.statusKind)),
@@ -130,9 +131,10 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(tasks.find(task => task.id === 'task-1').status, 'review', 'a General task keeps its status');
     await peek.locator('[data-modal-close]').click();
     await peek.waitFor({state: 'hidden'});
-    await page.locator('[data-chip-drop="type"]').click();
-    await page.waitForFunction(() => !location.hash.includes('type='));
-    assert.equal(await page.locator('#task-body .bcol').count(), 4, 'clearing the type restores existing columns');
+    await page.locator('[data-task-type="general"]').click();
+    await page.waitForFunction(() => location.hash.includes('type=general'));
+    assert.equal(await page.locator('#task-body .bcol').count(), statuses.length, 'General has its own columns');
+    assert.equal(await page.locator('#task-body .bcard').count(), 2, 'General never includes Marketing tasks');
     await page.locator('#task-new').click();
     await page.locator('#task-create select[name=type]').waitFor();
     await page.locator('#task-create [data-modal-close]').click();

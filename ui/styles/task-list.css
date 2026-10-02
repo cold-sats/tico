@@ -31,7 +31,16 @@
 .tl-tabs [role=tab]:focus-visible{outline:2px solid var(--accent);outline-offset:-1px}
 .tl-tabs .cnt{font-size:11px;color:var(--muted);font-weight:500}
 .tl-tabs .cnt.hot{color:var(--wait);font-weight:600}
-.tl-search{flex:0 1 220px;min-width:120px;display:flex;align-items:center;gap:6px;height:30px;padding:0 6px 0 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted)}
+.tl-type-search{display:flex;align-items:center;gap:10px;flex:0 1 380px;min-width:0}
+.tl-types{display:inline-flex;align-items:center;flex:none;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.tl-types[hidden]{display:none}
+.tl-types button{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:0;border-radius:6px;background:none;color:var(--muted);font:500 12.5px/1 var(--sans);white-space:nowrap;cursor:pointer}
+.tl-types button[aria-pressed=true]{background:var(--raised);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.22)}
+.tl-types button:hover:not(:disabled){color:var(--ink)}
+.tl-types button:focus-visible{outline:2px solid var(--accent);outline-offset:-1px}
+.tl-types button:disabled{opacity:.45;cursor:default}
+#task-type-more span{max-width:130px;overflow:hidden;text-overflow:ellipsis}
+.tl-search{flex:1 1 150px;min-width:90px;max-width:180px;display:flex;align-items:center;gap:6px;height:30px;padding:0 6px 0 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted)}
 .tl-search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
 .tl-search svg{flex:none}
 .tl-search input{flex:1;min-width:0;width:0;height:28px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;font-size:13px;color:var(--ink)}
@@ -217,6 +226,11 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 .tl-bulk .tl-bulk-x{display:inline-flex;align-items:center;gap:5px;color:var(--muted);margin-left:4px}
 
 /* ---- a narrower list (the peek open, a small window): fewer things per line */
+@container tasks (max-width:920px){
+  .tl-head{flex-wrap:wrap;row-gap:8px}
+  .tl-tabs{order:5;flex-basis:100%;max-width:100%;overflow-x:auto}
+  .tl-type-search{flex:0 1 380px}
+}
 @container tasks (max-width:900px){
   .tl-new span{display:none}
   .tl-new{padding:0 9px}
@@ -227,7 +241,11 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 @container tasks (max-width:640px){
   .tl-head{flex-wrap:wrap;row-gap:6px}
   .tl-head .spacer{display:none}
+  .tl-type-search{order:4;flex:1 0 100%;max-width:100%;gap:6px}
   .tl-search{flex:1 1 0}
+  .tl-head h1{margin-right:auto}
+  .tl-types button{padding:0 7px}
+  #task-type-more span{max-width:80px}
   .tl-tabs{order:5;max-width:100%;overflow-x:auto;scrollbar-width:none}
   .tl-note-text,.tl-due{display:none}
 }
