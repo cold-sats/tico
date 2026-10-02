@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Update urllib3 to 2.8.0, PyJWT to 2.15.0 and DOMPurify to 3.4.16 to address dependency security advisories.
+
 ## [0.3.7] - 2026-10-02
 
 ### Fixed
