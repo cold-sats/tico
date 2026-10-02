@@ -38,6 +38,15 @@ LOGIN_COMMAND = {"codex": ["codex", "login"], "claude": ["claude", "auth", "logi
 class SubscriptionUnavailable(RuntimeError):
     """An assigned subscription cannot run this turn on this Computer."""
 
+    def __init__(self, problem, profile, runtime):
+        super().__init__(problem)
+        self.detail = {"profile": profile, "runtime": runtime, "problem": problem}
+
+
+def covers(config):
+    return (config.get("runtime") in RUNTIMES
+            and config.get("harness") != "antigravity")
+
 
 class Profile:
     """One subscription: the provider homes a bot's turns and readiness checks run against."""

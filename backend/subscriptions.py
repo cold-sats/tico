@@ -37,7 +37,18 @@ def effective(c, bot, ctx=None):
     return None, 'computer'
 
 
-def record(c, runner_id, profiles):
+def covers(config):
+    return (config.get('runtime') in ('codex', 'claude', 'grok', 'gemini')
+            and config.get('harness') != 'antigravity')
+
+
+def refusal(c, runner_id, bot):
+    from .repositories import metadata
+    blocked = metadata(c, f'subscription-unavailable:{bot}')
+    return blocked if blocked.get('runner_id') == runner_id else {}
+
+
+def record(c, runner_id, profiles, readiness=None):
     # Omitted by an older computer: retain its last report until it can report again.
     from .repositories import save_metadata
     from .repositories import metadata
@@ -53,6 +64,14 @@ def record(c, runner_id, profiles):
         except ValueError:
             continue
         valid[profile.name] = encode({k: v.model_dump() for k, v in profile.runtimes.items()})
+    for bot in c.execute('SELECT bot FROM assignments WHERE runner_id=?', (runner_id,)):
+        blocked = refusal(c, runner_id, bot['bot'])
+        status = ((readiness_document(readiness).get('runtimes', {}).get(blocked.get('runtime'), {})
+                   .get('profiles', {}).get(blocked.get('profile'), {})) if blocked else {})
+        signed_in = json.loads(valid.get(blocked.get('profile'), '{}')).get(blocked.get('runtime'), {}).get('signed_in')
+        if blocked and (signed_in is True or (signed_in is None and blocked['profile'] in valid
+                                             and status.get('authenticated') == 'ready')):
+            c.execute("DELETE FROM registry_metadata WHERE key=?", (f"subscription-unavailable:{bot['bot']}",))
     stored = {r['profile']: r['runtimes_json'] for r in c.execute(
         'SELECT profile,runtimes_json FROM computer_profiles WHERE runner_id=?', (runner_id,))}
     if stored == valid:
@@ -108,21 +127,32 @@ def bot_subscription(c, bot, settings, ctx=None):
     profile, source = effective(c, bot, ctx)
     runner = c.execute('SELECT r.* FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=? '
                        'AND r.revoked_at IS NULL', (bot,)).fetchone()
-    signed_in, problem = None, ''
+    signed_in, problem, runtime = None, '', ''
     computer = {'runner_id': runner['id'], 'label': runner['label']} if runner else None
+    from . import providers
+    from .shared_bots import follow
+    row = c.execute('SELECT config_json FROM bot_config WHERE bot=?', (bot,)).fetchone()
+    config = providers.fill(ctx['providers'], follow(c, bot, json.loads(row[0] or '{}') if row else {}))
+    runtime = config.get('runtime')
+    if profile and not covers(config):
+        return {'profile': profile, 'source': source, 'computer': computer, 'signed_in': False,
+                'problem': f"Subscription {profile} doesn't cover {runtime}", 'detail': {'runtime': runtime}}
     if runner:
         report = readiness_document(runner['readiness_json'])
         bot_report = report.get('bots', {}).get(bot, {})
-        from . import providers
-        from .shared_bots import follow
-        row = c.execute('SELECT config_json FROM bot_config WHERE bot=?', (bot,)).fetchone()
-        config = providers.fill(ctx['providers'], follow(c, bot, json.loads(row[0] or '{}') if row else {}))
-        runtime = config.get('runtime')
         if source == 'computer':
             profile = bot_report.get('profile') or None
             state = bot_report.get('sign_in') or report.get('runtimes', {}).get(runtime, {}).get('authenticated')
             signed_in = True if state == 'ready' else False if state in ('missing', 'failed', 'rejected') else None
         else:
+            blocked = refusal(c, runner['id'], bot)
+            if (blocked.get('profile') == profile and blocked.get('primary_runtime') == runtime
+                  and blocked.get('primary_harness') == config.get('harness')):
+                problem = blocked['problem']
+                signed_in = False
+            if problem:
+                return {'profile': profile, 'source': source, 'computer': computer, 'signed_in': signed_in,
+                        'problem': problem, 'detail': {'runtime': blocked.get('runtime', runtime)}}
             from .repositories import metadata
             if not metadata(c, 'computer-profiles:' + runner['id']).get('reported'):
                 return {'profile': profile, 'source': source, 'computer': computer, 'signed_in': None,
@@ -136,7 +166,8 @@ def bot_subscription(c, bot, settings, ctx=None):
             else:
                 signed_in = False
                 problem = f"Subscription {profile} isn't on {runner['label']}"
-    return {'profile': profile, 'source': source, 'computer': computer, 'signed_in': signed_in, 'problem': problem}
+    return {'profile': profile, 'source': source, 'computer': computer, 'signed_in': signed_in, 'problem': problem,
+            **({'detail': {'runtime': runtime}} if problem else {})}
 
 
 def install(app, store, auth, mutate, settings, computer_rows):

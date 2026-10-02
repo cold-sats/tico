@@ -15,6 +15,7 @@ def group_tree(api):
 
 
 def test_resolution_bot_nearest_group_then_computer(api):
+    set_runtime(api, 'codex')
     parent, child = group_tree(api)
     assert get(api, 'bots/ops/subscription')['source'] == 'computer'
     group_assignment(api, parent, 'one')
@@ -35,13 +36,14 @@ def test_heartbeat_profiles_claim_and_old_computer(api):
     r = runner(api)
     assign(api, r, 'ops')
     put(api, 'subscriptions', {'scope': 'bot', 'target': 'ops', 'profile': 'engineering'})
+    set_runtime(api, 'codex')
     ready(api, r, ['ops'])
     assert get(api, 'bots/ops/subscription')['signed_in'] is None
     assert get(api, 'bots/ops/subscription')['problem'] == 'Update Test Mac to use subscriptions'
     post(api, 'chat/ops', {'text': 'Wait for the assigned subscription'})
     assert claim(api, r) is None
     body = {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
-            'profiles': [{'name': 'engineering', 'runtimes': {'fake': {'signed_in': True}}}]}
+            'profiles': [{'name': 'engineering', 'runtimes': {'codex': {'signed_in': True}}}]}
     post(api, 'runners/heartbeat', body, token=r['token'])
     listed = get(api, 'subscriptions')['profiles_by_computer']
     assert listed[0]['profiles'] == body['profiles']
@@ -60,7 +62,7 @@ def test_heartbeat_profiles_claim_and_old_computer(api):
     sub = get(api, 'bots/ops/subscription')
     assert sub['signed_in'] is False and sub['problem'] == "Subscription engineering isn't on Test Mac"
     assert claim(api, r) is None
-    signed_out = {**body, 'profiles': [{'name': 'engineering', 'runtimes': {'fake': {'signed_in': False}}}]}
+    signed_out = {**body, 'profiles': [{'name': 'engineering', 'runtimes': {'codex': {'signed_in': False}}}]}
     post(api, 'runners/heartbeat', signed_out, token=r['token'])
     assert claim(api, r) is None
     assert get(api, 'bots/ops/subscription')['problem'] == "Subscription engineering isn't signed in on Test Mac"
@@ -175,6 +177,7 @@ def test_computer_operator_can_assign_and_member_sees_own_subscription_problem(a
     r = runner(api, operator='ben', label='Member Computer')
     assign(api, r, 'cpo')
     put(api, 'subscriptions', {'scope': 'bot', 'target': 'cpo', 'profile': 'one'}, token='ben-test')
+    set_runtime(api, 'codex', bot='cpo')
     ready(api, r, ['cpo'])
     health = get(api, 'health', 'ben-test')
     check = next(x for x in health['checks'] if x['id'] == 'subscriptions')
@@ -222,3 +225,101 @@ def test_server_rejection_blocks_only_matching_profile(api):
     assert report['bots']['ops']['ready'] is False
     assert report['bots']['cpo']['ready'] is True
     assert report['runtimes']['codex']['authenticated'] == 'ready'
+
+
+def set_runtime(api, runtime, harness=None, bot="ops"):
+    with api.app.state.store.transaction() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()[0])
+        config.update(runtime=runtime, harness=harness or runtime)
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (json.dumps(config), bot))
+
+
+def test_subscription_refusal_requeues_until_fresh_ready_report(api):
+    r = runner(api)
+    assign(api, r, 'ops')
+    set_runtime(api, 'codex')
+    put(api, 'subscriptions', {'scope': 'bot', 'target': 'ops', 'profile': 'one'})
+    heartbeat = {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
+                 'profiles': [{'name': 'one', 'runtimes': {'codex': {'signed_in': True}}}]}
+    post(api, 'runners/heartbeat', heartbeat, token=r['token'])
+    post(api, 'chat/ops', {'text': 'Wait for the assigned subscription'})
+    for problem in ["Subscription one isn't signed in on Test Mac", "Subscription one isn't on Test Mac"]:
+        work = claim(api, r)
+        assert work
+        post(api, 'attempts/' + work['id'] + '/started', {'thread_id': 'thread'}, token=r['token'])
+        refusal = {'profile': 'one', 'runtime': 'codex', 'problem': problem}
+        post(api, 'attempts/' + work['id'] + '/events', {'events': [
+            {'seq': 1, 'kind': 'diagnostic', 'payload': {'text': problem}}]}, token=r['token'])
+        post(api, 'attempts/' + work['id'] + '/complete', {'outcome': 'failed', 'text': problem,
+             'last_seq': 1, 'retryable': True, 'subscription_unavailable': refusal}, token=r['token'])
+        with api.app.state.store.read() as c:
+            assert c.execute('SELECT state FROM jobs WHERE attempt_id=?', (work['id'],)).fetchone()[0] == 'queued'
+            assert not c.execute("SELECT 1 FROM messages WHERE from_actor='bot:ops'").fetchone()
+        assert claim(api, r) is None
+        sub = get(api, 'bots/ops/subscription')
+        assert sub['problem'] == problem and sub['detail']['runtime'] == 'codex'
+        post(api, 'runners/heartbeat', {**heartbeat, 'profiles': [
+            {'name': 'one', 'runtimes': {'codex': {'signed_in': None}}}]}, token=r['token'])
+        assert claim(api, r) is None
+        post(api, 'runners/heartbeat', heartbeat, token=r['token'])
+
+
+def test_subscription_picker_and_claim_refuse_unmapped_runtimes(api):
+    r = runner(api)
+    assign(api, r, 'ops')
+    put(api, 'subscriptions', {'scope': 'bot', 'target': 'ops', 'profile': 'one'})
+    post(api, 'chat/ops', {'text': 'Wait for a covered runtime'})
+    for runtime, harness in [('cursor', 'cursor-agent'), ('pi', 'pi'), ('gemini', 'antigravity'), ('other', 'other')]:
+        set_runtime(api, runtime, harness)
+        post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
+             'profiles': [{'name': 'one', 'runtimes': {runtime: {'signed_in': True}}}]}, token=r['token'])
+        sub = get(api, 'bots/ops/subscription')
+        assert sub['problem'] == f"Subscription one doesn't cover {runtime}"
+        assert sub['signed_in'] is False
+        assert claim(api, r) is None
+
+
+def test_uncovered_fallback_refusal_requeues_and_runtime_change_recovers(api):
+    r = runner(api)
+    assign(api, r, 'ops')
+    set_runtime(api, 'codex')
+    put(api, 'subscriptions', {'scope': 'bot', 'target': 'ops', 'profile': 'one'})
+    heartbeat = {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
+                 'profiles': [{'name': 'one', 'runtimes': {'codex': {'signed_in': True}}}]}
+    post(api, 'runners/heartbeat', heartbeat, token=r['token'])
+    post(api, 'chat/ops', {'text': 'Use the assigned subscription'})
+    work = claim(api, r)
+    post(api, 'attempts/' + work['id'] + '/started', {'thread_id': 'thread'}, token=r['token'])
+    problem = "Subscription one doesn't cover pi"
+    post(api, 'attempts/' + work['id'] + '/complete', {'outcome': 'failed', 'text': problem,
+         'last_seq': 0, 'retryable': True,
+         'subscription_unavailable': {'profile': 'one', 'runtime': 'pi', 'problem': problem}}, token=r['token'])
+    with api.app.state.store.read() as c:
+        assert c.execute('SELECT state FROM jobs WHERE attempt_id=?', (work['id'],)).fetchone()[0] == 'queued'
+    post(api, 'runners/heartbeat', heartbeat, token=r['token'])
+    assert claim(api, r) is None
+    assert get(api, 'bots/ops/subscription')['problem'] == problem
+    set_runtime(api, 'claude')
+    post(api, 'runners/heartbeat', {**heartbeat, 'profiles': [
+        {'name': 'one', 'runtimes': {'claude': {'signed_in': True}}}]}, token=r['token'])
+    assert get(api, 'bots/ops/subscription')['problem'] == ''
+    assert claim(api, r)
+
+
+def test_unprobed_subscription_recovers_from_fresh_profile_readiness(api):
+    from backend.subscriptions import record, refusal
+    from backend.repositories import save_metadata
+    r = runner(api)
+    assign(api, r, 'ops')
+    with api.app.state.store.transaction() as c:
+        save_metadata(c, 'subscription-unavailable:ops', {'runner_id': r['runner_id'], 'profile': 'one',
+                      'runtime': 'grok', 'problem': "Subscription one isn't signed in on Test Mac"})
+        profiles = [{'name': 'one', 'runtimes': {'grok': {'signed_in': None}}}]
+        record(c, r['runner_id'], profiles)
+        assert refusal(c, r['runner_id'], 'ops')
+        record(c, r['runner_id'], profiles, {'schema_version': 1, 'bots': {}, 'runtimes': {
+            'grok': {'profiles': {'other': {'authenticated': 'ready'}}}}})
+        assert refusal(c, r['runner_id'], 'ops')
+        record(c, r['runner_id'], profiles, {'schema_version': 1, 'bots': {}, 'runtimes': {
+            'grok': {'profiles': {'one': {'authenticated': 'ready'}}}}})
+        assert not refusal(c, r['runner_id'], 'ops')

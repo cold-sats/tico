@@ -1216,7 +1216,14 @@ class UsageDefault(UsageLimit):
     count_subscription: bool = False
 
 
+class SubscriptionUnavailable(Contract):
+    profile: str = Field(min_length=1, max_length=80)
+    runtime: str = Field(max_length=80)
+    problem: str = Field(min_length=1, max_length=500)
+
+
 class Completion(Contract):
+    subscription_unavailable: SubscriptionUnavailable | None = None
     profile_used: str | None = Field(default=None, max_length=80)
     outcome: Literal["completed", "failed", "interrupted", "checkout_busy"]
     text: str = Field(default="", max_length=200_000)
