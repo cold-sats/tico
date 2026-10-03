@@ -113,9 +113,10 @@ async function renderDownloadLink() {
     const d = r.ok ? await r.json() : null;
     a.hidden = !d?.available;
     if (!d?.available) { if (nudge) nudge.hidden = true; return; }
+    const label = d.app_kind === 'company' ? `Download Tico for ${companyName()}` : `Download for ${OS_WORDS[os]}`;
     a.href = '/download/' + os;
     a.textContent = '';
-    a.insertAdjacentHTML('beforeend', `<span class="nav-icon" aria-hidden="true">download</span>Download for ${OS_WORDS[os]}`);
+    a.insertAdjacentHTML('beforeend', `<span class="nav-icon" aria-hidden="true">download</span>${esc(label)}`);
     a.title = `${appName()} ${d.version || ''} for ${OS_WORDS[os]} (${d.size_mb || '?'} MB)${d.notarized || os !== 'mac' ? '' : '. First open: System Settings → Privacy & Security → Open Anyway'}`;
     if (!nudge) return;
     let snoozed = 0;
@@ -123,7 +124,7 @@ async function renderDownloadLink() {
     if (snoozed > Date.now()) { nudge.hidden = true; return; }
     nudge.querySelector('.app-nudge-text').textContent = `${appName()} works best as an app: a window of its own, or a slim rail beside your work.`;
     const get = nudge.querySelector('.app-nudge-get');
-    get.href = '/download/' + os; get.textContent = `Download for ${OS_WORDS[os]}`;
+    get.href = '/download/' + os; get.textContent = label;
     nudge.querySelector('.app-nudge-close').onclick = () => { nudge.hidden = true; try { localStorage.setItem('hub.app-nudge.until', String(Date.now() + 7 * 86400e3)); } catch {} };
     nudge.hidden = false;
   } catch { a.hidden = true; if (nudge) nudge.hidden = true; }

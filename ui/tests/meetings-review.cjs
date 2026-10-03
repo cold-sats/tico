@@ -144,7 +144,7 @@ async function shot(page, name) {
     await page.locator('[data-note-row=one]').waitFor();
     await page.locator('[data-review-bulk=approve_all]').click();
     await page.locator('.notes-empty').waitFor();
-    assert.equal(writes.at(-1).action, 'approve_all'); assert.equal(writes.at(-1).ids, undefined);
+    assert.equal(writes.at(-1).action, 'approve_all'); assert.deepEqual(writes.at(-1).ids, ['one', 'two', 'three']);
     await page.locator('#meet-settings').click();
     const settings = page.getByRole('dialog', {name: 'Meeting settings'});
     await settings.locator('[name=personal]').waitFor();
@@ -157,6 +157,34 @@ async function shot(page, name) {
     await settings.getByRole('button', {name: 'Save', exact: true}).click();
     await settings.waitFor({state: 'detached'}); assert.deepEqual(writes.at(-1).settings, {auto_share: null});
     assert.deepEqual(errors, []); await context.close();
-    console.log('meetings-review ok: desktop/phone light/dark, own queue, review, restore, bulk and settings');
+    for (const action of ['approve_all', 'dismiss_all']) {
+      for (const filter of ['search', 'source']) {
+        const {context, page, writes, rows, errors} = await open(browser, {width: 1280, height: 900}, 'light');
+        await page.locator('[data-review=pending]').click();
+        await page.locator('[data-note-row=two]').waitFor();
+        // A selected row becoming invisible must never be sent by a visible-list button.
+        await page.locator('[data-review-check=two]').check();
+        if (filter === 'search') {
+          await page.locator('#notes-search').fill('Planning review');
+          await page.locator('[data-note-row=three]').waitFor({state: 'detached'});
+        } else {
+          await page.locator('#notes-source').selectOption('zoom');
+        }
+        await page.locator('[data-note-row=two]').waitFor({state: 'detached'});
+        const visible = filter === 'search' ? ['one'] : ['one', 'three'];
+        const button = page.locator(`[data-review-bulk=${action}]`);
+        assert.equal(await button.textContent(), action === 'approve_all' ? 'Share visible' : 'Dismiss visible');
+        if (action === 'approve_all' && filter === 'search') await shot(page, 'desktop-share-visible-light');
+        await button.click();
+        await page.locator('[data-note-row=one]').waitFor({state: 'detached'});
+        assert.deepEqual(writes.at(-1).ids, visible);
+        assert.equal(rows.find(r => r.id === 'two').review_state, 'pending', 'filtered-out private meeting stays pending');
+        assert.equal(rows.find(r => r.id === 'other').review_state, 'pending', 'another person stays private');
+        if (filter === 'search') assert.equal(rows.find(r => r.id === 'three').review_state, 'pending');
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+    }
+    console.log('meetings-review ok: 9 scenarios, desktop/phone light/dark, review/settings and filtered visible-only sharing/dismissal');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

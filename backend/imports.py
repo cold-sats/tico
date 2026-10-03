@@ -368,14 +368,18 @@ def install_imports(app, store, auth, execution, mutate):
                         review_state="live" if person_call and (body.review == "live" or body.source == "manual")
                         else "pending" if body.review == "pending" else initial_review(c, who))
         rid = meta["id"]
+        def notes_hash(notes):
+            return hashlib.sha256(notes.encode()).hexdigest()
         if fill_empty and existing:
             stored = meeting(rid, c)
+            source_notes = (body.source == "granola" and meta.get("granola_mcp_notes_hash")
+                            == notes_hash(stored.get("notes") or ""))
             body = body.model_copy(update={
                 "title": "" if meta.get("title") else body.title,
                 "started_at": meta.get("started") or body.started_at,
                 "duration_seconds": meta["duration_ms"] / 1000 if meta.get("duration_ms") else body.duration_seconds,
                 "participants": [] if meta.get("participants") else body.participants,
-                "notes": "" if stored.get("notes") else body.notes,
+                "notes": "" if stored.get("notes") and not source_notes else body.notes,
                 "transcript": "" if meta.get("turns") else body.transcript,
                 "media_url": "" if meta.get("media_url") else body.media_url,
                 "private": None if "private" in meta else body.private,
@@ -414,6 +418,12 @@ def install_imports(app, store, auth, execution, mutate):
             meta["preview"] = body.notes.strip()[:160]
         if fresh:
             meta["attachments"] = (meta.get("attachments") or []) + attachments(c, who, rid, fresh)
+        if body.notes:
+            if fill_empty and body.source == "granola":
+                # Only summaries written by this MCP path can be regenerated; hashes protect later edits.
+                meta["granola_mcp_notes_hash"] = notes_hash(body.notes)
+            else:
+                meta.pop("granola_mcp_notes_hash", None)
         if body.send_to:
             auth.target(c, who, body.send_to, need="write")
             if meta.get("review_state") == "pending":

@@ -1,6 +1,6 @@
 """Meeting importers, offline: recorded provider responses in, hub import bodies out.
 
-The fixtures follow the providers' published schemas (Fireflies GraphQL, Granola v1 OpenAPI,
+The fixtures follow the providers' published schemas (Granola v1 OpenAPI,
 Zoom Meetings API, Google Meet REST v2). Nothing here touches a network, and no credential is real.
 """
 
@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from backend.imports import MeetingImport
 from clients.tico import APIError
-from runner.importers import fireflies, google_meet, granola, zoom
+from runner.importers import REGISTRY, google_meet, granola, zoom
 from runner.importers.base import ProviderError
 from runner.importers.service import ImporterService
 from runner.state import State
@@ -76,91 +76,6 @@ class Recorder:
                                query=dict(urllib.parse.parse_qsl(parsed.query)), body=body, form=form)
         self.calls.append(call)
         return self.route(call)
-
-
-# ---------------------------------------------------------------- Fireflies
-
-def ff_route(pages, details, user=OWNER, errors=None):
-    def route(call):
-        query = call.body["query"]
-        if errors:
-            return {"errors": errors}
-        if "user {" in query:
-            return {"data": {"user": {"email": user, "name": "Ana"}}}
-        if "transcripts(" in query:
-            skip = call.body["variables"]["skip"]
-            return {"data": {"transcripts": pages[skip // fireflies.PAGE] if skip // fireflies.PAGE < len(pages) else []}}
-        return {"data": {"transcript": details[call.body["variables"]["id"]]}}
-    return route
-
-
-def ff_detail(ident="ff1", sentences=None, **changes):
-    row = {"id": ident, "title": "Pricing call", "date": 1790000000000, "duration": 30,
-           "organizer_email": "dana@example.com", "participants": ["dana@example.com", OWNER],
-           "transcript_url": "https://app.fireflies.ai/view/ff1", "audio_url": "https://cdn.fireflies.ai/a.mp3?sig=1",
-           "meeting_link": "https://zoom.us/j/883",
-           "meeting_attendees": [{"displayName": "Dana Reyes", "email": "dana@example.com", "name": None}],
-           "summary": {"overview": "Pricing was discussed.", "short_summary": "", "action_items": "Ana sends a quote",
-                       "shorthand_bullet": ["Ten percent"]},
-           "sentences": sentences if sentences is not None else [
-               {"speaker_name": "Dana Reyes", "text": "Can you send pricing?", "start_time": 5.0, "end_time": 8.5},
-               {"speaker_name": "Dana Reyes", "text": "By Friday.", "start_time": 9.0, "end_time": 10.0},
-               {"speaker_name": "Ana", "text": "Ten percent, then.", "start_time": 70.0, "end_time": 72.0}]}
-    row.update(changes)
-    return row
-
-
-def ff_env():
-    return {"FIREFLIES_API_KEY": KEY}
-
-
-def test_fireflies_maps_a_transcript_and_files_it_for_the_key_holder(tmp_path):
-    started = int((NOW - timedelta(hours=2)).timestamp() * 1000)
-    detail = ff_detail(date=started, duration=2)
-    transport = Recorder(ff_route([[{"id": "ff1", "title": "Pricing call", "date": started, "duration": 2}]], {"ff1": detail}))
-    importer, hub, _ = make(fireflies.Fireflies, tmp_path, transport, ff_env())
-    assert importer.tick() == 1
-    body = hub.posts[0]
-    assert (body["source"], body["external_id"], body["owner_email"]) == ("fireflies", "ff1", OWNER)
-    assert body["title"] == "Pricing call" and body["duration_seconds"] == 120
-    assert body["transcript"] == [
-        {"speaker": "Dana Reyes", "start_ms": 5000, "end_ms": 10000, "text": "Can you send pricing? By Friday."},
-        {"speaker": "Ana", "start_ms": 70000, "end_ms": 72000, "text": "Ten percent, then."}]
-    assert {"name": "Dana Reyes", "email": "dana@example.com"} in body["participants"] and OWNER in body["participants"]
-    assert body["media_url"] == "https://app.fireflies.ai/view/ff1"
-    assert body["context"]["meeting_url"] == "https://zoom.us/j/883" and body["context"]["audio_url"].startswith("https://")
-    assert body["notes"].startswith("Pricing was discussed.") and "## Action items" in body["notes"] and "- Ten percent" in body["notes"]
-    assert all(c.headers["Authorization"] == "Bearer " + KEY for c in transport.calls)
-    assert {c.host for c in transport.calls} == {"api.fireflies.ai"}
-
-
-def test_fireflies_paginates_and_never_imports_the_same_transcript_twice(tmp_path, monkeypatch):
-    monkeypatch.setattr(fireflies, "PAGE", 2)
-    when = int((NOW - timedelta(hours=1)).timestamp() * 1000)
-    rows = [{"id": "ff" + str(i), "title": "t", "date": when + i, "duration": 1} for i in range(3)]
-    details = {r["id"]: ff_detail(r["id"], date=r["date"], duration=1) for r in rows}
-    transport = Recorder(ff_route([rows[:2], rows[2:]], details))
-    importer, hub, _ = make(fireflies.Fireflies, tmp_path, transport, ff_env())
-    assert importer.tick() == 3
-    assert len(hub.meetings) == 3
-    lists = [c for c in transport.calls if "transcripts(" in c.body["query"]]
-    assert [c.body["variables"]["skip"] for c in lists[:2]] == [0, 2]
-    before = len(hub.posts)
-    assert importer.tick() == 0                              # unchanged: remembered, not even refetched
-    assert len(hub.posts) == before
-    # And the hub key: the same external id again is the same meeting, not a second one.
-    hub.post("meetings/import", {**hub.posts[0]})
-    assert len(hub.meetings) == 3
-
-
-def test_fireflies_errors_are_sanitized(tmp_path):
-    for code, wanted in (("auth_failed", "auth_failed"), ("too_many_requests", "rate_limited"),
-                         ("something_new", "provider_error")):
-        importer, _, _ = make(fireflies.Fireflies, tmp_path, Recorder(ff_route([], {}, errors=[
-            {"message": "bad key " + KEY, "extensions": {"code": code}}])), ff_env())
-        with pytest.raises(ProviderError) as caught:
-            importer.tick()
-        assert caught.value.code == wanted and KEY not in str(caught.value)
 
 
 # ---------------------------------------------------------------- Granola
@@ -429,18 +344,29 @@ def test_google_meet_signs_a_delegated_assertion_and_maps_entries(tmp_path):
 
 # ---------------------------------------------------------------- the service
 
-def test_service_runs_only_what_the_hub_assigned_and_reports_status(tmp_path):
+def test_service_runs_only_available_importers_and_ignores_retired_old_server_assignments(tmp_path):
     hub = Hub()
-    hub.enabled = ["fireflies"]
-    row = int((NOW - timedelta(hours=1)).timestamp() * 1000)
-    transport = Recorder(ff_route([[{"id": "ff1", "title": "t", "date": row, "duration": 1}]], {"ff1": ff_detail(date=row, duration=1)}))
+    hub.enabled = ["fireflies", "unknown", "zoom"]
+    importer = SimpleNamespace(name="Zoom", interval=600, tick=lambda stop: 1)
+    seen = []
+    def factory(source):
+        seen.append(source)
+        return lambda *args, **kwargs: importer
     service = ImporterService({"projects_dir": str(tmp_path), "url": "https://hub.test", "token": "t"}, tmp_path / "s",
-                              client=hub, now=lambda: NOW, transport=transport,
-                              classes=lambda s: lambda *a, **k: fireflies.Fireflies(*a, env=ff_env(), **k))
-    assert service.tick() == {"fireflies": 1}
-    assert hub.statuses == [("fireflies", {"state": "ok", "imported": 1})]
+                              client=hub, now=lambda: NOW, classes=factory)
+    assert "fireflies" not in REGISTRY
+    assert service.tick() == {"zoom": 1}
+    assert seen == ["zoom"]
+    assert hub.statuses == [("zoom", {"state": "ok", "imported": 1})]
     assert service.tick() == {}                                  # not due again yet
     hub.enabled = []
     service.due.clear()
     assert service.tick() == {}
+
+
+def test_retired_explicit_importer_is_not_run_even_with_an_old_configuration(tmp_path):
+    hub = Hub()
+    service = ImporterService({"projects_dir": str(tmp_path), "url": "https://hub.test", "token": "t"}, tmp_path / "s",
+                              client=hub, only="fireflies", classes=lambda source: pytest.fail("retired importer started"))
+    assert service.tick() == {} and not hub.statuses
 

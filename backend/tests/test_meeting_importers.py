@@ -1,64 +1,107 @@
-"""Settings for the meeting importers, their heartbeats, and one real import through the hub."""
-from datetime import datetime, timedelta, timezone
+"""Retired importers disappear from setup while old data and authorized clients remain compatible."""
+import json
 
-from clients.tico import APIError
-from runner.importers import fireflies
-from runner.state import State
+import pytest
 
-from backend.tests.test_api import api, get, headers, post, runner  # noqa: F401
-
-
-class HubClient:
-    """The runner's client, pointed at the test hub."""
-
-    def __init__(self, api, token):
-        self.api, self.token = api, token
-
-    def get(self, path, **query):
-        r = self.api.get("/api/v2/" + path, headers=headers(self.token))
-        assert r.status_code == 200, r.text
-        return r.json()
-
-    def post(self, path, body=None, key=None):
-        r = self.api.post("/api/v2/" + path, json=body or {}, headers=headers(self.token))
-        if r.status_code != 200:
-            error = r.json().get("error", {})
-            raise APIError(error.get("code", "http_error"), error.get("detail", ""), r.status_code)
-        return r.json()
+from backend.store import H
+from backend.tests.test_api import api, get, headers, post, runner, setup_attempt  # noqa: F401
 
 
-def test_an_importer_files_real_meetings_once_and_updates_them_in_place(api, tmp_path):
+def historical_meeting(api, machine):
+    return post(api, "meetings/import", {"source": "fireflies", "external_id": "historical-1",
+                "title": "Historical meeting", "transcript": "Sam: Preserve the recording.",
+                "notes": "Original shared notes", "owner_email": "ben@acme.example",
+                "media_url": "https://example.com/recording/historical-1"}, machine["token"])
+
+
+def persisted_setting(api, machine):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO meeting_importers VALUES(?,?,?,?,?)",
+                  ("fireflies", 1, machine["runner_id"], "human:ana", H.now()))
+        c.execute("INSERT INTO service_health(service,last_success,last_error,detail_json) VALUES(?,?,NULL,?)",
+                  ("recording:fireflies", H.now(), json.dumps({"imported_total": 7})))
+
+
+def test_historical_source_still_deduplicates_and_preserves_versions_and_files(api):
     machine = runner(api)
-    when = datetime(2026, 9, 28, 18, 0, tzinfo=timezone.utc)
-    detail = {"id": "ff1", "title": "Pricing call", "date": int((when).timestamp() * 1000), "duration": 1,
-              "organizer_email": "dana@example.com", "participants": ["dana@example.com", "ben@acme.example"],
-              "transcript_url": "https://app.fireflies.ai/view/ff1", "meeting_link": "https://zoom.us/j/1",
-              "summary": {"overview": "Pricing."}, "meeting_attendees": [],
-              "sentences": [{"speaker_name": "Dana", "text": "Can you send pricing?", "start_time": 1, "end_time": 3}]}
-
-    def transport(method, url, headers=None, body=None, form=None, raw=False):
-        query = body["query"]
-        if "user {" in query:
-            return {"data": {"user": {"email": "ben@acme.example"}}}
-        if "transcripts(" in query:
-            return {"data": {"transcripts": [{"id": "ff1", "title": detail["title"], "date": detail["date"], "duration": 1}]}}
-        return {"data": {"transcript": detail}}
-
-    def importer():
-        return fireflies.Fireflies({"projects_dir": str(tmp_path), "url": "x", "token": "x"}, State(tmp_path / "state"),
-                                   HubClient(api, machine["token"]), env={"FIREFLIES_API_KEY": "k"}, transport=transport,
-                                   now=lambda: when + timedelta(hours=1))
-
-    assert importer().tick() == 1
+    first = historical_meeting(api, machine)
+    again = historical_meeting(api, machine)
+    assert first["id"] == again["id"] and not again["changed"]
+    rid = first["id"]
+    attached = api.post("/api/meetings/" + rid + "/attachments", headers=headers("ben-test"),
+                        files={"files": ("history.txt", b"Historical attachment", "text/plain")})
+    assert attached.status_code == 200, attached.text
+    before = api.get("/api/meetings/" + rid, headers=headers("ben-test")).json()
+    persisted_setting(api, machine)
+    assert post(api, "meeting-importers/fireflies", {"enabled": False, "runner_id": ""}) == {"ok": True}
+    after = api.get("/api/meetings/" + rid, headers=headers("ben-test")).json()
+    for field in ("notes", "turns", "media_url", "source", "attachments", "review_state"):
+        assert after[field] == before[field]
+    blob = after["attachments"][0]["id"]
+    downloaded = api.get("/api/v2/files/" + blob, headers=headers("ben-test"))
+    assert downloaded.status_code == 200 and downloaded.content == b"Historical attachment"
+    versions = api.get("/api/meetings/" + rid + "/versions", headers=headers("ben-test")).json()["versions"]
+    assert any(v["notes"] == "Original shared notes" for v in versions)
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM meetings").fetchone()[0] == 1
-    assert importer().tick() == 0                                       # remembered: nothing new to file
-    detail["summary"] = {"overview": "Pricing, revised."}
-    detail["title"] = "Pricing call (revised)"
-    lost = importer()
-    lost.state = State(tmp_path / "another-computer")                    # a computer with no memory of the first
-    assert lost.tick() == 1
+
+
+def test_retired_persisted_settings_are_hidden_unassigned_and_can_be_disabled(api):
+    machine = runner(api)
+    persisted_setting(api, machine)
+    assert "fireflies" not in {r["source"] for r in get(api, "meeting-importers")["importers"]}
+    assert get(api, "runners/importers", machine["token"])["importers"] == []
+    assert "fireflies" not in {r["id"] for r in api.get("/api/meetings/sources", headers=headers()).json()["sources"]}
+    assert post(api, "meeting-importers/fireflies", {"enabled": True, "runner_id": machine["runner_id"]}, expected=410)
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM meetings").fetchone()[0] == 1          # same meeting, updated in place
-        row = c.execute("SELECT title,notes,owner FROM meetings").fetchone()
-        assert row["title"] == "Pricing call (revised)" and row["notes"].startswith("Pricing, revised")
+        assert c.execute("SELECT enabled FROM meeting_importers WHERE source='fireflies'").fetchone()[0] == 1
+    assert post(api, "meeting-importers/fireflies", {"enabled": False, "runner_id": ""}) == {"ok": True}
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT enabled FROM meeting_importers WHERE source='fireflies'").fetchone()[0] == 0
+        detail = c.execute("SELECT detail_json FROM service_health WHERE service='recording:fireflies'").fetchone()[0]
+        assert json.loads(detail)["imported_total"] == 7
+
+
+def test_authorized_old_runner_retired_heartbeat_is_acknowledged_without_rewriting_history(api):
+    machine = runner(api)
+    persisted_setting(api, machine)
+    with api.app.state.store.read() as c:
+        before = tuple(c.execute("SELECT * FROM service_health WHERE service='recording:fireflies'").fetchone())
+    assert post(api, "imports/sources/fireflies/status", {"state": "ok", "imported": 100}, machine["token"]) == {"ok": True}
+    with api.app.state.store.read() as c:
+        assert tuple(c.execute("SELECT * FROM service_health WHERE service='recording:fireflies'").fetchone()) == before
+
+
+@pytest.mark.parametrize("actor", ["owner", "member", "bot", "revoked_runner"])
+def test_retired_heartbeat_still_requires_authorized_importer(api, actor):
+    machine = runner(api)
+    token, expected = "ana-test", 403
+    if actor == "member":
+        token = "ben-test"
+    elif actor == "bot":
+        token = setup_attempt(api)[2]["token"]
+    elif actor == "revoked_runner":
+        with api.app.state.store.transaction() as c:
+            c.execute("UPDATE runners SET revoked_at=? WHERE id=?", (H.now(), machine["runner_id"]))
+        token, expected = machine["token"], 401
+    assert post(api, "imports/sources/fireflies/status", {"state": "ok"}, token, expected=expected)
+
+
+def test_available_importer_configuration_and_status_are_unchanged(api):
+    machine = runner(api)
+    assert post(api, "meeting-importers/zoom", {"enabled": True, "runner_id": machine["runner_id"]}) == {"ok": True}
+    assert get(api, "runners/importers", machine["token"])["importers"] == [{"source": "zoom"}]
+    assert post(api, "imports/sources/zoom/status", {"state": "ok", "imported": 2}, machine["token"]) == {"ok": True}
+    listed = next(r for r in get(api, "meeting-importers")["importers"] if r["source"] == "zoom")
+    assert listed["status"] == "syncing" and listed["imported_total"] == 2
+
+
+def test_retained_retired_health_does_not_ask_to_reconnect(api):
+    machine = runner(api)
+    persisted_setting(api, machine)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE service_health SET last_error=?,detail_json=? WHERE service='recording:fireflies'",
+                  (H.now(), json.dumps({"error_code": "auth_failed", "message": "Reconnect Fireflies"})))
+    response = api.get("/api/v2/health", headers=headers())
+    assert response.status_code == 200, response.text
+    assert "fireflies" not in json.dumps(response.json()["checks"]).lower()

@@ -35,6 +35,9 @@ def run(args, who=None):
     # A query may run for 20 s on the server before it is stopped; leave room for that.
     client = Client(os.environ["HUB_API_URL"], os.environ.get("HUB_TOKEN", ""), timeout=30 if args.cmd == "sql" else 120 if args.cmd == "listening" else 15)
     fn = args.fn
+    if fn == "team icon":
+        with Path(args.file).open("rb") as source:
+            return client.post_bytes("team/icon", source)
     if fn in ("task worktree add", "task worktree attach", "task worktree setup"):
         from runner.worktrees import command
         return command(client, args.worktree_sub, getattr(args, 'repo', None) or getattr(args, 'path', None), args.task)

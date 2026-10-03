@@ -690,6 +690,7 @@ def test_full_mirror_base_offline_commit_push_cleanup_recreate(trees, monkeypatc
         manager.rows['org/product']['left_at'] = 0
         manager.sync({}, None, REMOVE_AFTER + 1)
         assert manager.rows['org/product']['error'] == 'kept: 1 task worktrees'
+        assert manager.mirror_path('org/product').exists(), 'retiring a bot keeps the mirror while a task worktree needs its base'
         W.act(workspace, {**row, 'prs_finished': True}, 'remove', scoped)
         assert not path.exists()
         W.act(workspace, row, 'restore', scoped)
@@ -710,6 +711,9 @@ def test_retirement_keeps_local_branches_and_broken_bases(trees):
     workspace, base, remote, row, client = trees
     manager = Repositories(workspace, workspace / 'state.json', client)
     manager.rows = {'org/product': {'full_name': 'org/product', 'managed': True, 'left_at': 0}}
+    mirror = manager.mirror_path('org/product')
+    mirror.mkdir(parents=True)
+    (mirror / 'retained-data').write_text('cached repository data')
     try:
         git(base, 'branch', 'offline-branch')
         git(base, 'checkout', 'offline-branch')
@@ -718,14 +722,17 @@ def test_retirement_keeps_local_branches_and_broken_bases(trees):
         git(base, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-m', 'Local work')
         manager.sync({}, None, REMOVE_AFTER + 1)
         assert base.exists() and 'unpublished commits' in manager.rows['org/product']['error']
+        assert (mirror / 'retained-data').read_text() == 'cached repository data'
         # A damaged clone is retained rather than replaced, even with local branches.
         (base / '.git' / 'HEAD').unlink()
         manager.sync({}, None, REMOVE_AFTER + 1)
         assert base.exists() and (base / 'file').read_text() == 'unpublished'
+        assert mirror.exists()
         (base / '.git' / 'HEAD').write_text('ref: refs/heads/offline-branch\n')
         git(base, 'push', 'origin', 'HEAD:refs/heads/saved-work')
         manager.sync({}, None, REMOVE_AFTER + 1)
         assert not base.exists()  # every commit is remote, even with different branch names
+        assert not mirror.exists(), 'an unneeded mirror still retires once the local work is saved'
     finally:
         manager.close()
 

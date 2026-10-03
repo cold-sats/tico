@@ -186,7 +186,7 @@ def parse_json(payload, tool):
 
 @dataclass
 class Scope:
-    """One credential's view: a Fireflies or Granola key, a Zoom account, a Google user."""
+    """One credential's view: a Granola key, a Zoom account, a Google user."""
     id: str
     label: str = ""
     data: dict = field(default_factory=dict)

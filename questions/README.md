@@ -12,6 +12,16 @@ the `label` on each call (`id@version`) is what groups them in the audit.
 JSON, not YAML, so the `hub` CLI on a bare Python, a bot's own script, the mail venv and the
 cloud service all read the same file with nothing installed.
 
+`load_set` checks `TICO_REGISTRY_DIR/questions/<name>.json` before the shipped copy, so a company can keep its own
+versioned questions outside the release image. Custom sets pass the same validation; an invalid override is refused.
+Registry lookup accepts regular files only, beneath real registry and `questions` directories. Symlinks (including
+dangling links), nonfiles and read failures produce a fixed diagnostic; they never silently select shipped questions.
+Directory handles and no-follow opens keep a replaced path from escaping the registry during loading.
+On platforms without those safe opens, an existing registry override is refused without reading it; absent overrides,
+shipped sets and explicit-root loading continue to work.
+An explicit `root` still selects that directory. When neither registry nor shipped copies exist, installed runners retain
+the `TICO_QUESTIONS_DIR`, `HUB_DIR/questions` and bot checkout fallbacks.
+
 ```json
 {
   "id": "mail-triage",            // the file name

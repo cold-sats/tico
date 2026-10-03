@@ -151,6 +151,7 @@ class Settings:
     blob_bucket: str = ""
     blob_region: str = ""
     blob_endpoint: str = ""
+    blob_credentials: str = "auto"
     blob_prefix: str = field(default="", init=False)
     upload_max_bytes: int = 2 * 1024 ** 3
     processing_operators: tuple[str, ...] = ()
@@ -203,6 +204,9 @@ class Settings:
     rehearsal: bool = False
 
     def __post_init__(self):
+        self.blob_credentials = self.blob_credentials.strip().lower() or "auto"
+        if self.blob_credentials not in ("auto", "role", "backup", "keys"):
+            raise ValueError("TICO_BLOB_CREDENTIALS must be auto, role, backup or keys")
         bucket = self.blob_bucket.removeprefix("s3://").strip("/")
         self.blob_bucket, _, self.blob_prefix = bucket.partition("/")
         self.blob_prefix = self.blob_prefix.rstrip("/")
@@ -334,6 +338,7 @@ class Settings:
             blob_bucket=os.environ.get("TICO_BLOB_BUCKET", ""),
             blob_region=os.environ.get("TICO_BLOB_REGION", ""),
             blob_endpoint=os.environ.get("TICO_BLOB_ENDPOINT", ""),
+            blob_credentials=os.environ.get("TICO_BLOB_CREDENTIALS", "auto"),
             upload_max_bytes=int(os.environ.get("TICO_UPLOAD_MAX_BYTES") or 2 * 1024 ** 3),
             processing_operators=tuple(filter(None, os.environ.get("TICO_PROCESSING_OPERATORS", "").split(","))),
             mail_retention_days=max(1, int(os.environ.get("TICO_MAIL_RETENTION_DAYS", "180") or "180")),

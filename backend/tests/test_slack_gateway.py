@@ -288,6 +288,7 @@ def test_low_confidence_falls_back_to_the_assistant_with_the_candidates(gateway,
     result = send(gateway, "<@U0BUS6WA4SY> thoughts on the thing?", answers(legal=0.4, seo=0.35, cto=0.2))
     decision = result["decision"]
     assert decision["fallback"] is True and [r["bot"] for r in decision["recipients"]] == ["coo"]
+    assert len(gateway._judge.calls) == 1, "a small roster keeps the one-call path"
     assert [c["bot"] for c in decision["candidates"]] == ["legal", "seo", "cto"]
     assert jobs(hub) == [{"bot": "coo", "state": "queued"}]
     conversation = H.conversation(hub.connect(), rows(hub, "SELECT conversation_id FROM slack_threads")[0]["conversation_id"])
@@ -532,6 +533,27 @@ def test_a_decision_the_model_refuses_ends_failed_with_the_reason_and_tells_the_
     gateway.clock.advance(3600)
     assert gateway.tick()["events"] == [], "a failed message is never picked up again"
     assert len(gateway._judge.calls) == 1 and jobs(hub) == []
+
+
+def test_a_later_batch_failure_routes_none_of_the_earlier_answers(gateway, hub):
+    add_bots(hub, 50)
+
+    class LaterFailure(CappedJudge):
+        def __call__(self, state, questions, label=None):
+            if self.calls:
+                self.fail = J.JudgeError("invalid", "synthetic second batch refusal")
+            else:
+                self.first_state, self.first_label = state, label
+            assert state == self.first_state and label == self.first_label
+            return super().__call__(state, questions, label)
+
+    gateway._judge = engine = LaterFailure({"asks": 0.9, "bot:bot-00": 0.95})
+    result = send(gateway, "please draft the vendor terms", channel=DM, kind="message")
+    assert result["state"] == "failed" and "second batch" in result["reason"]
+    assert [len(call) for call in engine.calls] == [40, 19]
+    assert jobs(hub) == [], "partial answers cannot enqueue any bot work"
+    gateway.clock.advance(3600)
+    assert gateway.tick()["events"] == [] and len(engine.calls) == 2
 
 
 def test_a_decision_outage_retries_for_ten_minutes_and_then_fails_instead_of_looping(gateway, hub):

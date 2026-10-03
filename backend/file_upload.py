@@ -5,6 +5,7 @@ import tempfile
 from contextlib import ExitStack
 
 from python_multipart import MultipartParser
+from python_multipart.exceptions import MultipartParseError
 from python_multipart.multipart import parse_options_header
 
 from .store import Problem
@@ -113,6 +114,10 @@ async def parse(request, limit, directory):
         stack.close()
         if isinstance(exc, OSError):
             raise Problem("blob_storage", "Upload staging failed; free disk space and retry", 503, True) from None
+        # New parsers enforce their own header caps before our callbacks run.
+        if isinstance(exc, MultipartParseError) and str(exc) in (
+                "Maximum header size exceeded", "Maximum header count exceeded"):
+            raise Problem("validation", "Upload part headers exceed the parser limit", 422) from None
         if isinstance(exc, (ValueError, UnicodeError)):
             raise Problem("validation", "Malformed multipart upload", 422) from None
         raise

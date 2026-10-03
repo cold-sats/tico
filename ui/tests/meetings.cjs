@@ -1,5 +1,5 @@
 // The Meetings page (ui/app/meetings.js pageNotes, ui/meeting-importers.js): a header with search and one
-// "Add notes" button, a strip of source tiles (Granola, Fireflies, Zoom, Google Meet, Close) that each say
+// "Add notes" button, a strip of source tiles (Granola, Zoom, Google Meet, Close) that each say
 // Connect or Connected, an empty state that offers both ways in, filters and rows only once there is a
 // meeting, setup in a dialog, and a transcript upload inside Add notes. Light and dark, desktop and phone.
 // Fixtures only, no network.
@@ -19,6 +19,7 @@ const MEETINGS = [
   meeting('m2', 'Renewal call with Dana', 'granola', 80, {outbox: {doc: [], feature: [], task: [{text: 'Follow up', status: 'proposed'}]}}),
   meeting('m3', 'Notes from standup', 'manual', 200),
 ];
+// An older server may still send the retired importer in its configuration and sources.
 const IMPORTERS = ['granola', 'fireflies', 'zoom', 'google-meet'].map(source => ({source, name: {granola: 'Granola', fireflies: 'Fireflies',
   zoom: 'Zoom', 'google-meet': 'Google Meet'}[source], enabled: false, runner_id: '', status: 'off', last_success: null, last_import: null,
   imported_total: 0, error: '', setup: {file: `secrets/${source}.env`, keys: ['API_KEY'], doc: 'docs/meetings.md'}}));
@@ -31,6 +32,7 @@ const SOME = [{id: 'import', name: 'Import', status: 'available'},
 
 async function open(browser, viewport, world, options = {}) {
   const context = await browser.newContext({viewport, serviceWorkers: 'block', hasTouch: viewport.width < 760, isMobile: viewport.width < 760, ...options});
+  await context.addInitScript(theme => { localStorage.setItem('tico.theme', theme); }, options.colorScheme || 'dark');
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -41,6 +43,7 @@ async function open(browser, viewport, world, options = {}) {
     if (url.origin !== 'https://tico-ui.test') return route.abort();
     const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
     if (ui && fs.existsSync(uiFile(ui[1]))) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
+    if (p === '/vendor/fonts/material-symbols-outlined.woff2') return route.fulfill({contentType: 'font/woff2', body: fs.readFileSync(uiFile('vendor/fonts/material-symbols-outlined.woff2'))});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json({id: 'ana', role: world.role || 'owner', name: 'Ana', email: 'ana@example.test', cloud: true});
     if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana', email: 'ana@acme.example'}, {id: 'ben', name: 'Ben'}]});
@@ -70,6 +73,11 @@ async function open(browser, viewport, world, options = {}) {
 }
 const world = (extra = {}) => ({role: 'owner', sources: NONE, meetings: [], importers: structuredClone(IMPORTERS), saved: [], imported: [], ...extra});
 const words = async (page, selector) => (await page.locator(selector).allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim());
+async function shot(page, name) {
+  if (!process.env.TICO_MEETINGS_SCREENSHOTS) return;
+  fs.mkdirSync(process.env.TICO_MEETINGS_SCREENSHOTS, {recursive: true});
+  await page.screenshot({path: path.join(process.env.TICO_MEETINGS_SCREENSHOTS, name + '.png'), fullPage: true});
+}
 
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
@@ -86,7 +94,8 @@ const words = async (page, selector) => (await page.locator(selector).allInnerTe
       assert.equal(await page.locator('#notes-import').count(), 0, scheme + ': no Import button under the title');
       assert.equal(await page.locator('[data-gs-card=meetings]').count(), 0, scheme + ': no intro banner');
       assert.equal((await page.locator('.meet-blank h2').innerText()).trim(), 'Connect a source or add a note');
-      assert.deepEqual(await words(page, '.meet-blank .meet-tile .mt-text'), ['Granola Connect', 'Fireflies Connect', 'Zoom Connect', 'Google Meet Connect', 'Close Connect']);
+      assert.deepEqual(await words(page, '.meet-blank .meet-tile .mt-text'), ['Granola Connect', 'Zoom Connect', 'Google Meet Connect', 'Close Connect']);
+      await shot(page, 'empty-desktop-' + scheme);
       assert.equal(await page.locator('.meet-blank [data-add]').innerText(), 'Add notes');
       assert.equal(await page.locator('#meet-sources').isHidden(), true, scheme + ': the large tiles stand in for the strip');
       assert.equal(await page.locator('#notes-filters').isHidden(), true, scheme + ': no filters without a meeting');
@@ -111,6 +120,25 @@ const words = async (page, selector) => (await page.locator(selector).allInnerTe
       assert.deepEqual(w.saved, [{source: 'granola', enabled: true, runner_id: 'mac'}]);
       await page.keyboard.press('Escape');
       await dialog.waitFor({state: 'detached'});
+
+      // A mixed-version server cannot restore the retired setup form, even through a cached link.
+      await page.evaluate(async () => {
+        const host = document.createElement('section'); host.id = 'importers-fixture';
+        document.querySelector('#main').appendChild(host);
+        await window.mountMeetingImporters(host);
+      });
+      assert.deepEqual(await page.locator('#importers-fixture form').evaluateAll(forms => forms.map(f => f.dataset.importer)),
+        ['granola', 'zoom', 'google-meet']);
+      await page.evaluate(() => {
+        document.querySelector('#importers-fixture').remove();
+        window.openMeetingImporter('fireflies', 'Fireflies');
+      });
+      const retired = page.locator('dialog[aria-label="Connect Fireflies"]');
+      await retired.getByText('Fireflies is no longer available as an importer.', {exact: false}).waitFor();
+      assert.equal(await retired.locator('form').count(), 0);
+      assert.match(await retired.innerText(), /Existing meetings and files remain available/);
+      await page.keyboard.press('Escape');
+      await retired.waitFor({state: 'detached'});
 
       // Close goes to its integration page.
       assert.equal(await page.locator('.meet-blank a[data-state]').first().getAttribute('href'), '#/integrations/close-crm');
@@ -152,7 +180,7 @@ const words = async (page, selector) => (await page.locator(selector).allInnerTe
       assert.equal(await page.locator('.meet-blank').count(), 0);
       assert.equal(await page.locator('#notes-import').count(), 0);
       assert.equal(await page.locator('#meet-sources').isVisible(), true);
-      assert.deepEqual(await words(page, '#meet-sources .meet-tile .mt-text'), ['Granola Connected 1d ago', 'Fireflies Waiting', 'Zoom Error', 'Google Meet Connect', 'Close Connected 3h ago']);
+      assert.deepEqual(await words(page, '#meet-sources .meet-tile .mt-text'), ['Granola Connected 1d ago', 'Zoom Error', 'Google Meet Connect', 'Close Connected 3h ago']);
       assert.equal(await page.locator('#meet-sources [data-state=on] .dot').count(), 2, 'a green dot on each connected source');
       const tops = await page.locator('#meet-sources .meet-tile .mt-text').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)));
       assert.equal(new Set(tops).size, 1, scheme + ': the strip is one line on a desktop');
@@ -179,7 +207,7 @@ const words = async (page, selector) => (await page.locator(selector).allInnerTe
       ({page, context} = await open(browser, {width: 1280, height: 900}, w, {colorScheme: scheme}));
       await page.goto('https://tico-ui.test/#/meetings');
       await page.locator('.meet-row').first().waitFor();
-      assert.deepEqual(await words(page, '#meet-sources .meet-tile .mt-text'), ['Granola Connect', 'Fireflies Connect', 'Zoom Connect', 'Google Meet Connect', 'Close Connect']);
+      assert.deepEqual(await words(page, '#meet-sources .meet-tile .mt-text'), ['Granola Connect', 'Zoom Connect', 'Google Meet Connect', 'Close Connect']);
       await context.close();
 
       // ---- not the owner: the tiles show status but do not open setup
@@ -206,9 +234,28 @@ const words = async (page, selector) => (await page.locator(selector).allInnerTe
       await page.goto('https://tico-ui.test/#/meetings');
       await page.locator('.meet-blank').waitFor();
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), scheme + ': the empty state fits a phone');
+      await shot(page, 'empty-phone-' + scheme);
       await context.close();
+
+      // Historical source labels, marks and filtering survive retirement on desktop and phone.
+      for (const viewport of [{width: 1280, height: 900}, {width: 390, height: 844}]) {
+        w = world({sources: SOME, meetings: [...MEETINGS, meeting('m4', 'Historical Fireflies call', 'fireflies', 30)]});
+        ({page, errors, context} = await open(browser, viewport, w, {colorScheme: scheme}));
+        await page.goto('https://tico-ui.test/#/meetings');
+        await page.locator('.meet-row').first().waitFor();
+        assert.equal(await page.locator('[data-msrc=fireflies]').count(), 0);
+        assert.equal(await page.locator('#notes-source option[value=fireflies]').innerText(), 'Fireflies');
+        await page.locator('#notes-source').selectOption('fireflies');
+        assert.deepEqual(await page.locator('.meet-row .note-title').allInnerTexts(), ['Historical Fireflies call']);
+        assert.equal(await page.locator('.meet-row[title="Fireflies"]').count(), 1);
+        assert.equal(await page.locator('.meet-row .msrc-logo .tool-initials').innerText(), 'Fi');
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+        await shot(page, 'historical-' + (viewport.width > 760 ? 'desktop-' : 'phone-') + scheme);
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
     }
-    console.log('meetings ok');
+    console.log('meetings ok: 16 browser scenarios, including historical Fireflies and mixed-version setup');
   } finally {
     await browser.close();
   }

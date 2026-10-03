@@ -141,7 +141,7 @@ def test_four_rate_limits_stop_without_skipping_or_advancing_cursor(api, caplog,
     provider.sync()
     meta = provider.service.load("human:ana")[1]
     assert meta["last_error"] == "rate_limited: get_meetings"
-    assert meta["cursor"] == saved[1]["cursor"] and meta["skipped"] == 7
+    assert meta["cursor"] == saved[1]["cursor"] and meta["skipped"] == 0
     assert meta["imported_count"] == 4 and meta["last_sync"] == "previous" and meta["state"] == "connected"
     assert len(provider.notes_calls) == 4 and all(ids == provider.ids for _, ids in provider.notes_calls)
     assert [b[0] - a[0] for a, b in zip(provider.notes_calls, provider.notes_calls[1:])] == [15, 30, 60]
@@ -213,6 +213,7 @@ def test_account_info_is_optional_and_called_once_per_connection(api, caplog, re
     assert provider.ranges[0]["time_range"] == ("custom" if plan == "paid" else "last_30_days")
     provider.sync()
     assert provider.account_calls == 1
+    assert provider.service.load("human:ana")[1]["account_info_checked"]
     assert not [record for record in caplog.records if record.name == "backend.granola_mcp"]
     assert "fake-access-sensitive" not in caplog.text
 

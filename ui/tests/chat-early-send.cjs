@@ -49,7 +49,7 @@ async function whileLoading(browser) {
     await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
     assert.deepEqual(sends, [text], 'Return sends it once');
     release();                                       // the load that started before the send finishes
-    await page.waitForTimeout(500);
+    await page.waitForFunction(() => V2C.loaded);
     const thread = await page.locator('#conv-thread').innerText();
     assert.match(thread, /A long message typed/, 'the sent message stays in the chat');
     assert.doesNotMatch(thread, /Nothing yet/);
@@ -59,10 +59,25 @@ async function whileLoading(browser) {
 }
 async function afterHashNav(browser) {
   const page = await browser.newPage({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
+  // Observe real EventSource delivery, and hold the current snapshot until the stale one is checked.
+  await page.addInitScript(() => {
+    window.fixtureSnapshots = [];
+    const NativeEventSource = window.EventSource;
+    window.EventSource = class extends NativeEventSource {
+      constructor(...args) {
+        super(...args);
+        this.addEventListener('snapshot', event => window.fixtureSnapshots.push(JSON.parse(event.data).fixture_phase));
+      }
+    };
+  });
   const errors = [], sends = [];
   page.on('pageerror', e => errors.push(e.message));
   const now = () => new Date().toISOString();
   let server = [{id: 'old', from_actor: 'bot:botops', body: 'Welcome back', created: '2026-01-01T00:00:00Z'}], watches = 0, sentAt = 0;
+  let releaseCurrent;
+  const currentHeld = new Promise(done => releaseCurrent = done);
+  let releaseSend, initialWatches = 0;
+  const sendHeld = new Promise(done => releaseSend = done);
   await page.route('**/*', async route => {
     const url = new URL(route.request().url()), p = url.pathname;
     const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
@@ -79,14 +94,19 @@ async function afterHashNav(browser) {
     if (p.endsWith('/snapshot')) return json({messages: server.slice(), execution: null});
     if (p.endsWith('/watch')) {
       // Each connection opens with a snapshot. The first one after the send was built just before it landed.
+      if (!sentAt && initialWatches++ >= 2) await sendHeld;
       const lagging = sentAt && !watches++ ;
-      const body = 'event: snapshot\ndata: ' + JSON.stringify({messages: lagging ? server.slice(0, 1) : server.slice(), execution: null}) + '\n\n';
+      const phase = sentAt ? lagging ? 'lagging' : 'current' : 'initial';
+      if (phase === 'current') await currentHeld;
+      const body = 'retry: 50\nevent: snapshot\ndata: ' + JSON.stringify({messages: lagging ? server.slice(0, 1) : server.slice(),
+        execution: null, fixture_phase: phase}) + '\n\n';
       return route.fulfill({contentType: 'text/event-stream', body});
     }
     if (p === '/api/v2/chat/botops') {
       sends.push(route.request().postDataJSON().text);
       const message = {id: 'm1', from_actor: 'human:ana', body: sends[0], created: now()};
       server = [...server, message]; sentAt = Date.now(); watches = 0;
+      releaseSend();
       return json({conversation: {id: 'c1'}, message});
     }
     return json({});
@@ -96,16 +116,17 @@ async function afterHashNav(browser) {
   await page.evaluate(() => { location.hash = '#/bot/botops'; });
   const box = page.locator('#chat-composer textarea');
   await box.waitFor();
-  await page.waitForTimeout(5500);                     // the snapshots that come on their own have landed
+  await page.waitForFunction(() => window.fixtureSnapshots.filter(phase => phase === 'initial').length >= 2);
   const text = 'Please set up a bot for our support inbox. '.repeat(6).slice(0, 250);
   await box.click(); await box.pressSequentially(text);
   assert.equal(await box.inputValue(), text, 'everything typed is in the box');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
   assert.deepEqual(sends, [text], 'Return sends it once');
-  await page.waitForTimeout(1500);                     // the lagging snapshot has landed
+  await page.waitForFunction(() => window.fixtureSnapshots.includes('lagging'));
   assert.match(await page.locator('#conv-thread').innerText(), /Please set up a bot/, 'the sent message stays in the chat');
-  await page.waitForTimeout(3500);                     // and so has the next one, which lists it
+  releaseCurrent();
+  await page.waitForFunction(() => window.fixtureSnapshots.includes('current'));
   const thread = await page.locator('#conv-thread').innerText();
   assert.equal((thread.match(/Please set up a bot/g) || []).length > 0, true);
   assert.equal(await page.locator('#conv-thread .bubble.you').count(), 1, 'listed once, not twice');

@@ -27,6 +27,8 @@ import hashlib
 import json
 import logging
 import re
+import threading
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
 import yaml
@@ -58,6 +60,26 @@ REJUDGE_DAYS = 2              # after a question-set version bump, rescore only 
 # score reaches. Changing the file changes routing from the next decision on; rows already in an
 # inbox stay.
 LISTENING_FILE = "listening.yaml"
+WARNING_CACHE_LIMIT = 128
+_warning_revisions = OrderedDict()
+_warning_lock = threading.Lock()
+
+
+def _warn_configuration(settings, kind, source, problems, questions=None):
+    """Log once per configuration revision; retain only bounded opaque fingerprints."""
+    key = (hashlib.sha256(str(settings.registry_dir.absolute()).encode()).digest(), kind)
+    revision = hashlib.sha256(json.dumps([source, questions, problems], default=str).encode()).digest()
+    with _warning_lock:
+        previous = _warning_revisions.get(key)
+        if kind == "destinations" and previous != revision:
+            _warning_revisions.pop((key[0], "questions"), None)
+        _warning_revisions[key] = revision
+        _warning_revisions.move_to_end(key)
+        while len(_warning_revisions) > WARNING_CACHE_LIMIT:
+            _warning_revisions.popitem(last=False)
+    if previous != revision:
+        for problem in problems:
+            logging.getLogger("tico.listening").warning("%s: %s", LISTENING_FILE, problem)
 
 
 def _actor(value):
@@ -65,14 +87,42 @@ def _actor(value):
     return value if not value or ":" in value else "bot:" + value
 
 
-def destinations(settings):
+def question_set(settings):
+    return J.load_set(QUESTION_SET, registry_dir=settings.registry_dir)
+
+
+def category_problems(dests, qset):
+    """Configuration names only; question text and other registry content stay private."""
+    questions = qset["questions"]
+    problems = []
+    for name, cfg in dests.items():
+        for field, category in (("category", cfg["category"]), ("unless category", (cfg.get("unless") or {}).get("category"))):
+            if category is not None and (questions.get(category) or {}).get("type") != "noul":
+                problems.append(f"{name}: {field} {category!r} needs a noul question in {QUESTION_SET}")
+    return problems
+
+
+def destinations(settings, *, qset=None, check_questions=True):
     """The company's destinations, from its registry; a malformed entry is skipped and logged."""
     try:
-        document = yaml.safe_load((settings.registry_dir / LISTENING_FILE).read_text()) or {}
-    except (OSError, yaml.YAMLError):
+        source = (settings.registry_dir / LISTENING_FILE).read_text()
+    except OSError:
+        _warn_configuration(settings, "destinations", None, [])
+        if check_questions:
+            _warn_configuration(settings, "questions", None, [])
+        return {}
+    try:
+        document = yaml.safe_load(source) or {}
+    except yaml.YAMLError:
+        _warn_configuration(settings, "destinations", source, [])
+        if check_questions:
+            _warn_configuration(settings, "questions", source, [])
         return {}
     found = document.get("destinations") if isinstance(document, dict) else None
-    out = {}
+    if found is not None and not isinstance(found, dict):
+        _warn_configuration(settings, "destinations", source, ["destinations must be a map"])
+        return {}
+    out, problems = {}, []
     for name, cfg in (found or {}).items():
         try:
             entry = {"category": str(cfg["category"]), "threshold": float(cfg["threshold"]),
@@ -83,10 +133,21 @@ def destinations(settings):
                 entry["readers"] = [_actor(r) for r in cfg["readers"]]
             if cfg.get("unless"):
                 entry["unless"] = {"category": str(cfg["unless"]["category"]), "threshold": float(cfg["unless"]["threshold"])}
-        except (KeyError, TypeError, ValueError, AttributeError) as exc:
-            logging.getLogger("tico.listening").warning("%s: destination %r skipped (%s)", LISTENING_FILE, name, exc)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            problems.append(f"destination {name!r} skipped (invalid destination configuration)")
             continue
         out[str(name)] = entry
+    _warn_configuration(settings, "destinations", source, problems)
+    if out and check_questions:
+        try:
+            loaded = qset or question_set(settings)
+            problems = category_problems(out, loaded)
+        except J.JudgeError as exc:
+            loaded = getattr(exc, "config_revision", exc.code)
+            problems = [f"{QUESTION_SET} question set could not be loaded; check registry/questions"]
+        _warn_configuration(settings, "questions", source, problems, loaded)
+    elif check_questions:
+        _warn_configuration(settings, "questions", source, [])
     return out
 
 
@@ -409,11 +470,15 @@ def scores_from(answers, questions):
 
 
 def judge_pending(store, engine, who, limit=MAX_JUDGE, item_ids=None):
-    dests = destinations(store.settings)
     """Score posts that have no judgment from the current set and route them. One decision call a post,
     each audited as a `judge.call` the way `/api/v2/decisions` audits, so the caller's budget counts it."""
     from .judge import DAILY_CALLS, used_today
-    qset = J.load_set(QUESTION_SET)
+    try:
+        qset = question_set(store.settings)
+    except J.JudgeError:
+        raise Problem("judge_questions", "The listening-item question set could not be loaded. "
+                      "Check registry/questions/listening-item.json.", 422) from None
+    dests = destinations(store.settings, qset=qset)
     questions = qset["questions"]
     with store.read() as c:
         if item_ids:

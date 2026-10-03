@@ -54,6 +54,7 @@ if [ -n "$ENV_SLUG" ]; then
   [ -f "$ENV_JSON" ] || { echo "no environment '$ENV_SLUG': $ENV_JSON does not exist"; exit 1; }
   ENV_ID="$(json "$ENV_JSON" id)"; ENV_APP="$(json "$ENV_JSON" app_name)"; ENV_URL="$(json "$ENV_JSON" url)"
   ENV_SERVER="$(json "$ENV_JSON" server)"
+  ENV_RUNNER="$(json "$ENV_JSON" runner_url)"
   [ -n "$ENV_ID" ] && [ -n "$ENV_APP" ] && [ -n "$ENV_URL" ] || { echo "$ENV_JSON needs id, app_name, and url"; exit 1; }
   NAME="$ENV_APP"
   # The identifier comes from the environment ID, which never changes: a slug can be renamed and
@@ -62,7 +63,7 @@ if [ -n "$ENV_SLUG" ]; then
   case "$ENV_URL" in */) ;; *) ENV_URL="$ENV_URL/" ;; esac
   HUB_URL="$ENV_URL"
   # The updater takes https only; a local hub has no builds to offer and the app skips the check.
-  case "$ENV_URL" in https://*) UPDATE_URL="${ENV_URL}download/latest.json" ;; *) UPDATE_URL="https://localhost.invalid/download/latest.json" ;; esac
+  case "${ENV_RUNNER:-$ENV_URL}" in https://*) UPDATE_URL="${ENV_RUNNER:-$ENV_URL}"; UPDATE_URL="${UPDATE_URL%/}/download/latest.json" ;; *) UPDATE_URL="https://localhost.invalid/download/latest.json" ;; esac
   [ -f "$ENV_DIR/icon.png" ] && ICON_SRC="$ENV_DIR/icon.png"
   # A local server has no browser sign-in: the app reads this file and trades the owner token
   # for a session cookie on its first load. The token never enters the bundle.
@@ -98,7 +99,7 @@ print(json.dumps({"productName": name, "identifier": ident, "mainBinaryName": ex
 PY
 }
 
-check() { (cd "$APP_DIR" && cargo check) && echo "ok: app compiles"; }
+check() { (cd "$APP_DIR" && cargo check --locked) && echo "ok: app compiles"; }
 
 build() {
   icons

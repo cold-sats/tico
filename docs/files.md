@@ -134,33 +134,64 @@ Local disk is the default. To use S3:
    on its objects. The script installs this inline policy for `--user` or `--role`.
 3. For Docker installs, put `TICO_BLOB_BUCKET=acme-files` (or `s3://acme-files/prefix`) in
    `.env` next to `compose.yaml`, then run `docker compose up -d` in that directory to recreate
-   the server with the setting. Backup keys are reused automatically; grant them the file bucket
+   the server with the setting. Grant the server role or backup keys the file bucket
    permissions from step 2. For other installs, set it in the server's environment and restart.
    Optionally set `TICO_BLOB_REGION` and `TICO_BLOB_ENDPOINT` for an S3-compatible store.
 
-When no AWS credentials, profile or role settings are present in the server's environment,
-`LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` from backups are passed directly to
-the S3 client. Otherwise credentials come from boto3's default chain: the server's AWS environment,
-shared credentials or profile, or IAM role. Without backup keys the default chain also applies.
-Keys are never exported into the server's environment or logged. Region uses `TICO_BLOB_REGION`,
-then `TICO_BACKUP_REGION` when both storage and backups use AWS (both endpoint settings unset),
-then `AWS_REGION` or `AWS_DEFAULT_REGION` inside the server,
-then boto3's default. Docker does not forward the operator's shell AWS credentials or regions. To use separate file keys,
-set both `TICO_BLOB_ACCESS_KEY_ID` and `TICO_BLOB_SECRET_ACCESS_KEY` in `.env`; this pair takes
-precedence for attachments and desktop downloads only. Empty settings are treated as unset. The bucket script needs Python with boto3
-and provisioning rights; it is idempotent. Use a dedicated bucket since it sets security controls.
+`TICO_BLOB_CREDENTIALS` selects the source for attachments and desktop downloads:
+
+- `auto` (default, also used for an empty setting): at startup, try the dedicated file keys
+  (`TICO_BLOB_ACCESS_KEY_ID` and `TICO_BLOB_SECRET_ACCESS_KEY`) when both are set, then backup
+  keys (`LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY`) when both are set,
+  then boto3's default chain. The first source whose write check succeeds is used for the
+  process lifetime. Setting both file keys therefore gives them first preference.
+- `role`: use only boto3's default chain for writes, including server AWS environment settings,
+  shared credentials or profiles, and IAM roles.
+- `backup`: use only the backup key pair for writes.
+- `keys`: use only the dedicated file key pair for writes.
+
+Docker forwards this setting from `.env`. Explicit `backup` and `keys` require both keys;
+missing or denied keys produce a Health warning without selecting another source for writes.
+If no source passes the check in `auto`, the first candidate remains available for reads.
+Uploads return a retryable storage error until a source passes the check, and after a denied
+check. Each upload keeps the same client through all parts, completion and abort.
+A denied GET or HEAD tries each other configured source once before attachments fall back to
+retained local copies. Download links are signed by the source that passed their HEAD check.
+Read retries never change the selected write source.
+
+Keys are passed directly to S3 clients, never exported into the server's environment or logged.
+Only the source kind is reported. Region uses `TICO_BLOB_REGION`, then `TICO_BACKUP_REGION`
+when both storage and backups use AWS (both endpoint settings unset), then `AWS_REGION` or
+`AWS_DEFAULT_REGION` inside the server, then boto3's default. Docker does not forward the
+operator's shell AWS credentials or regions. Empty settings are treated as unset. The bucket
+script needs Python with boto3 and provisioning rights; it is idempotent. Use a dedicated
+bucket since it sets security controls.
 
 Owners receive a read-only `storage` field on `/api/v2/health`: mode (`local` or `s3`), bucket,
-region, unique stored files, bytes, and copy counts (`done`, `total`, `failed`). A server on local
+region, credential source (`credentials`: `role`, `backup`, or `keys`) after the check,
+unique stored files, bytes, and copy counts (`done`, `total`, `failed`). A server on local
 storage shows one Not urgent note recommending S3; local laptop installs do not. On startup, an S3
 server checks write permission by starting and aborting an empty multipart upload under the file
-prefix. This publishes no file and needs no delete permission. A denied check shows a warning such
-as **S3 storage can't write: AccessDenied on acme-files**. If creation succeeds but cleanup is
+prefix for each candidate until one succeeds. This publishes no file and needs no delete permission.
+A denied check shows a warning such as **S3 storage can't write: AccessDenied on acme-files
+(s3:PutObject)**. If creation succeeds but cleanup is
 denied, Health instead names the missing `s3:AbortMultipartUpload` permission. The probe uses
-5-second connect and 10-second read timeouts with at most two retries, and shutdown does not wait
-for an in-flight probe. Storage stays in S3 mode, new uploads
+5-second connect and 10-second read timeouts with at most two retries, and a five-minute overall
+wait, including SDK credential discovery. Concurrent checks share one probe; shutdown does not
+wait for an in-flight call, and a canceled probe cannot later select a write source.
+Read client credential discovery waits at most five seconds per source and access mode, sharing
+one background construction for each, so a delayed credential provider preserves local read
+fallback without accumulating workers. Desktop bucket manifest requests share one fetch,
+read at most 1 MiB plus one byte to detect oversized manifests, and always close the response.
+GET and HEAD use separate read clients with 2-second connect and 5-second read timeouts and
+one attempt; upload clients keep their existing timeout budget. These are socket inactivity
+limits, not a wall-clock deadline for DNS, credential refresh or a continuously active stream.
+Storage stays in S3 mode, new uploads
 report the failure, and reads still fall back to retained local copies. After fixing credentials or
-permissions, restart the server to repeat the check. Rehearsals skip this write check.
+permissions, the check repeats every 30 minutes while failing and switches to the first working
+source automatically. Retained local files are then copied again. Restarting also repeats the
+check. At most one unfinished probe is retained for cleanup, so denied cleanup cannot
+accumulate multipart uploads. Rehearsals skip this write check.
 
 
 With `TICO_BLOB_BUCKET` configured, every new attachment goes straight to private S3 storage.

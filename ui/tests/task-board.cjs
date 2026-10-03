@@ -177,7 +177,8 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       assert(result.right <= result.edge + 1 && !result.overflow, `${width}px toolbar overflows: ${JSON.stringify(result)}`);
       assert(result.search >= 60, `${width}px search is too narrow: ${JSON.stringify(result)}`);
     };
-    for (const width of [1280, 1000]) await checkDesktopToolbar(width);
+    await checkDesktopToolbar(1280);
+    await checkDesktopToolbar(1000, false);
     await checkDesktopToolbar(768, false);    // a narrow window puts the tabs on their own line, never off the edge
     await page.setViewportSize({width: 1200, height: 900});
     // Labelled tabs (no icon-only buttons), the selected one marked for screen readers.
@@ -191,7 +192,9 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await page.evaluate(() => document.activeElement.id), 'task-filter');
     await page.locator('#task-q').focus();
     await page.keyboard.press('Shift+Tab');
-    assert.equal(await page.evaluate(() => document.activeElement.dataset.view), 'foryou', 'one tab stop for the tabs: the selected one');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.taskType), 'general', 'the type selector precedes search');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.view), 'foryou', 'one tab stop for the view tabs');
     if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-toolbar-desktop.png')});
 
     // List and Board are every open task again, by column; For you stays who needs me.
@@ -282,7 +285,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await page.locator('#task-q').inputValue(), '', 'search is not remembered');
     assert.match(await page.locator('[data-chip="tag"]').innerText(), /Tag\s*copy/, 'the tag filter lives in the address');
     await page.locator('[data-chip-drop="tag"]').click();
-    await page.waitForFunction(() => location.hash === '#/tasks');
+    await page.waitForFunction(() => location.hash === '#/tasks?type=general&view=foryou');
 
     // The modal: comments with authors, state changes inline, one box; the mover controls are there
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Draft the newsletter')));
@@ -384,10 +387,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const mobile = await page.evaluate(() => {
       const head = document.querySelector('.tl-head');
       const rect = s => head.querySelector(s).getBoundingClientRect();
-      return {top: [rect('h1').top, rect('.tl-search').top, rect('#task-new').top], strip: rect('#task-view').top,
+      return {top: [rect('#task-type').top, rect('.tl-search').top], strip: rect('#task-view').top,
         right: rect('#task-new').right, edge: head.getBoundingClientRect().right};
     });
-    assert(Math.max(...mobile.top) - Math.min(...mobile.top) <= 8, 'phone primary controls share a line');
+    assert(Math.max(...mobile.top) - Math.min(...mobile.top) <= 8, 'phone type selector and search share a line');
     assert(mobile.strip > mobile.top[0] && mobile.right <= mobile.edge + 1, 'phone view switch is on its own line');
     await page.locator('#task-filter').click();
     await page.waitForTimeout(50);
@@ -414,11 +417,11 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.goto('http://tico-ui.test/#/tasks?view=board');
     await page.waitForFunction(() => TASKS_ST?.view === 'board');
     await page.waitForTimeout(300);
-    assert.equal(new URL(page.url()).hash, '#/tasks?view=board');
+    assert.equal(new URL(page.url()).hash, '#/tasks?type=general&view=board');
     await page.locator('#task-view [data-view="list"]').click();
-    await page.waitForFunction(() => location.hash === '#/tasks?view=list');
+    await page.waitForFunction(() => location.hash === '#/tasks?type=general&view=list');
     await page.locator('#task-view [data-view="foryou"]').click();
-    await page.waitForFunction(() => location.hash === '#/tasks');
+    await page.waitForFunction(() => location.hash === '#/tasks?type=general&view=foryou');
     await page.goto('http://tico-ui.test/#/tasks/Approve%20the%20budget');
     await page.locator('#task-modal', {hasText: 'Approve the budget'}).waitFor();
     // Links copied into chat or email do not depend on clients preserving a URL fragment.

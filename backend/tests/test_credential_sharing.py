@@ -340,15 +340,23 @@ def test_a_granted_credential_is_present_in_the_tool_row_and_health_until_it_is_
     def missing():
         return [i["text"] for i in get(api, "fleet/check", token="ana-test")["issues"] if i["kind"] == "missing_credential"]
 
+    def health():
+        return next(row for row in get(api, "health")["checks"] if row["id"] == "tool_credentials")["summary"]
+
     assert rows()["jira"]["status"] == "problem" and len(missing()) == 2      # nothing granted yet
+    assert "Jira" in health() and "PostHog" in health()
     stored = jira(api)
     post(api, f"credentials/{stored['id']}/grants", {"subject": "bot:finance"})  # another bot's grant is not ops's
     assert rows()["jira"]["status"] == "problem"
+    assert "Jira" in health()
     grant = post(api, f"credentials/{stored['id']}/grants", {"subject": "bot:ops"})
     tool = rows()["jira"]
     assert tool["status"] == "ready" and "problem" not in tool and "credential vault" in tool["detail"]
     assert rows()["posthog"]["status"] == "problem"                          # a variable nobody granted stays missing
     assert len(missing()) == 1 and "JIRA_BASIC_AUTH" not in missing()[0]
-    assert JIRA not in json.dumps([tools_of(api), get(api, "fleet/check", token="ana-test")])
+    assert "Jira" not in health() and "PostHog" in health()
+    assert JIRA not in json.dumps([tools_of(api), get(api, "fleet/check", token="ana-test"), get(api, "health")])
+    assert "JIRA_BASIC_AUTH" not in health() and "POSTHOG_KEY" not in health()
     assert post(api, f"credentials/{stored['id']}/grants/{grant['id']}/revoke", {}).get("ok")
     assert rows()["jira"]["status"] == "problem" and len(missing()) == 2
+    assert "Jira" in health() and "PostHog" in health()

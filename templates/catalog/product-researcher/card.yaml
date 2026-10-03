@@ -31,7 +31,7 @@ prerequisites:
     why: "Tasks, attached notes and team meetings are where interviews and feedback arrive."
     required: true
   - tool: meetings
-    why: "Optional. Imported call transcripts (Fireflies, Zoom, Google Meet, Granola) are the richest source of what users say."
+    why: "Optional. Imported call transcripts (Zoom, Google Meet, Granola) are the richest source of what users say."
     required: false
   - tool: docs
     why: "Optional. Existing research, survey exports and product docs in the team docs."

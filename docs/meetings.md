@@ -18,7 +18,7 @@ in the tool that made it. Media files can be attached too.
 | `hub_meeting_import` (MCP) | a human's external agent | the same fields; the agent reads the file and sends the text |
 | `POST /api/v2/meetings/import` | anything else | one JSON body, below |
 | Close | Close calls and Notetaker meetings | the `close-calls` worker on a Mac or a Linux runner; see [Close](#close) |
-| Fireflies, Zoom, Google Meet, Granola | the team's meeting tools | the `importers` job on an enrolled computer, turned on in **Tools > Meeting importers**; see [Meeting importers](#meeting-importers) |
+| Zoom, Google Meet, Granola | the team's meeting tools | the `importers` job on an enrolled computer, turned on in **Tools > Meeting importers**; see [Meeting importers](#meeting-importers) |
 
 The CLI and the API act as the human whose credential they carry: set `HUB_API_URL` and `HUB_TOKEN` to
 a personal token (see [Who can do what](#who-can-do-what)). All of them land in the same place, in the same shape, so the list, search, sharing, Send and
@@ -34,7 +34,9 @@ Pending is quiet: it does not add to **Needs you**. Existing meetings stay live 
 In Meetings, **Shared** keeps the existing live list; **Pending** and **Dismissed** show only
 meetings filed for you. Open a pending meeting to read it and choose Team or Private before
 sharing, or use the row's Share button to keep its source privacy. Select rows for Share selected
-or Dismiss selected; Share all and Dismiss all apply to your pending queue. Restore in Dismissed
+or Dismiss selected; Share visible and Dismiss visible apply only to meetings shown by the current
+search and filters. Hidden meetings are never included, even if previously selected. Bulk sharing
+keeps each meeting's source privacy. Restore in Dismissed
 returns a meeting to Pending. **Settings** controls future imports and, for the owner, the Team default.
 Human **Add notes** stays live, including a pasted or uploaded transcript; a human API caller
 can also choose `review: "live"`. Computer importers keep using the same payloads: the server
@@ -69,7 +71,8 @@ meeting has `review_state` (`pending`, `live` or `dismissed`). The rail's existi
 The same preference is available at `GET`/`POST /api/v2/preferences/meetings.auto_share`, using
 the existing `{"value": true|false}` body. Only the owner can set the Team default through
 `POST /api/v2/meetings/settings {"review_default": "auto"}`; its initial value is `review`.
-A person's choice wins. Turning auto-share on leaves their existing queue pending: use Share all.
+A person's choice wins. Turning auto-share on leaves their existing queue pending: use Share visible
+to approve the meetings shown, or the explicit whole-queue CLI/API action.
 
 CLI: `hub meeting pending`, `hub meeting approve <id>` or `hub meeting approve --all`,
 `hub meeting dismiss <id>`, and `hub meeting restore <id>`. MCP equivalents are
@@ -233,7 +236,7 @@ the others a dialog with the same form as Tools > Meeting importers (owners only
 
 ## Meeting importers
 
-Fireflies, Zoom, Google Meet and Granola each have an importer. They run as one job, `python -m runner
+Zoom, Google Meet and Granola each have an importer. They run as one job, `python -m runner
 importers`, on an enrolled computer (`scripts/tico install importers` on a Mac; a Linux runner (Docker) starts it by itself once an importer is assigned to it; the Sources strip on the
 Meetings page shows each one's health). Each importer:
 
@@ -249,7 +252,7 @@ Meetings page shows each one's health). Each importer:
 - reads a bounded window: the first pass covers the last 30 days, then each pass re-reads the last
   72 hours (summaries and transcripts arrive late) and moves on. A meeting still being transcribed
   keeps the window from passing it for up to seven days. For older history, stop the job and run
-  `python -m runner importers --backfill-days DAYS [--only fireflies|zoom|google-meet|granola]`
+  `python -m runner importers --backfill-days DAYS [--only zoom|google-meet|granola]`
   (1 to 365; Google Meet keeps only 30 days, so it is capped there); it makes one pass and exits;
 - files a meeting for the roster human it belongs to. A human who is not on the roster is filed
   under the team owner, except Granola, which skips notes it cannot place, because those are
@@ -268,7 +271,7 @@ the runner user, then assign the importer to that computer. `Tico side jobs:` li
 Options every importer's file accepts: `<TOOL>_PRIVATE=1` files its meetings as private (readable by
 their participants and the owner) and `<TOOL>_PRIVATE=0` files them for the team. The default is
 team-readable except Granola, which defaults to private. A credential can also be set in the job's
-environment (for example `FIREFLIES_API_KEY`), which wins over the file.
+environment (for example `GRANOLA_API_KEY`), which wins over the file.
 
 Errors the card can show: `missing_credentials` (the file or a key is missing), `auth_failed` (the tool
 refused it), `forbidden` (a scope or plan feature is missing), `rate_limited` (the importer retries on
@@ -280,28 +283,11 @@ recorded-shape fixtures and no network.
 
 ### Fireflies
 
-Fireflies' GraphQL API (`https://api.fireflies.ai/graphql`) with a personal API key. Each key reads its
-own holder's transcripts (`mine: true`), so the meeting is filed for the human who made the key.
-
-1. In Fireflies open **Integrations > Fireflies API** and copy the API key (one per human).
-2. On the computer that runs the importer, create `secrets/fireflies.env`:
-   ```
-   FIREFLIES_API_KEY=your-key
-   ```
-   Several humans' keys can be listed separated by commas; each is read and filed for its own holder.
-3. Enable **Fireflies** in Settings and choose that computer.
-
-The importer lists transcripts a day at a time (`transcripts(fromDate, toDate, limit, skip)`), then
-fetches each one for its sentences, attendees and summary. Title, date, participants (emails when
-Fireflies has them), sentences with speaker and time (joined into turns), the summary (overview, action
-items, outline) as notes, the Fireflies page as the recording link, and the meeting and audio links as
-context are imported. Fireflies' audio link expires after a day, so treat it as a hint. A transcript
-with no sentences yet is retried. Fireflies limits calls by plan (50 a day on Free, 500 on Pro, 60 a
-minute on Business and Enterprise), so this importer polls every 15 minutes.
-*Verified from docs.fireflies.ai:* endpoint, Bearer auth, `transcripts` arguments (`limit` at most 50,
-`skip`, `fromDate`, `toDate`, `mine`), the `Transcript`, `Sentence` and `MeetingAttendee` fields and
-units, and the `auth_failed` and `too_many_requests` errors. Fireflies documents `duration` in minutes
-in its schema; the importer only uses it when it agrees with the transcript's own length.
+Fireflies is no longer available as an importer. Existing Fireflies meetings keep their source
+label, transcripts, notes, attachments and recording links, and remain searchable and readable.
+Saved importer settings and local credential files are retained, but the server no longer assigns
+Fireflies to a computer and an updated runner does not run it. An older settings page can still
+switch it off; enabling it returns an unavailable message.
 
 ### Zoom
 
@@ -407,17 +393,21 @@ Transcript failures still import shared notes. Unmappable meetings are skipped, 
 and do not block later notes. Transcript access is checked again on each sync after a plan change.
 The plan hint uses account details when available, or stays free until a transcript is successfully
 read; an advertised transcript tool alone does not indicate a paid plan. Account details are fetched
-once per connection, and a failure does not interrupt the import. A paid-tier denial stops further
+once after a successful read, or omitted when unsupported or malformed. A transient failure can retry
+on the next sync; rate limits and sign-in failures pause the import. A paid-tier denial stops further
 transcript requests for that sync.
 Granola's XML-like responses accept introductory text, bare participant emails and markdown containing `<` and `&`;
 shared summaries retain their markdown. Dates such as `Feb 4, 2026 7:30 PM` and `Feb 4, 2026` are
 treated as UTC. Unknown dates do not prevent importing a meeting's notes.
-Calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
+MCP calls share an install-wide pace of at most 60 per minute, and scheduled starts are staggered after restart.
+OAuth calls have a separate paced queue so Connect and sign-in polling can finish while imports run.
 Notes are fetched in batches of up to ten, at least six seconds apart per connection, including
 individual requests used to recover from a failed batch. Rate limits allow up to four attempts at
 the same request, using Granola's `Retry-After` when supplied or waits of 15, 30 and 60 seconds. If the limit
 persists, the sync stops with `rate_limited: get_meetings`, retains its checkpoint and does not count
-the blocked meetings as skipped. The next sync resumes from that checkpoint. The first free-plan
+the blocked meetings as skipped. Each attempt resets its skipped count. A rate-limited sync retries
+in about five minutes, or later when Granola supplies a longer `Retry-After`, and resumes from that
+checkpoint. The first free-plan
 sync requests `last_30_days` when supported; otherwise it uses a custom date range.
 Disconnect cancels an active sync and removes the stored token promptly; revocation is attempted in
 background when Granola advertises a trusted endpoint. Connections are removed when a person leaves
@@ -437,8 +427,11 @@ The MCP tools `hub_meeting_granola_status` and `hub_meeting_granola_sync` use th
 rights; BotOps can give the Meetings link but cannot complete the browser sign-in.
 
 The account sync matches existing meetings by person and Granola ID, then by the Granola web URL
-when the IDs differ, and fills only empty fields. Existing titles, calendar times, attendees, notes,
-privacy settings and transcripts are preserved.
+when the IDs differ, and fills only empty fields. Summaries written by the account sync can update
+when Granola regenerates them, provided the stored summary still matches the last source version.
+Human logs, edited summaries, API-imported notes, existing titles, calendar times, attendees,
+privacy settings and transcripts are preserved. Older summaries without recorded source ownership
+are kept as-is.
 
 **Granola API key (Business/Enterprise)** remains an alternative for a Computer importer. Both
 connections use the same source. Account sync deduplicates by external meeting ID or the shared
@@ -494,10 +487,10 @@ Settings. The steps below are the same whether it is a module or a standalone sc
      each meeting. See `runner/importers/base.py` (or `runner/close_calls.py`) for the shape (a poll
      loop, a cursor in the runner's state database, a heartbeat, `CodeWatch` to restart on new code)
      and `clients/tico.py` for the client.
-2. **Choose a `source` name** (`granola`, `fireflies`...). It is a label on the meeting, a filter on
+2. **Choose a `source` name** (`granola`, `zoom`...). It is a label on the meeting, a filter on
    the page and part of the idempotency key. Do not reuse another tool's name.
 3. **Choose `external_id` as the tool's own stable id** for the meeting (Zoom's meeting UUID, the
-   Fireflies transcript id). Never a timestamp or a hash of the text, or an edited transcript will
+   Granola note id). Never a timestamp or a hash of the text, or an edited transcript will
    arrive as a second meeting.
 4. **Map the fields.**
 

@@ -85,7 +85,15 @@ command_for() {
   case "$1" in bot) echo run ;; connectors) echo connectors ;; close-calls) echo close-calls ;; importers) echo importers ;; esac
 }
 # BSD stat takes -f, GNU stat takes -c.
-file_mode() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+file_mode() {
+  # GNU stat -f prints filesystem information before failing on BSD's format.
+  local tico_file_mode
+  if tico_file_mode="$(stat -f %Lp "$1" 2>/dev/null)"; then
+    printf '%s\n' "$tico_file_mode"
+  else
+    stat -c %a "$1"
+  fi
+}
 open_url() {
   if command -v open >/dev/null 2>&1; then open "$1"
   elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1"
@@ -116,7 +124,7 @@ require_systemd_user() {
 # Lingering keeps a user's systemd running after the last logout and starts it at boot; without it the jobs stop when
 # the ssh session that installed them ends.
 linger_note() {
-  local user="${USER:-$(id -un)}" note
+  local note
   note="$(cd "$HUB" && "$PYTHON" -m runner.systemd_units linger 2>/dev/null || true)"
   [ -z "$note" ] || echo "$note"
 }

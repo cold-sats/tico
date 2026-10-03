@@ -30,10 +30,15 @@ class TwoCopies(unittest.TestCase):
         self.origin, self.ana, self.sam = root / "origin.git", root / "ana", root / "sam"
         git(root, "init", "-q", "--bare", "-b", "main", str(self.origin))
         git(root, "clone", "-q", str(self.origin), str(self.ana))
+        git(self.ana, "config", "user.name", "Test bot")
+        git(self.ana, "config", "user.email", "bot@acme.example")
         git(self.ana, "checkout", "-q", "-b", "main")
         self.write(self.ana, "AGENT.md", "rules\n")
         git(self.ana, "push", "-q", "-u", "origin", "main")
         git(root, "clone", "-q", str(self.origin), str(self.sam))
+        # Maintenance discards ambient author variables, just as on a fresh computer.
+        git(self.sam, "config", "user.name", "Test bot")
+        git(self.sam, "config", "user.email", "bot@acme.example")
         self.env_patch = mock.patch.dict(os.environ, {k: ENV[k] for k in ENV if k.startswith("GIT_")})
         self.env_patch.start()
 

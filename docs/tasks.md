@@ -6,8 +6,11 @@ chooses the status each step means. Types belong to the whole team. General keep
 each standard status.
 
 Choose **Type** when creating a task, or change it in the task modal. A custom type shows a **Step**
-dropdown; General shows **Status**. On the board, **Filter → Type** selects that type's steps as
-columns. Clear the type to return to the usual board. Finished work appears in the selected type's
+dropdown; General shows **Status**. Beside task search, **General** and **Dev tickets** select the task type; the arrow menu lists
+other types. A type is always selected, and both the list and board show only its tasks. The board
+uses that type's steps as columns. Your selection is remembered, shared links carry it, and new
+tasks start with that type. Clearing filters keeps the selected type. Older combined views and
+deleted types fall back to General. Finished work appears in the selected type's
 Done or Closed steps as well as under Done.
 
 Picking a step sets the task's status. Steps can move in any order. Bots, older runners, GitHub

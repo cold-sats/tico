@@ -5,7 +5,8 @@
 // ----------------------------------------------------------------- refresh loop + router
 async function refresh(force) {
   try {
-    const [st, issues, emps, people] = await Promise.all([get('/status'), get('/issues'), S.emps.length && !force && !S.emps.some(frNeedsSetup) ? S.emps : get('/employees'), S.people.length && !force ? {people: S.people} : get('/humans').catch(() => ({people: S.people || []}))]);
+    // BotOps and other sessions can change the chart. Publish a complete roster together so groups and members agree.
+    const [st, issues, emps, people] = await Promise.all([get('/status'), get('/issues'), get('/employees'), get('/humans')]);
     S.status = st;
     S.issues = issues.map(i => {
       if (!pendingClosedIssues.has(i.number)) return i;

@@ -10,17 +10,17 @@ Tests run on your computer, not in CI: nothing in GitHub Actions runs the suite 
 tagging, run the whole thing from the repository root:
 
 ```
-python -m pytest -q && npm run test:ui
+python scripts/release_checks.py
 ```
 
 That is the full suite (pytest in parallel, then the browser scripts three at a time) and it has to finish in under
-10 minutes; that is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
+5 minutes; the check records wall time and load and fails if the combined run reaches 300 seconds. This is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
 that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. CI only
 builds and publishes: the Docker workflow builds the three images for a `v*` tag, and the Release workflow publishes the
 GitHub release. The compose smoke test (Docker workflow) and the screenshots workflow run from the Actions tab
 (Run workflow) when you want them. The optional `ci.yml` workflow runs the same tests there on demand.
 
-Before a deploy, run the journey check on a laptop with Docker (it is not part of CI or of the ten-minute suite budget, and takes about ten minutes):
+Before a deploy, run the journey check on a laptop with Docker (it is not part of CI or of the five-minute suite budget, and takes about ten minutes):
 
 ```
 scripts/journey-test.sh                  # this checkout is the candidate; starts from the newest release tag
@@ -63,8 +63,8 @@ desktop build fails, the GitHub release is not created and the Release run is re
 has a release, so a failed desktop build stops the rollout. The app's version is the release's
 (v0.3.6 → app 0.3.6, including any prerelease suffix), stamped from the tag at build time.
 
-Tagged builds are the generic **Tico** app, even when the repository has per-environment deploy
-variables. The three build jobs upload their bundles as `app-<target>` artifacts. After those
+All public CI builds are the generic **Tico** app. They do not consume company or legacy
+per-environment repository variables. The three build jobs upload their bundles as `app-<target>` artifacts. After those
 jobs pass, the Release workflow downloads them and attaches these assets to the GitHub release:
 
 - macOS universal `.dmg`, `.app.tar.gz` and `.app.tar.gz.sig`;
@@ -85,15 +85,18 @@ Generate the public manifest locally from collected bundles without uploading an
 python scripts/app_release.py --github --version X.Y.Z --tag vX.Y.Z --output latest.json bundles/
 ```
 
-Tag builds never run the S3 publish job. The optional S3 publish job runs on other builds when `TICO_DEPLOY_ROLE` and `TICO_DEPLOY_BUCKET`
-are set. Manual or main-branch builds can still bake in `TICO_HUB_URL` and use `TICO_RUNNER_URL`
-(or the hub address) for their updater endpoint. `scripts/app.sh --env <slug>` retains its
-per-environment behavior. Hubs prefer a bucket manifest of their running version or newer;
-otherwise they offer assets from the GitHub release of their running version, with a ten-minute
+Public CI no longer runs the legacy variable-based S3 publisher: its variables and branded
+artifacts could expose private company configuration in a public repository's Actions run.
+Use the private company workflow below for CI publishing. `scripts/app.sh --env <slug>` and
+manual `scripts/app_release.py` S3 publishing retain their per-environment behavior.
+Hubs prefer a valid company bucket manifest even when older than the server;
+without a bucket manifest they offer assets from the GitHub release of their running version, with a ten-minute
 cache and no credentials sent to GitHub. Concurrent requests share one GitHub fetch;
 other callers use the last cached result or wait at most 100 ms on a cold cache. This fallback applies only to human download routes
 (`/download/{os}` and `/api/download/{os}`). `/download/latest.json` serves only the bucket
-manifest, including older environment builds, and returns 404 when none exists. Download
+manifest, including older environment builds without an `app_kind` field, and returns 404 when
+none exists. Explicitly generic manifests and updater URLs outside the hub's download-file
+route are rejected. Company installer URLs are constructed from that same hub route. Download
 storage uses the blob store's region, endpoint and bucket prefix; environment artifacts belong
 under `<prefix>/releases/app/` when a prefix is configured.
 
@@ -133,3 +136,76 @@ Validate the published copy against this release: server Decision calls and HQ s
 Inbox Manager's single disabled weekday 07:30 Routine and assigned-mailbox access, and the complete KPI colour example in
 [Goals and KPIs](goals-and-kpis.md#the-colours). Run `npm run screenshots` when local dependencies and browsers are available and publish
 images from the same release as the UI. Preserve inbound links when moving pages; the transcript and old docs-sync pages link to their successors.
+
+## Company apps
+
+Every version tag builds the generic desktop app first, then `.github/workflows/company-app.yml`
+builds each configured company's macOS universal DMG and signed updater archive, Windows NSIS
+installer with signature, and Linux AppImage with signature plus Debian package. The app version
+is stamped from the tag. Every build uses the same updater signing key as the generic app,
+with `team.tico.env.<stable UUID>` as its bundle ID, its own name and PNG icon, its own server
+address, and `<runner_url or url>/download/latest.json` as the update endpoint.
+
+Keep the JSON list in the private repository Actions **secret** `TICO_COMPANY_APPS`. A secret is
+used instead of an Actions variable because the runner prints variables in its pre-step environment
+banner before masking commands can run. Company names and URLs must never enter repository
+files, public GitHub release assets or job summaries. Each list entry has these fields:
+
+```json
+{"slug":"acme","id":"12345678-1234-4234-8234-123456789abc","app_name":"Acme Tico",
+ "url":"https://tico.example.com","runner_url":"https://runner.example.com",
+ "icon_url":"/api/v2/team/icon","deploy_role_arn":"arn:aws:iam::123456789012:role/tico-company-app-publisher",
+ "bucket":"acme-app-files","prefix":"team"}
+```
+
+`runner_url` and `prefix` are optional. `prefix` must match the server's storage prefix.
+`icon_url` is an HTTPS PNG URL or a path on `url`. URLs require HTTPS except loopback HTTP.
+The UUID must remain stable across renames to preserve installed preferences and login state.
+
+Prepare each company's IAM publisher role in its own AWS account, using the normal AWS
+credential chain. This script defaults to an offline dry run; inspect its output privately and
+run it with `--apply` when ready. It creates the GitHub OIDC provider if absent, trusts only
+`repo:ticoteam/tico:ref:refs/tags/v*` with audience `sts.amazonaws.com`, and grants only
+GetObject/PutObject beneath `[prefix/]releases/app/*` and ListBucket for that prefix.
+
+```bash
+scripts/aws/company-app-publisher.sh --slug acme --id 12345678-1234-4234-8234-123456789abc \
+  --app-name 'Acme Tico' --url https://tico.example.com --runner-url https://runner.example.com \
+  --icon-url /api/v2/team/icon --bucket acme-app-files --prefix team --account-id 123456789012
+```
+
+It prints the role ARN, trust and permission policies, and the JSON entry to add to the secret's
+list. Its output is private operator configuration; do not commit it or run it in public CI.
+The publisher uses short-lived GitHub OIDC credentials, with the AWS action pinned by commit.
+It uploads via `scripts/app_release.py --complete --quiet --prefix ...` into the company's
+bucket at `[prefix/]releases/app/<version>/` and then atomically replaces
+`[prefix/]releases/app/latest.json` only after all signed platform assets have uploaded.
+
+Matrices and artifact names contain only SHA-256 hashes of slugs. Every company value used is
+masked before use; compiler/bundler output is suppressed since it can include derived company
+filenames. GitHub Actions artifacts in a public repository can be read by other signed-in
+users, so company bundles and their filenames are encrypted with streaming AES-GCM before
+upload. A separately derived key uses the existing `TAURI_SIGNING_PRIVATE_KEY` secret; no
+additional secret is required. That secret must contain the private signing key material,
+rather than a predictable filename. Authentication binds each archive to its company hash, version
+tag and CI run. The publisher authenticates each archive before extracting files, rejects paths
+and duplicates, and bounds extraction to 32 files and 2 GiB across the three platforms.
+Each pack uses a fresh random 96-bit nonce; the signing bytes are never used directly as an
+AES key. Decryption uses one automatically closed anonymous temporary file at a time, and
+removes extracted files on any failure. Downloaded ciphertext is bounded to 2 GiB plus archive
+overhead, with at most 4 GiB of temporary/extracted plaintext on ephemeral publisher disk. Branded
+plaintext exists only on ephemeral job disks and in the company's bucket. Ciphertext artifacts
+expire after one day and are never matched by the public release's `app-*` artifact download.
+The publisher does not fetch the logo again, so a logo change or outage after the build cannot
+block publication of already built bundles. Apple signing flags describe only the Mac installer;
+Windows and Linux updater signatures do not imply installer code signing.
+Company jobs use `fail-fast: false`; one build or publish failure fails that company's workflow
+and marks the run red, while other companies and the public release continue independently.
+The public release depends only on the generic desktop build. Entries are validated within
+their own company job; a malformed company does not prevent valid companies from publishing.
+Entries without a slug produce a generic warning and cannot be dispatched. Unparseable JSON
+fails the matrix with a generic error and does not prevent the public release.
+
+Validate a private list locally without printing it or fetching icons:
+`python scripts/company_apps.py matrix --dry-run` with `TICO_COMPANY_APPS` supplied through
+your environment. Publishing still requires the owner's release instruction.

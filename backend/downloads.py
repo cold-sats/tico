@@ -12,8 +12,8 @@ updater has no browser session, and an installer is nothing to protect):
 - `GET /download/file/{version}/{name}` — one bundle, as a short-lived S3 link.
 
 `GET /api/download/{os}` is the signed-in question the site asks before it offers a download.
-Without a bucket manifest, or when it predates the running server, downloads come from that
-version's public GitHub release. A bucket with the same or a newer version still wins. Public
+Without a bucket manifest, downloads come from the running version's public GitHub release.
+A company bucket build always wins, including when it predates the server.
 The updater feed never falls back to a generic GitHub build, even if the bucket build is older.
 GitHub lookups (including failures) are cached for ten minutes and never carry credentials.
 
@@ -26,7 +26,7 @@ import json
 import re
 import time
 import threading
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 
@@ -37,38 +37,44 @@ from .store import Problem
 from . import blob_s3, releases
 
 PREFIX = "releases/app/"
+MANIFEST_MAX_BYTES = 1024 * 1024
 OS_NAMES = ("mac", "windows", "linux")
-FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ +-]{0,200}$")
+FILE_RE = re.compile(r"^[\w][\w. +()-]{0,200}$")
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$")
 
 
 class Downloads:
-    def __init__(self, settings, s3=None, github_transport=None):
+    def __init__(self, settings, s3=None, github_transport=None, s3_source=None):
         self.settings = settings
         self.bucket = settings.blob_bucket
         prefix = getattr(settings, "blob_prefix", "")
         self.prefix = (prefix + "/" if prefix else "") + PREFIX
         self.base = settings.runner_url or settings.public_url
         self._s3 = s3
+        self._s3_source = s3_source or blob_s3.Sources(settings)
         self._manifest = (0.0, None)
         self.version = releases.version()
         self._github = (0.0, None)
         self._github_transport = github_transport
         self._lock = threading.Lock()
+        self._manifest_ready = threading.Event()
+        self._manifest_ready.set()
         self._github_ready = threading.Event()
         self._github_ready.set()
 
     @property
     def s3(self):
-        if self._s3 is None:
-            self._s3 = blob_s3.client(self.settings)
-        return self._s3
+        return self._s3 if self._s3 is not None else self._s3_source.s3
+
+    def read_s3(self, operation, **options):
+        if self._s3 is not None:
+            return getattr(self._s3, operation)(**options), self._s3
+        return self._s3_source.read_s3(operation, **options)
 
     def manifest(self):
-        """Prefer a current bucket build; otherwise offer the running release's generic app."""
+        """Prefer the company's build; otherwise offer the running release's generic app."""
         bucket = self.bucket_manifest()
-        if bucket and (not releases.parse(self.version) or
-                       releases.parse(bucket["version"]) >= releases.parse(self.version)):
+        if bucket:
             return bucket
         return self.github_manifest()
 
@@ -76,18 +82,74 @@ class Downloads:
         """Read the bucket at most once a minute, including absent manifests."""
         if not self.bucket:
             return None
-        fetched, cached = self._manifest
-        if fetched and time.time() - fetched < 60:
-            return cached
+        with self._lock:
+            fetched, cached = self._manifest
+            if fetched and time.monotonic() - fetched < 60:
+                return cached
+            fetching = not self._manifest_ready.is_set()
+            if not fetching:
+                self._manifest_ready.clear()
+        if fetching:
+            if cached is not None:
+                return cached
+            self._manifest_ready.wait(0.1)
+            with self._lock:
+                return self._manifest[1]
+        value = None
         try:
-            body = self.s3.get_object(Bucket=self.bucket, Key=self.prefix + "latest.json")["Body"].read()
+            response, _ = self.read_s3("get_object", Bucket=self.bucket, Key=self.prefix + "latest.json")
+            stream = response["Body"]
+            try:
+                body = stream.read(MANIFEST_MAX_BYTES + 1)
+                if len(body) > MANIFEST_MAX_BYTES:
+                    raise ValueError("app manifest too large")
+            finally:
+                stream.close()
             value = json.loads(body)
-            if not isinstance(value, dict) or not VERSION_RE.fullmatch(str(value.get("version") or "")) or not releases.parse(value["version"]):
-                value = None
+            value = self.company_manifest(value)
         except Exception:
             value = None
-        self._manifest = (time.time(), value)
+        finally:
+            with self._lock:
+                self._manifest = (time.monotonic(), value)
+                self._manifest_ready.set()
         return value
+
+    def company_manifest(self, value):
+        # Older environment manifests have no app_kind. Keep those installations working,
+        # but an explicitly generic manifest must never update a company's app.
+        if (not isinstance(value, dict) or value.get("app_kind", "company") != "company"
+                or not VERSION_RE.fullmatch(str(value.get("version") or ""))
+                or not releases.parse(value["version"])):
+            return None
+        platforms, installers = value.get("platforms"), value.get("installers")
+        if not isinstance(platforms, dict) or not platforms or not isinstance(installers, dict):
+            return None
+        safe_platforms = {}
+        for target, entry in platforms.items():
+            if not isinstance(entry, dict) or not isinstance(entry.get("signature"), str) or not entry["signature"].strip():
+                return None
+            address = urlsplit(str(entry.get("url") or ""))
+            # Publish routes, including retained older-platform versions, are the only
+            # permitted updater source. Reconstruct with this hub's configured origin.
+            root = urlsplit(self.base).path.rstrip("/") + "/download/file/"
+            if not address.path.startswith(root):
+                return None
+            parts = address.path[len(root):].split("/")
+            if len(parts) != 2:
+                return None
+            version, name = map(unquote, parts)
+            if not VERSION_RE.fullmatch(version) or not FILE_RE.fullmatch(name):
+                return None
+            safe_platforms[target] = {"signature": entry["signature"],
+                                      "url": f"{self.base}/download/file/{quote(version, safe='')}/{quote(name)}"}
+        safe_installers = {}
+        for os_name, entry in installers.items():
+            if not isinstance(entry, dict) or not FILE_RE.fullmatch(str(entry.get("file") or "")):
+                return None
+            # Company human downloads also stay on the hub's authorized bucket path.
+            safe_installers[os_name] = {k: v for k, v in entry.items() if k != "url"}
+        return {**value, "platforms": safe_platforms, "installers": safe_installers, "app_kind": "company"}
 
     def github_manifest(self):
         with self._lock:
@@ -155,7 +217,7 @@ class Downloads:
                                                    "url": asset["browser_download_url"],
                                                    "signed": bool(metadata.get("signed", False)),
                                                    "notarized": bool(metadata.get("notarized", False))}
-                    value = {**value, "installers": installers}
+                    value = {**value, "installers": installers, "app_kind": "generic"}
             except Exception:
                 value = None
         return value
@@ -165,8 +227,8 @@ class Downloads:
             return None
         key = f"{self.prefix}{version}/{name}"
         try:
-            self.s3.head_object(Bucket=self.bucket, Key=key)
-            return self.s3.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=600)
+            _, s3 = self.read_s3("head_object", Bucket=self.bucket, Key=key)
+            return s3.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=600)
         except Exception:
             return None
 
@@ -178,12 +240,13 @@ class Downloads:
         if not isinstance(entry, dict) or not FILE_RE.fullmatch(str(entry.get("file") or "")):
             return None
         return {"version": manifest["version"], "file": entry["file"], "bytes": entry.get("bytes"),
+                "app_kind": manifest.get("app_kind", "company"),
                 "notarized": bool(entry.get("notarized", False)), "signed": bool(entry.get("signed", False)),
-                "url": entry.get("url") or f"{self.base}/download/file/{manifest['version']}/{entry['file']}"}
+                "url": entry.get("url") or f"{self.base}/download/file/{quote(manifest['version'], safe='')}/{quote(entry['file'])}"}
 
 
 def install_downloads(app, store):
-    downloads = Downloads(store.settings)
+    downloads = Downloads(store.settings, s3_source=app.state.blobs)
     app.state.downloads = downloads
 
     @app.get("/download/latest.json")
@@ -214,5 +277,6 @@ def install_downloads(app, store):
             return {"available": False}
         size = entry.get("bytes")
         return {"available": True, "version": entry["version"], "url": entry["url"], "file": entry["file"],
+                "app_kind": entry["app_kind"],
                 "size_mb": round(size / 1048576) if isinstance(size, (int, float)) and size else None,
                 "notarized": entry["notarized"], "signed": entry["signed"]}

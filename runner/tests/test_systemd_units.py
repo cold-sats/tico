@@ -128,8 +128,18 @@ def test_install_on_linux_is_quiet_about_linger_when_it_is_on_and_handles_one_jo
 
 def test_status_and_restart_on_linux_read_systemd(tmp_path):
     env, log = fake_linux(tmp_path)
-    tico(env, "install", "bot")
+    installed = tico(env, "install", "bot")
+    assert installed.returncode == 0, installed.stdout + installed.stderr
     restarted = tico(env, "restart", "bot")
     assert restarted.returncode == 0 and "restarted tico-bot.service" in restarted.stdout
     status = tico(env, "status")                                          # the cloud is unreachable here; the job lines come first
     assert "bot: running (pid 77)" in status.stdout and "connectors: not installed" in status.stdout
+
+
+def test_install_refuses_a_public_runner_registration(tmp_path):
+    env, log = fake_linux(tmp_path)
+    Path(env['TICO_RUNNER_CONFIG']).chmod(0o644)
+    done = tico(env, 'install', 'bot')
+    assert done.returncode == 1 and 'runner config must have mode 600' in done.stdout
+    assert not (tmp_path / 'units').exists()
+    assert 'restart' not in log.read_text()

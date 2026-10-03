@@ -294,9 +294,10 @@ def test_health_warns_about_s3_write_check_even_with_no_files(api, failure):
     response = api.get('/api/v2/health', headers=headers()).json()
     check = next(check for check in response['checks'] if check['id'] == 'blob_storage')
     assert response['storage']['mode'] == 's3'
+    assert response['storage']['credentials'] == 'role'
     assert response['storage']['copy'] == {'done': 0, 'total': 0, 'failed': 0}
     assert check['status'] == 'warn'
-    assert check['summary'] == f"S3 storage can't write: {failure} on acme-files"
+    assert check['summary'] == f"S3 storage can't write: {failure} on acme-files" + (" (s3:PutObject)" if failure == "AccessDenied" else "")
     assert 'private credential detail' not in json.dumps(response)
     assert not s3.objects
     s3.create_multipart_upload = S3.create_multipart_upload.__get__(s3)
@@ -322,7 +323,7 @@ def test_denied_writes_keep_s3_mode_and_local_read_fallback(api):
     assert not s3.objects
     response = api.get('/api/v2/health', headers=headers()).json()
     assert response['storage']['mode'] == 's3'
-    assert response['storage']['copy']['failed'] == 1
+    assert response['storage']['copy']['failed'] == 0
     assert next(check for check in response['checks'] if check['id'] == 'blob_storage')['status'] == 'warn'
 
 
@@ -524,18 +525,32 @@ def test_storage_migration_preserves_old_version_and_reapplies():
 
 
 def test_upload_uses_parser_spool_and_caps_part_headers(api, monkeypatch):
+    from backend import file_upload
     blobs = api.app.state.blobs
     monkeypatch.setattr(blobs, 'put_stream', lambda *a, **kw: pytest.fail('second staging pass'))
     tid = task(api)
     bid = attach(api, tid, 'direct.txt', b'direct spool')
     assert api.get('/api/v2/files/' + bid, headers=headers('ana-test')).content == b'direct spool'
     url = f'/api/v2/tasks/{tid}/files'
+    spools, temporary_file = [], file_upload.tempfile.TemporaryFile
+    def spool(*args, **kwargs):
+        stream = temporary_file(*args, **kwargs)
+        spools.append(stream)
+        return stream
+    monkeypatch.setattr(file_upload.tempfile, 'TemporaryFile', spool)
     for extra in (b'X-Header: a\r\n' * 16, b'X-A: ' + b'a' * 4000 + b'\r\nX-B: ' + b'b' * 4000 + b'\r\nX-C: ' + b'c' * 200 + b'\r\n'):
-        body = b'--boundary\r\nContent-Disposition: form-data; name="file"; filename="safe.txt"\r\n' + extra + b'\r\nbody\r\n--boundary--\r\n'
+        body = (b'--boundary\r\nContent-Disposition: form-data; name="poster"; filename="poster.txt"\r\n\r\nposter\r\n'
+                b'--boundary\r\nContent-Disposition: form-data; name="file"; filename="safe.txt"\r\n' + extra + b'\r\nbody\r\n--boundary--\r\n')
         response = api.post(url, content=body, headers={**headers('ana-test'),
             'Content-Type': 'multipart/form-data; boundary=boundary'})
         assert response.status_code == 422
         assert 'headers' in response.json()['error']['detail']
+        assert spools and all(stream.closed for stream in spools), 'header rejection closes earlier part spools'
+    assert blobs.directory.stat().st_mode & 0o777 == 0o700
+    malformed = api.post(url, content=b'--boundary\r\nprivate-invalid-header\r\n\r\nbody\r\n--boundary--\r\n',
+                        headers={**headers('ana-test'), 'Content-Type': 'multipart/form-data; boundary=boundary'})
+    assert malformed.status_code == 422
+    assert malformed.json()['error']['detail'] == 'Malformed multipart upload'
 
 
 def test_s3_head_skips_upload_without_request_verification(tmp_path):

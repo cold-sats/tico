@@ -16,13 +16,13 @@ from . import models as M
 from .store import H, Problem, encode
 
 IMPORTERS = {
-    "fireflies": {"name": "Fireflies", "file": "secrets/fireflies.env", "keys": ["FIREFLIES_API_KEY"], "interval": 900},
     "zoom": {"name": "Zoom", "file": "secrets/zoom.env",
              "keys": ["ZOOM_ACCOUNT_ID", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"], "interval": 600},
     "google-meet": {"name": "Google Meet", "file": "secrets/google-meet.env",
                     "keys": ["GOOGLE_MEET_USERS", "GOOGLE_SERVICE_ACCOUNT_FILE"], "interval": 600},
     "granola": {"name": "Granola API key (Business/Enterprise)", "file": "secrets/granola.env", "keys": ["GRANOLA_API_KEY"], "interval": 300},
 }
+RETIRED_IMPORTERS = {"fireflies"}
 ERROR_TEXT = {
     "missing_credentials": "The credential file on that computer is missing or incomplete.",
     "auth_failed": "The tool refused the credential.",
@@ -109,8 +109,10 @@ def install_meeting_importers(app, store, auth, execution, mutate, importer):
         who = request.state.identity
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner manages meeting importers", 403)
-        if source not in IMPORTERS:
+        if source not in IMPORTERS and source not in RETIRED_IMPORTERS:
             raise Problem("not_found", "No such importer", 404)
+        if source in RETIRED_IMPORTERS and body.enabled:
+            raise Problem("importer_retired", "This meeting importer is no longer available", 410)
 
         def work(c):
             runner_id = body.runner_id
@@ -121,7 +123,7 @@ def install_meeting_importers(app, store, auth, execution, mutate, importer):
                       "ON CONFLICT(source) DO UPDATE SET enabled=excluded.enabled,runner_id=excluded.runner_id,"
                       "updated_by=excluded.updated_by,updated=excluded.updated",
                       (source, int(body.enabled), runner_id or None, who.actor, H.now()))
-            if not old or (old["runner_id"] or "") != runner_id:
+            if source not in RETIRED_IMPORTERS and (not old or (old["runner_id"] or "") != runner_id):
                 # A different computer starts with a clean bill of health, not the last one's.
                 c.execute("DELETE FROM service_health WHERE service=?", ("recording:" + source,))
             H.event(c, who.actor, "meeting_importer.configured", source,
@@ -139,11 +141,14 @@ def install_meeting_importers(app, store, auth, execution, mutate, importer):
 
     @app.post("/api/v2/imports/sources/{source}/status")
     def heartbeat(request: Request, source: str, body: ImporterHeartbeat):
-        if source not in IMPORTERS:
+        if source not in IMPORTERS and source not in RETIRED_IMPORTERS:
             raise Problem("not_found", "No such importer", 404)
 
         def work(c):
             importer(c, request.state.identity)
+            if source in RETIRED_IMPORTERS:
+                # Old runners may finish an in-flight pass; authorize before acknowledging it.
+                return {"ok": True}
             old = c.execute("SELECT detail_json FROM service_health WHERE service=?", ("recording:" + source,)).fetchone()
             detail = json.loads(old[0]) if old else {}
             detail.update(last_attempt=H.now())

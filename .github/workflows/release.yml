@@ -17,6 +17,35 @@ jobs:
     permissions:
       contents: read
       id-token: write
+  company-matrix:
+    needs: desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      enabled: ${{ steps.matrix.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Read private company list
+        id: matrix
+        env:
+          # Use a secret: variables can be printed in the runner's pre-step env banner.
+          TICO_COMPANY_APPS: ${{ secrets.TICO_COMPANY_APPS }}
+        run: python3 scripts/company_apps.py matrix
+  companies:
+    needs: [desktop, company-matrix]
+    if: needs.company-matrix.outputs.enabled == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.company-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/company-app.yml
+    with:
+      company: ${{ matrix.company }}
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
   release:
     needs: desktop
     runs-on: ubuntu-latest

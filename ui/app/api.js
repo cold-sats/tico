@@ -56,11 +56,11 @@ const patch = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => patchRequest(p, body, operationId)) : patchRequest(p, body, operationId);
 const put = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => putRequest(p, body, operationId)) : putRequest(p, body, operationId);
-// Keep multipart retries stable across newly constructed FormData boundaries.
+// Keep multipart and binary retries stable across newly constructed bodies.
 const formRequest = async (url, body) => {
   if (!S.me?.cloud) return fetch(url, {method:'POST', body});
   const fields = [];
-  for (const [name, value] of body.entries()) {
+  for (const [name, value] of body instanceof Blob ? [['file', body]] : body.entries()) {
     if (value instanceof Blob) {
       const digest = await crypto.subtle.digest('SHA-256', await value.arrayBuffer());
       fields.push([name, value.name || '', value.type, value.size,

@@ -519,6 +519,24 @@ class Tags(unittest.TestCase):
             self.assertIn(name, hubtools.BY_NAME)
 
 
+def test_team_icon_cli_streams_the_owner_logo(tmp_path, monkeypatch):
+    from clients import remotecli
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(b"logo")
+    calls = []
+    class IconClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        def post_bytes(self, path, source):
+            calls.append((path, source.read()))
+            return {"url": "/api/v2/team/icon"}
+    monkeypatch.setenv("HUB_API_URL", "https://tico.example.com")
+    monkeypatch.setattr(remotecli, "Client", IconClient)
+    args = hubcli.parser().parse_args(["team", "icon", str(logo)])
+    assert remotecli.run(args) == {"url": "/api/v2/team/icon"}
+    assert calls == [("team/icon", b"logo")]
+
+
 def test_task_board_filters_survive_the_all_form():
     from clients.hubtools import task_list
     args = hubcli.parser().parse_args(['task', 'list', '--all', '--type', 'Dev ticket', '--step', 'To do',

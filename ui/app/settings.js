@@ -27,6 +27,7 @@ function pageSettings() {
   $('#main').innerHTML = `<div class="meeting-head"><div><h1>Settings</h1></div>${settingsThemeHTML()}</div>
     <div id="settings-issues"></div>
     <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" role="tablist" aria-label="Settings">
+      ${S.me?.cloud && S.me?.role === 'owner' ? '<button type="button" data-settings-tab="team" role="tab">Team</button>' : ''}
       <button type="button" data-settings-tab="bots" role="tab">Bots</button>
       <button type="button" data-settings-tab="devices" role="tab">Computers</button>
       <button type="button" data-settings-tab="repos" role="tab">Repositories</button>
@@ -38,6 +39,15 @@ function pageSettings() {
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button>' : ''}
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
     </div>
+    ${S.me?.cloud && S.me?.role === 'owner' ? `<div class="settings-pane" id="settings-team" role="tabpanel" hidden>
+      <section class="card"><header><h2>Team</h2></header><div class="settings-team-icon">
+        <img id="settings-team-icon" alt="Team icon" hidden><span id="settings-team-icon-empty" class="muted">No icon</span>
+        <div><strong>Team icon</strong><p class="settings-cell-note">Public team logo. PNG, JPEG or WebP, up to 1 MB.</p>
+          <input id="settings-team-icon-file" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose team icon" hidden>
+          <button type="button" class="ghost" id="settings-team-icon-change">Choose icon</button>
+          <p id="settings-team-icon-status" class="settings-cell-note" role="status"></p>
+        </div>
+      </div></section></div>` : ''}
     <div class="settings-pane" id="settings-devices" role="tabpanel">
       <section class="card"><div id="set-machines"><div class="empty">Loading…</div></div></section>
       <section class="card subs-card" id="settings-subs" aria-labelledby="settings-subs-h" hidden><header><h2 id="settings-subs-h">Subscriptions</h2></header><div id="set-subs"></div></section>
@@ -67,6 +77,7 @@ function pageSettings() {
     <dialog class="transition-dialog" id="transition-dialog" aria-labelledby="transition-title"></dialog>`;
   taskTypesSettingsMount();
   pageSettingsThemeBind();
+  settingsTeamIconBind();
   $('#settings-tabs').onclick = event => {
     const button = event.target.closest('[data-settings-tab]');
     if (button) settingsShow(button.dataset.settingsTab);
@@ -92,7 +103,7 @@ function pageSettingsThemeBind() {
 }
 function settingsShow(tab) {
   if (tab === 'credentials' || tab === 'cloud') { location.hash = INTEGRATIONS; return; }
-  SETTINGS_TAB = tab === 'types' && S.me?.cloud ? 'types' : tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : tab === 'repos' ? 'repos' : 'devices';
+  SETTINGS_TAB = tab === 'team' && S.me?.cloud && S.me?.role === 'owner' ? 'team' : tab === 'types' && S.me?.cloud ? 'types' : tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : tab === 'repos' ? 'repos' : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   document.querySelectorAll('[data-settings-tab]').forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
@@ -106,6 +117,8 @@ function settingsShow(tab) {
   if (bots && SETTINGS_TAB === 'bots' && S.me?.role === 'owner') window.assistantChat?.settingsStrip($('#settings-assistant'), {get, post, esc, toast, after: async () => { await refresh(true); renderSettingsBots(); }});
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
   if (history) history.hidden = SETTINGS_TAB !== 'history';
+  const team = $('#settings-team');
+  if (team) team.hidden = SETTINGS_TAB !== 'team';
   const peoplePane = $('#settings-people');
   if (peoplePane) { peoplePane.hidden = SETTINGS_TAB !== 'people'; if (SETTINGS_TAB === 'people' && !formBusy(peoplePane)) void renderSettingsPeople(); }
   const privacyPane = $('#settings-privacy');
@@ -118,6 +131,34 @@ function settingsShow(tab) {
   if (reposPane) { reposPane.hidden = SETTINGS_TAB !== 'repos'; if (SETTINGS_TAB === 'repos' && !formBusy(reposPane)) void renderSettingsRepos(); }
   const recurring = $('#settings-recurring');
   if (recurring) { recurring.hidden = SETTINGS_TAB !== 'recurring'; if (SETTINGS_TAB === 'recurring' && !formBusy(recurring)) renderSettingsRecurring(); }
+}
+function settingsTeamIconBind() {
+  const input = $('#settings-team-icon-file'), button = $('#settings-team-icon-change');
+  if (!input || !button) return;
+  const image = $('#settings-team-icon'), empty = $('#settings-team-icon-empty'), status = $('#settings-team-icon-status');
+  image.onload = () => { image.hidden = false; empty.hidden = true; button.textContent = 'Change icon'; };
+  image.onerror = () => { image.hidden = true; empty.hidden = false; };
+  image.src = API + '/v2/team/icon';
+  button.onclick = () => input.click();
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    status.classList.remove('err');
+    if (file.size > 1048576 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      status.textContent = file.size > 1048576 ? 'Choose an image up to 1 MB.' : 'Choose a PNG, JPEG or WebP image.';
+      status.classList.add('err'); input.value = ''; return;
+    }
+    button.disabled = input.disabled = true; status.textContent = 'Saving…';
+    try {
+      const response = await formFetch(API + '/v2/team/icon', file);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) { signInRedirect(response, result); throw apiFailure(result, response); }
+      if (result.url !== '/api/v2/team/icon') throw new Error('The server did not confirm this icon. Please retry.');
+      image.src = API + '/v2/team/icon?v=' + Date.now();
+      status.textContent = 'Team icon saved';
+    } catch (error) { status.textContent = error.message; status.classList.add('err'); }
+    finally { button.disabled = input.disabled = false; input.value = ''; }
+  };
 }
 // Settings > Privacy: the one switch for the anonymous usage count, and a new random install ID (PRIVACY.md).
 async function renderSettingsPrivacy() {

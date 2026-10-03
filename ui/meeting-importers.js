@@ -1,4 +1,4 @@
-/* Tools > Meeting importers (owner). Turns Fireflies, Zoom, Google Meet and
+/* Tools > Meeting importers (owner). Turns Zoom, Google Meet and
    Granola on, picks the enrolled computer that runs each one, and shows how it is doing. Their
    credentials are never typed here: they are files on that computer (docs/meetings.md).
    `only` shows one importer (the setup dialog on the Meetings page) and `onChange` runs after a save. */
@@ -8,13 +8,17 @@ window.mountMeetingImporters = async function (host, options) {
   const esc = value => { const s = document.createElement('span'); s.textContent = value ?? ''; return s.innerHTML; };
   const when = value => value ? (typeof ago === 'function' ? ago(value) : new Date(value).toLocaleString()) : 'never';
   const labels = {off: 'Off', waiting: 'Waiting for the computer', syncing: 'Syncing', delayed: 'Delayed', error: 'Error'};
+  if (only === 'fireflies') {
+    host.innerHTML = '<div class="empty">Fireflies is no longer available as an importer. Existing meetings and files remain available.</div>';
+    return;
+  }
   let state;
   try { state = await get('/v2/meeting-importers'); }
   catch (error) { host.innerHTML = `<div class="empty">${esc(error.message)}</div>`; return; }
   if (!host.isConnected) return;
   const machines = state.computers || [];
   if (!Array.isArray(state.importers)) { host.innerHTML = '<div class="empty">Meeting importers are unavailable.</div>'; return; }
-  host.innerHTML = (state.importers || []).filter(i => !only || i.source === only).map(i => {
+  host.innerHTML = (state.importers || []).filter(i => i.source !== 'fireflies' && (!only || i.source === only)).map(i => {
     const options = ['<option value="">Computer</option>'].concat(machines.map(m =>
       `<option value="${esc(m.id)}"${m.id === i.runner_id ? ' selected' : ''}>${esc(m.label)}${m.platform ? ' (' + esc(m.platform) + ')' : ''}${m.online ? '' : ' - offline'}</option>`)).join('');
     const facts = i.enabled ? `<p class="muted" data-imp-facts>Last sync ${esc(when(i.last_success))} · last import ${esc(when(i.last_import))} · ${Number(i.imported_total) || 0} imported</p>` : '';

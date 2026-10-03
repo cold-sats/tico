@@ -182,13 +182,13 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     // ---- Pin to sidebar, and unpin from its ✕
     assert.equal(await page.locator('#nav-pins').isHidden(), true);
     await page.locator('#task-pin').click();
-    await page.locator('#pin-list a[href="#/tasks?view=board"]').waitFor();
+    await page.locator('#pin-list a[href="#/tasks?type=general&view=board"]').waitFor();
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`board-covers-desktop-${mode}`); }
     await theme('dark');
     assert.equal(await page.locator('#nav-pins-h').textContent(), 'Pipelines');
-    assert.match(await page.locator('#pin-list').innerText(), /Board/);
+    assert.match(await page.locator('#pin-list').innerText(), /General/);
     assert.equal(await page.locator('#task-pin').getAttribute('aria-pressed'), 'true');
-    assert.deepEqual(posted.at(-1).body.value.items, [{hash: '#/tasks?view=board', name: 'Board'}]);
+    assert.deepEqual(posted.at(-1).body.value.items, [{hash: '#/tasks?type=general&view=board', name: 'General'}]);
     await page.locator('#pin-list .pin-row').hover();
     await page.locator('#pin-list [data-unpin="0"]').click();
     await page.waitForFunction(() => document.querySelector('#nav-pins').hidden);
