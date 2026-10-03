@@ -7,12 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.14] - 2026-10-02
+
 ### Changed
 - Task rows no longer show circular status icons. Status appears once in each column or section header, with labels retained in ungrouped views and task details.
 
 ### Fixed
 - Apply current task visibility to routine history, task comments, answers, file reviews and cached responses.
-- Keep Done separate from Closed: routine comments cannot grant bots acceptance rights, and occupied pipeline steps cannot silently change their status meaning. Done tasks offer an explicit Close action.
+- Keep Done separate from Closed: comments that wake an assignee bot do not grant permission to close its task, and occupied pipeline steps cannot silently change their status meaning. Done tasks offer an explicit Close action.
 - Removing a routine preserves unrelated queued work and already claimed occurrences.
 - Task details preserve unsent answers through property saves, ignore stale file and link responses, and keep phone file previews full width.
 - Deliver replies to distinct inputs even when the answer text matches an earlier reply, while avoiding duplicate sends from the same attempt.
@@ -1783,7 +1785,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.13...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.14...HEAD
+[0.3.14]: https://github.com/ticoteam/tico/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/ticoteam/tico/compare/v0.3.12...v0.3.13
 [0.3.12]: https://github.com/ticoteam/tico/compare/v0.3.11...v0.3.12
 [0.3.0]: https://github.com/ticoteam/tico/compare/v0.2.42...v0.3.0
