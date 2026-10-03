@@ -76,7 +76,7 @@ def open_computer(api, label="Team Mac"):
 # ------------------------------------------------------------------ any route, as the requester
 def test_an_owner_requester_may_and_a_member_requester_may_not(api, botops):
     ana = turn(api, botops, person="ana-test", text="Use a bigger model on ops")
-    changed = act(api, ana, "POST", "bots/ops/model", {"model": "gpt-6-astra", "expected_revision": 1})
+    changed = act(api, ana, "POST", "bots/ops/model", {"model": "gpt-6.1-sol", "expected_revision": 1})
     assert changed.status_code == 200, changed.text
     with api.app.state.store.read() as c:
         row = c.execute("SELECT actor,detail_json FROM events WHERE action='bot.model_changed' AND target='ops'").fetchone()
@@ -84,14 +84,14 @@ def test_an_owner_requester_may_and_a_member_requester_may_not(api, botops):
     finish(api, botops, ana)
     cara = turn(api, botops, person="cara-test", text="Use a bigger model on ops")
     # Not her bot: the server's own rule refuses, exactly as in the app.
-    assert act(api, cara, "POST", "bots/ops/model", {"model": "gpt-6-astra", "expected_revision": 2}).status_code == 403
+    assert act(api, cara, "POST", "bots/ops/model", {"model": "gpt-6.1-sol", "expected_revision": 2}).status_code == 403
     # What only an owner or an admin may ask for is refused at once, not handed over as a card that fails.
     assert act(api, cara, "PUT", "access/limits", {"member_bot_limit": 9}).status_code == 403
     assert act(api, cara, "PUT", "providers", {"enabled": ["openai"]}).status_code == 403
     # Her own bot, she may.
     register(api, cara, "jira-manager")
     revision = act(api, cara, "GET", "bots/jira-manager/access").json()["revision"]
-    assert act(api, cara, "POST", "bots/jira-manager/model", {"model": "gpt-6-astra", "expected_revision": revision}).status_code == 200
+    assert act(api, cara, "POST", "bots/jira-manager/model", {"model": "gpt-6.1-sol", "expected_revision": revision}).status_code == 200
 
 
 def test_requester_settings_run_with_the_same_rights_as_the_human(api, botops):
@@ -159,12 +159,12 @@ def test_an_active_bot_goes_on_the_only_computer_or_the_least_busy_one(api):
     only = runner(api, label="Only Mac")
     ready(api, only, [])
     made = post(api, "bots", {"slug": "scribe", "display_name": "Scribe", "description": "Writes", "status": "active",
-                              "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})
+                              "model": "gpt-6.1-sol", "effort": "high", "harness": None, "runner_id": None})
     assert made["assignment"]["runner_id"] == only["runner_id"]
     second = runner(api, label="Second Mac")
     ready(api, second, [])
     post(api, "bots", {"slug": "writer", "display_name": "Writer", "description": "Writes", "status": "active",
-                       "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})
+                       "model": "gpt-6.1-sol", "effort": "high", "harness": None, "runner_id": None})
     with api.app.state.store.read() as c:
         where = dict(c.execute("SELECT bot,runner_id FROM assignments").fetchall())
     assert where["writer"] == second["runner_id"]                  # the one with nothing on it
@@ -175,13 +175,13 @@ def test_a_bot_botops_builds_goes_where_botops_and_its_repository_are(api, botop
     ready(api, other, [])
     ready(api, botops, ["botops"])
     made = post(api, "bots", {"slug": "scribe", "display_name": "Scribe", "description": "Writes", "status": "active",
-                              "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})
+                              "model": "gpt-6.1-sol", "effort": "high", "harness": None, "runner_id": None})
     assert made["assignment"]["runner_id"] == botops["runner_id"]            # not the emptier computer
 
 
 def test_activating_or_resuming_places_a_bot_and_the_scheduler_places_the_rest(api):
     made = post(api, "bots", {"slug": "scribe", "display_name": "Scribe", "description": "Writes", "status": "planned",
-                              "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})
+                              "model": "gpt-6.1-sol", "effort": "high", "harness": None, "runner_id": None})
     assert made["status"] == "planned" and made["assignment"] is None
     machine = runner(api)
     ready(api, machine, ["scribe"])
@@ -199,7 +199,7 @@ def test_activating_or_resuming_places_a_bot_and_the_scheduler_places_the_rest(a
 def test_a_members_bot_waits_for_a_computer_that_takes_it_and_then_goes_there(api):
     closed = close_computer(api, runner(api, label="Closed Mac"))
     ready(api, closed, [])
-    made = post(api, "bots", {"slug": "mine", "display_name": "Mine", "description": "x", "status": "active", "model": "gpt-6-astra",
+    made = post(api, "bots", {"slug": "mine", "display_name": "Mine", "description": "x", "status": "active", "model": "gpt-6.1-sol",
                               "effort": "high", "harness": None, "runner_id": None}, "cara-test")
     assert made["assignment"] is None and "No computer takes Mine" in made["note"]
     open_ = open_computer(api)
@@ -535,7 +535,7 @@ def test_a_human_requested_botops_run_starts_with_its_own_credentials_and_acts_a
     ana = turn(api, botops, person="ana-test", text="Use a bigger model on ops")
     fetched = api.get("/api/v2/credential-runtime", headers=headers(ana["token"]))
     assert fetched.status_code == 200, fetched.text
-    changed = act(api, ana, "POST", "bots/ops/model", {"model": "gpt-6-astra", "expected_revision": 1})
+    changed = act(api, ana, "POST", "bots/ops/model", {"model": "gpt-6.1-sol", "expected_revision": 1})
     assert changed.status_code == 200, changed.text
     with api.app.state.store.read() as c:
         row = c.execute("SELECT actor FROM events WHERE action='bot.model_changed' AND target='ops'").fetchone()

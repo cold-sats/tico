@@ -17,7 +17,7 @@ def test_resolution_order_bot_then_company_then_first_provider_then_error():
     assert P.resolve(company, {"runtime": "claude", "model": "claude-opus-5"}) == ("claude", "claude-opus-5")
     assert P.resolve(company, {"model": "claude-opus-5-5"}) == ("claude", "claude-opus-5-5")
     assert P.resolve(company, {"runtime": "default", "model": "default"}) == ("codex", "gpt-6-sol")
-    assert P.resolve(company, {"runtime": "claude"}) == ("claude", "claude-opus-5")
+    assert P.resolve(company, {"runtime": "claude"}) == ("claude", "claude-opus-5-5")
     first = P._record({"enabled": ["google", "openai"]})
     assert P.resolve(first, {}) == ("gemini", "gemini-3.8-flash")
     with pytest.raises(P.NoProvider) as refused:
@@ -40,3 +40,14 @@ def test_a_claimed_attempt_carries_the_company_default_for_a_bot_that_names_none
     config = claim(api, r)["config"]
     assert (config["runtime"], config["model"]) == ("codex", "gpt-6-luna")
 
+
+
+@pytest.mark.parametrize("model,runtime", [("gpt-6-astra", "codex"), ("gpt-6-sol", "codex"),
+                                           ("claude-opus-5", "claude")])
+def test_retired_models_remain_readable_but_cannot_be_new_choices(model, runtime):
+    company = P._record({"enabled": ["openai", "anthropic"], "runtime": runtime, "model": model})
+    assert P.resolve(company, {}) == (runtime, model)
+    assert P.resolve(company, {"runtime": runtime, "model": model}) == (runtime, model)
+    with pytest.raises(P.ProviderError) as refused:
+        P.complete_choice(company["enabled"], runtime, model)
+    assert refused.value.status == 422 and "retired" in refused.value.detail

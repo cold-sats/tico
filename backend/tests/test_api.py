@@ -217,7 +217,7 @@ def test_private_task_reference_is_denied(api):
 
 def test_running_bot_cannot_change_model(api):
     _, _, _ = setup_attempt(api)
-    post(api, "bots/ops/model", {"model": "gpt-6-astra", "expected_revision": 1}, expected=409)
+    post(api, "bots/ops/model", {"model": "gpt-6.1-sol", "expected_revision": 1}, expected=409)
     with api.app.state.store.read() as c:
         config = c.execute("SELECT config_json,revision FROM bot_config WHERE bot='ops'").fetchone()
         assert json.loads(config["config_json"]).get("model") is None
