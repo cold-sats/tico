@@ -152,7 +152,11 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     const p = phone.page;
     await p.goto('http://tico-ui.test/#/updates');
     await p.locator('#upd-feed .upd-card').first().waitFor();
-    assert.deepEqual(await p.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), ['Overview', 'Team', 'Search', 'Updates', 'More']);
+    assert.deepEqual(await p.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), ['Team', 'Search', 'Updates', 'More']);
+    const navWidths=await p.locator('#mobile-nav .mobile-nav-item').evaluateAll(items=>items.map(el=>el.getBoundingClientRect().width));
+    assert.equal(navWidths.length,4);
+    assert.ok(Math.max(...navWidths)-Math.min(...navWidths)<1,'four evenly spaced navigation items');
+    assert.equal(await p.locator('#mobile-nav [data-nav="overview"]').count(),0);
     // Day, week, unread and my bots are icons on a phone.
     for (const sel of ['[data-upd-kind="daily"]', '[data-upd-kind="weekly"]', '#upd-mine']) {
       assert.equal(await p.locator(sel + ' .nav-icon').isVisible(), true, sel + ' shows its icon');
@@ -165,6 +169,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await p.locator('#mobile-more').click();
     await p.locator('body.drawer').waitFor();
     assert.equal(await p.locator('.side-scroll [data-nav="tasks"]').isVisible(), true, 'Tasks is in More');
+    assert.equal(await p.locator('.side-scroll [data-nav="overview"]').isVisible(), true, 'Overview remains in More');
     assert.deepEqual(phone.errors, []);
     await p.close();
     console.log('PASS: Updates first in the rail with an unread badge, just the bullets (no title, sections, greeting, day headers or missed list), seen-is-read in one batched request, mark unread without re-sorting, unread first on the next visit, an instant reply that goes to the bot\'s chat, threads, j/k, Daily/Weekly toggle, cached paint, and on a phone Updates in the bottom bar with Tasks in More.');
