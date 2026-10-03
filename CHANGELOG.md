@@ -34,6 +34,8 @@ All notable changes to Tico are recorded here. The format follows
   `brief=true` leaves out their bodies and acceptance criteria.
 
 ### Fixed
+- Completing a task keeps it Done, including self-requested bot tasks and recurring work. Closing is a separate decision; completed tasks no longer close automatically with age or when the next routine runs.
+- Tasks opened from a teammate page use the full shared task detail, including files, questions, comments and code links. On phones it fills the screen, and Back returns to the teammate page.
 - A task's `updated` time moves when a file is attached to it or archived, a link is removed, a linked pull request
   changes state, or a question on it is asked or answered, as it already did for its fields, comments and new links.
 
