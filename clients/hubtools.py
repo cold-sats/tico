@@ -2631,7 +2631,8 @@ def docs_fetch(api, args):
 # the hub cannot reach, so BotOps runs them in a shell. Everything else is in both doors.
 # `hub_db` runs where the database credential is, on the runner; the server's MCP endpoint
 # has neither the credential nor any business connecting to a team database.
-SHELL_ONLY = {"hub_task_worktree_setup", "hub_bot_check", "hub_db"}
+# `hub_team_icon` streams a local image file; the JSON tool transport cannot open that path.
+SHELL_ONLY = {"hub_task_worktree_setup", "hub_bot_check", "hub_db", "hub_team_icon"}
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 
