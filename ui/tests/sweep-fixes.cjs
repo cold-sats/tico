@@ -56,7 +56,7 @@ async function open(browser, viewport, theme = 'dark') {
     if (p === '/api/v2/market/entities/company/rival') return json({entity: {id: 'company/rival', type: 'company', name: 'Rival', summary: 'Sells to studios.'}, edges: [], evidence: []});
     if (p === '/api/v2/market/edges') return json({edges: [{from: 'company/rival', to: 'company/self', type: 'competes_with'}]});
     if (p === '/api/meetings/sources') return json({sources: [{id: 'import', name: 'Import', status: 'available'}]});
-    if (p === '/api/meetings') return json([meeting('m1', 'Renewal call with Dana', 300), meeting('m2', 'Pricing review', 900)]);
+    if (p === '/api/v2/meetings') return json({meetings: [meeting('m1', 'Renewal call with Dana', 300), meeting('m2', 'Pricing review', 900)], pending_count: 0});
     if (p === '/api/v2/meeting-importers') return json({computers: [], importers: []});
     if (p === '/api/v2/meetings/granola') return json({mode: 'account', connected: true, email: 'ana@acme.example', plan_hint: null, last_sync: ago(3),
       last_error: null, imported_count: 12, skipped: 0, needs_signin: false, syncing: false});
