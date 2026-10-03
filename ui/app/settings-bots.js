@@ -437,10 +437,31 @@ async function settingsCatalogPicker() {
   const state = catalogState(cards.filter(card => !have.has(card.slug)), {lock: false});
   const body = $('#catalog-picker-body');
   body.innerHTML = `
+    <label>Search templates<input type="search" id="catalog-picker-search" placeholder="Name or description" autocomplete="off" aria-controls="catalog-picker-grid"></label>
+    <p class="muted" id="catalog-picker-count" role="status"></p>
+    <div class="empty" id="catalog-picker-empty" hidden>No matching templates.</div>
     <div class="cat-grid" id="catalog-picker-grid">${catalogGridHTML(state)}</div>
     <div class="row" style="margin-top:16px"><button class="primary" type="submit">Add selected</button>
       <button class="ghost" type="button" data-catalog-close>Cancel</button><span class="muted" id="catalog-picker-status"></span></div>`;
-  catalogWire($('#catalog-picker-grid'), state);
+  const grid = $('#catalog-picker-grid'), search = $('#catalog-picker-search');
+  const filter = () => {
+    const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    grid.querySelectorAll('[data-cat-card]').forEach(node => {
+      const card = catalogCard(state, node.dataset.catCard);
+      const text = [card.name, card.slug, card.summary, card.when, ...(card.owns || []), catalogName(state, card)].join(' ').toLowerCase();
+      node.hidden = !words.every(word => text.includes(word));
+      if (!node.hidden) shown++;
+    });
+    $('#catalog-picker-count').textContent = `${shown} of ${state.cards.length} templates · ${state.picked.size} selected`;
+    $('#catalog-picker-empty').hidden = shown > 0;
+  };
+  // Keep cards mounted: filtering must preserve edited instructions, choices and selections.
+  catalogWire(grid, state, filter);
+  search.oninput = filter;
+  search.onkeydown = event => { if (event.key === 'Enter') event.preventDefault(); };
+  filter();
+  search.focus();
   dialog.querySelectorAll('[data-catalog-close]').forEach(button => button.onclick = () => dialog.close());
   const form = dialog.querySelector('form'), status = $('#catalog-picker-status');
   form.onsubmit = async event => {
