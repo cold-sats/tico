@@ -149,7 +149,7 @@ async function botReposMount(host, slug) {
   } catch { return; }      // an older server, or no rights to read it: the section just stays away
   if (!host.isConnected || !team.github_connected) return;
   const admin = settingsIsAdmin();
-  const state = {mode: view.mode || 'own', all_access: view.all_access || 'write',
+  const state = {mode: view.mode || 'own', all_access: view.all_access || 'write', create_repositories: !!view.create_repositories,
     chosen: new Map((view.chosen || []).map(c => [c.full_name, c.access === 'read' ? 'read' : 'write'])),
     effective: view.effective || []};
   // The ticked repositories, less bot repositories, plus anything already chosen that has since left that list.
@@ -162,6 +162,8 @@ async function botReposMount(host, slug) {
   const paint = () => {
     const pick = pickable();
     host.innerHTML = `<legend class="brepo-h">Repositories</legend><span class="muted brepo-status" data-brepo-status role="status"></span>
+      <label class="repo-name"><input type="checkbox" data-brepo-create${state.create_repositories ? ' checked' : ''}${!admin || slug === 'botops' ? ' disabled' : ''}>Create bot repositories</label>
+      <p class="muted">Private bot repositories in the connected organization. GitHub App permission is also required. Otherwise, ask BotOps.</p>
       ${repoSegHTML(`${id}-mode`, 'Repository access', BOT_REPO_MODES, state.mode, !admin, ' brepo-mode')}
       ${state.mode === 'all' ? `<div class="brepo-all">${repoSegHTML(`${id}-all`, 'Access to all ticked repos', BOT_REPO_ACCESS, state.all_access, !admin, ' repo-seg-sm')}</div>` : ''}
       ${state.mode === 'chosen' ? `<ul class="brepo-list" aria-label="Chosen repos">${pick.length ? pick.map(name => {
@@ -175,7 +177,7 @@ async function botReposMount(host, slug) {
   };
   // What the server holds, drawn as it is: after the latest save, and after a refused one.
   const adopt = view => {
-    state.mode = view.mode || 'own'; state.all_access = view.all_access || 'write';
+    state.mode = view.mode || 'own'; state.all_access = view.all_access || 'write'; state.create_repositories = !!view.create_repositories;
     state.chosen = new Map((view.chosen || []).map(c => [c.full_name, c.access === 'read' ? 'read' : 'write']));
     state.effective = view.effective || [];
   };
@@ -184,7 +186,7 @@ async function botReposMount(host, slug) {
   const repaint = () => {
     const at = document.activeElement, keep = host.contains(at) ? (at.type === 'radio'
       ? `input[name="${CSS.escape(at.name)}"][value="${CSS.escape(at.value)}"]`
-      : at.closest('[data-brepo]') ? `[data-brepo="${CSS.escape(at.closest('[data-brepo]').dataset.brepo)}"] [data-brepo-pick]` : '') : '';
+      : at.matches('[data-brepo-create]') ? '[data-brepo-create]' : at.closest('[data-brepo]') ? `[data-brepo="${CSS.escape(at.closest('[data-brepo]').dataset.brepo)}"] [data-brepo-pick]` : '') : '';
     paint();
     if (keep) host.querySelector(keep)?.focus();
   };
@@ -200,7 +202,7 @@ async function botReposMount(host, slug) {
       for (;;) {
         again = false; failure = null; view = null;
         say('Saving…');
-        const body = {mode: state.mode, all_access: state.all_access,
+        const body = {mode: state.mode, all_access: state.all_access, create_repositories: state.create_repositories,
           chosen: [...state.chosen].map(([full_name, access]) => ({full_name, access}))};
         try {
           const saved = await put(`/v2/bots/${encodeURIComponent(slug)}/repositories`, body);
@@ -223,14 +225,15 @@ async function botReposMount(host, slug) {
   host.onchange = event => {
     if (!admin) return;
     const t = event.target, row = t.closest('[data-brepo]')?.dataset.brepo;
-    if (t.name === `${id}-mode`) state.mode = t.value;
+    if (t.matches('[data-brepo-create]')) state.create_repositories = t.checked;
+    else if (t.name === `${id}-mode`) state.mode = t.value;
     else if (t.name === `${id}-all`) state.all_access = t.value;
     else if (t.matches('[data-brepo-pick]') && row) { if (t.checked) state.chosen.set(row, 'write'); else state.chosen.delete(row); }
     else if (row && t.type === 'radio') state.chosen.set(row, t.value);
     else return;
     // Redraw, then put the keyboard back on the control that changed.
     const back = t.type === 'radio' ? `input[name="${CSS.escape(t.name)}"][value="${CSS.escape(t.value)}"]`
-      : `[data-brepo="${CSS.escape(row)}"] [data-brepo-pick]`;
+      : t.matches('[data-brepo-create]') ? '[data-brepo-create]' : `[data-brepo="${CSS.escape(row)}"] [data-brepo-pick]`;
     paint(); host.querySelector(back)?.focus();
     void save();
   };

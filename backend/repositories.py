@@ -65,6 +65,12 @@ def reachable(c, names):
     save_metadata(c, 'repositories-confirmed-missing', marks)
 
 
+def can_create_repositories(c, bot):
+    # Keep this grant outside editable bot definitions; bots cannot grant it to themselves.
+    from .github_app import BOTOPS
+    return bot == BOTOPS or metadata(c, 'repository-creation-grants').get(bot) is True
+
+
 def access(c, bot, org):
     from .github_app import repo_of
     from .shared_bots import declared, source_of
@@ -90,12 +96,19 @@ def access(c, bot, org):
         grants[own.lower()] = {'full_name': own, 'access': 'write'}
     missing = unreachable(c)
     effective = [r for _, r in sorted(grants.items()) if (r['full_name'].lower() not in missing or r['full_name'].lower() == str(own).lower()) and org and r['full_name'].split('/')[0].lower() == org.lower()]
-    return {'mode': mode, 'all_access': all_access, 'chosen': chosen, 'effective': effective}
+    return {'mode': mode, 'all_access': all_access, 'chosen': chosen, 'effective': effective,
+            'create_repositories': can_create_repositories(c, bot)}
 
 
 def set_access(c, bot, body, org, actor, legacy=False, team_list=False):
     from .github_app import repo_of, save_extra_repos
     before = access(c, bot, org)
+    if body.create_repositories is not None:
+        from .github_app import BOTOPS
+        if not team_list or not H.is_human(actor):
+            raise Problem('forbidden', 'Only an Owner or admin grants repository creation', 403)
+        if bot == BOTOPS and not body.create_repositories:
+            raise Problem('forbidden', 'BotOps retains its built-in repository creation access', 403)
     wanted = {}
     for grant in body.chosen or []:
         name = repo_of(grant.full_name, org)
@@ -121,6 +134,13 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False):
     if body.chosen is not None:
         c.execute('DELETE FROM bot_repo_access WHERE bot=?', (bot,))
         c.executemany('INSERT INTO bot_repo_access VALUES(?,?,?)', [(bot, name, level) for name, level in wanted.values()])
+    if body.create_repositories is not None:
+        grants = metadata(c, 'repository-creation-grants')
+        if body.create_repositories:
+            grants[bot] = True
+        else:
+            grants.pop(bot, None)
+        save_metadata(c, 'repository-creation-grants', grants)
     after = access(c, bot, org)
     save_extra_repos(c, bot, [r['full_name'] for r in after['chosen'] if r['access'] == 'write'] if body.mode == 'chosen' else [])
     H.event(c, actor, 'bot.repos_changed', bot, {'before': before, 'after': after})
@@ -315,6 +335,7 @@ class Grant(Contract):
 
 
 class RepoAccessUpdate(Contract):
+    create_repositories: bool | None = None
     mode: Literal['own', 'all', 'chosen']
     all_access: Literal['read', 'write'] | None = None
     chosen: list[Grant] | None = None

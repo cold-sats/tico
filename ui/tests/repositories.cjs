@@ -173,7 +173,7 @@ async function owner(browser) {
   await shot(page, 'bot-repositories-chosen-desktop-dark.png');
   await box.locator('[data-brepo="acme/mobile"] [data-brepo-pick]').check();
   await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved');
-  assert.deepEqual(lastWrite(writes, '/api/v2/bots/release-captain/repositories'), {mode: 'chosen', all_access: 'write',
+  assert.deepEqual(lastWrite(writes, '/api/v2/bots/release-captain/repositories'), {mode: 'chosen', all_access: 'write', create_repositories: false,
     chosen: [{full_name: 'acme/web', access: 'write'}, {full_name: 'acme/api', access: 'read'}, {full_name: 'acme/mobile', access: 'write'}]});
   await box.locator('[data-brepo="acme/api"] label:has(input[value=write])').click();
   await page.waitForFunction(() => /acme\/api write/.test(document.querySelector('#bot-editor .brepo-eff')?.innerText || ''));
@@ -199,6 +199,15 @@ async function owner(browser) {
   await page.keyboard.press('ArrowRight');
   await page.waitForFunction(() => document.querySelector('#bot-editor input[type=radio][value=all]')?.checked);
   assert.equal(lastWrite(writes, '/api/v2/bots/release-captain/repositories').mode, 'all');
+  // Creation is a separate explicit grant; keyboard changes save and preserve focus.
+  const creation = box.locator('[data-brepo-create]');
+  assert.equal(await creation.isChecked(), false);
+  await creation.focus();
+  await page.keyboard.press('Space');
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved');
+  assert.equal(lastWrite(writes, '/api/v2/bots/release-captain/repositories').create_repositories, true);
+  assert.equal(await creation.isChecked(), true);
+  assert.equal(await creation.evaluate(el => el === document.activeElement), true);
   // The old free-text box is gone; Save bot no longer writes github-repos.
   assert.equal(await page.locator('#bot-editor textarea[name=extra_repos]').count(), 0);
   assert.deepEqual(errors, []);
