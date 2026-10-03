@@ -95,7 +95,8 @@ def bounds(at=None):
 def spent(c, bot, start, end, subscription):
     """The estimate for the bot's runs that started in [start, end), API-billed, and the subscription
     runs' API-equivalent too when the company counts them."""
-    row = c.execute("SELECT coalesce(sum(est_cost_usd), 0) FROM turns WHERE bot=? AND started >= ? AND started < ? "
+    from .usage_records import RUNS
+    row = c.execute(f"SELECT coalesce(sum(est_cost_usd), 0) FROM {RUNS} WHERE bot=? AND started >= ? AND started < ? "
                     "AND (? OR coalesce(billing, 'api') != 'subscription')", (bot, start, end, 1 if subscription else 0)).fetchone()
     return float(row[0] or 0)
 

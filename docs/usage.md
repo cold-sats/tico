@@ -41,3 +41,22 @@ Default limit). The owner of a bot may set its limit, no higher than the team de
 `totals` with `runs`, `input_tokens`, `cached_tokens`, `output_tokens`, `est_cost_usd` (null when every API-billed run used an unpriced
 model), `subscription_equiv_usd`, and on each row its `share` of the total. `?bot=<slug>` returns that bot's `daily` series and top
 `routines`. The legacy `department` query parameter filters by group; `group` selects how rows are aggregated. See `docs/openapi/v2.json`.
+
+## Filter by the settings used for a run
+
+Usage can group and filter by harness, model, effort and named subscription, and sort by estimated
+cost, tokens, runs or name. Filters also apply to a bot's daily detail and CSV. Names refer to login
+profiles, not people or subscription ownership. Assign a subscription in the bot's settings; changing
+it affects future runs, not recorded usage.
+
+Updated runners report the primary and fallback portions separately. A run that uses two models can
+appear in both groups, while the overall run count counts it once. Token and cost totals include both
+portions. API spend and subscription API-equivalent estimates stay separate, including when the
+fallback uses a different billing method. Existing spend limits use the same portions.
+
+Older runs retain their recorded totals. Unreported harness, effort or subscription values are shown
+as **Not recorded / not applicable**, never filled from current bot settings. Automatic model choices
+remain the runner's reported choice; this does not discover an underlying model selected by a provider.
+A new runner talking to an older server falls back to the older final-portion usage report. Update the
+server and runners to get complete primary/fallback attribution. No provider credentials are stored
+with usage. This page is an estimate of Tico runs, not a provider invoice or a subscription quota meter.

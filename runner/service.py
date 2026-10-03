@@ -2072,10 +2072,11 @@ class Runner:
         unavailable, base_env, execution_path, drive = False, None, None, None
         auth_rejected = {}
         subscription_unavailable = None
+        selected_profile = None
         goal_controlled = [False]
         goal_failure = [None]
         redactor, started_at, tree = None, "", {}
-        meter, ran = [usage.Meter()], [config.get("model") or "", config.get("runtime") or ""]
+        meter, metered = [usage.Meter()], []
         bot_lock, acquired = self.worktrees.bot_lock(bot), False
         try:
             try:
@@ -2084,6 +2085,9 @@ class Runner:
                 if lost.is_set():
                     raise RuntimeError('Attempt lease lost while waiting for worktree maintenance')
                 self.local_path(bot, config)
+                selected_profile = self.turn_profile(attempt)
+                metered.append((meter[0], dict(config), selected_profile.name if selected_profile else None,
+                                self.billing(bot, config.get("runtime"), selected_profile)))
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.arm_credentials(env, attempt, bot)
@@ -2127,7 +2131,6 @@ class Runner:
                     goal = attempt.get("chat_goal")
                     goal_running = bool(goal and goal["status"] == "active")
                     revision = goal["updated_at"] if goal else None
-                    meter[0] = usage.Meter()           # a fallback harness counts its own turn
                     while not complete:
                         if self.stop.is_set() or lost.is_set() or time.monotonic() >= limit:
                             goal_failure[0] = ("Run time limit reached" if time.monotonic() >= limit else
@@ -2286,13 +2289,15 @@ class Runner:
                 hop_config = {**config, "harness": hop["harness"], "runtime": hop["runtime"],
                               "model": hop["model"], "reasoning_effort": hop["reasoning_effort"]}
                 persistent, fallback = (hop["harness"] == "antigravity" and hop["runtime"] == "gemini"), hop["harness"]
+                meter[0] = usage.Meter()
                 current[0] = hop["runtime"]
-                ran[:] = [hop["model"] or "", hop["runtime"] or ""]
                 reply, outcome, tokens, limited, retryable = "", "interrupted", {}, False, False
                 primary = config.get("harness") or runtime
                 try:
                     hop_attempt = {**attempt, "config": hop_config, "fallback": fallback}
-                    profile = self.turn_profile(hop_attempt)
+                    profile = selected_profile = self.turn_profile(hop_attempt)
+                    metered.append((meter[0], dict(hop_config), profile.name if profile else None,
+                                    self.billing(bot, hop["runtime"], profile)))
                     hop_env = profile.environment(hop["runtime"], base_env) if profile else base_env
                     env = hop_env
                     self.state.append(aid, "diagnostic",
@@ -2364,11 +2369,18 @@ class Runner:
             if goal and goal["status"] == "active" and outcome != "completed" and not limited and not retryable:
                 self.state.append(aid, "goal", {"goal_id": goal["id"], "revision": goal["updated_at"],
                                               "status": "stopped", "note": goal_failure[0] or "The harness run " + outcome})
-            spent = meter[0].report(ran[0], ran[1], self.billing(bot, ran[1]))
-            selected_profile = profiles.select(self.config, bot, attempt.get("profile"))
             profile_used = selected_profile.name if selected_profile and host is not None else None
-            if spent and profile_used:
-                spent["profile_used"] = profile_used
+            segments = []
+            for counted, ran_config, ran_profile, billing in metered:
+                part = counted.report(ran_config.get("model"), ran_config.get("runtime"), billing)
+                if part:
+                    part.update(harness=ran_config.get("harness") or ran_config.get("runtime") or "",
+                                effort=ran_config.get("reasoning_effort") or "",
+                                profile_used=ran_profile)
+                    segments.append(part)
+            spent = ({**segments[-1], **{key: sum(p[key] for p in segments)
+                      for key in ("input_tokens", "cached_tokens", "output_tokens")}, "segments": segments}
+                     if segments else None)
             completion = self.state.finish(aid, {"outcome": outcome, "text": reply,
                                                 **({"profile_used": profile_used} if profile_used else {}),
                                                 "tokens_in": tokens.get("input"), "tokens_out": tokens.get("output"),
@@ -2434,7 +2446,7 @@ class Runner:
         pending = dict(completion)
         if not pending.get("profile_used"):
             pending.pop("profile_used", None)
-        for compat in range(5):
+        for compat in range(6):
             try:
                 return self.client.post(f"attempts/{aid}/complete", pending, key=key if compat == 0 else key + f":compat-{compat}")
             except APIError as exc:
@@ -2446,15 +2458,18 @@ class Runner:
                     pending.pop("profile_used", None)
                     if pending.get("usage"):
                         pending["usage"] = {k: v for k, v in pending["usage"].items() if k != "profile_used"}
+                elif pending.get("usage") and any(k in pending["usage"] for k in ("segments", "harness", "effort")):
+                    old_usage = (pending["usage"].get("segments") or [pending["usage"]])[-1]
+                    pending["usage"] = {k: v for k, v in old_usage.items() if k not in ("segments", "harness", "effort")}
                 elif "usage" in pending:
                     pending.pop("usage")
                 else:
                     raise
 
-    def billing(self, bot, runtime):
+    def billing(self, bot, runtime, selected_profile=None):
         """`subscription` when the runtime this bot runs on is signed in with a plan (ChatGPT, Claude), else `api`."""
         row = (getattr(self, "runtime_rows", None) or {}).get(runtime) or {}
-        profile = self.profile(bot)
+        profile = selected_profile
         if profile and (row.get("profiles") or {}).get(profile.name):
             row = row["profiles"][profile.name]
         return usage.billing_for(runtime, row.get("detail"))

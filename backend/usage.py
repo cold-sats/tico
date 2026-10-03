@@ -18,23 +18,26 @@ from . import bot_access as A
 from . import models as M
 from . import providers, usage_limits, views
 from .store import H, P, Problem
+from .usage_records import RUNS
 
-GROUPS = ("bot", "day", "routine")
+DIMENSIONS = {"harness": "coalesce(t.harness, '')", "model": "coalesce(t.model, '')",
+              "effort": "coalesce(t.effort, '')", "subscription": "CASE WHEN t.billing='subscription' THEN coalesce(t.profile, '') ELSE '' END"}
+GROUPS = ("bot", "day", "routine", *DIMENSIONS)
 MAX_DAYS = 366
 TOP_ROUTINES = 10
 
 # Sums over `turns` shared by every grouping. A run with no token counts (a runtime that reports none,
 # or one from before usage) still counts as a run.
-SUMS = """count(*) AS runs,
+SUMS = """count(DISTINCT t.id) AS runs,
   sum(coalesce(t.input_tokens, 0)) AS input_tokens,
   sum(coalesce(t.cached_tokens, 0)) AS cached_tokens,
   sum(coalesce(t.output_tokens, 0)) AS output_tokens,
   sum(CASE WHEN t.billing = 'subscription' THEN 0 ELSE coalesce(t.est_cost_usd, 0) END) AS api_usd,
   sum(CASE WHEN t.billing = 'subscription' THEN coalesce(t.est_cost_usd, 0) ELSE 0 END) AS subscription_usd,
-  sum(CASE WHEN coalesce(t.billing, 'api') != 'subscription' AND t.est_cost_usd IS NOT NULL THEN 1 ELSE 0 END) AS api_priced,
-  sum(CASE WHEN coalesce(t.billing, 'api') != 'subscription' AND t.est_cost_usd IS NULL
+  count(DISTINCT CASE WHEN coalesce(t.billing, 'api') != 'subscription' AND t.est_cost_usd IS NOT NULL THEN t.id END) AS api_priced,
+  count(DISTINCT CASE WHEN coalesce(t.billing, 'api') != 'subscription' AND t.est_cost_usd IS NULL
             AND coalesce(t.input_tokens, 0) + coalesce(t.cached_tokens, 0) + coalesce(t.output_tokens, 0) > 0
-       THEN 1 ELSE 0 END) AS api_unpriced"""
+       THEN t.id END) AS api_unpriced"""
 ROUTINE_JOIN = ("LEFT JOIN schedule_occurrences o ON o.task_id = t.task_id "
                 "LEFT JOIN schedules s ON s.id = o.schedule_id")
 EMPTY_DAY = {"runs": 0, "input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "est_cost_usd": 0.0,
@@ -87,15 +90,18 @@ def install(app, store, auth, mutate, settings):
             raise Problem("range", f"A range is at most {MAX_DAYS} days", 422)
         return first, last
 
-    def query(c, key, join, slugs, first, last):
+    def query(c, key, join, slugs, first, last, filters=None):
         """Grouped sums for the runs that finished in the window on these bots."""
         if not slugs:
             return []
         marks = ",".join("?" * len(slugs))
-        sql = (f"SELECT {key} AS k, {SUMS} FROM turns t {join} WHERE t.finished IS NOT NULL AND t.started >= ? "
-               f"AND t.started < ? AND t.bot IN ({marks}) GROUP BY k")
+        sql = (f"SELECT {key} AS k, {SUMS} FROM {RUNS} t {join} WHERE t.finished IS NOT NULL AND t.started >= ? "
+               f"AND t.started < ? AND t.bot IN ({marks})")
         args = [first.isoformat() + "T00:00:00", (last + timedelta(days=1)).isoformat() + "T00:00:00", *sorted(slugs)]
-        return c.execute(sql, args).fetchall()
+        for dimension, value in (filters or {}).items():
+            sql += f" AND {DIMENSIONS[dimension]} = ?"
+            args.append("" if value == "__unknown__" else value)
+        return c.execute(sql + " GROUP BY k", args).fetchall()
 
     def totals(rows):
         keys = ("runs", "input_tokens", "cached_tokens", "output_tokens", "api_usd", "subscription_usd",
@@ -192,7 +198,8 @@ def install(app, store, auth, mutate, settings):
             raise Problem("forbidden", "Usage is for people", 403)
         first, last = window(request.query_params.get("from"), request.query_params.get("to"))
         if group not in GROUPS:
-            raise Problem("group", "group is bot, day or routine", 422)
+            raise Problem("group", "group must be one of: " + ", ".join(GROUPS), 422)
+        filters = {key: request.query_params[key] for key in DIMENSIONS if request.query_params.get(key)}
         with store.read() as c:
             allowed = own_bots(c, who)
             people, configs = views.roster(c), views.entries(c, settings.github_owner)
@@ -204,28 +211,31 @@ def install(app, store, auth, mutate, settings):
                     raise Problem("not_found", "Bot not found", 404)
                 if bot not in allowed:
                     raise Problem("forbidden", "Usage is for a bot's owners and administrators", 403)
-                daily = {r["k"]: r for r in query(c, "substr(t.started, 1, 10)", "", {bot}, first, last)}
+                daily = {r["k"]: r for r in query(c, "substr(t.started, 1, 10)", "", {bot}, first, last, filters)}
                 series = []
                 for offset in range((last - first).days + 1):
                     day = (first + timedelta(days=offset)).isoformat()
                     series.append({"day": day, **(figures(daily[day]) if day in daily else EMPTY_DAY)})
-                routines = sorted((routine_row(c, r, names) for r in query(c, "coalesce(s.id, '')", ROUTINE_JOIN, {bot}, first, last)),
+                routines = sorted((routine_row(c, r, names) for r in query(c, "coalesce(s.id, '')", ROUTINE_JOIN, {bot}, first, last, filters)),
                                   key=lambda r: (-spend(r), -r["runs"]))
                 return {**base, "bot": bot, "name": names[bot], "department": depts.get(bot) or None,
                         "limit": limit_view(c, who, bot, usage_limits.company(c), allowed),
-                        "totals": totals(query(c, "'all'", "", {bot}, first, last)), "daily": series,
+                        "totals": totals(query(c, "'all'", "", {bot}, first, last, filters)), "daily": series,
                         "routines": routines[:TOP_ROUTINES]}
             slugs = {s for s in allowed if not department or depts.get(s) == department}
-            total = totals(query(c, "'all'", "", slugs, first, last))
+            total = totals(query(c, "'all'", "", slugs, first, last, filters))
             if group == "bot":
                 default = usage_limits.company(c)
                 rows = [{"bot": r["k"], "name": names.get(r["k"], r["k"]), "department": depts.get(r["k"]) or None,
                          **figures(r), "limit": limit_view(c, who, r["k"], default, allowed)}
-                        for r in query(c, "t.bot", "", slugs, first, last)]
+                        for r in query(c, "t.bot", "", slugs, first, last, filters)]
             elif group == "day":
-                rows = [{"day": r["k"], **figures(r)} for r in query(c, "substr(t.started, 1, 10)", "", slugs, first, last)]
+                rows = [{"day": r["k"], **figures(r)} for r in query(c, "substr(t.started, 1, 10)", "", slugs, first, last, filters)]
+            elif group in DIMENSIONS:
+                rows = [{"value": r["k"] or None, "name": r["k"] or "Not recorded / not applicable", **figures(r)}
+                        for r in query(c, DIMENSIONS[group], "", slugs, first, last, filters)]
             else:
-                rows = [routine_row(c, r, names) for r in query(c, "coalesce(s.id, '')", ROUTINE_JOIN, slugs, first, last)]
+                rows = [routine_row(c, r, names) for r in query(c, "coalesce(s.id, '')", ROUTINE_JOIN, slugs, first, last, filters)]
             whole = spend(total)
             for row in rows:
                 row["share"] = round(spend(row) / whole, 4) if whole else 0.0
@@ -234,4 +244,6 @@ def install(app, store, auth, mutate, settings):
             else:
                 rows.sort(key=lambda r: (-spend(r), -(r["input_tokens"] + r["cached_tokens"] + r["output_tokens"]), -r["runs"]))
             return {**base, "group": group, "department": department or None, "totals": total, "rows": rows,
-                    "departments": sorted({d for d in depts.values() if d})}
+                    "departments": sorted({d for d in depts.values() if d}),
+                    "dimensions": {key: [r["k"] or "__unknown__" for r in query(c, expression, "", slugs, first, last)]
+                                   for key, expression in DIMENSIONS.items()}}

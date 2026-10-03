@@ -76,3 +76,7 @@ span.use-limit{display:block}
   span.use-limit{display:none}
   .use-row>.use-detail{grid-row:3}
 }
+
+.use-line:not(button){cursor:default}
+.use-bar-row label{max-width:100%}
+.use-bar-row label select{max-width:100%}

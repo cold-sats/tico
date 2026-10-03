@@ -6,6 +6,7 @@
 // GET /api/v2/usage (backend/usage.py, docs/usage.md): tokens each run used, priced at list price. Days are UTC.
 // A run on a ChatGPT or Claude sign-in is not spend: its figure is "API-equivalent" and stays apart.
 const USE_RANGES = [['today', 'Today'], ['7d', '7 days'], ['30d', '30 days'], ['month', 'This month'], ['custom', 'Custom']];
+const USE_DIMENSIONS = [['harness', 'Harness'], ['model', 'Model'], ['effort', 'Effort'], ['subscription', 'Subscription']];
 let USE = null;
 const useDay = date => date.toISOString().slice(0, 10);
 const useAdd = (day, n) => useDay(new Date(Date.parse(day + 'T00:00:00Z') + n * 864e5));
@@ -48,7 +49,7 @@ function pageUsage() {
   const saved = useSaved();
   const span = useSpan('7d');
   const state = USE = {range: USE_RANGES.some(r => r[0] === saved.range) && saved.range !== 'custom' ? saved.range : '7d',
-                       department: saved.department || '', custom: {from: span.from, to: span.to}, open: '', data: null, load: 0};
+                       department: saved.department || '', group: 'bot', sort: 'cost', filters: {}, custom: {from: span.from, to: span.to}, open: '', data: null, load: 0};
   $('#main').innerHTML = `<div class="use-page">
     <div class="use-head"><h1>Usage</h1></div>
     <div class="use-bar-row">
@@ -58,6 +59,12 @@ function pageUsage() {
       <span class="use-custom" hidden><input type="date" id="use-from" aria-label="From"><input type="date" id="use-to" aria-label="To"></span>
       <button type="button" class="ghost use-default" id="use-default" hidden>Default limit</button>
     </div>
+    <div class="use-bar-row">
+      <label>Group by <select id="use-group">${[['bot', 'Bot'], ...USE_DIMENSIONS].map(([key, label]) => `<option value="${key}">${label}</option>`).join('')}</select></label>
+      <label>Sort by <select id="use-sort"><option value="cost">Estimated cost</option><option value="tokens">Tokens</option><option value="runs">Runs</option><option value="name">Name</option></select></label>
+      ${USE_DIMENSIONS.map(([key, label]) => `<label>${label} <select data-use-filter="${key}" aria-label="Filter ${label}"><option value="">All</option></select></label>`).join('')}
+    </div>
+    <p class="muted">Historical details not reported by a runner remain unknown. A run using a fallback can appear in more than one group.</p>
     <div id="use-body" aria-live="polite"></div>
   </div>`;
   const main = $('#main');
@@ -65,6 +72,11 @@ function pageUsage() {
     const b = ev.target.closest('[data-use-range]'); if (!b || b.dataset.useRange === state.range) return;
     state.range = b.dataset.useRange; state.open = ''; useSave(); useLoad();
   };
+  $('#use-group').onchange = ev => { state.group = ev.target.value; state.open = ''; useLoad(); };
+  $('#use-sort').onchange = ev => { state.sort = ev.target.value; usePaint(); };
+  main.querySelectorAll('[data-use-filter]').forEach(select => select.onchange = () => {
+    state.filters[select.dataset.useFilter] = select.value; state.open = ''; useLoad();
+  });
   $('#use-dept').onchange = ev => { state.department = ev.target.value; state.open = ''; useSave(); useLoad(); };
   $('#use-from').onchange = $('#use-to').onchange = () => {
     state.custom = {from: $('#use-from').value, to: $('#use-to').value};
@@ -77,7 +89,7 @@ function pageUsage() {
       return void useLimitDialog(cap.dataset.useLimit, row?.name, row?.limit, state.limits?.default, () => void useLoad());
     }
     const line = ev.target.closest('.use-line');
-    if (line) return void useOpen(line.closest('.use-row').dataset.bot);
+    if (line && state.group === 'bot') return void useOpen(line.closest('.use-row').dataset.bot);
     if (ev.target.closest('[data-use-csv]')) useCsv();
   };
   $('#use-default').onclick = () => useDefaultDialog(state.limits, () => { void useLimits(); void useLoad(); });
@@ -95,7 +107,7 @@ async function useLimits() {
 
 const useParams = (state, extra) => {
   const {from, to} = useSpan(state.range, state.custom);
-  const q = new URLSearchParams({from, to, ...extra});
+  const q = new URLSearchParams({from, to, group: state.group, ...state.filters, ...extra});
   return {from, to, query: q.toString()};
 };
 
@@ -116,13 +128,22 @@ async function useLoad() {
   select.innerHTML = `<option value="">All groups</option>` + (data.departments || []).map(d =>
     `<option value="${esc(d)}"${d === state.department ? ' selected' : ''}>${esc(d)}</option>`).join('');
   select.hidden = !(data.departments || []).length;
+  for (const [key] of USE_DIMENSIONS) {
+    const filter = $(`[data-use-filter="${key}"]`), selected = state.filters[key] || '';
+    const values = [...new Set([...(data.dimensions?.[key] || []), ...(selected ? [selected] : [])])].sort();
+    filter.innerHTML = '<option value="">All</option>' + values.map(value => `<option value="${esc(value)}">${esc(value === '__unknown__' ? 'Not recorded / not applicable' : value)}</option>`).join('');
+    filter.value = selected;
+  }
   usePaint();
 }
 
 function usePaint() {
   const state = USE, data = state.data, body = $('#use-body');
+  if (!data || data.group !== state.group) return;
   body.removeAttribute('aria-busy');
-  const rows = [...(data.rows || [])].sort((a, b) => useSpend(b) - useSpend(a) || useTokens(b) - useTokens(a) || b.runs - a.runs);
+  const rank = state.sort === 'tokens' ? useTokens : state.sort === 'runs' ? r => r.runs : useSpend;
+  const rows = [...(data.rows || [])].sort((a, b) => state.sort === 'name'
+    ? (a.name || '').localeCompare(b.name || '') : rank(b) - rank(a) || (a.name || '').localeCompare(b.name || ''));
   if (!rows.length) { body.innerHTML = '<div class="empty">No usage yet.</div>'; return; }
   const t = data.totals;
   const top = Math.max(...rows.map(useSpend), 0);
@@ -130,14 +151,14 @@ function usePaint() {
       <strong id="use-total">${t.est_cost_usd == null ? '—' : useMoney(t.est_cost_usd)}</strong> · ${useRuns(t.runs)}
       ${t.subscription_equiv_usd > 0 ? `<div class="use-sub">≈ ${useMoney(t.subscription_equiv_usd)} API-equivalent on subscriptions</div>` : ''}</div>
     <ul class="use-list">${rows.map(r => `<li class="use-row" data-bot="${esc(r.bot)}">
-      ${useLimitButton(r.bot, r.name, r.limit)}
-      <button type="button" class="use-line" aria-expanded="${state.open === r.bot}">
-        <span class="use-who">${botAvatar(r.bot, 28)}<span class="use-name">${esc(r.name || r.bot)}</span></span>
+      ${state.group === 'bot' ? useLimitButton(r.bot, r.name, r.limit) : '<span class="use-limit"></span>'}
+      <${state.group === 'bot' ? 'button type="button"' : 'div'} class="use-line"${state.group === 'bot' ? ` aria-expanded="${state.open === r.bot}"` : ''}>
+        <span class="use-who">${state.group === 'bot' ? botAvatar(r.bot, 28) : ''}<span class="use-name">${esc(r.name || r.bot)}</span></span>
         <span class="use-runs tnum">${useRuns(r.runs)}</span>
         <span class="use-tok tnum">${useCount(useTokens(r))} tokens</span>
         <span class="use-cost tnum">${useCost(r)}</span>
         <span class="use-share" role="img" aria-label="${Math.round((r.share || 0) * 100)}% of the total"><i style="width:${top ? Math.max(useSpend(r) ? 2 : 0, Math.round(100 * useSpend(r) / top)) : 0}%"></i></span>
-      </button>
+      </${state.group === 'bot' ? 'button' : 'div'}>
       <div class="use-detail" ${state.open === r.bot ? '' : 'hidden'}></div></li>`).join('')}</ul>`;
   if (state.open) void useDetail(state.open);
 }

@@ -608,12 +608,22 @@ TASK_PRIVACY_SCHEMA = """
 ALTER TABLE tasks ADD COLUMN private INTEGER NOT NULL DEFAULT 1 CHECK (private IN (0,1));
 """
 
+# Immutable primary/fallback usage reports; append to preserve existing installations.
+USAGE_SEGMENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS turn_usage_segments (
+  turn_id TEXT NOT NULL REFERENCES turns(id), position INTEGER NOT NULL,
+  input_tokens INTEGER, cached_tokens INTEGER, output_tokens INTEGER,
+  model TEXT, provider TEXT, est_cost_usd REAL, billing TEXT,
+  runtime TEXT, harness TEXT, effort TEXT, profile TEXT,
+  PRIMARY KEY(turn_id, position));
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
               REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA,
               USAGE_LIMITS_SCHEMA, TAGS_SCHEMA, PIPELINES_SCHEMA, CHAT_GOALS_SCHEMA, REPOSITORIES_SCHEMA, TASK_LINKS_V2_SCHEMA, SUBSCRIPTIONS_SCHEMA,
-              STORAGE_SCHEMA, TASK_REVIEW_SCHEMA, MEETING_REVIEW_SCHEMA, NUMBERS_SCHEMA, TASK_PRIVACY_SCHEMA]
+              STORAGE_SCHEMA, TASK_REVIEW_SCHEMA, MEETING_REVIEW_SCHEMA, NUMBERS_SCHEMA, TASK_PRIVACY_SCHEMA, USAGE_SEGMENTS_SCHEMA]
 
 
 class Refused(Exception):
@@ -3998,6 +4008,12 @@ def turn_finish(conn, actor, turn_id, exit_code="ok", tokens_in=None, tokens_out
                      "billing=:billing WHERE id=:id",
                      {"input_tokens": None, "cached_tokens": None, "output_tokens": None, "model": None,
                       "provider": None, "est_cost_usd": None, "billing": None, **usage, "id": turn_id})
+    if usage and usage.get("segments"):
+        conn.execute("DELETE FROM turn_usage_segments WHERE turn_id=?", (turn_id,))
+        for position, part in enumerate(usage["segments"]):
+            conn.execute("INSERT INTO turn_usage_segments VALUES(:turn_id,:position,:input_tokens,:cached_tokens,"
+                         ":output_tokens,:model,:provider,:est_cost_usd,:billing,:runtime,:harness,:effort,:profile)",
+                         {**part, "turn_id": turn_id, "position": position})
     row = _one(conn, "SELECT * FROM turns WHERE id=?", (turn_id,))
     if row:
         conn.execute("UPDATE bots SET last_turn_at=? WHERE slug=?", (ts, row["bot"]))
