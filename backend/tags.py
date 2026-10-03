@@ -50,7 +50,7 @@ def install(app, store, auth, mutate, task_views):
             limit, offset = max(1, min(limit, 500)), max(0, offset)
             tasks = H.tasks(c, label=row["key"], visible=auth.task_sql(c, who), limit=limit + 1, offset=offset)
             return {"tag": row, "editable": H.tag_can_edit(c, who.actor, row, mover(c, who)),
-                    "tasks": task_views(tasks[:limit], c, auth.task_sql(c, who)),
+                    "tasks": task_views(tasks[:limit], c, who, auth.task_sql(c, who)),
                     "next_offset": offset + limit if len(tasks) > limit else None}
 
     def create(c, who, body, template_id=None):
