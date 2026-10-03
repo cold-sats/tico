@@ -121,7 +121,7 @@ async function renderDownloadLink() {
     const url = new URL(d.url, location.href);
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return;
     const company = d.app_kind === 'company';
-    const label = company ? `Download Tico for ${companyName()}` : 'Download generic Tico · manual server setup';
+    const label = company ? `Download Tico for ${companyName()}` : 'Generic Tico · manual setup';
     a.href = d.url;
     a.textContent = '';
     a.insertAdjacentHTML('beforeend', `<span class="nav-icon" aria-hidden="true">download</span>${esc(label)}`);
