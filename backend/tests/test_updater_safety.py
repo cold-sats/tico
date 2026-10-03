@@ -67,7 +67,8 @@ def test_the_restore_script_swaps_the_database_and_clears_litestreams_tracking(m
     (tmp_path / "hub.sqlite-wal").write_text("stale")
     subprocess.run([sys.executable, "-c", updater.RESTORE_SCRIPT, str(tmp_path / "snap.sqlite"), str(tmp_path / "hub.sqlite")], check=True)
     value = lambda name: sqlite3.connect(tmp_path / name).execute("SELECT v FROM t").fetchone()[0]
-    assert value("hub.sqlite") == "before" and value("hub.sqlite.failed-update") == "migrated"
+    recovered, = tmp_path.glob("hub.sqlite.failed-update-*/recovery.sqlite")
+    assert value("hub.sqlite") == "before" and value(recovered) == "migrated"
     assert not (tmp_path / ".hub.sqlite-litestream").exists() and not (tmp_path / "hub.sqlite-wal").exists()
     assert not (tmp_path / "hub.sqlite.restoring").exists()
 
@@ -178,3 +179,97 @@ def test_after_a_healthy_update_older_release_images_are_removed_but_the_rollbac
     updater.prune_images(keep={"v0.2.30", "v0.2.29"})
     assert removed == [updater.IMAGE + ":v0.2.28", updater.IMAGE + ":v0.2.17",
                        updater.IMAGE + "-updater:v0.2.28", updater.IMAGE + "-updater:v0.2.17"]
+
+
+def crashed_database(tmp_path):
+    import sqlite3, subprocess, sys
+    for name in ("snapshot.sqlite", "hub.sqlite"):
+        with sqlite3.connect(tmp_path / name) as db:
+            db.execute("CREATE TABLE t(v)")
+            db.execute("INSERT INTO t VALUES('before')")
+    # An abrupt exit leaves a committed row solely in the WAL, as a crashed server can.
+    subprocess.run([sys.executable, "-c", """
+import os, sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+c.execute('PRAGMA journal_mode=WAL')
+c.execute('PRAGMA wal_autocheckpoint=0')
+c.execute("INSERT INTO t VALUES('after snapshot')")
+c.commit()
+os._exit(0)
+""", str(tmp_path / "hub.sqlite")], check=True)
+    assert (tmp_path / "hub.sqlite-wal").stat().st_size > 0
+    return tmp_path / "snapshot.sqlite", tmp_path / "hub.sqlite"
+
+
+def read_values(path):
+    import sqlite3
+    from contextlib import closing
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
+        return [r[0] for r in db.execute("SELECT v FROM t")]
+
+
+def test_rollback_keeps_wal_commits_and_all_prior_recovery_evidence(monkeypatch, tmp_path):
+    import subprocess, sys
+    updater = load(monkeypatch, "", tmp_path)
+    snapshot, db = crashed_database(tmp_path)
+    old = tmp_path / "hub.sqlite.failed-update"
+    old.write_bytes(b"prior evidence")
+    assert read_values(db) == ["before", "after snapshot"]
+    subprocess.run([sys.executable, "-c", updater.RESTORE_SCRIPT, str(snapshot), str(db)], check=True)
+    recovered, = tmp_path.glob("hub.sqlite.failed-update-*/recovery.sqlite")
+    assert read_values(recovered) == ["before", "after snapshot"]
+    assert read_values(db) == ["before"]
+    assert not (tmp_path / "hub.sqlite-wal").exists()
+    subprocess.run([sys.executable, "-c", updater.RESTORE_SCRIPT, str(snapshot), str(db)], check=True)
+    assert len(list(tmp_path.glob("hub.sqlite.failed-update-*/recovery.sqlite"))) == 2
+    assert read_values(recovered) == ["before", "after snapshot"]
+    assert old.read_bytes() == b"prior evidence"
+
+
+def test_unreadable_failed_database_keeps_a_raw_main_and_sidecar_set(monkeypatch, tmp_path):
+    import subprocess, sys
+    updater = load(monkeypatch, "", tmp_path)
+    snapshot, db = crashed_database(tmp_path)
+    db.write_bytes(b"unreadable fictional database")
+    evidence = {suffix: (tmp_path / ("hub.sqlite" + suffix)).read_bytes() for suffix in ("", "-wal")
+                if (tmp_path / ("hub.sqlite" + suffix)).exists()}
+    subprocess.run([sys.executable, "-c", updater.RESTORE_SCRIPT, str(snapshot), str(db)], check=True)
+    raw, = tmp_path.glob("hub.sqlite.failed-update-*/raw")
+    assert (raw / "hub.sqlite-shm").exists()  # SQLite may rebuild this index while opening read-only.
+    for suffix, data in evidence.items():
+        assert (raw / ("hub.sqlite" + suffix)).read_bytes() == data
+    assert not list(tmp_path.glob("hub.sqlite.failed-update-*/recovery.sqlite"))
+    assert read_values(db) == ["before"]
+
+
+@pytest.mark.parametrize("failure", ["directory", "sync", "raw-copy"])
+def test_preservation_failure_leaves_the_live_database_and_wal_untouched(monkeypatch, tmp_path, failure):
+    import subprocess, sys
+    updater = load(monkeypatch, "", tmp_path)
+    snapshot, db = crashed_database(tmp_path)
+    tracking = tmp_path / ".hub.sqlite-litestream"
+    tracking.mkdir()
+    if failure == "raw-copy":
+        db.write_bytes(b"unreadable fictional database")
+    evidence = {suffix: (tmp_path / ("hub.sqlite" + suffix)).read_bytes() for suffix in ("", "-wal")}
+    # Fault injection runs the exact script; only recovery I/O fails, after staging succeeds.
+    prefix = """
+import builtins, os, tempfile
+real_open, real_mkdtemp, real_fsync = builtins.open, tempfile.mkdtemp, os.fsync
+def fail(*args, **kwargs):
+    raise OSError('fictional preservation failure')
+"""
+    if failure == "directory":
+        prefix += "tempfile.mkdtemp = fail\n"
+    elif failure == "sync":
+        prefix += "count = 0\ndef fsync(fd):\n    global count\n    count += 1\n    return fail() if count > 1 else real_fsync(fd)\nos.fsync = fsync\n"
+    else:
+        prefix += "def checked_open(path, mode='r', *a, **kw):\n    if '/raw/' in str(path) and 'w' in mode: fail()\n    return real_open(path, mode, *a, **kw)\nbuiltins.open = checked_open\n"
+    result = subprocess.run([sys.executable, "-c", prefix + updater.RESTORE_SCRIPT, str(snapshot), str(db)], capture_output=True)
+    assert result.returncode != 0 and b"fictional preservation failure" in result.stderr
+    assert tracking.exists()
+    assert (tmp_path / "hub.sqlite-shm").exists()
+    for suffix, data in evidence.items():
+        assert (tmp_path / ("hub.sqlite" + suffix)).read_bytes() == data
+    if failure != "raw-copy":
+        assert read_values(db) == ["before", "after snapshot"]

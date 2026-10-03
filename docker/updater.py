@@ -382,26 +382,63 @@ for old in sorted(glob.glob(os.path.join(folder, "pre-update-*.sqlite")))[:-keep
 """
 
 RESTORE_SCRIPT = """
-import os, shutil, sqlite3, sys
+import os, shutil, sqlite3, sys, tempfile
+from contextlib import closing
+from pathlib import Path
 snapshot, db = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "/data/hub.sqlite"
-if sqlite3.connect(snapshot).execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-    sys.exit("the snapshot fails its integrity check")
+def readonly(path):
+    return sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+def sync_dir(path):
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+def copy(source, target):
+    with open(source, "rb") as src, open(target, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+        dst.flush(); os.fsync(dst.fileno())
+with closing(readonly(snapshot)) as source:
+    if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        sys.exit("the snapshot fails its integrity check")
 # The copy is finished on disk before the database is touched, so a crash leaves the migrated one, never none.
-with open(snapshot, "rb") as source, open(db + ".restoring", "wb") as target:
-    shutil.copyfileobj(source, target)
-    target.flush(); os.fsync(target.fileno())
+copy(snapshot, db + ".restoring")
+folder = os.path.dirname(os.path.abspath(db))
+# Writers (including Litestream) are stopped by restore_snapshot. Read WAL commits into a
+# separate backup before deleting anything; never overwrite evidence from an earlier rollback.
+if any(os.path.exists(db + suffix) for suffix in ("", "-wal", "-shm")):
+    failed = tempfile.mkdtemp(prefix=os.path.basename(db) + ".failed-update-", dir=folder)
+    recovered = os.path.join(failed, "recovery.sqlite")
+    try:
+        with closing(readonly(db)) as source, closing(sqlite3.connect(recovered)) as target:
+            source.backup(target)
+            if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise sqlite3.DatabaseError("failed database is not readable")
+        with open(recovered, "rb") as saved:
+            os.fsync(saved.fileno())
+    except sqlite3.Error:
+        # An unreadable database still has forensic value. Keep its main file and sidecars
+        # together under their original names; this is not a validated single-file backup.
+        raw = os.path.join(failed, "raw")
+        os.mkdir(raw)
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(db + suffix):
+                copy(db + suffix, os.path.join(raw, os.path.basename(db) + suffix))
+        sync_dir(raw)
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(recovered + suffix):
+                os.remove(recovered + suffix)
+    sync_dir(failed)
+    sync_dir(folder)
+# Any preservation failure exits before sidecar removal, tracking removal or database replacement.
 # Litestream's record of the file it followed is the migrated database's; left in place it would treat the
 # restored file as a break and could upload it as the newest copy. Removed, it starts from what is on disk.
 shutil.rmtree(os.path.join(os.path.dirname(db), "." + os.path.basename(db) + "-litestream"), ignore_errors=True)
-failed = db + ".failed-update"    # kept for inspection, never deleted here
-if os.path.exists(db):
-    if os.path.exists(failed):
-        os.remove(failed)
-    os.link(db, failed)
 for extra in ("-wal", "-shm"):
     if os.path.exists(db + extra):
         os.remove(db + extra)
 os.replace(db + ".restoring", db)
+sync_dir(folder)
 """
 
 
