@@ -113,13 +113,14 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .bot-recurring-list .when{flex:1 1 0;min-width:0;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-recurring-list li.paused .ttl{color:var(--muted)}
 .bot-recurring-next{flex:none;font-size:12px;color:var(--muted)}
-/* The bot's tasks: one flat list, the state as a small icon, the title, and the avatar of whoever holds it;
+/* The bot's tasks: one flat list, the state in words, the title, and the avatar of whoever holds it;
    no lines between rows */
 #pane-tasks .trow{border-bottom:0}
 #pane-tasks .trow :is(summary,.trow-head){padding:4px;margin:0 -4px;min-height:28px;font-size:13px;line-height:18px}
-#pane-tasks .trow[data-task-version] :is(summary,.trow-head){grid-template-columns:16px minmax(0,1fr) auto;grid-template-areas:"ic ttl who";gap:0 8px;align-items:center}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto auto;grid-template-areas:"ttl pr status who";gap:0 8px;align-items:center}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pill,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tnum,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tags{display:none!important}
-#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .si{grid-area:ic;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px}   /* the same status icon as Tasks (statusIcon, ui/app/tasks.js) */
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .task-status{grid-area:status;display:inline-block;max-width:80px}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pr-badge{grid-area:pr}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .who-av{grid-area:who;display:inline-flex}
 #pane-tasks .trow :is(summary,.trow-head) .who-av .av{width:18px!important;height:18px!important;font-size:8px!important}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}

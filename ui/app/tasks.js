@@ -114,32 +114,11 @@ function taskMatches(it, query) {
     person && personDisplay(person), it.slug && botDisplayName(it.slug), taskStatusLabel(it.task), taskWaitLine(it.task)], query);
 }
 
-// ---- the status icon: one small shape per state, the same in rows, cards, group headers, a task's header and its subtasks.
-//  dashed circle  open and needs a human (amber when that human is you)
-//  pie            doing: a quarter while it starts, half while it runs, three quarters in review
-//  clock          waiting or scheduled
-//  check          done
-//  slash          closed
-// A task has one status, named the same everywhere (its icon's label, the header, the Status property). Being blocked
-// by another task is not a status: it is the Blocked by property, drawn with the small stop mark.
-const STATUS_KIND_WORD = {needsme: 'Needs you', needs: 'Needs someone', starting: 'Starting', doing: 'Doing', review: 'In review',
-  waiting: 'Waiting', scheduled: 'Scheduled', blocked: 'Blocked', done: 'Done', closed: 'Closed', declined: 'Declined'};
-// Waits on you: you own it, it asks you, or a bot declined it back to you.
+// A task’s state is written in words; its owner and dependencies remain separate properties.
 function taskNeedsViewer(t) {
   const me = myActor();
   return !!me && !!t && !taskFinished(t) && (t.owner === me || t.ask?.to_actor === me
     || (t.status === 'declined' && taskRequester(t) === me && !actorPerson(t.owner)));
-}
-function taskStatusKind(t) {
-  const status = String(t?.status || 'open');
-  if (status === 'done') return 'done';
-  if (status === 'closed') return 'closed';
-  const col = hubColumn(t);
-  if (col === 'needs') return taskNeedsViewer(t) ? 'needsme' : 'needs';
-  if (col === 'waiting') return 'waiting';
-  if (status === 'review' || status === 'ready') return 'review';
-  if (status === 'open') return 'starting';
-  return 'doing';
 }
 // The name of a task's status: its step when its type has steps, else the status (Open, Doing, Waiting, In review…).
 function taskStatusLabel(t) {
@@ -147,24 +126,9 @@ function taskStatusLabel(t) {
   if (t.step?.name && pipelineTypeId(t) !== 'general') return t.step.name;
   return STATUS_WORD[t.status] || String(t.status || '');
 }
-const SI_RING = '<circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>';
-const SI_SHAPES = {
-  needs: '<circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 1.92"/>',
-  starting: SI_RING + '<path d="M7 7V3.4A3.6 3.6 0 0 1 10.6 7Z" fill="currentColor"/>',
-  doing: SI_RING + '<path d="M7 3.4A3.6 3.6 0 0 1 7 10.6Z" fill="currentColor"/>',
-  review: SI_RING + '<path d="M7 7V3.4A3.6 3.6 0 1 1 3.4 7Z" fill="currentColor"/>',
-  waiting: SI_RING + '<path d="M7 4.4V7l1.8 1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
-  blocked: '<circle cx="7" cy="7" r="6.2" fill="currentColor"/><path class="si-cut" d="M4.3 7h5.4" fill="none" stroke-width="1.8" stroke-linecap="round"/>',
-  done: '<circle cx="7" cy="7" r="6.2" fill="currentColor"/><path class="si-cut" d="M4.3 7.2l1.8 1.8 3.6-3.7" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
-  closed: SI_RING + '<path d="M4.7 9.3l4.6-4.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
-};
-SI_SHAPES.declined = SI_RING + '<path d="M5.2 5.2l3.6 3.6M8.8 5.2l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>';
-SI_SHAPES.needsme = SI_SHAPES.needs; SI_SHAPES.scheduled = SI_SHAPES.waiting;
-function statusIcon(kind, label = STATUS_KIND_WORD[kind] || '') {
-  const shape = SI_SHAPES[kind] || SI_SHAPES.starting;
-  return `<span class="si si-${esc(kind)}" data-status-kind="${esc(kind)}" role="img" aria-label="${esc(label)}" title="${esc(label)}"><svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false">${shape}</svg></span>`;
+function taskStatusText(t, label = taskStatusLabel(t)) {
+  return `<span class="task-status" data-status="${esc(t.status || 'open')}" aria-label="${esc(label)}" title="${esc(label)}">${esc(label)}</span>`;
 }
-const taskStatusIcon = t => statusIcon(taskStatusKind(t), taskStatusLabel(t));
 
 // ---- the small things a row and a card carry
 // Ages read short on a row: 5m, 3h, 2d, then the date.
@@ -278,14 +242,15 @@ function taskRowNote(t) {
 // ---- the board: one column per state; an empty column folds to a thin strip with its name and count
 // The same card the list's peek opens: a cover when the task has a picture, the title, its chips, a dot for an open
 // question, the owner's face and the age.
-function taskCard(it) {
+function taskCard(it, columnName = '') {
   const t = it.task, st = TASKS_ST;
   const chips = t ? taskChipsHTML(t, {maxTags: 2}) : '';
+  const status = t ? STATUS_WORD[t.status] || t.status : '';
   void st;   // selection, cursor and peek are painted on (task-list.js), so the card's signature only changes with its content
   return tasksSigned(`<div class="bcard" data-task-key="${esc(it.key)}">${t ? taskCoverHTML(t) : ''}
     <button class="bcard-open" type="button" data-open-task="${esc(it.key)}" title="${esc(t ? taskRowTip(t) : it.title)}" tabindex="-1">
-      ${t ? taskStatusIcon(t) : ''}<span class="bcard-title">${esc(it.title)}</span></button>
-    <div class="bcard-foot">${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>${t ? taskAskDot(t) : ''}
+      <span class="bcard-title">${esc(it.title)}</span></button>
+    <div class="bcard-foot">${t && status !== columnName ? taskStatusText(t, status) : ''}${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>${t ? taskAskDot(t) : ''}
       <span class="tl-face" aria-hidden="true">${actorFace(it.actor, 16)}</span>
       <span class="age tnum" title="${esc(fmt(it.updated))}">${esc(ageShort(it.updated))}</span></div>
   </div>`);
@@ -319,10 +284,9 @@ function boardColumnsHTML(columns) {
   const sizes = columns.map(c => anyWork && !c.items.length ? '34px' : 'minmax(0,1fr)').join(' ');
   return `<div class="board work" style="--board-cols:${esc(sizes)}">${columns.map(column => {
     const empty = anyWork && !column.items.length;
-    const icon = column.kind ? statusIcon(column.kind, column.name) : '';
     return `<section class="bcol${empty ? ' is-empty' : ''}" data-col="${esc(column.id)}" aria-label="${esc(column.name)}${column.hint ? `: ${esc(column.hint)}` : ''}">
-      <header${column.hint ? ` title="${esc(column.hint)}"` : ''}>${icon}<h2>${esc(column.name)}</h2><span class="cnt tnum">${column.items.length}</span></header>
-      ${empty ? '' : `<div class="bcol-body">${column.items.map(taskCard).join('') || '<div class="empty">Nothing here</div>'}</div>`}
+      <header${column.hint ? ` title="${esc(column.hint)}"` : ''}><h2>${esc(column.name)}</h2><span class="cnt tnum">${column.items.length}</span></header>
+      ${empty ? '' : `<div class="bcol-body">${column.items.map(it => taskCard(it, column.name)).join('') || '<div class="empty">Nothing here</div>'}</div>`}
     </section>`;
   }).join('')}</div>`;
 }

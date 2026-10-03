@@ -5,7 +5,6 @@
 'use strict';
 
 const TASK_SET_STATUSES = ['open', 'doing', 'waiting', 'review', 'ready', 'done', 'declined'];
-const STATUS_KIND_OF = {open: 'starting', doing: 'doing', waiting: 'waiting', review: 'review', ready: 'review', done: 'done', closed: 'closed', declined: 'declined'};
 const PROP_ICON = {
   due: '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><rect x="2" y="3" width="10" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6h10M5 1.8v2.4M9 1.8v2.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
   type: '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><path d="M2.5 4.5h9M2.5 7h9M2.5 9.5h5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
@@ -34,7 +33,7 @@ function taskPropsHTML(t, opts = {}) {
   const rows = [];
   // Status: the shared icon and the status's name (a typed task's status follows its steps)
   const statusName = STATUS_WORD[t.status] || String(t.status || '');
-  rows.push(row('status', 'Status', taskStatusIcon(t) + txt(statusName), {edit: r.edit || (!r.live && r.reopen), words: statusName}));
+  rows.push(row('status', 'Status', txt(statusName), {edit: r.edit || (!r.live && r.reopen), words: statusName}));
   // Owner and who asked
   rows.push(row('owner', 'Owner', actorFace(t.owner, 16) + txt(actorLabel(t.owner)), {edit: r.edit, words: actorLabel(t.owner),
     extra: t.private ? '<small>Reassigning grants the new assignee access and removes the previous assignee’s access unless they requested the task.</small>' : ''}));
@@ -62,10 +61,9 @@ function taskPropsHTML(t, opts = {}) {
   for (const [key, label, id, known, verb] of [['parent', 'Part of', t.parent_id, t.parent, 'parent'], ['blocked', 'Blocked by', t.blocked_by, t.blocker, 'blocker']]) {
     const other = id ? (known && String(known.id) === String(id) ? known : null) || taskPropTask(id) : null;
     const title = other?.title || 'A task';
-    const icon = key === 'blocked' ? statusIcon('blocked', 'Blocked by') : other?.status ? taskStatusIcon(other) : statusIcon('starting', '');
     if (id) {
       rows.push(`<div class="prop" data-prop-row="${key}"><span class="prop-k" aria-hidden="true">${esc(label)}</span><span class="prop-vwrap">`
-        + `<button type="button" class="prop-v prop-link" data-open-task="t${esc(id)}" aria-label="${esc(label)}: ${esc(title)}. Open it">${icon}<span class="prop-txt">${esc(title)}</span></button>`
+        + `<button type="button" class="prop-v prop-link" data-open-task="t${esc(id)}" aria-label="${esc(label)}: ${esc(title)}. Open it"><span class="prop-txt">${esc(title)}</span></button>`
         + (r.links ? `<button type="button" class="prop-x" data-prop-clear="${key}" aria-label="Clear ${esc(label)}" title="Clear">${TL_ICON.x}</button>` : '') + '</span></div>');
     } else rows.push(row(key, label, txt(r.links ? `Add ${verb}` : 'None'), {edit: r.links, empty: true, words: 'none'}));
   }
@@ -73,7 +71,7 @@ function taskPropsHTML(t, opts = {}) {
   if (typed) {
     rows.push(row('type', 'Type', `<span class="prop-ic">${PROP_ICON.type}</span>` + txt(type.name), {edit: r.edit && TASK_TYPES.length > 1, words: type.name}));
     const step = type.steps.find(s => s.id === t.step_id);
-    rows.push(row('step', 'Step', step ? statusIcon(STATUS_KIND_OF[step.status] || 'starting', '') + txt(step.name) : txt('Add step'), {edit: r.edit || (!r.live && r.reopen), empty: !step, words: step?.name || 'none'}));
+    rows.push(row('step', 'Step', step ? txt(step.name) : txt('Add step'), {edit: r.edit || (!r.live && r.reopen), empty: !step, words: step?.name || 'none'}));
   }
   return `<div class="props">${rows.join('')}</div><div class="props-msg" data-props-msg role="status" aria-live="polite"></div>`;
 }
@@ -157,8 +155,8 @@ function taskMenuSettled(d) {
 }
 
 // ---- the pickers
-const stepItems = (t, type) => [{value: '', text: 'No step', html: `${statusIcon(STATUS_KIND_OF[t.status] || 'starting', '')}<span>No step</span>`, checked: !t.step_id},
-  ...type.steps.map(s => ({value: s.id, text: s.name, html: `${statusIcon(STATUS_KIND_OF[s.status] || 'starting', '')}<span>${esc(s.name)}</span>`, checked: s.id === t.step_id, step: s}))];
+const stepItems = (t, type) => [{value: '', text: 'No step', html: `<span>No step</span>`, checked: !t.step_id},
+  ...type.steps.map(s => ({value: s.id, text: s.name, html: `<span>${esc(s.name)}</span>`, checked: s.id === t.step_id, step: s}))];
 // Tasks to pick from: the Tasks page's list, else a short-lived copy (a minute; the Tasks page clears it on open).
 let PROP_TASKS = null;
 async function taskPropCandidates(t, key) {
@@ -205,7 +203,7 @@ function taskPropsBind(d, task, change) {
         return;
       }
       propMenu(d, b, {label: 'Status', items: TASK_SET_STATUSES.map(s => ({value: s, text: STATUS_WORD[s] || s,
-        html: `${statusIcon(STATUS_KIND_OF[s], '')}<span>${esc(STATUS_WORD[s] || s)}</span>`, checked: task.status === s})),
+        html: `<span>${esc(STATUS_WORD[s] || s)}</span>`, checked: task.status === s})),
         onPick: it => { if (it.value !== task.status) void save('status', {status: it.value}); }});
     } else if (key === 'step' && typed) {
       propMenu(d, b, {label: 'Step', items: stepItems(task, type), onPick: it => {
@@ -236,7 +234,7 @@ function taskPropsBind(d, task, change) {
       const rows = await taskPropCandidates(task, key);
       if (!b.isConnected) return;
       propMenu(d, b, {label: key === 'parent' ? 'Part of' : 'Blocked by', find: 'Find a task', none: 'No open tasks', items: rows.map(x => ({value: x.id, text: `${x.title} ${actorLabel(x.owner)}`,
-        html: `${taskStatusIcon(x)}<span class="tl-mi-t">${esc(clipLine(x.title, 70))}</span><span class="tl-mi-sub">${esc(actorLabel(x.owner))}</span>`,
+        html: `${taskStatusText(x)}<span class="tl-mi-t">${esc(clipLine(x.title, 70))}</span><span class="tl-mi-sub">${esc(actorLabel(x.owner))}</span>`,
         checked: String(task[field] || '') === String(x.id)})), onPick: it => {
           if (taskPropLoops(task, key, TASKS_ST?.tasks || PROP_TASKS?.rows || []).has(String(it.value))) { d.propsErrs = {id: String(task.id), map: new Map([[key, 'That would make a loop.']])}; taskPropsMsgPaint(d); return; }
           if (String(it.value) !== String(task[field] || '')) void save(key, {[field]: it.value});

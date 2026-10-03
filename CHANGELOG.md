@@ -14,6 +14,9 @@ All notable changes to Tico are recorded here. The format follows
 - A comment that wakes an assignee bot does not grant permission to close the task.
 - Done tasks can be explicitly closed from their menu or bulk actions, preserving completion history.
 
+### Changed
+- Task rows and cards show plain status words instead of circular status glyphs; detail controls keep their text labels.
+
 ## [0.3.13] - 2026-10-02
 
 ### Added

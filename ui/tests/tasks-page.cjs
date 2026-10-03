@@ -198,10 +198,10 @@ async function listAndTabs(browser) {
   assert.ok(heights.every(h => h >= 30 && h <= 36), 'rows are one 32px line: ' + heights);
   assert.doesNotMatch(await page.locator('#task-body').innerText(), /Added by/);
   assert.match(await page.locator('[data-task-key="tt-copy"]').getAttribute('title'), /Added by Writer \(bot\)/);
-  // Status icons, the same component everywhere.
-  const kind = key => page.locator(`[data-task-key="${key}"] > .si`).getAttribute('data-status-kind');
+  // Status words show the actual lifecycle state.
+  const kind = key => page.locator(`[data-task-key="${key}"] > .task-status`).getAttribute('data-status');
   assert.deepEqual(await Promise.all(['tt-copy', 'tt-demo', 'tt-inbox', 'tt-checkout', 'tt-idem', 'tt-summary', 'tt-digest'].map(kind)),
-    ['needsme', 'needs', 'waiting', 'waiting', 'doing', 'review', 'starting'], 'blocked is a property, not a status');
+    ['open', 'open', 'waiting', 'waiting', 'doing', 'review', 'open'], 'blocked is a property, not a status');
   // Chips: tags (two, then +N), the PR badge, the subtask ring; dates: a person's deadline, or a parked bot task's wake.
   const idem = page.locator('[data-task-key="tt-idem"]');
   assert.deepEqual(await idem.locator('.tlabel').allInnerTexts(), ['payments', 'backend', '+1']);
@@ -462,7 +462,7 @@ async function peekAndKeys(browser) {
   const list = await page.locator('#tasks-pane').boundingBox(), side = await peek.boundingBox();
   assert.ok(side.x >= list.x + list.width - 1 && side.width >= 380 && list.width >= 600, `list and peek side by side: ${JSON.stringify([list, side])}`);
   assert.equal(await page.locator('[data-task-key="tt-inbox"]').evaluate(r => r.classList.contains('peeked')), true);
-  assert.equal(await peek.locator('.tmodal-head .si').getAttribute('data-status-kind'), 'waiting', 'the header has the same status icon');
+  assert.equal(await peek.locator('.tmodal-head .tstatus').innerText(), 'Waiting');
   await peek.locator('.task-comments .tcomment').first().waitFor();
   // The focus stays in the list: ↓ / j move the peek with it; k / ↑ back.
   assert.equal(await focusedKey(page), 'tt-inbox');
@@ -475,7 +475,7 @@ async function peekAndKeys(browser) {
   await page.keyboard.press('ArrowDown');
   await peekTitle(page, 'Ship the checkout redesign');
   await peek.locator('.task-subs .sub-row').first().waitFor();
-  assert.ok(await peek.locator('.task-subs .sub-row .si').count() >= 2, 'subtask rows carry the status icon');
+  assert.ok(await peek.locator('.task-subs .sub-row .task-status').count() >= 2, 'subtask rows name their status');
   await shot(page, 'peek-dark');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await shot(page, 'peek-light');
@@ -554,12 +554,12 @@ async function properties(browser) {
     [...r.querySelectorAll('.prop-txt, .tlabel > [data-tag-key]')].map(x => x.textContent.trim()).join(' ')]));
   assert.deepEqual(rows, [['Status', 'Waiting'], ['Owner', 'Engineer'], ['Asked by', 'You'], ['Private', ''], ['Due', 'Add due date'], ['Tags', 'checkout'],
     ['Part of', 'Add parent'], ['Blocked by', 'Add idempotency keys to the payments API']]);
-  assert.equal(await props.locator('[data-prop="status"] .si').getAttribute('data-status-kind'), 'waiting');
+  assert.match(await props.locator('[data-prop="status"]').innerText(), /Waiting/);
   // One status, named once: the header, the property and the list all say Waiting; "blocked" is a small chip.
   assert.equal(await peek.locator('.tmodal-head .tstatus').innerText(), 'Waiting');
   assert.equal(await peek.locator('.tmodal-head .tchip-blocked').innerText(), 'blocked');
-  assert.equal(await page.locator('[data-task-key="tt-checkout"] > .si').getAttribute('aria-label'), 'Waiting');
-  assert.equal(await props.locator('[data-prop-row="blocked"] .si').getAttribute('data-status-kind'), 'blocked', 'the stop mark is the Blocked by row');
+  assert.equal(await page.locator('[data-task-key="tt-checkout"] > .task-status').getAttribute('aria-label'), 'Waiting');
+  assert.match(await props.locator('[data-prop-row="blocked"]').innerText(), /Blocked by/);
   // The header: status · owner · position · age · … · ✕. No unexplained arrows.
   assert.equal(await peek.locator('.tmodal-head button').count(), 2);
   assert.match(await peek.locator('.tmodal-head .peek-pos').innerText(), /^\d+ \/ \d+$/);
@@ -769,7 +769,7 @@ async function views(browser) {
   await shot(page, 'needs-you-dark');
   await page.locator('#task-view [data-view="done"]').click();
   await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 3);
-  assert.deepEqual(await page.locator('#task-body .tl-row > .si').evaluateAll(s => s.map(x => x.dataset.statusKind)), ['done', 'done', 'closed']);
+  assert.deepEqual(await page.locator('#task-body .tl-row > .task-status').evaluateAll(s => s.map(x => x.dataset.status)), ['done', 'done', 'closed']);
   assert.match(await page.locator('#task-body .tl-age').first().getAttribute('title'), /^Done /);
   assert.match(await page.locator('#task-body .tl-age').first().innerText(), /^\d+h$/, 'the same short ages as every other row');
   assert.equal(await page.locator('#task-group-wrap').isHidden(), true);

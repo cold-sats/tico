@@ -94,9 +94,9 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(await page.locator('#task-type-more').innerText(), 'Marketing');
     assert.equal(await page.locator('[data-chip="type"]').count(), 0);
     await page.waitForFunction(() => location.hash.includes('type=marketing'));
-    // Each step column shows the status icon of the status it stands for.
-    assert.deepEqual(await page.locator('#task-body .bcol > header > .si').evaluateAll(s => s.map(x => x.dataset.statusKind)),
-      ['starting', 'review', 'review', 'done', 'closed', 'doing']);
+    // Column headings name their steps without circular status glyphs.
+    assert.equal(await page.locator('#task-body .bcol > header > .si').count(), 0);
+    assert.equal(await page.locator('#task-body .bcol > header > h2').count(), 6);
     await page.locator('#task-filter').click();
     await page.locator('#task-filter-pop [data-pick-field="tag"]').click();
     await page.locator(`#task-filter-pop input[value="${tag.key}"]`).check();

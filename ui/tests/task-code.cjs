@@ -193,9 +193,9 @@ async function desktop(browser) {
   const first = rail.locator('.sub-row[data-sub="k1"]');
   assert.match(await first.locator('> .sub-line').innerText(), /Summary step on web\s*PR ✕/);
   // The same status icon as the Tasks list, with its words for screen readers.
-  assert.equal(await first.locator('> .sub-line > .si').getAttribute('data-status-kind'), 'review');
-  assert.equal(await first.locator('> .sub-line > .si').getAttribute('aria-label'), 'In review');
-  assert.equal(await rail.locator('.sub-row[data-sub="k3"] > .sub-line > .si').getAttribute('data-status-kind'), 'done');
+  assert.equal(await first.locator('> .sub-line > .task-status').getAttribute('data-status'), 'review');
+  assert.equal(await first.locator('> .sub-line > .task-status').getAttribute('aria-label'), 'In review');
+  assert.equal(await rail.locator('.sub-row[data-sub="k3"] > .sub-line > .task-status').getAttribute('data-status'), 'done');
   assert.equal(await rail.locator('.sub-row[data-sub="k4"] .pr-badge').count(), 0, 'no PRs, no badge');
   assert.equal(await rail.locator('[data-sub="k1a"]').count(), 0, 'one level shown');
   await first.locator('[data-sub-toggle]').click();

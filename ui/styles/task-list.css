@@ -1,4 +1,4 @@
-/* ui/styles/task-list.css — The Tasks page: one-line rows in groups, the status icon, filter chips, the board, the side
+/* ui/styles/task-list.css — The Tasks page: one-line rows in groups, status words, filter chips, the board, the side
    peek, menus and the bulk bar. Dense: 32px rows, 13px text, thin dividers, small uppercase headings.
    The cascade runs in the order index.html links these files; keep rules in order. */
 
@@ -9,16 +9,9 @@
 .tasks-page.peek-open{grid-template-columns:minmax(0,1fr) var(--peek-w)}
 .tasks-pane{min-width:0;min-height:0;overflow-y:auto;padding:8px 28px 56px;container-type:inline-size;container-name:tasks}
 
-/* ---- the status icon (ui/app/tasks.js statusIcon) */
-.si{flex:none;display:inline-grid;place-items:center;width:16px;height:16px;color:var(--muted)}
-.si svg{display:block}
-.si .si-cut{stroke:var(--bg)}
-.si-needsme{color:var(--wait)}
-.si-starting,.si-doing{color:var(--run)}
-.si-review{color:var(--ok)}
-.si-blocked{color:var(--fail)}
-.si-done{color:var(--accent)}
-.si-needs,.si-waiting,.si-scheduled,.si-closed{color:var(--muted)}
+/* ---- explicit status words shared by task lists and cards */
+.task-status{flex:none;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px;font-weight:400}
+.tl-row > .task-status{width:65px;text-align:right}
 
 /* ---- toolbar: title, labelled tabs with counts, search, new task */
 .tl-head{display:flex;align-items:center;gap:12px;min-height:44px}
@@ -168,9 +161,8 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 .bcard:has(.bcard-open:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
 .bcard-open{display:flex;align-items:flex-start;gap:7px;width:100%;padding:0;border:0;background:none;color:var(--ink);font:500 12.5px/1.4 var(--sans);text-align:left;cursor:pointer}
 .bcard-open:focus{outline:0}
-.bcard-open .si{margin-top:1px}
 .bcard-title{min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.bcard-foot{display:flex;align-items:center;gap:6px;min-height:18px;margin-top:6px;padding-left:23px;color:var(--muted);font-size:11.5px}
+.bcard-foot{display:flex;align-items:center;gap:6px;min-height:18px;margin-top:6px;color:var(--muted);font-size:11.5px}
 .bcard-foot .spacer{flex:1}
 .bcard-chips{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
 .bcard-chips .tl-due{display:none}

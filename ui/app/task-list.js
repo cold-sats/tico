@@ -240,7 +240,7 @@ function tasksGroupsFor(items, by, state) {
       chat: chatOf(g.actor), chatName: actorLabel(g.actor)}));
   }
   if (by === 'status') {
-    return taskStatusGroups(items).map(g => ({key: g.key, label: g.label, items: g.items, icon: statusIcon(g.kind, ''),
+    return taskStatusGroups(items).map(g => ({key: g.key, label: g.label, items: g.items, icon: '',
       create: g.owner ? {owner: g.owner} : g.key === 'doing' ? {} : null}));
   }
   const byId = tasksById(state);
@@ -258,7 +258,7 @@ function tasksGroupsFor(items, by, state) {
     } else if (by === 'parent') {
       const pid = t.parent_id ? String(t.parent_id) : '';
       const parent = pid && (byId.get(pid) || (t.parent && String(t.parent.id) === pid ? t.parent : null));
-      add('p:' + (pid || 'none'), () => pid ? {label: parent?.title || 'Parent task', icon: parent?.status ? taskStatusIcon(parent) : statusIcon('starting', ''),
+      add('p:' + (pid || 'none'), () => pid ? {label: parent?.title || 'Parent task', icon: '',
         create: parent ? {parent: {id: pid, title: parent.title, owner: parent.owner}} : null}
         : {label: 'No parent', icon: '', last: true}, it);
     } else if (by === 'tag') {
@@ -328,11 +328,11 @@ function taskListRowHTML(it, ctx, depth = 0) {
   const row = tasksSigned(`<div class="tl-row${failed ? ' failed' : ''}${note?.mine ? ' mine' : ''}" data-task-key="${esc(key)}" role="listitem" aria-level="${depth + 1}" style="--depth:${depth}" title="${esc(taskRowTip(t))}">
     ${ctx.select ? `<input type="checkbox" class="tl-check" data-select="${esc(key)}" tabindex="-1" aria-label="Select ${esc(it.title)}">` : '<span class="tl-check-pad"></span>'}
     ${kids.length ? `<button type="button" class="tl-chev${open ? ' open' : ''}" data-expand="${esc(key)}" tabindex="-1" aria-expanded="${open ? 'true' : 'false'}" aria-label="${open ? 'Hide' : 'Show'} subtasks of ${esc(it.title)}">${TL_ICON.chev}</button>` : '<span class="tl-chev-pad"></span>'}
-    ${taskStatusIcon(t)}
     <button type="button" class="tl-open" data-open-task="${esc(key)}" tabindex="-1"${kids.length ? ` aria-expanded="${open ? 'true' : 'false'}"` : ''}><span class="tl-title">${esc(it.title)}</span></button>
     ${parent?.title ? `<span class="tl-parent" title="Part of ${esc(parent.title)}"><span aria-hidden="true">↳ </span><span class="tl-parent-t">${esc(parent.title)}</span></span>` : ''}
     ${note ? `<span class="tl-note" title="${esc(note.text)}"><span class="tl-note-ic">${TL_ICON.note}</span><span class="tl-note-text">${esc(note.text)}</span></span>` : '<span class="tl-fill"></span>'}
     <span class="tl-chips">${taskChipsHTML(t)}</span>
+    ${taskStatusText(t)}
     <span class="tl-people">${showAsker ? `<span class="tl-asker" title="Asked by ${esc(actorLabel(asker))}">${actorFace(asker, 14)}</span>` : ''}<span class="tl-face" title="${esc(actorLabel(t.owner))}">${actorFace(t.owner, 18)}</span></span>
     <time class="tl-age tnum" datetime="${esc(when || '')}" title="${ctx.done ? 'Done' : 'Updated'} ${esc(fmt(when))}">${esc(ageShort(when))}</time>
     ${failed ? `<span class="tl-failed" role="img" aria-label="Not changed: ${esc(failed)}" title="Not changed: ${esc(failed)}">!</span>` : ''}
@@ -693,14 +693,13 @@ async function tasksBulkUndo(state) {
   tasksBulkBar(state);
   tasksBulkSettle(state, 4000);
 }
-const STATUS_MENU_KIND = {open: 'starting', doing: 'doing', waiting: 'waiting', review: 'review', ready: 'review', done: 'done', declined: 'declined'};
 function tasksBulkMenu(state, kind, anchor) {
   if (kind === 'clear') { tasksSelectionClear(state); return; }
   if (kind === 'undo') { void tasksBulkUndo(state); return; }
   if (kind === 'close') { void tasksBulkApply(state, {close: true, done: 'closed', already: 'closed'}, t => t.status === 'closed' ? null : {close: true}); return; }
   if (kind === 'status') {
     tasksMenu(state, anchor, `<div class="tl-menu" role="menu" aria-label="Set status"><div class="tl-menu-h" aria-hidden="true">Status</div>
-      ${BULK_STATUSES.map(s => `<button type="button" role="menuitem" class="tl-mi" data-bulk-status="${s}">${statusIcon(STATUS_MENU_KIND[s], '')}<span>${esc(STATUS_WORD[s] || s)}</span></button>`).join('')}</div>`, pop => {
+      ${BULK_STATUSES.map(s => `<button type="button" role="menuitem" class="tl-mi" data-bulk-status="${s}"><span>${esc(STATUS_WORD[s] || s)}</span></button>`).join('')}</div>`, pop => {
       pop.onclick = ev => {
         const b = ev.target.closest('[data-bulk-status]'); if (!b) return;
         const status = b.dataset.bulkStatus, word = STATUS_WORD[status] || status;
