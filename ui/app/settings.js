@@ -53,7 +53,6 @@ function pageSettings() {
       </div></section></div>` : ''}
     <div class="settings-pane" id="settings-devices" role="tabpanel">
       <section class="card"><div id="set-machines"><div class="empty">Loading…</div></div></section>
-      <section class="card subs-card" id="settings-subs" aria-labelledby="settings-subs-h" hidden><header><h2 id="settings-subs-h">Subscriptions</h2></header><div id="set-subs"></div></section>
       ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
@@ -64,6 +63,7 @@ function pageSettings() {
       <section class="card"><header><h2>Services</h2></header><div id="set-services"><div class="empty">Loading…</div></div></section></div>
     ${settingsIsAdmin() ? '<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people"><div class="empty">Loading…</div></div></div>' : ''}
     <div class="settings-pane" id="settings-providers" role="tabpanel" hidden>
+      <section class="card subs-card" id="settings-subs" aria-labelledby="settings-subs-h" hidden><header><h2 id="settings-subs-h">Subscriptions</h2></header><div id="set-subs"></div></section>
       <section class="card"><header><h2>AI providers</h2></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>

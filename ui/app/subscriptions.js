@@ -1,4 +1,4 @@
-/* ui/app/subscriptions.js — Subscriptions: the named AI logins on each computer (Settings > Computers), the one a
+/* ui/app/subscriptions.js — Subscriptions: the named AI logins on each computer (Settings > AI providers), the one a
    group picks, a bot's own choice, and the line under a bot's model saying which one it will use.
    The server stores profile names only; the logins stay on the computers (runner/profiles.py).
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
@@ -68,7 +68,7 @@ function subsGroupGaps(group) {
   return [...gaps].sort();
 }
 
-// ---- Settings > Computers > Subscriptions
+// ---- Settings > AI providers > Subscriptions
 const subsMaySignIn = c => settingsIsAdmin() || (SETTINGS_DATA?.machines || []).some(m =>
   m.id === (c.runner_id || c.id) && m.operator === S.me?.id);
 function subsRuntimeHTML(c, p) {
@@ -86,6 +86,45 @@ function subsRuntimeHTML(c, p) {
       ? `<button class="ghost subs-signin" type="button" data-model-login data-runner="${esc(c.runner_id)}" data-runtime="${esc(id)}" data-profile="${esc(p.name)}" data-machine="${esc(c.label)}" aria-label="Sign in ${esc(p.name)} to ${esc(label)} on ${esc(c.label)}">Sign in</button>` : ''}</span>`;
   }).join('');
 }
+// Allowance is a provider percentage, not a token estimate. Never roll an old report forward.
+function subsWeeklyHTML(c, p) {
+  const names = Object.fromEntries([...SUBS_RUNTIMES, ['gemini', 'Gemini CLI'], ['grok', 'Grok Build']]);
+  return Object.entries(p.runtimes || {}).filter(([runtime, state]) => names[runtime] && (state.signed_in === true || state.weekly || SUBS_RUNTIMES.some(([id]) => id === runtime)))
+    .map(([runtime, state]) => {
+      const weekly = state.weekly, updated = Date.parse(weekly?.reported_at), reset = Date.parse(weekly?.resets_at);
+      const expired = Number.isFinite(reset) && reset <= Date.now();
+      const stale = Number.isFinite(updated) && Date.now() - updated > 86400000;
+      const percent = weekly?.used_percent;
+      const value = Number.isFinite(percent) ? `${Math.round(percent)}% used` : 'usage unknown';
+      const when = date => new Date(date).toLocaleString();
+      const localReset = Number.isFinite(reset) ? new Date(reset - new Date(reset).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+      const info = weekly ? `${weekly.source === 'manual' ? 'Manually recorded' : 'Provider reported'} ${Number.isFinite(updated) ? when(updated) : 'at an unknown time'}${Number.isFinite(reset) ? ` · resets ${when(reset)}` : ' · reset unknown'}${expired ? ' · previous week; refresh needed' : stale ? ' · may be out of date' : ''}` : 'No weekly report yet';
+      return `<div class="subs-weekly"><span>${esc(names[runtime])} weekly: ${esc(value)}${weekly?.status === 'rejected' ? ' · limit reached' : ''}</span>
+        ${Number.isFinite(percent) ? `<progress max="100" value="${percent}" aria-label="${esc(names[runtime])} last reported weekly usage"></progress>` : ''}
+        <span class="muted subs-weekly-note">${esc(info)}</span>
+        ${subsMaySignIn(c) ? `<details><summary>Record weekly usage</summary><form data-subs-weekly data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}">
+          <label>Used (%) <input type="number" name="percent" min="0" max="100" step="any" value="${Number.isFinite(percent) ? percent : ''}" placeholder="Unknown"></label>
+          <label>Weekly reset (local time) <input type="datetime-local" name="reset" value="${localReset}"></label>
+          <button class="ghost" type="submit">Save report</button><button class="ghost" type="button" data-subs-weekly-clear>Clear manual report</button>
+          <span class="muted">Copy the weekly allowance from your provider. This does not change its limit.</span><span role="status" data-weekly-status></span>
+        </form></details>` : ''}</div>`;
+    }).join('');
+}
+const subsWeeklyKey = form => JSON.stringify([form.dataset.runner, form.dataset.profile, form.dataset.runtime]);
+async function subsSaveWeekly(form, clear = false) {
+  const status = form.querySelector('[data-weekly-status]');
+  if (!clear && !form.reportValidity()) return;
+  const reset = form.elements.reset.value;
+  form.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    await put('/v2/subscriptions/weekly', {runner_id: form.dataset.runner, profile: form.dataset.profile,
+      runtime: form.dataset.runtime, used_percent: clear || form.elements.percent.value === '' ? null : Number(form.elements.percent.value),
+      resets_at: clear || !reset ? null : new Date(reset).toISOString()});
+    toast(clear ? 'Manual report cleared' : 'Weekly report saved');
+    await renderSettingsSubs(true);
+  } catch (e) { status.textContent = e.message; }
+  finally { form.querySelectorAll('button').forEach(b => b.disabled = false); }
+}
 function subsGroupRowHTML(g, names) {
   const own = subsAssigned('group', g.id), admin = settingsIsAdmin();
   const list = own && !names.includes(own) ? [...names, own] : names;
@@ -100,7 +139,7 @@ function subsGroupRowHTML(g, names) {
 }
 // A new subscription's name being typed is never wiped by a redraw; `force` redraws anyway (after the person's own
 // group change). `loaded`: SUBS was just read, so it is not read again.
-const subsTyping = () => formBusy($('#set-subs [data-subs-add]'));
+const subsTyping = () => formBusy($('#set-subs'));
 async function renderSettingsSubs(force = false, loaded = false) {
   const card = $('#settings-subs'), el = $('#set-subs');
   if (!card || !el) return;
@@ -118,10 +157,12 @@ async function renderSettingsSubs(force = false, loaded = false) {
       <select name="runtime" aria-label="Sign in to">${SUBS_RUNTIMES.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select>
       <button class="ghost" type="submit">Sign in</button><span class="muted subs-add-msg" id="subs-add-msg" role="status"></span></form>` : '';
   if (!computers.length && !add) { card.hidden = true; return; }
-  el.innerHTML = `${computers.map(c => `<div class="subs-pc"><h3 class="subs-h">${esc(c.label)}</h3><ul class="subs-list">${c.profiles.map(p =>
-      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.name)}</span>${subsRuntimeHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
+  const openWeekly = new Set([...el.querySelectorAll('details[open] form[data-subs-weekly]')].map(subsWeeklyKey));
+  el.innerHTML = `<p class="muted">Named subscriptions stay on their computer. Weekly allowance is approximate and may include use outside Tico. Matching names on different computers are not combined.</p>${computers.map(c => `<div class="subs-pc"><h3 class="subs-h">${esc(c.label)}</h3><ul class="subs-list">${c.profiles.map(p =>
+      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.name)}</span>${subsRuntimeHTML(c, p)}${subsWeeklyHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
     ${groups.length ? `<div class="subs-pc subs-groups"><h3 class="subs-h">Groups</h3><ul class="subs-list">${groups.map(g => subsGroupRowHTML(g, names)).join('')}</ul></div>` : ''}
     ${add}`;
+  el.querySelectorAll('form[data-subs-weekly]').forEach(form => { if (openWeekly.has(subsWeeklyKey(form))) form.closest('details').open = true; });
   card.hidden = false;
   el.onchange = async ev => {
     const sel = ev.target.closest('[data-subs-group]'); if (!sel) return;
@@ -137,7 +178,13 @@ async function renderSettingsSubs(force = false, loaded = false) {
     const slug = subsSlug(field.value), msg = $('#subs-add-msg');
     if (msg) msg.textContent = field.value.trim() && slug !== field.value.trim() ? `Saved as ${slug}` : '';
   };
+  el.onclick = ev => {
+    const clear = ev.target.closest('[data-subs-weekly-clear]');
+    if (clear) void subsSaveWeekly(clear.closest('form'), true);
+  };
   el.onsubmit = ev => {
+    const weekly = ev.target.closest('[data-subs-weekly]');
+    if (weekly) { ev.preventDefault(); void subsSaveWeekly(weekly); return; }
     const form = ev.target.closest('[data-subs-add]'); if (!form) return;
     ev.preventDefault();
     const name = subsSlug(form.elements.profile.value);

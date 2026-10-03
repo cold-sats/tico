@@ -717,8 +717,24 @@ class RepositoryStatus(Contract):
     error: str | None = None
 
 
+class SubscriptionWeekly(Contract):
+    used_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    resets_at: str | None = Field(default=None, max_length=50)
+    reported_at: str = Field(max_length=50)
+    status: Literal["allowed", "allowed_warning", "rejected"] | None = None
+
+
+class SubscriptionWeeklyEdit(Contract):
+    runner_id: ID
+    profile: Slug
+    runtime: Literal["codex", "claude", "gemini", "grok"]
+    used_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    resets_at: str | None = Field(default=None, max_length=50)
+
+
 class SubscriptionRuntime(Contract):
     signed_in: bool | None = None
+    weekly: SubscriptionWeekly | None = None
 
 
 class ComputerProfile(Contract):

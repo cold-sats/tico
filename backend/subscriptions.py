@@ -1,11 +1,49 @@
 """Subscription defaults for bots and nested groups."""
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Request
 
 from . import groups as G, hubdb as H, models as M
 from .execution import readiness_document
 from .store import Problem, encode
+
+
+def weekly_snapshot(value):
+    """Validate timestamps too; a broken report is unknown, never a fresh allowance."""
+    if not value:
+        return None
+    try:
+        value = M.SubscriptionWeekly.model_validate(value).model_dump()
+        reported = datetime.fromisoformat(value['reported_at'].replace('Z', '+00:00'))
+        if reported.tzinfo is None or reported > datetime.now(timezone.utc) + timedelta(minutes=5):
+            return None
+        if value['resets_at']:
+            reset = datetime.fromisoformat(value['resets_at'].replace('Z', '+00:00'))
+            if reset.tzinfo is None or reset <= reported or reset > reported + timedelta(days=8):
+                return None
+        return value
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def weekly_key(runner, profile, runtime):
+    return 'subscription-weekly:' + json.dumps([runner, profile, runtime], separators=(',', ':'))
+
+
+def reported_runtimes(c, runner, profile, raw):
+    from .repositories import metadata
+    runtimes = json.loads(raw or '{}')
+    for runtime, state in runtimes.items():
+        reported = weekly_snapshot(state.get('weekly'))
+        manual = weekly_snapshot(metadata(c, weekly_key(runner, profile, runtime)))
+        # Explicitly distinguish human-entered observations from provider telemetry.
+        choices = [(v, source) for v, source in ((reported, 'provider'), (manual, 'manual')) if v]
+        state['weekly'] = None
+        if choices:
+            value, source = max(choices, key=lambda row: datetime.fromisoformat(row[0]['reported_at'].replace('Z', '+00:00')))
+            state['weekly'] = {**value, 'source': source}
+    return runtimes
 
 
 def context(c, settings=None):
@@ -63,7 +101,18 @@ def record(c, runner_id, profiles, readiness=None):
             profile = M.ComputerProfile.model_validate(row)
         except ValueError:
             continue
-        valid[profile.name] = encode({k: v.model_dump() for k, v in profile.runtimes.items()})
+        previous = c.execute('SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?',
+                             (runner_id, profile.name)).fetchone()
+        previous = json.loads(previous[0] or '{}') if previous else {}
+        runtimes = {}
+        for runtime, state in profile.runtimes.items():
+            value = state.model_dump()
+            latest = weekly_snapshot(value.get('weekly'))
+            older = weekly_snapshot(previous.get(runtime, {}).get('weekly'))
+            values = [v for v in (latest, older) if v]
+            value['weekly'] = max(values, key=lambda v: datetime.fromisoformat(v['reported_at'].replace('Z', '+00:00'))) if values else None
+            runtimes[runtime] = value
+        valid[profile.name] = encode(runtimes)
     for bot in c.execute('SELECT bot FROM assignments WHERE runner_id=?', (runner_id,)):
         blocked = refusal(c, runner_id, bot['bot'])
         status = ((readiness_document(readiness).get('runtimes', {}).get(blocked.get('runtime'), {})
@@ -91,7 +140,7 @@ def listing(c, auth, who, computer_rows):
                                               (runner['id'], H.actor_id(who.actor))).fetchone():
             continue
         computers.append({'runner_id': runner['id'], 'label': runner['label'], 'profiles': [
-            {'name': row['profile'], 'runtimes': json.loads(row['runtimes_json'] or '{}')}
+            {'name': row['profile'], 'runtimes': reported_runtimes(c, runner['id'], row['profile'], row['runtimes_json'])}
             for row in c.execute('SELECT * FROM computer_profiles WHERE runner_id=? ORDER BY profile', (runner['id'],))]})
     access = auth.bot_accesses(c, who)
     assignments = [dict(row) for row in c.execute('SELECT * FROM subscription_assignments ORDER BY scope,target')
@@ -177,6 +226,31 @@ def install(app, store, auth, mutate, settings, computer_rows):
         auth.domain(who)
         with store.read() as c:
             return listing(c, auth, who, computer_rows)
+
+    @app.put('/api/v2/subscriptions/weekly')
+    def subscription_weekly(request: Request, body: M.SubscriptionWeeklyEdit):
+        who = request.state.identity
+        def work(c):
+            from .repositories import save_metadata
+            auth.domain(who)
+            runner = c.execute('SELECT * FROM runners WHERE id=? AND revoked_at IS NULL', (body.runner_id,)).fetchone()
+            if not runner or not (who.role == 'human' or who.role == 'owner') or not (
+                    auth.bot_admin(who) or runner['operator'] == H.actor_id(who.actor)):
+                raise Problem('forbidden', 'Only a computer operator or administrator can record weekly usage', 403)
+            row = c.execute('SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?',
+                            (body.runner_id, body.profile)).fetchone()
+            if not row or body.runtime not in json.loads(row[0] or '{}'):
+                raise Problem('not_found', 'Subscription runtime not found on this computer', 404)
+            value = {}
+            if body.used_percent is not None or body.resets_at:
+                value = weekly_snapshot({'used_percent': body.used_percent, 'resets_at': body.resets_at,
+                                         'reported_at': H.now()})
+                if value is None:
+                    raise Problem('invalid', 'Choose a weekly reset in the next eight days with a timezone', 422)
+            save_metadata(c, weekly_key(body.runner_id, body.profile, body.runtime), value)
+            H.event(c, who.actor, 'subscription.weekly_recorded', body.profile, body.model_dump())
+            return {'weekly': {**value, 'source': 'manual'} if value else None}
+        return mutate(request, body, work)
 
     @app.put('/api/v2/subscriptions')
     def subscription_assignment(request: Request, body: M.SubscriptionAssignment):

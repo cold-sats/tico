@@ -22,7 +22,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
-from . import goals, repositories, worktrees, safe_git
+from . import goals, repositories, worktrees, safe_git, subscription_usage
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -558,6 +558,7 @@ class Runner:
         self.active = {}
         self.attempt_bots = {}
         self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
+        self.weekly_usage = subscription_usage.Reports()
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
@@ -1279,7 +1280,7 @@ class Runner:
         """Cached provider sign-in probes with a ten-second budget for the entire report."""
         cached = self.__dict__.get("_profile_report_cache")
         if cached and time.monotonic() - cached[0] < 60:
-            return cached[1]
+            return self.weekly_usage.attach(cached[1])
         deadline = time.monotonic() + 10
         result = []
         entries = list((self.config.get("profiles") or {}).items())
@@ -1311,7 +1312,7 @@ class Runner:
             if len(result) == 100:
                 break
         self._profile_report_cache = (time.monotonic(), result)
-        return result
+        return self.weekly_usage.attach(result)
 
     # A provider that refused the key or sign-in on a real turn. Retrying cannot help, so the
     # runtime stops taking work (a not-ready bot is never claimed) until a credential changes, a
@@ -2145,6 +2146,9 @@ class Runner:
                             if event.get("turn_id") and event["turn_id"] != turn and not goal_running:
                                 continue
                             kind = event["kind"]
+                            if kind == "rate_limits":
+                                if metered and metered[-1][2] and metered[-1][3] == "subscription":
+                                    self.weekly_usage.remember(metered[-1][2], metered[-1][1].get("runtime"), event)
                             if kind == "goal" and goal:
                                 self.state.append(aid, "goal", {**redact(event), "goal_id": goal["id"], "revision": revision})
                                 goal_running = event.get("status") == "active"
@@ -2606,6 +2610,12 @@ class Runner:
             except APIError as exc:
                 detail = str(exc.detail or "Heartbeat validation failed")
                 extra = exc.status == 422 and "extra" in detail.lower()
+                if extra and "weekly" in detail and any("weekly" in state for profile in body.get("profiles", [])
+                        for state in profile.get("runtimes", {}).values()):
+                    for profile in body.get("profiles", []):
+                        for state in profile.get("runtimes", {}).values():
+                            state.pop("weekly", None)
+                    continue  # Older servers keep receiving the existing sign-in report.
                 root_fields = ("worktrees", "profiles", "repositories")
                 field = next((name for name in root_fields if name in body and re.search(
                     r"(?:^|[ ;])(?:body\.)?" + name + r"(?:[.: ;]|$)", detail)), None)
