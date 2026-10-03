@@ -21,6 +21,7 @@ import platform
 import re
 import threading
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -122,14 +123,18 @@ SECRETS = [
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "[key]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*"), "[jwt]"),
     (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{6,}"), r"\1 [token]"),
-    (re.compile(r"(?i)\b([A-Za-z0-9_.-]*(?:api[_-]?key|token|secret|password|passwd)[A-Za-z0-9_.-]*)"
-                r"(\s*[=:]\s*)[\"']?[^\s\"',;]{4,}[\"']?"), r"\1\2[redacted]"),
 ]
+# Consume quoted values as a unit, including escaped quotes and truncated log lines.
+# Unquoted values may contain spaces; discard through the next field separator.
+SECRET_FIELD = re.compile(
+    r'''(?i)(["']?\b[A-Za-z0-9_.-]*(?:api[_-]?key|token|secret|password|passwd)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)'''
+    r'''(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^,;\r\n}\]]+)''')
 LONG = re.compile(r"(?<![A-Za-z0-9+/_=-])[A-Za-z0-9+/_=-]{32,}")
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u2028\u2029\u202a-\u202e\u2066-\u2069]")   # HQ refuses these (hq/support.py)
 UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 EMAIL = re.compile(r"[A-Za-z0-9._%+'-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,24}")
 QUERY = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s?#\"'<>]*)\?[^\s\"'<>#]*(#[^\s\"'<>]*)?", re.I)
+AUTHORITY = re.compile(r'''(\b[a-z][a-z0-9+.-]*://)([^/\s?#"'<>]+)''', re.I)
 IPV4 = re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.]*\d)")
 IPV6 = re.compile(r"(?<![A-Za-z0-9:])[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?![A-Za-z0-9:])")
 HOST = re.compile(r"(?<![A-Za-z0-9@._-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+(?:%s)\b(?![A-Za-z0-9_-])"
@@ -207,6 +212,8 @@ class Redactor:
 
     def text(self, value):
         s = CONTROL.sub("", str(value if value is not None else ""))
+        s = SECRET_FIELD.sub(r"\1[redacted]", s)
+        s = AUTHORITY.sub(self._authority, s)
         s = ACTOR.sub(self._actor, s)
         if self._pattern:
             s = self._pattern.sub(lambda m: self.labels[m.group(0).lower()], s)
@@ -223,6 +230,21 @@ class Redactor:
             s = re.sub(r"(?<![A-Za-z0-9-])(?:[A-Za-z0-9-]+\.)*%s\b" % re.escape(domain), "[company-domain]", s, flags=re.I)
         return HOST.sub(lambda m: m.group(0) if known_host(m.group(0)) else "[host]", s)
 
+    def _authority(self, match):
+        # A URL identifies its authority without guessing a TLD or confusing it with a filename.
+        try:
+            url = urlsplit(match.group(0))
+            host = (url.hostname or "").lower().rstrip(".")
+            if known_host(host):
+                authority = host + (":" + str(url.port) if url.port is not None else "")
+            elif any(host == d or host.endswith("." + d) for d in self.domains):
+                authority = "[company-domain]"
+            else:
+                authority = "[host]"
+        except ValueError:
+            authority = "[host]"
+        return match.group(1) + authority
+
     def clean(self, value):
         """A whole structure: strings redacted, numbers, booleans and nothing kept as they are, everything else dropped."""
         if isinstance(value, str):
@@ -238,7 +260,7 @@ class Redactor:
 
 def known_host(host):
     host = host.lower().strip(".")
-    return host.startswith("tico.") or any(host == known or host.endswith("." + known) for known in KNOWN_HOSTS)
+    return any(host == known or host.endswith("." + known) for known in KNOWN_HOSTS)
 
 
 # ---------------------------------------------------------------------- the allowlist

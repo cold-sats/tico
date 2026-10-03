@@ -325,3 +325,55 @@ def test_editing_a_fleet_preserves_different_log_lengths_and_optional_fields():
     D.validate_edit({"format": 1, "runners": [{"log": ["edited failure"]}]}, original)
     with pytest.raises(ValueError):
         D.validate_edit({"format": 1, "runners": [{"log": [{"unexpected": "content"}]}]}, original)
+
+
+@pytest.mark.parametrize("raw", [
+    '{"password": "FixtureShort7", "token": "xy"}',
+    "{'api_key' : 'Fixture spaced value', 'secret': 'z'}",
+    r'''{"password": "Fixture\"escaped tail", "token": "a\\b"}''',
+    r"{'password': 'Fixture\'escaped tail'}",
+    'password=xy; token: z',
+    'password=Fixture spaced value, status=failed',
+    'password="Fixture truncated secret',
+    r'''{"password": "Fixture\nline\tvalue"}''',
+])
+def test_secret_fields_consume_short_spaced_escaped_and_truncated_values(raw):
+    clean = D.Redactor().text(raw)
+    assert "[redacted]" in clean
+    for value in ("Fixture", "xy", "escaped", "tail", "spaced", "value", "a\\\\b"):
+        assert value not in clean
+
+
+@pytest.mark.parametrize("authority", ["private.acme-customer.app", "private.acme-customer.co",
+    "tico.acme-customer.com", "acme.invalidsuffix", "internal", "user:FixturePass7@acme.app:8443",
+    "tico.team.acme.app", "[2001:db8::1]:8443"])
+def test_url_authorities_do_not_depend_on_the_prose_hostname_heuristic(authority):
+    assert D.Redactor().text("https://" + authority + "/api") == "https://[host]/api"
+
+
+def test_final_preview_and_attachment_redact_secret_fields_and_unknown_url_hosts(environment, hq, monkeypatch):
+    ring = D.LogRing()
+    monkeypatch.setattr(D, "RING", ring)
+    api = environment()
+    lines = [
+        '{"password": "FixtureOnlySecret17", "token": "xy"}',
+        r"{'secret': 'Fixture spaced \'escaped tail'}",
+        'https://private.acme-customer.app/api https://tico.acme-customer.com/api',
+    ]
+    for line in lines:
+        ring.handle(logging.LogRecord("fictional.transport", logging.WARNING, "", 0, line, (), None))
+    answer, shown = bundle_of(api)
+    assert hq.seen == []
+    for value in ("Fixture", "xy", "escaped tail", "private.acme-customer.app", "tico.acme-customer.com"):
+        assert value not in " ".join(shown["logs"]["server"])
+    assert "[redacted]" in answer["text"] and "[host]" in answer["text"]
+    assert file(api, diagnostics=answer["id"]).status_code == 200
+    assert D.canonical(json.loads(hq.seen[-1].content)["diagnostics"]) == answer["text"]
+    edited = {"format": 1, "logs": {"server": ['{"token": "Fixture edited value"} https://tico.acme-customer.co/api']}}
+    result = api.post("/api/v2/support/diagnostics", headers=signed_in(), json={"id": answer["id"], "text": json.dumps(edited)})
+    assert result.status_code == 200, result.text
+    final = result.json()
+    assert "Fixture" not in final["text"] and "acme-customer" not in final["text"]
+    assert D.digest(json.loads(final["text"])) == final["id"]
+    assert file(api, diagnostics=final["id"]).status_code == 200
+    assert D.canonical(json.loads(hq.seen[-1].content)["diagnostics"]) == final["text"]
