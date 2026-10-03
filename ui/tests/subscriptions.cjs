@@ -1,7 +1,7 @@
 // Offline regression for subscriptions (docs: PLAN section 7). Fixtures follow backend/subscriptions.py (r2-subs):
 // names are lowercase-hyphen slugs, PUT answers the assignment it saved, a computer is {runner_id, label} or null,
 // signed_in is true, false or null (unknown) and the bot line may carry a `problem`; members list only their own computers.
-//  - Settings > Computers > Subscriptions lists each computer's subscriptions with their sign-in per runtime (nothing for
+//  - Settings > AI providers > Subscriptions lists each computer's subscriptions with their sign-in per runtime (nothing for
 //    unknown); Sign in starts the browser-code login for that computer and subscription; the one-line add turns a
 //    typed name into a slug before signing in;
 //  - each group picks one with PUT /v2/subscriptions {scope: 'group'}; a nested group says which group it inherits from;
@@ -61,7 +61,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
   const errors = [], writes = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.addInitScript(t => { try { localStorage.setItem('tico.theme', t); sessionStorage.setItem('tico.settings.tab', 'devices'); } catch {} }, theme);
+  await page.addInitScript(t => { try { localStorage.setItem('tico.theme', t); sessionStorage.setItem('tico.settings.tab', 'providers'); } catch {} }, theme);
   // owner: Ana; coowner: Lee, a member who co-owns the bot; operator: Sam, a member whose computer the bot runs on.
   const me = {owner: {id: 'ana', role: 'owner', name: 'Ana'}, coowner: {id: 'lee', role: 'member', name: 'Lee'},
     operator: {id: 'sam', role: 'member', name: 'Sam'}}[as];
@@ -126,6 +126,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
     return json({});
   });
   await page.goto('https://tico-ui.test/#/settings');
+  await page.locator('#settings-providers').waitFor();
   await page.waitForFunction(() => { const el = document.querySelector('#set-machines'); return el && !/Loading/.test(el.textContent); });
   return {page, errors, writes, data};
 }
@@ -139,11 +140,15 @@ async function computers(browser) {
   assert.deepEqual(await card.locator('.subs-pc:not(.subs-groups) .subs-h').allInnerTexts(), ['ACME BOX', "SAM'S MAC"], 'a computer with none is not listed');
   const box = card.locator('.subs-pc').first();
   const eng = box.locator('[data-subs-profile="acme-eng"]');
-  assert.match(await eng.innerText(), /acme-eng\s*Codex · signed in\s*Claude Code · not signed in\s*Sign in/);
+  assert.equal(await eng.locator('.subs-name').innerText(), 'acme-eng');
+  assert.deepEqual(await eng.locator('.subs-rt .pill').allInnerTexts(), ['Codex · signed in', 'Claude Code · not signed in']);
   assert.equal(await eng.locator('.subs-signin').count(), 1, 'Sign in only where it is not signed in');
-  assert.equal(await box.locator('[data-subs-profile="acme-ops"]').innerText().then(t => t.replace(/\s+/g, ' ').trim()), 'acme-ops Claude Code · signed in', 'unknown says nothing');
+  const ops = box.locator('[data-subs-profile="acme-ops"]');
+  assert.equal(await ops.locator('.subs-name').innerText(), 'acme-ops');
+  assert.deepEqual(await ops.locator('.subs-rt .pill').allInnerTexts(), ['Claude Code · signed in'], 'unknown sign-in adds no authentication pill');
+  assert.deepEqual(await ops.locator('.subs-weekly > span:first-child').allInnerTexts(), ['Claude Code weekly: usage unknown', 'Codex weekly: usage unknown'], 'weekly allowance stays separate from sign-in state');
   // Unknown for every runtime: no state, but the owner can still sign it in.
-  assert.deepEqual(await box.locator('[data-subs-profile="acme-new"] button').allInnerTexts(), ['Sign in to Codex', 'Sign in to Claude Code']);
+  assert.deepEqual(await box.locator('[data-subs-profile="acme-new"] .subs-signin').allInnerTexts(), ['Sign in to Codex', 'Sign in to Claude Code']);
   assert.equal(await box.locator('[data-subs-profile="acme-new"] .pill').count(), 0);
   if (SHOTS) { fs.mkdirSync(SHOTS, {recursive: true}); await card.screenshot({path: path.join(SHOTS, 'settings-computers-subscriptions-dark.png')}); }
   // Sign in: the browser-code login for that computer and subscription.

@@ -12,7 +12,7 @@ from backend.tests.test_member_bots import botops, register, turn  # noqa: F401 
 from backend.tests.test_onboarding import (ASSISTANT_AGENT, ASSISTANT_CARD, BOTOPS_CARD, draft,  # noqa: F401
                                            environment, signed_in)
 
-MODEL = {"model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None}
+MODEL = {"model": "gpt-6.1-sol", "effort": "high", "harness": None, "runner_id": None}
 
 
 def inbox_bot_of(api, person):

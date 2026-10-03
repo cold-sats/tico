@@ -161,11 +161,15 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(await page.locator('.task-outcome').count(), 0, 'closed-to-closed step move adds no result prompt');
     await page.locator('#task-modal [data-modal-close]').click();
     await page.evaluate(() => pageSettings());
-    await page.locator('[data-settings-tab=tags]').click();
+    await page.locator('[data-settings-tab=tasks]').click();
     await page.locator('#settings-tags [href="#/tag/release-2026-10-02"]').waitFor();
-    assert.equal(await page.locator('#settings-types').isVisible(), false);
-    await page.locator('[data-settings-tab=types]').click();
-    assert.equal(await page.locator('#settings-tags').isVisible(), false);
+    await page.locator('#set-types [data-edit-type=marketing]').waitFor();
+    assert.equal(await page.locator('#settings-types').isVisible(), true, 'Task types share the Tasks pane');
+    assert.equal(await page.locator('#settings-tags').isVisible(), true, 'Task tags share the Tasks pane');
+    for (const legacy of ['tags', 'types']) {
+      await page.evaluate(tab => settingsShow(tab), legacy);
+      assert.equal(await page.locator('[data-settings-tab=tasks]').getAttribute('aria-selected'), 'true', 'saved routes select Tasks');
+    }
     await page.locator('#set-types [data-edit-type=marketing]').click();
     await page.locator('.task-type-editor input[aria-label="Type name"]').fill('Campaigns');
     await page.locator('.task-type-editor [data-steps] .task-step-edit').nth(1).locator('[data-up]').click();

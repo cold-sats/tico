@@ -79,8 +79,11 @@ bots.push({name: 'restricted', team: 'g1', my_access: {see: true, read: false}},
     assert.equal((await page.evaluate(() => overviewModel())).groups[0].members[1].state, 'unknown');
     offline = false; await page.evaluate(() => refresh());
     await frame.locator('#speech-message').filter({hasText: 'Waiting on a human'}).waitFor();
-    await frame.locator('#speech-open').click();
-    await page.waitForFunction(() => location.hash === '#/bot/bot-0');
+    // Observe navigation directly: software WebGL can stop animation-frame polling while leaving the scene.
+    await Promise.all([
+      page.waitForURL(url => url.hash === '#/bot/bot-0', {timeout: 30000}),
+      frame.locator('#speech-open').click(),
+    ]);
     assert.equal(await page.locator('#overview-frame').count(), 0, 'leaving unmounts the scene');
     await page.evaluate(() => location.hash = '#/overview');
     await frame.locator('body[data-scene-ready]').waitFor();

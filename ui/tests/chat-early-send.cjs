@@ -66,14 +66,19 @@ async function afterHashNav(browser) {
     window.EventSource = class extends NativeEventSource {
       constructor(...args) {
         super(...args);
-        this.addEventListener('snapshot', event => window.fixtureSnapshots.push(JSON.parse(event.data).fixture_phase));
+        this.addEventListener('snapshot', event => {
+          const phase = JSON.parse(event.data).fixture_phase;
+          window.fixtureSnapshots.push(phase);
+          if (phase === 'lagging') void window.fixtureLaggingDelivered();
+        });
       }
     };
   });
   const errors = [], sends = [];
   page.on('pageerror', e => errors.push(e.message));
   const now = () => new Date().toISOString();
-  let server = [{id: 'old', from_actor: 'bot:botops', body: 'Welcome back', created: '2026-01-01T00:00:00Z'}], watches = 0, sentAt = 0;
+  let server = [{id: 'old', from_actor: 'bot:botops', body: 'Welcome back', created: '2026-01-01T00:00:00Z'}], laggingDelivered = false, sentAt = 0;
+  await page.exposeFunction('fixtureLaggingDelivered', () => { laggingDelivered = true; });
   let releaseCurrent;
   const currentHeld = new Promise(done => releaseCurrent = done);
   let releaseSend, initialWatches = 0;
@@ -95,7 +100,9 @@ async function afterHashNav(browser) {
     if (p.endsWith('/watch')) {
       // Each connection opens with a snapshot. The first one after the send was built just before it landed.
       if (!sentAt && initialWatches++ >= 2) await sendHeld;
-      const lagging = sentAt && !watches++ ;
+      // Sending replaces the EventSource. Its cancelled request may consume a response
+      // without delivering it, so advance only after the browser observes the stale snapshot.
+      const lagging = sentAt && !laggingDelivered;
       const phase = sentAt ? lagging ? 'lagging' : 'current' : 'initial';
       if (phase === 'current') await currentHeld;
       const body = 'retry: 50\nevent: snapshot\ndata: ' + JSON.stringify({messages: lagging ? server.slice(0, 1) : server.slice(),
@@ -105,7 +112,7 @@ async function afterHashNav(browser) {
     if (p === '/api/v2/chat/botops') {
       sends.push(route.request().postDataJSON().text);
       const message = {id: 'm1', from_actor: 'human:ana', body: sends[0], created: now()};
-      server = [...server, message]; sentAt = Date.now(); watches = 0;
+      server = [...server, message]; sentAt = Date.now();
       releaseSend();
       return json({conversation: {id: 'c1'}, message});
     }

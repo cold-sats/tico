@@ -16,6 +16,7 @@ const {html, uiFile} = require('./support/page.cjs');
 const SHOTS = process.env.TASK_CODE_SHOTS || '';
 
 const now = new Date().toISOString();
+const worktreeError = 'This bot needs write access to the attached repository. Literal <b>diagnostic</b>: /workspace/' + 'nested-directory-'.repeat(24) + '/checkout';
 const task = (id, over = {}) => ({id, title: id, body: 'Details.', owner: 'bot:eng', requester: 'human:ana', status: 'doing',
   lane: 'company', rank: 1, labels: [], links: [], parts: {total: 0, done: 0}, version: 2, created: now, updated: now, ...over});
 const pr = (id, number, title, over = {}) => ({id, kind: 'pr', repo: 'acme/web', number, url: `https://github.com/acme/web/pull/${number}`,
@@ -31,7 +32,7 @@ function fixtures() {
        detail_json: JSON.stringify({link_id: 'w1', state: 'present', branch: 'tico/t-check-checkout', ahead: 2, behind: 1, dirty_files: 3, last_commit: 'Add the summary step', size_mb: 41})},
       // No repo on the row: the folder (<bot>__<repo>) still names it.
       {id: 'w2', kind: 'worktree', url: 'worktree:77ab03', title: 'worktree', repo: null, branch: 'tico/t-check-api', state: 'unknown', path: 'tasks/t-check/api__payments-api',
-       detail_json: JSON.stringify({error: 'This bot needs write access to the attached repository'})},
+       detail_json: JSON.stringify({error: worktreeError})},
       {id: 'w3', kind: 'worktree', url: 'worktree:0c11de', title: 'acme/docs worktree', repo: 'acme/docs', branch: 'tico/t-check-docs', state: 'removed',
        detail_json: JSON.stringify({state: 'removed', ahead: 0, behind: 0, dirty_files: 0})},
       pr('p1', 212, 'Checkout summary step', {checks: 'failing', pending_comments: 2, review_state: 'changes_requested'}),
@@ -67,7 +68,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
       versions: [2, 1].map(n => ({n, size: 48, mime: 'text/markdown', created: now, by: 'bot:eng',
         url: `/api/v2/files/f-notes?v=${n}`, answers: []}))}];
   }
-  const page = await browser.newPage({viewport, serviceWorkers: 'block'});
+  const page = await browser.newPage({viewport, hasTouch: viewport.width <= 390, serviceWorkers: 'block'});
   const errors = [], writes = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.addInitScript(t => { try { localStorage.setItem('tico.theme', t); } catch {} }, theme);
@@ -175,9 +176,16 @@ async function desktop(browser) {
   assert.match(lines[4], /#214\s*Price rounding\s*checks running\s*conflict/, 'a chip says what it means');
   assert.match(lines[5], /#198\s*Cart badge\s*merged/);
   assert.equal(await rail.locator('.code-line.wt a').first().getAttribute('href'), 'https://github.com/acme/web/tree/tico/t-check-checkout');
-  // No repo, no GitHub link; the computer's error is the state's tooltip.
+  // No repo, no GitHub link. Errors are readable inline without hovering or opening a tooltip.
   assert.equal(await rail.locator('.code-line[data-code-link="w2"] a').count(), 0);
-  assert.equal(await rail.locator('.code-line[data-code-link="w2"] .code-state').getAttribute('title'), 'This bot needs write access to the attached repository');
+  const explanation = rail.locator('.code-line[data-code-link="w2"] .code-error');
+  assert.equal(await explanation.isVisible(), true);
+  assert.equal(await explanation.innerText(), worktreeError);
+  assert.equal(await explanation.locator('*').count(), 0, 'literal markup stays text');
+  await page.mouse.move(0, 0);
+  await page.keyboard.press('Tab');
+  assert.equal(await explanation.isVisible(), true, 'keyboard use needs no tooltip');
+  assert.equal(await rail.locator('.code-line[data-code-link="w1"] .code-error, .code-line.pr .code-error').count(), 0, 'clean worktrees and PR rows have no empty explanation');
   // A live worktree cannot be taken off here (its computer cleans it up when the task closes); a removed one can.
   assert.equal(await rail.locator('.code-line[data-code-link="w1"] [data-code-drop]').count(), 0);
   assert.equal(await rail.locator('.code-line[data-code-link="w2"] [data-code-drop]').count(), 0);
@@ -263,6 +271,15 @@ async function phone(browser) {
   assert.ok(side.x >= 0 && side.x + side.width <= 390, 'inside the screen');
   const overflow = await modal.evaluate(d => d.querySelector('.tmodal-body').scrollWidth - d.querySelector('.tmodal-body').clientWidth);
   assert.ok(overflow <= 1, 'no sideways scroll');
+  const explanation = rail.locator('.code-line[data-code-link="w2"] .code-error');
+  await explanation.scrollIntoViewIfNeeded();
+  assert.equal(await explanation.isVisible(), true, 'touch users can read the error without hover');
+  assert.equal(await explanation.innerText(), worktreeError);
+  assert.equal(await explanation.locator('*').count(), 0, 'mobile also preserves literal markup');
+  const textBox = await explanation.evaluate(el => ({height: el.clientHeight,
+    line: parseFloat(getComputedStyle(el).lineHeight), overflow: el.scrollWidth - el.clientWidth}));
+  assert.ok(textBox.height > textBox.line * 2, 'long paths wrap onto multiple lines');
+  assert.ok(textBox.overflow <= 1, 'the error itself has no horizontal overflow');
   if (SHOTS) {
     await rail.scrollIntoViewIfNeeded();
     await page.screenshot({path: path.join(SHOTS, 'task-code-phone-dark.png')});

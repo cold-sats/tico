@@ -506,7 +506,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await page.locator('[data-tag-edit]').count(), 0);
     me = {...me, mover: true};
     await page.goto('http://tico-ui.test/#/settings');
-    await page.locator('[data-settings-tab="tags"]').click();
+    await page.locator('[data-settings-tab="tasks"]').click();
     const beforeStarter = posted.length;
     await page.locator('#settings-tags [data-release-starter]').click();
     await page.locator('.page-tags [data-tag-create]').waitFor();
@@ -525,7 +525,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     tags.splice(tags.findIndex(tag => tag.key === 'release-checklist'), 1);
     const settingsTags = async () => {
       await page.goto('http://tico-ui.test/#/settings');
-      await page.locator('[data-settings-tab="tags"]').click();
+      await page.locator('[data-settings-tab="tasks"]').click();
       await page.locator('#settings-tags [data-release-starter]').waitFor();
     };
     await settingsTags();

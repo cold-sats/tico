@@ -57,6 +57,7 @@ const {html, uiFile} = require('./support/page.cjs');
     await v.ctx.close();
 
     v = await visit({notice: false, hash: '#/settings'});
+    await v.page.locator('#settings-more > summary').click();
     await v.page.locator('[data-settings-tab="privacy"]').click();
     await v.page.locator('#privacy-count').waitFor();
     assert.equal(await v.page.locator('#privacy-count').isChecked(), true);
