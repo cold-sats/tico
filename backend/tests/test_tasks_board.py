@@ -657,7 +657,7 @@ def test_number_migration_preserves_shipped_schemas_and_existing_step_order(tmp_
     H._apply(c, H.NUMBERS_SCHEMA)
     H.migrate(c)
     assert ranks == [tuple(row) for row in c.execute('SELECT id,step_rank,number FROM tasks ORDER BY step_rank')]
-    assert c.execute('PRAGMA user_version').fetchone()[0] == 23
+    assert c.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
     c.close()
 
 
@@ -763,7 +763,10 @@ def test_parent_owner_bot_can_track_and_reparent_inherited_subtasks(api):
     rows = post(api, 'sql', {'sql': 'SELECT id FROM tasks'}, token=token)['rows']
     assert [child['id']] in rows
     unrelated = post(api, 'tasks', {'owner': 'cpo', 'title': 'Do unrelated work', 'body': 'x'})
-    get(api, 'tasks/' + unrelated['id'], token=token, expected=403)
+    assert get(api, 'tasks/' + unrelated['id'], token=token)['task']['id'] == unrelated['id']
+    # Company transparency grants reads; it does not grant unrelated task mutations.
+    post(api, 'tasks/' + unrelated['id'], {'version': unrelated['version'], 'title': 'Change it'},
+         token=token, expected=403)
     post(api, 'tasks/' + parent['id'], {'version': parent['version'], 'status': 'done'}, token=token, expected=422)
     moved = post(api, 'tasks/' + child['short_id'], {'version': child['version'], 'parent_id': ''}, token=token)
     assert moved['parent_id'] is None

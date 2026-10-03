@@ -132,7 +132,7 @@ def test_legacy_hub_migration_backfills_live_and_cloud_restart_keeps_queue(api, 
     db.execute("INSERT INTO meetings(id,title,owner,metadata_json,created,updated) VALUES(?,?,?,?,?,?)",
                ('legacy', 'Meeting', 'ben@acme.example', json.dumps({'id': 'legacy', 'kind': 'meeting'}), H.now(), H.now()))
     H.migrate(db)
-    assert db.execute('PRAGMA user_version').fetchone()[0] == 22
+    assert db.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
     assert meetings.get('legacy', db)['review_state'] == 'live'
     assert db.execute("SELECT 1 FROM sqlite_master WHERE name='task_file_reviews'").fetchone()
     assert 'media_state' in {r[1] for r in db.execute('PRAGMA table_info(bot_file_versions)')}
@@ -141,7 +141,7 @@ def test_legacy_hub_migration_backfills_live_and_cloud_restart_keeps_queue(api, 
     api.app.state.store.initialize(seed_market=False)
     assert queue(api)['meetings'][0]['id'] == made['id']
     with api.app.state.store.read() as c:
-        assert {r[0] for r in c.execute('SELECT version FROM cloud_migrations WHERE version>=53')} == {53, 54, 55}
+        assert {r[0] for r in c.execute('SELECT version FROM cloud_migrations WHERE version>=53')} == {53, 54, 55, 56, 57}
 
 
 def test_granola_account_sync_lands_in_the_persons_pending_queue(api):
@@ -214,7 +214,7 @@ def test_released_migrations_remain_in_place(tmp_path, version):
     assert meetings.get('released', db)['review_state'] == 'live'
     assert meetings.get('released', db)['metadata']['ready_announced'] is True
     H.migrate(db)
-    assert db.execute('PRAGMA user_version').fetchone()[0] == 22
+    assert db.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
     db.close()
 
 

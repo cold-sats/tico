@@ -89,7 +89,7 @@ def test_streamed_task_versions_review_and_next_wake(api, monkeypatch):
             assert v['sha256'] == hashlib.sha256(expected).hexdigest()
             response = api.get(v['url'], headers=headers())
             assert response.status_code == 200 and response.content == expected
-            assert response.headers['cache-control'] == 'private, max-age=31536000, immutable'
+            assert response.headers['cache-control'] == 'private, no-store'
             assert response.headers['etag'] == '"' + v['sha256'] + '"'
             head = api.head(v['url'], headers=headers())
             assert head.status_code == 200 and head.content == b''
@@ -113,7 +113,7 @@ def test_streamed_task_versions_review_and_next_wake(api, monkeypatch):
                           headers={**headers(), 'Range': 'bytes=2-12'})
         assert partial.status_code == 206 and partial.content == data[2:13]
         assert partial.headers['content-range'] == f'bytes 2-12/{len(data)}'
-        assert 'immutable' in partial.headers['cache-control']
+        assert partial.headers['cache-control'] == 'private, no-store'
     comment = post(api, f'tasks/{tid}/comments', {'text': 'Review the second script.',
                    'attachments': [ids['script.md'] + '@2']}, token)['comment']
     attached = comment['refs']['attachments'][0]

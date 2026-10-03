@@ -292,6 +292,11 @@ def test_claim_query_matches_old_python_oracle_on_200_rows(api):
     store, execution = api.app.state.store, api.app.state.execution
     who = Identity('runner:' + r['runner_id'], 'runner', runner_id=r['runner_id'])
     with store.transaction() as c:
+        # The ordering oracle predates provenance checks. Give its task references real,
+        # ordinary sources; missing sources are deliberately unclaimable now.
+        for ident in ('held', 'other'):
+            c.execute("INSERT INTO tasks(id,title,body,requester,owner,status,created,updated,private) "
+                      "VALUES(?,?,'x','human:ana','bot:ops','open',?,?,0)", (ident, ident, H.now(), H.now()))
         rooms = {}
         for bot, kind in itertools.product(('ops', 'finance', 'cpo'), ('chat', 'task')):
             rooms[bot, kind] = H.open_conversation(c, 'human:ana', ['bot:' + bot], kind=kind)['id']
