@@ -19,9 +19,12 @@ from . import models as M
 from . import providers, usage_limits, views
 from .store import H, P, Problem
 from .usage_records import RUNS
+from .subscription_identity import usage_label
 
 DIMENSIONS = {"harness": "coalesce(t.harness, '')", "model": "coalesce(t.model, '')",
-              "effort": "coalesce(t.effort, '')", "subscription": "CASE WHEN t.billing='subscription' THEN coalesce(t.profile, '') ELSE '' END"}
+              "effort": "coalesce(t.effort, '')", "subscription": "CASE WHEN t.billing='subscription' AND coalesce(t.profile, '') != '' "
+              "THEN coalesce((SELECT 'subscription:' || json_array(a.runner_id, t.profile) FROM attempts a WHERE a.id=t.id), "
+              "'legacy-profile:' || t.profile) ELSE '' END"}
 GROUPS = ("bot", "day", "routine", *DIMENSIONS)
 MAX_DAYS = 366
 TOP_ROUTINES = 10
@@ -232,7 +235,7 @@ def install(app, store, auth, mutate, settings):
             elif group == "day":
                 rows = [{"day": r["k"], **figures(r)} for r in query(c, "substr(t.started, 1, 10)", "", slugs, first, last, filters)]
             elif group in DIMENSIONS:
-                rows = [{"value": r["k"] or None, "name": r["k"] or "Not recorded / not applicable", **figures(r)}
+                rows = [{"value": r["k"] or None, "name": usage_label(c, r["k"] or "") if group == "subscription" else r["k"] or "Not recorded / not applicable", **figures(r)}
                         for r in query(c, DIMENSIONS[group], "", slugs, first, last, filters)]
             else:
                 rows = [routine_row(c, r, names) for r in query(c, "coalesce(s.id, '')", ROUTINE_JOIN, slugs, first, last, filters)]
@@ -243,7 +246,11 @@ def install(app, store, auth, mutate, settings):
                 rows.sort(key=lambda r: r["day"])
             else:
                 rows.sort(key=lambda r: (-spend(r), -(r["input_tokens"] + r["cached_tokens"] + r["output_tokens"]), -r["runs"]))
+            dimensions = {key: query(c, expression, "", slugs, first, last)
+                          for key, expression in DIMENSIONS.items()}
             return {**base, "group": group, "department": department or None, "totals": total, "rows": rows,
                     "departments": sorted({d for d in depts.values() if d}),
-                    "dimensions": {key: [r["k"] or "__unknown__" for r in query(c, expression, "", slugs, first, last)]
-                                   for key, expression in DIMENSIONS.items()}}
+                    "dimension_labels": {"subscription": {r["k"] or "__unknown__": usage_label(c, r["k"] or "")
+                        for r in dimensions["subscription"]}},
+                    "dimensions": {key: [r["k"] or "__unknown__" for r in values]
+                                   for key, values in dimensions.items()}}

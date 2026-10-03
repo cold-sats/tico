@@ -55,12 +55,14 @@ def test_a_model_with_no_price_keeps_its_tokens_and_no_cost(api):
 
 
 
-def test_a_subscription_run_is_marked_and_a_default_model_is_the_one_the_bot_resolves_to(api):
+def test_a_subscription_run_preserves_an_unspecified_model_without_guessing_current_config(api):
     r, _, attempt = setup_attempt(api)
     complete(api, r, attempt, {"input_tokens": 100, "cached_tokens": 0, "output_tokens": 10, "model": "default",
                                "runtime": "fake", "billing": "subscription"})
     row = turn(api, attempt["id"])
-    assert row["billing"] == "subscription" and row["model"] != "default"
+    # Current bot configuration is not evidence of the model used by this past run.
+    assert row["billing"] == "subscription" and row["model"] == "default"
+    assert row["est_cost_usd"] is None
 
 
 def test_the_price_table_covers_every_model_a_provider_sells_and_is_dated():

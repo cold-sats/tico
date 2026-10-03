@@ -6,6 +6,7 @@ from fastapi import Request
 
 from . import groups as G, hubdb as H, models as M
 from .execution import readiness_document
+from .subscription_identity import identity
 from .store import Problem, encode
 
 
@@ -140,7 +141,7 @@ def listing(c, auth, who, computer_rows):
                                               (runner['id'], H.actor_id(who.actor))).fetchone():
             continue
         computers.append({'runner_id': runner['id'], 'label': runner['label'], 'profiles': [
-            {'name': row['profile'], 'runtimes': reported_runtimes(c, runner['id'], row['profile'], row['runtimes_json'])}
+            {'name': row['profile'], **identity(c, runner['id'], row['profile']), 'runtimes': reported_runtimes(c, runner['id'], row['profile'], row['runtimes_json'])}
             for row in c.execute('SELECT * FROM computer_profiles WHERE runner_id=? ORDER BY profile', (runner['id'],))]})
     access = auth.bot_accesses(c, who)
     assignments = [dict(row) for row in c.execute('SELECT * FROM subscription_assignments ORDER BY scope,target')
@@ -220,6 +221,8 @@ def bot_subscription(c, bot, settings, ctx=None):
 
 
 def install(app, store, auth, mutate, settings, computer_rows):
+    from . import subscription_identity
+    subscription_identity.install(app, store, auth, mutate)
     @app.get('/api/v2/subscriptions')
     def subscriptions(request: Request):
         who = request.state.identity
@@ -268,4 +271,7 @@ def install(app, store, auth, mutate, settings, computer_rows):
             if not H.bot(c, bot):
                 raise Problem('not_found', 'Bot not found', 404)
             auth.require_see(c, who, bot)
-            return bot_subscription(c, bot, settings)
+            result = bot_subscription(c, bot, settings)
+            if result['profile'] and result['computer']:
+                result.update(identity(c, result['computer']['runner_id'], result['profile']))
+            return result
