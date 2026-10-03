@@ -411,7 +411,76 @@ DEPLOY_QUERY = ("SELECT l.*,p.seq AS merge_seq FROM task_links l JOIN tasks t ON
                "AND l.pr_sha IS NOT NULL AND t.status='ready'")
 
 
-def ship_deployed(c, settings):
+def refresh_deployed_tasks(service):
+    """Verify release ancestry outside transactions, then reuse the guarded completion path."""
+    settings = service.settings
+    repo, commit = settings.release_repo.lower(), settings.release_commit
+    if (settings.rehearsal or not re.fullmatch(r"[\w.-]+/[\w.-]+", repo)
+            or not re.fullmatch(r"[0-9a-f]{40}", commit)):
+        return
+    with service.lock:
+        now = time.monotonic()
+        if getattr(service, "deploy_refresh_running", False) or getattr(service, "deploy_refresh_next", 0) > now:
+            return
+        service.deploy_refresh_next = now + 180
+        with service.store.read() as c:
+            app = service.row(c)
+            if not app or repo.split("/")[0] != app["org"].lower():
+                return
+            if not c.execute("SELECT 1 FROM repositories WHERE lower(full_name)=? AND reachable=1", (repo,)).fetchone():
+                return
+            shas = [r[0] for r in c.execute(
+                "SELECT DISTINCT l.pr_sha FROM task_links l JOIN tasks t ON t.id=l.task_id "
+                "WHERE t.status='ready' AND l.kind='pr' AND l.state='merged' AND lower(l.repo)=? "
+                "AND l.pr_sha IS NOT NULL", (repo,))]
+        keys = [(repo, sha, commit) for sha in shas if sha != commit and re.fullmatch(r"[0-9a-f]{40}", sha)]
+        cache = getattr(service, "deploy_refresh_cache", {})
+        due = sorted((key for key in keys if not cache.get(key, {}).get("verified")
+                      and cache.get(key, {}).get("next", 0) <= now),
+                     key=lambda key: cache.get(key, {}).get("next", 0))[:20]
+        service.deploy_refresh_cache = cache
+        service.deploy_refresh_running = True
+
+    def refresh():
+        try:
+            token = None
+            for key in due:
+                if service.repository_stop.is_set():
+                    return
+                verified = False
+                try:
+                    if token is None:
+                        token, _ = service.mint([repo], {"contents": "read"}, diagnose=False)
+                    response = service._call("GET", f"/repos/{quote(repo, safe='/')}/compare/{key[1]}...{commit}",
+                                             params={"per_page": 1}, headers={"Authorization": "Bearer " + token})
+                    if response.status_code == 200:
+                        data = response.json()
+                        verified = (data.get("status") in ("ahead", "identical")
+                                    and (data.get("base_commit") or {}).get("sha") == key[1]
+                                    and (data.get("merge_base_commit") or {}).get("sha") == key[1])
+                except Exception:
+                    logging.getLogger("tico.github").warning("Release ancestry unavailable for %s at %s", repo, key[1])
+                with service.lock:
+                    if key not in cache and len(cache) >= 512:
+                        cache.pop(next(iter(cache)))
+                    cache[key] = {"verified": verified, "next": time.monotonic() + 300}
+            if service.repository_stop.is_set():
+                return
+            with service.lock:
+                verified = {key for key in keys if cache.get(key, {}).get("verified")}
+            # Current links, children and human changes are checked again after the network reads.
+            if (settings.release_repo.lower(), settings.release_commit) == (repo, commit):
+                with service.store.transaction() as c:
+                    ship_deployed(c, settings, ancestry=verified)
+        except Exception:
+            logging.getLogger("tico.github").exception("Deployed task reconciliation failed")
+        finally:
+            with service.lock:
+                service.deploy_refresh_running = False
+    threading.Thread(target=refresh, name="tico-deploy-refresh", daemon=True).start()
+
+
+def ship_deployed(c, settings, *, ancestry=None):
     """Every `ready` task whose merged pull request is in the running release is shipped."""
     commit, repo = settings.release_commit, settings.release_repo
     if not commit or not repo:
@@ -443,7 +512,9 @@ def ship_deployed(c, settings):
                 included = False
                 break
             merged = pushes.get(link["pr_sha"])
-            if not (link["pr_sha"] == commit or here and merged and merged <= here["seq"]):
+            verified = (repo.lower(), link["pr_sha"], commit) in (ancestry or ())
+            historical = ancestry is None and here and merged and merged <= here["seq"]
+            if not (link["pr_sha"] == commit or verified or historical):
                 included = False
                 break
         if not included:
@@ -453,7 +524,11 @@ def ship_deployed(c, settings):
             return False
         for link in merged_links:
             c.execute("UPDATE task_links SET state='shipped',updated=? WHERE id=?", (H.now(), link["id"]))
-            H.event(c, H.KEEPER, "github.shipped", task["id"], {"release": commit, "url": link["url"]})
+            evidence = {"release": commit, "url": link["url"]}
+            if (repo.lower(), link["pr_sha"], commit) in (ancestry or ()):
+                evidence["ancestry"] = {"repository": repo.lower(), "merge": link["pr_sha"], "deployed": commit,
+                                        "comparison": f"https://github.com/{repo}/compare/{link['pr_sha']}...{commit}"}
+            H.event(c, H.KEEPER, "github.shipped", task["id"], evidence)
         return True
 
     for task in tasks:

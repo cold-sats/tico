@@ -119,6 +119,13 @@ Checks need read access to Checks and commit statuses need read access to Commit
 the GitHub App. Existing installations without these events keep their last known PR states;
 opening a task refreshes reachable PRs, cached for three minutes.
 
+For a manually configured App, open GitHub → Settings → Developer settings → GitHub Apps →
+your App. Under **Webhook**, check **Active**. Under **Permissions & events → Subscribe to events**,
+check **Push** and save. Keep the existing webhook URL (`https://<your-host>/api/v2/github/webhook`),
+secret, SSL verification and repository access unchanged. In **Recent Deliveries**, confirm a genuine
+event receives HTTP 200. An installation event confirms delivery, but does not restore missed pushes;
+enabling Push does not recreate historical deliveries.
+
 A PR event updates every task linked to that PR. Checks record passing, failing or pending;
 PR updates record clean, conflict or unknown mergeability. Reviews record approved, changes
 requested or commented; review comment creation/deletion updates the pending count. Commit
@@ -137,4 +144,11 @@ reachable, ticked or have received a PR webhook on any task. Without a GitHub Ap
 a task to Ready or Done, and GitHub preserves their choice for one hour. A release completes
 it only after all merged PRs are included; merged PRs in another repository remain Ready.
 Automatic completion waits for open subtasks.
+When push deliveries were missed, the enabled background scheduler also checks up to 20 merge/deployed
+commit pairs every three minutes using the existing App's Contents read access. It compares against the
+running release's recorded commit, never latest main or the newest tag. Only verified same-repository
+ancestry completes a task; errors, missing commits and diverged histories leave it Ready. Failed checks
+retry after at least five minutes. Results are cached in memory for up to 512 immutable pairs and checked
+again after a restart; completion records the verified pair. All linked PRs, open subtasks and the one-hour
+human-change protection still apply. Completion means **Done**, not **Closed**, and creates no push history.
 Apps created before v0.3.1 may have Webhook → Active turned off in GitHub App settings. Their repository list refreshes daily and on Refresh in Settings → Repositories. The App webhook API does not expose the Active switch; enable it in GitHub to receive installation events.
