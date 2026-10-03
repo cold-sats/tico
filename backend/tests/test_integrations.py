@@ -67,9 +67,32 @@ def shipped_text():
     return files
 
 
-@pytest.mark.parametrize("path", shipped_text(), ids=lambda p: str(p.relative_to(ROOT)))
-def test_shipped_pages_and_templates_name_no_fixture_people_or_companies(path):
+def shipped_text_groups():
+    """Keep every input, with one test wrapper per template or shared directory."""
+    groups = {}
+    for path in shipped_text():
+        parts = path.relative_to(ROOT).parts
+        if parts[:2] == ("templates", "catalog"):
+            name = "/".join(parts[:3])
+        elif parts[0] == "templates":
+            name = "/".join(parts[:2])
+        else:
+            name = parts[0]
+        groups.setdefault(name, []).append(path)
+    return {name: sorted(paths) for name, paths in sorted(groups.items())}
+
+
+@pytest.mark.parametrize("paths", [pytest.param(paths, id=name) for name, paths in shipped_text_groups().items()])
+def test_shipped_pages_and_templates_name_no_fixture_people_or_companies(paths):
     # A real install reads these as facts about its own company; only fenced examples may use stand-ins.
-    text = FENCE.sub("", path.read_text())
-    hits = FIXTURE_NAMES.findall(text)
-    assert not hits, f"{path.relative_to(ROOT)} names {sorted(set(hits))}"
+    failures = []
+    for path in paths:
+        try:
+            text = FENCE.sub("", path.read_text())
+        except (OSError, UnicodeError) as error:
+            failures.append(f"{path.relative_to(ROOT)} could not be read: {error}")
+            continue
+        hits = FIXTURE_NAMES.findall(text)
+        if hits:
+            failures.append(f"{path.relative_to(ROOT)} names {sorted(set(hits))}")
+    assert not failures, "\n".join(failures)
