@@ -7,6 +7,7 @@
 // GET /v2/subscriptions: {profiles_by_computer: [{runner_id, label, profiles: [{name, runtimes: {codex: {signed_in}}}]}],
 // assignments: [{scope, target, profile}]}. An older server answers 404 and every part here stays away.
 let SUBS = null;
+let SUBS_REFRESH_TIMER = null;
 const SUBS_RUNTIMES = [['codex', 'Codex'], ['claude', 'Claude Code']];
 async function subsLoad() {
   try { SUBS = subsNormal(await get('/v2/subscriptions')); }
@@ -116,6 +117,17 @@ function subsWeeklyHTML(c, p) {
         </form></details>` : ''}</div>`;
     }).join('');
 }
+function subsScheduleRefresh() {
+  clearTimeout(SUBS_REFRESH_TIMER);
+  const pending = (SUBS?.computers || []).some(c => c.profiles.some(p => Object.values(p.runtimes || {}).some(state =>
+    state.refresh?.state === 'requested' && Date.parse(state.refresh.expires_at) + 30000 > Date.now())));
+  if (!pending) return;
+  SUBS_REFRESH_TIMER = setTimeout(async () => {
+    if (S.route !== SETTINGS || SETTINGS_TAB !== 'providers') return;
+    await renderSettingsSubs();
+    subsScheduleRefresh();
+  }, 5000);
+}
 async function subsRefreshWeekly(button) {
   button.disabled = true;
   try {
@@ -178,6 +190,7 @@ async function renderSettingsSubs(force = false, loaded = false) {
     ${add}`;
   el.querySelectorAll('form[data-subs-weekly]').forEach(form => { if (openWeekly.has(subsWeeklyKey(form))) form.closest('details').open = true; });
   card.hidden = false;
+  subsScheduleRefresh();
   el.onchange = async ev => {
     const sel = ev.target.closest('[data-subs-group]'); if (!sel) return;
     sel.disabled = true;

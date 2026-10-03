@@ -79,6 +79,13 @@ class Refresh(unittest.TestCase):
         self.assertEqual(Host.calls, [])
         self.assertTrue(Host.last.stopped)
 
+    def test_preflight_runner_lazily_keeps_weekly_reports(self):
+        from runner.service import Runner
+        runner = Runner.__new__(Runner)
+        reports = runner.weekly_usage
+        self.assertIs(runner.weekly_usage, reports)
+        self.assertEqual(reports.attach([]), [])
+
     def test_missing_profile_never_uses_default_and_one_worker(self):
         class Client:
             def __init__(self): self.posts = []

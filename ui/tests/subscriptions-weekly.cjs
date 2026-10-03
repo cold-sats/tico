@@ -26,3 +26,12 @@ assert.match(failed, /Refresh failed; last reading kept/);
 assert.match(failed, /100% used/);
 assert.match(failed, /limit reached/);
 console.log('Weekly subscription rendering checks passed');
+context.clearTimeout = () => {};
+context.setTimeout = (callback, delay) => { context.scheduled = {callback, delay}; return 1; };
+vm.runInContext(`SUBS = {computers: [{profiles: [{runtimes: {codex: {refresh: {
+  state: 'requested', expires_at: new Date(Date.now() + 120000).toISOString()}}}}]}]}; subsScheduleRefresh();`, context);
+assert.equal(context.scheduled.delay, 5000);
+context.scheduled = null;
+vm.runInContext(`SUBS.computers[0].profiles[0].runtimes.codex.refresh.state = 'succeeded'; subsScheduleRefresh();`, context);
+assert.equal(context.scheduled, null);
+console.log('Weekly refresh polling stops at completion');
