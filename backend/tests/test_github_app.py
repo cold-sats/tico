@@ -446,3 +446,38 @@ def test_unreadable_live_permissions_keep_the_stored_flag(api, gh):
     connect(api, administration="true")                 # GitHub's answer has no permissions
     assert api.get("/api/v2/github/app", headers=auth()).json()["administration"] is True
     assert api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth()).status_code == 200
+
+
+def test_selected_bot_repository_creation_grant_and_revocation(api, gh):
+    connect(api, administration='true')
+    runner_token(api, 'cmo')
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO messages(id,from_actor,to_actor,kind,body,created) VALUES('m-cmo','keeper','bot:cmo','request','Prepare the repository',?)", (H.now(),))
+        job = c.execute("SELECT id FROM jobs WHERE bot='cmo'").fetchone()['id']
+        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) "
+                  "VALUES('a1',?,'cmo','r1',1,'x','running',?,?)", (job, H.shift(H.now(), hours=1), H.now()))
+    path = '/api/v2/bots/cmo/repositories'
+    create = lambda body: api.post('/api/v2/github/repos', json=body, headers=auth('bot-test'))
+    assert api.get(path, headers=auth()).json()['create_repositories'] is False
+    denied = create({'slug': 'newbie'})
+    assert denied.status_code == 403 and 'Ask BotOps' in denied.text
+    for actor in ('bot-test', 'person-test', 'runner-test'):
+        assert api.put(path, json={'mode': 'own', 'create_repositories': True}, headers=auth(actor)).status_code == 403
+    saved = api.put(path, json={'mode': 'own', 'create_repositories': True}, headers=auth())
+    assert saved.status_code == 200 and saved.json()['create_repositories'] is True
+    # Legacy access writes preserve the separate human-managed creation grant.
+    assert api.put(path, json={'mode': 'own'}, headers=auth()).json()['create_repositories'] is True
+    for body in ({'slug': 'oldie'}, {'slug': 'nobody'}, {'slug': 'newbie', 'template': 'elsewhere/template'}):
+        assert create(body).status_code == 403
+    made = create({'slug': 'newbie', 'empty': True})
+    assert made.status_code == 200, made.text
+    assert made.json()['repository'] == 'Acme/bot-newbie'
+    with api.app_state.store.read() as c:
+        assert c.execute("SELECT actor FROM events WHERE action='github.repo_created'").fetchone()[0] == 'bot:cmo'
+        assert json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='cmo'").fetchone()[0]).get('create_repositories') is None
+    # A local grant never replaces GitHub's own Administration permission.
+    gh.permissions = {'administration': 'read', 'contents': 'write'}
+    assert create({'slug': 'newbie', 'empty': True}).status_code == 403
+    assert api.put(path, json={'mode': 'own', 'create_repositories': False}, headers=auth()).json()['create_repositories'] is False
+    assert create({'slug': 'newbie'}).status_code == 403
+    assert api.get('/api/v2/bots/botops/repositories', headers=auth()).json()['create_repositories'] is True

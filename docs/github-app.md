@@ -52,8 +52,12 @@ With administration allowed, the owner can create `<org>/bot-<slug>` privately f
     hub bot repo-create botops            # from ticoteam/botops
     hub bot repo-create sales --template <org>/bot-template
 
-The BotOps bot (`bot:botops`) may make the same call, because the owner allowed repository creation
-when connecting the app. It is limited to the name `bot-<slug>` for a bot that exists (planned or
+The BotOps bot (`bot:botops`) may make the same call when the connected app permits repository creation.
+To delegate this to an engineering bot or another selected bot, an Owner or admin enables
+**Create bot repositories** in that bot’s **Settings → Repositories**. Other bots default to off;
+BotOps keeps its built-in access. The grant can be revoked there and does not grant deletion or
+broaden the bot’s normal repository access. A bot without it should ask BotOps to create the
+repository, rather than changing its own permissions. It is limited to the name `bot-<slug>` for a bot that exists (planned or
 active, not archived), always private, in the connected organization, from the default template or
 one in that organization. Every creation is audited (`github.repo_created`) with the acting bot.
 Anyone else gets 403 with the reason. Without the administration permission the command says so and
