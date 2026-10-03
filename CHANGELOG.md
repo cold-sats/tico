@@ -13,6 +13,7 @@ All notable changes to Tico are recorded here. The format follows
 ### Changed
 - Run all tests locally; GitHub Actions builds and publishes artifacts without Python, browser or Docker smoke-test jobs.
 - Company apps show short initials beside the macOS menu-bar icon, with an optional private label override; stable app identities and update feeds are preserved.
+- Company download links open the described installer directly. Generic apps are labeled as requiring manual setup and no longer appear in company-app banners.
 
 ## [0.3.14] - 2026-10-02
 
