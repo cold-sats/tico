@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.18] - 2026-10-03
+
+### Fixed
+- Ready tasks can complete after missed push deliveries when bounded GitHub ancestry checks verify their merged PRs are included in the running release, preserving pending-PR, open-subtask and human-change safeguards ([#59](https://github.com/ticoteam/tico/pull/59)).
+
+### Documentation
+- Manual GitHub App setup guidance requires an Active webhook and the Push event subscription, explains how to check delivery, and clarifies that enabling events does not restore missed history ([#59](https://github.com/ticoteam/tico/pull/59)).
+
 ## [0.3.17] - 2026-10-03
 
 ### Fixed
@@ -1812,7 +1820,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.17...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.18...HEAD
+[0.3.18]: https://github.com/ticoteam/tico/compare/v0.3.17...v0.3.18
 [0.3.17]: https://github.com/ticoteam/tico/compare/v0.3.16...v0.3.17
 [0.3.16]: https://github.com/ticoteam/tico/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/ticoteam/tico/compare/v0.3.14...v0.3.15
