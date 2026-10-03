@@ -121,14 +121,18 @@ function pageSettingsThemeBind() {
 function settingsShow(tab) {
   if (tab === 'credentials' || tab === 'cloud') { location.hash = INTEGRATIONS; return; }
   if (tab === 'tags' || tab === 'types') tab = 'tasks'; // Saved links keep working.
-  SETTINGS_TAB = ['assistant', 'chat', 'tasks'].includes(tab) ? tab : tab === 'team' && S.me?.cloud && S.me?.role === 'owner' ? 'team' : tab === 'types' && S.me?.cloud ? 'types' : tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : tab === 'repos' ? 'repos' : 'devices';
+  const tabs = [...document.querySelectorAll('#settings-tabs [data-settings-tab]')];
+  // Tab names come from the navigation; recheck access in case this person's role just changed.
+  const owner = S.me?.role === 'owner';
+  const access = {team: !!S.me?.cloud && owner, people: settingsIsAdmin(), history: owner, privacy: owner};
+  SETTINGS_TAB = access[tab] !== false && tabs.some(button => button.dataset.settingsTab === tab) ? tab : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   if (['health', 'history', 'privacy', 'recurring'].includes(SETTINGS_TAB)) $('#settings-more').open = true;
   for (const name of ['assistant', 'chat', 'tasks']) {
     const pane = $(name === 'assistant' ? '#settings-assistant-pane' : '#settings-' + name);
     if (pane) pane.hidden = SETTINGS_TAB !== name;
   }
-  document.querySelectorAll('#settings-tabs [data-settings-tab]').forEach(button => {
+  tabs.forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
     button.classList.toggle('cur', selected); button.setAttribute('aria-selected', String(selected));
   });

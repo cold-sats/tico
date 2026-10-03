@@ -132,6 +132,28 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
 }
 const last = (writes, p) => writes.filter(w => w.p === p).at(-1)?.body;
 
+async function navigation(browser) {
+  const {page, errors} = await open(browser);
+  for (const alias of ['tags', 'types']) {
+    await page.evaluate(alias => settingsShow(alias), alias);
+    assert.equal(await page.locator('#settings-tasks').isVisible(), true, `${alias} opens Tasks`);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('tico.settings.tab')), 'tasks');
+  }
+  // Even if old navigation is still painted, losing a role cannot expose a restricted pane.
+  await page.evaluate(() => { S.me.role = 'member'; S.me.bot_admin = false; });
+  for (const restricted of ['team', 'people', 'history', 'privacy', 'unknown-tab']) {
+    await page.evaluate(tab => settingsShow(tab), restricted);
+    assert.equal(await page.locator('#settings-devices').isVisible(), true, `${restricted} safely falls back`);
+    assert.equal(await page.evaluate(() => SETTINGS_TAB), 'devices');
+  }
+  for (const alias of ['credentials', 'cloud']) {
+    assert.equal(await page.evaluate(alias => { settingsShow(alias); return location.hash; }, alias), '#/integrations');
+  }
+  assert.deepEqual(errors, []);
+  await page.close();
+  console.log('settings aliases and current access: ok');
+}
+
 async function computers(browser) {
   const {page, errors, writes} = await open(browser);
   const card = page.locator('#settings-subs');
@@ -313,6 +335,6 @@ async function phone(browser) {
 
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
-  try { await computers(browser); await botEditor(browser); await signInRefresh(browser); await who(browser); await oldServer(browser); await phone(browser); }
+  try { await navigation(browser); await computers(browser); await botEditor(browser); await signInRefresh(browser); await who(browser); await oldServer(browser); await phone(browser); }
   finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

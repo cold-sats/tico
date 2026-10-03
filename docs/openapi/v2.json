@@ -15788,7 +15788,7 @@
           },
           "target_label": {
             "type": "string",
-            "description": "'→ 65% by Dec 31' or 'range 40–60'"
+            "description": "'\u2192 65% by Dec 31' or 'range 40\u201360'"
           },
           "expected": {
             "type": [
@@ -17611,6 +17611,17 @@
       },
       "RepoAccessUpdate": {
         "properties": {
+          "create_repositories": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Create Repositories"
+          },
           "mode": {
             "type": "string",
             "enum": [
@@ -17648,17 +17659,6 @@
               }
             ],
             "title": "Chosen"
-          },
-          "create_repositories": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Create Repositories"
           }
         },
         "additionalProperties": false,
