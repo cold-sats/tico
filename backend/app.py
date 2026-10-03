@@ -131,9 +131,10 @@ def create_app(settings=None):
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
             def github_wakes():
-                from .github import flush_wakes
+                from .github import flush_wakes, refresh_deployed_tasks
                 with store.transaction() as c:
                     flush_wakes(c)
+                refresh_deployed_tasks(app.state.github_app)
             while not stop.is_set():
                 try:
                     await asyncio.to_thread(github_wakes)
