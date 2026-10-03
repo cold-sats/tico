@@ -80,11 +80,12 @@ function taskCodeLineHTML(l, mover, siblings = []) {
     if (sync) bits.push(`<span class="tnum">${sync}</span>`);
     if (files) bits.push(`<span class="tnum">${files} file${files === 1 ? '' : 's'}</span>`);
     const odd = ['missing', 'removed', 'unknown', 'pending'].includes(l.state) || error
-      ? ` <span class="code-state${error ? ' err' : ''}"${error ? ` title="${esc(error)}"` : ''}>${esc(['missing', 'removed', 'unknown', 'pending'].includes(l.state) ? l.state : 'error')}</span>` : '';
-    const title = [repo, l.branch, l.path, error].filter(Boolean).join(' · ');
+      ? ` <span class="code-state${error ? ' err' : ''}">${esc(['missing', 'removed', 'unknown', 'pending'].includes(l.state) ? l.state : 'error')}</span>` : '';
+    const title = [repo, l.branch, l.path].filter(Boolean).join(' · ');
+    const explanation = error ? `<div class="props-msg code-error">${esc(error)}</div>` : '';
     const inner = bits.join('<span class="code-dot">·</span>');
     return `<li class="code-line wt${l.state === 'removed' ? ' gone' : ''}" data-code-link="${esc(l.id || '')}">${url
-      ? `<a class="code-main" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}">${inner}</a>` : `<span class="code-main" title="${esc(title)}">${inner}</span>`}${odd}${x}</li>`;
+      ? `<a class="code-main" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}">${inner}</a>` : `<span class="code-main" title="${esc(title)}">${inner}</span>`}${odd}${x}${explanation}</li>`;
   }
   const num = taskPRNumber(l), title = l.title && !/^[\w.-]+#\d+$/.test(l.title) ? l.title : '';
   return `<li class="code-line pr" data-code-link="${esc(l.id || '')}"><a class="code-main" href="${esc(l.url || '#')}" target="_blank" rel="noopener" title="${esc([taskLinkRepo(l), l.title || l.url].filter(Boolean).join(' · '))}">${num ? `<span class="code-num tnum">#${esc(num)}</span>` : ''}<span class="code-title">${esc(title || repoShort(taskLinkRepo(l)) || l.url || 'Pull request')}</span></a><span class="code-chips">${taskPRChips(l)}</span>${x}</li>`;
