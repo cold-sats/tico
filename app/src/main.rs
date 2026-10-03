@@ -390,7 +390,10 @@ fn apply_window_mode(app: &App, _animated: bool) {
         WindowMode::Rail => {
             if let Ok(Some(monitor)) = window.current_monitor() {
                 let area = monitor.work_area();
-                let width = RAIL_WIDTH.min(area.size.width).max(MIN_WIDTH);
+                // Match the logical minimum width on Retina displays before positioning in pixels.
+                let rail = LogicalSize::new(RAIL_WIDTH.max(MIN_WIDTH), 0)
+                    .to_physical::<u32>(monitor.scale_factor());
+                let width = rail.width.min(area.size.width);
                 let _ = set_outer_size(&window, width, area.size.height);
                 let _ = window.set_position(PhysicalPosition::new(area.position.x + area.size.width as i32 - width as i32, area.position.y));
             }
