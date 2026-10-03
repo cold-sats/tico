@@ -277,10 +277,10 @@ function taskStatusGroups(items, {always = []} = {}) {
     kind: key === 'needsme' ? 'needsme' : key.startsWith('needs') ? 'needs' : key,
     owner: key === 'needsme' ? myActor() : key.startsWith('needs:') ? key.slice(6) : ''}));
 }
-// columns: [{id, name, hint, kind, items}] — columns with work share the width evenly; an empty one is a 34px strip.
+// columns: [{id, name, hint, kind, items}] — readable columns share spare width; an empty one is a 34px strip.
 function boardColumnsHTML(columns) {
   const anyWork = columns.some(c => c.items.length);
-  const sizes = columns.map(c => anyWork && !c.items.length ? '34px' : 'minmax(0,1fr)').join(' ');
+  const sizes = columns.map(c => anyWork && !c.items.length ? '34px' : 'minmax(260px,1fr)').join(' ');
   return `<div class="board work" style="--board-cols:${esc(sizes)}">${columns.map(column => {
     const empty = anyWork && !column.items.length;
     return `<section class="bcol${empty ? ' is-empty' : ''}" data-col="${esc(column.id)}" aria-label="${esc(column.name)}${column.hint ? `: ${esc(column.hint)}` : ''}">
