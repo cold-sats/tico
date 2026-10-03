@@ -711,12 +711,13 @@ def install_github_app(app, settings, store):
         who = request.state.identity
         slug = body.slug.removeprefix("emp-")
         if who.role != "owner":
-            # BotOps materializes bot repositories the owner allowed when connecting the app; nobody else may.
-            if not (who.role == "bot" and H.actor_id(who.actor) == BOTOPS):
-                raise Problem("forbidden", "Only the owner, or the BotOps bot for a bot on the roster, creates "
-                              "bot repositories", 403)
+            from .repositories import can_create_repositories
             with store.read() as c:
                 validate_identity(c, who)
+                if who.role != "bot" or not can_create_repositories(c, H.actor_id(who.actor)):
+                    raise Problem("forbidden", "Only the owner, BotOps or a bot granted repository creation may "
+                                  "create bot repositories. Ask BotOps, or ask an Owner or admin to enable "
+                                  "Create bot repositories in this bot's settings.", 403)
                 row, bot = service.row(c), H.bot(c, slug)
             if not row or not service.can_create_repos(refresh=True):
                 raise Problem("forbidden", "GitHub was connected without permission to create repositories; "
@@ -724,9 +725,9 @@ def install_github_app(app, settings, store):
             if not bot or bot.get("state") == "archived":
                 raise Problem("forbidden", f"{slug} is not a bot being set up or running, so no repository is created for it", 403)
             if body.slug != slug and body.slug != "emp-" + slug:
-                raise Problem("forbidden", "BotOps creates only bot-<slug> for a bot", 403)
+                raise Problem("forbidden", "Bots create only bot-<slug> for a bot", 403)
             if body.template and body.template != DEFAULT_TEMPLATE and body.template.split("/")[0].lower() != row["org"].lower():
-                raise Problem("forbidden", "BotOps generates from the default template or one in the connected organization", 403)
+                raise Problem("forbidden", "Bots generate from the default template or one in the connected organization", 403)
         template = body.template or DEFAULT_TEMPLATE
         if body.empty and body.template:
             raise Problem("github_repo", "An empty repository has no template; give one or the other", 422)

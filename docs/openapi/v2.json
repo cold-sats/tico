@@ -15616,7 +15616,7 @@
           },
           "target_label": {
             "type": "string",
-            "description": "'\u2192 65% by Dec 31' or 'range 40\u201360'"
+            "description": "'→ 65% by Dec 31' or 'range 40–60'"
           },
           "expected": {
             "type": [
@@ -17442,6 +17442,17 @@
               }
             ],
             "title": "Chosen"
+          },
+          "create_repositories": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Create Repositories"
           }
         },
         "additionalProperties": false,
