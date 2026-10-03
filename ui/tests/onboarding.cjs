@@ -249,10 +249,13 @@ function recruitFor({department, briefing, share}) {
       if (p === '/api/v2/status') return json({bots: []});
       if (p === '/api/v2/needs-you') return json({items: []});
       if (/^\/api\/v2\/tasks\/[^/]+\/chat$/.test(p)) return json({recipient: {slug: 'botops', name: 'BotOps', can_chat: true}, messages: [], conversation: null});
-      if (p === '/api/v2/tasks') return json({tasks: [{id: 'task-content', title: 'Set up Content Marketer',
-        owner: 'bot:botops', status: 'in_progress', version: 1, updated: '2026-09-16T10:01:00Z',
-        created: '2026-09-16T10:00:30Z', requester: 'human:ana',
-        body: 'Create the repository and the first routine.'}]});
+      if (p === '/api/v2/tasks' || p === '/api/v2/tasks/task-content') {
+        const task = {id: 'task-content', title: 'Set up Content Marketer',
+          owner: 'bot:botops', status: 'doing', version: 1, updated: '2026-09-16T10:01:00Z',
+          created: '2026-09-16T10:00:30Z', requester: 'human:ana',
+          body: 'Create the repository and the first routine.'};
+        return json(p === '/api/v2/tasks' ? {tasks: [task]} : {task, events: [], children: []});
+      }
       if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana Rivera', email: 'ana@acme.example'}, {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example'}]});
       if (p === '/api/v2/operations') return json({machines: [], services: [], issues: [], scheduler_enabled: true});
       if (p === '/api/v2/models') return json({models: [{id: 'gpt-6-sol', label: 'Sol', runtime: 'codex', efforts: ['high', 'xhigh'], default_effort: 'high'}]});
