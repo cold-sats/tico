@@ -1607,27 +1607,30 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
 
 
 def _close_open_asks(conn, actor, target, kind, msg):
-    """A person's reply to a bot answers whatever that bot had asked them.
+    """A person's reply answers the named ask, or plain asks on the named task.
 
-    Answering one question at a time meant prompting the bot once per question -- each answer
-    its own message, each message its own run -- and left no room to say anything alongside the
-    answer. A person writing back IS the answer, so every ask that bot had open on them closes
-    here: one message, one run. Structured reviews close only through an explicit answer. A bot that still does not have what it needs asks again, which
-    is cheap and is what a person would do.
-    ("when I respond, it marks the questions as answered.")
+    A shared conversation alone does not identify which task a person is answering.
+    A direct reply takes precedence over task context so it cannot close sibling asks.
+    Structured reviews close only through an explicit answer.
     """
     if kind not in ("say", "answer") or not is_human(actor) or not is_bot(target):
         return
-    task_id = message_task_id({"refs": _json(msg.get("refs_json"), {}) or msg.get("refs") or {}},
-                              conversation(conn, msg["conversation_id"]))
+    if msg.get("in_reply_to"):
+        scope, scope_id = "m.id", msg["in_reply_to"]
+    else:
+        scope_id = message_task_id({"refs": _json(msg.get("refs_json"), {}) or msg.get("refs") or {}},
+                                   conversation(conn, msg["conversation_id"]))
+        if not scope_id:
+            return
+        scope = MESSAGE_TASK_SQL
     open_asks = [r["id"] for r in _rows(conn.execute(
         "SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
         "WHERE m.to_actor=? AND m.from_actor=? AND m.kind='ask' "
         "AND json_type(m.refs_json,'$.questions') IS NULL "
         "AND m.answered_by IS NULL AND m.id NOT IN (SELECT in_reply_to FROM messages "
         "WHERE kind='answer' AND in_reply_to IS NOT NULL) "
-        f"AND (? IS NULL OR {MESSAGE_TASK_SQL}=?)",
-        (actor, target, task_id, task_id)))]
+        f"AND {scope}=?",
+        (actor, target, scope_id)))]
     if not open_asks:
         return
     conn.executemany("UPDATE messages SET answered_by=? WHERE id=?",
