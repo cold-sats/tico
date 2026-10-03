@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-10-02
+
 ### Added
 - Imported meetings wait in a personal Pending queue before sharing, with approve, dismiss and restore actions, batch sharing, per-person auto-share, a Team review default, and CLI/MCP review tools.
 - Private company desktop apps built on version tags, with encrypted CI artifacts and automatic updates from their own Tico server.
@@ -1722,7 +1724,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.12...HEAD
+[0.3.12]: https://github.com/ticoteam/tico/compare/v0.3.11...v0.3.12
 [0.3.0]: https://github.com/ticoteam/tico/compare/v0.2.42...v0.3.0
 [0.2.39]: https://github.com/ticoteam/tico/compare/v0.2.38...v0.2.39
 [0.2.35]: https://github.com/ticoteam/tico/compare/v0.2.34...v0.2.35
