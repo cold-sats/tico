@@ -5,6 +5,7 @@ Ana owns the company, Ben is an admin, Cara is a member (the base fixture). BotO
 its turn: a member is refused what only an owner may do, an owner is not.
 """
 import json
+import time
 
 import pytest
 
@@ -457,9 +458,17 @@ def test_every_botops_tool_uses_requester_rights_by_default(api, botops, monkeyp
         api.app.add_api_route("/api/v2/" + path, identity, methods=[method])
         api.app.router.routes.insert(0, api.app.router.routes.pop())
 
+    renew_after = time.monotonic() + attempt["lease_seconds"] / 3
+
     class ProbeApi:
         # Same requests as an old client: no delegation flag or header.
         def call(self, method, path, body=None, key=None, query=None):
+            nonlocal renew_after
+            # This exhaustive transport matrix can outlast a lease on a slow machine.
+            # Keep the real runner lease alive; do not bypass the bot's access checks.
+            if time.monotonic() >= renew_after:
+                post(api, f"attempts/{attempt['id']}/renew", {}, token=botops["token"])
+                renew_after = time.monotonic() + attempt["lease_seconds"] / 3
             response = api.request(method, "/api/v2/" + path, headers=headers(attempt["token"]))
             assert response.status_code == 200, response.text
             return response.json()

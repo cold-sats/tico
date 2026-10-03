@@ -179,13 +179,13 @@ class Builder:
                 self.mac = runner
             else:
                 self.linux = runner
-            bots = {slug: {"ready": True, "runtime": "claude", "model": "claude-opus-5", "repository_present": True,
+            bots = {slug: {"ready": True, "runtime": "claude", "model": self.settings.default_model, "repository_present": True,
                            "repository_revision": SEED_SHA[:7], "configuration_valid": True, "problems": []}
                     for slug in [*(slug for slug, _, _ in D.BOTS), "librarian", "goal-manager"]}
             readiness = {"schema_version": 1, "bots": bots,
                          "runtimes": {name: {"installed": True, "authenticated": "ready",
                                              "version": "2.4.1" if name == "claude" else "0.9.3",
-                                             "models": ["claude-opus-5"] if name == "claude" else ["gpt-6-luna"],
+                                             "models": [self.settings.default_model] if name == "claude" else ["gpt-6-luna"],
                                              "controls": ["interrupt", "new-session"]} for name in runtimes},
                          "harnesses": {("claude-code" if name == "claude" else name): {
                              "name": "Claude Code" if name == "claude" else "Codex", "runtime": name, "installed": True,

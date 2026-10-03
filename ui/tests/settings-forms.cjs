@@ -73,6 +73,7 @@ const {html, uiFile} = require('./support/page.cjs');
     await page.locator('[data-settings-tab=bots]').click();
     assert.equal(await page.locator('#settings-bots #settings-add-bot').isVisible(), true);
     assert.equal(await page.locator('#settings-devices #settings-add-bot').count(), 0);
+    await page.locator('#settings-more > summary').click();
     await page.locator('[data-settings-tab=recurring]').click();
     await page.locator('#set-recurring [data-new-routine]').click();
     assert.equal(await page.locator('#routine-editor select[name=bot]').inputValue(), 'helper');
