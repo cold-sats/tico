@@ -264,11 +264,24 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     bots.find(b => b.name === 'goal-manager').status = 'paused';
     await page.setViewportSize({width: 1440, height: 900});
     await page.reload();
+    await page.locator('[data-gm-result]', {hasText: 'Updated KPI readings'}).waitFor();
+    // Turning on mounts the chat before the separate routine result request completes.
+    let releaseResult;
+    const resultGate = new Promise(resolve => { releaseResult = resolve; });
+    await page.route('**/api/v2/routines/gm-review/occurrences', async route => {
+      await resultGate;
+      await route.fallback();
+    });
+    const resultRequested = page.waitForRequest('**/api/v2/routines/gm-review/occurrences');
     await page.locator('[data-gm-on]').click();
     await page.locator('.gm-form').waitFor();
+    await resultRequested;
     assert.deepEqual(posted.findLast(r => r.path === '/api/v2/goal-manager/turn-on').body, {});
     assert.equal(bots.find(b => b.name === 'goal-manager').status, 'active');
     assert.equal(await page.locator('#goal-tree [data-owner="bot:goal-manager"]').count(), 0);
+    assert.equal(await page.locator('[data-gm-result]').innerText(), '', 'the chat is ready while the routine result is pending');
+    releaseResult();
+    await page.locator('[data-gm-result]', {hasText: 'Updated KPI readings'}).waitFor();
     assert.match(await page.locator('[data-gm-result]').innerText(), /Updated KPI readings/);
 
     assert.deepEqual(errors, []);
