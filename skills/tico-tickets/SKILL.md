@@ -50,8 +50,8 @@ Loop until nothing is left that you can move:
    `origin/main` (`git worktree add`), so two tickets never share a checkout. For a bot repo,
    work in a fresh clone or worktree, never in the live bot checkout the runner uses.
 3. **Test** locally: the suites for what you changed, and the full suite (`python -m pytest -q -n auto`
-   and `npm run test:ui`) before a Tico merge. CI runs the same two commands on every pull
-   request. Compare a failure against main before calling it yours.
+   and `npm run test:ui`) before a Tico merge. GitHub Actions only builds and publishes; it does not run tests.
+   Compare a local failure against main before calling it yours.
 4. **PR**: title in plain words; body **What / Why / How it was checked**, and `Closes #<n>`.
 5. **Merge** when CI is green and a maintainer has approved. Contributors open the pull request and
    stop there; maintainers merge with `gh pr merge --merge`. How a merged change reaches a

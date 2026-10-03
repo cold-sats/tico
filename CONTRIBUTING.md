@@ -22,8 +22,7 @@ npx playwright install chromium
 npm run test:ui                                # the browser scripts in ui/tests/
 ```
 
-Run both locally before you open a pull request: CI does not run the tests unless started by hand
-(`.github/workflows/ci.yml`). A full run (pytest, then the browser scripts) takes a few minutes and has
+Run both locally before you open a pull request: GitHub Actions does not run tests. A full run (pytest, then the browser scripts) takes a few minutes and has
 to stay under 10. To run less while you work: `python -m pytest -q backend/tests/test_x.py` for one
 file, `node scripts/ui-tests.cjs <name>` for one browser script. If you touch `app/`, also run
 `cargo check` there.
