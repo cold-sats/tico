@@ -7,6 +7,7 @@
 // the team works on; bots reach them through their own access below. Everyone else sees the same list, read only.
 let REPOS = null;                 // the last GET: {repositories, new_bot_default, github_connected}
 let REPOS_SHOW_BOTS = false;      // bot repositories stay out of the list until asked for
+let REPOS_SHOW_ARCHIVED = false; // archived repositories are available on request
 const REPOS_FILTER_AT = 10;       // a short list reads at a glance; the filter box earns its place past this
 const REPO_SOURCES = ['tico.json', 'conductor.json'];
 const repoPath = name => String(name).split('/').map(encodeURIComponent).join('/');
@@ -25,7 +26,7 @@ function reposRowHTML(r, admin) {
   const dis = admin ? '' : ` disabled title="${REPO_LOCKED}"`;
   const src = REPO_SOURCES.includes(r.setup_source) ? `<small class="repo-src" title="Read from ${esc(r.setup_source)}">${esc(r.setup_source)}</small>` : '';
   return `<li class="repo-row${r.enabled ? ' on' : ''}" data-repo="${esc(r.full_name)}">
-    <label class="repo-name" title="${esc(r.full_name)}"><input type="checkbox" data-repo-tick${r.enabled ? ' checked' : ''}${dis}><span>${repoNameHTML(r.full_name)}</span>${r.bot_repo ? '<span class="repo-tag">bot</span>' : ''}</label>
+    <label class="repo-name" title="${esc(r.full_name)}"><input type="checkbox" data-repo-tick${r.enabled ? ' checked' : ''}${dis}><span>${repoNameHTML(r.full_name)}</span>${r.bot_repo ? '<span class="repo-tag">bot</span>' : ''}${r.archived ? '<span class="repo-tag">archived</span>' : ''}</label>
     <span class="repo-branch">${esc(r.default_branch || '')}</span>
     <span class="repo-setup"><input type="text" data-repo-setup value="${esc(r.setup_command || '')}" placeholder="${admin ? 'Setup command' : ''}" aria-label="Setup command for ${esc(r.full_name)}" spellcheck="false" autocomplete="off" maxlength="2000"${admin ? '' : ` readonly title="${REPO_LOCKED}"`}>${src}</span>
     <span class="repo-state">${r.reachable === false ? '<span class="repo-warn" title="GitHub no longer lists it">Not reachable</span>' : ''}</span></li>`;
@@ -35,7 +36,7 @@ function reposDrawList() {
   if (!list || !REPOS) return;
   const admin = settingsIsAdmin();
   const q = (host.querySelector('[data-repos-filter]')?.value || '').trim().toLowerCase();
-  const all = (REPOS.repositories || []).filter(r => REPOS_SHOW_BOTS || !r.bot_repo || r.enabled)
+  const all = (REPOS.repositories || []).filter(r => REPOS_SHOW_ARCHIVED || !r.archived).filter(r => REPOS_SHOW_BOTS || !r.bot_repo || r.enabled)
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
   const rows = all.filter(r => !q || r.full_name.toLowerCase().includes(q));
   const filter = host.querySelector('[data-repos-filter]');
@@ -57,8 +58,9 @@ async function renderSettingsRepos(fresh) {
   const bots = (REPOS.repositories || []).filter(r => r.bot_repo).length;
   host.innerHTML = `<header><h2>Repositories</h2><span class="spacer"></span>
       ${bots ? `<label class="repos-bots"><input type="checkbox" data-repos-bots${REPOS_SHOW_BOTS ? ' checked' : ''}>Show bot repos</label>` : ''}
+      <label class="repos-bots"><input type="checkbox" data-repos-archived${REPOS_SHOW_ARCHIVED ? ' checked' : ''}>Show archived</label>
       <button class="ghost repos-small" type="button" data-repos-refresh${dis}>Refresh</button></header>
-    <p class="repos-line">Refreshes daily and on Refresh.</p>
+    <p class="repos-line">Refreshes daily and on Refresh. Archived repositories are hidden unless Show archived is selected.</p>
     <div class="repos-bar"><span class="repos-k" id="repos-newbot">New bots get</span>
       ${repoSegHTML('repos_new_bot', 'New bots get', [['own', 'Own repo only'], ['all', 'All ticked repos']], REPOS.new_bot_default || 'own', !admin)}
       <input type="search" class="repos-filter" data-repos-filter placeholder="Filter" aria-label="Filter repositories" autocomplete="off" hidden></div>
@@ -96,6 +98,7 @@ document.addEventListener('change', async event => {
   const host = event.target.closest('#set-repos');
   if (!host) return;
   const t = event.target, name = t.closest('[data-repo]')?.dataset.repo;
+  if (t.matches('[data-repos-archived]')) { REPOS_SHOW_ARCHIVED = t.checked; reposDrawList(); return; }
   if (t.matches('[data-repos-bots]')) { REPOS_SHOW_BOTS = t.checked; reposDrawList(); return; }
   if (!settingsIsAdmin()) return;
   if (t.matches('[data-repo-tick]') && name) return reposSave(name, {enabled: t.checked}, t);

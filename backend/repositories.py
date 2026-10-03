@@ -210,6 +210,7 @@ def _sync(service):
                        repo.get('default_branch'), repo['setup_command'], repo['setup_source'], H.now(), H.now()))
         save_metadata(c, 'repositories-reachability-verified', {'done': True})
         save_metadata(c, 'repositories-confirmed-missing', {r['full_name'].lower(): time.time() for r in c.execute('SELECT full_name FROM repositories WHERE reachable=0')})
+        save_metadata(c, 'repositories-archived', {r['full_name'].lower(): bool(r.get('archived')) for r in repos})
         save_metadata(c, 'repositories-sizes', {r['full_name'].lower(): r.get('size', 0) for r in repos if r.get('size')})
         save_metadata(c, 'repositories-synced', {'day': H.now()[:10]})
     repository_health(service)
@@ -347,7 +348,9 @@ def install(app, store, service):
     def listing():
         with store.read() as c:
             repos = [dict(r) for r in c.execute('SELECT full_name,enabled,bot_repo,default_branch,setup_command,setup_source,reachable,last_seen FROM repositories ORDER BY full_name')]
+            archived = metadata(c, 'repositories-archived')
             for r in repos:
+                r['archived'] = archived.get(r['full_name'].lower())
                 for key in ('enabled', 'bot_repo', 'reachable'):
                     r[key] = bool(r[key])
             return {'repositories': repos, 'new_bot_default': metadata(c, SETTINGS).get('new_bot_default', 'own'),
