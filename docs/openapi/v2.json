@@ -8681,6 +8681,57 @@
         ]
       }
     },
+    "/api/v2/subscriptions/name": {
+      "put": {
+        "summary": "Rename a subscription without changing its local login",
+        "operationId": "renameSubscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionNameEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionIdentity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
+        ]
+      }
+    },
     "/api/v2/subscriptions/refresh": {
       "post": {
         "summary": "Request a bounded weekly allowance read on its computer",
@@ -12338,6 +12389,12 @@
               "null"
             ]
           },
+          "id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
           "source": {
             "type": "string"
           },
@@ -12376,6 +12433,8 @@
         },
         "required": [
           "computer",
+          "display_name",
+          "id",
           "problem",
           "profile",
           "signed_in",
@@ -18321,6 +18380,22 @@
         ],
         "additionalProperties": true
       },
+      "SubscriptionIdentity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "id"
+        ],
+        "additionalProperties": true
+      },
       "SubscriptionList": {
         "type": "object",
         "properties": {
@@ -18343,11 +18418,19 @@
                       "name": {
                         "type": "string"
                       },
+                      "id": {
+                        "type": "string"
+                      },
+                      "display_name": {
+                        "type": "string"
+                      },
                       "runtimes": {
                         "type": "object"
                       }
                     },
                     "required": [
+                      "display_name",
+                      "id",
                       "name",
                       "runtimes"
                     ],
@@ -18400,6 +18483,36 @@
           "profiles_by_computer"
         ],
         "additionalProperties": true
+      },
+      "SubscriptionNameEdit": {
+        "properties": {
+          "runner_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Runner Id"
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 80,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Profile"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runner_id",
+          "profile",
+          "display_name"
+        ],
+        "title": "SubscriptionNameEdit"
       },
       "SubscriptionRefreshResult": {
         "type": "object",
@@ -20408,6 +20521,10 @@
           "dimensions": {
             "type": "object",
             "description": "Available dimension filters, scoped to visible runs"
+          },
+          "dimension_labels": {
+            "type": "object",
+            "description": "Display labels keyed by immutable filter value; subscription names include their Computer"
           },
           "departments": {
             "type": "array",

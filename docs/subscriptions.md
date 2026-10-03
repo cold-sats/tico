@@ -1,14 +1,20 @@
 # Subscriptions
 
-A subscription profile is a named provider login on a Computer. Credentials stay on that Computer; Tico stores the name and sign-in state. Each profile has its own login directory.
+A subscription profile is a named provider login on a Computer. Credentials stay on that Computer; Tico stores a stable connection ID, editable display name, and sign-in state. Each profile has its own login directory.
 
 ## Names and weekly allowance
 
 Open **Settings → AI providers → Subscriptions** to name and sign in subscriptions, choose group defaults, and see weekly allowance. Names are labels; Tico does not store subscription ownership. Each bot can override its group's subscription in Bot settings. Logins and credentials remain on the selected Computer.
 
+Choose **Rename** beside a subscription to change its display name without moving credential directories, changing assignments, or rewriting run history. Each Computer and local profile key has a distinct, stable connection ID, even when names match. Only the Computer operator or an administrator can rename it. Group defaults still use the immutable local profile key across their Computers; a display rename does not redirect them.
+
+Usage groups and filters subscriptions by this connection ID, showing the current display name and Computer. Recorded runs retain their execution Computer and local profile key, so moving a bot or renaming a subscription cannot move past usage to another connection. Older runs without an execution Computer are labelled **computer not recorded** instead of guessed from today's assignment.
+
+A connection ID identifies a local login slot, not a verified provider account. Signing in a different provider account under the same slot does not create a new identity; use a new profile when you need separate history. Names never imply ownership or combine accounts across Computers.
+
 Weekly reports are scoped to a Computer, profile and runtime. Codex reports its seven-day window when its running host emits one. Claude Code may report the seven-day reset and limit state without a percentage; that percentage stays unknown. No API calls or token-to-percentage estimates are used to invent a provider balance. Usage elsewhere on the same provider account can count toward that allowance. The page does not combine matching names across Computers because they might be different accounts.
 
-The last provider report includes its observation time and reset. Reports older than a day are labelled as possibly out of date. After reset they stay labelled as the previous week, never automatically become zero. Reports survive a runner restart on the server; an updated runner must run a subscription-backed turn before fresh telemetry is available. Shorter windows are not displayed here. An unnamed computer-default login has no named subscription snapshot; it remains unknown rather than being assigned to another profile.
+The last provider report includes its observation time and reset. Reports older than a day are labelled as possibly out of date. After reset they stay labelled as the previous week, never automatically become zero. Reports survive a runner restart on the server. An updated computer can refresh Codex weekly usage directly; other providers need a supported subscription-backed run or a manual provider reading. Shorter windows are not displayed here. An unnamed computer-default login has no named subscription snapshot; it remains unknown rather than being assigned to another profile.
 
 A Computer operator or administrator can **Record weekly usage** by copying the provider's percentage used and reset time. This is a labelled manual observation, not an editable provider quota. The newest manual or provider observation is shown. Clear manual report restores the last provider report, or unknown if none exists. This neither changes provider limits nor schedules or blocks bots. No account ownership records or new permissions are introduced.
 

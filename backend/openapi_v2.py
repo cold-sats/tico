@@ -45,6 +45,7 @@ TAGS = {
 STABLE = [
     ("/api/v2/subscriptions", "get", "Subscriptions", "listSubscriptions", "Profiles and assignments", "SubscriptionList"),
     ("/api/v2/subscriptions", "put", "Subscriptions", "assignSubscription", "Assign or clear a subscription", "SubscriptionAssignmentResult"),
+    ("/api/v2/subscriptions/name", "put", "Subscriptions", "renameSubscription", "Rename a subscription without changing its local login", "SubscriptionIdentity"),
     ("/api/v2/subscriptions/weekly", "put", "Subscriptions", "recordSubscriptionWeekly", "Record or clear a manual weekly allowance observation", "SubscriptionWeeklyResult"),
     ("/api/v2/subscriptions/refresh", "post", "Subscriptions", "refreshSubscriptionWeekly", "Request a bounded weekly allowance read on its computer", "SubscriptionRefreshResult"),
     ("/api/v2/bots/{bot}/subscription", "get", "Subscriptions", "getBotSubscription", "Effective bot subscription", "BotSubscription"),
@@ -361,13 +362,14 @@ ACTORS = {"type": "object", "additionalProperties": {"type": "string"},
 
 SCHEMAS = {
     "SubscriptionList": obj({"profiles_by_computer": items(obj({"runner_id": "s", "label": "s", "profiles": items(
-        obj({"name": "s", "runtimes": "o"}))})), "assignments": items(obj({"scope": "s", "target": "s", "profile": "s", "updated": "s", "updated_by": "s"}))}),
+        obj({"name": "s", "id": "s", "display_name": "s", "runtimes": "o"}))})), "assignments": items(obj({"scope": "s", "target": "s", "profile": "s", "updated": "s", "updated_by": "s"}))}),
+    "SubscriptionIdentity": obj({"id": "s", "display_name": "s"}),
     "SubscriptionWeeklyResult": obj({"weekly": {"anyOf": [obj({"used_percent": {"type": ["number", "null"]}, "resets_at": "n", "reported_at": "s", "source": {"enum": ["manual"]}}), {"type": "null"}]}}),
     "SubscriptionRefreshResult": obj({"id": "s", "profile": "s", "runtime": "s",
         "state": {"enum": ["requested", "succeeded", "unavailable", "failed", "expired"]},
         "requested_at": "s", "updated_at": "s", "expires_at": "s"}),
     "SubscriptionAssignmentResult": obj({"scope": {"enum": ["group", "bot"]}, "target": "s", "profile": "n"}),
-    "BotSubscription": obj({"profile": "n", "source": "s", "computer": {"anyOf": [obj({"runner_id": "s", "label": "s"}), {"type": "null"}]},
+    "BotSubscription": obj({"profile": "n", "id": "s", "display_name": "s", "source": "s", "computer": {"anyOf": [obj({"runner_id": "s", "label": "s"}), {"type": "null"}]},
                             "signed_in": {"type": ["boolean", "null"]}, "problem": "s"}),
     "ChatGoal": obj({"id": "s", "conversation_id": "s", "bot": "s", "objective": "s", "status": "s",
                      "note": "s", "set_by": "s", "set_at": "s", "updated_at": "s", "ended_at": "n"},
@@ -706,6 +708,7 @@ SCHEMAS = {
                                                  "usage figures and `share`, its part of the total (estimate plus API-equivalent)",
                                                  "additionalProperties": True}),
                   "dimensions": {"type": "object", "description": "Available dimension filters, scoped to visible runs"},
+                  "dimension_labels": {"type": "object", "description": "Display labels keyed by immutable filter value; subscription names include their Computer"},
                   "departments": items({"type": "string"}), "bot": "s", "name": "s", "daily": items({"type": "object", "additionalProperties": True}),
                   "routines": items({"type": "object", "additionalProperties": True})},
                  required=["from", "to", "prices_as_of", "totals"]),

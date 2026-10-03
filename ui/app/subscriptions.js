@@ -1,6 +1,6 @@
 /* ui/app/subscriptions.js — Subscriptions: the named AI logins on each computer (Settings > AI providers), the one a
    group picks, a bot's own choice, and the line under a bot's model saying which one it will use.
-   The server stores profile names only; the logins stay on the computers (runner/profiles.py).
+   The server stores stable connection IDs and display names; the logins stay on the computers (runner/profiles.py).
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -20,11 +20,34 @@ function subsNormal(d) {
       if (typeof p === 'string') return {name: p, runtimes: {}};
       let runtimes = p.runtimes || p.runtimes_json || {};
       if (typeof runtimes === 'string') { try { runtimes = JSON.parse(runtimes); } catch { runtimes = {}; } }
-      return {name: p.name || p.profile, runtimes: runtimes || {}};
+      return {name: p.name || p.profile, id: p.id, display_name: p.display_name || p.name || p.profile, runtimes: runtimes || {}};
     }).filter(p => p.name)}));
   return {computers, assignments: d?.assignments || []};
 }
 const subsNames = () => [...new Set((SUBS?.computers || []).flatMap(c => c.profiles.map(p => p.name)))].sort((a, b) => a.localeCompare(b));
+// Labels change independently from immutable local profile keys and existing assignments.
+function subsDisplayName(runner, profile) {
+  return SUBS?.computers.find(c => c.runner_id === runner)?.profiles.find(p => p.name === profile)?.display_name || profile;
+}
+function subsRenameHTML(c, p) {
+  if (!p.id || !subsMaySignIn(c)) return '';
+  return `<details><summary>Rename</summary><form data-subs-rename data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}">
+    <label>Name <input name="display_name" required maxlength="80" value="${esc(p.display_name || p.name)}"></label>
+    <button class="ghost" type="submit">Save name</button><span class="muted">Login and assignments stay the same.</span><span role="status"></span>
+  </form></details>`;
+}
+async function subsRename(form) {
+  if (!form.reportValidity()) return;
+  const button = form.querySelector('button'); button.disabled = true;
+  try {
+    await put('/v2/subscriptions/name', {runner_id: form.dataset.runner, profile: form.dataset.profile,
+      display_name: form.elements.display_name.value});
+    BOT_SUB_LINE.clear();
+    await renderSettingsSubs(true);
+    toast('Subscription renamed');
+  } catch (e) { form.querySelector('[role=status]').textContent = e.message; }
+  finally { button.disabled = false; }
+}
 // A computer as the server names it: {runner_id, label}, or a bare runner id.
 function subsComputerLabel(c) {
   if (c && typeof c === 'object') return c.label || subsComputerLabel(c.runner_id);
@@ -184,11 +207,13 @@ async function renderSettingsSubs(force = false, loaded = false) {
       <button class="ghost" type="submit">Sign in</button><span class="muted subs-add-msg" id="subs-add-msg" role="status"></span></form>` : '';
   if (!computers.length && !add) { card.hidden = true; return; }
   const openWeekly = new Set([...el.querySelectorAll('details[open] form[data-subs-weekly]')].map(subsWeeklyKey));
+  const openNames = new Set([...el.querySelectorAll('details[open] form[data-subs-rename]')].map(subsWeeklyKey));
   el.innerHTML = `<p class="muted">Named subscriptions stay on their computer. Weekly allowance is approximate and may include use outside Tico. Matching names on different computers are not combined.</p>${computers.map(c => `<div class="subs-pc"><h3 class="subs-h">${esc(c.label)}</h3><ul class="subs-list">${c.profiles.map(p =>
-      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.name)}</span>${subsRuntimeHTML(c, p)}${subsWeeklyHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
+      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.display_name || p.name)}</span>${subsRenameHTML(c, p)}${subsRuntimeHTML(c, p)}${subsWeeklyHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
     ${groups.length ? `<div class="subs-pc subs-groups"><h3 class="subs-h">Groups</h3><ul class="subs-list">${groups.map(g => subsGroupRowHTML(g, names)).join('')}</ul></div>` : ''}
     ${add}`;
   el.querySelectorAll('form[data-subs-weekly]').forEach(form => { if (openWeekly.has(subsWeeklyKey(form))) form.closest('details').open = true; });
+  el.querySelectorAll('form[data-subs-rename]').forEach(form => { if (openNames.has(subsWeeklyKey(form))) form.closest('details').open = true; });
   card.hidden = false;
   subsScheduleRefresh();
   el.onchange = async ev => {
@@ -212,6 +237,8 @@ async function renderSettingsSubs(force = false, loaded = false) {
     if (clear) void subsSaveWeekly(clear.closest('form'), true);
   };
   el.onsubmit = ev => {
+    const rename = ev.target.closest('[data-subs-rename]');
+    if (rename) { ev.preventDefault(); void subsRename(rename); return; }
     const weekly = ev.target.closest('[data-subs-weekly]');
     if (weekly) { ev.preventDefault(); void subsSaveWeekly(weekly); return; }
     const form = ev.target.closest('[data-subs-add]'); if (!form) return;
@@ -237,7 +264,7 @@ function subsSourceWords(source) {
 function subsBotLineHTML(line) {
   if (!line) return '';
   const computer = subsComputerLabel(line.computer);
-  const parts = [line.profile || 'default', line.profile || line.source !== 'computer' ? subsSourceWords(line.source) : '', computer].filter(Boolean);
+  const parts = [line.display_name || subsDisplayName(line.computer?.runner_id, line.profile) || 'default', line.profile || line.source !== 'computer' ? subsSourceWords(line.source) : '', computer].filter(Boolean);
   // The server's own words when it has them (a profile this computer lacks, a runner too old to say).
   const warn = line.problem || (line.signed_in === false ? 'Not signed in' : '');
   return `<span class="sb-sub-text">Subscription: ${esc(parts.join(' · '))}</span>${warn ? ` <span class="pill fail sb-sub-warn">${esc(warn)}</span>` : ''}`;
@@ -258,7 +285,7 @@ function subsBotPaint(rows, slug) {
   const here = runner ? (SUBS.computers.find(c => c.runner_id === runner)?.profiles || []).map(p => p.name).sort((a, b) => a.localeCompare(b)) : subsNames();
   const elsewhere = subsNames().filter(n => !here.includes(n));
   if (own && !here.includes(own) && !elsewhere.includes(own)) elsewhere.push(own);
-  const opt = n => `<option value="${esc(n)}"${n === own ? ' selected' : ''}>${esc(n)}</option>`;
+  const opt = n => `<option value="${esc(n)}"${n === own ? ' selected' : ''}>${esc(subsDisplayName(runner, n))}</option>`;
   const sel = row.querySelector('select');
   sel.innerHTML = `<option value="">${esc(inherit)}</option>${runner && elsewhere.length
     ? `${here.length ? `<optgroup label="${esc(subsComputerLabel(runner))}">${here.map(opt).join('')}</optgroup>` : ''}<optgroup label="Other computers">${elsewhere.map(opt).join('')}</optgroup>`
