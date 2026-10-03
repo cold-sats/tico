@@ -1278,7 +1278,7 @@ class AuthRejected(Contract):
     reason: str = Field(default="", max_length=300)
 
 
-class RunUsage(Contract):
+class RunUsagePart(Contract):
     """What a run spent, as its runner counted it: uncached input, cached input and output tokens."""
     input_tokens: int = Field(default=0, ge=0, le=10**12)
     cached_tokens: int = Field(default=0, ge=0, le=10**12)
@@ -1286,7 +1286,13 @@ class RunUsage(Contract):
     model: str = Field(default="", max_length=120)
     runtime: str = Field(default="", max_length=60)
     profile_used: str | None = Field(default=None, max_length=80)
+    harness: str = Field(default="", max_length=60)
+    effort: str = Field(default="", max_length=60)
     billing: Literal["api", "subscription"] = "api"   # `subscription`: a ChatGPT or Claude sign-in, not a key
+
+
+class RunUsage(RunUsagePart):
+    segments: list[RunUsagePart] = Field(default_factory=list, max_length=2)
 
 
 class UsageLimit(Contract):

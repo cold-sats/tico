@@ -315,8 +315,8 @@ STABLE = [
     ("/api/v2/bots/{bot}/kpis", "get", "KPIs", "listBotKpis",
      "A bot's five automatic KPIs, computed from Tico's own data (Read on the bot)", "BotKpis"),
     ("/api/v2/usage", "get", "Usage", "getUsage",
-     "Estimated spend over from..to (UTC dates, default the last 7 days), grouped by bot (default), day or routine, "
-     "optionally for one department. The owner and bot administrators see every bot; anyone else sees the bots they run "
+     "Estimated spend over from..to (UTC dates, default the last 7 days), grouped by bot (default), day, routine, harness, model, effort or subscription, "
+     "filterable by those run dimensions and department (__unknown__ selects missing values). The owner and bot administrators see every bot; anyone else sees the bots they run "
      "or own. ?bot=<slug> is that bot's daily series and top routines instead", "Usage"),
     ("/api/v2/usage/limits", "get", "Usage", "getUsageLimits",
      "The team default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may "
@@ -694,11 +694,12 @@ SCHEMAS = {
                                                     "cost through the API: not money spent, never added to est_cost_usd"},
                          "unpriced_runs": {"type": "integer", "description": "Runs with tokens on a model with no list price"}}),
     "Usage": obj({"from": "s", "to": "s", "prices_as_of": {"type": "string", "description": "The date the price table was read"},
-                  "group": {"enum": ["bot", "day", "routine"]}, "department": "n", "totals": ref("UsageFigures"),
+                  "group": {"enum": ["bot", "day", "routine", "harness", "model", "effort", "subscription"]}, "department": "n", "totals": ref("UsageFigures"),
                   "rows": items({"type": "object", "description": "By bot: bot, name, department; by day: day; by routine: "
                                                  "routine (null for runs that came from none), title, bot, name. Every row has the "
                                                  "usage figures and `share`, its part of the total (estimate plus API-equivalent)",
                                                  "additionalProperties": True}),
+                  "dimensions": {"type": "object", "description": "Available dimension filters, scoped to visible runs"},
                   "departments": items({"type": "string"}), "bot": "s", "name": "s", "daily": items({"type": "object", "additionalProperties": True}),
                   "routines": items({"type": "object", "additionalProperties": True})},
                  required=["from", "to", "prices_as_of", "totals"]),

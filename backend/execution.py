@@ -813,21 +813,38 @@ class Execution:
 
     def run_usage(self, c, row, body):
         """The turn's usage columns from the tokens its runner counted, or None when it counted none.
-        The model is the one the runner ran (a fallback harness runs another than the bot's own), else
-        the model the bot resolves to; the cost is the list-price estimate, empty for a model with no price."""
+        The model is the runner's choice for each primary/fallback portion. Unknown values stay
+        unknown; the cost is the list-price estimate, empty for a model with no price."""
         used = body.usage
-        if not used or not (used.input_tokens or used.cached_tokens or used.output_tokens):
+        if not used:
             return None
-        runtime, model = used.runtime, used.model
-        if not model or model == providers.DEFAULT:
-            config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
-            runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
-        catalog = providers.MODEL_BY_ID.get(model) or {}
-        provider = catalog.get("provider") or providers.runtime_provider(runtime or catalog.get("runtime"))
-        return {"input_tokens": used.input_tokens, "cached_tokens": used.cached_tokens,
-                "output_tokens": used.output_tokens, "model": model or None, "provider": provider or None,
-                "est_cost_usd": providers.estimate_cost(model, used.input_tokens, used.cached_tokens, used.output_tokens),
-                "billing": used.billing}
+        def part(item):
+            model, runtime = item.model, item.runtime
+            catalog = providers.MODEL_BY_ID.get(model) or {}
+            provider = catalog.get("provider") or providers.runtime_provider(runtime or catalog.get("runtime"))
+            return {"input_tokens": item.input_tokens, "cached_tokens": item.cached_tokens,
+                    "output_tokens": item.output_tokens, "model": model or None, "provider": provider or None,
+                    "est_cost_usd": providers.estimate_cost(model, item.input_tokens, item.cached_tokens, item.output_tokens),
+                    "billing": item.billing, "runtime": runtime or None, "harness": item.harness or None,
+                    "effort": item.effort or None, "profile": item.profile_used or None}
+        segments = [part(item) for item in (used.segments or [used])
+                    if item.input_tokens or item.cached_tokens or item.output_tokens]
+        if not segments:
+            return None
+        result = dict(segments[-1])
+        for key in ("input_tokens", "cached_tokens", "output_tokens"):
+            result[key] = sum(p[key] for p in segments)
+        # Legacy readers of turns see API spend only for a mixed-billing run. Usage and limits
+        # consume the immutable segments and keep the subscription equivalent separate.
+        billed = [p for p in segments if p["billing"] != "subscription"] or segments
+        result["est_cost_usd"] = (sum(p["est_cost_usd"] for p in billed)
+                                  if all(p["est_cost_usd"] is not None for p in billed) else None)
+        result["billing"] = "subscription" if all(p["billing"] == "subscription" for p in segments) else "api"
+        for key in ("model", "provider", "runtime", "harness", "effort", "profile"):
+            if len({p[key] for p in segments}) > 1:
+                result[key] = None
+        result["segments"] = segments
+        return result
 
     def file_result(self, c, row, body):
         """A result whose job this runner no longer speaks for: a review decided it, another
