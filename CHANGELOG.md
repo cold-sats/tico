@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.13] - 2026-10-02
+
 ### Added
 - Whoever wrote a task comment can change its text or delete it: `POST /api/v2/tasks/{tid}/comments/{mid}` and
   `.../delete` in the stable API, `hub task comment-edit` and `hub task comment-delete`, and MCP `hub_task_comment_edit`
@@ -1768,7 +1770,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.12...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.13...HEAD
+[0.3.13]: https://github.com/ticoteam/tico/compare/v0.3.12...v0.3.13
 [0.3.12]: https://github.com/ticoteam/tico/compare/v0.3.11...v0.3.12
 [0.3.0]: https://github.com/ticoteam/tico/compare/v0.2.42...v0.3.0
 [0.2.39]: https://github.com/ticoteam/tico/compare/v0.2.38...v0.2.39
