@@ -116,15 +116,15 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 /* The bot's tasks: one flat list, the state as a small icon, the title, and the avatar of whoever holds it;
    no lines between rows */
 #pane-tasks .trow{border-bottom:0}
-#pane-tasks .trow summary{padding:4px;margin:0 -4px;min-height:28px;font-size:13px;line-height:18px}
-#pane-tasks .trow[data-task-version] summary{grid-template-columns:16px minmax(0,1fr) auto;grid-template-areas:"ic ttl who";gap:0 8px;align-items:center}
-#pane-tasks .trow[data-task-version] summary .pill,#pane-tasks .trow[data-task-version] summary .tnum,#pane-tasks .trow[data-task-version] summary .tags{display:none!important}
-#pane-tasks .trow[data-task-version] summary .si{grid-area:ic;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px}   /* the same status icon as Tasks (statusIcon, ui/app/tasks.js) */
-#pane-tasks .trow[data-task-version] summary .who-av{grid-area:who;display:inline-flex}
-#pane-tasks .trow summary .who-av .av{width:18px!important;height:18px!important;font-size:8px!important}
-#pane-tasks .trow[data-task-version] summary .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}
+#pane-tasks .trow :is(summary,.trow-head){padding:4px;margin:0 -4px;min-height:28px;font-size:13px;line-height:18px}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head){grid-template-columns:16px minmax(0,1fr) auto;grid-template-areas:"ic ttl who";gap:0 8px;align-items:center}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pill,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tnum,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tags{display:none!important}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .si{grid-area:ic;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px}   /* the same status icon as Tasks (statusIcon, ui/app/tasks.js) */
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .who-av{grid-area:who;display:inline-flex}
+#pane-tasks .trow :is(summary,.trow-head) .who-av .av{width:18px!important;height:18px!important;font-size:8px!important}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}
 #pane-tasks .trow .tbody{padding:2px 0 10px 24px;font-size:12.5px}
-#main.bot-split-layout #pane-tasks .trow[data-task-version] summary .ttl{display:block;white-space:nowrap;text-overflow:ellipsis}
+#main.bot-split-layout #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{display:block;white-space:nowrap;text-overflow:ellipsis}
 /* the top bar: the bot's name, its runtime mark and up to three tool icons on one line */
 .bot-nameline{display:flex;align-items:center;min-width:0}
 .bot-nameline h1{min-width:0;flex:0 1 auto}

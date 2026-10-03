@@ -125,7 +125,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.equal(await page.locator('#bot-assigned').evaluate(el => el.open), true);
       assert.equal(await page.locator('#pane-tasks .bot-done').evaluate(el => el.open), false);
       // Dense rows: a task row and a file row stay under about 30px.
-      assert((await box(page, '#t-open .trow summary')).height <= 30, 'a task row is short');
+      assert((await box(page, '#t-open .trow-head')).height <= 30, 'a task row is short');
       assert((await box(page, '#bot-files .bf-row')).height <= 30, 'a file row is short');
 
       // Tools beside the name: the runtime mark, then three icons (not the model again) and "+5".

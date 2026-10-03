@@ -24,22 +24,21 @@ function actorAvatarOnly(a) {
 function v2TaskRow(t, slug) {
   // On a bot's page the other party is whoever is not the bot; on a person's page (no slug) it is the requester.
   const other = slug && actorSlug(taskRequester(t)) === slug ? t.owner : taskRequester(t);
-  const acts = [`<button class="linkish" type="button" data-v2-task="${esc(t.id)}" data-v2-status="done">Done</button>`,
-                `<button class="linkish danger" type="button" data-v2-task="${esc(t.id)}" data-v2-close="1">Close</button>`];
-  return `<details class="trow" data-task-version="${esc(t.version || '')}"><summary>
+  return `<div class="trow" data-task-detail="${esc(t.id)}" data-task-version="${esc(t.version || '')}"><div class="trow-head">
       <span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>
-      ${taskStatusIcon(t)}<span class="ttl" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</span>${prStateBadge(t.pr_state)}
+      ${taskStatusIcon(t)}<a class="ttl" data-task-detail-open href="#/task/${encodeURIComponent(t.id)}" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</a>${prStateBadge(t.pr_state)}
       <span class="tags">${actorChip(other)}</span>${actorAvatarOnly(t.owner)}
-      <span class="muted tnum">${esc(ago(t.updated || t.created))}</span></summary>
-    <div class="tbody">
-      ${t.body ? `<div class="q md">${safeMd(taskBody(t))}</div>` : '<div class="muted">No details.</div>'}
-      ${S.me?.cloud ? (t.attachments || []).map(f => `<a class="pill" href="${API}/v2/files/${encodeURIComponent(f.id)}" download>${esc(f.name)}</a>`).join(' ') : ''}
-      ${t.note ? `<div class="lbl">Note</div><div class="q md">${safeMd(t.note)}</div>` : ''}
-      <div data-task-thread></div>
-      <div class="muted">${esc(taskSourceLine(t))} ${esc(ago(t.created))}${t.due ? ` · due ${esc(fmt(t.due))}` : ''}</div>
-      <div class="issue-actions">${taskConversationButton(t.id)}${acts.join('')}</div>
-      <div class="issue-compose" hidden></div></div></details>`;
+      <span class="muted tnum">${esc(ago(t.updated || t.created))}</span></div></div>`;
 }
+// The rail and person rows open the same complete task as the manager; actor links keep their own destination.
+document.addEventListener('click', ev => {
+  const row = ev.target.closest('[data-task-detail]');
+  if (!row || ev.defaultPrevented || ev.button || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+  const link = ev.target.closest('a');
+  if (link && !link.hasAttribute('data-task-detail-open')) return;
+  ev.preventDefault();
+  void taskModalOpen('t' + row.dataset.taskDetail);
+});
 function v2TaskGroups(list, slug, statuses) {
   const out = V2_GROUPS.filter(([k]) => statuses.includes(k)).map(([k, label]) => {
     const rows = list.filter(t => (t.status === 'open' ? 'doing' : String(t.status)) === k);

@@ -12,6 +12,15 @@
 .task-rail .rail-sec+.rail-sec{border-top:1px solid var(--line)}
 .task-rail .rail-h{margin:0 0 4px}
 @media (max-width:760px){
+  #task-modal:has(.task-layout){position:fixed;inset:0;width:100%;max-width:none;height:100%;height:100dvh;max-height:none;margin:0;border-radius:0}
+  #task-modal:has(.task-layout) .tmodal-head{gap:6px;padding:10px 10px 10px 12px;padding-top:max(10px,env(safe-area-inset-top));border-bottom:1px solid var(--line)}
+  #task-modal:has(.task-layout) .tmodal-head>.tnum{display:none}
+  #task-modal:has(.task-layout) .tmodal-title{margin:14px 16px 2px}
+  #task-modal:has(.task-layout) .tmodal-body{max-height:none;overflow:visible;padding-bottom:max(16px,env(safe-area-inset-bottom))}
+  #task-modal:has(.task-layout) .task-props{margin:2px 0 6px;padding:2px 0 6px}
+  #task-modal:has(.task-layout) .task-rail:not([hidden]){margin:8px 0;border-bottom:1px solid var(--line)}
+  #task-modal:has(.task-layout) .prop{min-height:44px}
+  body.task-modal-open{overflow:hidden}
   .tmodal-body.task-layout{display:flex;flex-direction:column}
   .task-side{display:contents}
   .task-props{order:-1;margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid var(--line)}
@@ -103,8 +112,8 @@ a.code-main:hover .code-title,a.code-main:hover .code-repo{color:var(--accent);t
 .pr-badge.ok{background:var(--ok-bg);color:var(--ok)}
 .pr-badge.fail{background:var(--fail-bg);color:var(--fail)}
 .pr-badge.waiting{background:var(--wait-bg);color:var(--wait)}
-#pane-tasks .trow[data-task-version] summary:has(.pr-badge){grid-template-columns:16px minmax(0,1fr) auto auto;grid-template-areas:"ic ttl pr who"}
-#pane-tasks .trow[data-task-version] summary .pr-badge{grid-area:pr}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head):has(.pr-badge){grid-template-columns:16px minmax(0,1fr) auto auto;grid-template-areas:"ic ttl pr who"}
+#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pr-badge{grid-area:pr}
 
 .prop[data-prop-row="owner"] .prop-vwrap,.prop[data-prop-row="private"] .prop-vwrap{flex-wrap:wrap;gap:4px 8px}
 .prop-vwrap>small{flex-basis:100%;font-size:11px;color:var(--muted);line-height:1.4}

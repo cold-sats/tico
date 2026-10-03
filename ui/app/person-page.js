@@ -161,8 +161,7 @@ function pagePerson(id, tab) {
   if (tab === 'slack') personSlackLoad(p);
 }
 // The human's tasks: what they own, active first, finished behind a toggle. The rows are
-// the same as a keeper bot's (v2TaskRow), so Done/Close and the chat button work unchanged;
-// v2TaskAct reloads this list after acting while the card is on the page.
+// the same as a keeper bot's (v2TaskRow), opening the shared task detail.
 let PERSON_TASKS = null;
 async function personTasksLoad(p) {
   PERSON_TASKS = p.id;

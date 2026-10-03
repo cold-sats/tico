@@ -71,7 +71,7 @@ body.native #app-nudge{display:none}
   #rail{flex:none}
   .ln .who{max-width:96px}.ln .age{font-size:11px}
   form.task .r1{grid-template-columns:1fr 1fr}form.task .r1 input{grid-column:1/-1}
-  .trow summary{grid-template-columns:40px 1fr auto}.trow summary .muted.tnum{display:none}
+  .trow :is(summary,.trow-head){grid-template-columns:40px 1fr auto}.trow :is(summary,.trow-head) .muted.tnum{display:none}
   .acc-summary .k{width:auto;display:block}
   .tabs.slim{margin-left:0}
   section.card,details.card{padding:12px 12px;border-radius:6px}

@@ -55,5 +55,5 @@
 .tmodal-head .who{color:var(--ink);font-weight:600}
 .tmodal-head .spacer{flex:1}
 .tmodal-x{padding:2px 8px}
-#person-tasks .trow summary{grid-template-columns:auto 1fr auto 60px}
+#person-tasks .trow :is(summary,.trow-head){grid-template-columns:auto 1fr auto 60px}
 .person-tasks-done{margin-top:10px}.person-tasks-done>summary{cursor:pointer;font-size:13px;padding:4px 0}.person-tasks-done>summary .cnt{margin-left:4px}

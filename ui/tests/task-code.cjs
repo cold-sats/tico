@@ -51,8 +51,22 @@ function fixtures() {
   return {tasks: [parent, plain, ...others], tree};
 }
 
-async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'dark', at = '#/task/t-checkout', mover = true} = {}) {
+async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'dark', at = '#/task/t-checkout', mover = true, rich = false} = {}) {
   const data = fixtures();
+  if (rich) {
+    Object.assign(data.tasks[0], {body: 'Keep the old checkout behind a flag.\n\nVerify receipts in both flows.',
+      note: 'The draft is checked; the rollout still needs a decision.', labels: ['checkout'], acceptance_criteria: ['Both flows send a receipt.']});
+    data.tasks.push(task('t-outward', {title: 'Choose the rollout day', owner: 'human:ana', requester: 'bot:eng', status: 'open'}),
+      task('t-finished', {title: 'Check the receipt wording', status: 'closed', requester: 'bot:eng', done_at: now, closed_at: now}),
+      ...data.tree.map(({children, ...t}) => task(t.id, {...t, parent_id: 't-checkout'})));
+    data.comments = [{id: 'm1', kind: 'say', from_actor: 'bot:eng', body: 'The draft is checked.', created: now, refs: {task: 't-checkout', note: true}},
+      {id: 'm2', kind: 'ask', from_actor: 'bot:eng', body: 'Which rollout day?', created: now, answers: [], refs: {task: 't-checkout',
+        questions: [{id: 'day', question: 'Which rollout day?', options: [{label: 'Tuesday'}, {label: 'Thursday'}], multi: true, other: true}]}}];
+    data.events = [{id: 'e1', ts: now, actor: 'bot:eng', field: 'status', old: 'open', new: 'doing', note: 'The draft is checked.'}];
+    data.files = [{id: 'f-notes', name: 'review.md', mime: 'text/markdown', current_version: 2, archived: false,
+      versions: [2, 1].map(n => ({n, size: 48, mime: 'text/markdown', created: now, by: 'bot:eng',
+        url: `/api/v2/files/f-notes?v=${n}`, answers: []}))}];
+  }
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
   const errors = [], writes = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -82,7 +96,8 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
     if (p === '/api/v2/tasks' && method === 'GET') {
       const owner = url.searchParams.get('owner');
       // List rows leave out the links' detail_json (and pr_sha), as backend/app.py lists do; the detail has them.
-      const rows = (owner ? data.tasks.filter(t => t.owner === 'bot:' + owner) : url.searchParams.get('requester') ? [] : data.tasks)
+      const requester = url.searchParams.get('requester');
+      const rows = (owner ? data.tasks.filter(t => t.owner === 'bot:' + owner) : requester ? data.tasks.filter(t => t.requester === 'bot:' + requester) : data.tasks)
         .map(t => ({...t, links: (t.links || []).map(({detail_json, pr_sha, ...l}) => l)}));
       return json({tasks: rows, next_offset: null});
     }
@@ -107,7 +122,16 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
     if (one && method === 'GET') {
       const t = data.tasks.find(x => x.id === decodeURIComponent(one[1]));
       if (!t) return json({error: {detail: 'Not found'}}, 404);
-      return json({task: t, children: t.id === 't-checkout' ? data.tree.map(({children, ...k}) => k) : [], comments: [], events: []});
+      return json({task: t, children: t.id === 't-checkout' ? data.tree.map(({children, ...k}) => k) : [],
+        parent: data.tasks.find(x => x.id === t.parent_id) || null, comments: rich && t.id === 't-checkout' ? data.comments : [],
+        events: rich && t.id === 't-checkout' ? data.events : []});
+    }
+    if (rich && p === '/api/v2/tasks/t-checkout/files') return json({files: data.files});
+    if (rich && p === '/api/v2/files/f-notes') return route.fulfill({contentType: 'text/markdown', body: '# Review\n\nReceipt check version ' + url.searchParams.get('v') + '.'});
+    if (rich && p.endsWith('/comments') && method === 'POST') {
+      const body = req.postDataJSON(); writes.push({method, p, body});
+      data.comments.push({id: 'm3', kind: 'say', from_actor: 'human:ana', body: body.text, created: now, refs: {task: 't-checkout'}});
+      return json({woke: true});
     }
     return json({});
   });
@@ -266,7 +290,7 @@ async function botPage(browser) {
   assert.equal(await badge('Upgrade the image library').innerText(), 'PR');
   assert.equal(await badge('Write the release notes').count(), 0, 'no PRs, no badge');
   for (const title of ['Ship the new checkout', 'Write the release notes']) {
-    const box = await page.locator('#t-open .trow', {hasText: title}).locator('summary').boundingBox();
+    const box = await page.locator('#t-open .trow', {hasText: title}).locator('.trow-head').boundingBox();
     assert.ok(box.height <= 44, `${title}: still a compact row`);
   }
   if (SHOTS) await page.locator('#pane-tasks .bot-active').screenshot({path: path.join(SHOTS, 'bot-active-pr-badges-dark.png')});
@@ -275,8 +299,145 @@ async function botPage(browser) {
   await page.close();
 }
 
+// The bot rail is another entry to the manager's task detail, with no lost files, questions or history.
+async function botDetail(browser) {
+  const ready = async d => {
+    await d.locator('[data-sub="k1"]').waitFor();
+    await d.locator('[data-tf-file="f-notes"]').waitFor();
+    await d.locator('.task-comments .ask').waitFor();
+  };
+  const contents = d => d.evaluate(el => {
+    const copy = el.cloneNode(true);
+    copy.querySelectorAll('time').forEach(el => el.remove());
+    const text = selector => [...copy.querySelectorAll(selector)].map(x => x.textContent.trim());
+    return {title: text('.tmodal-title'), details: text('.tdesc'), properties: text('[data-task-props] .prop'),
+      criteria: text('.tcriteria'), code: text('.code-line'), children: text('.sub-line'), comments: text('.task-comments'),
+      questions: text('.ask-text'), files: text('.tf-name'), links: text('.tlinks')};
+  });
+  const shots = async (page, d, name, phone) => {
+    if (!SHOTS) return;
+    fs.mkdirSync(SHOTS, {recursive: true});
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => document.activeElement?.blur());
+    await d.evaluate(el => { el.scrollTop = 0; });
+    await page.screenshot({path: path.join(SHOTS, name + '-top.png')});
+    if (phone) for (const [suffix, selector] of [['code', '[data-task-rail]'], ['comments', '.task-chat']]) {
+      await d.locator(selector).scrollIntoViewIfNeeded();
+      await page.screenshot({path: path.join(SHOTS, name + '-' + suffix + '.png')});
+    }
+  };
+  for (const phone of [false, true]) {
+    const viewport = phone ? {width: 390, height: 844} : {width: 1440, height: 900};
+    const {page, errors, writes} = await open(browser, {at: '#/bot/eng/tasks', viewport, rich: true});
+    const d = page.locator('#task-modal'), row = page.locator('[data-task-detail="t-checkout"]');
+    await row.locator('[data-task-detail-open]').waitFor();
+    assert.equal(await row.locator('details, .tbody').count(), 0, 'no separate inline detail');
+    await page.evaluate(() => { window.botBefore = BOT; window.botWorkBefore = document.querySelector('#bot-work'); });
+    await row.locator('[data-task-detail-open]').focus();
+    await page.keyboard.press('Enter');
+    await ready(d);
+    assert.equal(await d.evaluate(el => el.matches(':modal')), true, 'the same full task dialog');
+    assert.equal(await page.evaluate(() => TASKS_ST), null, 'opening from the bot does not create a task manager');
+    const botContents = await contents(d);
+    assert.equal((botContents.comments.join('').match(/The draft is checked\./g) || []).length, 1, 'a mirrored note is read once');
+    assert.match(botContents.comments.join(''), /moved it to Doing/, 'its status event remains');
+    assert.ok(botContents.code.some(line => /↑2 ↓1/.test(line)), 'the full worktree report is loaded');
+    if (phone) {
+      const box = await d.boundingBox();
+      assert.ok(box.x === 0 && box.y === 0 && box.width >= 389 && box.height >= 843, 'full-screen: ' + JSON.stringify(box));
+      assert.equal(await d.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true, 'no horizontal overflow');
+    }
+    await shots(page, d, `task-detail-bot-${phone ? 'phone' : 'desktop'}-dark`, phone);
+    // File versions and comments are usable through this entry, as they are in the manager.
+    await d.locator('[data-tf-file="f-notes"]').click();
+    await d.locator('[data-tf-v="1"]').click();
+    await d.locator('[data-tf-view]', {hasText: 'Receipt check version 1.'}).waitFor();
+    await d.locator('[data-tf-close]').click();
+    await d.locator('.task-chat textarea').fill('Check the receipt totals too.');
+    await d.locator('.task-chat button[type="submit"]').click();
+    await d.locator('.task-comments', {hasText: 'Check the receipt totals too.'}).waitFor();
+    assert.deepEqual(writes.at(-1), {method: 'POST', p: '/api/v2/tasks/t-checkout/comments', body: {text: 'Check the receipt totals too.'}});
+    // A subtask opens in the same dialog even though no manager state exists on the bot page.
+    await d.locator('[data-sub-open="k1"]').click();
+    await d.locator('.tmodal-title', {hasText: 'Summary step on web'}).waitFor();
+    await d.locator('[data-modal-close]').click();
+    await page.waitForFunction(() => !history.state?.taskModal && !document.querySelector('#task-modal[open]'));
+    assert.equal(new URL(page.url()).hash, '#/bot/eng/tasks');
+    assert.equal(await page.evaluate(() => BOT === window.botBefore && document.querySelector('#bot-work') === window.botWorkBefore), true, 'the bot context survives');
+    assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-task-detail-open')), true, 'focus returns to the task row');
+    for (const how of ['back', 'escape']) {
+      await row.locator('[data-task-detail-open]').click(); await ready(d);
+      if (how === 'back') await page.goBack(); else await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !history.state?.taskModal && !document.querySelector('#task-modal[open]'));
+      assert.equal(new URL(page.url()).hash, '#/bot/eng/tasks', how + ' returns to the bot');
+    }
+    for (const id of ['t-outward', 't-finished']) {
+      if (id === 't-finished') await page.locator('.bot-done > summary').click();
+      await page.locator(`[data-task-detail="${id}"] [data-task-detail-open]`).click();
+      await d.locator(`[data-task-props]`).waitFor();
+      await page.waitForFunction(id => document.querySelector('#task-modal')?.dataset.task === id, id);
+      await d.locator('[data-modal-close]').click();
+      await page.waitForFunction(() => !history.state?.taskModal && !document.querySelector('#task-modal[open]'));
+    }
+    assert.deepEqual(errors, []);
+    await page.close();
+
+    const manager = await open(browser, {at: '#/issues', viewport, rich: true});
+    await manager.page.locator('[data-task-key="tt-checkout"] .tl-title').click();
+    const peek = manager.page.locator('#task-peek'); await ready(peek);
+    assert.deepEqual(await contents(peek), botContents, 'bot and manager render every task section from the same content');
+    await shots(manager.page, peek, `task-detail-manager-${phone ? 'phone' : 'desktop'}-dark`, phone);
+    if (!phone) {
+      await peek.locator('[data-task-more]').click();
+      await peek.getByRole('menuitem', {name: 'Open full'}).click();
+      const full = manager.page.locator('#task-modal'); await ready(full);
+      assert.deepEqual(await contents(full), botContents);
+      await shots(manager.page, full, 'task-detail-manager-full-desktop-dark', false);
+      await full.locator('[data-modal-close]').click();
+    } else {
+      await peek.locator('[data-modal-close]').click();
+      await manager.page.waitForFunction(() => !history.state?.taskPeek);
+    }
+    await manager.page.evaluate(() => { location.hash = '#/bot/eng/tasks'; });
+    await manager.page.locator('[data-task-detail="t-checkout"] [data-task-detail-open]').click();
+    const modal = manager.page.locator('#task-modal'); await ready(modal);
+    assert.equal(await manager.page.evaluate(() => TASKS_ST), null, 'manager state is cleared before entering the bot');
+    if (phone) await modal.locator('[data-modal-close]').click(); else await manager.page.mouse.click(5, 5);
+    await manager.page.waitForFunction(() => !history.state?.taskModal && !document.querySelector('#task-modal[open]') && !document.body.classList.contains('task-modal-open'));
+    assert.equal(new URL(manager.page.url()).hash, '#/bot/eng/tasks');
+    // Only the latest selection can open; a late detail response cannot resurrect a task on another page.
+    await manager.page.route('**/api/v2/tasks/t-checkout', async route => { await new Promise(resolve => setTimeout(resolve, 250)); await route.fallback(); });
+    await manager.page.evaluate(() => { void taskModalOpen('tt-checkout'); void taskModalOpen('tt-none'); });
+    await modal.locator('.tmodal-title', {hasText: 'Write the release notes'}).waitFor();
+    await manager.page.waitForTimeout(350);
+    assert.equal(await modal.locator('.tmodal-title').innerText(), 'Write the release notes', 'a slower earlier tap cannot replace the latest task');
+    await modal.locator('[data-modal-close]').click();
+    await manager.page.waitForFunction(() => !history.state?.taskModal);
+    await manager.page.evaluate(() => { void taskModalOpen('tt-checkout'); location.hash = '#/goals'; });
+    await manager.page.waitForTimeout(350);
+    assert.equal(await modal.isVisible(), false, 'navigating away cancels a pending open');
+    assert.equal(await manager.page.evaluate(() => !!history.state?.taskModal || document.body.classList.contains('task-modal-open')), false, 'no stale history or scroll lock');
+    const historyNotes = await manager.page.evaluate(() => {
+      const ts = new Date().toISOString(), note = 'Receipt check complete.';
+      const events = ['done', 'closed'].map((status, i) => ({kind: 'event', ts, actor: 'bot:eng', field: 'status', old: i ? 'done' : 'doing', new: status, note}));
+      const comment = {kind: 'comment', ts, message: {from_actor: 'bot:eng', body: note, kind: 'say', created: ts, refs: {}}};
+      const all = [...events, comment];
+      return {html: all.map((x, i) => commentLineHTML(x, i, all)).join(''),
+        otherActor: commentLineHTML(events[0], 0, [events[0], {...comment, message: {...comment.message, from_actor: 'human:ana'}}]),
+        later: commentLineHTML(events[0], 0, [events[0], {...comment, ts: new Date(Date.parse(ts) + 6000).toISOString()}])};
+    });
+    assert.match(historyNotes.html, /moved it to Done/); assert.match(historyNotes.html, /moved it to Closed/);
+    assert.equal((historyNotes.html.match(/Receipt check complete\./g) || []).length, 1, 'both transitions remain while the result appears once');
+    assert.match(historyNotes.otherActor, /Receipt check complete\./, 'another actor does not hide an event note');
+    assert.match(historyNotes.later, /Receipt check complete\./, 'a later comment does not hide an event note');
+    assert.deepEqual(manager.errors, []);
+    await manager.page.close();
+  }
+  console.log('bot task detail parity, files, comments, related tasks and return: ok');
+}
+
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
-  try { await desktop(browser); await phone(browser); await member(browser); await botPage(browser); }
+  try { await desktop(browser); await phone(browser); await member(browser); await botPage(browser); await botDetail(browser); }
   finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

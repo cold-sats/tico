@@ -26,18 +26,37 @@ function taskModal() {
   let d = $('#task-modal');
   if (d) return d;
   d = document.createElement('dialog'); d.id = 'task-modal'; d.className = 'tmodal';
+  d.setAttribute('aria-label', 'Task');
   d.addEventListener('click', ev => { if (ev.target === d) d.close(); });
   taskDialogWire(d);
+  d.addEventListener('close', () => {
+    if (d.open) return;
+    TASK_MODAL_LOAD++;
+    document.body.classList.remove('task-modal-open');
+    const back = d.returnContext; d.returnContext = null;
+    if (!back) return;
+    if (history.state?.taskModal && location.hash === back.route && !TASK_MODAL_BACK) { TASK_MODAL_BACK = true; history.back(); }
+    const opener = back.opener?.isConnected ? back.opener : $(`[data-task-detail="${CSS.escape(back.task)}"] [data-task-detail-open]`);
+    if (!document.activeElement || document.activeElement === document.body || d.contains(document.activeElement)) opener?.focus({preventScroll: true});
+  });
   document.body.appendChild(d);
   return d;
 }
+let TASK_MODAL_BACK = false;
+let TASK_MODAL_LOAD = 0;
+window.addEventListener('popstate', () => {
+  TASK_MODAL_BACK = false;
+  const d = $('#task-modal');
+  if (d?.open && d.returnContext && !history.state?.taskModal) d.close();
+});
 // `d` is the full modal unless a caller passes the peek.
 async function taskModalOpen(key, d) {
-  const state = TASKS_ST; if (!state) return;
-  let it = (state.tasks || []).map(taskItem).find(x => x.key === key)
+  const state = TASKS_ST, from = S.route, load = ++TASK_MODAL_LOAD;
+  let it = (state?.tasks || []).map(taskItem).find(x => x.key === key)
     || [...S.issues.map(issueItem)].find(x => x.key === key);
   if (!it && /^t/.test(key)) {
     const detail = await v2Get(`/v2/tasks/${encodeURIComponent(key.slice(1))}`);
+    if (S.route !== from || load !== TASK_MODAL_LOAD) return;
     if (detail?.task) it = taskItem(detail.task);
   }
   if (!it) return;
@@ -63,6 +82,7 @@ async function taskModalOpen(key, d) {
 }
 // The one way a hub task opens in full: from the board, from a link, from a chat card. In the peek it opens beside the list.
 async function taskModalShow(task, d = taskModal()) {
+  TASK_MODAL_LOAD++;
   if (!d) d = taskModal();
   const peek = !!d.dataset.peek;
   taskChatStop();
@@ -90,10 +110,16 @@ async function taskModalShow(task, d = taskModal()) {
   if (!d.open) {
     // The peek sits beside the list: opening it leaves the focus on the row, so ↑/↓ keep moving through the list.
     const was = document.activeElement;
+    if (!peek && !TASKS_ST) {
+      // Outside Tasks, Back dismisses the detail without rebuilding the bot's chat, tab or scroll position.
+      d.returnContext = {route: location.hash, task: String(task.id), opener: was};
+      history.pushState({...(history.state || {}), taskModal: 1}, '');
+    }
     if (peek && matchMedia('(max-width:760px)').matches) d.showModal();     // a phone's sheet covers the list: modal
     else if (peek) { d.show(); if (was && was !== document.body && was.isConnected) was.focus({preventScroll: true}); }
     else d.showModal();
   }
+  if (!peek) document.body.classList.add('task-modal-open');
   d.scrollTop = 0;
   // the list knows the task; the detail adds its parts, its parent and the comments
   const [detail] = await Promise.all([v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`), taskTypesLoad().catch(() => TASK_TYPES)]);
@@ -195,6 +221,7 @@ async function taskSave(d, id, body, then, field) {
       if (isKeeper(BOT.slug)) void loadBotTasksV2(BOT.slug);
       void loadBotChatTasks(BOT.slug);
     }
+    void personTasksReload();
     // The list reloads behind it. If the task left the view (done, closed, handed on, declined), the list and the
     // peek move on to the next row: checked by whichever load lands last (a poll may overtake this one).
     if (state) state.pendingFinish = {key, at, after: state.loadSeq};
@@ -250,7 +277,10 @@ function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
         || (y.kind === 'comment' && String(y.message?.body || '').trim() === text)))) return '';
     }
     const say = TASK_EVENT_WORDS[x.field] ? TASK_EVENT_WORDS[x.field](x.new) : `changed ${x.field}`;
-    return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
+    // A result mirrored into a comment keeps its full text there; the event still records the status move.
+    const mirrored = x.note && all?.some(y => y.kind === 'comment' && y.message?.from_actor === x.actor
+      && String(y.message.body || '').trim() === String(x.note).trim() && Math.abs(Date.parse(y.ts) - Date.parse(x.ts)) < 5000);
+    return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' && !mirrored ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
       <time class="muted tnum" title="${esc(fmt(x.ts))}">${esc(ago(x.ts))}</time></div>`;
   }
   const m = x.message, ask = askOf(m);
