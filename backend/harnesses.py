@@ -5,13 +5,13 @@
 """
 
 HARNESS_CATALOG = (
-    {"id": "codex", "label": "openai", "runtime": "codex"},
-    {"id": "claude", "label": "claude", "runtime": "claude"},
+    {"id": "codex", "label": "Codex (OpenAI)", "runtime": "codex"},
+    {"id": "claude", "label": "Claude Code (Anthropic)", "runtime": "claude"},
     {"id": "gemini", "label": "gemini", "runtime": "gemini"},
     {"id": "antigravity", "label": "antigravity", "runtime": "gemini"},
-    {"id": "grok", "label": "grok", "runtime": "grok"},
+    {"id": "grok", "label": "Grok Build (xAI)", "runtime": "grok"},
     {"id": "pi", "label": "pi (openrouter)", "runtime": "pi"},
-    {"id": "cursor", "label": "cursor", "runtime": "cursor"},
+    {"id": "cursor", "label": "Cursor Agent", "runtime": "cursor"},
     # An external agent: it runs somewhere Tico does not manage, holds its own model and
     # provider, and reaches the hub with a bot credential over MCP or the `hub` CLI. No
     # runner claims work for it; it reads its inbox on its own schedule (docs/hermes-agents.md).

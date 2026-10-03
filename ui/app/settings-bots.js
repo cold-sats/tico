@@ -41,50 +41,87 @@ function settingsAllChoices() {
         return {harness, model: model.id, effort, label, search, value: settingsChoiceValue(harness, model.id, effort)};
       })));
 }
-function settingsFilterChoices(query) {
-  const needle = String(query || '').trim().toLowerCase();
-  const choices = settingsAllChoices();
-  if (!needle) return choices;
-  return choices.filter(choice => needle.split(/\s+/).every(part => choice.search.includes(part)));
+// Keep the three choices local until Apply, so selecting a harness cannot start a transition.
+function settingsChoiceFields(current = '', disabled = false, none = false, label = 'Model settings') {
+  return `<div class="settings-model-choice" role="group" aria-label="${esc(label)}" data-choice-fields data-current="${esc(current)}" ${disabled ? 'data-readonly' : ''} ${none ? 'data-allow-none' : ''}>
+    <label>Harness / provider<select data-choice-harness aria-label="Harness / provider" ${disabled ? 'disabled' : ''}></select></label>
+    <label>Model<select data-choice-model aria-label="Model" ${disabled ? 'disabled' : ''}></select></label>
+    <label>Effort<select data-choice-effort aria-label="Effort" ${disabled ? 'disabled' : ''}></select></label>
+  </div>`;
+}
+function settingsWireChoiceFields(fields, onChange = () => {}) {
+  const harness = fields.querySelector('[data-choice-harness]');
+  const model = fields.querySelector('[data-choice-model]');
+  const effort = fields.querySelector('[data-choice-effort]');
+  const choices = settingsAllChoices(), readonly = fields.hasAttribute('data-readonly');
+  const option = (value, label, selected, disabled = false) => `<option value="${esc(value)}" ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${esc(label)}</option>`;
+  let picked = settingsChoiceFromValue(fields.dataset.current);
+  const paint = () => {
+    const harnesses = [...new Set(choices.map(row => row.harness))];
+    harness.innerHTML = option('', fields.hasAttribute('data-allow-none') ? 'None' : 'Choose harness', !picked.harness)
+      + (picked.harness && !harnesses.includes(picked.harness) ? option(picked.harness, settingsHarnessName(picked.harness) || picked.harness, true, true) : '')
+      + harnesses.map(id => option(id, settingsHarnessName(id) || id, id === picked.harness)).join('');
+    const models = [...new Set(choices.filter(row => row.harness === picked.harness).map(row => row.model))];
+    model.innerHTML = option('', 'Choose model', !picked.model, true)
+      + (picked.model && !models.includes(picked.model) ? option(picked.model, `${settingsModelName(picked.model)} (current)`, true, true) : '')
+      + models.map(id => option(id, settingsModelName(id), id === picked.model)).join('');
+    const efforts = choices.filter(row => row.harness === picked.harness && row.model === picked.model).map(row => row.effort);
+    effort.innerHTML = (!picked.effort && efforts.length ? option('', 'Choose effort', true, true) : '')
+      + (!efforts.length ? option(picked.effort, settingsEffortName(picked.effort) || 'Choose effort', true, true) : '')
+      + (picked.effort && efforts.length && !efforts.includes(picked.effort) ? option(picked.effort, `${settingsEffortName(picked.effort)} (current)`, true, true) : '')
+      + efforts.map(id => option(id, id === 'as-configured' ? 'Managed by harness' : settingsEffortName(id), id === picked.effort)).join('');
+    harness.disabled = readonly;
+    model.disabled = readonly || !picked.harness || !models.length;
+    effort.disabled = readonly || efforts.length <= 1;
+  };
+  const value = () => picked.model ? settingsChoiceValue(picked.harness, picked.model, picked.effort) : '';
+  const valid = () => choices.some(row => row.value === value()) || (!picked.harness && fields.hasAttribute('data-allow-none'));
+  harness.onchange = () => {
+    picked = {harness: harness.value, model: '', effort: ''};
+    paint(); onChange(value(), valid());
+  };
+  model.onchange = () => {
+    const row = settingsModel(model.value);
+    const efforts = choices.filter(choice => choice.harness === picked.harness && choice.model === model.value).map(choice => choice.effort);
+    picked = {harness: picked.harness, model: model.value,
+      effort: efforts.includes(picked.effort) ? picked.effort : (efforts.includes(row?.default_effort) ? row.default_effort : efforts[0] || '')};
+    paint(); onChange(value(), valid());
+  };
+  effort.onchange = () => { picked.effort = effort.value; onChange(value(), valid()); };
+  paint();
+  return {value, valid};
 }
 function settingsChoiceCombo(e, kind) {
-  const fallback = kind === 'fallback';
-  const selected = fallback ? (e.fallback || null) : e;
-  const harness = fallback ? selected?.harness : (e.harness || e.runtime);
-  const model = fallback ? selected?.model : e.model;
-  const effort = fallback ? (selected?.reasoning_effort || selected?.effort)
-    : (e.reasoning_effort || e.effort);
-  const current = (fallback && !model) ? '' : settingsChoiceValue(harness, model, effort);
-  const label = current ? settingsChoiceLabel(harness, model, effort) : (fallback ? 'None' : settingsDefaultLabel(e));
-  const aria = fallback ? `Fallback for ${e.display_name}` : `Model and effort for ${e.display_name}`;
-  return `<div class="settings-combo" data-bot-choice="${esc(e.name)}" data-kind="${kind}" data-current="${esc(current)}"
-    title="${esc(label)}">
-    <input type="search" autocomplete="off" spellcheck="false" value="${esc(label)}"
-      aria-label="${esc(aria)}" placeholder="${fallback ? 'None' : 'Search harness or model'}"
-      ${settingsCanManageBot(e) ? '' : 'disabled'}>
-    <div class="settings-combo-list" role="listbox"></div>
+  const fallback = kind === 'fallback', selected = fallback ? e.fallback : e;
+  const current = selected?.model ? settingsChoiceValue(selected.harness || selected.runtime, selected.model,
+    selected.reasoning_effort || selected.effort) : '';
+  const manage = settingsCanManageBot(e);
+  return `<div class="settings-choice" data-bot-choice="${esc(e.name)}" data-kind="${kind}" data-current="${esc(current)}">
+    ${!current && !fallback ? `<small class="muted">${esc(settingsDefaultLabel(e))}</small>` : ''}
+    ${settingsChoiceFields(current, !manage, fallback, `${fallback ? 'Fallback' : 'Model'} for ${e.display_name || e.name}`)}
+    ${manage ? '<button type="button" class="ghost" data-choice-apply disabled>Apply</button>' : ''}
   </div>`;
 }
 function settingsWireCombos(root, onPick = settingsPickChoice) {
   root.querySelectorAll('[data-bot-choice]').forEach(box => {
-    const input = box.querySelector('input[type=search]');
-    const list = box.querySelector('.settings-combo-list');
-    if (!input || !list || input.disabled) return;
-    const none = box.dataset.kind === 'fallback';
-    const render = query => {
-      const choices = settingsFilterChoices(query);
-      const rows = (none ? [{value:'', label:'None'}] : []).concat(choices);
-      list.innerHTML = rows.length
-        ? rows.map(choice => `<button type="button" role="option" data-value="${esc(choice.value)}" ${choice.value === box.dataset.current ? 'aria-selected="true"' : ''}>${esc(choice.label)}</button>`).join('')
-        : '<div class="settings-combo-empty">No matching harness or model</div>';
-      list.querySelectorAll('[data-value]').forEach(button => {
-        button.onmousedown = event => event.preventDefault();
-        button.onclick = () => void onPick(box, button.dataset.value);
+    const button = box.querySelector('[data-choice-apply]');
+    const mount = () => {
+      const fields = box.querySelector('[data-choice-fields]');
+      fields.dataset.current = box.dataset.current || '';
+      const picker = settingsWireChoiceFields(fields, (value, valid) => {
+        if (button) button.disabled = !valid || value === (box.dataset.current || '');
       });
+      if (!button) return;
+      button.disabled = true;
+      button.onclick = async () => {
+        if (!picker.valid()) return;
+        const value = picker.value();
+        box.querySelectorAll('select,button').forEach(control => control.disabled = true);
+        try { await onPick(box, value); }
+        finally { if (box.isConnected) mount(); }
+      };
     };
-    input.onfocus = () => { box.classList.add('open'); input.select(); render(input.value === input.defaultValue ? '' : input.value); };
-    input.oninput = () => { box.classList.add('open'); render(input.value); };
-    input.onblur = () => { box.classList.remove('open'); input.value = input.defaultValue; };
+    mount();
   });
 }
 async function settingsPickChoice(box, value) {
@@ -198,20 +235,20 @@ function settingsBulkModelDialog() {
     const label = choice ? settingsChoiceLabel(choice.harness, choice.model, choice.effort) : '';
     dialog.innerHTML = `<div class="tmodal-head"><h2 id="bulk-model-title">Change model · ${bots.length} bot${bots.length === 1 ? '' : 's'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bulk-close aria-label="Close">✕</button></div>
       <div class="transition-body">
-        <div class="settings-combo" data-bot-choice="" data-kind="model" data-current="${esc(choice ? settingsChoiceValue(choice.harness, choice.model, choice.effort) : '')}">
-          <input type="search" autocomplete="off" spellcheck="false" value="${esc(label)}" aria-label="Model and effort for the selected bots" placeholder="Search harness or model">
-          <div class="settings-combo-list" role="listbox"></div></div>
-        ${choice ? `<p>Destination: <strong>${esc(label)}</strong></p>` : ''}
+        <div class="settings-choice" data-bot-choice="" data-kind="model" data-current="${esc(choice ? settingsChoiceValue(choice.harness, choice.model, choice.effort) : '')}">
+          ${settingsChoiceFields(choice ? settingsChoiceValue(choice.harness, choice.model, choice.effort) : '')}</div>
+        <p data-bulk-destination>${choice ? `Destination: ${esc(label)}` : ''}</p>
         <div class="transition-progress"><strong>Each bot starts a fresh provider session.</strong>
           <p>History is kept. A bot mid-turn is skipped; retry it after.</p></div>
         <ul class="settings-bulk-list" data-bulk-list>${bots.map(e => `<li data-bulk-bot="${esc(e.name)}" data-state="pending"><span>${esc(e.display_name || e.name)}</span><span class="settings-cell-note">${esc(settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e)))}</span></li>`).join('')}</ul>
         <p role="status" data-bulk-summary></p>
         <div class="transition-actions"><button class="primary" type="button" data-bulk-apply ${choice ? '' : 'disabled'}>Change ${bots.length} bot${bots.length === 1 ? '' : 's'}</button><button class="ghost" type="button" data-bulk-close>Cancel</button></div></div>`;
     dialog.querySelectorAll('[data-bulk-close]').forEach(button => button.onclick = () => dialog.close());
-    settingsWireCombos(dialog, (box, value) => {
-      const picked = settingsChoiceFromValue(value);
-      if (!picked.model || !picked.effort || !picked.harness) return;
-      choice = picked; paint();
+    settingsWireChoiceFields(dialog.querySelector('[data-choice-fields]'), (value, valid) => {
+      choice = valid ? settingsChoiceFromValue(value) : null;
+      dialog.querySelector('[data-bulk-apply]').disabled = !choice;
+      dialog.querySelector('[data-bulk-destination]').textContent = choice
+        ? `Destination: ${settingsChoiceLabel(choice.harness, choice.model, choice.effort)}` : '';
     });
     dialog.querySelector('[data-bulk-apply]').onclick = () => void run(bots);
   };
@@ -222,8 +259,9 @@ function settingsBulkModelDialog() {
   const run = async targets => {
     if (running || !choice) return;
     running = ran = true;
-    const apply = dialog.querySelector('[data-bulk-apply]'), combo = dialog.querySelector('.settings-combo input');
-    apply.disabled = true; if (combo) combo.disabled = true;
+    const apply = dialog.querySelector('[data-bulk-apply]');
+    apply.disabled = true;
+    dialog.querySelectorAll('[data-bot-choice] select,[data-choice-apply]').forEach(control => control.disabled = true);
     const results = {changed: 0, skipped: 0, failed: []};
     for (const e of targets) {
       mark(e.name, 'working', 'Changing…');
