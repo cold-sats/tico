@@ -99,7 +99,7 @@ function convGroup(r, slug) {
     : !r.issue_body ? ''
     : isRecurring(r) ? `<div class="bubble sched"><span class="who">Routine</span>${esc(r.issue_title || 'Routine')}
         <details class="sched-body"><summary>show template</summary><div class="q">${esc(r.issue_body)}</div></details></div>`
-    : `<div class="bubble you"><span class="who">${esc(personHandle(r.issue_from) || ownerHandle())}</span>${esc(unsigned(r.issue_body))}</div>`;
+    : `<div class="bubble you"><span class="who">${esc(personHandle(r.issue_from) || ownerHandle())}</span>${esc(unsigned(r.issue_body))}${chatCopyHTML(unsigned(r.issue_body))}</div>`;
   const words = convActivityWords(counts);
   const working = words || detail.length || inter.length
     ? `<details class="conv-act" data-run="${esc(r.run)}"${CONV?.openWork?.has(r.run) ? ' open' : ''}>
@@ -107,11 +107,11 @@ function convGroup(r, slug) {
         ${inter.map(x => `<div class="conv-ev"><div class="md">${mdS3(x.text)}</div></div>`).join('')}
         ${detail.map(convEvent).join('')}</details>`
     : '';
-  const answer = reply ? `<div class="bubble bot reply"><span class="who">${empName(slug)}</span><div class="md">${mdS3(reply)}</div></div>`
+  const answer = reply ? `<div class="bubble bot reply"><span class="who">${empName(slug)}</span><div class="md">${mdS3(reply)}</div>${chatCopyHTML(reply)}</div>`
     : live ? `<div class="thinking"><span class="dot running"></span>${empName(slug)} is thinking…</div>` : '';
   const comments = (r.comments || []).map(c =>
-    c.author === 'human' ? `<div class="bubble you"><span class="who">${esc(personHandle(c.who) || ownerHandle())}</span>${esc(unsigned(c.body))}</div>`
-    : c.author === 'bot' ? `<div class="bubble bot"><span class="who">${empName(slug)}</span><div class="md">${mdS3(c.body)}</div></div>`
+    c.author === 'human' ? `<div class="bubble you"><span class="who">${esc(personHandle(c.who) || ownerHandle())}</span>${esc(unsigned(c.body))}${chatCopyHTML(unsigned(c.body))}</div>`
+    : c.author === 'bot' ? `<div class="bubble bot"><span class="who">${empName(slug)}</span><div class="md">${mdS3(c.body)}</div>${chatCopyHTML(c.body)}</div>`
     : `<div class="conv-note muted">${esc(plainActors(c.body))}</div>`).join('');
   const deliv = r.deliverables || [];
   const files = deliv.length ? `<div class="conv-deliv">${deliv.map(f => f.image
@@ -123,7 +123,7 @@ function convGroup(r, slug) {
 function convChatAsk(r) {
   const m = r.message || {};
   const chips = (m.files || []).map(f => `<span class="fchip">${esc(f)}</span>`).join('');
-  return `<div class="bubble you"><span class="who">${esc(personHandle(m.from) || ownerHandle())}</span>${esc(m.text || '')}${chips ? `<div class="bfiles">${chips}</div>` : ''}</div>`;
+  return `<div class="bubble you"><span class="who">${esc(personHandle(m.from) || ownerHandle())}</span>${esc(m.text || '')}${chips ? `<div class="bfiles">${chips}</div>` : ''}${chatCopyHTML(m.text)}</div>`;
 }
 // a chat turn starts a run at once: show it before the first tail comes back
 function convChatStarted(slug, j, text, files) {
@@ -147,7 +147,7 @@ function convRender(state) {
   const wasHeight = thread.scrollHeight, wasTop = thread.scrollTop;
   const groups = state.runs.map(r => convGroup(r, slug)).join('');
   state.pending = state.pending.filter(p => !state.runs.some(r => r.issue === p.number));   // the run took it over
-  const pending = state.pending.map(p => `<div class="conv-run"><div class="bubble you pending"><span class="who">${esc(myHandle())}</span>${esc(p.text)}</div><div class="conv-run-head">Queued as <a class="mono" href="${esc(p.url)}" target="_blank" rel="noopener">#${esc(p.number)}</a> · picked up within a minute</div></div>`).join('');
+  const pending = state.pending.map(p => `<div class="conv-run"><div class="bubble you pending"><span class="who">${esc(myHandle())}</span>${esc(p.text)}${chatCopyHTML(p.text)}</div><div class="conv-run-head">Queued as <a class="mono" href="${esc(p.url)}" target="_blank" rel="noopener">#${esc(p.number)}</a> · picked up within a minute</div></div>`).join('');
   const cleared = state.cleared ? `<div class="conv-break">Session cleared by you ${esc(fmt(state.cleared) || '')}</div>` : '';
   thread.innerHTML = (groups + pending || '<div class="empty">Nothing yet. Say something below.</div>') + cleared;
   thread.querySelectorAll('details.conv-act[data-run]').forEach(d => d.addEventListener('toggle', () => {
