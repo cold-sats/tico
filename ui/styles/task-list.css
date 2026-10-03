@@ -5,7 +5,7 @@
 /* ---- the page: the list, and the peek beside it when a task is open */
 #main.tasks-layout{max-width:none;padding:0;overflow:hidden;display:flex;flex-direction:column}
 .tasks-page{--peek-w:clamp(380px,42%,600px);--row-hover:color-mix(in srgb,var(--ink) 4.5%,transparent);--row-sel:color-mix(in srgb,var(--accent) 11%,transparent);
-  flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+  flex:1 1 auto;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
 .tasks-page.peek-open{grid-template-columns:minmax(0,1fr) var(--peek-w)}
 .tasks-pane{min-width:0;min-height:0;overflow-y:auto;padding:8px 28px 56px;container-type:inline-size;container-name:tasks}
 
@@ -141,8 +141,8 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 .tl-more{display:block;margin:12px auto 0}
 .tmodal .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 6px}
 
-/* ---- the board: columns with work share the width; an empty one is a thin strip with its name turned on its side */
-#task-body .board{display:grid;grid-template-columns:var(--board-cols,repeat(4,minmax(0,1fr)));gap:8px;align-items:start;margin-top:4px}
+/* ---- the board: readable columns scroll inside the pane; an empty one stays a thin strip */
+#task-body .board{display:grid;min-width:0;grid-template-columns:var(--board-cols,repeat(4,minmax(260px,1fr)));gap:8px;align-items:start;margin-top:4px;overflow-x:auto;padding-bottom:6px}
 .bcol{display:flex;flex-direction:column;min-width:0;max-height:calc(100vh - 150px);background:var(--surface);border:1px solid var(--line);border-radius:10px}
 .bcol>header{display:flex;align-items:center;gap:7px;height:36px;padding:0 10px;flex:none}
 .bcol>header h2{min-width:0;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -258,7 +258,7 @@ button.linkish.tl-clear:hover{color:var(--ink)}
   .tl-groupchip .k{display:none}
   .tl-parent{display:none}
   #task-body .board{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:8px;margin:4px -12px 0;padding:0 12px 6px}
-  .bcol{flex:0 0 82vw;scroll-snap-align:start;max-height:none}
+  .bcol{flex:0 0 max(260px,82vw);scroll-snap-align:start;max-height:none}
   .bcol.is-empty{display:none}
   #task-peek{position:fixed;inset:0;z-index:40;width:100%;height:100%;height:100dvh;border:0}
   #task-peek .tmodal-head{padding-top:max(10px,env(safe-area-inset-top))}
