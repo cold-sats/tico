@@ -3023,8 +3023,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             refuse(conn, actor, "lint", "Tell the requesting bot what you decided or completed in a note")
         # A bot parking a task it asked itself for has nobody to answer it unless it has filed
         # something to wait on first. Several stranded tasks were this.
+        # Validate the requested dependency, not the old one: callers can park work and
+        # attach its blocker atomically. Normal dependency/access checks still run below.
+        waiting_row = {**row, "blocked_by": str(blocked_by or "").strip() or None} if blocked_by is not None else row
         if (status == "waiting" and row["status"] != "waiting" and is_bot(row["owner"])
-                and row["owner"] == row["requester"] and not waiting_on(conn, row)):
+                and row["owner"] == row["requester"] and not waiting_on(conn, waiting_row)):
             refuse(conn, actor, "lint",
                    "You asked for this task yourself, so nobody will answer it: file the child task, "
                    "blocker or approval you are waiting on first, or keep working")
@@ -3572,9 +3575,9 @@ def wake_stalled(conn, at=None):
     woke, escalated = [], []
     for row in stalled_tasks(conn, at):
         with isolated(conn, "wake_stalled", row["id"]):
-            # Only wakes since the task last moved count toward handing it to BotOps: a long job that
-            # moves after every wake is working, not stuck (for example one working through hundreds of sites).
-            since = max(row["updated"], shift(at, seconds=-86400))
+            # A status note must not buy another round of retries. Cap automatic wakes
+            # over the whole day; busy work is excluded above and explicit runs remain available.
+            since = shift(at, seconds=-86400)
             count = conn.execute("SELECT count(*) FROM events WHERE action='task.stall_wake' AND target=? AND ts>?",
                                  (row["id"], since)).fetchone()[0] or 0
             last = conn.execute("SELECT max(ts) FROM events WHERE action='task.stall_wake' AND target=?",

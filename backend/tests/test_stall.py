@@ -53,3 +53,23 @@ def test_a_task_nothing_will_move_wakes_its_bot_within_minutes_and_botops_takes_
         assert c.execute("SELECT count(*) FROM tasks WHERE owner='bot:botops' AND title LIKE 'Find why finance%'").fetchone()[0] == 1
         assert H.wake_stalled(c)["escalated"] == []                              # once a day
 
+
+
+def test_status_notes_do_not_reset_the_daily_stall_wake_cap(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT OR IGNORE INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
+        task = H.task_create(c, H.human_actor('ana'), 'Recheck the cash warning', '', 'bot:finance')
+        for _ in range(H.STALL_WAKES_PER_DAY):
+            H.event(c, H.KEEPER, 'task.stall_wake', task['id'], {})
+        c.execute("UPDATE events SET ts=? WHERE action='task.stall_wake' AND target=?",
+                  (H.shift(H.now(), seconds=-3600), task['id']))
+        H.task_update(c, 'bot:finance', task['id'], note='Still unable to make progress', quiet=True)
+        aged(c, task['id'], 6)   # note is newer than the wakes, but is not a reason to wake forever
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='finance'")
+        out = H.wake_stalled(c)
+        assert out == {'woke': [], 'escalated': [task['id']]}
+        assert H.wake_stalled(c) == {'woke': [], 'escalated': []}
+
+        # The cap expires after a day; it does not strand the task permanently.
+        tomorrow = H.shift(H.now(), hours=25)
+        assert task['id'] in H.wake_stalled(c, at=tomorrow)['woke']
