@@ -46,7 +46,9 @@ def test_heartbeat_profiles_claim_and_old_computer(api):
             'profiles': [{'name': 'engineering', 'runtimes': {'codex': {'signed_in': True}}}]}
     post(api, 'runners/heartbeat', body, token=r['token'])
     listed = get(api, 'subscriptions')['profiles_by_computer']
-    assert listed[0]['profiles'] == body['profiles']
+    assert listed[0]['profiles'][0]['name'] == 'engineering'
+    assert listed[0]['profiles'][0]['display_name'] == 'engineering'
+    assert listed[0]['profiles'][0]['runtimes']['codex']['signed_in'] is True
     sub = get(api, 'bots/ops/subscription')
     assert sub['signed_in'] is True and sub['computer']['runner_id'] == r['runner_id']
     assignment = get(api, 'runners/assignments', r['token'])[0]
@@ -147,7 +149,9 @@ def test_bad_profiles_do_not_reject_heartbeat_and_unchanged_reports_do_not_write
     body = {'version': 'test', 'platform': 'test', 'readiness': {}, 'profiles': [
         {'name': 'Acme_Main'}, {'name': 'a' * 81}, {'name': 'valid', 'runtimes': {}}]}
     post(api, 'runners/heartbeat', body, token=r['token'])
-    assert get(api, 'subscriptions')['profiles_by_computer'][0]['profiles'] == [{'name': 'valid', 'runtimes': {}}]
+    found = get(api, 'subscriptions')['profiles_by_computer'][0]['profiles']
+    assert len(found) == 1 and found[0]['name'] == 'valid' and found[0]['runtimes'] == {}
+    assert found[0]['display_name'] == 'valid'
     from backend.subscriptions import record
     with api.app.state.store.transaction() as c:
         before = c.total_changes

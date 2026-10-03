@@ -1,12 +1,13 @@
 /* ui/app/subscriptions.js — Subscriptions: the named AI logins on each computer (Settings > AI providers), the one a
    group picks, a bot's own choice, and the line under a bot's model saying which one it will use.
-   The server stores profile names only; the logins stay on the computers (runner/profiles.py).
+   The server stores stable connection IDs and display names; the logins stay on the computers (runner/profiles.py).
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
 // GET /v2/subscriptions: {profiles_by_computer: [{runner_id, label, profiles: [{name, runtimes: {codex: {signed_in}}}]}],
 // assignments: [{scope, target, profile}]}. An older server answers 404 and every part here stays away.
 let SUBS = null;
+let SUBS_REFRESH_TIMER = null;
 const SUBS_RUNTIMES = [['codex', 'Codex'], ['claude', 'Claude Code']];
 async function subsLoad() {
   try { SUBS = subsNormal(await get('/v2/subscriptions')); }
@@ -19,11 +20,34 @@ function subsNormal(d) {
       if (typeof p === 'string') return {name: p, runtimes: {}};
       let runtimes = p.runtimes || p.runtimes_json || {};
       if (typeof runtimes === 'string') { try { runtimes = JSON.parse(runtimes); } catch { runtimes = {}; } }
-      return {name: p.name || p.profile, runtimes: runtimes || {}};
+      return {name: p.name || p.profile, id: p.id, display_name: p.display_name || p.name || p.profile, runtimes: runtimes || {}};
     }).filter(p => p.name)}));
   return {computers, assignments: d?.assignments || []};
 }
 const subsNames = () => [...new Set((SUBS?.computers || []).flatMap(c => c.profiles.map(p => p.name)))].sort((a, b) => a.localeCompare(b));
+// Labels change independently from immutable local profile keys and existing assignments.
+function subsDisplayName(runner, profile) {
+  return SUBS?.computers.find(c => c.runner_id === runner)?.profiles.find(p => p.name === profile)?.display_name || profile;
+}
+function subsRenameHTML(c, p) {
+  if (!p.id || !subsMaySignIn(c)) return '';
+  return `<details><summary>Rename</summary><form data-subs-rename data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}">
+    <label>Name <input name="display_name" required maxlength="80" value="${esc(p.display_name || p.name)}"></label>
+    <button class="ghost" type="submit">Save name</button><span class="muted">Login and assignments stay the same.</span><span role="status"></span>
+  </form></details>`;
+}
+async function subsRename(form) {
+  if (!form.reportValidity()) return;
+  const button = form.querySelector('button'); button.disabled = true;
+  try {
+    await put('/v2/subscriptions/name', {runner_id: form.dataset.runner, profile: form.dataset.profile,
+      display_name: form.elements.display_name.value});
+    BOT_SUB_LINE.clear();
+    await renderSettingsSubs(true);
+    toast('Subscription renamed');
+  } catch (e) { form.querySelector('[role=status]').textContent = e.message; }
+  finally { button.disabled = false; }
+}
 // A computer as the server names it: {runner_id, label}, or a bare runner id.
 function subsComputerLabel(c) {
   if (c && typeof c === 'object') return c.label || subsComputerLabel(c.runner_id);
@@ -98,10 +122,16 @@ function subsWeeklyHTML(c, p) {
       const value = Number.isFinite(percent) ? `${Math.round(percent)}% used` : 'usage unknown';
       const when = date => new Date(date).toLocaleString();
       const localReset = Number.isFinite(reset) ? new Date(reset - new Date(reset).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+      const refresh = state.refresh;
+      const refreshLabels = {requested: 'Refresh queued', succeeded: 'Last refresh succeeded', failed: 'Refresh failed; last reading kept', unavailable: 'Weekly refresh unavailable; use a provider reading', expired: 'Refresh timed out; check the computer connection', outdated: 'Sign-in changed; refresh weekly usage again'};
+      const refreshInfo = refresh ? `${refreshLabels[refresh.state] || 'Refresh unknown'}${refresh.updated_at ? ` · ${when(Date.parse(refresh.updated_at))}` : ''}` : '';
+      const authInfo = state.signed_in === true ? 'Signed in' : state.signed_in === false ? 'Sign-in needed' : 'Sign-in unknown';
       const info = weekly ? `${weekly.source === 'manual' ? 'Manually recorded' : 'Provider reported'} ${Number.isFinite(updated) ? when(updated) : 'at an unknown time'}${Number.isFinite(reset) ? ` · resets ${when(reset)}` : ' · reset unknown'}${expired ? ' · previous week; refresh needed' : stale ? ' · may be out of date' : ''}` : 'No weekly report yet';
       return `<div class="subs-weekly"><span>${esc(names[runtime])} weekly: ${esc(value)}${weekly?.status === 'rejected' ? ' · limit reached' : ''}</span>
         ${Number.isFinite(percent) ? `<progress max="100" value="${percent}" aria-label="${esc(names[runtime])} last reported weekly usage"></progress>` : ''}
-        <span class="muted subs-weekly-note">${esc(info)}</span>
+        <span class="muted subs-weekly-note">${esc(authInfo)} · ${esc(info)}</span>
+        ${refreshInfo ? `<span class="muted subs-weekly-note" role="status">${esc(refreshInfo)}</span>` : ''}
+        ${runtime === 'codex' && subsMaySignIn(c) ? `<button type="button" class="ghost" data-subs-refresh data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}"${refresh?.state === 'requested' || state.signed_in === false ? ' disabled' : ''}>Refresh weekly usage</button>` : '<span class="muted subs-weekly-note">Updates from supported runs or a manual provider reading; no background model turn.</span>'}
         ${subsMaySignIn(c) ? `<details><summary>Record weekly usage</summary><form data-subs-weekly data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}">
           <label>Used (%) <input type="number" name="percent" min="0" max="100" step="any" value="${Number.isFinite(percent) ? percent : ''}" placeholder="Unknown"></label>
           <label>Weekly reset (local time) <input type="datetime-local" name="reset" value="${localReset}"></label>
@@ -109,6 +139,25 @@ function subsWeeklyHTML(c, p) {
           <span class="muted">Copy the weekly allowance from your provider. This does not change its limit.</span><span role="status" data-weekly-status></span>
         </form></details>` : ''}</div>`;
     }).join('');
+}
+function subsScheduleRefresh() {
+  clearTimeout(SUBS_REFRESH_TIMER);
+  const pending = (SUBS?.computers || []).some(c => c.profiles.some(p => Object.values(p.runtimes || {}).some(state =>
+    state.refresh?.state === 'requested' && Date.parse(state.refresh.expires_at) + 30000 > Date.now())));
+  if (!pending) return;
+  SUBS_REFRESH_TIMER = setTimeout(async () => {
+    if (S.route !== SETTINGS || SETTINGS_TAB !== 'providers') return;
+    await renderSettingsSubs();
+    subsScheduleRefresh();
+  }, 5000);
+}
+async function subsRefreshWeekly(button) {
+  button.disabled = true;
+  try {
+    await post('/v2/subscriptions/refresh', {runner_id: button.dataset.runner, profile: button.dataset.profile, runtime: button.dataset.runtime});
+    await renderSettingsSubs(true);
+  } catch (e) { toast(e.message, true); }
+  finally { button.disabled = false; }
 }
 const subsWeeklyKey = form => JSON.stringify([form.dataset.runner, form.dataset.profile, form.dataset.runtime]);
 async function subsSaveWeekly(form, clear = false) {
@@ -158,12 +207,15 @@ async function renderSettingsSubs(force = false, loaded = false) {
       <button class="ghost" type="submit">Sign in</button><span class="muted subs-add-msg" id="subs-add-msg" role="status"></span></form>` : '';
   if (!computers.length && !add) { card.hidden = true; return; }
   const openWeekly = new Set([...el.querySelectorAll('details[open] form[data-subs-weekly]')].map(subsWeeklyKey));
+  const openNames = new Set([...el.querySelectorAll('details[open] form[data-subs-rename]')].map(subsWeeklyKey));
   el.innerHTML = `<p class="muted">Named subscriptions stay on their computer. Weekly allowance is approximate and may include use outside Tico. Matching names on different computers are not combined.</p>${computers.map(c => `<div class="subs-pc"><h3 class="subs-h">${esc(c.label)}</h3><ul class="subs-list">${c.profiles.map(p =>
-      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.name)}</span>${subsRuntimeHTML(c, p)}${subsWeeklyHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
+      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.display_name || p.name)}</span>${subsRenameHTML(c, p)}${subsRuntimeHTML(c, p)}${subsWeeklyHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
     ${groups.length ? `<div class="subs-pc subs-groups"><h3 class="subs-h">Groups</h3><ul class="subs-list">${groups.map(g => subsGroupRowHTML(g, names)).join('')}</ul></div>` : ''}
     ${add}`;
   el.querySelectorAll('form[data-subs-weekly]').forEach(form => { if (openWeekly.has(subsWeeklyKey(form))) form.closest('details').open = true; });
+  el.querySelectorAll('form[data-subs-rename]').forEach(form => { if (openNames.has(subsWeeklyKey(form))) form.closest('details').open = true; });
   card.hidden = false;
+  subsScheduleRefresh();
   el.onchange = async ev => {
     const sel = ev.target.closest('[data-subs-group]'); if (!sel) return;
     sel.disabled = true;
@@ -179,10 +231,14 @@ async function renderSettingsSubs(force = false, loaded = false) {
     if (msg) msg.textContent = field.value.trim() && slug !== field.value.trim() ? `Saved as ${slug}` : '';
   };
   el.onclick = ev => {
+    const refresh = ev.target.closest('[data-subs-refresh]');
+    if (refresh) void subsRefreshWeekly(refresh);
     const clear = ev.target.closest('[data-subs-weekly-clear]');
     if (clear) void subsSaveWeekly(clear.closest('form'), true);
   };
   el.onsubmit = ev => {
+    const rename = ev.target.closest('[data-subs-rename]');
+    if (rename) { ev.preventDefault(); void subsRename(rename); return; }
     const weekly = ev.target.closest('[data-subs-weekly]');
     if (weekly) { ev.preventDefault(); void subsSaveWeekly(weekly); return; }
     const form = ev.target.closest('[data-subs-add]'); if (!form) return;
@@ -208,7 +264,7 @@ function subsSourceWords(source) {
 function subsBotLineHTML(line) {
   if (!line) return '';
   const computer = subsComputerLabel(line.computer);
-  const parts = [line.profile || 'default', line.profile || line.source !== 'computer' ? subsSourceWords(line.source) : '', computer].filter(Boolean);
+  const parts = [line.display_name || subsDisplayName(line.computer?.runner_id, line.profile) || 'default', line.profile || line.source !== 'computer' ? subsSourceWords(line.source) : '', computer].filter(Boolean);
   // The server's own words when it has them (a profile this computer lacks, a runner too old to say).
   const warn = line.problem || (line.signed_in === false ? 'Not signed in' : '');
   return `<span class="sb-sub-text">Subscription: ${esc(parts.join(' · '))}</span>${warn ? ` <span class="pill fail sb-sub-warn">${esc(warn)}</span>` : ''}`;
@@ -229,7 +285,7 @@ function subsBotPaint(rows, slug) {
   const here = runner ? (SUBS.computers.find(c => c.runner_id === runner)?.profiles || []).map(p => p.name).sort((a, b) => a.localeCompare(b)) : subsNames();
   const elsewhere = subsNames().filter(n => !here.includes(n));
   if (own && !here.includes(own) && !elsewhere.includes(own)) elsewhere.push(own);
-  const opt = n => `<option value="${esc(n)}"${n === own ? ' selected' : ''}>${esc(n)}</option>`;
+  const opt = n => `<option value="${esc(n)}"${n === own ? ' selected' : ''}>${esc(subsDisplayName(runner, n))}</option>`;
   const sel = row.querySelector('select');
   sel.innerHTML = `<option value="">${esc(inherit)}</option>${runner && elsewhere.length
     ? `${here.length ? `<optgroup label="${esc(subsComputerLabel(runner))}">${here.map(opt).join('')}</optgroup>` : ''}<optgroup label="Other computers">${elsewhere.map(opt).join('')}</optgroup>`

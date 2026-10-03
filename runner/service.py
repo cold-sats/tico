@@ -35,6 +35,7 @@ from .watchers import Watchers
 from .profiles import SubscriptionUnavailable
 
 ROOT = Path(__file__).resolve().parents[1]
+_UNSELECTED = object()
 
 RUNNER_VERSION = "0.5.4"
 RUNTIMES = ("codex", "grok", "claude", "gemini", "pi", "cursor")
@@ -558,7 +559,7 @@ class Runner:
         self.active = {}
         self.attempt_bots = {}
         self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
-        self.weekly_usage = subscription_usage.Reports()
+        self._weekly_usage = subscription_usage.Reports()
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
@@ -702,14 +703,14 @@ class Runner:
             except (OSError, subprocess.SubprocessError) as exc:
                 log(f"Tico runner: could not clone {sibling.name} for reads ({type(exc).__name__})")
 
-    def claude_token_cold(self, bot):
+    def claude_token_cold(self, bot, profile=_UNSELECTED):
         """True when this bot's stored Claude credential has already expired.
 
         A plain file read of the credential Claude Code keeps under the turn's HOME; it makes no
         call and needs no sign-in. `claude auth status` is not usable for this -- it reports only
         whether a credential exists, never whether it is still valid.
         """
-        profile = self.profile(bot)
+        profile = self.profile(bot) if profile is _UNSELECTED else profile
         home = profile.home("claude") if profile else None
         home = Path(home) if home else Path(os.environ.get("HOME") or Path.home())
         try:
@@ -733,7 +734,11 @@ class Runner:
 
     def turn_profile(self, attempt):
         requested = attempt.get("profile")
-        profile = profiles.select(self.config, attempt["bot"], requested)
+        # execute supplies a local-only snapshot, including None for the operator login.
+        # Rechecking eligibility must never resolve a different directory mid-turn.
+        profile = attempt.get("_subscription_profile", _UNSELECTED)
+        if profile is _UNSELECTED:
+            profile = profiles.select(self.config, attempt["bot"], requested)
         if requested:
             runtime = (attempt.get("config") or {}).get("runtime") or ""
             if not profiles.covers(attempt.get("config") or {}):
@@ -747,7 +752,7 @@ class Runner:
                           if row["name"] == profile.name), None) if cached else None
             signed_out = (login.get("signed_in") is False if login is not None else
                           status.get("authenticated") in ("missing", "rejected"))
-            if signed_out or self.rejection(runtime, profile.name):
+            if signed_out or self.rejection(runtime, profile):
                 raise SubscriptionUnavailable(self.subscription_problem(requested, signed_out=True,
                                               computer=attempt.get("computer_label")), requested, runtime)
         return profile
@@ -1276,6 +1281,13 @@ class Runner:
                                    "detail": "; ".join((f"{name}: {status['detail']}" if name else status["detail"]) for name, status in targets.items())[:500]}
         return report
 
+    @property
+    def weekly_usage(self):
+        # `doctor` builds a preflight-only Runner with __new__, without normal startup.
+        if '_weekly_usage' not in self.__dict__:
+            self._weekly_usage = subscription_usage.Reports()
+        return self._weekly_usage
+
     def profile_report(self):
         """Cached provider sign-in probes with a ten-second budget for the entire report."""
         cached = self.__dict__.get("_profile_report_cache")
@@ -1323,8 +1335,10 @@ class Runner:
         home = Path.home()
         files = [Path(os.environ.get("CODEX_HOME") or home / ".codex") / "auth.json", home / ".claude.json",
                  home / ".claude" / ".credentials.json", *sorted((Path(self.config["projects_dir"]) / "secrets").glob("*.env"))]
-        selected = profiles.select(self.config, requested=profile) if profile else None
+        selected = (profile if isinstance(profile, profiles.Profile) else
+                    profiles.select(self.config, requested=profile) if profile else None)
         if selected:
+            seen.append((str(selected.directory), selected.share_operator))
             files = [selected.directory / "codex" / "auth.json", selected.directory / "claude" / ".claude.json",
                      selected.directory / "claude" / ".claude" / ".credentials.json"]
         for path in files:
@@ -1337,21 +1351,33 @@ class Runner:
 
     def rejection(self, runtime, profile=""):
         rows = self.__dict__.setdefault("_rejected", {})
-        row = rows.get((runtime, profile))
-        if row and (time.monotonic() - row["mono"] >= REJECT_RECHECK_S or row["fingerprint"] != self.credential_fingerprint(profile)):
-            del rows[runtime, profile]
+        name = profile.name if isinstance(profile, profiles.Profile) else profile
+        key = (runtime, name, self.credential_fingerprint(profile))
+        row = rows.get(key)
+        if row and time.monotonic() - row["mono"] >= REJECT_RECHECK_S:
+            rows.pop(key, None)
             row = None
         return row
 
     def reject(self, runtime, text, profile=""):
-        self.__dict__.setdefault("_rejected", {})[runtime, profile] = {
-            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "mono": time.monotonic(),
-            "reason": rejection_reason(text), "fingerprint": self.credential_fingerprint(profile)}
+        name = profile.name if isinstance(profile, profiles.Profile) else profile
+        rows = self.__dict__.setdefault("_rejected", {})
+        now = time.monotonic()
+        for key, row in list(rows.items()):
+            if now - row["mono"] >= REJECT_RECHECK_S:
+                rows.pop(key, None)
+        # A late failure from an old binding cannot overwrite a newer login's quarantine.
+        rows[runtime, name, self.credential_fingerprint(profile)] = {
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "mono": now,
+            "reason": rejection_reason(text)}
         self._profile_report_cache = None
         self.last_heartbeat = float("-inf")     # tell the server now, before another bot claims work
 
     def clear_rejection(self, runtime, profile=""):
-        self.__dict__.setdefault("_rejected", {}).pop((runtime, profile), None)
+        rows = self.__dict__.setdefault("_rejected", {})
+        for key in list(rows):
+            if key[:2] == (runtime, profile):
+                rows.pop(key, None)
         self._profile_report_cache = None
         self.last_heartbeat = float("-inf")
 
@@ -2061,6 +2087,9 @@ class Runner:
     def execute(self, attempt):
         aid, bot = attempt["id"], attempt["bot"]
         self.state.record(attempt)
+        # Keep the binding out of the persisted request and the caller's shared dictionary.
+        attempt = dict(attempt)
+        attempt.pop("_subscription_profile", None)
         lost, done = threading.Event(), threading.Event()
         deadline = [time.monotonic() + attempt["lease_seconds"] - 15]
         renewer = threading.Thread(target=self.renew_loop, args=(aid, lost, done, deadline), daemon=True)
@@ -2087,6 +2116,7 @@ class Runner:
                     raise RuntimeError('Attempt lease lost while waiting for worktree maintenance')
                 self.local_path(bot, config)
                 selected_profile = self.turn_profile(attempt)
+                attempt["_subscription_profile"] = selected_profile
                 metered.append((meter[0], dict(config), selected_profile.name if selected_profile else None,
                                 self.billing(bot, config.get("runtime"), selected_profile)))
                 env = base_env = self.environment(attempt)
@@ -2108,9 +2138,10 @@ class Runner:
                 if persistent:
                     runtime += ":antigravity"
                 conv = session_key(config, attempt)
-                if attempt.get("profile"):
-                    selected = profiles.select(self.config, bot, attempt["profile"])
-                    conv += ":profile:" + (selected.name if selected else "computer")
+                if selected_profile:
+                    binding = hashlib.sha256(json.dumps([str(selected_profile.directory),
+                                             selected_profile.share_operator]).encode()).hexdigest()
+                    conv += ":profile:" + selected_profile.name + ":" + binding
                 execution_path = self.local_path(bot, config)
                 if is_shared(config):
                     attempt["branch_sync_problem"] = sync_shared(execution_path, env)
@@ -2248,14 +2279,14 @@ class Runner:
                     if refs.get("command"):
                         return host.start_command(thread, prompt, effort=config.get("reasoning_effort"))
                     return host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
-                cold = runtime == "claude" and self.claude_token_cold(bot)
+                cold = runtime == "claude" and self.claude_token_cold(bot, selected_profile)
                 if cold:
                     # Held only until the sign-in this turn triggers has landed, not for the
                     # length of the turn: the others follow a few seconds behind, warm.
                     with self.claude_cold_start:
                         turn = start_turn()
                         warm_by = time.monotonic() + CLAUDE_COLD_START_HOLD_S
-                        while time.monotonic() < warm_by and self.claude_token_cold(bot):
+                        while time.monotonic() < warm_by and self.claude_token_cold(bot, selected_profile):
                             if self.stop.is_set() or lost.is_set():
                                 break
                             time.sleep(0.5)
@@ -2330,8 +2361,7 @@ class Runner:
                                           {"text": type(exc).__name__ + ": fallback harness interrupted; inspect local runner"})
             if auth_rejected and outcome == "failed":
                 self.reject(auth_rejected["runtime"], auth_rejected["reason"],
-                            (profiles.select(self.config, bot, attempt.get("profile")).name
-                             if profiles.select(self.config, bot, attempt.get("profile")) else ""))
+                            selected_profile or "")
                 log(f"Tico runner: {bot}: {auth_rejected['runtime']} sign-in was rejected; this computer takes no "
                     f"{auth_rejected['runtime']} work on this profile until the key or sign-in changes")
             if limited:
@@ -2734,6 +2764,14 @@ class Runner:
             self.last_heartbeat = time.monotonic()
         self.warm.prune()
         self.poll_logins()
+        # Optional on older servers; quota reads never interrupt turn execution.
+        try:
+            from .subscription_refresh import Refreshes
+            if not hasattr(self, 'subscription_refreshes'):
+                self.subscription_refreshes = Refreshes(self)
+            self.subscription_refreshes.poll()
+        except Exception:
+            pass
         self.poll_credential_imports()
         self.step_harnesses()
         self.step_watchers()
@@ -2885,6 +2923,8 @@ class Runner:
         finally:
             self.stop.set()
             self.logins.stop()
+            if hasattr(self, 'subscription_refreshes'):
+                self.subscription_refreshes.stop()
             self.watchers.stop()
             self.tools.stop()
             if self.credentials:
