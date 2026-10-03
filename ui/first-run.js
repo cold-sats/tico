@@ -199,6 +199,7 @@ function frBotBannerHTML(e) {
       <span class="pill needs">Needs setup</span>
       ${can ? '<button class="primary" type="button" id="bot-start-setup">Set up</button>'
         : `<span class="muted">${planned ? 'Setting up.' : 'Ask someone who can write to it to start.'}</span>`}
+      ${manager ? '<button type="button" id="bot-finish-setup">Mark setup done</button>' : ''}
     </section>`;
 }
 function frBotWire(slug) {
@@ -208,8 +209,23 @@ function frBotWire(slug) {
     try { await frSendSetup(slug); button.textContent = 'Setup started'; showBotTab('chat'); }
     catch (error) { toast(error.message, true); button.disabled = false; button.textContent = 'Set up'; }
   };
+  const finish = $('#bot-finish-setup');
+  if (finish) finish.onclick = async () => {
+    finish.disabled = true; finish.textContent = 'Saving…';
+    try {
+      const result = await post(`/v2/bots/${encodeURIComponent(slug)}/onboarded`, {});
+      const bot = S.emps.find(e => e.name === slug);
+      if (bot) bot.onboarding_state = result.onboarding_state;
+      if (BOT?.slug === slug) frBotRefresh(slug);
+      renderTree();
+      toast('Setup marked done');
+    } catch (error) {
+      toast(error.message, true);
+      finish.disabled = false; finish.textContent = 'Mark setup done';
+    }
+  };
 }
-// The page follows the bot's state: the mark clears when it says a person approved its first routine.
+// The page follows setup completion by the bot or its manager.
 function frBotRefresh(slug) {
   const e = S.emps.find(x => x.name === slug), host = $('#bot-onboard-host');
   if (host) { host.innerHTML = frBotBannerHTML(e); frBotWire(slug); }
