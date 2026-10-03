@@ -84,13 +84,24 @@ async function python(){
       await page.click('#tabs [data-tab=chat]');
       await page.click('#chat-bots button:has-text("Ops")');
       await page.fill('#text','Hello ops');
+      const posted=page.waitForResponse(r=>r.url()===url+'/api/v2/chat/ops'&&r.request().method()==='POST');
       await page.click('#send button');
+      const sent=await (await posted).json();
       await page.waitForSelector('.msg.me:has-text("Hello ops")');
-      await page.waitForSelector('.msg.live',{timeout:30000});
-      const partial=await page.textContent('.msg.live');
+      await page.waitForSelector('.msg.live:has-text("Hello from ops")',{timeout:30000});
+      const partial=await page.textContent('.msg.live:has-text("Hello from ops")');
       assert.ok(partial.length>0&&partial.length<'Hello from ops. The reply is streaming to your own frontend, one word at a time.'.length,'a partial reply is shown while it streams: '+partial);
       await page.waitForFunction(()=>[...document.querySelectorAll('.msg')].some(m=>m.textContent.includes('one word at a time.'))&&!document.querySelector('.msg.live'),null,{timeout:30000});
       assert.equal(await page.locator('.msg:has-text("Hello from ops")').count(),1,'the final reply replaces the live text');
+      const chatBearer=await page.evaluate(()=>sessionStorage.getItem('tico.session'));
+      const messages=await context.request.get(url+'/api/v2/conversations/'+sent.conversation.id+'/messages',
+        {headers:{Authorization:'Bearer '+chatBearer}});
+      assert.equal(messages.status(),200);
+      const finalMessages=(await messages.json()).messages;
+      const replies=finalMessages.filter(m=>m.from_actor==='bot:ops'&&(m.in_reply_to===sent.message.id||(m.answers||[]).includes(sent.message.id)));
+      assert.equal(replies.length,1,'exactly one final answer belongs to the submitted Hello ops input');
+      assert.equal(replies[0].body,'Hello from ops. The reply is streaming to your own frontend, one word at a time.');
+      assert.equal(await page.locator('.msg.live').count(),0,'no live duplicate remains after the linked final answer');
       // Coming back to the chat later shows the same conversation.
       await page.click('#tabs [data-tab=org]');
       await page.click('#tabs [data-tab=chat]');

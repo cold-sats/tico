@@ -124,11 +124,13 @@ def fake_runner(base, admin):
             continue
         aid = attempt["id"]
         call("attempts/%s/started" % aid, {"thread_id": "t"}, token)
-        words = REPLY.split(" ")
+        # Seeded task work shares the chat room but is a different input from the browser greeting.
+        reply = "The weekly update is drafted for the team." if attempt["task"] else REPLY
+        words = reply.split(" ")
         for seq, word in enumerate(words, 1):
             time.sleep(0.1)
             call("attempts/%s/events" % aid, {"events": [{"seq": seq, "kind": "delta", "payload": {"text": word + " "}}]}, token)
-        call("attempts/%s/complete" % aid, {"outcome": "completed", "text": REPLY, "last_seq": len(words)}, token)
+        call("attempts/%s/complete" % aid, {"outcome": "completed", "text": reply, "last_seq": len(words)}, token)
 
 
 def main():
