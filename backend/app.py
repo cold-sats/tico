@@ -2151,8 +2151,7 @@ def create_app(settings=None):
 
     def task_create(c, who, body, lint=True):
         source = who
-        if body.private is None and who.task_actor and H.private_tasks_default(c, who.task_actor):
-            body = body.model_copy(update={"private": True})
+        actual_bot = source.task_actor or (source.actor if source.role == "bot" else "")
         if privacy.private_execution(c, who):
             if body.private is False:
                 raise Problem("privacy", "Private task work cannot create company-visible tasks", 403)
@@ -2180,13 +2179,23 @@ def create_app(settings=None):
                                      "task without a parent, and do not wait for it.", 422)
         if body.parent_id:
             auth.task(c, who, body.parent_id)
+        parent = H.task(c, body.parent_id) if body.parent_id else None
+        # Delegation retains the bot's sensitive default and cannot use a person's
+        # explicit-public choice to override either creator or assignee defaults.
+        if actual_bot and body.private is False:
+            body = body.model_copy(update={"private": None})
+        if actual_bot and H.private_tasks_default(c, actual_bot):
+            body = body.model_copy(update={"private": True})
+        private = bool((body.private if body.private is not None else
+                        H.private_tasks_default(c, who.actor) or H.private_tasks_default(c, owner))
+                       or parent and H.task_private(c, parent))
         if body.due and (not H.parse_ts(body.due) or H.parse_ts(body.due).tzinfo is None):
             raise Problem("date", "due must be an ISO-8601 date/time with a timezone", 422)
         if body.goal_id and not G.goal(c, body.goal_id):
             raise Problem("not_found", "Unknown goal", 404)
         requester_actor = None
         if (who.role == "bot" and owner == who.actor and not body.parent_id and who.attempt_id
-                and (body.private if body.private is not None else H.private_tasks_default(c, who.actor))):
+                and private):
             origin = c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
                                "JOIN messages m ON m.id=j.message_id WHERE a.id=? AND a.bot=?",
                                (who.attempt_id, H.actor_id(who.actor))).fetchone()
@@ -2201,16 +2210,17 @@ def create_app(settings=None):
                         requester_actor = source_task["requester"]
             if requester_actor and not privacy.readable(c, requester_actor, privacy.attempt_tasks(c, who.attempt_id)):
                 raise Problem("privacy", "The verified requester cannot receive this private execution's other context", 403)
+        if private and actual_bot and actual_bot not in (requester_actor or who.actor, owner):
+            raise Problem("privacy", "The acting bot must be a current participant of the private task", 403)
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, body.parent_id,
                             requester_actor=requester_actor,
-                            private=body.private, conversation_id=rooms.task_conversation_id(c, auth, owner,
+                            private=private, conversation_id=rooms.task_conversation_id(c, auth, owner,
                                 H.task(c, body.parent_id)["requester"] if body.parent_id and H.is_human(who.actor)
                                 and H.is_human(H.task(c, body.parent_id)["requester"]) else who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step,
                             number=body.number, mover=mover(c, who) or None)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
-        parent = H.task(c, body.parent_id) if body.parent_id else None
         inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
         if H.is_human(who.actor) and (request_id or inherited_request):
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))

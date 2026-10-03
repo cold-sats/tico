@@ -218,6 +218,62 @@ def test_actual_bot_membership_intersects_acted_human_in_every_raw_helper(api):
     assert row["id"] not in json.dumps(get(api, "context/search?q=Sensitive&source=docs", "acted-test"))
 
 
+def test_deleted_comment_receipt_is_canonical_empty_and_currently_authorized(api):
+    row = task(api)
+    who = Identity("human:ben", "human", email="ben@acme.example")
+    path = f"tasks/{row['id']}/comments"
+    original = post(api, path, {"text": "Withdrawn private comment"}, "ben-test", key="withdrawn-comment")
+    mid = original["comment"]["id"]
+    deleted = post(api, f"{path}/{mid}/delete", {}, "ben-test")
+    assert deleted["comment"]["body"] == "" and deleted["comments"] == []
+    retried = post(api, path, {"text": "Withdrawn private comment"}, "ben-test", key="withdrawn-comment")
+    assert retried["comment"] == deleted["comment"]
+    get(api, "messages/" + mid, "ben-test", expected=404)
+    assert not sql(api, f"SELECT body FROM messages WHERE id='{mid}'", "ben-test")
+    with api.app.state.store.transaction() as c:
+        receipt = H.message(c, mid, include_deleted=True)
+        assert task_privacy.require_payload(c, who, receipt) == receipt
+        for forged in ({**receipt, "body": "Withdrawn private comment"}, {**receipt, "extra": "Private words"}):
+            with pytest.raises(Problem):
+                task_privacy.require_payload(c, who, forged)
+        c.execute("UPDATE tasks SET owner='human:ana' WHERE id=?", (row["id"],))
+        with pytest.raises(Problem):
+            task_privacy.require_payload(c, who, receipt)
+
+
+@pytest.mark.parametrize("sensitive,owner,explicit,expected", [
+    ("finance", "finance", False, 200),
+    ("finance", "ops", False, 403),
+    ("ops", "ops", False, 403),
+    (None, "ops", True, 403),
+])
+def test_delegated_creation_keeps_defaults_and_requires_actual_bot_audience(api, sensitive, owner, explicit, expected):
+    machine, _, attempt = setup_attempt(api, "finance")
+    acted = Identity("human:ben", "human", email="ben@acme.example", task_actor="bot:finance",
+                     runner_id=machine["runner_id"], attempt_id=attempt["id"])
+    api.app.state.store.settings.test_identities["acted-test"] = acted
+    with api.app.state.store.transaction() as c:
+        if sensitive:
+            config = H._json(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (sensitive,)).fetchone()[0], {})
+            c.execute("UPDATE bot_config SET config_json=? WHERE bot=?",
+                      (encode({**config, "private_tasks_default": True}), sensitive))
+        before = c.execute("SELECT count(*) FROM tasks").fetchone()[0]
+        rooms_before = c.execute("SELECT count(*) FROM conversations").fetchone()[0]
+    created = post(api, "tasks", {"owner": owner, "title": "Review delegated work", "body": "Review it.",
+                                   "private": explicit}, "acted-test", expected=expected)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM tasks").fetchone()[0] == before + (expected == 200)
+        if expected != 200:
+            assert c.execute("SELECT count(*) FROM conversations").fetchone()[0] == rooms_before
+    if expected == 200:
+        assert created["private"] and created["requester"] == "human:ben" and created["owner"] == "bot:finance"
+        assert get(api, "tasks/" + created["id"], "acted-test")["task"]["private"]
+        # A signed-in person keeps their explicit choice to publish.
+        public = post(api, "tasks", {"owner": owner, "title": "Review public work", "body": "Review it.",
+                                     "private": False}, "ben-test")
+        assert public["private"] is False
+
+
 def test_saved_private_batch_revokes_and_never_copies_into_general_bot_room(api):
     row = task(api, requester="bot:ops", owner="human:ben")
     started = post(api, "batch", {}, "ben-test")

@@ -53,12 +53,15 @@ def test_private_defaults_reassignment_and_human_publication(api):
     ops = bot_token(api, 'ops')
     cpo = bot_token(api, 'cpo')
     with api.app.state.store.transaction() as c:
-        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='ops'").fetchone()[0])
-        config['private_tasks_default'] = True
-        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'", (json.dumps(config),))
+        for slug in ('ops', 'cpo'):
+            config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0])
+            config['private_tasks_default'] = True
+            c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (json.dumps(config), slug))
     assigned = post(api, 'tasks', {'owner': 'ops', 'title': 'Review the request', 'body': 'Review it.'})
-    created = post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft the response', 'body': 'Draft it.'}, token=ops)
+    created = post(api, 'tasks', {'owner': 'cmo', 'title': 'Draft the response', 'body': 'Draft it.', 'private': False}, token=cpo)
     assert assigned['private'] and created['private']
+    explicit = post(api, 'tasks', {'owner': 'ops', 'title': 'Review the public request', 'body': 'Review it.', 'private': False})
+    assert not explicit['private']
     post(api, 'tasks/' + assigned['id'], {'version': assigned['version'], 'private': False}, token=ops, expected=422)
     changed = post(api, 'tasks/' + assigned['id'], {'version': assigned['version'], 'owner': 'cpo'})
     assert changed['private']

@@ -329,12 +329,8 @@ responses apply the same current-participant boundary. Retained room grants and 
 uploader ownership do not restore revoked access. File downloads use authenticated delivery
 with `no-store`; private task notices stay out of Slack, and batch records remain on the task.
 Bot status hides free-form private context. Automatic KPI readings are withheld for bots with
-private history because their mixed history cannot support a safe public view. Reads use a coherent database snapshot; the next request sees committed
-permission changes.
-
-Privacy controls future reads and supported automated delivery. An authorized participant may
-retain or copy information already read. Downloads, provider history and external copies cannot
-be recalled, and unrelated untagged prose cannot reliably be identified as private task content.
+private history because their mixed history cannot support a safe public view. Permission
+changes apply to the next request; an already running read may finish using its original access.
 
 The existing bot Settings editor offers **Create private tasks by default**. This also covers
 requests assigned to that bot, including its shared branches. The Legal template enables it
