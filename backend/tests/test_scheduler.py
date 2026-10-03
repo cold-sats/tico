@@ -159,6 +159,39 @@ def test_claim_reselects_when_database_changes_after_the_read(api, monkeypatch):
     assert post(api, "jobs/claim", {}, token=r["token"])["attempt"] is None
 
 
+def test_claim_reselects_when_private_task_is_reassigned_after_the_read(api, monkeypatch):
+    from backend.tests.test_api import assign, claim, ready, runner
+    from backend.tests.test_member_bots import finish
+    machine = runner(api)
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    task = post(api, "tasks", {"owner": "ops", "title": "Review private work", "body": "x", "private": True})
+    finish(api, machine, claim(api, machine, "ops"))
+    post(api, 'tasks/' + task['id'] + '/comments', {'text': 'Continue this private request.'})
+    store, execution = api.app.state.store, api.app.state.execution
+    idle = execution._idle_claim
+    selected = []
+    candidate, selections = execution.candidate, []
+    def select_again(*args):
+        selections.append(1)
+        return candidate(*args)
+    def reassign_after_read(*args):
+        result = idle(*args)
+        selected.extend(args[-1])
+        with store.transaction() as c:
+            H.task_update(c, 'human:ana', task['id'], owner='bot:finance')
+        return result
+    monkeypatch.setattr(execution, "_idle_claim", reassign_after_read)
+    monkeypatch.setattr(execution, "candidate", select_again)
+    assert post(api, "jobs/claim", {}, token=machine["token"])["attempt"] is None
+    assert selected and selected[0]['bot'] == 'ops'
+    assert selections == [1, 1]
+    with store.read() as c:
+        assert H.task(c, task['id'])['private']
+        assert c.execute("SELECT count(*) FROM attempts WHERE bot='ops'").fetchone()[0] == 1
+        assert not c.execute("SELECT 1 FROM attempts WHERE bot='ops' AND state IN ('leased','running')").fetchone()
+
+
 def test_claim_sql_preserves_python_task_refs_and_unrelated_human_chats(api):
     from backend.tests.test_api import assign, ready, runner
     r = runner(api)
@@ -259,6 +292,11 @@ def test_claim_query_matches_old_python_oracle_on_200_rows(api):
     store, execution = api.app.state.store, api.app.state.execution
     who = Identity('runner:' + r['runner_id'], 'runner', runner_id=r['runner_id'])
     with store.transaction() as c:
+        # The ordering oracle predates provenance checks. Give its task references real,
+        # ordinary sources; missing sources are deliberately unclaimable now.
+        for ident in ('held', 'other'):
+            c.execute("INSERT INTO tasks(id,title,body,requester,owner,status,created,updated,private) "
+                      "VALUES(?,?,'x','human:ana','bot:ops','open',?,?,0)", (ident, ident, H.now(), H.now()))
         rooms = {}
         for bot, kind in itertools.product(('ops', 'finance', 'cpo'), ('chat', 'task')):
             rooms[bot, kind] = H.open_conversation(c, 'human:ana', ['bot:' + bot], kind=kind)['id']

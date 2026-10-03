@@ -542,6 +542,54 @@ def test_a_human_requested_botops_run_starts_with_its_own_credentials_and_acts_a
         assert row["actor"] == "human:ana"
 
 
+def test_delegated_botops_keeps_its_credential_and_intersects_private_participants(api, botops):
+    from fastapi import Request
+    attempt = turn(api, botops, person="ana-test")
+    def identity(request: Request):
+        who = request.state.identity
+        return {key: getattr(who, key) for key in ("actor", "task_actor", "runner_id", "attempt_id", "agent")}
+    api.app.add_api_route('/api/v2/qa-delegated-credential', identity, methods=['GET'])
+    api.app.router.routes.insert(0, api.app.router.routes.pop())
+    assert act(api, attempt, "GET", "qa-delegated-credential").json() == {
+        "actor": "human:ana", "task_actor": "bot:botops", "runner_id": botops["runner_id"],
+        "attempt_id": attempt["id"], "agent": "",
+    }
+    shared = post(api, "tasks", {"owner": "botops", "title": "Review the private request", "body": "x", "private": True})
+    other = post(api, "tasks", {"owner": "ops", "title": "Review another private request", "body": "x", "private": True})
+    assert act(api, attempt, "GET", "tasks/" + shared["id"]).status_code == 200
+    assert act(api, attempt, "GET", "tasks/" + other["id"]).status_code == 404
+    refused = act(api, attempt, "POST", "tasks/" + shared["id"],
+                  {"version": shared["version"], "private": False})
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "privacy", refused.text
+    assert get(api, "tasks/" + shared["id"])["task"]["private"]
+
+
+@pytest.mark.parametrize("revocation", ["runner", "lease"])
+def test_delegated_botops_revalidates_its_credential_under_the_write_lock(api, botops, monkeypatch, revocation):
+    from backend.store import H
+    attempt = turn(api, botops, person="ana-test")
+    store, mutate = api.app.state.store, api.app.state.store.mutate
+    seen = []
+    def revoke_before_lock(identity, operation, *args, **kwargs):
+        if operation == "/api/v2/bots/ops/definition":
+            seen.append(identity)
+            with store.transaction() as c:
+                if revocation == "runner":
+                    c.execute("UPDATE runners SET revoked_at=? WHERE id=?", (H.now(), botops["runner_id"]))
+                else:
+                    c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (H.shift(H.now(), seconds=-1), attempt["id"]))
+        return mutate(identity, operation, *args, **kwargs)
+    monkeypatch.setattr(store, "mutate", revoke_before_lock)
+    response = act(api, attempt, "POST", "bots/ops/definition", {"expected_revision": 1, "display_name": "Changed"})
+    assert response.status_code == (401 if revocation == "runner" else 409), response.text
+    assert response.json()["error"]["code"] == ("revoked" if revocation == "runner" else "stale_lease")
+    assert len(seen) == 1 and seen[0].task_actor == "bot:botops"
+    assert seen[0].runner_id == botops["runner_id"] and seen[0].attempt_id == attempt["id"]
+    with store.read() as c:
+        assert c.execute("SELECT revision FROM bot_config WHERE bot='ops'").fetchone()[0] == 1
+        assert H.bot(c, "ops")["display_name"] != "Changed"
+
+
 def test_a_note_on_botops_own_task_is_botops_words_not_the_requesters(api, botops):
     """0.2.35: BotOps' progress note on its own build task was mirrored to chat as the person who asked."""
     ana = turn(api, botops, person="ana-test", text="Build a bot for me")
