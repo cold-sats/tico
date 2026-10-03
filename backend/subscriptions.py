@@ -34,12 +34,21 @@ def weekly_key(runner, profile, runtime):
 
 def reported_runtimes(c, runner, profile, raw):
     from .repositories import metadata
+    from . import subscription_refresh as refresh
     runtimes = json.loads(raw or '{}')
+    cutoff = refresh.signin_after(c, runner, profile)
     for runtime, state in runtimes.items():
         reported = weekly_snapshot(state.get('weekly'))
         manual = weekly_snapshot(metadata(c, weekly_key(runner, profile, runtime)))
+        refreshed = metadata(c, refresh.key(runner, profile, runtime))
+        direct = weekly_snapshot(refreshed.get('weekly'))
+        if refreshed:
+            state['refresh'] = refresh.view(refreshed)
+            if refreshed['requested_at'] < cutoff.get(runtime, ''):
+                state['refresh']['state'] = 'outdated'
         # Explicitly distinguish human-entered observations from provider telemetry.
-        choices = [(v, source) for v, source in ((reported, 'provider'), (manual, 'manual')) if v]
+        choices = [(v, source) for v, source in ((reported, 'provider'), (manual, 'manual'), (direct, 'provider'))
+                   if v and (not cutoff.get(runtime) or H.parse_ts(v['reported_at']) >= H.parse_ts(cutoff[runtime]))]
         state['weekly'] = None
         if choices:
             value, source = max(choices, key=lambda row: datetime.fromisoformat(row[0]['reported_at'].replace('Z', '+00:00')))
@@ -221,6 +230,8 @@ def bot_subscription(c, bot, settings, ctx=None):
 
 
 def install(app, store, auth, mutate, settings, computer_rows):
+    from .subscription_refresh import install as install_refresh
+    install_refresh(app, store, auth, mutate)
     from . import subscription_identity
     subscription_identity.install(app, store, auth, mutate)
     @app.get('/api/v2/subscriptions')

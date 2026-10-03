@@ -7,6 +7,7 @@
 // GET /v2/subscriptions: {profiles_by_computer: [{runner_id, label, profiles: [{name, runtimes: {codex: {signed_in}}}]}],
 // assignments: [{scope, target, profile}]}. An older server answers 404 and every part here stays away.
 let SUBS = null;
+let SUBS_REFRESH_TIMER = null;
 const SUBS_RUNTIMES = [['codex', 'Codex'], ['claude', 'Claude Code']];
 async function subsLoad() {
   try { SUBS = subsNormal(await get('/v2/subscriptions')); }
@@ -121,10 +122,16 @@ function subsWeeklyHTML(c, p) {
       const value = Number.isFinite(percent) ? `${Math.round(percent)}% used` : 'usage unknown';
       const when = date => new Date(date).toLocaleString();
       const localReset = Number.isFinite(reset) ? new Date(reset - new Date(reset).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+      const refresh = state.refresh;
+      const refreshLabels = {requested: 'Refresh queued', succeeded: 'Last refresh succeeded', failed: 'Refresh failed; last reading kept', unavailable: 'Weekly refresh unavailable; use a provider reading', expired: 'Refresh timed out; check the computer connection', outdated: 'Sign-in changed; refresh weekly usage again'};
+      const refreshInfo = refresh ? `${refreshLabels[refresh.state] || 'Refresh unknown'}${refresh.updated_at ? ` · ${when(Date.parse(refresh.updated_at))}` : ''}` : '';
+      const authInfo = state.signed_in === true ? 'Signed in' : state.signed_in === false ? 'Sign-in needed' : 'Sign-in unknown';
       const info = weekly ? `${weekly.source === 'manual' ? 'Manually recorded' : 'Provider reported'} ${Number.isFinite(updated) ? when(updated) : 'at an unknown time'}${Number.isFinite(reset) ? ` · resets ${when(reset)}` : ' · reset unknown'}${expired ? ' · previous week; refresh needed' : stale ? ' · may be out of date' : ''}` : 'No weekly report yet';
       return `<div class="subs-weekly"><span>${esc(names[runtime])} weekly: ${esc(value)}${weekly?.status === 'rejected' ? ' · limit reached' : ''}</span>
         ${Number.isFinite(percent) ? `<progress max="100" value="${percent}" aria-label="${esc(names[runtime])} last reported weekly usage"></progress>` : ''}
-        <span class="muted subs-weekly-note">${esc(info)}</span>
+        <span class="muted subs-weekly-note">${esc(authInfo)} · ${esc(info)}</span>
+        ${refreshInfo ? `<span class="muted subs-weekly-note" role="status">${esc(refreshInfo)}</span>` : ''}
+        ${runtime === 'codex' && subsMaySignIn(c) ? `<button type="button" class="ghost" data-subs-refresh data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}"${refresh?.state === 'requested' || state.signed_in === false ? ' disabled' : ''}>Refresh weekly usage</button>` : '<span class="muted subs-weekly-note">Updates from supported runs or a manual provider reading; no background model turn.</span>'}
         ${subsMaySignIn(c) ? `<details><summary>Record weekly usage</summary><form data-subs-weekly data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}">
           <label>Used (%) <input type="number" name="percent" min="0" max="100" step="any" value="${Number.isFinite(percent) ? percent : ''}" placeholder="Unknown"></label>
           <label>Weekly reset (local time) <input type="datetime-local" name="reset" value="${localReset}"></label>
@@ -132,6 +139,25 @@ function subsWeeklyHTML(c, p) {
           <span class="muted">Copy the weekly allowance from your provider. This does not change its limit.</span><span role="status" data-weekly-status></span>
         </form></details>` : ''}</div>`;
     }).join('');
+}
+function subsScheduleRefresh() {
+  clearTimeout(SUBS_REFRESH_TIMER);
+  const pending = (SUBS?.computers || []).some(c => c.profiles.some(p => Object.values(p.runtimes || {}).some(state =>
+    state.refresh?.state === 'requested' && Date.parse(state.refresh.expires_at) + 30000 > Date.now())));
+  if (!pending) return;
+  SUBS_REFRESH_TIMER = setTimeout(async () => {
+    if (S.route !== SETTINGS || SETTINGS_TAB !== 'providers') return;
+    await renderSettingsSubs();
+    subsScheduleRefresh();
+  }, 5000);
+}
+async function subsRefreshWeekly(button) {
+  button.disabled = true;
+  try {
+    await post('/v2/subscriptions/refresh', {runner_id: button.dataset.runner, profile: button.dataset.profile, runtime: button.dataset.runtime});
+    await renderSettingsSubs(true);
+  } catch (e) { toast(e.message, true); }
+  finally { button.disabled = false; }
 }
 const subsWeeklyKey = form => JSON.stringify([form.dataset.runner, form.dataset.profile, form.dataset.runtime]);
 async function subsSaveWeekly(form, clear = false) {
@@ -189,6 +215,7 @@ async function renderSettingsSubs(force = false, loaded = false) {
   el.querySelectorAll('form[data-subs-weekly]').forEach(form => { if (openWeekly.has(subsWeeklyKey(form))) form.closest('details').open = true; });
   el.querySelectorAll('form[data-subs-rename]').forEach(form => { if (openNames.has(subsWeeklyKey(form))) form.closest('details').open = true; });
   card.hidden = false;
+  subsScheduleRefresh();
   el.onchange = async ev => {
     const sel = ev.target.closest('[data-subs-group]'); if (!sel) return;
     sel.disabled = true;
@@ -204,6 +231,8 @@ async function renderSettingsSubs(force = false, loaded = false) {
     if (msg) msg.textContent = field.value.trim() && slug !== field.value.trim() ? `Saved as ${slug}` : '';
   };
   el.onclick = ev => {
+    const refresh = ev.target.closest('[data-subs-refresh]');
+    if (refresh) void subsRefreshWeekly(refresh);
     const clear = ev.target.closest('[data-subs-weekly-clear]');
     if (clear) void subsSaveWeekly(clear.closest('form'), true);
   };

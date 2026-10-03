@@ -558,7 +558,7 @@ class Runner:
         self.active = {}
         self.attempt_bots = {}
         self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
-        self.weekly_usage = subscription_usage.Reports()
+        self._weekly_usage = subscription_usage.Reports()
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
@@ -1275,6 +1275,13 @@ class Runner:
                 report[runtime] = {**targets[worst], "profiles": targets,
                                    "detail": "; ".join((f"{name}: {status['detail']}" if name else status["detail"]) for name, status in targets.items())[:500]}
         return report
+
+    @property
+    def weekly_usage(self):
+        # `doctor` builds a preflight-only Runner with __new__, without normal startup.
+        if '_weekly_usage' not in self.__dict__:
+            self._weekly_usage = subscription_usage.Reports()
+        return self._weekly_usage
 
     def profile_report(self):
         """Cached provider sign-in probes with a ten-second budget for the entire report."""
@@ -2734,6 +2741,14 @@ class Runner:
             self.last_heartbeat = time.monotonic()
         self.warm.prune()
         self.poll_logins()
+        # Optional on older servers; quota reads never interrupt turn execution.
+        try:
+            from .subscription_refresh import Refreshes
+            if not hasattr(self, 'subscription_refreshes'):
+                self.subscription_refreshes = Refreshes(self)
+            self.subscription_refreshes.poll()
+        except Exception:
+            pass
         self.poll_credential_imports()
         self.step_harnesses()
         self.step_watchers()
@@ -2885,6 +2900,8 @@ class Runner:
         finally:
             self.stop.set()
             self.logins.stop()
+            if hasattr(self, 'subscription_refreshes'):
+                self.subscription_refreshes.stop()
             self.watchers.stop()
             self.tools.stop()
             if self.credentials:

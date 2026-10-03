@@ -8732,6 +8732,68 @@
         ]
       }
     },
+    "/api/v2/subscriptions/refresh": {
+      "post": {
+        "summary": "Request a bounded weekly allowance read on its computer",
+        "operationId": "refreshSubscriptionWeekly",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Refresh"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionRefreshResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/subscriptions/weekly": {
       "put": {
         "summary": "Record or clear a manual weekly allowance observation",
@@ -17513,6 +17575,40 @@
         ],
         "additionalProperties": true
       },
+      "Refresh": {
+        "properties": {
+          "runner_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Runner Id"
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 80,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Profile"
+          },
+          "runtime": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude",
+              "gemini",
+              "grok"
+            ],
+            "title": "Runtime"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runner_id",
+          "profile",
+          "runtime"
+        ],
+        "title": "Refresh"
+      },
       "RepoAccessUpdate": {
         "properties": {
           "mode": {
@@ -18417,6 +18513,48 @@
           "display_name"
         ],
         "title": "SubscriptionNameEdit"
+      },
+      "SubscriptionRefreshResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "requested",
+              "succeeded",
+              "unavailable",
+              "failed",
+              "expired"
+            ]
+          },
+          "requested_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_at",
+          "id",
+          "profile",
+          "requested_at",
+          "runtime",
+          "state",
+          "updated_at"
+        ],
+        "additionalProperties": true
       },
       "SubscriptionWeeklyEdit": {
         "properties": {
