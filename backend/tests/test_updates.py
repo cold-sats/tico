@@ -51,7 +51,8 @@ def test_a_bot_posts_once_a_day_and_each_person_has_their_own_read_state(api):
     assert [u["headline"] for u in feed["updates"]] == ["Drafted and sent the checklist"]
     assert feed["updates"][0]["read"] is False and feed["unread"] == 1
     post(api, "updates/read", {"ids": [again["id"]]})
-    assert get(api, "updates")["unread"] == 0 and get(api, "updates/unread") == {"unread": 0}
+    assert get(api, "updates")["unread"] == 0
+    assert get(api, "updates/unread") == {"unread": 0, "meetings_pending": 0}
     assert get(api, "updates", token="ben-test")["unread"] == 1, "Ana reading it is not Ben reading it"
     post(api, "updates/read", {"ids": [again["id"]], "read": False})
     assert get(api, "updates?unread=true")["updates"][0]["id"] == again["id"]
@@ -90,4 +91,3 @@ def test_an_update_is_one_to_five_plain_bullets_or_it_is_refused(api):
     assert ok.status_code == 200, ok.text
     assert ok.json()["update"]["headline"] == "Published the checklist page and linked it from six posts"
     assert updates.lint("\n".join("- " + " ".join(["word"] * 30) for _ in range(5)), "weekly") is None, "the week may run longer"
-
