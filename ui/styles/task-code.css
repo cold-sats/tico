@@ -78,6 +78,7 @@ a.code-main:hover .code-title,a.code-main:hover .code-repo{color:var(--accent);t
 .code-num{color:var(--muted);flex:none}
 .code-title{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .code-state{flex:none;font-size:11px;color:var(--muted)}
+.code-error{flex-basis:100%;min-width:0;overflow-wrap:anywhere}
 .code-line.gone .code-main{color:var(--muted)}
 .code-chips{display:inline-flex;gap:3px;flex:none;margin-left:auto}
 .code-chip{font-size:10.5px;line-height:15px;padding:0 5px;border-radius:8px;background:var(--idle-bg);color:var(--muted);white-space:nowrap}
