@@ -354,3 +354,8 @@ fieldset.brepo[hidden]{display:none}
   .subs-name{flex-basis:100%}
   .sb-sub{margin-left:0}
 }
+
+/* Secondary settings remain keyboard accessible without crowding the main tabs. */
+.settings-more summary{padding:8px 12px;cursor:pointer;color:var(--muted)}
+.settings-more>div{display:flex;flex-wrap:wrap;gap:4px}
+.settings-more[open]{flex-basis:100%}

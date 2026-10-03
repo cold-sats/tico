@@ -262,6 +262,6 @@ function pageTags() {
 function settingsTags() {
   const pane = $('#settings-tags');
   if (!pane) return;
-  pane.hidden = SETTINGS_TAB !== 'tags';
+  pane.hidden = SETTINGS_TAB !== 'tasks';
   if (!pane.hidden && !formBusy(pane)) void renderTags(pane);
 }
