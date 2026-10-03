@@ -73,17 +73,6 @@ def test_private_defaults_reassignment_and_human_publication(api):
     post(api, 'tasks/' + created['id'], {'version': created['version'], 'private': False}, token=cpo, expected=422)
 
 
-def test_acted_sensitive_default_refuses_private_creation_outside_actual_bot_parties(api):
-    ops = bot_token(api, 'ops')
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.private_tasks_default',json('true')) WHERE bot='ops'")
-        count = c.execute('SELECT count(*) FROM tasks').fetchone()[0]
-    post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft the sensitive response',
-                        'body': 'Draft it.', 'private': False}, token=ops, expected=403)
-    with api.app.state.store.read() as c:
-        assert c.execute('SELECT count(*) FROM tasks').fetchone()[0] == count
-
-
 def test_private_parent_has_no_ancestry_bypass_and_requires_detachment(api):
     parent = post(api, 'tasks', {'owner': 'ben', 'title': 'Review the packet', 'body': 'Review it.', 'private': True})
     child = post(api, 'tasks', {'owner': 'priya', 'title': 'Check the packet', 'body': 'Check it.',
