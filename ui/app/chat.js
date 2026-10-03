@@ -128,7 +128,7 @@ async function v2BotsLoad(state) {
       return `<div class="conv-bots-one"><div class="conv-run-head">${actorChip(other)}
           <span class="pill">${esc(c.kind || '')}</span>${c.subject ? `<span class="muted">${esc(c.subject)}</span>` : ''}
           <span class="spacer" style="flex:1"></span><span class="tnum">${esc(ago(c.last_message_at || c.created))}</span></div>
-        ${msgs.map(m => `<div class="bubble ${m.from_actor === me ? 'bot reply' : 'you'}"><span class="who">${esc(actorLabel(m.from_actor))}</span><div class="md">${safeMd(m.body || '')}</div></div>`).join('')
+        ${msgs.map(m => `<div class="bubble ${m.from_actor === me ? 'bot reply' : 'you'}"><span class="who">${esc(actorLabel(m.from_actor))}</span><div class="md">${safeMd(m.body || '')}</div>${chatCopyHTML(m.body)}</div>`).join('')
           || '<div class="empty">No messages yet.</div>'}</div>`;
     }).join('')}</details>`;
 }
@@ -270,6 +270,17 @@ async function v2StepsOpen(state, el) {
   const list = $(`#conv-thread details.run-steps[data-turn="${CSS.escape(turn)}"] .steps-list`);
   if (list) list.innerHTML = html;
 }
+// Copy the original message, not timestamps, action labels or rendered link shortcuts.
+function chatCopyHTML(text) {
+  return text ? `<div class="chat-message-actions"><button type="button" class="ghost chat-message-copy" data-chat-copy="${esc(text)}" aria-label="Copy message" title="Copy message"><span class="nav-icon" aria-hidden="true">content_copy</span></button></div>` : '';
+}
+document.addEventListener('click', async ev => {
+  const button = ev.target.closest('.bubble [data-chat-copy]');
+  if (!button) return;
+  ev.preventDefault();
+  try { await copyText(button.dataset.chatCopy); toast('Message copied'); }
+  catch { toast('Could not copy the message', true); }
+});
 // Tico Live was retired; the lines it left in rooms (refs.live) read as plain messages.
 function v2MessageHTML(m) {
   // A Confirm card a bot left for you (BotOps: adding a person, a role, a shared credential): filled in from the action.
@@ -293,7 +304,7 @@ function v2MessageHTML(m) {
       <span class="spacer" style="flex:1"></span>
       <span class="tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</span></div>
     <div class="bubble ${mine ? 'you' : 'bot reply'}"><span class="who">${who}</span>${
-      mine ? esc(m.body || '') : `<div class="md">${safeMd(m.body || '', {shortLinks: true})}</div>`}</div>
+      mine ? esc(m.body || '') : `<div class="md">${safeMd(m.body || '', {shortLinks: true})}</div>`}${chatCopyHTML(m.body)}</div>
     ${S.me?.cloud ? chatAttachmentsHTML(m.refs?.attachments || []) : ''}
     ${v2RunHTML(m)}${v2MessageCards(m)}</div>`;
 }
@@ -381,7 +392,7 @@ function v2ChatRender(state) {
   if (!pending) clearTimeout(state.waitTimer);
   const live = state.live?.text
     ? `<div class="conv-run chat"><div class="bubble bot reply"><span class="who">${empName(state.slug)}</span>
-        <div class="md" id="v2-live">${safeMd(state.live.text, {shortLinks: true})}</div></div></div>`
+        <div class="md" id="v2-live">${safeMd(state.live.text, {shortLinks: true})}</div>${chatCopyHTML(state.live.text)}</div></div>`
     : pending ? `<div class="conv-run chat">${pending}</div>` : '';
   thread.innerHTML = (groups + live) || (state.failed ? '<div class="empty">Could not load the conversation yet; trying again…</div>'
     : !state.loaded ? '<div class="empty">Loading the thread…</div>' : state.empty || '<div class="empty">Nothing yet. Say something below.</div>');
@@ -533,6 +544,8 @@ function v2ChatStream(state) {
     const box = $('#v2-live');
     if (box && state.live.text) {
       box.innerHTML = safeMd(state.live.text, {shortLinks: true});
+      const copy = box.parentElement.querySelector('[data-chat-copy]');
+      if (copy) copy.dataset.chatCopy = state.live.text;
       const thread = $('#conv-thread'); if (thread) thread.scrollTop = thread.scrollHeight;
     } else v2ChatRender(state);
   });

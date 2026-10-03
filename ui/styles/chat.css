@@ -54,6 +54,12 @@
 .bubble.bot .md{max-width:none;overflow-x:auto}
 .bubble.bot .md>:first-child{margin-top:0}
 .bubble.pending{opacity:.75}
+.chat-message-actions{display:flex;justify-content:flex-end;margin-top:4px;white-space:normal}
+.chat-message-actions .chat-message-copy{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;color:var(--muted)}
+.chat-message-actions .chat-message-copy:hover,.chat-message-actions .chat-message-copy:focus-visible{color:var(--ink);background:var(--surface2)}
+.chat-message-copy .nav-icon{font-size:18px}
+@media (pointer:coarse){.chat-message-actions .chat-message-copy{width:40px;height:40px}}
+
 .conv-act{margin:4px 0 2px}
 .conv-act>summary{color:var(--muted);font-size:12.5px;padding:3px 0}
 .conv-act>summary:hover{color:var(--ink)}
