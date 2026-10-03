@@ -97,7 +97,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
       const owner = url.searchParams.get('owner');
       // List rows leave out the links' detail_json (and pr_sha), as backend/app.py lists do; the detail has them.
       const requester = url.searchParams.get('requester');
-      const rows = (owner ? data.tasks.filter(t => t.owner === 'bot:' + owner) : requester ? data.tasks.filter(t => t.requester === 'bot:' + requester) : data.tasks)
+      const rows = (owner ? data.tasks.filter(t => t.owner === (owner.includes(':') ? owner : 'bot:' + owner)) : requester ? data.tasks.filter(t => t.requester === 'bot:' + requester) : data.tasks)
         .map(t => ({...t, links: (t.links || []).map(({detail_json, pr_sha, ...l}) => l)}));
       return json({tasks: rows, next_offset: null});
     }
@@ -119,6 +119,11 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
       return json({links: t.links});
     }
     const one = p.match(/^\/api\/v2\/tasks\/([^/]+)$/);
+    if (one && method === 'POST') {
+      const t = data.tasks.find(t => t.id === one[1]), body = req.postDataJSON();
+      writes.push({method, p, body}); Object.assign(t, body, {version: t.version + 1});
+      return json({task: t});
+    }
     if (one && method === 'GET') {
       const t = data.tasks.find(x => x.id === decodeURIComponent(one[1]));
       if (!t) return json({error: {detail: 'Not found'}}, 404);
@@ -436,7 +441,8 @@ async function botDetail(browser) {
   console.log('bot task detail parity, files, comments, related tasks and return: ok');
 }
 
-(async () => {
+module.exports = {open};
+if (require.main === module) (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try { await desktop(browser); await phone(browser); await member(browser); await botPage(browser); await botDetail(browser); }
   finally { await browser.close(); }

@@ -100,8 +100,9 @@ function tfAdopt(d, task) {
   tfPaint(d);
 }
 async function tfLoad(d, id) {
+  const opening = d.taskOpening, seq = d.tfLoadSeq = (d.tfLoadSeq || 0) + 1;
   const data = await v2Get(`/v2/tasks/${encodeURIComponent(id)}/files`);
-  if (String(d.dataset.task) !== String(id)) return;
+  if (!d.open || String(d.dataset.task) !== String(id) || d.taskOpening !== opening || d.tfLoadSeq !== seq) return;
   if (!data && TF_CACHE.has(String(id))) return;          // a failed poll keeps what the last one found
   const files = Array.isArray(data?.files) ? data.files.map(tfNorm) : tfFromAttachments(d.liveTask?.attachments);
   TF_CACHE.set(String(id), files);
@@ -146,7 +147,7 @@ function tfViewPaint(d, force = false) {
   if (!f) { if (!box.hidden) { box.querySelector('video, audio')?.pause(); box.hidden = true; box.innerHTML = ''; box.dataset.sig = ''; } return; }
   const v = tfVersion(f, open.n), sig = JSON.stringify([f, open, d.canComment !== false]);
   if (!force && box.dataset.sig === sig) return;
-  if (!force && (askBusy(box) || tfPlaying(box))) return;   // never under someone answering or watching
+  if (!force && d.canComment !== false && (askBusy(box) || tfPlaying(box))) return;   // never under someone answering or watching
   const kind = tfKind(f.name, v.mime || f.mime);
   const asc = f.versions.slice().reverse();
   const cmp = open.cmp != null ? tfVersion(f, open.cmp) : null;
@@ -380,6 +381,26 @@ document.addEventListener('click', ev => {
 // Readers (no comment rights: GET /v2/tasks/{id} `can_comment`) see the question, its choices and the answers, no controls.
 // Someone is part-way through an answer: focus in a question, a choice picked or words typed but not sent. A redraw
 // then waits; a question being sent (aria-busy) does not count, so the thread redraws once it lands.
+// Drafts belong to one dialog opening and one question target; a task switch or close drops them.
+const askDraftKey = el => (el.closest('.task-comments') ? 'comment:' : 'file:') + el.dataset.ask;
+function askDraftCapture(d) {
+  if (!d.askDrafts) d.askDrafts = new Map();
+  for (const el of d.querySelectorAll('.ask:not([aria-busy]):not(.ro):not(.mine)')) {
+    const choices = {};
+    for (const q of el.querySelectorAll('.ask-q')) choices[q.dataset.qid] = [...q.querySelectorAll('.ask-opt[aria-pressed="true"]')].map(b => b.dataset.label);
+    d.askDrafts.set(askDraftKey(el), {choices, other: $('.ask-other', el)?.value || '', again: el.classList.contains('again')});
+  }
+}
+function askDraftRestore(root, d) {
+  for (const el of root.querySelectorAll('.ask:not(.ro):not(.mine)')) {
+    const draft = d.askDrafts?.get(askDraftKey(el));
+    if (!draft || el.dataset.task !== String(d.dataset.task) || d.canComment === false) continue;
+    for (const q of el.querySelectorAll('.ask-q')) for (const opt of q.querySelectorAll('.ask-opt'))
+      opt.setAttribute('aria-pressed', String((draft.choices[q.dataset.qid] || []).includes(opt.dataset.label)));
+    const other = $('.ask-other', el); if (other) other.value = draft.other;
+    el.classList.toggle('again', draft.again);
+  }
+}
 function askBusy(root) {
   return [...root.querySelectorAll('.ask:not([aria-busy])')].some(el => el.contains(document.activeElement) || el.classList.contains('again')
     || el.querySelector('.ask-opt[aria-pressed="true"]') || $('.ask-other', el)?.value.trim());
@@ -434,7 +455,7 @@ function askHTML(ask, answers, target, asker, taskId, files = [], canAnswer = tr
     ${body}${list}${!mine && !ro && answered ? '<button type="button" class="linkish ask-again" data-ask-again>Answer</button>' : ''}${form}</div>`;
 }
 async function askSubmit(el, dismiss = false) {
-  const status = $('.ask-status', el);
+  const status = $('.ask-status', el), dialog = el.closest('dialog'), opening = dialog?.taskOpening;
   const answers = {};
   for (const q of el.querySelectorAll('.ask-q')) {
     const picked = [...q.querySelectorAll('.ask-opt[aria-pressed="true"]')].map(b => b.dataset.label);
@@ -450,7 +471,14 @@ async function askSubmit(el, dismiss = false) {
   if (status) status.textContent = '';
   try {
     await post(`/v2/tasks/${encodeURIComponent(task)}/answers`, body);
-    const d = el.closest('dialog');
+    const d = dialog;
+    if (d?.taskOpening !== opening || !d?.open || String(d.dataset.task) !== String(task)) return;
+    for (const prefix of ['comment:', 'file:']) d.askDrafts?.delete(prefix + el.dataset.ask);
+    for (const current of d.querySelectorAll('.ask')) if (current.dataset.ask === el.dataset.ask) {
+      for (const opt of current.querySelectorAll('.ask-opt')) opt.setAttribute('aria-pressed', 'false');
+      const other = $('.ask-other', current); if (other) other.value = '';
+      current.classList.remove('again');
+    }
     if (el.contains(document.activeElement)) document.activeElement.blur();
     if (TASK_CHAT && TASK_CHAT.dialog === d && taskChatCurrent(TASK_CHAT)) { TASK_CHAT.rendered = ''; await taskChatRead(TASK_CHAT); }
     if (d) await tfLoad(d, task);

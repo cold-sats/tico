@@ -20,6 +20,7 @@ function taskDialogWire(d) {
     if (!TASK_CHAT || TASK_CHAT.dialog === d) taskChatStop();
     d.tfEl?.querySelector('video, audio')?.pause();
     d.tfEl = null; d.tfOpen = null;
+    d.taskOpening = {}; d.askDrafts = new Map();
   });
 }
 function taskModal() {
@@ -85,12 +86,15 @@ async function taskModalShow(task, d = taskModal()) {
   TASK_MODAL_LOAD++;
   if (!d) d = taskModal();
   const peek = !!d.dataset.peek;
+  if (!d.open || String(d.dataset.task) !== String(task.id)) { d.taskOpening = {}; d.askDrafts = new Map(); }
+  else askDraftCapture(d);
+  const opening = d.taskOpening;
   taskChatStop();
   // A menu open on this task (a property picked while a save was still on its way) is never pulled away: the redraw
   // waits for it to close, then draws the newest copy.
   if (d.open && String(d.dataset.task) === String(task.id) && $('.prop-pop', d)?.matches(':popover-open')) {
     await taskMenuSettled(d);
-    if (!d.open || String(d.dataset.task) !== String(task.id)) return;
+    if (!d.open || String(d.dataset.task) !== String(task.id) || d.taskOpening !== opening) return;
   }
   if (d.dataset.task !== String(task.id)) { d.propsErrs = null; d.focusProp = ''; d.liveTask = null; }
   // never draw an older copy of the task over the newer one a save returned
@@ -133,6 +137,7 @@ async function taskModalShow(task, d = taskModal()) {
   const a = d.contains(document.activeElement) ? document.activeElement : null;
   const keep = !a ? '' : a.matches('[data-modal-close]') ? '[data-modal-close]' : a.matches('[data-task-more]') ? '[data-task-more]' : a.matches('.tmodal-title') ? '.tmodal-title'
     : a.dataset.prop ? `[data-prop="${CSS.escape(a.dataset.prop)}"]` : '';
+  askDraftCapture(d);
   d.innerHTML = hubModalHTML(full, taskItem(full), {peek});
   taskModalBind(d, full, true);
   if (keep) $(keep, d)?.focus({preventScroll: true});
@@ -162,6 +167,8 @@ function taskModalBind(d, task, full = false) {
   const privacy = $('[data-task-private]', d);
   if (privacy) privacy.onchange = () => change({private: privacy.checked}, undefined, 'private');
   d.querySelectorAll('[data-drop-label]').forEach(b => b.onclick = () => change(cur => ({labels: (cur.labels || []).filter(l => l !== b.dataset.dropLabel)}), undefined, 'tags'));
+  const opening = d.taskOpening;
+  const linkCurrent = () => d.open && String(d.dataset.task) === String(task.id) && d.taskOpening === opening;
   const link = $('[data-modal-link]', d);
   const addLink = $('[data-link-add]', d);
   if (addLink && link) {
@@ -175,14 +182,14 @@ function taskModalBind(d, task, full = false) {
       await post(`/v2/tasks/${encodeURIComponent(task.id)}/links`, {url});
       const data = await get(`/v2/tasks/${encodeURIComponent(task.id)}`);
       if (TASKS_ST) void tasksLoad(TASKS_ST);
-      taskModalShow(data.task, d);
+      if (linkCurrent() && data.task) taskModalShow(data.task, d);
     } catch (e) { toast(e.message, true); }
   };
   d.querySelectorAll('[data-drop-link]').forEach(b => b.onclick = async () => {
     try {
       await post(`/v2/tasks/${encodeURIComponent(task.id)}/links`, {remove: b.dataset.dropLink});
       const data = await get(`/v2/tasks/${encodeURIComponent(task.id)}`);
-      taskModalShow(data.task, d);
+      if (linkCurrent() && data.task) taskModalShow(data.task, d);
     } catch (e) { toast(e.message, true); }
   });
   d.querySelectorAll('[data-open-task]').forEach(b => b.onclick = ev => { ev.preventDefault(); void taskModalOpen(b.dataset.openTask, d); });
@@ -321,10 +328,12 @@ function taskCommentsRender(state, data) {
   const files = tfFiles(state.dialog);
   const html = lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id, can)).join('') || '<p class="muted">Nothing said yet.</p>';
   const thread = $('.task-comments', host);
-  if (askBusy(thread)) return;     // never under someone answering
+  if (!can) d.askDrafts?.clear();
+  if (can && askBusy(thread)) return;     // never under someone answering
   if (html !== state.rendered) {
     const atEnd = !state.rendered || thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 40;
     thread.innerHTML = html;
+    askDraftRestore(thread, d);
     if (atEnd) thread.scrollTop = thread.scrollHeight;
     state.rendered = html;
   }
@@ -362,10 +371,11 @@ async function taskChatLoad(id, dialog, data = null) {
 }
 async function taskCommentSend(state) {
   if (!taskChatCurrent(state) || state.sending) return;
-  const box = $('textarea', state.host), text = box.value.trim();
+  const form = $('form', state.host);
+  const box = $('textarea', form), text = box.value.trim();
   if (!text) { box.focus(); return; }
   state.sending = true;
-  const button = $('button', state.host), status = $('[data-task-chat-status]', state.host);
+  const button = $('button[type=submit]', form), status = $('[data-task-chat-status]', form);
   button.disabled = box.disabled = true; button.textContent = 'Sending…'; status.textContent = '';
   try {
     const data = await post(`/v2/tasks/${encodeURIComponent(state.id)}/comments`, {text});
