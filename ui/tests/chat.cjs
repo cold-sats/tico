@@ -11,7 +11,7 @@ const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
 
 async function offlineRetry(browser) {
-  const page = await browser.newPage({viewport:{width:390,height:844},serviceWorkers:'block'});
+  const page = await browser.newPage({viewport:{width:390,height:844},hasTouch:true,serviceWorkers:'block'});
   await page.clock.install();
   const errors=[],uploads=[],sends=[];let offline=true;
   page.on('pageerror',e=>errors.push(e.message));
@@ -60,7 +60,14 @@ async function offlineRetry(browser) {
   await page.waitForFunction(()=>!BOT_PILL.sending);
   assert.equal(sends.length,4);
   assert.deepEqual(errors,[]);
-  console.log('chat offline retry: ok');
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {configurable:true,
+    value:{writeText:async text => {window.copiedMessage=text;}}}));
+  const copy=page.locator('.bubble.you').getByRole('button',{name:'Copy message',exact:true});
+  await copy.tap();
+  assert.equal(await page.evaluate(()=>window.copiedMessage),'Hello offline');
+  assert.ok((await copy.boundingBox()).width>=40,'touch target remains visible and usable');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no mobile overflow');
+  console.log('chat offline retry and touch copy: ok');
 }
 
 async function liveReply(browser) {
@@ -129,7 +136,43 @@ async function liveReply(browser) {
   assert.equal(pending.href,'#/settings');
   assert.equal(pending.tab,'providers');
   assert.match(pending.legacy,/No reply after 20 minutes/);
-  console.log('chat live reply: ok');
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {configurable:true,
+    value:{writeText:async text => {window.copiedMessage=text;}}}));
+  const liveCopy=page.locator('#v2-live').locator('..').getByRole('button',{name:'Copy message',exact:true});
+  await liveCopy.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(()=>window.copiedMessage),snapshot.execution.text,'keyboard copies raw live text');
+  const raw='**Example** <img src=x onerror="alert(1)"> & "quotes"\nSecond line';
+  await page.evaluate(text => {
+    V2C.live.text=text;
+    v2ChatRender(V2C);
+  },raw);
+  await liveCopy.click();
+  assert.equal(await page.evaluate(()=>window.copiedMessage),raw,'copies updated Markdown and literal markup exactly');
+  assert.equal(await page.locator('.chat-message-actions img').count(),0,'copy data cannot inject markup');
+  const position=await liveCopy.evaluate(button=>{
+    const b=button.getBoundingClientRect(), bubble=button.closest('.bubble').getBoundingClientRect();
+    return {right:b.right<=bubble.right,bottom:b.bottom<=bubble.bottom,nearRight:bubble.right-b.right<30};
+  });
+  assert.deepEqual(position,{right:true,bottom:true,nearRight:true},'copy sits inside bottom right of the bubble');
+  await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('Denied');};});
+  await liveCopy.click();
+  await page.getByText('Could not copy the message',{exact:true}).waitFor();
+  // The shared fallback must report failure honestly and restore keyboard focus.
+  await page.evaluate(()=>{
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:undefined});
+    document.execCommand=()=>false;
+  });
+  await liveCopy.focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(()=>[...document.querySelectorAll('.toast.err')].filter(el=>el.textContent==='Could not copy the message').length===2);
+  assert.equal(await liveCopy.evaluate(button=>document.activeElement===button),true,'fallback restores focus');
+  assert.equal(await page.locator('body > textarea').count(),0,'fallback removes temporary field');
+  await page.evaluate(()=>{document.execCommand=()=>{window.copiedMessage=document.activeElement.value;return true;};});
+  await page.keyboard.press('Space');
+  assert.equal(await page.evaluate(()=>window.copiedMessage),raw,'legacy clipboard copies raw text');
+  assert.deepEqual(errors,[]);
+  console.log('chat live reply and keyboard copy: ok');
 }
 
 (async () => {
