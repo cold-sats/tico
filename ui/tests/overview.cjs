@@ -57,20 +57,17 @@ bots.push({name: 'restricted', team: 'g1', my_access: {see: true, read: false}},
     assert.equal(members.find(m => m.id === 'bot:restricted').state, 'restricted');
     assert.equal(members.find(m => m.id === 'bot:restricted').href, '');
     assert(!JSON.stringify(model).includes('SECRET'), 'free-text work content never crosses the renderer boundary');
-    assert.equal(await frame.locator('[data-floor]').count(), 5);
-    await frame.locator('#department-picker').selectOption('g7');
+    assert.equal(await frame.locator('[data-floor]').count(), 8, 'all departments remain reachable without paging');
+    assert.equal(await frame.locator('#light, #pause, #fullscreen, #department-picker, .camera-controls, #help, #building-pages, #occupant-pages').count(), 0);
+    assert.match(await frame.locator('body').getAttribute('class'), /night/);
+    await frame.locator('[data-floor="7"]').focus(); await page.keyboard.press('Enter');
     await frame.locator('#floor-title').filter({hasText: 'Department 7'}).waitFor();
-    assert.equal(await frame.locator('[data-floor]').count(), 3);
-    await frame.locator('#department-picker').selectOption('g0');
+    await page.keyboard.press('Escape');
+    await frame.locator('[data-floor="0"]').focus(); await page.keyboard.press('Enter');
     await frame.locator('#floor-title').filter({hasText: 'Design <studio>'}).waitFor();
-    assert.equal(await frame.locator('[data-person]').count(), 6);
+    assert.equal(await frame.locator('[data-person]').count(), 9, 'entering a department reveals every teammate');
     assert.equal(await frame.locator('[data-person="bot:bot-0"] img').count(), 0, 'names are text, never HTML');
-    assert.equal(await frame.locator('#pause').getAttribute('aria-label'), 'Let the world play', 'reduced motion starts paused');
-    await frame.locator('#occupants-next').click();
-    assert.equal(await frame.locator('[data-person]').count(), 3);
-    assert.match(await frame.locator('#occupant-range').innerText(), /7–9 of 9/);
-    await frame.locator('#occupants-prev').click();
-    await frame.locator('[data-person="bot:bot-0"]').click();
+    await frame.locator('[data-person="bot:bot-0"]').focus(); await page.keyboard.press('Enter');
     const child = page.frames().find(f => f.url().includes('/overview/index.html'));
     await child.evaluate(() => window.originalCanvas = document.querySelector('canvas'));
     running = false; await page.evaluate(() => refresh());
@@ -87,7 +84,7 @@ bots.push({name: 'restricted', team: 'g1', my_access: {see: true, read: false}},
     assert.equal(await page.locator('#overview-frame').count(), 0, 'leaving unmounts the scene');
     await page.evaluate(() => location.hash = '#/overview');
     await frame.locator('body[data-scene-ready]').waitFor();
-    await frame.locator('#department-picker').selectOption('');
+    await frame.locator('canvas').click({position: {x: 10, y: 10}});
     assert.equal(await frame.locator('#floors').getAttribute('hidden'), null);
     await page.close();
 
@@ -98,16 +95,14 @@ bots.push({name: 'restricted', team: 'g1', my_access: {see: true, read: false}},
     assert.equal(await mobile.locator('#mobile-nav .mobile-nav-item').first().getAttribute('data-nav'), 'overview');
     const bounds = await mobile.locator('#overview-frame').boundingBox(), nav = await mobile.locator('#mobile-nav').boundingBox();
     assert(bounds.height > 400 && bounds.y + bounds.height <= nav.y + 1, 'scene fits above mobile navigation');
-    await phoneFrame.locator('[data-floor="0"]').click();
-    const boxes = await phoneFrame.locator('[data-person]').evaluateAll(els => els.map(e => {const r = e.getBoundingClientRect(); return {x:r.x,y:r.y,right:r.right,bottom:r.bottom};}));
-    for (let i=0;i<boxes.length;i++) for(let j=i+1;j<boxes.length;j++) {const a=boxes[i],b=boxes[j]; assert(a.right<=b.x||b.right<=a.x||a.bottom<=b.y||b.bottom<=a.y, 'phone labels do not overlap');}
-    await phoneFrame.locator('#department-picker').selectOption('g7');
+    await phoneFrame.locator('[data-floor="0"]').focus(); await mobile.keyboard.press('Enter');
+    assert.equal(await phoneFrame.locator('[data-person]').count(), 9);
+    await mobile.keyboard.press('Escape');
+    await phoneFrame.locator('[data-floor="7"]').focus(); await mobile.keyboard.press('Enter');
     await phoneFrame.locator('#floor-title').filter({hasText: 'Department 7'}).waitFor();
     await mobile.setViewportSize({width: 360, height: 740});
-    await phoneFrame.locator('#department-picker').selectOption('g0');
-    await phoneFrame.locator('#floor-title').filter({hasText: 'Design <studio>'}).waitFor();
-    const names = await phoneFrame.locator('#people').boundingBox(), paging = await phoneFrame.locator('#occupant-pages').boundingBox();
-    assert(names.y + names.height <= paging.y, 'short phones keep teammate labels above paging');
+    await phoneFrame.locator('canvas').click({position: {x: 10, y: 10}});
+    assert.equal(await phoneFrame.locator('#floors').getAttribute('hidden'), null, 'tapping outside a room returns to the building');
     await mobile.close();
 
     const fallback = await open({width: 1280, height: 900}, true);
@@ -121,6 +116,6 @@ bots.push({name: 'restricted', team: 'g1', my_access: {see: true, read: false}},
     await noTeam.frameLocator('#overview-frame').locator('#fallback p').filter({hasText: 'add groups and teammates'}).waitFor();
     assert.deepEqual(errors, []);
     await noTeam.close();
-    console.log('Overview: permissions, live status, default route, paging, phone fit, lifecycle, fallback and empty state passed');
+    console.log('Overview: permissions, live status, default route, scene navigation, phone fit, lifecycle, fallback and empty state passed');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

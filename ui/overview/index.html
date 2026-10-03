@@ -4,23 +4,18 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
 <title>Company overview</title><link rel="stylesheet" href="pulse.css">
 </head>
-<body>
+<body class="night">
 <div id="world" aria-label="Interactive company building"></div>
 <div class="vignette" aria-hidden="true"></div>
-<div class="top-actions"><button id="light" aria-label="Switch to nighttime" title="Day / night"></button><button id="pause" aria-label="Pause the world" title="Pause / play"></button><button id="fullscreen" aria-label="Enter fullscreen" title="Fullscreen"></button></div>
 <div id="loading"><p>Loading your team…</p></div>
 <div id="fallback" hidden><h1>Overview</h1><p>The 3D view is unavailable. Your teammates are still accessible below.</p><div id="fallback-team"></div></div>
-<div class="floor-navigation"><button id="back" aria-label="Back to all floors" title="Back to all floors" hidden>←</button><select id="department-picker" aria-label="Choose a floor"><option value="">All floors</option></select></div>
 <div id="connection-status" role="status" hidden>Status unavailable · Reconnecting…</div>
-<div id="building-pages" class="building-pages" hidden><button id="building-prev" aria-label="Previous floors">←</button><span id="building-range"></span><button id="building-next" aria-label="Next floors">→</button></div>
-<div id="occupant-pages" class="occupant-pages" hidden><button id="occupants-prev" aria-label="Previous teammates">←</button><span id="occupant-range"></span><button id="occupants-next" aria-label="Next teammates">→</button></div>
+<p id="scene-instructions" class="sr-only">Select a floor to enter. Select a teammate for details. Tap outside the room or press Escape to return. Drag to rotate and scroll to zoom.</p>
+<button id="back" class="scene-access" hidden>Back to building</button>
 <nav id="floors" aria-label="Explore departments"></nav>
 <nav id="people" aria-label="Teammates on this floor" hidden></nav>
 <div class="sr-only" id="floor-heading" hidden><span id="floor-number"></span><h1 id="floor-title"></h1><p id="floor-subtitle"></p></div>
 <div id="hover-label" hidden></div>
 <div id="speech" role="status" hidden><button id="speech-close" aria-label="Close teammate bubble">×</button><span id="speech-type"></span><strong id="speech-name"></strong><p id="speech-message"></p><button id="speech-open" class="speech-open">Open teammate →</button></div>
-<button id="help" popovertarget="help-panel" aria-label="View controls and data information" title="Controls and data">?</button>
-<div id="help-panel" popover><strong>Explore your team</strong><p>Drag to rotate. Scroll or use + / − to zoom. Select a floor, then a teammate.</p><p>Bot status refreshes automatically. Human presence is not tracked.</p><p id="scene-about" hidden>This preview uses a fictional demo team.</p></div>
-<div class="camera-controls"><button id="reset" aria-label="Reset camera" title="Reset camera"></button><span class="control-divider"></span><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-in" aria-label="Zoom in">+</button></div>
 <script type="module" src="bridge.js"></script>
 </body></html>
