@@ -6,6 +6,8 @@
 
 mod config;
 mod hub;
+#[cfg(target_os = "macos")]
+mod identity;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -540,7 +542,7 @@ fn build_tray(app: &App) -> tauri::Result<()> {
     }
     menu.append_items(&[&PredefinedMenuItem::separator(app)?, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-    let tray = TrayIconBuilder::with_id("tico")
+    let builder = TrayIconBuilder::with_id("tico")
         .icon(icon)
         .icon_as_template(true)
         .tooltip(config::app_name())
@@ -550,14 +552,21 @@ fn build_tray(app: &App) -> tauri::Result<()> {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
                 toggle_window(tray.app_handle());
             }
-        })
-        .build(app)?;
+        });
+    // Native text and the template mark follow macOS light/dark appearance together.
+    #[cfg(target_os = "macos")]
+    let builder = match identity::tray_label(config::app_name(),
+        option_env!("TICO_ENV_SLUG").unwrap_or(""), option_env!("TICO_TRAY_LABEL").unwrap_or("")) {
+        Some(label) => builder.title(label),
+        None => builder,
+    };
+    let tray = builder.build(app)?;
     *state.tray.lock().unwrap() = Some(TrayItems { tray, headline, counts, toggle, mode });
     render_tray_now(app);
     Ok(())
 }
 
-/// The tray reads the status: the mark alone, with the state in the tooltip and menu.
+/// Status updates keep the company label; state lives in the tooltip and menu.
 fn render_tray(app: &App) {
     // Always on the main thread: window questions round-trip there, and a lock held while
     // asking one would wait on itself.

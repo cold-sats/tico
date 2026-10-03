@@ -22,6 +22,7 @@
 #                            the same. Without it this script builds the default Tico.
 #                            Env: TICO_ENVIRONMENTS_DIR overrides the environments root;
 #                            TICO_APP_PATH writes the bundle somewhere other than ~/Applications.
+#                            Optional tray_label in environment.json overrides macOS initials.
 set -euo pipefail
 HUB="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$HUB/app"
@@ -45,6 +46,7 @@ if [ -n "$HUB_URL" ]; then UPDATE_URL="${TICO_APP_BASE:-${HUB_URL%/}}/download/l
 ICON_SRC="${ICON_SRC:-$HUB/ui/assets/tico/tico-1024.png}"
 TRAY_SRC="$HUB/ui/assets/tico/tico-menubar@2x.png"
 LOCAL_TOKEN_FILE=""
+TRAY_LABEL=""
 
 json() { plutil -extract "$2" raw -o - "$1" 2>/dev/null || true; }
 
@@ -57,6 +59,7 @@ if [ -n "$ENV_SLUG" ]; then
   ENV_RUNNER="$(json "$ENV_JSON" runner_url)"
   [ -n "$ENV_ID" ] && [ -n "$ENV_APP" ] && [ -n "$ENV_URL" ] || { echo "$ENV_JSON needs id, app_name, and url"; exit 1; }
   NAME="$ENV_APP"
+  TRAY_LABEL="$(json "$ENV_JSON" tray_label)"
   # The identifier comes from the environment ID, which never changes: a slug can be renamed and
   # a name is not unique. Changing it later would orphan the app's login state and preferences.
   BUNDLE_ID="team.tico.env.$ENV_ID"
@@ -76,10 +79,10 @@ ICONS="$BUILD/icons-${ENV_SLUG:-tico}"
 
 # What the Rust build reads (app/build.rs re-runs config.rs when these change).
 export TICO_HUB_URL="$HUB_URL" TICO_APP_NAME="$NAME" TICO_ENV_SLUG="$ENV_SLUG" TICO_LOCAL_TOKEN_FILE="$LOCAL_TOKEN_FILE"
+export TICO_TRAY_LABEL="$TRAY_LABEL"
 
 icons() {
-  # The bundle icon from the company's mark; the tray mark stays the product's template image
-  # unless the company icon has transparency to cut one from.
+  # The company's Dock icon stays separate from the template tray mark and native label.
   if [ ! -f "$ICONS/icon.icns" ] || [ "$ICON_SRC" -nt "$ICONS/icon.icns" ]; then
     (cd "$APP_DIR" && cargo tauri icon "$ICON_SRC" -o "$ICONS" >/dev/null)
     rm -rf "$ICONS/android" "$ICONS/ios"
