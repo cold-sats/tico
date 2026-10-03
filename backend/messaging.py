@@ -162,7 +162,7 @@ def install_messaging(app, store, auth):
                                 "content": found["description"], "updated": None, "published": False}
             jobs = routines.listing(c, bot)
             for job in jobs:
-                job["occurrences"] = routines.occurrences(c, job["id"], limit=6)
+                job["occurrences"] = routines.occurrences(c, job["id"], limit=6, who=who, auth=auth)
             mail = []
             if mailboxes:
                 marks = ",".join("?" * len(mailboxes))

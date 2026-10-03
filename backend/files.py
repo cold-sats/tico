@@ -278,7 +278,7 @@ class Files:
                 fields = dict(v)
                 versions.append({"n": v["version"], "size": v["size"], "mime": v["mime"], "sha256": v["digest"],
                                  "created": v["created"], "by": v["actor"],
-                                 **version_review(c, row["id"], v["version"]),
+                                 **version_review(c, row["id"], v["version"], actor=privacy.actor(who)),
                                  **{k: fields.get(k) for k in ("width", "height", "duration_ms", "media_state")},
                                  "poster_url": f"/api/v2/files/{row['id']}/poster?v={v['version']}" if fields.get("poster_blob_id") else None,
                                  "thumb_url": f"/api/v2/files/{row['id']}/thumb?v={v['version']}" if fields.get("thumb_blob_id") else None,
@@ -296,7 +296,7 @@ class Files:
             out.append({"id": b["id"], "name": b["name"], "mime": b["content_type"], "current_version": 1,
                         "archived": False, "versions": [{"n": 1, "size": b["size"], "mime": b["content_type"],
                         "sha256": b["digest"], "created": b["created"], "by": b["owner"],
-                        **version_review(c, b["id"], 1),
+                        **version_review(c, b["id"], 1, actor=privacy.actor(who)),
                         **{k: b[k] for k in ("width", "height", "duration_ms", "media_state")},
                         "poster_url": f"/api/v2/files/{b['id']}/poster?v=1" if b["poster_blob_id"] else None,
                         "thumb_url": f"/api/v2/files/{b['id']}/thumb?v=1" if b["thumb_blob_id"] else None,
@@ -729,15 +729,21 @@ def install_files(app, store, auth, blobs, mutate):
 
     @app.patch("/api/v2/files/{fid}/versions/{number}")
     def edit_version(request: Request, fid: str, number: int, body: M.FileVersionEdit):
-        from .task_review import edit_version as change
-        def work(c):
+        from .task_review import edit_version as change, version_review
+        who = request.state.identity
+        def current_task(c):
             row = c.execute("SELECT task_id FROM bot_files WHERE id=?", (fid,)).fetchone()
             if not row:
                 row = c.execute("SELECT task_id FROM task_assets WHERE blob_id=?", (fid,)).fetchone()
             if not row or not row["task_id"]:
                 raise Problem("not_found", "Task file not found", 404)
-            return change(c, auth, request.state.identity, row["task_id"], fid, number, body)
-        return mutate(request, body, work)
+            auth.task(c, who, row["task_id"])
+            return row["task_id"]
+        mutate(request, body, lambda c: change(c, auth, who, current_task(c), fid, number, body), check=current_task)
+        # A retry preserves the edit but reads current message provenance, including projected answers.
+        with store.read() as c:
+            current_task(c)
+            return version_review(c, fid, number, actor=privacy.actor(who))
 
     @app.get("/api/v2/files/{fid}/activity")
     def activity(request: Request, fid: str):

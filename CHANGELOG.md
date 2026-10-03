@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Apply current task visibility consistently to routine history and task review reads.
+- Removing a routine preserves unrelated queued work and already claimed occurrences.
+- Pipeline steps containing tasks must keep their status meaning; names and order remain editable.
+- A comment that wakes an assignee bot does not grant permission to close the task.
+- Done tasks can be explicitly closed from their menu or bulk actions, preserving completion history.
+
 ## [0.3.13] - 2026-10-02
 
 ### Added

@@ -662,7 +662,7 @@ def create_app(settings=None):
             if not row:
                 raise Problem('not_found', 'Routine not found', 404)
             auth.require_read(c, who, row['bot'], 'Routine not found')
-            return {'occurrences': routines.occurrences(c, schedule_id, limit)}
+            return {'occurrences': routines.occurrences(c, schedule_id, limit, who=who, auth=auth)}
 
     def mutate(request, body, fn, check=None):
         def current_access(c):
@@ -693,7 +693,7 @@ def create_app(settings=None):
             privacy.require_payload(c, request.state.identity, result)
         return result
 
-    def task_view(row, c=None, parts=None, pipelines=None, visible_sql="1"):
+    def task_view(row, c=None, parts=None, pipelines=None, visible_sql="1", who=None):
         if c is not None:
             H.hydrate_task_tags(c, [row])
         value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
@@ -719,7 +719,8 @@ def create_app(settings=None):
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
-            value.update({"origin_actor": H.task_origin(c, row), "ask": H.unanswered_ask(c, row), "open_asks": len(H.open_task_asks(c, row))})
+            asks = H.open_task_asks(c, row, actor=privacy.actor(who))
+            value.update({"origin_actor": H.task_origin(c, row), "ask": next(iter(asks), None), "open_asks": len(asks)})
             from .task_review import task_covers
             value["cover"] = task_covers(c, [row["id"]]).get(row["id"])
             from .blobs import brief
@@ -738,7 +739,7 @@ def create_app(settings=None):
             value["parts"] = parts
         return value
 
-    def task_views(rows, c, visible_sql="1"):
+    def task_views(rows, c, who, visible_sql="1"):
         """Hydrate one task-list page with a fixed number of relation queries."""
         if not rows:
             return []
@@ -773,6 +774,9 @@ def create_app(settings=None):
             blockers = {row["id"]: dict(row) for row in c.execute(
                 f"SELECT id,title,status FROM tasks WHERE id IN ({blocker_marks}) AND ({visible_sql})", blocker_ids)}
 
+        from .privacy_index import ReadIndex
+        provenance = ReadIndex(c, who)
+        c.create_function("task_ask_readable", 4, provenance.message)
         asks, open_counts = {}, {}
         for message in c.execute(
                 "SELECT * FROM (SELECT m.*,t.id AS ask_task_id,"
@@ -780,7 +784,8 @@ def create_app(settings=None):
                 "ROW_NUMBER() OVER (PARTITION BY t.id ORDER BY m.rowid DESC) AS ask_rank "
                 "FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
                 f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
-                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.answered_by IS NULL "
+                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL AND m.answered_by IS NULL "
+                "AND task_ask_readable(m.id,m.conversation_id,m.refs_json,m.in_reply_to) "
                 "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')) "
                 "WHERE ask_rank=1", ids):
             message = dict(message)
@@ -846,7 +851,7 @@ def create_app(settings=None):
         rows = H.tasks(c, owner=owner, requester=requester, status=status, lane=lane, label=label,
                        limit=limit + 1, offset=offset, order=order, visible=visible_sql, **more)
         page, has_more = rows[:limit], len(rows) > limit
-        return task_views(page, c, visible_sql), offset + limit if has_more else None
+        return task_views(page, c, who, visible_sql), offset + limit if has_more else None
 
     def check_refs(c, who, refs):
         # Validate referenced objects rather than trusting an arbitrary ID in a payload.
@@ -2140,12 +2145,12 @@ def create_app(settings=None):
                 can_comment = True
             except Problem:
                 can_comment = False
-            return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who)),
+            return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who), who=who),
                     "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
                     "can_comment": can_comment,
                     "children": children,
                     "parent": {"id": parent["id"], "title": parent["title"], "status": parent["status"]} if parent else None,
-                    "comments": H.task_comments(c, tid),
+                    "comments": H.task_comments(c, tid, actor=privacy.actor(request.state.identity)),
                     "mover": mover(c, request.state.identity),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
@@ -2226,7 +2231,7 @@ def create_app(settings=None):
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))
         for url in body.links:
             H.task_link(c, who.actor, row["id"], url, mover=True)
-        return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who))}
+        return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who)}
 
     @app.post("/api/v2/tasks")
     def create_task(request: Request, body: M.TaskCreate):
@@ -2285,7 +2290,7 @@ def create_app(settings=None):
                         auth.task(c, who, fields[name])
                 H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None)
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
-            return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who))}
+            return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who), who=who)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/run-now")
@@ -2314,7 +2319,7 @@ def create_app(settings=None):
                 if str(row["owner"]).startswith("bot:") and who.actor != row["owner"]:
                     auth.require_write(c, who, H.actor_id(row["owner"]))
             after, queued = H.task_run_now(c, who.actor, task_id)
-            return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who)), "queued": queued}
+            return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who), "queued": queued}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/ask")
@@ -2351,8 +2356,8 @@ def create_app(settings=None):
                           (item["id"], item["version"]))
                 c.execute("UPDATE task_file_reviews SET comment_id=coalesce(comment_id,?) WHERE file_id=? AND version=?",
                           (msg["id"], item["id"], item["version"]))
-            msg = next(m for m in H.task_comments(c, task_id) if m["id"] == msg["id"])
-            return {"comment": msg, "comments": H.task_comments(c, task_id), "woke": bool(wake)}
+            msg = next(m for m in H.task_comments(c, task_id, actor=privacy.actor(request.state.identity)) if m["id"] == msg["id"])
+            return {"comment": msg, "comments": H.task_comments(c, task_id, actor=privacy.actor(request.state.identity)), "woke": bool(wake)}
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks/{tid}/comments")
@@ -2360,14 +2365,14 @@ def create_app(settings=None):
         with store.read() as c:
             task_id = auth.resolve_task(c, request.state.identity, tid)
             auth.task(c, request.state.identity, task_id)
-            return {"comments": H.task_comments(c, task_id)}
+            return {"comments": H.task_comments(c, task_id, actor=privacy.actor(request.state.identity))}
 
     @app.get("/api/v2/tasks/{tid}/answers")
     def task_answers(request: Request, tid: str):
         with store.read() as c:
             task_id = auth.resolve_task(c, request.state.identity, tid)
             auth.task(c, request.state.identity, task_id)
-            return {"answers": [m["answer"] for m in H.task_comments(c, task_id) if m.get("answer")]}
+            return {"answers": [m["answer"] for m in H.task_comments(c, task_id, actor=privacy.actor(request.state.identity)) if m.get("answer")]}
 
     @app.post("/api/v2/tasks/{tid}/answers")
     def task_answer(request: Request, tid: str, body: M.TaskAnswer):
@@ -2418,6 +2423,8 @@ def create_app(settings=None):
         msg = H.comment_on(c, row, mid)
         if not msg or msg.get("deleted_at") and not allow_deleted:
             raise Problem("not_found", "No such comment on this task", 404)
+        if not msg.get("deleted_at"):
+            privacy.require_message(c, who, msg)
         # The Assistant and BotOps act with a person's rights, but the words are the person's own.
         if who.via:
             raise Problem("forbidden", "Only a comment's author edits or deletes it, signed in as themselves", 403)
@@ -2440,7 +2447,7 @@ def create_app(settings=None):
             from .task_review import comment_rights
             comment_rights(c, auth, who, row["id"])
             msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text)
-            return {"comment": msg, "comments": H.task_comments(c, row["id"]), "woke": False}
+            return {"comment": msg, "comments": H.task_comments(c, row["id"], actor=privacy.actor(request.state.identity)), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
     @app.post("/api/v2/tasks/{tid}/comments/{mid}/delete")
@@ -2450,7 +2457,7 @@ def create_app(settings=None):
         def work(c):
             row = own_comment(c, who, tid, mid)
             msg = H.task_comment_delete(c, who.actor, row["id"], mid)
-            return {"comment": msg, "comments": H.task_comments(c, row["id"]), "woke": False}
+            return {"comment": msg, "comments": H.task_comments(c, row["id"], actor=privacy.actor(request.state.identity)), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
     @app.post("/api/v2/tasks/{tid}/links")

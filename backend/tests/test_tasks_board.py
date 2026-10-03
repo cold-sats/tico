@@ -537,16 +537,14 @@ def test_step_moves_enforce_existing_bot_status_permissions(api):
     assert get(api, 'tasks/' + task['id'])['task']['status'] == 'open'
 
 
-def test_editing_a_step_status_moves_tasks_with_history_and_completion_dates(api):
+def test_editing_an_occupied_step_status_requires_explicit_task_moves(api):
     typ = pipeline(api)
     task = post(api, 'tasks', {'owner': 'cmo', 'title': 'Review the launch', 'body': 'Please.', 'type': typ['id']})
+    before = get(api, 'tasks/' + task['id'])
     steps = [{k: s[k] for k in ('id', 'name', 'position', 'status')} for s in typ['steps']]
     steps[0]['status'] = 'done'
-    post(api, 'task-types/' + typ['id'], {'steps': steps})
-    after = get(api, 'tasks/' + task['id'])
-    assert after['task']['status'] == 'done' and after['task']['done_at']
-    assert after['task']['step_id'] == task['step_id'] and after['task']['version'] > task['version']
-    assert any(e['field'] == 'status' and e['new'] == 'done' for e in after['events'])
+    post(api, 'task-types/' + typ['id'], {'steps': steps}, expected=422)
+    assert get(api, 'tasks/' + task['id']) == before
 
 
 def test_same_status_step_move_does_not_repeat_a_result_or_completion(api):

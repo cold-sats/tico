@@ -127,6 +127,8 @@ def message_readable(c, actor, message):
 def require_message(c, who, message):
     if not message_readable(c, actor(who), message):
         raise Problem("not_found", "Message not found", 404)
+    if message.get("kind") == "ask" and (message.get("refs") or {}).get("questions"):
+        message["answers"] = H.review_answers(c, message["id"], actor=actor(who))
     return message
 
 
@@ -203,6 +205,10 @@ def require_payload(c, who, payload, principal=None):
         if payload.get("conversation_id") and payload.get("id"):
             if not message_readable(c, principal, payload) and not deleted_comment_ack(c, principal, payload):
                 raise Problem("privacy", "This message is no longer available", 403)
+        if payload.get("kind") == "ask" and payload.get("id") and isinstance(payload.get("answers"), list):
+            # Answer projections have no message id; recheck their source before replaying a receipt.
+            visible_answers = H.review_answers(c, payload["id"], actor=principal)
+            payload["answers"] = [answer for answer in payload["answers"] if answer in visible_answers]
         for value in payload.values():
             if isinstance(value, (dict, list)):
                 require_payload(c, who, value, principal)

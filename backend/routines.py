@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from clients.manifest import tools_of
 from clients.routines import DEFAULT_ZONE, validate_schedules
-from . import people as P
+from . import people as P, task_privacy as privacy
 from .scheduler import next_due, stamp
 from .store import H, Problem, encode
 
@@ -126,18 +126,28 @@ def remove(c, actor, sid, *, at=None):
 
 
 def cancel_unclaimed(c, sid):
-    for task in c.execute("SELECT t.* FROM tasks t JOIN schedule_occurrences o ON o.task_id=t.id "
+    for task in c.execute("SELECT DISTINCT t.* FROM tasks t JOIN schedule_occurrences o ON o.task_id=t.id "
                           "WHERE o.schedule_id=? AND t.status='open'", (sid,)).fetchall():
-        if c.execute('SELECT 1 FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN messages m ON m.id=j.message_id '
-                     'WHERE m.conversation_id=?', (task['conversation_id'],)).fetchone():
+        # Primary jobs, additional turn inputs and carried work all count as claimed.
+        claimed = c.execute(
+            "SELECT 1 FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+            f"WHERE {H.MESSAGE_TASK_SQL}=? AND (EXISTS "
+            "(SELECT 1 FROM jobs j JOIN attempts a ON a.job_id=j.id WHERE j.message_id=m.id) OR EXISTS "
+            "(SELECT 1 FROM attempt_inputs i WHERE i.message_id=m.id)) LIMIT 1", (task['id'],)).fetchone()
+        carried = task['carried_by'] or c.execute(
+            "SELECT 1 FROM events e JOIN json_each(e.detail_json,'$.tasks') v "
+            "WHERE e.action='task.next-run.carried' AND v.value=? LIMIT 1", (task['id'],)).fetchone()
+        if claimed or carried:
             continue
         H.task_close(c, H.KEEPER, task['id'], 'Routine removed before execution.')
         c.execute('UPDATE tasks SET version=version+1 WHERE id=?', (task['id'],))
-        c.execute("UPDATE jobs SET state='completed' WHERE state='queued' AND message_id IN "
-                  '(SELECT id FROM messages WHERE conversation_id=?)', (task['conversation_id'],))
+        task_messages = ("SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+                         f"WHERE {H.MESSAGE_TASK_SQL}=?")
+        c.execute("UPDATE jobs SET state='completed' WHERE state='queued' AND message_id IN (" + task_messages + ")",
+                  (task['id'],))
         # Includes the close notice, so the outbox does not wake this removed work.
-        c.execute("UPDATE messages SET delivered_at=? WHERE conversation_id=? AND to_actor LIKE 'bot:%' "
-                  'AND delivered_at IS NULL', (H.now(), task['conversation_id']))
+        c.execute("UPDATE messages SET delivered_at=? WHERE id IN (" + task_messages + ") AND to_actor LIKE 'bot:%' "
+                  "AND delivered_at IS NULL", (H.now(), task["id"]))
 
 
 def latest_task(c, sid):
@@ -338,7 +348,7 @@ def _outcome(raw, event=False):
     return raw or "created"
 
 
-def occurrences(c, schedule_id, limit=OCCURRENCE_LIMIT):
+def occurrences(c, schedule_id, limit=OCCURRENCE_LIMIT, *, who, auth):
     """Recent firings of one routine, joined to the task and its latest attempt."""
     try:
         limit = int(limit)
@@ -349,7 +359,8 @@ def occurrences(c, schedule_id, limit=OCCURRENCE_LIMIT):
     event = bool(schedule and schedule["event_name"])
     rows = c.execute(
         "SELECT o.occurrence,o.outcome,o.task_id,t.status,t.title "
-        "FROM schedule_occurrences o LEFT JOIN tasks t ON t.id=o.task_id WHERE o.schedule_id=? "
+        "FROM schedule_occurrences o JOIN tasks t ON t.id=o.task_id WHERE o.schedule_id=? "
+        f"AND ({auth.task_sql(c, who)}) "
         "ORDER BY o.occurrence DESC LIMIT ?",
         (schedule_id, limit)).fetchall()
     ids = list(dict.fromkeys(found["task_id"] for found in rows if found["task_id"]))
@@ -357,11 +368,12 @@ def occurrences(c, schedule_id, limit=OCCURRENCE_LIMIT):
     if ids:
         marks = ",".join("?" * len(ids))
         for attempt in c.execute(
-                f"SELECT {H.MESSAGE_TASK_SQL} AS task_id,a.started,a.finished,a.state "
+                f"SELECT {H.MESSAGE_TASK_SQL} AS task_id,a.id,a.started,a.finished,a.state "
                 "FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN messages m ON m.id=j.message_id "
                 f"JOIN conversations cv ON cv.id=m.conversation_id WHERE {H.MESSAGE_TASK_SQL} IN ({marks}) "
                 "ORDER BY a.created DESC", ids):
-            attempts.setdefault(attempt["task_id"], dict(attempt))
+            if privacy.attempt_readable(c, privacy.actor(who), attempt["id"]):
+                attempts.setdefault(attempt["task_id"], dict(attempt))
     result = []
     for found in rows:
         attempt = attempts.get(found["task_id"]) or {}

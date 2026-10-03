@@ -644,7 +644,7 @@ def needs_items(c, auth, who, task_view):
                 auth.task(c, who, row["id"])
             except Problem:
                 continue
-            open_asks = H.open_task_asks(c, row)
+            open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
             items.append({**task_view(row),
                           "kind": "declined" if kind == "declined" else "question" if ask else "task",

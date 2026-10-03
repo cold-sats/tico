@@ -29,7 +29,8 @@ the step, without another completion note or notice. Step changes appear in the 
 Movers (the owner and humans on the leadership, product or engineering teams) create, rename,
 reorder and delete types and steps. Move every task off a step before deleting it, including
 finished tasks. Move tasks to another type before deleting the type. Changing an occupied step's
-status moves its tasks to that status, using the normal completion and reopening behavior.
+status is refused: move the tasks explicitly or create a new step. Renaming and reordering steps
+preserves task statuses and history.
 
 A task on a custom type is a ticket on that type's board, not an ask. The rule that shapes a
 request to a person (a title that starts with a verb, the ask in the first line, under 120 words
@@ -60,7 +61,9 @@ the separate completion and closing events.
 Done stays Done, including tasks the owner requested for itself, old bot-requested tasks,
 and completed routine runs. Closing is a separate decision; it records `closed_at` and
 `closed_by`, preserving the completion time if the work was already Done. Earlier history
-is preserved, including tasks that older versions closed automatically.
+is preserved, including tasks that older versions closed automatically. Use **Close task** in the
+Done task’s menu, or bulk **Close**, to accept completion. A waking comment delegates further
+work, not permission for the assignee bot to accept its own result.
 Completed work does not block a new task with the same requester, owner and title; unfinished
 duplicates are still refused.
 

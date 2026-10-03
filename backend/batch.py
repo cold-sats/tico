@@ -115,7 +115,7 @@ def relevant(c, actor, items):
             kids = _children(c, it["id"], actor)
             if kids:
                 for kid in kids:
-                    kid = {**kid, "kind": "task", "ask": H.unanswered_ask(c, kid), "origin_actor": H.task_origin(c, kid),
+                    kid = {**kid, "kind": "task", "ask": H.unanswered_ask(c, kid, actor=actor), "origin_actor": H.task_origin(c, kid),
                            "first_line": (kid.get("body") or "").split("\n")[0]}
                     if kid["ask"]:
                         kid["kind"] = "question"
@@ -443,7 +443,7 @@ def _apply_decide(c, auth, who, item, r):
         H.task_close(c, who.actor, ident, note=text)
         c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (ident,))
         return f"Closed: {item['title']}"
-    ask = H.unanswered_ask(c, row)
+    ask = H.unanswered_ask(c, row, actor=privacy.actor(who))
     if ask and ask.get("to_actor") == who.actor:
         H.answer(c, who.actor, ask["id"], text)
         return f"Answered {H.actor_id(ask['from_actor'])}: {_clip(text, 120)}"

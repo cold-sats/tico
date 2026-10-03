@@ -2009,6 +2009,10 @@ def _type_steps(conn, actor, type_id, steps):
         clean.append({"id": ident, "type_id": type_id, "name": name,
                       "position": raw.get("position") if raw.get("position") is not None else position,
                       "status": status})
+    for row in clean:
+        if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
+                and _one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (row["id"],))):
+            refuse(conn, actor, "in-use", "Move tasks off this step before changing its status, or create a new step")
     removed = set(existing) - ids
     for ident in removed:
         if _one(conn, "SELECT id FROM tasks WHERE step_id=? LIMIT 1", (ident,)):
@@ -2022,11 +2026,6 @@ def _type_steps(conn, actor, type_id, steps):
         conn.execute("INSERT INTO task_steps(id,type_id,name,position,status) "
                      "VALUES(:id,:type_id,:name,:position,:status) ON CONFLICT(id) DO UPDATE SET "
                      "name=excluded.name,position=excluded.position,status=excluded.status", row)
-    for row in clean:
-        if row["id"] in existing and row["status"] != existing[row["id"]]["status"]:
-            for task_row in _rows(conn.execute("SELECT * FROM tasks WHERE step_id=?", (row["id"],))):
-                task_update(conn, KEEPER, task_row["id"], step=row["id"], quiet=True)
-                conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_row["id"],))
 
 
 def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
@@ -2611,9 +2610,10 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     return msg
 
 
-def task_comments(conn, task_id):
+def task_comments(conn, task_id, *, actor=None):
     """Every comment and ask on this task, oldest first, with who wrote it. A deleted comment is not
     listed; an edited one carries `edited_at`."""
+    from . import task_privacy as privacy
     row = task(conn, task_id)
     if not row or not row.get("conversation_id"):
         return []
@@ -2623,27 +2623,33 @@ def task_comments(conn, task_id):
                                 "ORDER BY created", (row["conversation_id"],))):
         m["refs"] = _json(m.get("refs_json"), {}) or {}
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
+            if actor is not None and not privacy.message_readable(conn, actor, m):
+                continue
             if m["kind"] == "ask" and m["refs"].get("questions"):
                 m["ask"] = {**{k: m["refs"].get(k) for k in ("questions", "who")}, "by": m["from_actor"]}
-                m["answers"] = review_answers(conn, m["id"])
+                m["answers"] = review_answers(conn, m["id"], actor=actor)
             if m["refs"].get("answer"):
                 m["answer"] = m["refs"]["answer"]
             out.append(m)
     return out
 
 
-def review_answers(conn, message_id):
+def review_answers(conn, message_id, *, actor=None):
+    from . import task_privacy as privacy
     out = []
     for row in conn.execute(
             "SELECT * FROM messages WHERE deleted_at IS NULL AND ((kind='answer' AND in_reply_to=?) "
             "OR id=(SELECT answered_by FROM messages WHERE id=?)) ORDER BY created,rowid",
             (message_id, message_id)):
+        if actor is not None and not privacy.message_readable(conn, actor, row):
+            continue
         refs = _json(row["refs_json"], {}) or {}
         out.append(refs.get("answer") or {"by": row["from_actor"], "text": row["body"], "at": row["created"]})
     return out
 
 
-def open_task_asks(conn, task_row):
+def open_task_asks(conn, task_row, *, actor=None):
+    from . import task_privacy as privacy
     conv = (task_row or {}).get("conversation_id")
     if not conv:
         return []
@@ -2653,6 +2659,8 @@ def open_task_asks(conn, task_row):
         "AND m.answered_by IS NULL AND NOT EXISTS "
         "(SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer') ORDER BY m.rowid DESC",
         (conv, task_row["id"])))
+    if actor is not None:
+        asks = [ask for ask in asks if privacy.message_readable(conn, actor, ask)]
     for ask in asks:
         ask["refs"] = _json(ask.get("refs_json"), {}) or {}
     return asks
@@ -3193,9 +3201,7 @@ def _task_close_allowed(conn, actor, row, note):
     _task_private_writer(conn, actor, row)
     if actor != KEEPER and not is_human(actor) and row["status"] != "closed" and children_summary(conn, row["id"])["open"]:
         refuse(conn, actor, "children", "Finish the open subtasks before closing this task")
-    delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
-                     (row["id"], actor, now()))
-    if actor != row["requester"] and not is_human(actor) and actor != KEEPER and not delegated:
+    if actor != row["requester"] and not is_human(actor) and actor != KEEPER:
         refuse(conn, actor, "close", f"{actor_id(row['requester'])} asked for this; only they close it")
     if (row["status"] not in ("done", "declined", "closed") and is_human(actor)
             and is_human(row["owner"]) and is_bot(row["requester"])
@@ -3205,7 +3211,7 @@ def _task_close_allowed(conn, actor, row, note):
 
 @private_task_write
 def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=None):
-    """Rule 5. Closing is an explicit requester, human, delegated bot or keeper decision."""
+    """Rule 5. Closing is an explicit requester, human or keeper decision; work delegation is not acceptance."""
     _writer(conn, actor)
     row = task(conn, task_id)
     if not row:
@@ -4282,9 +4288,9 @@ def task_history(conn, task_id):
     return _rows(conn.execute("SELECT * FROM task_events WHERE task_id=? ORDER BY ts", (task_id,)))
 
 
-def unanswered_ask(conn, task_row):
+def unanswered_ask(conn, task_row, *, actor=None):
     """The latest unanswered ask on this task, or None."""
-    return next(iter(open_task_asks(conn, task_row)), None)
+    return next(iter(open_task_asks(conn, task_row, actor=actor)), None)
 
 
 def tasks_asked_of(conn, actor):

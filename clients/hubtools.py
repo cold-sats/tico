@@ -1342,7 +1342,7 @@ def docs_links(api, args):
     return api.get("linked-docs")
 
 
-@tool("hub_task_close", "A human may close a task they can edit. A bot closes work it requested or was delegated to close. "
+@tool("hub_task_close", "A human may close a task they can edit. A bot closes work it requested; a comment or work delegation does not grant acceptance authority. "
       "BotOps uses the requester's rights. Close accepts or cancels a task; report completed work with hub_task_update status done.",
       {"id": TASK_ID, "note": _s("Why it is closed"),
        "quiet": {"type": "boolean", "description": "Close without waking a bot"}}, required=("id",), writes=True)

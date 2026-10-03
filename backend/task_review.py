@@ -70,14 +70,15 @@ def check_ask(c, task_id, ask, auth, who):
     return value
 
 
-def version_review(c, fid, number):
+def version_review(c, fid, number, *, actor):
     row = c.execute("SELECT * FROM task_file_reviews WHERE file_id=? AND version=?", (fid, number)).fetchone()
     asked = H.message(c, row["ask_message_id"]) if row and row["ask_message_id"] else None
-    if asked and (asked.get("deleted_at") or asked.get("deleted")):
+    if asked and not privacy.message_readable(c, actor, asked):
         asked = None
-    return {"note": row["note"] if row else None, "comment_id": row["comment_id"] if row else None,
+    comment_visible = row and (not row["comment_id"] or privacy.message_readable(c, actor, H.message(c, row["comment_id"])))
+    return {"note": row["note"] if comment_visible else None, "comment_id": row["comment_id"] if comment_visible else None,
             "ask": {**{k: asked["refs"].get(k) for k in ("questions", "who")}, "by": asked["from_actor"]} if asked else None,
-            "answers": H.review_answers(c, asked["id"]) if asked else []}
+            "answers": H.review_answers(c, asked["id"], actor=actor) if asked else []}
 
 
 def edit_version(c, auth, who, task_id, fid, number, body):
@@ -88,7 +89,7 @@ def edit_version(c, auth, who, task_id, fid, number, body):
     if version["actor"] != who.actor:
         raise Problem("forbidden", "Only whoever added this version may edit its note or question", 403)
     value = check_ask(c, task_id, body.ask, auth, who)
-    current = version_review(c, fid, number)
+    current = version_review(c, fid, number, actor=privacy.actor(who))
     c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task_id))
     c.execute("INSERT OR IGNORE INTO task_file_reviews(file_id,version) VALUES(?,?)", (fid, number))
     if "note" in body.model_fields_set:
@@ -98,7 +99,7 @@ def edit_version(c, auth, who, task_id, fid, number, body):
                              (fid, number)).fetchone()[0]
         if existing:
             if value is None or value == {k: v for k, v in (current["ask"] or {}).items() if k != "by"}:
-                return version_review(c, fid, number)
+                return version_review(c, fid, number, actor=privacy.actor(who))
             if H.answers_to(c, [existing]):
                 raise Problem("validation", "This version's question was answered; attach a new version for another review", 422)
             asked = H.message(c, existing)
@@ -106,13 +107,13 @@ def edit_version(c, auth, who, task_id, fid, number, body):
             recipient = H.task_ask_recipient(c, who.actor, row, value)
             c.execute("UPDATE messages SET refs_json=?,to_actor=? WHERE id=?",
                       (encode({**asked["refs"], **value}), recipient, existing))
-            return version_review(c, fid, number)
+            return version_review(c, fid, number, actor=privacy.actor(who))
         if value:
             msg = H.task_comment(c, who.actor, task_id, body.note or f'Review "{version["name"]}" v{number}.',
                                  ask=value, extra_refs={"target": {"file": fid, "version": number}})
             c.execute("UPDATE task_file_reviews SET ask_message_id=? WHERE file_id=? AND version=?",
                       (msg["id"], fid, number))
-    return version_review(c, fid, number)
+    return version_review(c, fid, number, actor=privacy.actor(who))
 
 
 def answer_task(c, auth, who, task_id, body, wake):
@@ -176,7 +177,7 @@ def answer_task(c, auth, who, task_id, body, wake):
     msg = H.task_comment(c, who.actor, task_id, text, wake=wake,
                          extra_refs={"answer": value}, answer_to=asked["id"], answer_text=body.other or "")
     return {"comment": {**msg, "answer": value}, "answer": value,
-            "comments": H.task_comments(c, task_id), "woke": bool(wake)}
+            "comments": H.task_comments(c, task_id, actor=privacy.actor(who)), "woke": bool(wake)}
 
 
 def task_covers(c, task_ids):

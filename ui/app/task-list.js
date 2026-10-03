@@ -697,7 +697,7 @@ const STATUS_MENU_KIND = {open: 'starting', doing: 'doing', waiting: 'waiting', 
 function tasksBulkMenu(state, kind, anchor) {
   if (kind === 'clear') { tasksSelectionClear(state); return; }
   if (kind === 'undo') { void tasksBulkUndo(state); return; }
-  if (kind === 'close') { void tasksBulkApply(state, {close: true, done: 'closed', already: 'closed'}, t => taskFinished(t) ? null : {close: true}); return; }
+  if (kind === 'close') { void tasksBulkApply(state, {close: true, done: 'closed', already: 'closed'}, t => t.status === 'closed' ? null : {close: true}); return; }
   if (kind === 'status') {
     tasksMenu(state, anchor, `<div class="tl-menu" role="menu" aria-label="Set status"><div class="tl-menu-h" aria-hidden="true">Status</div>
       ${BULK_STATUSES.map(s => `<button type="button" role="menuitem" class="tl-mi" data-bulk-status="${s}">${statusIcon(STATUS_MENU_KIND[s], '')}<span>${esc(STATUS_WORD[s] || s)}</span></button>`).join('')}</div>`, pop => {
