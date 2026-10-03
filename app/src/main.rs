@@ -239,7 +239,8 @@ fn build_window(app: &App) -> tauri::Result<()> {
         .on_navigation(move |url| stays_in_app(&opener, url));
     #[cfg(target_os = "macos")]
     {
-        builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+        // Native chrome stays draggable on hub pages, sign-in pages and in rail mode.
+        builder = builder.title_bar_style(tauri::TitleBarStyle::Visible);
     }
     builder.build()?;
     Ok(())
@@ -370,6 +371,16 @@ fn remember_full_frame(app: &App) {
     save(&saved);
 }
 
+fn set_outer_size(window: &WebviewWindow, width: u32, height: u32) -> tauri::Result<()> {
+    // Saved frames and monitor work areas include the title bar; set_size takes content size.
+    let outer = window.outer_size()?;
+    let inner = window.inner_size()?;
+    window.set_size(PhysicalSize::new(
+        width.saturating_sub(outer.width.saturating_sub(inner.width)).max(1),
+        height.saturating_sub(outer.height.saturating_sub(inner.height)).max(1),
+    ))
+}
+
 fn apply_window_mode(app: &App, _animated: bool) {
     let state: State<AppState> = app.state();
     let Some(window) = main_window(app) else { return };
@@ -379,15 +390,18 @@ fn apply_window_mode(app: &App, _animated: bool) {
         WindowMode::Rail => {
             if let Ok(Some(monitor)) = window.current_monitor() {
                 let area = monitor.work_area();
-                let width = RAIL_WIDTH.min(area.size.width).max(MIN_WIDTH);
-                let _ = window.set_size(PhysicalSize::new(width, area.size.height));
+                // Match the logical minimum width on Retina displays before positioning in pixels.
+                let rail = LogicalSize::new(RAIL_WIDTH.max(MIN_WIDTH), 0)
+                    .to_physical::<u32>(monitor.scale_factor());
+                let width = rail.width.min(area.size.width);
+                let _ = set_outer_size(&window, width, area.size.height);
                 let _ = window.set_position(PhysicalPosition::new(area.position.x + area.size.width as i32 - width as i32, area.position.y));
             }
         }
         WindowMode::Full => {
             let saved = load_saved();
             if let Some((x, y, w, h)) = saved.full {
-                let _ = window.set_size(PhysicalSize::new(w, h));
+                let _ = set_outer_size(&window, w, h);
                 let _ = window.set_position(PhysicalPosition::new(x, y));
             } else {
                 let _ = window.set_size(LogicalSize::new(1240.0, 820.0));
@@ -405,15 +419,15 @@ fn apply_window_mode(app: &App, _animated: bool) {
 
 fn toggle_window_mode(app: &App) {
     let state: State<AppState> = app.state();
-    let next = {
+    // This helper reads mode too, so capture the full frame before taking the mode lock.
+    remember_full_frame(app);
+    {
         let mut mode = state.mode.lock().unwrap();
         *mode = match *mode {
-            WindowMode::Full => { remember_full_frame(app); WindowMode::Rail }
+            WindowMode::Full => WindowMode::Rail,
             WindowMode::Rail => WindowMode::Full,
         };
-        *mode
-    };
-    let _ = next;
+    }
     apply_window_mode(app, true);
 }
 
