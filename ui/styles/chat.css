@@ -180,7 +180,9 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .bot-chat-tasks-x{position:absolute;top:2px;right:2px;width:30px;height:30px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:19px;line-height:1;cursor:pointer}
 .bot-chat-tasks-x:hover{color:var(--ink);background:var(--surface2)}
 /* Composer notices and attachment state sit above the input, so the input itself owns the edge. */
-#chat-composer .ask{display:flex;flex-direction:column}
+/* The shared .ask class also styles task questions; chat needs no question-card surround. */
+#chat-composer .ask{display:flex;flex-direction:column;padding:0;border:0;background:transparent}
+#chat-composer .p-chips:empty{display:none}
 #chat-composer .p-pill{order:2}
 #chat-composer .p-menu{top:auto;bottom:calc(100% + 6px)}
 /* Chat owns the viewport: chrome and composer stay visible while only history scrolls. */
