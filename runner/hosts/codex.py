@@ -286,10 +286,12 @@ class CodexHost(Host):
             return
         if method == "account/rateLimits/updated":
             rl = p.get("rateLimits") or {}
-            w = rl.get("primary") or rl.get("secondary") or {}
-            self.emit("rate_limits", tid, turn, used_percent=w.get("usedPercent"),
-                      window_minutes=w.get("windowDurationMins"), resets_at=iso(w.get("resetsAt")),
-                      plan_type=rl.get("planType"))
+            for w in (rl.get("primary"), rl.get("secondary")):
+                if not isinstance(w, dict):
+                    continue
+                self.emit("rate_limits", tid, turn, used_percent=w.get("usedPercent"),
+                          window_minutes=w.get("windowDurationMins"), resets_at=iso(w.get("resetsAt")),
+                          plan_type=rl.get("planType"))
             return
         if method == "thread/status/changed":
             state = (p.get("status") or {}).get("type")
