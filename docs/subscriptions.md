@@ -26,3 +26,26 @@ A current runner retries a rejected heartbeat without only the unsupported repor
 Profile directories separate provider logins. Browser-created profiles live outside the bot workspace, with directories set to 0700 and owned by the same user that runs sign-in, probes and turns. Linux Docker harnesses currently retain the existing shared bot Unix user; profiles do not yet provide a Unix permission boundary between groups. Do not rely on profile assignments to isolate files from another bot on the same Computer.
 
 The Engineering Manager template gives owners and admins an initial read grant to all enabled repositories. Member-created bots keep the team default. Its child-task and worktree instructions require phases 2 and 3 to ship first.
+
+### Refreshing weekly allowance
+
+On **AI providers**, a computer operator or administrator can choose **Refresh weekly
+usage** for a named Codex subscription. The computer reads the Codex app-server's
+[`account/rateLimits/read`](https://learn.chatgpt.com/docs/app-server) endpoint in that
+profile. It does not start a model turn, consume a reset credit, change a subscription,
+or switch to another account. Repeated clicks are coalesced for one minute; only one
+read runs at a time per computer and requests expire after two minutes. Older computers
+without refresh support leave a request to expire; update the computer to enable it.
+
+Sign-in status, weekly allowance and refresh status are separate. Failed or unsupported
+reads keep the last successful reading, with its original timestamp. An elapsed reset
+never means a fresh allowance or a repaired sign-in. Claude and other runtimes without
+a supported standalone weekly read use observations from normal runs or a manual
+provider reading. Missing percentages remain unknown, not zero.
+
+Starting a new sign-in through Tico invalidates earlier readings and in-flight refresh
+results for that profile/runtime. Replacing credentials outside Tico under the same
+local profile cannot currently be detected: refresh and confirm the provider reading
+after such a change. Usage reported by a turn that was already running during sign-in
+can also refer to its earlier account; avoid replacing an active profile while turns
+are running. This is approximate monitoring, not a spending limit.
