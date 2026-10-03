@@ -7,13 +7,20 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.15] - 2026-10-02
+
 ### Added
 - Overview turns the company into an interactive building with department floors, human and bot teammates, and reported bot status. It is available first in desktop and mobile navigation; Updates remains the default. The night scene has department signs on the back walls, direct floor exploration, reduced-motion support and an accessible roster when 3D is unavailable.
 
 ### Changed
-- Run all tests locally; GitHub Actions builds and publishes artifacts without Python, browser or Docker smoke-test jobs.
+- GitHub Actions builds and publishes artifacts without Python, browser or Docker smoke-test jobs.
 - Company apps show short initials beside the macOS menu-bar icon, with an optional private label override; stable app identities and update feeds are preserved.
 - Company download links open the described installer directly. Generic apps are labeled as requiring manual setup and no longer appear in company-app banners.
+
+### Fixed
+- Kanban columns keep a readable minimum width and scroll horizontally within the board, while empty columns remain compact.
+- macOS windows use a native title bar; switching to the right rail no longer deadlocks, and window restoration accounts for title-bar height and Retina scaling.
+- Unrelated chat messages no longer resolve questions on other tasks. Direct replies resolve only their referenced question; task replies stay within their task.
 
 ## [0.3.14] - 2026-10-02
 
@@ -1793,7 +1800,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.14...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.15...HEAD
+[0.3.15]: https://github.com/ticoteam/tico/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/ticoteam/tico/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/ticoteam/tico/compare/v0.3.12...v0.3.13
 [0.3.12]: https://github.com/ticoteam/tico/compare/v0.3.11...v0.3.12
