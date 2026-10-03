@@ -58,6 +58,53 @@ A model with no CLI of its own has a row in `MODEL_CATALOG` with `runtime: "pi"`
 `runner/hosts/pi.py` `MODELS` that gives its OpenRouter id (for example `kimi-k3` is `moonshotai/kimi-k3`). Enabling
 the `openrouter` provider offers every such model; enabling one vendor offers that vendor's models only.
 
+## Choosing a harness, model and effort
+
+Bot settings, new bots, fallbacks and bulk model changes use three separate fields:
+**Harness / provider**, then **Model**, then **Effort**. Model choices follow the selected harness
+and the team's enabled providers; effort choices follow that model. For an existing bot's primary model, choose
+all three and press **Apply** to use the existing confirmation and checkpoint transition. Changing
+a field alone does not switch the running bot. Cancel restores the saved selection.
+
+The current OpenAI and Claude choices, reviewed 2026-10-03, are:
+
+| Harness | Model | Model ID | Released |
+|---|---|---|---|
+| Claude Code (Anthropic) | Opus 5.5 | `claude-opus-5-5` | 2026-09-22 |
+| Claude Code (Anthropic) | Sonnet 5.5 | `claude-sonnet-5-5` | 2026-09-28 |
+| Claude Code (Anthropic) | Fable 5.1 | `claude-fable-5-1` | 2026-09-01 |
+| Codex (OpenAI) | Sol 6.1 | `gpt-6.1-sol` | 2026-09-29 |
+| Codex (OpenAI) | Luna 6 | `gpt-6-luna` | 2026-09-22 |
+
+Release dates: [Claude release notes](https://platform.claude.com/docs/en/release-notes/overview)
+and [OpenAI changelog](https://developers.openai.com/api/docs/changelog).
+The offered effort levels are low, medium, high, xhigh and max, supported by the existing runner
+adapters and documented for [Claude](https://platform.claude.com/docs/en/build-with-claude/effort),
+[Sol 6.1](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and
+[Luna 6](https://developers.openai.com/api/docs/models/gpt-6-luna).
+Astra, Sol 6 and Opus 5 remain readable for existing configurations but cannot be newly selected.
+No existing bot is migrated automatically.
+
+Cursor Agent and Grok Build already have runner adapters and appear when their providers are enabled.
+Cursor currently offers Auto; its effort field says **Managed by harness** because the CLI has no
+separate effort switch. Before adding named Cursor models, confirm their exact identifiers with
+[`cursor-agent --list-models`](https://cursor.com/docs/cli/reference/parameters) on the relevant account.
+Grok Build retains its catalog model and supported efforts through the
+[existing CLI integration](https://docs.x.ai/build/overview). Selecting a harness does not enable
+its provider, grant credentials or guarantee model access on a computer.
+
+### Keeping the model list current
+
+Maintain a curated list per harness, reviewing provider release notes at least monthly and when
+preparing a release. Prefer models released within the preceding six calendar months; newer replacements
+can retire a choice earlier. Verify the actual release date (not its knowledge cutoff), exact CLI model
+ID, effort flags and account availability before adding it to `backend/providers.py`.
+Record dated sources here for each catalog refresh. Unknown dates need verification, not a guessed expiry.
+Older or withdrawn choices use `deprecated: True`, preserving saved bot configurations and history while
+preventing new selections. Catalog retirement is a reviewed change, not a clock-driven migration.
+Auto and externally managed model choices have no fixed model release date and are explicit exceptions.
+The remaining provider catalogs are preserved by this update; their next refresh must apply the same review.
+
 ## Where installs go, and what is left alone
 
 Installs go into the runner's **tools directory**, never system-wide: `TICO_TOOLS_DIR`, else `tools_dir` in the

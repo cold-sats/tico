@@ -27,13 +27,11 @@ function settingsEditBot(slug = '') {
   // A new bot starts on the team default; nothing here names a vendor.
   const enabledModels = SETTINGS_DATA.models.filter(model => !model.deprecated && model.provider &&
     (SETTINGS_DATA.enabledProviders || []).includes(model.provider));
-  const fallbackModel = SETTINGS_DATA.models.find(model => model.id === SETTINGS_DATA.defaultModel)
+  const fallbackModel = SETTINGS_DATA.models.find(model => model.id === SETTINGS_DATA.defaultModel && !model.deprecated)
     || enabledModels[0] || SETTINGS_DATA.models[0] || {};
   const effort = e?.reasoning_effort || e?.effort || fallbackModel.default_effort || 'high';
   const defaultHarness = e?.harness || fallbackModel.harnesses?.[0] || fallbackModel.runtime || '';
   const currentModel = settingsChoiceValue(defaultHarness, e?.model || fallbackModel.id, effort);
-  const modelOptions = settingsAllChoices().map(choice =>
-    `<button type="button" role="option" data-value="${esc(choice.value)}" ${choice.value === currentModel ? 'aria-selected="true"' : ''}>${esc(choice.label)}</button>`).join('');
   const parentOptions = S.emps.filter(row => row.name !== slug &&
     (S.me?.role === 'owner' || settingsCanManageBot(row))).map(row =>
     `<option value="${esc(row.name)}" ${e?.reports_to === row.name ? 'selected' : ''}>${esc(row.display_name || row.name)}</option>`).join('');
@@ -58,14 +56,10 @@ function settingsEditBot(slug = '') {
         <label class="bot-editor-wide"><span><input type="checkbox" name="private_tasks_default" ${e?.private_tasks_default ? 'checked' : ''}> Create private tasks by default</span><small>Tasks created by or assigned to this bot start private. A human requester can choose company visibility.</small></label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
         ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
-        ${editing ? '' : `<label class="bot-editor-wide">Model and effort
-          <div class="settings-combo" data-add-choice data-current="${esc(currentModel)}">
-            <input type="search" name="model_search" autocomplete="off" spellcheck="false"
-              aria-label="Model and effort" placeholder="Search harness or model"
-              value="${esc(settingsChoiceLabel(defaultHarness, e?.model || fallbackModel.id, effort))}">
-            <input type="hidden" name="model_effort" value="${esc(currentModel)}" required>
-            <div class="settings-combo-list" role="listbox">${modelOptions}</div>
-          </div></label>
+        ${editing ? '' : `<div class="bot-editor-wide" data-add-choice>
+          ${settingsChoiceFields(currentModel)}
+          <input type="hidden" name="model_effort" value="${esc(currentModel)}">
+        </div>
         <label>Computer owner<select name="operator" ${S.me?.role === 'owner' ? '' : 'disabled'}>${SETTINGS_DATA.people.map(person => `<option value="${esc(person.id)}" ${person.id === operator ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select></label>
         <label class="bot-editor-wide">Registered computer<select name="runner_id"><option value="">Assign later</option>${machineOptions}</select><small data-computer-note></small></label>
         <p class="bot-editor-wide muted">Everyone can use it. Change that under Access once it is added.</p>`}
@@ -130,42 +124,22 @@ function settingsEditBot(slug = '') {
     });
     const combo = dialog.querySelector('[data-add-choice]');
     if (combo) {
-      const search = combo.querySelector('input[type=search]');
       const hidden = combo.querySelector('input[name=model_effort]');
-      const list = combo.querySelector('.settings-combo-list');
-      const paint = query => {
-        const choices = settingsFilterChoices(query);
-        list.innerHTML = choices.length
-          ? choices.map(choice => `<button type="button" role="option" data-value="${esc(choice.value)}" ${choice.value === hidden.value ? 'aria-selected="true"' : ''}>${esc(choice.label)}</button>`).join('')
-          : '<div class="settings-combo-empty">No matching harness or model</div>';
-        list.querySelectorAll('[data-value]').forEach(button => {
-          button.onmousedown = event => event.preventDefault();
-          button.onclick = () => {
-            hidden.value = button.dataset.value;
-            const choice = settingsChoiceFromValue(button.dataset.value);
-            search.value = settingsChoiceLabel(choice.harness, choice.model, choice.effort);
-            combo.classList.remove('open');
-          };
-        });
-      };
-      search.onfocus = () => { combo.classList.add('open'); search.select(); paint(''); };
-      search.oninput = () => { combo.classList.add('open'); paint(search.value); };
-      search.onblur = () => { combo.classList.remove('open'); };
-      // An external harness (a Hermes profile) runs nowhere Tico manages: no computer to pick,
-      // and the note says what happens after saving instead.
       const computer = form.elements.runner_id, computerNote = dialog.querySelector('[data-computer-note]');
       const syncComputer = () => {
         const external = !!settingsHarness(settingsChoiceFromValue(hidden.value).harness)?.external;
         computer.disabled = external; if (external) computer.value = '';
         if (computerNote) computerNote.textContent = external ? 'Run by an external agent: no computer. After saving, create its credential in the Computer column.' : '';
       };
-      hidden.addEventListener('change', syncComputer);
-      const observer = new MutationObserver(syncComputer); observer.observe(hidden, {attributes: true, attributeFilter: ['value']});
-      list.addEventListener('click', () => setTimeout(syncComputer, 0));
+      const picker = settingsWireChoiceFields(combo.querySelector('[data-choice-fields]'), (value, valid) => {
+        hidden.value = valid ? value : '';
+        syncComputer();
+      });
+      if (!picker.valid()) hidden.value = '';
       syncComputer();
-      paint('');
     }
   }
+
   form.onsubmit = async event => {
     event.preventDefault();
     const submit = form.querySelector('[type=submit]'); submit.disabled = true; status.textContent = 'Saving…';
@@ -181,6 +155,7 @@ function settingsEditBot(slug = '') {
           temp: form.elements.temp.checked, shared: form.elements.shared.checked, expected_revision: rev});
       } else {
         const choice = settingsChoiceFromValue(form.elements.model_effort.value);
+        if (!choice.harness || !choice.model || !choice.effort) throw new Error('Choose a harness, model and effort.');
         added = await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,
           description: form.elements.description.value, reports_to: form.elements.reports_to.value || null,
           status: form.elements.status.value, repo: form.elements.repo.value,
@@ -232,6 +207,7 @@ async function settingsMoveBot(select) {
     expected_generation:e.machine?.generation || 0, expected_revision:e.revision});
 }
 function settingsControlInput(control) {
+  if (control?.matches?.('.settings-choice')) return null; // The three-field picker restores its own state.
   return control?.matches?.('input,select') ? control : control?.querySelector?.('input,select');
 }
 function settingsTransitionDialog() {

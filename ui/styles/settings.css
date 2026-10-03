@@ -162,6 +162,11 @@ p:empty{display:none}
 .settings-combo-list button{display:block;width:100%;text-align:left;border:0;background:none;padding:6px 8px;border-radius:4px;font-size:12px;color:var(--ink);cursor:pointer}
 .settings-combo-list button[aria-selected=true],.settings-combo-list button:hover{background:var(--surface)}
 .settings-combo-empty{padding:8px;color:var(--muted);font-size:12px}
+.settings-choice{min-width:0}
+.settings-model-choice{display:grid;gap:6px;min-width:0}
+.settings-model-choice label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:12px;color:var(--muted)}
+.settings-model-choice select{width:100%;min-width:0;max-width:100%;padding:7px 8px;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px}
+.settings-choice>[data-choice-apply]{margin-top:6px}
 .settings-bot-name{display:flex;align-items:center;gap:7px;min-width:0}
 .settings-bot-name a{color:var(--ink);font-weight:600}
 .settings-bot-name small,.settings-cell-note{display:block;color:var(--muted);font-size:11px;margin-top:2px}
