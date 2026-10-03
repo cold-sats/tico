@@ -28,6 +28,8 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
   try {
     const page = await browser.newPage({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
     const errors = [], posted = [];
+    let gmExtra = [];
+    let gmLive = false;
     let gmQueued = false;   // the question waits on a missing AI provider
     page.on('pageerror', e => errors.push(e.message));
     const activation = kpi('k-act', 'Activation', {reason: 'Activation 52% vs 58% needed on pace'});
@@ -71,9 +73,9 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (p === '/api/v2/conversations' && posted.some(r => r.path === '/api/v2/chat/goal-manager')) return json({conversations: [{id: 'gm-chat', kind: 'chat', scope: 'personal', owner_actor: 'human:ana', room_key: 'goal-manager', participants: ['human:ana', 'bot:goal-manager']}]});
       if (p === '/api/v2/goal-manager/turn-on' && post) { bots.find(b => b.name === 'goal-manager').status = 'active'; return json({state: 'active'}); }
       if (p === '/api/v2/chat/goal-manager' && post) return json({conversation: {id: 'gm-chat'}, message: {id: 'gm-q', from_actor: 'human:ana', body: body.text}});
-      if (p === '/api/v2/conversations/gm-chat/snapshot') return json(gmQueued
+      if (p === '/api/v2/conversations/gm-chat/snapshot') return json(gmLive ? {messages: [{id:'gm-q', from_actor:'human:ana', body:'Change the revenue goal'}], execution:{state:'running', text:'Checking **progress** <script>bad()</script>'}} : gmQueued
         ? {messages: [{id: 'gm-q', from_actor: 'human:ana', body: 'Change the revenue goal'}], execution: {message_id: 'gm-q', state: 'queued', readiness_reason: 'missing_provider', label: 'Saved — no AI provider is chosen'}}
-        : {messages: [{id: 'gm-q', from_actor: 'human:ana', body: 'Change the revenue goal'}, {id: 'gm-a', from_actor: 'bot:goal-manager', body: 'Updated the goal.'}]});
+        : {messages: [{id: 'gm-q', from_actor: 'human:ana', body: 'Change the revenue goal'}, {id: 'gm-a', from_actor: 'bot:goal-manager', body: 'Updated the goal.'}, ...gmExtra]});
       if (p === '/api/v2/goals/tree') return json({goals, owners: {}, other_kpis: other, proposals: []});
       if (p === '/api/v2/goals/needs-you') return json({actor: 'human:ana', items: needs});
       if (p === '/api/v2/goals' && post) {
@@ -122,13 +124,30 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert.match(await page.locator('#goal-manager-panel').innerText(), /Last run/);
     await page.locator('.gm-form textarea').fill('Change the revenue goal');
     await page.locator('.gm-form button').click();
-    await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
+    await page.locator('[data-gm-thread]', {hasText: 'Updated the goal.'}).waitFor();
     assert.equal(last().path, '/api/v2/chat/goal-manager');
     assert.deepEqual(last().body, {text: 'Change the revenue goal', refs: {}});
-    assert.equal(await page.locator('.gm-history').getAttribute('open'), null);
+    assert.equal(await page.locator('.gm-history').count(), 0, 'history stays inline');
+    assert.deepEqual(await page.locator('[data-gm-thread] .bubble').allTextContents(), ['anaChange the revenue goal', 'Goal ManagerUpdated the goal.']);
     // A reload shows the same room the bot page uses (the viewer's personal room), with its latest exchange.
     await page.reload();
-    await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
+    await page.locator('[data-gm-thread]', {hasText: 'Updated the goal.'}).waitFor();
+    gmExtra = Array.from({length:24}, (_, i) => ({id:'history-'+i, from_actor:'bot:goal-manager', body:'Earlier update '+i}));
+    await page.reload();
+    await page.locator('[data-gm-thread]', {hasText:'Earlier update 23'}).waitFor();
+    const thread=page.locator('[data-gm-thread]');
+    assert.equal(await thread.evaluate(el=>el.scrollHeight>el.clientHeight),true,'long conversations scroll inside the rail');
+    await thread.evaluate(el=>{el.scrollTop=0;});
+    gmExtra.push({id:'new-update',from_actor:'bot:goal-manager',body:'Incoming update'});
+    await page.locator('[data-gm-thread]', {hasText:'Incoming update'}).waitFor({timeout:12000});
+    assert.equal(await thread.evaluate(el=>el.scrollTop),0,'an incoming reply does not move older messages being read');
+    gmExtra = [];
+    gmLive = true;
+    await page.reload();
+    await page.locator('[data-gm-live]', {hasText:'Checking'}).waitFor();
+    assert.equal(await page.locator('[data-gm-thread] .bubble.you').count(),1,'human message remains beside live reply');
+    assert.equal(await page.locator('[data-gm-live] script').count(),0,'live Markdown is sanitized');
+    gmLive = false;
     // With no AI provider the question waits: the panel says so and links to Settings > AI providers.
     gmQueued = true;
     await page.reload();
@@ -137,7 +156,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     if (screenshotDir) await page.screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-gm-no-provider-test.png')});
     gmQueued = false;
     await page.reload();
-    await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
+    await page.locator('[data-gm-thread]', {hasText: 'Updated the goal.'}).waitFor();
 
     assert.match(await row('human:ben').innerText(), /Keep the board honest\./, 'a profile goal shows');
     // One line each, about 36px, the goals lined up in one column.
@@ -247,9 +266,13 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     // A phone: two lines where needed, a smaller indent, no sideways scroll; the panel is a sheet at the bottom.
     await page.setViewportSize({width: 390, height: 844});
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
+    await page.locator('[data-gm-thread]').scrollIntoViewIfNeeded();
+    assert.equal(await page.locator('[data-gm-thread] .bubble.you').isVisible(),true);
+    assert.equal(await page.locator('[data-gm-thread] .bubble.bot').isVisible(),true);
+    assert.equal(await page.locator('.gm-form textarea').isVisible(),true,'composer stays below inline thread');
     await page.evaluate(() => setDrawer(false));
     if (screenshotDir) {
-      await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
+      await page.locator('[data-gm-thread]', {hasText: 'Updated the goal.'}).waitFor();
       await page.screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-phone-test.png')});
     }
     const cmo = await row('bot:cmo').boundingBox(), seo = await row('bot:seo').locator('.gt-av').boundingBox(), ana = await row('human:ana').locator('.gt-av').boundingBox();
