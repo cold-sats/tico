@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.17] - 2026-10-03
+
+### Fixed
+- The bot page uses the existing Updates icon for its updates tab, including on mobile ([#55](https://github.com/ticoteam/tico/pull/55)).
+- Model changes from More > Bot settings open the shared confirmation and checkpoint-progress dialog instead of silently reverting the selection ([#56](https://github.com/ticoteam/tico/pull/56)).
+- Docker server and runner images include validated source commit and repository provenance for deployment-based task completion. Local journey image builds pass the same provenance arguments ([#57](https://github.com/ticoteam/tico/pull/57)).
+
 ## [0.3.16] - 2026-10-03
 
 ### Fixed
@@ -1805,7 +1812,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.16...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.17...HEAD
+[0.3.17]: https://github.com/ticoteam/tico/compare/v0.3.16...v0.3.17
 [0.3.16]: https://github.com/ticoteam/tico/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/ticoteam/tico/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/ticoteam/tico/compare/v0.3.13...v0.3.14
