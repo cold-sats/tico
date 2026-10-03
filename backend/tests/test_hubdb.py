@@ -325,9 +325,7 @@ class Reads(HubCase):
         self.assertEqual(len(mine["approvals"]), 1)
 
 class APersonsReplyAnswersWhatWasAsked(HubCase):
-    """Answering one question at a time cost a run per question and left nowhere to say
-    anything else. Writing back to the bot is the answer now, however many were open.
-    (Ben, 2026-09-21.)"""
+    """A reply resolves only the ask or task it identifies, leaving other work open."""
 
     def test_task_reply_allows_the_next_question_without_answering_another_task(self):
         room = H.say(self.conn, ANA, CMO, "Please write two drafts")["conversation_id"]
@@ -356,16 +354,19 @@ class APersonsReplyAnswersWhatWasAsked(HubCase):
         self.assertIsNone(H.unanswered_ask(self.conn, task))
         self.assertTrue(H.task_ask(self.conn, CMO, task["id"], "Which date?"))
 
-    def test_writing_back_closes_every_question_that_bot_had_open(self):
+    def test_general_chat_preserves_asks_and_direct_reply_closes_only_named_ask(self):
         a = H.say(self.conn, CMO, ANA, "ship now or wait for the split?", kind="ask")
         b = H.say(self.conn, CMO, ANA, "is 7% the right warning level?", kind="ask")
-        reply = H.say(self.conn, ANA, CMO, "ship now, and 7% is right. also re-check Aug 13.")
+        H.say(self.conn, ANA, CMO, "ship now, and 7% is right. also re-check Aug 13.")
+        self.assertEqual(H.answers_to(self.conn, [a["id"], b["id"]]), {},
+                         "a general message does not identify which questions it answers")
+        reply = H.say(self.conn, ANA, CMO, "ship now. also re-check Aug 13.",
+                      conversation_id=a["conversation_id"], in_reply_to=a["id"])
         got = H.answers_to(self.conn, [a["id"], b["id"]])
-        self.assertEqual(set(got), {a["id"], b["id"]}, "both close on the one reply")
+        self.assertEqual(set(got), {a["id"]}, "the sibling ask remains unanswered")
         self.assertEqual(got[a["id"]]["id"], reply["id"])
-        self.assertIn("re-check Aug 13", got[b["id"]]["body"], "the whole reply is the answer")
+        self.assertIn("re-check Aug 13", got[a["id"]]["body"], "the whole reply is the answer")
 
 if __name__ == "__main__":
     unittest.main()
-
 
