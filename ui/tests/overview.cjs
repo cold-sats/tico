@@ -89,10 +89,12 @@ bots.push({name: 'restricted', team: 'g1', my_access: {see: true, read: false}},
     await page.close();
 
     const mobile = await open({width: 390, height: 844});
-    await mobile.locator('#mobile-nav [data-nav=overview]').click();
+    await mobile.locator('#mobile-more').click();
+    await mobile.locator('.side-scroll [data-nav=overview]').click();
     const phoneFrame = mobile.frameLocator('#overview-frame');
     await phoneFrame.locator('body[data-scene-ready]').waitFor();
-    assert.equal(await mobile.locator('#mobile-nav .mobile-nav-item').first().getAttribute('data-nav'), 'overview');
+    assert.equal(await mobile.locator('#mobile-nav [data-nav=overview]').count(), 0);
+    assert.equal(await mobile.locator('#mobile-nav .mobile-nav-item').first().getAttribute('data-nav'), 'org');
     const bounds = await mobile.locator('#overview-frame').boundingBox(), nav = await mobile.locator('#mobile-nav').boundingBox();
     assert(bounds.height > 400 && bounds.y + bounds.height <= nav.y + 1, 'scene fits above mobile navigation');
     await phoneFrame.locator('[data-floor="0"]').focus(); await mobile.keyboard.press('Enter');
