@@ -7,18 +7,18 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-- Apply current task visibility consistently to routine history and task review reads.
-- Removing a routine preserves unrelated queued work and already claimed occurrences.
-- Pipeline steps containing tasks must keep their status meaning; names and order remain editable.
-- A comment that wakes an assignee bot does not grant permission to close the task.
-- Task rows omit circular status glyphs and redundant status labels under status headings.
-- Done tasks can be explicitly closed from their menu or bulk actions, preserving completion history.
-- Task detail preserves unsent answers through property saves, keeps failed comment sends separate from questions,
-  ignores superseded file/link responses, and keeps phone file previews full width.
-
 ### Changed
-- Task rows and cards show plain status words instead of circular status glyphs; detail controls keep their text labels.
+- Task rows no longer show circular status icons. Status appears once in each column or section header, with labels retained in ungrouped views and task details.
+
+### Fixed
+- Apply current task visibility to routine history, task comments, answers, file reviews and cached responses.
+- Keep Done separate from Closed: routine comments cannot grant bots acceptance rights, and occupied pipeline steps cannot silently change their status meaning. Done tasks offer an explicit Close action.
+- Removing a routine preserves unrelated queued work and already claimed occurrences.
+- Task details preserve unsent answers through property saves, ignore stale file and link responses, and keep phone file previews full width.
+- Deliver replies to distinct inputs even when the answer text matches an earlier reply, while avoiding duplicate sends from the same attempt.
+- Redact quoted secrets and private URL hosts in reviewed support diagnostics, without increasing log volume.
+- Preserve committed WAL data in a separate failed-update recovery copy before restoring a rollback snapshot.
+- Retrying a completed task returns its existing result while the computer still owns the attempt and retains access.
 
 ## [0.3.13] - 2026-10-02
 
