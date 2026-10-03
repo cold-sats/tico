@@ -73,8 +73,7 @@ function pageSettings() {
     <dialog class="tmodal" id="people-dialog" aria-label="Humans"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
-    <dialog class="bot-editor catalog-picker" id="catalog-picker" aria-labelledby="catalog-picker-title"></dialog>
-    <dialog class="transition-dialog" id="transition-dialog" aria-labelledby="transition-title"></dialog>`;
+    <dialog class="bot-editor catalog-picker" id="catalog-picker" aria-labelledby="catalog-picker-title"></dialog>`;
   taskTypesSettingsMount();
   pageSettingsThemeBind();
   settingsTeamIconBind();

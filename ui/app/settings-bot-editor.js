@@ -234,9 +234,18 @@ async function settingsMoveBot(select) {
 function settingsControlInput(control) {
   return control?.matches?.('input,select') ? control : control?.querySelector?.('input,select');
 }
+function settingsTransitionDialog() {
+  let dialog = $('#transition-dialog');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.className = 'transition-dialog'; dialog.id = 'transition-dialog';
+    dialog.setAttribute('aria-labelledby', 'transition-title');
+    document.body.append(dialog);
+  }
+  return dialog;
+}
 function settingsConfirmTransition(e, kind, target) {
-  const dialog = $('#transition-dialog');
-  if (!dialog) return Promise.resolve(false);
+  const dialog = settingsTransitionDialog();
   clearInterval(SETTINGS_TRANSITION_TIMER);
   const label = kind === 'model' ? 'Change model settings' : 'Move bot';
   return new Promise(resolve => {
@@ -297,7 +306,7 @@ function settingsTransitionHTML(t) {
         ${t.state === 'applied' ? '<button class="primary" type="button" data-transition-done>Done</button>' : ''}</div></div>`;
 }
 function settingsWatchTransition(id, origin = {}) {
-  const dialog = $('#transition-dialog'); if (!dialog) return;
+  const dialog = settingsTransitionDialog();
   clearInterval(SETTINGS_TRANSITION_TIMER);
   const paint = async () => {
     let t;
