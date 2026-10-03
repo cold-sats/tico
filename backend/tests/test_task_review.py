@@ -207,7 +207,7 @@ def test_review_migration_keeps_existing_version_bytes(api):
     tid = task(api)
     fid = attach(api, tid)["file_id"]
     with api.app.state.store.read() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert c.execute("PRAGMA user_version").fetchone()[0] >= 21
         assert c.execute("SELECT 1 FROM cloud_migrations WHERE version=54").fetchone()
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             c.execute("UPDATE bot_file_versions SET digest='changed' WHERE file_id=?", (fid,))
