@@ -2616,9 +2616,15 @@ def create_app(settings=None):
                 return who
             raise Problem("on_behalf_of", "A bot request cannot borrow a human's rights", 403)
         if who.via == "botops" and who.attempt_id:
-            who = Identity("bot:" + BOTOPS, "bot", runner_id=who.runner_id, attempt_id=who.attempt_id)
+            who = Identity("bot:" + BOTOPS, "bot", runner_id=who.runner_id,
+                           attempt_id=who.attempt_id, agent=who.agent)
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps applies changes on a requester's behalf", 403)
+        def acting_as(principal):
+            # Keep the actual bot's credential so writes revalidate its lease under the lock,
+            # and private reads intersect the requester with the bot doing the work.
+            return replace(principal, via="botops", confirmed=True, task_actor=who.actor,
+                           runner_id=who.runner_id, attempt_id=who.attempt_id, agent=who.agent)
         message_id = ref
         explicit = bool(ref) and ref not in ("turn", "default")
         turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
@@ -2649,8 +2655,7 @@ def create_app(settings=None):
             if str(requester).startswith("bot:") and requester != who.actor:
                 if (H.bot(c, H.actor_id(requester)) or {}).get("state") != "active":
                     raise Problem("forbidden", "The requesting bot is no longer active", 403)
-                return Identity(requester, "bot", runner_id=who.runner_id, attempt_id=who.attempt_id,
-                                via="botops", confirmed=True, task_actor=who.actor)
+                return acting_as(Identity(requester, "bot"))
             if not initial or requester == H.KEEPER or requester == who.actor:
                 return who
             if task and task["owner"] == who.actor and not task.get("request_id"):
@@ -2659,14 +2664,14 @@ def create_app(settings=None):
                                      "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                     if made and H._json(made["detail_json"], {}).get("via") != "assistant":
                         person = auth.identity_for_actor(c, task["requester"])
-                        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True, task_actor=who.actor)
+                        return acting_as(person)
                 origin = c.execute("SELECT actor FROM events WHERE action='botops.task_requested' AND target=? "
                                    "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                 if origin and str(origin["actor"]).startswith("human:"):
                     auth.conversation(c, who, task["conversation_id"])
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
-                    return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True, task_actor=who.actor)
+                    return acting_as(person)
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 made = c.execute("SELECT 1 FROM events WHERE action='task.create' AND target=? AND actor=? LIMIT 1",
@@ -2717,7 +2722,7 @@ def create_app(settings=None):
             raise Problem("on_behalf_of", "Cite a request from the conversation you are working on", 403) from None
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
-        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True, task_actor=who.actor)
+        return acting_as(person)
 
     def botops_owns_task(path, body=None):
         """A note, comment or status on a task BotOps owns is BotOps' own work: it needs no one's rights and is BotOps'
@@ -3618,6 +3623,10 @@ def create_app(settings=None):
                                         request.headers.get("idempotency-key"), selected)
             if idle is not None:
                 return idle
+            # Privacy checks open a coherent read snapshot. End it before data_version is
+            # checked under the write lock, or a newer commit stays hidden by that snapshot.
+            if c.in_transaction:
+                c.rollback()
             # Under the write lock, reuse the read result only if no other connection
             # committed since that read began. A changed queue is selected afresh.
             def work(write):
