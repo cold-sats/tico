@@ -445,7 +445,7 @@ const BOT_WIDE = window.matchMedia('(min-width: 1100px)');
 // On a phone the top line is back, the bot, and three icons on the right; the
 // goal moves into More so the top line is not crowded.
 const BOT_PHONE = window.matchMedia('(max-width: 760px)');
-const BOT_TAB_ICONS = {chat: 'chat_bubble', tasks: 'task_alt', history: 'history', more: 'menu'};
+const BOT_TAB_ICONS = {chat: 'chat_bubble', tasks: 'task_alt', history: 'dynamic_feed', more: 'menu'};
 function placeBotGoal(view) {
   const goal = $('#bot-goal'), more = $('#pane-more'), top = $('#bot-top');
   if (!goal || !more || !top) return;
