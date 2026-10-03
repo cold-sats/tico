@@ -195,6 +195,7 @@ async function enrollmentDownload(operator, label) {
 }
 function renderSettingsMachines() {
   const el = $('#set-machines'); if (!el) return;
+  const expanded = new Set([...el.querySelectorAll('details[data-machine-details][open]')].map(node => node.dataset.machineDetails));
   const cards = SETTINGS_DATA.machines.map(machine => {
     const online = !machine.revoked_at && machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
     // Only what the team's providers or an assigned bot use, plus anything installed anyway: a
@@ -227,12 +228,17 @@ function renderSettingsMachines() {
     };
     const harnesses = Object.entries(machine.readiness?.harnesses || {}).filter(([, value]) => value.installed || value.wanted || value.state !== 'idle').map(harnessChip).join('');
     const failures = Object.values(machine.readiness?.bots || {}).filter(value => !value.ready).length;
+    const botLink = slug => `<a href="#/bot/${encodeURIComponent(slug)}/more">${esc(settingsBotName(slug))}</a>`;
+    const bots = machine.bots || [];
+    const botList = bots.slice(0, 3).map(botLink).join(', ');
+    const moreBots = bots.length > 3 ? `<details data-machine-details="${esc(machine.id)}:bots"><summary>+${bots.length - 3} more bots</summary>${bots.slice(3).map(botLink).join(', ')}</details>` : '';
+
     return `<tr class="machine-card"><td><strong>${esc(machine.label)}</strong><span class="settings-cell-note">${esc(machine.version || 'version not reported')}${machine.platform ? ` · ${esc(machine.platform)}` : ''}</span>${window.runnerUpdateHtml?.(machine.update, machine.version) || ''}</td>
-      <td data-label="Owner">${esc(settingsPersonName(machine.operator))}${machine.revoked_at ? '' : settingsIsAdmin()
+      <td data-label="Operator">${esc(settingsPersonName(machine.operator))}${machine.revoked_at ? '' : settingsIsAdmin()
         ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>`
         : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
-      <td data-label="Bots">${machine.bots.length}${machine.bots.length ? `<span class="settings-cell-note">${machine.bots.map(slug => `<a href="#/bot/${encodeURIComponent(slug)}/more">${esc(settingsBotName(slug))}</a>`).join(', ')} · <a href="#/settings" data-computer-reassign>Reassign in Bots</a></span>` : ''}${failures ? ` <span class="err">· ${failures} not ready</span>` : ''}</td>
-      <td data-label="Runtimes"><div class="machine-runtime">${runtime || '<span class="muted">—</span>'}</div>${harnesses ? `<div class="machine-harnesses" aria-label="Tools on ${esc(machine.label)}">${harnesses}</div>` : ''}</td>
+      <td data-label="Bots"><strong>${bots.length} bot${bots.length === 1 ? '' : 's'}</strong>${bots.length ? `<div class="settings-cell-note">${botList}${moreBots}<div><a href="#/settings" data-computer-reassign>Manage bot assignments</a></div></div>` : ''}${failures ? ` <span class="err">${failures} not ready</span>` : ''}</td>
+      <td data-label="AI connections"><div class="machine-runtime">${runtime || '<span class="muted">No AI connections reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Installed tools and updates</summary><p class="settings-cell-note">Versions and update controls for the AI tools on this computer.</p><div class="machine-harnesses" aria-label="Tools on ${esc(machine.label)}">${harnesses}</div></details>` : ''}</td>
       <td data-label="Status">${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}${!machine.revoked_at && (settingsIsAdmin() || machine.operator === S.me?.id) ? `<button class="ghost" type="button" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''}</td></tr>`;
   }).join('');
   el.onchange = async event => {
@@ -272,7 +278,7 @@ function renderSettingsMachines() {
       <td>${esc(settingsPersonName(S.emps.find(row => row.name === agent.bot)?.operator))}</td>
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
       <td>${agent.revoked_at ? '<span class="pill fail">revoked</span>' : agent.online ? '<span class="pill ok">reporting in</span>' : '<span class="pill">not reporting</span>'}${agent.last_seen ? `<span class="settings-cell-note">${esc(ago(agent.last_seen))}</span>` : ''}</td></tr>`).join('');
-  const list = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Owner</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
+  const list = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>AI connections</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
     ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Owner</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}`;
   // Only the list is redrawn; the Add computer form (and the code it shows) keeps what was typed.
   if (!el.querySelector('.machine-enroll')) el.innerHTML = `<div data-machines-list></div>
@@ -282,7 +288,8 @@ function renderSettingsMachines() {
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
       <p class="machine-enroll-status" id="machine-enroll-status"></p></div>`;
-  el.querySelector('[data-machines-list]').innerHTML = list;
+  el.querySelector('[data-machines-list]').innerHTML = `<p class="settings-cell-note">Computers run your bots. The operator manages the computer; each bot can use its own named subscription below.</p>${list}`;
+  el.querySelectorAll('details[data-machine-details]').forEach(node => { node.open = expanded.has(node.dataset.machineDetails); });
   const machineDefaultLabel = () => $('#machine-kind').value === 'linux' && S.config?.local ? 'This computer'
     : `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
   $('#machine-operator').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
