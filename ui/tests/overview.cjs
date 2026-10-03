@@ -106,8 +106,8 @@ bots.push({name: 'restricted', team: 'g1', my_access: {see: true, read: false}},
     await mobile.setViewportSize({width: 360, height: 740});
     await phoneFrame.locator('#department-picker').selectOption('g0');
     await phoneFrame.locator('#floor-title').filter({hasText: 'Design <studio>'}).waitFor();
-    const picker = await phoneFrame.locator('#department-picker').boundingBox(), paging = await phoneFrame.locator('#occupant-pages').boundingBox();
-    assert(paging.y + paging.height <= picker.y, 'short phones keep paging above the floor picker');
+    const names = await phoneFrame.locator('#people').boundingBox(), paging = await phoneFrame.locator('#occupant-pages').boundingBox();
+    assert(names.y + names.height <= paging.y, 'short phones keep teammate labels above paging');
     await mobile.close();
 
     const fallback = await open({width: 1280, height: 900}, true);

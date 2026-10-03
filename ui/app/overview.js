@@ -32,7 +32,6 @@ function overviewModel() {
 function pageOverview() {
   const main = $('#main'); main.classList.add('overview-layout');
   main.innerHTML = `<section class="overview-page" aria-label="Company overview">
-    <header class="overview-header"><h1>Overview</h1><span id="overview-health" role="status">Loading the team…</span></header>
     <iframe id="overview-frame" class="overview-frame" title="Interactive building of your human and bot team" src="/tico/ui/overview/index.html" allow="fullscreen"></iframe>
   </section>`;
   const frame = $('#overview-frame');
@@ -52,7 +51,6 @@ function pageOverview() {
 function overviewRefresh() {
   const state = OVERVIEW_PAGE; if (!state) return;
   state.model = overviewModel();
-  $('#overview-health').textContent = state.model.fresh ? 'Team status · refreshes every 30 seconds' : 'Status unavailable · retrying automatically';
   if (state.ready) state.frame.contentWindow?.postMessage({type: 'tico-overview-data', model: state.model}, location.origin);
 }
 function overviewStop() {
