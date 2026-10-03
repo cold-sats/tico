@@ -194,7 +194,10 @@ step_upgrade() {
   if [ "$LOCAL" = 1 ]; then
     say "building the candidate images from this checkout"
     for target in "server:$SERVER_IMAGE" "runner:$RUNNER_IMAGE" "updater:$UPDATER_IMAGE"; do
-      docker build -q --target "${target%%:*}" --build-arg "TICO_VERSION=$CAND" -t "${target#*:}:$CAND" . >/dev/null || { say "build failed"; return 1; }
+      docker build -q --target "${target%%:*}" --build-arg "TICO_VERSION=$CAND" \
+        --build-arg "TICO_COMMIT=$(git rev-parse HEAD)" \
+        --build-arg "TICO_REPOSITORY=${TICO_JOURNEY_REPOSITORY:-ticoteam/tico}" \
+        -t "${target#*:}:$CAND" . >/dev/null || { say "build failed"; return 1; }
     done
   else
     say "pulling the $CAND images"
