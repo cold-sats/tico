@@ -1161,15 +1161,22 @@ class Store:
                 replay_auth = Auth(self)
                 replay_auth.sync_access(c)
                 replay_principal = identity
-                if identity.role == "runner" and isinstance(result, dict) and isinstance(result.get("attempt"), dict):
-                    saved = result["attempt"]
-                    hosted = c.execute("SELECT 1 FROM attempts a JOIN assignments x ON x.bot=a.bot "
-                                       "WHERE a.id=? AND a.runner_id=? AND x.runner_id=?",
-                                       (saved.get("id"), identity.runner_id, identity.runner_id)).fetchone()
-                    if not hosted:
-                        raise Problem("privacy", "This execution is no longer assigned to this computer", 403)
-                    replay_principal = Identity("bot:" + saved["bot"], "bot", runner_id=identity.runner_id,
-                                                attempt_id=saved["id"])
+                if identity.role == "runner" and isinstance(result, dict):
+                    saved = result.get("attempt")
+                    aid = result.get("attempt_id") or (saved.get("id") if isinstance(saved, dict) else None)
+                    if aid:
+                        # A finished attempt can replay its receipt without a live bot lease, but
+                        # the computer must still own that generation and the bot must still see it.
+                        hosted = c.execute("SELECT a.bot FROM attempts a JOIN assignments x ON x.bot=a.bot "
+                                           "JOIN bots b ON b.slug=a.bot WHERE a.id=? AND a.runner_id=? "
+                                           "AND x.runner_id=? AND x.generation=a.generation AND b.state='active'",
+                                           (aid, identity.runner_id, identity.runner_id)).fetchone()
+                        if not hosted:
+                            raise Problem("privacy", "This execution is no longer assigned to this computer", 403)
+                        replay_principal = Identity("bot:" + hosted["bot"], "bot", runner_id=identity.runner_id,
+                                                    attempt_id=aid)
+                        if not privacy.attempt_readable(c, replay_principal.actor, aid):
+                            raise Problem("privacy", "This execution is no longer available", 403)
                 # Cached results keep their retry semantics, but access is current on every retry.
                 task_ids = set()
                 for part in operation.split("/"):

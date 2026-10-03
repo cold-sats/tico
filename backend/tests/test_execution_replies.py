@@ -2,19 +2,18 @@
 import pytest
 
 from backend.store import H, encode
-from backend.tests.test_api import api, setup_attempt, post, get, ready, claim
+from backend.tests.test_api import api, setup_attempt, post, get, ready, claim, runner, assign, headers
 
 
 def start(api, runner, attempt):
     post(api, f"attempts/{attempt['id']}/started", {"thread_id": "fixture-thread"}, runner["token"])
 
 
-def finish(api, runner, attempt, text="No matching items.", replay=True):
+def finish(api, runner, attempt, text="No matching items."):
     body = {"outcome": "completed", "last_seq": 0, "text": text}
     path = f"attempts/{attempt['id']}/complete"
     done = post(api, path, body, runner["token"], key="completion")
-    if replay:
-        assert post(api, path, body, runner["token"], key="completion") == done
+    assert post(api, path, body, runner["token"], key="completion") == done
     return done["message"]
 
 
@@ -40,7 +39,7 @@ def test_equal_answers_to_distinct_inputs_are_delivered_once(api, kind):
         inputs = post(api, f"attempts/{attempt['id']}/inputs", {}, runner["token"])["messages"]
         assert [m["id"] for m in inputs] == [folded["id"]]
         post(api, f"attempts/{attempt['id']}/inputs/{folded['id']}/ack", {}, runner["token"])
-    reply = finish(api, runner, attempt, replay=kind != "task")
+    reply = finish(api, runner, attempt)
     assert reply and reply["in_reply_to"] == second["id"]
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM messages WHERE from_actor='bot:ops' AND in_reply_to=?", (second["id"],)).fetchone()[0] == 1
@@ -82,3 +81,35 @@ def test_untrusted_attempt_reference_cannot_suppress_a_new_answer(api):
         c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode({"turn_id": attempt["id"]}), old["id"]))
     start(api, runner, attempt)
     assert finish(api, runner, attempt)["in_reply_to"] == second["id"]
+
+
+@pytest.mark.parametrize("revocation", ["assignment", "generation", "runner", "private-task", "paused-bot"])
+def test_task_completion_replay_requires_current_runner_ownership_and_private_access(api, revocation):
+    machine = runner(api)
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    task = post(api, "tasks", {"owner": "ops", "title": "Check the packet", "body": "Check the fixture packet", "private": True})
+    attempt = claim(api, machine)
+    start(api, machine, attempt)
+    task = post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done", "quiet": True}, attempt["token"])
+    reply = finish(api, machine, attempt, "Fixture task result")
+    assert reply and reply["refs"]["task"] == task["id"]
+    # A replay identity is only for reading this receipt; the runner gains no domain credentials.
+    get(api, "tasks/" + task["id"], machine["token"], expected=403)
+    if revocation in ("assignment", "generation"):
+        destination = runner(api, label="Other fixture Mac") if revocation == "assignment" else machine
+        assign(api, destination, "ops", generation=attempt["generation"])
+    elif revocation == "runner":
+        post(api, f"runners/{machine['runner_id']}/revoke", {})
+    elif revocation == "private-task":
+        post(api, "tasks/" + task["id"], {"version": task["version"], "owner": "finance"})
+    else:
+        with api.app.state.store.transaction() as c:
+            c.execute("UPDATE bots SET state='paused' WHERE slug='ops'")
+    result = api.post(f"/api/v2/attempts/{attempt['id']}/complete",
+                     json={"outcome": "completed", "last_seq": 0, "text": "Fixture task result"},
+                     headers=headers(machine["token"], "completion"))
+    assert result.status_code in (401, 403, 404), result.text
+    assert "Fixture task result" not in result.text
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM messages WHERE from_actor='bot:ops' AND body='Fixture task result'").fetchone()[0] == 1
