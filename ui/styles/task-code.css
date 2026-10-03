@@ -112,7 +112,6 @@ a.code-main:hover .code-title,a.code-main:hover .code-repo{color:var(--accent);t
 .pr-badge.ok{background:var(--ok-bg);color:var(--ok)}
 .pr-badge.fail{background:var(--fail-bg);color:var(--fail)}
 .pr-badge.waiting{background:var(--wait-bg);color:var(--wait)}
-#pane-tasks .trow[data-task-version] :is(summary,.trow-head):has(.pr-badge){grid-template-columns:16px minmax(0,1fr) auto auto;grid-template-areas:"ic ttl pr who"}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pr-badge{grid-area:pr}
 
 .prop[data-prop-row="owner"] .prop-vwrap,.prop[data-prop-row="private"] .prop-vwrap{flex-wrap:wrap;gap:4px 8px}

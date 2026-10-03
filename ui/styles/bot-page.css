@@ -120,7 +120,6 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto auto;grid-template-areas:"ttl pr status who";gap:0 8px;align-items:center}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pill,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tnum,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tags{display:none!important}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .task-status{grid-area:status;display:inline-block;max-width:80px}
-#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pr-badge{grid-area:pr}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .who-av{grid-area:who;display:inline-flex}
 #pane-tasks .trow :is(summary,.trow-head) .who-av .av{width:18px!important;height:18px!important;font-size:8px!important}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}
@@ -156,4 +155,8 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   .bot-switch .bt-label{display:none}
   .bot-switch .bt-icon{display:inline;font-size:22px}
   .bot-switch button.cur{background:var(--surface2);color:var(--accent)}
+}
+@media (max-width:760px){
+  #pane-tasks .trow[data-task-version] :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"ttl pr who" "status status status"}
+  #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .task-status{max-width:none;margin-top:2px}
 }
