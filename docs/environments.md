@@ -45,6 +45,7 @@ repository goes, and how a bot finds a sibling's work.
 | `id` | 16 hex characters, generated once, permanent. Owns resources: the runner registration, the app's bundle identifier, the mismatch guard. Never a display name |
 | `slug` | The short name you type after `-e`. Appears in launchd labels and paths |
 | `company_name`, `app_name`, `assistant_name` | Display names. `app_name` defaults to the team, `assistant_name` to the app. All three may be changed later |
+| `tray_label` | Optional macOS menu-bar label for `scripts/app.sh --env <slug>`: 1–4 ASCII letters/digits, displayed uppercase. Omitted or empty generates up to three initials from `app_name`, ignoring the word `Tico` (a single word uses its first three characters). Resolves collisions without changing the app's permanent identity; rebuild to apply |
 | `url` | Where clients reach the server: `http://127.0.0.1:<port>` for a local server, the hosted address otherwise |
 | `server` | `local` or `remote`. `local` is what makes `scripts/tico -e <slug> server ...` legal |
 | `port` | Local only. The first free loopback port from 8770 that no other environment has claimed |

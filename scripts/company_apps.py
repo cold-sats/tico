@@ -63,6 +63,8 @@ def parse(raw):
             raise Invalid("Company id must be a canonical stable UUID") from exc
         if not re.fullmatch(r"[\w][\w. +()-]{0,79}", entry["app_name"]) or entry["app_name"].endswith((".", " ")):
             raise Invalid("Invalid company app name")
+        if not re.fullmatch(r"[A-Za-z0-9]{0,4}", entry.get("tray_label", "")):
+            raise Invalid("Company tray label must be empty or 1-4 ASCII letters/digits")
         url(entry["url"])
         if entry.get("runner_url"):
             url(entry["runner_url"])
@@ -112,6 +114,7 @@ def configure(entry, publishing=False):
                   "team.tico.env." + entry["id"], entry["deploy_role_arn"].split(":")[4]):
         mask(value)
     values = {"TICO_HUB_URL": entry["url"], "TICO_APP_NAME": entry["app_name"],
+              "TICO_TRAY_LABEL": entry.get("tray_label", ""),
               "TICO_ENV_SLUG": entry["slug"], "COMPANY_ROLE": entry["deploy_role_arn"]}
     with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
         for name, value in values.items():

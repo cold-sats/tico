@@ -163,6 +163,19 @@ files, public GitHub release assets or job summaries. Each list entry has these 
 `icon_url` is an HTTPS PNG URL or a path on `url`. URLs require HTTPS except loopback HTTP.
 The UUID must remain stable across renames to preserve installed preferences and login state.
 
+On macOS, company apps show a short native text label beside the template menu-bar mark;
+the Dock keeps the company logo. The label uses up to three uppercase initials from
+`app_name` (ignoring the word `Tico`), or the first three characters for a single word:
+`Acme Tico` becomes `ACM`, and `Blue Harbor Tico` becomes `BH`. Names with no remaining
+letters or digits fall back to `TIC`. To distinguish colliding names, add optional
+`"tray_label":"A1"` to the private entry: one to four ASCII letters/digits, displayed
+uppercase. Omitted or empty means automatic. Labels are display-only: they never change
+the UUID, sessions, updater endpoint, or company Dock icon. The native label and template
+mark follow light/dark appearance; Windows/Linux and generic builds keep their existing tray.
+Changes to the app name, company slug, or label trigger Rust recompilation. No generated
+fonts or colored tray images are needed, and private labels are masked with other company
+configuration in CI.
+
 Prepare each company's IAM publisher role in its own AWS account, using the normal AWS
 credential chain. This script defaults to an offline dry run; inspect its output privately and
 run it with `--apply` when ready. It creates the GitHub OIDC provider if absent, trusts only
