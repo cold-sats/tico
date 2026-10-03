@@ -99,33 +99,42 @@ function renderAccount() {
   // Only a session an identity proxy vouches for has anything to end; a bearer or the local app does not.
   $('#sign-out').hidden = !me.proxy_session;
 }
-// The desktop app: "Download the app" in the account menu and, in a browser, a nudge above the
-// page. Both appear once a build for this OS is published (backend/downloads.py) and never
-// inside the app itself. A dismissal keeps the nudge away for a week.
+// The company app gets a browser nudge; a generic build is only a manual-setup option in
+// the account menu. Neither appears inside the app. Dismissal hides the nudge for a week.
 const visitorOS = () => /Win/.test(navigator.platform) ? 'windows' : /Linux/.test(navigator.platform) && !/Android/.test(navigator.userAgent) ? 'linux' : /Mac/.test(navigator.platform) ? 'mac' : '';
 const OS_WORDS = {mac: 'Mac', windows: 'Windows', linux: 'Linux'};
+let downloadRequest = 0;
 async function renderDownloadLink() {
+  const request = ++downloadRequest;
   const a = $('#download-app'), nudge = $('#app-nudge');
   const os = visitorOS();
-  if (!a || S.me?.local || !os || document.body.classList.contains('native')) { if (a) a.hidden = true; if (nudge) nudge.hidden = true; return; }
+  const eligible = () => !S.me?.local && os && visitorOS() === os && !document.body.classList.contains('native');
+  if (a) { a.hidden = true; a.removeAttribute('href'); }
+  if (nudge) { nudge.hidden = true; nudge.querySelector('.app-nudge-get').removeAttribute('href'); }
+  if (!a || !eligible()) return;
   try {
     const r = await fetch('/api/download/' + os, {credentials: 'same-origin'});
     const d = r.ok ? await r.json() : null;
-    a.hidden = !d?.available;
-    if (!d?.available) { if (nudge) nudge.hidden = true; return; }
-    const label = d.app_kind === 'company' ? `Download Tico for ${companyName()}` : `Download for ${OS_WORDS[os]}`;
-    a.href = '/download/' + os;
+    if (request !== downloadRequest || !eligible() || !d?.available || typeof d.url !== 'string' || !d.url.trim()) return;
+    // The API validates the installer source. Use that exact version, without selecting a
+    // manifest again, and never turn a non-web URL into an executable link.
+    const url = new URL(d.url, location.href);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return;
+    const company = d.app_kind === 'company';
+    const label = company ? `Download Tico for ${companyName()}` : 'Generic Tico · manual setup';
+    a.href = d.url;
     a.textContent = '';
     a.insertAdjacentHTML('beforeend', `<span class="nav-icon" aria-hidden="true">download</span>${esc(label)}`);
-    a.title = `${appName()} ${d.version || ''} for ${OS_WORDS[os]} (${d.size_mb || '?'} MB)${d.notarized || os !== 'mac' ? '' : '. First open: System Settings → Privacy & Security → Open Anyway'}`;
-    if (!nudge) return;
+    a.title = `${company ? appName() : 'Generic Tico'} ${d.version || ''} for ${OS_WORDS[os]} (${d.size_mb || '?'} MB)${company ? '' : '. Requires manual server setup'}${d.notarized || os !== 'mac' ? '' : '. First open: System Settings → Privacy & Security → Open Anyway'}`;
+    a.hidden = false;
+    if (!nudge || !company) return;
     let snoozed = 0;
     try { snoozed = Number(localStorage.getItem('hub.app-nudge.until') || 0); } catch {}
     if (snoozed > Date.now()) { nudge.hidden = true; return; }
-    nudge.querySelector('.app-nudge-text').textContent = `${appName()} works best as an app: a window of its own, or a slim rail beside your work.`;
+    nudge.querySelector('.app-nudge-text').textContent = `Tico for ${companyName()} opens your company directly, with no server setup.`;
     const get = nudge.querySelector('.app-nudge-get');
-    get.href = '/download/' + os; get.textContent = label;
+    get.href = d.url; get.textContent = label;
     nudge.querySelector('.app-nudge-close').onclick = () => { nudge.hidden = true; try { localStorage.setItem('hub.app-nudge.until', String(Date.now() + 7 * 86400e3)); } catch {} };
     nudge.hidden = false;
-  } catch { a.hidden = true; if (nudge) nudge.hidden = true; }
+  } catch { if (request === downloadRequest) { a.hidden = true; if (nudge) nudge.hidden = true; } }
 }
