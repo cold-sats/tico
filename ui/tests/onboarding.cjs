@@ -396,12 +396,17 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('#ob-chart-stats').textContent(), '6 groups · 3 bots');
     assert.equal(await page.locator('#ob-more').count(), 0);                       // nothing left in Sales to show under More
     // The page scrolls (the org builder lets the document scroll); the sidebar and its bottom bar stay put, full height.
+    const screenshotViewport = page.viewportSize();
+    await page.setViewportSize({width: 1100, height: 800}); // keep the scroll contract the same when taking larger screenshots
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    assert.ok(await page.evaluate(() => window.scrollY) > 0, 'this page scrolls');
+    const scrolling = await page.evaluate(() => ({y: window.scrollY, height: document.documentElement.scrollHeight,
+      viewport: innerHeight, body: document.body.scrollHeight, main: document.querySelector('#main').scrollHeight}));
+    assert.ok(scrolling.y > 0, 'this page scrolls: ' + JSON.stringify(scrolling));
     const side = await page.locator('#side').boundingBox(), footer = await page.locator('#side .side-footer').boundingBox();
     assert.deepEqual([Math.round(side.y), Math.round(side.y + side.height)], [0, 800]);
     assert.ok(footer.y + footer.height <= 800 && footer.y + footer.height > 780, 'the bottom bar sits at the bottom of the window');
     await page.evaluate(() => window.scrollTo(0, 0));
+    await page.setViewportSize(screenshotViewport);
     await shot(page, 'desktop-6-suggestions');
     assert.match(await page.locator('#ob-next').textContent(), /Next: Marketing/);
     await page.locator('#ob-next').click();

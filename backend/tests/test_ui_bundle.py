@@ -38,13 +38,9 @@ def test_the_page_names_one_versioned_script_and_one_stylesheet(api):
     assert again.status_code == 304
     assert api.get("/", headers={**AUTH, "If-None-Match": "W/" + r.headers["etag"]}).status_code == 304   # Cloudflare's weak form
     assert api.get("/tico/ui/", headers=AUTH).text == r.text
-
-
-@served
-def test_the_config_carries_the_build_the_page_names_so_an_open_tab_can_tell_it_is_out_of_date(api):
-    page = api.get("/", headers=AUTH).text
-    js = re.search(r'app\.bundle\.js\?v=([0-9a-f]{16})', page).group(1)
-    css = re.search(r'app\.bundle\.css\?v=([0-9a-f]{16})', page).group(1)
+    # Reuse the page and app fixture to check the build an open tab receives.
+    js = re.search(r'app\.bundle\.js\?v=([0-9a-f]{16})', r.text).group(1)
+    css = re.search(r'app\.bundle\.css\?v=([0-9a-f]{16})', r.text).group(1)
     assert api.get("/api/v2/config", headers=AUTH).json()["ui_build"] == f"{js}.{css}"
 
 
