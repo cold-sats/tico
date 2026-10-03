@@ -2680,8 +2680,9 @@ def docs_fetch(api, args):
 # `hub_db` runs where the database credential is, on the runner; the server's MCP endpoint
 # has neither the credential nor any business connecting to a team database. A person makes and
 # revokes service keys in their own shell: a new key is shown to them, never to an agent's context.
+# `hub_team_icon` streams a local image file; the JSON tool transport cannot open that path.
 SHELL_ONLY = {"hub_task_worktree_setup", "hub_bot_check", "hub_db", "hub_service_key_create",
-              "hub_service_key_list", "hub_service_key_revoke"}
+              "hub_service_key_list", "hub_service_key_revoke", "hub_team_icon"}
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 
