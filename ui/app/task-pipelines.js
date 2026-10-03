@@ -107,19 +107,14 @@ function taskPipelineCreatePayload(form, payload) {
 }
 
 function taskTypesSettingsMount() {
-  if (!S.me?.cloud || $('#settings-types')) return;
-  const button = document.createElement('button'); button.type = 'button'; button.dataset.settingsTab = 'types';
-  button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', 'settings-types'); button.textContent = 'Types';
-  $('#settings-tabs').append(button);
-  const pane = document.createElement('div'); pane.className = 'settings-pane'; pane.id = 'settings-types';
-  pane.setAttribute('role', 'tabpanel'); pane.hidden = true;
-  pane.innerHTML = '<section class="card"><header><h2>Types</h2></header><div id="set-types"></div></section>';
-  $('#settings-tabs').after(pane);
+  const pane = $('#settings-types');
+  if (!S.me?.cloud || !pane) return;
+  pane.innerHTML = '<section class="card"><header><h2>Task types</h2></header><div id="set-types"></div></section>';
 }
 function taskTypesSettingsShow(tab) {
-  const pane = $('#settings-types');
-  if (pane) { pane.hidden = tab !== 'types'; if (tab === 'types') void renderTaskTypes(); }
+  if (tab === 'tasks' && S.me?.cloud) void renderTaskTypes();
 }
+
 async function renderTaskTypes() {
   const host = $('#set-types'); if (!host) return;
   host.textContent = 'Loading…';

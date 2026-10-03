@@ -28,16 +28,19 @@ function pageSettings() {
     <div id="settings-issues"></div>
     <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" role="tablist" aria-label="Settings">
       ${S.me?.cloud && S.me?.role === 'owner' ? '<button type="button" data-settings-tab="team" role="tab">Team</button>' : ''}
+      <button type="button" data-settings-tab="assistant" role="tab">${esc(assistantName())}</button>
+      ${settingsIsAdmin() ? '<button type="button" data-settings-tab="people" role="tab">Humans</button>' : ''}
       <button type="button" data-settings-tab="bots" role="tab">Bots</button>
       <button type="button" data-settings-tab="devices" role="tab">Computers</button>
-      <button type="button" data-settings-tab="repos" role="tab">Repositories</button>
-      <button type="button" data-settings-tab="health" role="tab">Health<span class="hl-alert" data-hl-alert hidden></span></button>
-      ${settingsIsAdmin() ? '<button type="button" data-settings-tab="people" role="tab">Humans</button>' : ''}
       <button type="button" data-settings-tab="providers" role="tab">AI providers</button>
-      <button type="button" data-settings-tab="recurring" role="tab">Routines</button>
-      <button type="button" data-settings-tab="tags" role="tab">Tags</button>
-      ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button>' : ''}
-      ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
+      <button type="button" data-settings-tab="repos" role="tab">Repositories</button>
+      <button type="button" data-settings-tab="chat" role="tab">Chat</button>
+      <button type="button" data-settings-tab="tasks" role="tab">Tasks</button>
+      <details class="settings-more" id="settings-more"><summary>More</summary><div>
+        <button type="button" data-settings-tab="recurring" role="tab">Routines</button>
+        <button type="button" data-settings-tab="health" role="tab">Health<span class="hl-alert" data-hl-alert hidden></span></button>
+        ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button><button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
+      </div></details>
     </div>
     ${S.me?.cloud && S.me?.role === 'owner' ? `<div class="settings-pane" id="settings-team" role="tabpanel" hidden>
       <section class="card"><header><h2>Team</h2></header><div class="settings-team-icon">
@@ -54,7 +57,6 @@ function pageSettings() {
       ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
-      <div id="settings-assistant"></div>
       <section class="card"><header><h2>Bots</h2>${settingsCanCreateBots() ? '<div class="row"><button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from template</button></div>' : ''}</header><div id="set-bots"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-repos" role="tabpanel" hidden><section class="card repos-card" id="set-repos"><div class="empty">Loading…</div></section></div>
@@ -67,7 +69,22 @@ function pageSettings() {
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
       <section class="card"><header><h2>Routines</h2></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
     </div>
-    <div class="settings-pane" id="settings-tags" role="tabpanel" hidden></div>
+    <div class="settings-pane" id="settings-assistant-pane" role="tabpanel" hidden>
+      <section class="card"><header><h2>${esc(assistantName())}</h2></header>
+        <p>Your personal assistant helps find information and coordinate work.</p>
+        <a class="ghost" href="${ASSISTANT}">Open chat</a>
+        ${settingsCanManageBot((S.emps || []).find(e => e.name === assistantBot())) ? `<a class="ghost" href="#/bot/${encodeURIComponent(assistantBot())}/more">Bot settings</a>` : ''}
+      </section><div id="settings-assistant"></div>
+    </div>
+    <div class="settings-pane" id="settings-chat" role="tabpanel" hidden><section class="card"><header><h2>Chat</h2></header>
+      <p>Each bot has its own chat. Open a bot to choose a conversation or start a new one.</p>
+      <button type="button" class="ghost" data-settings-tab="bots">Choose a bot</button>
+      <a class="ghost" href="${ASSISTANT}">Chat with ${esc(assistantName())}</a>
+    </section></div>
+    <div class="settings-pane" id="settings-tasks" role="tabpanel" hidden>
+      <div id="settings-types"></div>
+      <section class="card"><header><h2>Task tags</h2></header><div id="settings-tags"></div></section>
+    </div>
     <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
     ${S.me?.role === 'owner' ? '<div class="settings-pane" id="settings-privacy" role="tabpanel" hidden><section class="card"><header><h2>Privacy</h2></header><div id="set-privacy"><div class="empty">Loading…</div></div></section></div>' : ''}
     <dialog class="tmodal" id="people-dialog" aria-label="Humans"></dialog>
@@ -81,6 +98,7 @@ function pageSettings() {
     const button = event.target.closest('[data-settings-tab]');
     if (button) settingsShow(button.dataset.settingsTab);
   };
+  $('#settings-chat [data-settings-tab]').onclick = () => settingsShow('bots');
   settingsShow(SETTINGS_TAB);
   loadSettings();
 }
@@ -102,9 +120,15 @@ function pageSettingsThemeBind() {
 }
 function settingsShow(tab) {
   if (tab === 'credentials' || tab === 'cloud') { location.hash = INTEGRATIONS; return; }
-  SETTINGS_TAB = tab === 'team' && S.me?.cloud && S.me?.role === 'owner' ? 'team' : tab === 'types' && S.me?.cloud ? 'types' : tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : tab === 'repos' ? 'repos' : 'devices';
+  if (tab === 'tags' || tab === 'types') tab = 'tasks'; // Saved links keep working.
+  SETTINGS_TAB = ['assistant', 'chat', 'tasks'].includes(tab) ? tab : tab === 'team' && S.me?.cloud && S.me?.role === 'owner' ? 'team' : tab === 'types' && S.me?.cloud ? 'types' : tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : tab === 'tags' ? 'tags' : tab === 'repos' ? 'repos' : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
-  document.querySelectorAll('[data-settings-tab]').forEach(button => {
+  if (['health', 'history', 'privacy', 'recurring'].includes(SETTINGS_TAB)) $('#settings-more').open = true;
+  for (const name of ['assistant', 'chat', 'tasks']) {
+    const pane = $(name === 'assistant' ? '#settings-assistant-pane' : '#settings-' + name);
+    if (pane) pane.hidden = SETTINGS_TAB !== name;
+  }
+  document.querySelectorAll('#settings-tabs [data-settings-tab]').forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
     button.classList.toggle('cur', selected); button.setAttribute('aria-selected', String(selected));
   });
@@ -113,7 +137,7 @@ function settingsShow(tab) {
   const devices = $('#settings-devices'), history = $('#settings-history'), bots = $('#settings-bots');
   if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
   // The owner's one click when the team has no Assistant (ui/assistant.js): restore it or add it.
-  if (bots && SETTINGS_TAB === 'bots' && S.me?.role === 'owner') window.assistantChat?.settingsStrip($('#settings-assistant'), {get, post, esc, toast, after: async () => { await refresh(true); renderSettingsBots(); }});
+  if (SETTINGS_TAB === 'assistant' && S.me?.role === 'owner') window.assistantChat?.settingsStrip($('#settings-assistant'), {get, post, esc, toast, after: async () => { await refresh(true); renderSettingsBots(); }});
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
   if (history) history.hidden = SETTINGS_TAB !== 'history';
   const team = $('#settings-team');
