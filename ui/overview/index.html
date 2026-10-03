@@ -7,19 +7,20 @@
 <body>
 <div id="world" aria-label="Interactive company building"></div>
 <div class="vignette" aria-hidden="true"></div>
-<header class="masthead"><a href="#building" id="home" aria-label="Return to whole building"><span class="wordmark">THE HEADQUARTERS<span id="company-name"></span></span></a></header>
-<div class="top-actions"><span class="concept"><i></i> A little world of work</span><button id="light" aria-label="Switch to nighttime" title="Day / night"></button><button id="pause" aria-label="Pause the world" title="Pause / play"></button><button id="fullscreen" aria-label="Enter fullscreen" title="Fullscreen"></button></div>
-<div id="loading"><span class="loading-mark">t.</span><p>Putting the kettle on<span>Building your little world…</span></p></div>
+<div class="top-actions"><button id="light" aria-label="Switch to nighttime" title="Day / night"></button><button id="pause" aria-label="Pause the world" title="Pause / play"></button><button id="fullscreen" aria-label="Enter fullscreen" title="Fullscreen"></button></div>
+<div id="loading"><p>Loading your team…</p></div>
 <div id="fallback" hidden><h1>Overview</h1><p>The 3D view is unavailable. Your teammates are still accessible below.</p><div id="fallback-team"></div></div>
-<label class="department-picker">Explore a floor<select id="department-picker"><option value="">Whole building</option></select></label>
+<div class="floor-navigation"><button id="back" aria-label="Back to all floors" title="Back to all floors" hidden>←</button><select id="department-picker" aria-label="Choose a floor"><option value="">All floors</option></select></div>
+<div id="connection-status" role="status" hidden>Status unavailable · Reconnecting…</div>
 <div id="building-pages" class="building-pages" hidden><button id="building-prev" aria-label="Previous floors">←</button><span id="building-range"></span><button id="building-next" aria-label="Next floors">→</button></div>
 <div id="occupant-pages" class="occupant-pages" hidden><button id="occupants-prev" aria-label="Previous teammates">←</button><span id="occupant-range"></span><button id="occupants-next" aria-label="Next teammates">→</button></div>
 <nav id="floors" aria-label="Explore departments"></nav>
 <nav id="people" aria-label="Teammates on this floor" hidden></nav>
-<div class="floor-heading" id="floor-heading" hidden><button id="back">← The whole building</button><span id="floor-number"></span><h1 id="floor-title"></h1><p id="floor-subtitle"></p></div>
+<div class="sr-only" id="floor-heading" hidden><span id="floor-number"></span><h1 id="floor-title"></h1><p id="floor-subtitle"></p></div>
 <div id="hover-label" hidden></div>
 <div id="speech" role="status" hidden><button id="speech-close" aria-label="Close teammate bubble">×</button><span id="speech-type"></span><strong id="speech-name"></strong><p id="speech-message"></p><button id="speech-open" class="speech-open">Open teammate →</button></div>
-<div class="bottom-ui"><div class="scene-caption"><span class="little-star">✳</span><span id="instruction">Every floor has a story.<strong>Pick one. Step inside.</strong></span></div><div class="camera-controls"><button id="reset" aria-label="Reset camera" title="Reset camera"></button><span class="control-divider"></span><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-in" aria-label="Zoom in">+</button></div></div>
-<footer><span>Drag to orbit · Scroll to explore · Select a teammate</span><span id="data-caption">Team status</span></footer>
+<button id="help" popovertarget="help-panel" aria-label="View controls and data information" title="Controls and data">?</button>
+<div id="help-panel" popover><strong>Explore your team</strong><p>Drag to rotate. Scroll or use + / − to zoom. Select a floor, then a teammate.</p><p>Bot status refreshes automatically. Human presence is not tracked.</p><p id="scene-about" hidden>This preview uses a fictional demo team.</p></div>
+<div class="camera-controls"><button id="reset" aria-label="Reset camera" title="Reset camera"></button><span class="control-divider"></span><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-in" aria-label="Zoom in">+</button></div>
 <script type="module" src="bridge.js"></script>
 </body></html>

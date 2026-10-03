@@ -27,10 +27,10 @@ function currentData() {
   return {...model, offset: page * 5, groups: model.groups.slice(page * 5, page * 5 + 5).map(g => ({...g, key: g.id}))};
 }
 function controls() {
-  $('#company-name').textContent = model.company;
-  $('#data-caption').textContent = model.demo ? 'DEMO TEAM · SAMPLE DATA' : model.fresh ? 'BOT STATUS · HUMAN PRESENCE NOT TRACKED' : 'STATUS UNAVAILABLE · RECONNECTING';
-  const picker = $('#department-picker'); picker.replaceChildren(new Option('Whole building', ''));
-  for (const g of model.groups) picker.add(new Option(g.name + ' · ' + g.members.length, g.id));
+  $('#connection-status').hidden = model.fresh;
+  $('#scene-about').hidden = !model.demo;
+  const picker = $('#department-picker'); picker.replaceChildren(new Option('All floors', ''));
+  for (const g of model.groups) picker.add(new Option(g.name, g.id));
   picker.value = preferences.floorId || '';
   $('#building-pages').hidden = model.groups.length <= 5;
   $('#building-range').textContent = `Floors ${page * 5 + 1}–${Math.min(model.groups.length, page * 5 + 5)} of ${model.groups.length}`;
