@@ -9,6 +9,7 @@
 let SUBS = null;
 let SUBS_REFRESH_TIMER = null;
 const SUBS_RUNTIMES = [['codex', 'Codex'], ['claude', 'Claude Code']];
+const SUBS_WEEKLY_NAMES = Object.fromEntries([...SUBS_RUNTIMES, ['gemini', 'Gemini CLI'], ['grok', 'Grok Build']]);
 async function subsLoad() {
   try { SUBS = subsNormal(await get('/v2/subscriptions')); }
   catch { SUBS = null; }
@@ -31,10 +32,10 @@ function subsDisplayName(runner, profile) {
 }
 function subsRenameHTML(c, p) {
   if (!p.id || !subsMaySignIn(c)) return '';
-  return `<details><summary>Rename</summary><form data-subs-rename data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}">
+  return `<form data-subs-rename data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}">
     <label>Name <input name="display_name" required maxlength="80" value="${esc(p.display_name || p.name)}"></label>
     <button class="ghost" type="submit">Save name</button><span class="muted">Login and assignments stay the same.</span><span role="status"></span>
-  </form></details>`;
+  </form>`;
 }
 async function subsRename(form) {
   if (!form.reportValidity()) return;
@@ -111,34 +112,44 @@ function subsRuntimeHTML(c, p) {
   }).join('');
 }
 // Allowance is a provider percentage, not a token estimate. Never roll an old report forward.
+const subsWeeklyRuntimes = p => Object.entries(p.runtimes || {}).filter(([runtime, state]) =>
+  SUBS_WEEKLY_NAMES[runtime] && (state.signed_in === true || state.weekly || SUBS_RUNTIMES.some(([id]) => id === runtime)));
 function subsWeeklyHTML(c, p) {
-  const names = Object.fromEntries([...SUBS_RUNTIMES, ['gemini', 'Gemini CLI'], ['grok', 'Grok Build']]);
-  return Object.entries(p.runtimes || {}).filter(([runtime, state]) => names[runtime] && (state.signed_in === true || state.weekly || SUBS_RUNTIMES.some(([id]) => id === runtime)))
-    .map(([runtime, state]) => {
+  return subsWeeklyRuntimes(p).map(([runtime, state]) => {
       const weekly = state.weekly, updated = Date.parse(weekly?.reported_at), reset = Date.parse(weekly?.resets_at);
       const expired = Number.isFinite(reset) && reset <= Date.now();
       const stale = Number.isFinite(updated) && Date.now() - updated > 86400000;
       const percent = weekly?.used_percent;
       const value = Number.isFinite(percent) ? `${Math.round(percent)}% used` : 'usage unknown';
       const when = date => new Date(date).toLocaleString();
-      const localReset = Number.isFinite(reset) ? new Date(reset - new Date(reset).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
       const refresh = state.refresh;
       const refreshLabels = {requested: 'Refresh queued', succeeded: 'Last refresh succeeded', failed: 'Refresh failed; last reading kept', unavailable: 'Weekly refresh unavailable; use a provider reading', expired: 'Refresh timed out; check the computer connection', outdated: 'Sign-in changed; refresh weekly usage again'};
       const refreshInfo = refresh ? `${refreshLabels[refresh.state] || 'Refresh unknown'}${refresh.updated_at ? ` · ${when(Date.parse(refresh.updated_at))}` : ''}` : '';
       const authInfo = state.signed_in === true ? 'Signed in' : state.signed_in === false ? 'Sign-in needed' : 'Sign-in unknown';
       const info = weekly ? `${weekly.source === 'manual' ? 'Manually recorded' : 'Provider reported'} ${Number.isFinite(updated) ? when(updated) : 'at an unknown time'}${Number.isFinite(reset) ? ` · resets ${when(reset)}` : ' · reset unknown'}${expired ? ' · previous week; refresh needed' : stale ? ' · may be out of date' : ''}` : 'No weekly report yet';
-      return `<div class="subs-weekly"><span>${esc(names[runtime])} weekly: ${esc(value)}${weekly?.status === 'rejected' ? ' · limit reached' : ''}</span>
-        ${Number.isFinite(percent) ? `<progress max="100" value="${percent}" aria-label="${esc(names[runtime])} last reported weekly usage"></progress>` : ''}
+      return `<div class="subs-weekly"><span>${esc(SUBS_WEEKLY_NAMES[runtime])} weekly: ${esc(value)}${weekly?.status === 'rejected' ? ' · limit reached' : ''}</span>
+        ${Number.isFinite(percent) ? `<progress max="100" value="${percent}" aria-label="${esc(SUBS_WEEKLY_NAMES[runtime])} last reported weekly usage"></progress>` : ''}
         <span class="muted subs-weekly-note">${esc(authInfo)} · ${esc(info)}</span>
         ${refreshInfo ? `<span class="muted subs-weekly-note" role="status">${esc(refreshInfo)}</span>` : ''}
         ${runtime === 'codex' && subsMaySignIn(c) ? `<button type="button" class="ghost" data-subs-refresh data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}"${refresh?.state === 'requested' || state.signed_in === false ? ' disabled' : ''}>Refresh weekly usage</button>` : '<span class="muted subs-weekly-note">Updates from supported runs or a manual provider reading; no background model turn.</span>'}
-        ${subsMaySignIn(c) ? `<details><summary>Record weekly usage</summary><form data-subs-weekly data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}">
-          <label>Used (%) <input type="number" name="percent" min="0" max="100" step="any" value="${Number.isFinite(percent) ? percent : ''}" placeholder="Unknown"></label>
-          <label>Weekly reset (local time) <input type="datetime-local" name="reset" value="${localReset}"></label>
-          <button class="ghost" type="submit">Save report</button><button class="ghost" type="button" data-subs-weekly-clear>Clear manual report</button>
-          <span class="muted">Copy the weekly allowance from your provider. This does not change its limit.</span><span role="status" data-weekly-status></span>
-        </form></details>` : ''}</div>`;
+        </div>`;
     }).join('');
+}
+function subsControlsHTML(c, p) {
+  if (!subsMaySignIn(c)) return '';
+  const forms = subsRenameHTML(c, p) + subsWeeklyRuntimes(p).map(([runtime, state]) => {
+    const percent = state.weekly?.used_percent, reset = Date.parse(state.weekly?.resets_at);
+    const localReset = Number.isFinite(reset) ? new Date(reset - new Date(reset).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+    return `<form data-subs-weekly data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}">
+      <strong>${esc(SUBS_WEEKLY_NAMES[runtime])} manual weekly report</strong>
+      <label>Used (%) <input type="number" name="percent" min="0" max="100" step="any" value="${Number.isFinite(percent) ? percent : ''}" placeholder="Unknown"></label>
+      <label>Weekly reset (local time) <input type="datetime-local" name="reset" value="${localReset}"></label>
+      <button class="ghost" type="submit">Save report</button><button class="ghost" type="button" data-subs-weekly-clear>Clear manual report</button>
+      <span class="muted">Copy the weekly allowance from your provider. This does not change its limit.</span><span role="status" data-weekly-status></span>
+    </form>`;
+  }).join('');
+  return forms ? `<details class="subs-controls" data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}">
+    <summary>Manage subscription</summary>${forms}</details>` : '';
 }
 function subsScheduleRefresh() {
   clearTimeout(SUBS_REFRESH_TIMER);
@@ -159,7 +170,7 @@ async function subsRefreshWeekly(button) {
   } catch (e) { toast(e.message, true); }
   finally { button.disabled = false; }
 }
-const subsWeeklyKey = form => JSON.stringify([form.dataset.runner, form.dataset.profile, form.dataset.runtime]);
+const subsControlsKey = el => JSON.stringify([el.dataset.runner, el.dataset.profile]);
 async function subsSaveWeekly(form, clear = false) {
   const status = form.querySelector('[data-weekly-status]');
   if (!clear && !form.reportValidity()) return;
@@ -206,14 +217,12 @@ async function renderSettingsSubs(force = false, loaded = false) {
       <select name="runtime" aria-label="Sign in to">${SUBS_RUNTIMES.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select>
       <button class="ghost" type="submit">Sign in</button><span class="muted subs-add-msg" id="subs-add-msg" role="status"></span></form>` : '';
   if (!computers.length && !add) { card.hidden = true; return; }
-  const openWeekly = new Set([...el.querySelectorAll('details[open] form[data-subs-weekly]')].map(subsWeeklyKey));
-  const openNames = new Set([...el.querySelectorAll('details[open] form[data-subs-rename]')].map(subsWeeklyKey));
+  const openControls = new Set([...el.querySelectorAll('.subs-controls[open]')].map(subsControlsKey));
   el.innerHTML = `<p class="muted">Named subscriptions stay on their computer. Weekly allowance is approximate and may include use outside Tico. Matching names on different computers are not combined.</p>${computers.map(c => `<div class="subs-pc"><h3 class="subs-h">${esc(c.label)}</h3><ul class="subs-list">${c.profiles.map(p =>
-      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.display_name || p.name)}</span>${subsRenameHTML(c, p)}${subsRuntimeHTML(c, p)}${subsWeeklyHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
+      `<li class="subs-row" data-subs-profile="${esc(p.name)}"><span class="subs-name">${esc(p.display_name || p.name)}</span>${subsRuntimeHTML(c, p)}${subsWeeklyHTML(c, p)}${subsControlsHTML(c, p)}</li>`).join('')}</ul></div>`).join('')}
     ${groups.length ? `<div class="subs-pc subs-groups"><h3 class="subs-h">Groups</h3><ul class="subs-list">${groups.map(g => subsGroupRowHTML(g, names)).join('')}</ul></div>` : ''}
     ${add}`;
-  el.querySelectorAll('form[data-subs-weekly]').forEach(form => { if (openWeekly.has(subsWeeklyKey(form))) form.closest('details').open = true; });
-  el.querySelectorAll('form[data-subs-rename]').forEach(form => { if (openNames.has(subsWeeklyKey(form))) form.closest('details').open = true; });
+  el.querySelectorAll('.subs-controls').forEach(control => { control.open = openControls.has(subsControlsKey(control)); });
   card.hidden = false;
   subsScheduleRefresh();
   el.onchange = async ev => {

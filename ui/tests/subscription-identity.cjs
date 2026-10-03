@@ -9,7 +9,10 @@ const path = require('node:path');
   try {
     const page = await browser.newPage({viewport: {width: 390, height: 844}});
     const errors = []; page.on('pageerror', e => errors.push(e.message));
-    await page.setContent('<section id="settings-subs"><div id="set-subs"></div></section><div id="rows"><div data-bot-sub-line></div><div data-bot-sub-row><select></select></div></div>');
+    await page.setContent('<main style="grid-column:1/-1;padding:16px"><section id="settings-subs" class="subs-card"><div id="set-subs"></div></section><div id="rows"><div class="sb-sub" data-bot-sub-line></div><div class="sb-row" data-bot-sub-row><span>Subscription</span><select class="settings-inline-select"></select><span></span></div></div></main>');
+    for (const name of ['tokens', 'base', 'components', 'settings']) {
+      await page.addStyleTag({content: fs.readFileSync(path.join(__dirname, `../styles/${name}.css`), 'utf8')});
+    }
     await page.evaluate(() => {
       window.$ = s => document.querySelector(s);
       window.esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
@@ -28,14 +31,25 @@ const path = require('node:path');
           const p = fixture.profiles_by_computer.find(c => c.runner_id === body.runner_id).profiles.find(p => p.name === body.profile);
           p.display_name = body.display_name.trim(); return {id:p.id, display_name:p.display_name};
         }
+        if (url === '/v2/subscriptions/weekly') {
+          const p = fixture.profiles_by_computer.find(c => c.runner_id === body.runner_id).profiles.find(p => p.name === body.profile);
+          p.runtimes[body.runtime].weekly = {used_percent: body.used_percent, resets_at: body.resets_at, reported_at: new Date().toISOString(), source: 'manual'};
+          return {};
+        }
       };
     });
     await page.addScriptTag({content: fs.readFileSync(path.join(__dirname, '../app/subscriptions.js'), 'utf8')});
     await page.evaluate(() => renderSettingsSubs(true));
     const north = page.locator('.subs-pc').first();
-    await north.locator('summary').filter({hasText: /^Rename$/}).click();
+    assert.equal(await north.locator('details').count(), 1, 'one disclosure for secondary controls');
+    assert.equal(await north.locator('[data-subs-rename]').isVisible(), false);
+    assert.equal(await north.locator('[data-subs-weekly]').isVisible(), false);
+    assert.equal(await north.locator('[data-subs-refresh]').isVisible(), true);
+    assert.match(await north.locator('.subs-weekly').innerText(), /usage unknown/);
+    await north.getByText('Manage subscription', {exact: true}).focus();
+    await page.keyboard.press('Enter');
     await page.evaluate(() => renderSettingsSubs());
-    assert.equal(await north.locator('details').first().getAttribute('open'), '', 'polling preserves open rename');
+    assert.equal(await north.locator('details').first().getAttribute('open'), '', 'polling preserves the open controls');
     await north.locator('[name=display_name]').fill('Research <img src=x onerror=alert(1)>');
     await page.evaluate(() => renderSettingsSubs());
     assert.equal(await north.locator('[name=display_name]').inputValue(), 'Research <img src=x onerror=alert(1)>', 'polling preserves typing');
@@ -49,8 +63,18 @@ const path = require('node:path');
     await page.evaluate(() => subsBotPaint(document.querySelector('#rows'), 'builder'));
     assert.equal(await page.locator('#rows select').inputValue(), 'engineering', 'routing uses immutable key');
     assert.equal(await page.locator('#rows option:checked').textContent(), 'Research <img src=x onerror=alert(1)>');
+    const manual = north.locator('[data-subs-weekly]');
+    assert.equal(await manual.isVisible(), true, 'manual reporting shares the same disclosure');
+    await manual.locator('[name=percent]').fill('42');
+    await manual.getByRole('button', {name: 'Save report', exact: true}).click();
+    await page.waitForFunction(() => document.querySelector('.subs-weekly')?.innerText.includes('42% used'));
+    assert.deepEqual(await page.evaluate(() => writes.at(-1)), {url: '/v2/subscriptions/weekly', body: {
+      runner_id: 'r1', profile: 'engineering', runtime: 'codex', used_percent: 42, resets_at: null}});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'open forms fit at 390px');
     await page.evaluate(() => { settingsIsAdmin = () => false; S.me.id = 'viewer'; return renderSettingsSubs(true); });
     assert.equal(await page.locator('[data-subs-rename]').count(), 0, 'nonoperators cannot rename');
+    assert.equal(await page.locator('.subs-controls').count(), 0, 'nonoperators get no manual write controls');
+    assert.match(await north.locator('.subs-weekly').innerText(), /42% used/, 'usage remains visible');
     assert.deepEqual(errors, []);
     console.log('subscription identity and rename: ok');
     await page.close();
