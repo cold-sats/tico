@@ -974,8 +974,15 @@ class Execution:
         if body.text and body.outcome == "completed":
             already = c.execute("SELECT id FROM messages WHERE from_actor=? AND in_reply_to=?",
                                 (actor, msg["id"])).fetchone()
-            same = c.execute("SELECT id FROM messages WHERE conversation_id=? AND from_actor=? AND body=?",
-                             (conv["id"], actor, body.text)).fetchone()
+            # Tool sends need not name in_reply_to. Their authenticated mutation receipt,
+            # unlike caller-supplied refs or matching historical text, proves this attempt sent it.
+            same = c.execute(
+                "SELECT m.id FROM idempotency i JOIN messages m "
+                "ON m.id=coalesce(json_extract(i.response_json,'$.id'),json_extract(i.response_json,'$.message.id')) "
+                "WHERE i.actor=? AND i.operation IN (?,?) "
+                "AND m.conversation_id=? AND m.from_actor=? AND m.body=?",
+                (actor + ":" + aid, "/api/v2/messages", "/api/v2/conversations/" + conv["id"] + "/messages",
+                 conv["id"], actor, body.text)).fetchone()
             task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
             if not already and not same and (msg["kind"] in ("say", "ask", "steer") or task):
                 target = msg["from_actor"]
