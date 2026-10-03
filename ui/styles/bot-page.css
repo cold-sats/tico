@@ -160,3 +160,6 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   #pane-tasks .trow[data-task-version] :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"ttl pr who" "status status status"}
   #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .task-status{max-width:none;margin-top:2px}
 }
+
+/* A status heading also removes the row's unused status track. */
+#pane-tasks .trow.status-in-heading :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"ttl pr who"}

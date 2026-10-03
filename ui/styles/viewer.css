@@ -55,5 +55,9 @@
 .tmodal-head .who{color:var(--ink);font-weight:600}
 .tmodal-head .spacer{flex:1}
 .tmodal-x{padding:2px 8px}
-#person-tasks .trow :is(summary,.trow-head){grid-template-columns:auto 1fr auto 60px}
+#person-tasks .trow :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto 60px;grid-template-areas:"ttl pr tags age"}
+#person-tasks .trow .ttl{grid-area:ttl}
+#person-tasks .trow .pr-badge{grid-area:pr}
+#person-tasks .trow .tags{grid-area:tags}
+#person-tasks .trow .tnum{grid-area:age}
 .person-tasks-done{margin-top:10px}.person-tasks-done>summary{cursor:pointer;font-size:13px;padding:4px 0}.person-tasks-done>summary .cnt{margin-left:4px}

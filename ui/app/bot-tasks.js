@@ -6,8 +6,8 @@
 const V2_ACTIVE = ['open', 'doing', 'waiting'];
 const V2_GROUPS = [['doing', 'Doing'], ['waiting', 'Waiting'],
                    ['done', 'Done'], ['declined', 'Declined'], ['closed', 'Closed']];
-// A bot's task list stays small. Two lines at most per task: its title, the same status icon as Tasks
-// (taskStatusIcon, ui/app/tasks.js) and only the avatar of whoever holds it (your own photo for you).
+// Keep titles compact, with status text only when the section does not already name the state.
+// Show the avatar of whoever holds the task (your own photo for you).
 function taskStateLabel(t) {
   if (taskNeedsMe(t) || t.status === 'declined') return 'Needs you';
   if (t.status === 'waiting') return 'Waiting';
@@ -21,12 +21,12 @@ function actorAvatarOnly(a) {
   const person = pid === S.me?.id ? (mePerson() || {id: pid, name: S.me?.name}) : (S.people || []).find(p => p.id === pid) || {id: pid, name: actorLabel(a)};
   return `<span class="who-av" title="${esc(pid === S.me?.id ? 'You' : actorLabel(a))}">${personAvatar(person, 22)}</span>`;
 }
-function v2TaskRow(t, slug) {
+function v2TaskRow(t, slug, showStatus = true) {
   // On a bot's page the other party is whoever is not the bot; on a person's page (no slug) it is the requester.
   const other = slug && actorSlug(taskRequester(t)) === slug ? t.owner : taskRequester(t);
-  return `<div class="trow" data-task-detail="${esc(t.id)}" data-task-version="${esc(t.version || '')}"><div class="trow-head">
-      <span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>
-      ${taskStatusText(t)}<a class="ttl" data-task-detail-open href="#/task/${encodeURIComponent(t.id)}" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</a>${prStateBadge(t.pr_state)}
+  return `<div class="trow${showStatus ? '' : ' status-in-heading'}" data-task-detail="${esc(t.id)}" data-task-version="${esc(t.version || '')}"><div class="trow-head">
+      ${showStatus ? `<span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>${taskStatusText(t)}` : ''}
+      <a class="ttl" data-task-detail-open href="#/task/${encodeURIComponent(t.id)}" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</a>${prStateBadge(t.pr_state)}
       <span class="tags">${actorChip(other)}</span>${actorAvatarOnly(t.owner)}
       <span class="muted tnum">${esc(ago(t.updated || t.created))}</span></div></div>`;
 }
@@ -43,7 +43,7 @@ function v2TaskGroups(list, slug, statuses) {
   const out = V2_GROUPS.filter(([k]) => statuses.includes(k)).map(([k, label]) => {
     const rows = list.filter(t => (t.status === 'open' ? 'doing' : String(t.status)) === k);
     return rows.length ? `<div class="v2-group"><h3>${esc(label)} <span class="muted">${rows.length}</span></h3>${
-      rows.map(t => v2TaskRow(t, slug)).join('')}</div>` : '';
+      rows.map(t => v2TaskRow(t, slug, false)).join('')}</div>` : '';
   }).filter(Boolean).join('');
   return out;
 }
@@ -153,7 +153,7 @@ function botTasksRender(slug, owned, asked) {
     if (!assigned.dataset.seen && outward.length) { assigned.dataset.seen = '1'; assigned.open = outward.some(t => actorPerson(t.owner)); }
   }
   $('#t-done').innerHTML = finished.length
-    ? `<div class="bot-task-list">${finished.map(t => v2TaskRow(t, slug)).join('')}</div>`
+    ? `<div class="bot-task-list">${finished.map(t => v2TaskRow(t, slug, false)).join('')}</div>`
     : '<div class="rail-empty">None</div>';
 }
 

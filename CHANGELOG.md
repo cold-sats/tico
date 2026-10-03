@@ -12,6 +12,7 @@ All notable changes to Tico are recorded here. The format follows
 - Removing a routine preserves unrelated queued work and already claimed occurrences.
 - Pipeline steps containing tasks must keep their status meaning; names and order remain editable.
 - A comment that wakes an assignee bot does not grant permission to close the task.
+- Task rows omit circular status glyphs and redundant status labels under status headings.
 - Done tasks can be explicitly closed from their menu or bulk actions, preserving completion history.
 - Task detail preserves unsent answers through property saves, keeps failed comment sends separate from questions,
   ignores superseded file/link responses, and keeps phone file previews full width.

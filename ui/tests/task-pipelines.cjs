@@ -97,6 +97,7 @@ const {html, uiFile} = require('./support/page.cjs');
     // Column headings name their steps without circular status glyphs.
     assert.equal(await page.locator('#task-body .bcol > header > .si').count(), 0);
     assert.equal(await page.locator('#task-body .bcol > header > h2').count(), 6);
+    assert.equal(await page.locator('#task-body .bcard .task-status').count(), 0, 'custom step columns supply status context too');
     await page.locator('#task-filter').click();
     await page.locator('#task-filter-pop [data-pick-field="tag"]').click();
     await page.locator(`#task-filter-pop input[value="${tag.key}"]`).check();

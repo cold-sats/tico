@@ -198,10 +198,8 @@ async function listAndTabs(browser) {
   assert.ok(heights.every(h => h >= 30 && h <= 36), 'rows are one 32px line: ' + heights);
   assert.doesNotMatch(await page.locator('#task-body').innerText(), /Added by/);
   assert.match(await page.locator('[data-task-key="tt-copy"]').getAttribute('title'), /Added by Writer \(bot\)/);
-  // Status words show the actual lifecycle state.
-  const kind = key => page.locator(`[data-task-key="${key}"] > .task-status`).getAttribute('data-status');
-  assert.deepEqual(await Promise.all(['tt-copy', 'tt-demo', 'tt-inbox', 'tt-checkout', 'tt-idem', 'tt-summary', 'tt-digest'].map(kind)),
-    ['open', 'open', 'waiting', 'waiting', 'doing', 'review', 'open'], 'blocked is a property, not a status');
+  // The section supplies status context, including derived Needs-you groups.
+  assert.equal(await page.locator('#task-body .tl-row > .task-status').count(), 0);
   // Chips: tags (two, then +N), the PR badge, the subtask ring; dates: a person's deadline, or a parked bot task's wake.
   const idem = page.locator('[data-task-key="tt-idem"]');
   assert.deepEqual(await idem.locator('.tlabel').allInnerTexts(), ['payments', 'backend', '+1']);
@@ -263,6 +261,7 @@ async function listAndTabs(browser) {
   await page.waitForFunction(() => document.querySelector('#task-body .tl')?.dataset.groupBy === 'owner');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'task-group', 'the focus comes back to the chip');
   assert.deepEqual(await groupNames(page), ['YOU', 'JO', 'SAM', 'ANALYST', 'BOTOPS', 'ENGINEER', 'SUPPORT', 'WRITER']);
+  assert.equal(await page.locator('[data-task-key="tt-checkout"] > .task-status').getAttribute('data-status'), 'waiting', 'owner groups still need task status');
   assert.equal(new Set(await rowKeys(page)).size, OPEN_COUNT);
   assert.equal(await page.locator('.tl-group[data-group="o:bot:engineer"] [data-task-key="tt-idem"]').getAttribute('aria-level'), '2', 'nested under the checkout');
   assert.equal(await page.locator('.tl-group[data-group="o:human:ana"] [data-task-key="tt-terms"]').count(), 1, 'under You, not under its parent');
@@ -555,10 +554,10 @@ async function properties(browser) {
   assert.deepEqual(rows, [['Status', 'Waiting'], ['Owner', 'Engineer'], ['Asked by', 'You'], ['Private', ''], ['Due', 'Add due date'], ['Tags', 'checkout'],
     ['Part of', 'Add parent'], ['Blocked by', 'Add idempotency keys to the payments API']]);
   assert.match(await props.locator('[data-prop="status"]').innerText(), /Waiting/);
-  // One status, named once: the header, the property and the list all say Waiting; "blocked" is a small chip.
+  // Detail names the status; the status-grouped list uses its heading. "blocked" is a small chip.
   assert.equal(await peek.locator('.tmodal-head .tstatus').innerText(), 'Waiting');
   assert.equal(await peek.locator('.tmodal-head .tchip-blocked').innerText(), 'blocked');
-  assert.equal(await page.locator('[data-task-key="tt-checkout"] > .task-status').getAttribute('aria-label'), 'Waiting');
+  assert.equal(await page.locator('[data-task-key="tt-checkout"] > .task-status').count(), 0);
   assert.match(await props.locator('[data-prop-row="blocked"]').innerText(), /Blocked by/);
   // The header: status · owner · position · age · … · ✕. No unexplained arrows.
   assert.equal(await peek.locator('.tmodal-head button').count(), 2);

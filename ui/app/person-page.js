@@ -176,7 +176,7 @@ async function personTasksLoad(p) {
   // A human's open task is to do, not "doing" the way a bot's is the moment it is assigned.
   const groups = (list, kinds) => kinds.map(([k, label]) => {
     const rows = list.filter(t => String(t.status) === k);
-    return rows.length ? `<div class="v2-group"><h3>${label} <span class="muted">${rows.length}</span></h3>${rows.map(t => v2TaskRow(t, '')).join('')}</div>` : '';
+    return rows.length ? `<div class="v2-group"><h3>${label} <span class="muted">${rows.length}</span></h3>${rows.map(t => v2TaskRow(t, '', false)).join('')}</div>` : '';
   }).join('');
   $('#person-tasks').innerHTML = (active.length ? groups(active, [['open', esc(needsWho({owner}))], ['doing', 'Doing'], ['waiting', 'Waiting']])
       : `<div class="empty">No active tasks. <a href="#" data-person-task-add>Give ${esc(first)} a task</a>.</div>`)

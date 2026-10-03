@@ -332,7 +332,7 @@ function taskListRowHTML(it, ctx, depth = 0) {
     ${parent?.title ? `<span class="tl-parent" title="Part of ${esc(parent.title)}"><span aria-hidden="true">↳ </span><span class="tl-parent-t">${esc(parent.title)}</span></span>` : ''}
     ${note ? `<span class="tl-note" title="${esc(note.text)}"><span class="tl-note-ic">${TL_ICON.note}</span><span class="tl-note-text">${esc(note.text)}</span></span>` : '<span class="tl-fill"></span>'}
     <span class="tl-chips">${taskChipsHTML(t)}</span>
-    ${taskStatusText(t)}
+    ${ctx.by === 'status' ? '' : taskStatusText(t)}
     <span class="tl-people">${showAsker ? `<span class="tl-asker" title="Asked by ${esc(actorLabel(asker))}">${actorFace(asker, 14)}</span>` : ''}<span class="tl-face" title="${esc(actorLabel(t.owner))}">${actorFace(t.owner, 18)}</span></span>
     <time class="tl-age tnum" datetime="${esc(when || '')}" title="${ctx.done ? 'Done' : 'Updated'} ${esc(fmt(when))}">${esc(ageShort(when))}</time>
     ${failed ? `<span class="tl-failed" role="img" aria-label="Not changed: ${esc(failed)}" title="Not changed: ${esc(failed)}">!</span>` : ''}

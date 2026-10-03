@@ -337,6 +337,8 @@ async function botDetail(browser) {
     const d = page.locator('#task-modal'), row = page.locator('[data-task-detail="t-checkout"]');
     await row.locator('[data-task-detail-open]').waitFor();
     assert.equal(await row.locator('details, .tbody').count(), 0, 'no separate inline detail');
+    assert.equal(await row.locator('.task-status').count(), 1, 'Active needs per-task status');
+    assert.equal(await page.locator('.bot-done .task-status, .bot-done .pill').count(), 0, 'Done already supplies status context');
     await page.evaluate(() => { window.botBefore = BOT; window.botWorkBefore = document.querySelector('#bot-work'); });
     await row.locator('[data-task-detail-open]').focus();
     await page.keyboard.press('Enter');

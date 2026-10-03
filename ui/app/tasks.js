@@ -242,15 +242,14 @@ function taskRowNote(t) {
 // ---- the board: one column per state; an empty column folds to a thin strip with its name and count
 // The same card the list's peek opens: a cover when the task has a picture, the title, its chips, a dot for an open
 // question, the owner's face and the age.
-function taskCard(it, columnName = '') {
+function taskCard(it) {
   const t = it.task, st = TASKS_ST;
   const chips = t ? taskChipsHTML(t, {maxTags: 2}) : '';
-  const status = t ? STATUS_WORD[t.status] || t.status : '';
   void st;   // selection, cursor and peek are painted on (task-list.js), so the card's signature only changes with its content
   return tasksSigned(`<div class="bcard" data-task-key="${esc(it.key)}">${t ? taskCoverHTML(t) : ''}
     <button class="bcard-open" type="button" data-open-task="${esc(it.key)}" title="${esc(t ? taskRowTip(t) : it.title)}" tabindex="-1">
       <span class="bcard-title">${esc(it.title)}</span></button>
-    <div class="bcard-foot">${t && status !== columnName ? taskStatusText(t, status) : ''}${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>${t ? taskAskDot(t) : ''}
+    <div class="bcard-foot">${chips ? `<span class="bcard-chips">${chips}</span>` : ''}<span class="spacer"></span>${t ? taskAskDot(t) : ''}
       <span class="tl-face" aria-hidden="true">${actorFace(it.actor, 16)}</span>
       <span class="age tnum" title="${esc(fmt(it.updated))}">${esc(ageShort(it.updated))}</span></div>
   </div>`);
@@ -286,7 +285,7 @@ function boardColumnsHTML(columns) {
     const empty = anyWork && !column.items.length;
     return `<section class="bcol${empty ? ' is-empty' : ''}" data-col="${esc(column.id)}" aria-label="${esc(column.name)}${column.hint ? `: ${esc(column.hint)}` : ''}">
       <header${column.hint ? ` title="${esc(column.hint)}"` : ''}><h2>${esc(column.name)}</h2><span class="cnt tnum">${column.items.length}</span></header>
-      ${empty ? '' : `<div class="bcol-body">${column.items.map(it => taskCard(it, column.name)).join('') || '<div class="empty">Nothing here</div>'}</div>`}
+      ${empty ? '' : `<div class="bcol-body">${column.items.map(taskCard).join('') || '<div class="empty">Nothing here</div>'}</div>`}
     </section>`;
   }).join('')}</div>`;
 }
