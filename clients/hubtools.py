@@ -532,7 +532,8 @@ def task_ask(api, args):
 
 
 @tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, or what blocks it. "
-      "Finish with `status: done` and a concise result note; the requester closes.",
+      "Finish with `status: done` and a concise result note; the requester closes. "
+      "Done stays Done, including tasks you requested for yourself; closing is a separate decision.",
       {"id": TASK_ID,
        "private": {"type": "boolean", "description": "Tighten visibility; only the direct human requester can publish"},
        "title": _s("A new title; it is checked as a new task's title would be"),
@@ -1342,7 +1343,7 @@ def docs_links(api, args):
 
 
 @tool("hub_task_close", "A human may close a task they can edit. A bot closes work it requested or was delegated to close. "
-      "BotOps uses the requester's rights.",
+      "BotOps uses the requester's rights. Close accepts or cancels a task; report completed work with hub_task_update status done.",
       {"id": TASK_ID, "note": _s("Why it is closed"),
        "quiet": {"type": "boolean", "description": "Close without waking a bot"}}, required=("id",), writes=True)
 def task_close(api, args):

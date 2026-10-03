@@ -59,8 +59,7 @@ withdrawn text in the audit trail.
 9. **Extra read helpers.** `answers_to(conn, ids)` (what `hub question ask --wait` polls),
    `bot(conn, slug)`, `human(conn, id)`, `task(conn, id)`, `task_history(conn, id)`,
    `approval(conn, id)`, `message(conn, id)`, `conversation(conn, id)`, `refusals_for(...)`,
-   `undelivered(conn, to_actor=None)` and `auto_close_done(conn, now)` (rule 5's three-day
-   auto-close, which the keeper calls on a timer).
+   `undelivered(conn, to_actor=None)`.
 """
 import contextvars
 import hashlib
@@ -126,7 +125,6 @@ UNSOLICITED_PER_DAY = int(os.environ.get("TICO_UNSOLICITED_PER_DAY", "10"))   # 
 REVIEW_AT = 3                   # rule 8: refusals in a day that open a review task
 QUARANTINE_AT = 10              # rule 8: refusals in a day that quarantine the bot
 ESCAPE_QUARANTINE_AT = int(os.environ.get("TICO_ESCAPE_QUARANTINE_AT", "3"))   # rule 8: `escape` refusals in a day that quarantine it until a person clears it
-AUTO_CLOSE_DAYS = 3             # rule 5: a bot requester's `done` task closes itself
 NOTICE_DAYS = 14                # how long a notice stays in the inbox
 
 # ----------------------------------------------------------------------------- schema
@@ -2835,8 +2833,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     labels = _labels(labels)
     dup = _one(conn, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
                      "AND coalesce(parent_id,'')=? "
-                     f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
-               (requester, target, title, parent_id or "", *LIVE_STATUSES))
+                     f"AND status IN ({','.join('?' * len(ACTIVE_STATUSES))})",
+               (requester, target, title, parent_id or "", *ACTIVE_STATUSES))
     if dup and task_private_readable(conn, actor, task(conn, dup["id"])) and (deduplicate or actor != KEEPER):
         detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
                   else f"{dup['id']} already asks {actor_id(target)} for this")
@@ -3207,7 +3205,7 @@ def _task_close_allowed(conn, actor, row, note):
 
 @private_task_write
 def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=None):
-    """Rule 5. The requester closes, or any human. The owner never does."""
+    """Rule 5. Closing is an explicit requester, human, delegated bot or keeper decision."""
     _writer(conn, actor)
     row = task(conn, task_id)
     if not row:
@@ -3228,7 +3226,7 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
     # Closing work that was already done, with nothing said, is acceptance: news, not work. It
     # goes to the bot's inbox without a run. Hundreds of runs were a bot
     # waking to read "Closed:" and saying "acknowledged", hours of agent time. The keeper's
-    # own closes (a routine's accepted run, the three-day auto-close) carry no instruction either.
+    # own closes carry no instruction either.
     # A note from a person, or a close before the work was done, still wakes: that may change
     # what the bot does next.
     accepted = row["status"] in ("done", "declined") and (actor == KEEPER or not str(note or "").strip())
@@ -3323,24 +3321,6 @@ def task_ask(conn, actor, task_id, body):
     if row["status"] in ("open", "doing", "review"):
         task_update(conn, actor, task_id, status="waiting")
     return msg
-
-
-def auto_close_done(conn, at=None):
-    """Rule 5: a bot requester's `done` task closes itself after three quiet days.
-
-    The keeper calls this on a timer. `at` is the clock, so a test can move it.
-    """
-    at = at or now()
-    cutoff = shift(at, days=-AUTO_CLOSE_DAYS)
-    closed = []
-    # Exactly the rows this rule needs, not the first page of a listing: past a page of tasks a
-    # listing cap silently stopped closing them.
-    for row in _rows(conn.execute("SELECT * FROM tasks WHERE status='done' AND requester LIKE 'bot:%' "
-                                  "AND done_at IS NOT NULL AND done_at<=? ORDER BY done_at,id", (cutoff,))):
-        with isolated(conn, "auto_close_done", row["id"]):
-            closed.append(task_close(conn, KEEPER, row["id"],
-                                     f"closed automatically after {AUTO_CLOSE_DAYS} days"))
-    return closed
 
 
 def _task_event(conn, task_id, actor, field, old, new, note=""):

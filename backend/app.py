@@ -2284,10 +2284,6 @@ def create_app(settings=None):
                         fields[name] = auth.resolve_task(c, who, fields[name])
                         auth.task(c, who, fields[name])
                 H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None)
-                # A bot's own tasks sat 'done' for days because the reviewer is the
-                # same bot. A task its owner asked for itself closes when that owner marks it done.
-                if (body.status == "done" or body.step is not None and H.task(c, task_id)["status"] == "done") and row["owner"] == row["requester"] == who.actor:
-                    H.task_close(c, who.actor, task_id, note=body.note or "", quiet=body.quiet)
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
             return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who))}
         return mutate(request, body, work)

@@ -79,14 +79,6 @@ class Scheduler:
                         if not exists:
                             from . import routines
                             existing = routines.latest_task(c, row["id"])
-                            if existing and existing["status"] == "done":
-                                # A completed run must not absorb every future occurrence. The
-                                # requester accepts its previous delivery before opening the next
-                                # bounded run; unfinished work still coalesces.
-                                H.task_close(c, H.KEEPER, existing["id"],
-                                             "Completed scheduled run accepted before the next occurrence.")
-                                c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (existing["id"],))
-                                existing = None
                             if existing:
                                 tid, outcome = existing["id"], "coalesced_into_existing_task"
                                 # An absorbed occurrence still wakes the owner, or an open task
@@ -112,9 +104,6 @@ class Scheduler:
             # a merged pull request whose push record arrived after the deploy still ships
             from .github import ship_deployed
             ship_deployed(c, self.store.settings)
-            closed = H.auto_close_done(c, stamp(at))
-            for task in closed:
-                c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task["id"],))
             for row in H.tasks_due_for_bots(c, stamp(at + timedelta(days=1))[:10]):
                 with isolated(c, "reminder", row["id"], failures):
                     due = H.parse_ts(row.get("due"))

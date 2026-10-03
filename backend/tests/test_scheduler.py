@@ -1,11 +1,14 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from backend.tests.test_api import api, get, post  # noqa: F401
 from backend.scheduler import Scheduler
 from backend.store import H
 
 
-def test_schedule_survives_restart_without_duplicate_work(api):
+@pytest.mark.parametrize('finished_status', ['done', 'declined'])
+def test_schedule_survives_restart_without_duplicate_work(api, finished_status):
     at = datetime(2026, 9, 10, 17, 0, tzinfo=timezone.utc)
     store = api.app.state.store
     with store.transaction() as c:
@@ -22,6 +25,16 @@ def test_schedule_survives_restart_without_duplicate_work(api):
         assert c.execute("SELECT count(*) FROM jobs j JOIN messages m ON m.id=j.message_id "
                          "WHERE json_extract(m.refs_json,'$.update_request') IS NULL").fetchone()[0] == 1
         assert c.execute("SELECT next_due FROM schedules").fetchone()[0] == '2026-09-11T16:00:00.000000Z'
+    # A finished occurrence keeps its status; the next occurrence gets its own task and is deduplicated after restart.
+    with store.transaction() as c:
+        previous = H.task_update(c, 'bot:coo', first['fired'][0], status=finished_status, note='Daily work reviewed.')
+    next_at = datetime(2026, 9, 11, 17, tzinfo=timezone.utc)
+    next_run = Scheduler(store, api.app.state.execution).tick(next_at)
+    assert len(next_run['fired']) == 1 and next_run['fired'][0] != previous['id']
+    assert not Scheduler(store, api.app.state.execution).tick(next_at)['fired']
+    with store.read() as c:
+        assert H.task(c, previous['id']) == previous
+        assert c.execute('SELECT count(*) FROM schedule_occurrences').fetchone()[0] == 2
 
 
 def test_due_reminder_deduplicates_across_scheduler_restart(api):
@@ -73,27 +86,34 @@ def test_idle_claims_do_not_take_the_write_lock_and_never_starve_leases(api):
         assert c.execute("SELECT count(*) FROM attempts WHERE state='expired'").fetchone()[0] == 0
 
 
-def test_legacy_done_parent_with_open_child_and_one_failed_close_do_not_stop_tick(api, monkeypatch):
+def test_completed_tasks_stay_done_after_scheduler_ticks_and_restarts(api, monkeypatch):
     store = api.app.state.store
     with store.transaction() as c:
         parent = H.task_create(c, 'bot:ops', 'Accept existing work', 'x', 'bot:cpo', lint=False)
         child = H.task_create(c, 'bot:ops', 'Finish child work', 'x', 'bot:cpo', parent_id=parent['id'], lint=False)
-        poisoned = H.task_create(c, 'bot:ops', 'Accept another delivery', 'x', 'bot:cpo', lint=False)
-        for task in (parent, poisoned):
+        tasks = [parent, H.task_create(c, 'bot:ops', 'Review own delivery', 'x', 'bot:ops', lint=False),
+                 H.task_create(c, 'human:ana', 'Review requested delivery', 'x', 'bot:cpo', lint=False),
+                 H.task_create(c, 'human:ana', 'Review own receipt', 'x', 'human:ana', lint=False)]
+        for task in tasks:
             c.execute("UPDATE tasks SET status='done',done_at='2026-01-01T00:00:00Z' WHERE id=?", (task['id'],))
-    real = H.task_close
+        old_closed = H.task_create(c, 'bot:ops', 'Cancel old work', 'x', 'bot:cpo', lint=False)
+        H.task_close(c, 'bot:ops', old_closed['id'])
+        previous = {t['id']: H.task(c, t['id']) for t in [*tasks, old_closed]}
+    closes = []
     def close(c, actor, task_id, *args, **kw):
-        if task_id == poisoned['id']:
-            c.execute("UPDATE tasks SET note='partial' WHERE id=?", (task_id,))
-            raise RuntimeError('bad row')
-        return real(c, actor, task_id, *args, **kw)
+        closes.append(task_id)
+        raise AssertionError('Completed work must not close automatically')
     monkeypatch.setattr(H, 'task_close', close)
-    Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, 10, 17, tzinfo=timezone.utc))
+    for day in (10, 11):
+        result = Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, day, 17, tzinfo=timezone.utc))
+        assert not result['failures']
+    assert not closes
     with store.read() as c:
-        assert H.task(c, parent['id'])['status'] == 'closed'
+        assert {tid: H.task(c, tid) for tid in previous} == previous
         assert H.task(c, child['id'])['status'] == 'open'
-        assert H.task(c, poisoned['id'])['note'] == ''
         assert c.execute("SELECT last_success FROM service_health WHERE service='scheduler'").fetchone()[0]
+
+
 def test_path_like_titles_and_a_failed_reminder_do_not_stop_other_rows(api, monkeypatch):
     store = api.app.state.store
     tasks = [post(api, "tasks", {"owner": "coo", "title": title, "body": "Review access",

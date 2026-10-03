@@ -85,6 +85,33 @@ def test_completing_a_bot_requested_human_task_needs_a_result(api):
     assert done["status"] == "done" and done["note"] == "Keep the hold; no publication is approved."
 
 
+@pytest.mark.parametrize('owner', ['ana', 'ops'])
+@pytest.mark.parametrize('completion', [{'status': 'done'}, {'step': 'Done'}])
+def test_self_requested_completion_stays_done_until_explicit_close(api, owner, completion):
+    token = 'ana-test' if owner == 'ana' else bot_token(api)
+    task = post(api, 'tasks', {'owner': owner, 'title': 'Check the receipt', 'body': 'Check the receipt totals.'}, token=token)
+    assert task['requester'] == task['owner']
+    dry = post(api, 'tasks/dry-run', {'owner': owner, 'title': task['title'], 'body': task['body']}, token=token)
+    assert any('already asks' in problem for problem in dry['problems'])
+    with api.app.state.store.transaction() as c:
+        with pytest.raises(H.Refused, match='already asks'):
+            H.task_create(c, task['requester'], task['title'], task['body'], task['owner'])
+    done = post(api, 'tasks/' + task['id'], {'version': task['version'], **completion, 'note': 'Receipt totals match.'}, token=token)
+    assert done['status'] == 'done' and done['done_at']
+    assert done['closed_at'] is None and done['closed_by'] is None
+    history = get(api, 'tasks/' + task['id'], token=token)['events']
+    assert not any(e['field'] == 'status' and e['new'] == 'closed' for e in history)
+    dry = post(api, 'tasks/dry-run', {'owner': owner, 'title': task['title'], 'body': task['body']}, token=token)
+    assert not any('already asks' in problem for problem in dry['problems'])
+    # Repeating completed work does not require closing its history first; unfinished duplicates remain refused.
+    fresh = post(api, 'tasks', {'owner': owner, 'title': task['title'], 'body': task['body']}, token=token)
+    assert fresh['id'] != task['id'] and fresh['status'] == 'open'
+    assert get(api, 'tasks/' + task['id'], token=token)['task']['status'] == 'done'
+    closed = post(api, 'tasks/' + task['id'], {'version': done['version'], 'close': True}, token=token)
+    assert closed['status'] == 'closed' and closed['closed_at'] and closed['closed_by'] == task['requester']
+    assert closed['done_at'] == done['done_at']
+
+
 # ----------------------------------------------------------------------------- lanes
 
 
@@ -785,11 +812,6 @@ def test_bot_created_children_keep_bot_requester_and_notify_and_close_for_the_ma
         assert notices and {m['to_actor'] for m in notices} == {'bot:ops'}
     child = get(api, 'tasks/' + child['id'], token=token)['task']
     assert post(api, 'tasks/' + child['id'], {'version': child['version'], 'close': True}, token=token)['status'] == 'closed'
-    # The bot filed another ordinary subtask; it auto-closes without asking the human.
-    with api.app.state.store.transaction() as c:
-        other = H.task_create(c, 'bot:ops', 'Finish another delivery', 'x', 'bot:cpo', parent_id=parent['id'], lint=False)
-        c.execute("UPDATE tasks SET status='done',done_at='2026-01-01T00:00:00Z' WHERE id=?", (other['id'],))
-        assert other['id'] in {t['id'] for t in H.auto_close_done(c)}
 
 
 def test_delegate_cannot_turn_temporary_access_into_ancestor_access(api):

@@ -219,8 +219,8 @@ def task_dry_run(c, auth, who, body):
             # plain-English titles: recorded on the task this week, refused once TICO_TITLE_LINT=refuse
             problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
         dup = H._one(c, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
-                        f"AND status IN ({','.join('?' * len(H.LIVE_STATUSES))})",
-                     (who.actor, target, title, *H.LIVE_STATUSES))
+                        f"AND status IN ({','.join('?' * len(H.ACTIVE_STATUSES))})",
+                     (who.actor, target, title, *H.ACTIVE_STATUSES))
         if dup and H.task_private_readable(c, who.actor, H.task(c, dup["id"])) and (
                 not who.task_actor or H.task_private_readable(c, who.task_actor, H.task(c, dup["id"]))):
             problems.append(f"{dup['id']} already asks {H.actor_id(target)} for this")

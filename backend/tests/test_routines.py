@@ -68,6 +68,24 @@ def test_a_routine_is_created_listed_fired_and_seen_by_the_bot(api):
     assert scheduler(api).tick(datetime(2026, 9, 14, 14, 1, tzinfo=timezone.utc))["fired"] == []
 
 
+@pytest.mark.parametrize('status', ['open', 'doing', 'waiting', 'review', 'ready'])
+def test_later_occurrences_keep_unfinished_claimed_work_and_deduplicate(api, status):
+    r = setup(api)
+    first = tick(api, datetime(2026, 9, 14, 14, tzinfo=timezone.utc))['fired'][0]
+    attempt = claim(api, r)
+    assert attempt['task']['id'] == first
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, H.KEEPER, first, status=status)
+    at = datetime(2026, 9, 15, 14, tzinfo=timezone.utc)
+    for _ in range(2):
+        assert scheduler(api).tick(at)['fired'] == []
+    with api.app.state.store.read() as c:
+        occurrences = c.execute('SELECT task_id,outcome FROM schedule_occurrences ORDER BY occurrence').fetchall()
+        assert [tuple(row) for row in occurrences] == [(first, 'created'), (first, 'coalesced_into_existing_task')]
+        assert H.task(c, first)['status'] == status
+        assert c.execute('SELECT state FROM attempts WHERE id=?', (attempt['id'],)).fetchone()[0] == 'leased'
+
+
 def test_who_may_write_a_bots_routines(api):
     # Ben operates cpo; a member cannot touch ops's routines (an admin could), and Cara cannot touch cpo's.
     create(api, "cpo", DEBRIEF, token="ben-test")

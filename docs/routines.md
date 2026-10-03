@@ -52,8 +52,8 @@ routine, task reminder or PR notice is logged and retried without rolling back o
 A due routine opens one task owned by the bot, body = the routine's text. Missed occurrences
 coalesce into the latest due one. An
 unfinished task absorbs later occurrences of the same routine, each of which reminds the bot in
-that task; a task waiting on a human is left alone; a task marked done is closed before the
-next occurrence opens a fresh one. Editing the text reaches the next occurrence, never a task
+that task; a task waiting on a human is left alone; a task marked Done keeps that status while
+the next occurrence opens a fresh one. Editing the text reaches the next occurrence, never a task
 already opened. Changing the cron or the timezone moves the next fire forward from now and never
 backfills. Pausing keeps the row and its history; the clock skips it.
 

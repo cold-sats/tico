@@ -141,9 +141,9 @@ def cancel_unclaimed(c, sid):
 
 
 def latest_task(c, sid):
-    """The task the most recent occurrence opened or joined, if it is still on the board."""
+    """The most recent unfinished run; completed history stays Done when the next run opens."""
     return c.execute("SELECT t.id,t.status FROM schedule_occurrences o JOIN tasks t ON t.id=o.task_id "
-                     "WHERE o.schedule_id=? AND t.status IN ('open','doing','waiting','review','ready','done') "
+                     "WHERE o.schedule_id=? AND t.status IN ('open','doing','waiting','review','ready') "
                      "ORDER BY o.occurrence DESC LIMIT 1", (sid,)).fetchone()
 
 

@@ -50,6 +50,20 @@ the PR opens, ready when it merges, and done when the configured release include
 uses the mapping above, including clearing the step when the type has no match. General tasks
 keep their existing behavior.
 
+## Done and Closed
+
+**Done** means the owner reports that the work is complete, with a result note. **Closed** means
+the requester or an authorized human accepts the result or cancels the task. Closing unfinished
+work does not mark it Done. Both statuses appear in the **Done** view; the task history keeps
+the separate completion and closing events.
+
+Done stays Done, including tasks the owner requested for itself, old bot-requested tasks,
+and completed routine runs. Closing is a separate decision; it records `closed_at` and
+`closed_by`, preserving the completion time if the work was already Done. Earlier history
+is preserved, including tasks that older versions closed automatically.
+Completed work does not block a new task with the same requester, owner and title; unfinished
+duplicates are still refused.
+
 ## Types bots work on
 
 Every bot can read company-visible tasks subject to existing bot activity restrictions. Types
@@ -146,7 +160,7 @@ using `tasks.type_id` and `tasks.step_id`; the task visibility rules still apply
 Subtasks can nest to any depth. A human-created subtask keeps a human parent's requester for
 notices; under a bot-requested parent, the person filing it is its requester.
 A bot-created subtask is requested by the filing bot, which receives its completion
-notice and may close it. It auto-closes after three quiet days like other bot-requested tasks.
+notice and may close it explicitly. Completed subtasks stay Done until then.
 Subtasks never inherit a human's delegation anchor from a bot's request. BotOps acts with the
 filing bot's rights when that bot asks it to work on a subtask.
 
@@ -156,8 +170,8 @@ request or manage the new parent. Moving or detaching a subtask also requires it
 parent's owner or requester, or a human mover. Moving a task moves its whole subtree,
 and cycles are refused.
 Bots finish open subtasks before marking a parent Done. Humans can always choose Ready or Done,
-or close a parent to cancel work. The keeper accepts completed routine work and old bot deliveries
-even when they have open subtasks. Finishing or moving away the last open subtask wakes the
+or close a parent to cancel work. The keeper can cancel obsolete routine requests even when
+they have open subtasks. Finishing or moving away the last open subtask wakes the
 parent's owner with “All subtasks done”, unless that owner made the change.
 Closing a parent cancels it; later subtask completion does not wake its owner.
 Done, Closed and Declined count as finished. Open descendants under a finished subtask do not
