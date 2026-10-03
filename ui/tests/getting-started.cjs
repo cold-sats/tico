@@ -179,6 +179,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     // ...and goes once two minutes have passed and there is content: the normal Market page is drawn.
     await page.clock.fastForward(60000);
     await page.locator('#market-index a', {hasText: 'CleanCo'}).waitFor();
+    // The index renders before the separate overview request finishes.
+    await page.locator('#market-read', {hasText: 'Northwind sells office cleaning'}).waitFor();
     assert.match(await page.locator('#market-read').textContent(), /Northwind sells office cleaning/);
     assert.equal(await notice.count(), 0);
     assert.equal(await page.evaluate(() => localStorage.getItem('tico.market.researching')), null);
