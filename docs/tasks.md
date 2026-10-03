@@ -51,6 +51,30 @@ the PR opens, ready when it merges, and done when the configured release include
 uses the mapping above, including clearing the step when the type has no match. General tasks
 keep their existing behavior.
 
+## Work that is waiting
+
+Keep actively worked tasks in **Doing**. When another task must finish first, set **Waiting**
+and attach that blocker together:
+
+```sh
+hub task update <task> --status waiting --blocked-by <blocker> --note "Needs the build environment"
+```
+
+A bot may do this for its own task, including a task it requested itself. The blocker must exist
+and be accessible; a finished blocker does not justify waiting. An unanswered question, an open
+child task or a pending approval can also justify waiting. Finishing a blocker clears the dependency
+and wakes the waiting bot. **Waiting** does not mean a person must review the code.
+
+For unblocked open or doing tasks, automatic stalled-task wakes are limited to three in a rolling
+24 hours, spaced at least 30 minutes apart. Updating a note does not reset that limit. Repeated
+stalls are escalated to BotOps; an explicit run is still available.
+
+Task worktrees have a separate lifecycle. The ten-worktree limit stays in effect, and cleanup
+waits until the owning bot is idle so it cannot remove a checkout in use. A supported cleanup
+request continues to occupy its slot until the runner removes it. For merged work that is still
+awaiting release, request cleanup of the worktree link rather than marking the task Done or Closed
+just to free space.
+
 ## Done and Closed
 
 **Done** means the owner reports that the work is complete, with a result note. **Closed** means
