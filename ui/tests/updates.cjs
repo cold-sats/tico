@@ -81,11 +81,11 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     return {page, errors};
   };
   try {
-    // Desktop: the rail leads with Updates and an unread badge; the feed groups by day.
+    // Desktop: Overview leads the rail; Updates keeps its unread badge and default route.
     const {page, errors} = await open({width: 1280, height: 900});
     await page.goto('http://tico-ui.test/#/updates');
     await page.locator('#upd-feed .upd-card').first().waitFor();
-    assert.equal(await page.locator('.side-scroll .nav-link:visible').first().getAttribute('data-nav'), 'updates');
+    assert.equal(await page.locator('.side-scroll .nav-link:visible').first().getAttribute('data-nav'), 'overview');
     await page.waitForFunction(() => document.querySelector('.side-scroll [data-upd-badge]')?.textContent === '2');
     // Just the updates, each only its bullets: no title, no sections, no greeting,
     // no day headers, no who did not report, no More / Less.
@@ -152,7 +152,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     const p = phone.page;
     await p.goto('http://tico-ui.test/#/updates');
     await p.locator('#upd-feed .upd-card').first().waitFor();
-    assert.deepEqual(await p.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), ['Team', 'Search', 'Updates', 'More']);
+    assert.deepEqual(await p.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), ['Overview', 'Team', 'Search', 'Updates', 'More']);
     // Day, week, unread and my bots are icons on a phone.
     for (const sel of ['[data-upd-kind="daily"]', '[data-upd-kind="weekly"]', '#upd-mine']) {
       assert.equal(await p.locator(sel + ' .nav-icon').isVisible(), true, sel + ' shows its icon');

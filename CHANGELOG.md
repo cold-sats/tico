@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Overview turns the company into an interactive building with department floors, human and bot teammates, and reported bot status. It is available first in desktop and mobile navigation; Updates remains the default. Floors and teammates can be paged, with reduced-motion controls and an accessible roster when 3D is unavailable.
+
 ### Fixed
 - The team chart shows personal branches only to their operator, labeled Your branch. Original bots remain visible in their groups; administrators can still inspect other branches through the branch picker and Settings.
 

@@ -65,7 +65,11 @@ Every file in `app/` starts with `'use strict'`, as the old inline script did. U
 | tasks, task-modal, task-code, tasks-page, recurring | Tasks: rows and cards, the modal and its comments, the modal's Code and Subtasks rail and the PR badge, the page, routines |
 | meetings, mail, messaging, credentials, sql, integrations, help | one page each |
 | settings, settings-*, subscriptions, vault, catalog | Settings: shell, one file per tab, the bot editor, access editor, subscriptions (computers, groups, a bot's), credential vault, template cards |
-| welcome, updates, goals | setup, Updates, Goals |
+| welcome, updates, goals, overview | setup, Updates, Goals, and the optional building overview |
 | router, drawer, search, org-fan, nav-events, viewport, refresh, native, boot | `route()`, account menu and phone drawer, search, mobile team switcher, keyboard viewport, the refresh loop, the desktop bridge, startup |
 
 Files under about 1,500 lines; split a file along its section comments when it grows past that.
+
+The [building overview](../docs/overview.md) mounts an isolated, lazy iframe under `overview/`. Its
+Three.js renderer uses native modules from `vendor/three/`; it is deliberately outside the classic
+app bundle so it loads only when the person opens Overview.

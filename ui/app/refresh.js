@@ -15,8 +15,10 @@ async function refresh(force) {
     });
     S.emps = namedRoster(emps);
     if (people?.people) setPeople(people);
-  } catch (e) { S.status = null; }
+    S.overviewRosterFresh = true;
+  } catch (e) { S.status = null; S.overviewRosterFresh = false; }
   await v2Refresh();                    // hub.db status and needs-you (docs/history/hub-v2.md)
+  overviewRefresh();
   if (S.me?.cloud) void updUnreadRefresh();
   renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync();
   if (BOT?.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);

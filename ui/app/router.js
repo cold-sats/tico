@@ -4,9 +4,10 @@
 
 let LAST_ROUTE = '';
 function route() {
+  overviewStop();
   GOAL_MANAGER_STOP?.();
   window.supportLeave?.();
-  $('#main').classList.remove('help-layout');
+  $('#main').classList.remove('help-layout', 'overview-layout');
   const from = LAST_ROUTE;
   S.route = LAST_ROUTE = location.hash || UPDATES;
   const botOf = r => r.startsWith('#/bot/') ? r.slice(6).split('/')[0] : '';
@@ -32,12 +33,13 @@ function route() {
   if (UPD && !(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
-  if (S.route === OVERVIEW || S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
+  if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
     // Old links land on Meetings, keeping a deep link to one meeting.
     const id = new URLSearchParams(S.route.split('?')[1] || '').get('recording');
     location.hash = MEETINGS + (id ? '?meeting=' + encodeURIComponent(id) : ''); return;
   }
   else if (S.route === '#/inbox' || S.route.startsWith('#/inbox?')) { location.hash = MAIL; return; }
+  else if (S.route === OVERVIEW) pageOverview();
   else if (S.route === WELCOME) pageWelcome();
   else if (S.route === '#/tags') pageTags();
   else if (S.route.startsWith('#/tag/')) pageTag(decodeURIComponent(S.route.slice(6)));

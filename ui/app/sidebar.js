@@ -521,8 +521,9 @@ function renderTree() {
     renderTree();
   };
   document.querySelectorAll('[data-nav]').forEach(a => {
-    const mobilePrimary = S.route === UPDATES || S.route.startsWith(UPDATES + '?');   // Tasks lives in More on a phone now
-    const isCurrent = (a.dataset.nav === 'welcome' && S.route === WELCOME) ||
+    const mobilePrimary = S.route === OVERVIEW || S.route === UPDATES || S.route.startsWith(UPDATES + '?');   // Tasks lives in More on a phone now
+    const isCurrent = (a.dataset.nav === 'overview' && S.route === OVERVIEW) ||
+      (a.dataset.nav === 'welcome' && S.route === WELCOME) ||
       (a.dataset.nav === 'meetings' && (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?'))) ||
       (a.dataset.nav === 'mail' && (S.route === MAIL || S.route.startsWith(MAIL + '?') || S.route.startsWith(MESSAGING))) ||
       (a.dataset.nav === 'tasks' && (isTasksRoute(S.route) || S.route.startsWith('#/task/'))) ||

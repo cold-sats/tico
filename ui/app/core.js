@@ -4,8 +4,7 @@
 
 const API = '/api';
 const GH = 'https://github.com/ticoteam/tico';
-// The Overview page is gone. Old links and the native Mac shell still say
-// Old routes redirect to Meetings.
+// The building is an optional view of the team; Updates remains the default route.
 const OVERVIEW = '#/overview';
 const WELCOME = '#/welcome';          // first run: names, the team, the bot templates, a computer
 const CHAT = '#/chat';                // retired with the Tico chat: old links land on Tasks
