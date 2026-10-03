@@ -183,8 +183,10 @@ function recruitFor({department, briefing, share}) {
         const file = path.join(__dirname, '..', p);
         if (fs.existsSync(file)) return route.fulfill({contentType: p.endsWith('.woff2') ? 'font/woff2' : 'application/javascript', body: fs.readFileSync(file)});
       }
-      if (p === '/api/me') return json(me);
-      if (p === '/api/v2/config') return json(CONFIG);
+      // Polls must report the setup state that the completion endpoint already saved.
+      const config = {...CONFIG, ...record.names, onboarding_needed: me.role === 'owner' && record.needed};
+      if (p === '/api/me') return json({...me, config});
+      if (p === '/api/v2/config') return json(config);
       if (p === '/api/status') return json({cloud: true, keeper_alive: true, health_issues: [], active: [], recent_runs: []});
       if (p === '/api/employees') return json([{name: 'coo', display_name: 'Tico', status: 'active',
         reports_to: '', description: 'the point of contact', revision: 1, users: [{id: 'ana', name: 'Ana Rivera', email: 'ana@acme.example'}]},
@@ -683,6 +685,7 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('#fr-admin-form [name=name]').inputValue(), 'Half typed');
     await shot(page, 'desktop-6-created');
     // Finishing takes the setup entry out of the sidebar and puts the names on the app; the chart marks the parked bots.
+    await page.evaluate(() => refresh(true));
     assert.equal(await page.locator('#nav-welcome').evaluate(el => el.hidden), true);
     assert.equal(await page.title(), 'Initech Hub');
     await page.locator('#tree .node[href="#/bot/support"] .tree-setup').waitFor();

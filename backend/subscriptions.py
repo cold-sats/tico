@@ -6,6 +6,7 @@ from fastapi import Request
 
 from . import groups as G, hubdb as H, models as M
 from .execution import readiness_document
+from .subscription_identity import identity
 from .store import Problem, encode
 
 
@@ -33,12 +34,21 @@ def weekly_key(runner, profile, runtime):
 
 def reported_runtimes(c, runner, profile, raw):
     from .repositories import metadata
+    from . import subscription_refresh as refresh
     runtimes = json.loads(raw or '{}')
+    cutoff = refresh.signin_after(c, runner, profile)
     for runtime, state in runtimes.items():
         reported = weekly_snapshot(state.get('weekly'))
         manual = weekly_snapshot(metadata(c, weekly_key(runner, profile, runtime)))
+        refreshed = metadata(c, refresh.key(runner, profile, runtime))
+        direct = weekly_snapshot(refreshed.get('weekly'))
+        if refreshed:
+            state['refresh'] = refresh.view(refreshed)
+            if refreshed['requested_at'] < cutoff.get(runtime, ''):
+                state['refresh']['state'] = 'outdated'
         # Explicitly distinguish human-entered observations from provider telemetry.
-        choices = [(v, source) for v, source in ((reported, 'provider'), (manual, 'manual')) if v]
+        choices = [(v, source) for v, source in ((reported, 'provider'), (manual, 'manual'), (direct, 'provider'))
+                   if v and (not cutoff.get(runtime) or H.parse_ts(v['reported_at']) >= H.parse_ts(cutoff[runtime]))]
         state['weekly'] = None
         if choices:
             value, source = max(choices, key=lambda row: datetime.fromisoformat(row[0]['reported_at'].replace('Z', '+00:00')))
@@ -140,7 +150,7 @@ def listing(c, auth, who, computer_rows):
                                               (runner['id'], H.actor_id(who.actor))).fetchone():
             continue
         computers.append({'runner_id': runner['id'], 'label': runner['label'], 'profiles': [
-            {'name': row['profile'], 'runtimes': reported_runtimes(c, runner['id'], row['profile'], row['runtimes_json'])}
+            {'name': row['profile'], **identity(c, runner['id'], row['profile']), 'runtimes': reported_runtimes(c, runner['id'], row['profile'], row['runtimes_json'])}
             for row in c.execute('SELECT * FROM computer_profiles WHERE runner_id=? ORDER BY profile', (runner['id'],))]})
     access = auth.bot_accesses(c, who)
     assignments = [dict(row) for row in c.execute('SELECT * FROM subscription_assignments ORDER BY scope,target')
@@ -220,6 +230,10 @@ def bot_subscription(c, bot, settings, ctx=None):
 
 
 def install(app, store, auth, mutate, settings, computer_rows):
+    from .subscription_refresh import install as install_refresh
+    install_refresh(app, store, auth, mutate)
+    from . import subscription_identity
+    subscription_identity.install(app, store, auth, mutate)
     @app.get('/api/v2/subscriptions')
     def subscriptions(request: Request):
         who = request.state.identity
@@ -268,4 +282,7 @@ def install(app, store, auth, mutate, settings, computer_rows):
             if not H.bot(c, bot):
                 raise Problem('not_found', 'Bot not found', 404)
             auth.require_see(c, who, bot)
-            return bot_subscription(c, bot, settings)
+            result = bot_subscription(c, bot, settings)
+            if result['profile'] and result['computer']:
+                result.update(identity(c, result['computer']['runner_id'], result['profile']))
+            return result

@@ -78,7 +78,7 @@ function pageSettings() {
     </div>
     <div class="settings-pane" id="settings-chat" role="tabpanel" hidden><section class="card"><header><h2>Chat</h2></header>
       <p>Each bot has its own chat. Open a bot to choose a conversation or start a new one.</p>
-      <button type="button" class="ghost" data-settings-tab="bots">Choose a bot</button>
+      <button type="button" class="ghost" id="settings-chat-bots">Choose a bot</button>
       <a class="ghost" href="${ASSISTANT}">Chat with ${esc(assistantName())}</a>
     </section></div>
     <div class="settings-pane" id="settings-tasks" role="tabpanel" hidden>
@@ -98,7 +98,7 @@ function pageSettings() {
     const button = event.target.closest('[data-settings-tab]');
     if (button) settingsShow(button.dataset.settingsTab);
   };
-  $('#settings-chat [data-settings-tab]').onclick = () => settingsShow('bots');
+  $('#settings-chat-bots').onclick = () => settingsShow('bots');
   settingsShow(SETTINGS_TAB);
   loadSettings();
 }

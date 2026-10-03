@@ -25,7 +25,7 @@ SHA = "a" * 40
 def scribe(api):
     """Ana's bot, open to everyone to read and write."""
     return post(api, "bots", {"slug": "scribe", "display_name": "Scribe", "description": "Takes meeting notes", "status": "planned",
-                              "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})
+                              "model": "gpt-6.1-sol", "effort": "high", "harness": None, "runner_id": None})
 
 
 def copy(api, body=None, token="cara-test", bot="scribe", expected=200):
@@ -48,7 +48,7 @@ def test_a_copy_is_an_independent_bot_owned_by_whoever_asked(api, scribe):
     row, config = config_of(api, "cara-scribe")
     assert (row["created_by"], row["operator"], row["reports_to"]) == ("human:cara", "cara", "human:cara")
     assert row["description"] == "Takes meeting notes" and config["copied_from"] == {"bot": "scribe", "sha": SHA}
-    assert (config["model"], config["reasoning_effort"]) == ("gpt-6-astra", "high")         # the original's model settings
+    assert (config["model"], config["reasoning_effort"]) == ("gpt-6.1-sol", "high")         # the original's model settings
     # Nothing is linked: the original is as it was, and the copy is a bot of its own (its owner may change it, Ana's original she may not).
     assert config_of(api, "scribe")[0]["operator"] == "ana" and "copied_from" not in config_of(api, "scribe")[1]
     current = get(api, "bots", "cara-test")

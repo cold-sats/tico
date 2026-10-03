@@ -126,6 +126,8 @@ def start(c, who, rid, runtime, profile="", auth=None):
     c.execute("INSERT INTO model_logins(id,runner_id,runtime,profile,state,created,updated,expires_at,requested_by) "
               "VALUES(?,?,?,?,?,?,?,?,?)",
               (lid, rid, runtime, profile, "requested", now, now, H.shift(now, seconds=LIFETIME), who.actor))
+    from .subscription_refresh import invalidate_signin
+    invalidate_signin(c, rid, profile, runtime, now)
     H.event(c, who.actor, "runner.login.start", rid, {"runtime": runtime})
     return view(_login(c, rid, lid))
 

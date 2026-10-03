@@ -41,5 +41,10 @@ const mdS3 = md;   // safeMd already routes s3:// images through the hub
 async function copyText(value) {
   if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(value);
   const area = document.createElement('textarea'); area.value = value; area.style.position = 'fixed'; area.style.opacity = '0';
-  document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
+  const focused = document.activeElement;
+  document.body.appendChild(area);
+  try {
+    area.select();
+    if (!document.execCommand('copy')) throw new Error('Clipboard unavailable');
+  } finally { area.remove(); focused?.focus({preventScroll:true}); }
 }

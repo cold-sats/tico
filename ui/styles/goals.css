@@ -157,7 +157,8 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
   #main.goals-layout>.goals-main{min-width:0;min-height:0;overflow-y:auto;padding:18px var(--s4) 60px 28px}   /* 18px: where every other page starts */
   #main.goals-layout>.gm-rail{display:flex;flex-direction:column;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;border-left:1px solid var(--line);padding:6px 0 var(--s4)}
   .gm-rail>.rail-sec{padding-left:14px;padding-right:12px}
-  .gm-rail>.gm-chat{flex:1 0 auto}
+  .gm-rail>.gm-chat{flex:1;min-height:180px}
+  .gm-rail .gm-thread{flex:1;max-height:none;min-height:0}
   .gm-rail .gm-form{margin-top:auto}
 }
 .gm-rail{font-size:13px;line-height:1.4}
@@ -176,17 +177,16 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .gm-last:empty{display:none}
 .gm-chat{display:flex;flex-direction:column;justify-content:flex-start;gap:6px;min-width:0}
 .gm-chat>.rail-h{margin:0}
-.gm-latest{max-height:40vh;overflow:auto;overflow-wrap:anywhere;padding:6px 10px;background:var(--surface2);border-radius:8px}
-.gm-latest p{margin:0 0 4px}.gm-latest p:last-child{margin-bottom:0}
-.gm-latest .gm-you{white-space:pre-wrap}
-.gm-history{font-size:12.5px}
-.gm-history summary{cursor:pointer;color:var(--muted);width:max-content}
-.gm-history>div{max-height:200px;overflow:auto;margin-top:4px;overflow-wrap:anywhere}
-.gm-message{margin:6px 0}.gm-message p{margin:2px 0}
-.gm-form{display:flex;align-items:flex-end;gap:8px}
-.gm-form textarea{flex:1;min-width:0;min-height:36px;max-height:140px;resize:vertical;padding:7px 10px;font-size:13.5px;line-height:1.4}
-.gm-form .primary{min-height:36px}
+.gm-thread{display:flex;flex-direction:column;min-height:100px;max-height:55vh;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere;padding-right:4px}
+.gm-thread .conv-run.chat{border:0;padding:6px 0}
+.gm-thread .conv-run-head{display:none}
+.gm-thread .bubble{margin:0}
+.gm-thread .bubble.you{border:0}
+.gm-thread .bubble.bot.reply{background:transparent;border-radius:0}
+.gm-thread [data-gm-live]{min-width:0}
+.gm-form{min-width:0}
+.gm-form .ask{margin:0}
+.gm-form .p-chips:empty{display:none}
 .gm-chat .err{margin:0;font-size:12.5px}
 .gm-on{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0}
-@media (max-width:760px){.gm-form textarea{font-size:16px}}
 

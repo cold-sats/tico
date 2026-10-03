@@ -243,7 +243,7 @@ async function personSlackLoad(p) {
           <span class="spacer" style="flex:1"></span><span class="tnum">${esc(ago(t.last_message_at))}</span></div>
         ${msgs.map(m => `<div class="bubble ${String(m.from_actor || '').startsWith('bot:') ? 'bot reply' : 'you'}">
             <span class="who">${esc(actorLabel(m.from_actor))}</span>
-            <div class="md">${safeMd(m.body || '')}</div></div>`).join('') || '<div class="empty">No messages yet.</div>'}
+            <div class="md">${safeMd(m.body || '')}</div>${chatCopyHTML(m.body)}</div>`).join('') || '<div class="empty">No messages yet.</div>'}
         </div>`;
     }).join('');
   } catch (e) {

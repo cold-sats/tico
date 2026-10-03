@@ -131,7 +131,7 @@ async function useLoad() {
   for (const [key] of USE_DIMENSIONS) {
     const filter = $(`[data-use-filter="${key}"]`), selected = state.filters[key] || '';
     const values = [...new Set([...(data.dimensions?.[key] || []), ...(selected ? [selected] : [])])].sort();
-    filter.innerHTML = '<option value="">All</option>' + values.map(value => `<option value="${esc(value)}">${esc(value === '__unknown__' ? 'Not recorded / not applicable' : value)}</option>`).join('');
+    filter.innerHTML = '<option value="">All</option>' + values.map(value => `<option value="${esc(value)}">${esc(data.dimension_labels?.[key]?.[value] || (value === '__unknown__' ? 'Not recorded / not applicable' : value))}</option>`).join('');
     filter.value = selected;
   }
   usePaint();

@@ -297,10 +297,10 @@ async function goalManagerMount(pageState) {
   if (!host) return;
   const bot = (S.emps || []).find(e => e.name === GM);
   const active = !!bot && !GM_STATE[bot.status];
-  let stopped = false, es = null, poll = null, conversation = null, messages = [], execution = null, sending = false, lastReply;
+  let stopped = false, es = null, poll = null, conversation = null, messages = [], execution = null, sending = false, lastReply, composer = null;
   const current = () => !stopped && GOALS_ST === pageState && host.isConnected;
   const stopStream = () => { try { es?.close(); } catch { /* closed */ } es = null; clearInterval(poll); poll = null; };
-  GOAL_MANAGER_STOP = () => { stopped = true; stopStream(); };
+  GOAL_MANAGER_STOP = () => { stopped = true; stopStream(); if (composer) PILLS.delete(composer); };
   const off = !bot ? 'Not set up' : GM_STATE[bot.status] || '';
   host.innerHTML = `<section class="rail-sec gm-info">
       <header class="gm-head"><h2>Goal Manager</h2>${off ? `<span class="pill">${esc(off)}</span>` : ''}<a href="#/bot/${GM}">Open bot</a></header>
@@ -327,27 +327,35 @@ async function goalManagerMount(pageState) {
       if (current()) on.disabled = false;
     };
   } else {
-    chat.innerHTML = `<h3 class="rail-h" id="gm-chat-h">Chat</h3><div class="gm-latest" data-gm-latest aria-live="polite" hidden></div>
-      <details class="gm-history" hidden><summary>History</summary><div data-gm-history></div></details>
-      <form class="gm-form"><textarea rows="1" maxlength="4000" aria-label="Message to the Goal Manager" placeholder="Ask it to change a goal…"></textarea><button class="primary" type="submit">Send</button></form>
+    chat.innerHTML = `<h3 class="rail-h" id="gm-chat-h">Chat</h3>
+      <div class="gm-thread" data-gm-thread role="log" aria-label="Goal Manager conversation" tabindex="0"><p class="muted">Loading conversation…</p></div>
+      <div class="gm-form"></div>
       <p class="err" data-gm-error role="alert" hidden></p>`;
-    const form = chat.querySelector('form'), box = form.querySelector('textarea'), error = chat.querySelector('[data-gm-error]');
+    const error = chat.querySelector('[data-gm-error]');
     const fail = text => { if (!current()) return; error.textContent = text || ''; error.hidden = !text; };
     const isReply = m => m.from_actor === 'bot:' + GM;
     // With no AI provider nothing can run: say so rather than wait.
     const noProvider = () => execution?.state === 'queued' && execution.readiness_reason === 'missing_provider';
+    const thread = chat.querySelector('[data-gm-thread]');
+    let rendered = '';
     const draw = () => {
       if (!current()) return;
-      const shown = messages.at(-1) && !isReply(messages.at(-1)) ? messages.at(-1) : messages.filter(isReply).at(-1);
-      const latest = chat.querySelector('[data-gm-latest]');
-      latest.hidden = !shown;
-      latest.innerHTML = !shown ? '' : isReply(shown) ? `<div class="md">${safeMd(shown.body || '')}</div>`
-        : `<p class="gm-you">${esc(shown.body || '')}</p>${noProvider()
-          ? '<p class="muted" data-gm-provider>The Goal Manager needs an AI provider. <a href="#/settings" data-gs-tab="providers">Settings &gt; AI providers</a></p>'
-          : '<p class="muted">Sent. The reply shows here.</p>'}`;
-      const earlier = messages.filter(m => m !== shown).slice(-40);
-      chat.querySelector('[data-gm-history]').innerHTML = earlier.map(m => `<div class="gm-message"><b>${isReply(m) ? 'Goal Manager' : 'You'}</b><div class="md">${safeMd(m.body || '')}</div></div>`).join('');
-      chat.querySelector('.gm-history').hidden = !earlier.length;
+      // Run inspection stays on the full bot page.
+      const rows = messages.map(m => v2MessageHTML({...m, run:null}));
+      const live = execution && execution.state !== 'completed' ? execution.text : '';
+      if (live) rows.push(`<div data-gm-live>${v2MessageHTML({from_actor:'bot:' + GM, body:live})}</div>`);
+      else if (noProvider()) rows.push('<p class="muted" data-gm-provider>The Goal Manager needs an AI provider. <a href="#/settings" data-gs-tab="providers">Settings &gt; AI providers</a></p>');
+      else if (messages.length && !isReply(messages.at(-1))) rows.push(`<p class="muted" role="status">${esc(execution?.label || 'Waiting for reply…')}</p>`);
+      const html = rows.join('') || '<p class="muted">Ask the Goal Manager about your goals.</p>';
+      if (html === rendered) return;
+      const atEnd = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48;
+      const wasTop = thread.scrollTop;
+      thread.innerHTML = html; rendered = html;
+      const reload = snapshot;
+      if (thread.querySelector('[data-action-host]')) void window.assistantChat?.cards(thread, {get, post, esc, toast, reload});
+      if (thread.querySelector('[data-credential-host]')) void window.credentialCards?.mount(thread, {get, post, esc, toast, reload});
+      // Keep an older message in view while new replies arrive.
+      thread.scrollTop = atEnd ? thread.scrollHeight : wasTop;
     };
     const apply = async data => {
       if (!current()) return;
@@ -375,12 +383,9 @@ async function goalManagerMount(pageState) {
       es.addEventListener('expired', () => { stopStream(); fallback(); });
       es.addEventListener('error', () => { if (es && es.readyState === 2) { stopStream(); fallback(); } });
     };
-    box.onkeydown = ev => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); form.requestSubmit(); } };
-    form.onsubmit = async ev => {
-      ev.preventDefault();
-      const text = box.value.trim();
+    const send = async (P, text) => {
       if (!text || sending) return;
-      sending = true; form.querySelector('button').disabled = true; fail('');
+      sending = P.sending = true; pillButtons(P); fail('');
       try {
         const out = await cloudCompose('/v2/chat/' + GM, {text, refs: {}});
         if (!current()) return;
@@ -388,18 +393,22 @@ async function goalManagerMount(pageState) {
         conversation = out.conversation || conversation;
         if (out.message && !messages.some(m => m.id === out.message.id)) messages.push(out.message);
         if (lastReply === undefined) lastReply = messages.filter(isReply).at(-1)?.id ?? null;
-        box.value = ''; draw();
+        pillAcknowledge(P, text, []); draw();
         if (fresh || !es) watch();
         await snapshot();
       } catch (e) { fail(e.message); }
-      finally { sending = false; if (current()) form.querySelector('button').disabled = false; }
+      finally { sending = P.sending = false; if (current()) pillButtons(P); }
     };
+    composer = makePill({mode:'chat', files:false, label:'Message to the Goal Manager', placeholder:'Ask it to change a goal…', send});
+    pq(composer, '.p-text').maxLength = 4000;
+    chat.querySelector('.gm-form').append(composer.el);
     void (async () => {
       try {
         const list = await get('/v2/conversations?chat_with=' + GM);
         if (!current() || conversation) return;
         conversation = v2ChatRoom(list.conversations, GM);
         if (conversation) { await snapshot(); watch(); }
+        else draw();
       } catch (e) { fail(e.message); }
     })();
   }

@@ -217,7 +217,7 @@ def prepare(directory, url="", public=False):
         company_name="Acme", app_name="Tico", assistant_name="Assistant", owner_email=OWNER_EMAIL,
         github_owner="acme", local_owner_token_file=token_file, public_url=(url.rstrip("/") if url and not public else f"http://127.0.0.1:{DEFAULT_PORT}"),
         scheduler_enabled=False, blob_dir=directory / "blobs", enabled_providers=("anthropic",),
-        default_runtime="claude", default_model="claude-opus-5", release_id="demo", demo=True,
+        default_runtime="claude", default_model="claude-opus-5-5", release_id="demo", demo=True,
         demo_public=public)
     if public and url:
         # Loopback is what makes a built-in owner session legal (Settings refuses it elsewhere);

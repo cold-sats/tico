@@ -724,6 +724,12 @@ class SubscriptionWeekly(Contract):
     status: Literal["allowed", "allowed_warning", "rejected"] | None = None
 
 
+class SubscriptionNameEdit(Contract):
+    runner_id: ID
+    profile: Slug
+    display_name: str = Field(min_length=1, max_length=80)
+
+
 class SubscriptionWeeklyEdit(Contract):
     runner_id: ID
     profile: Slug

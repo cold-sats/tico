@@ -214,7 +214,7 @@ def test_the_owner_saves_a_revisioned_choice_and_a_stale_editor_is_refused(envir
     saved = api.put("/api/v2/providers", headers=signed_in(), json={
         "enabled": ["anthropic", "google"], "expected_revision": 0})
     assert saved.status_code == 200, saved.text
-    assert saved.json()["default"] == {"runtime": "claude", "model": "claude-opus-5"}
+    assert saved.json()["default"] == {"runtime": "claude", "model": "claude-opus-5-5"}
     assert saved.json()["revision"] == 1
     stale = api.put("/api/v2/providers", headers=signed_in(), json={"enabled": ["openai"], "expected_revision": 0})
     assert stale.status_code == 409
@@ -222,7 +222,7 @@ def test_the_owner_saves_a_revisioned_choice_and_a_stale_editor_is_refused(envir
     assert config["providers_configured"] is True and config["default_runtime"] == "claude"
     models = api.get("/api/v2/models", headers=signed_in()).json()
     assert models["enabled_providers"] == ["anthropic", "google"]
-    assert models["default"]["model"] == "claude-opus-5"
+    assert models["default"]["model"] == "claude-opus-5-5"
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM events WHERE action='providers.updated'").fetchone()[0] == 1
 
