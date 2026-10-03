@@ -17,8 +17,9 @@ That is the full suite (pytest in parallel, then the browser scripts three at a 
 5 minutes; the check records wall time and load and fails if the combined run reaches 300 seconds. This is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
 that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. CI only
 builds and publishes: the Docker workflow builds the three images for a `v*` tag, and the Release workflow publishes the
-GitHub release. The compose smoke test (Docker workflow) and the screenshots workflow run from the Actions tab
-(Run workflow) when you want them. The optional `ci.yml` workflow runs the same tests there on demand.
+GitHub release. Docker smoke checks also run locally (`docker/smoke.sh` and
+`docker/side-jobs-smoke.sh`); no GitHub Actions workflow runs tests. The manual screenshots workflow
+generates documentation images from the Actions tab (Run workflow).
 
 Before a deploy, run the journey check on a laptop with Docker (it is not part of CI or of the five-minute suite budget, and takes about ten minutes):
 

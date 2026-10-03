@@ -807,7 +807,7 @@ docker build --target server  -t tico:local .
 docker build --target runner  -t tico-runner:local .
 docker build --target updater -t tico-updater:local .
 TICO_IMAGE=tico TICO_TAG=local docker compose up -d
-TICO_RUNNER_IMAGE=tico-runner docker/smoke.sh     # the checks CI runs
+TICO_RUNNER_IMAGE=tico-runner docker/smoke.sh     # local image checks
 ```
 
 Tool versions and their sha256 digests are in `docker/versions.env` and are checked during the build. The

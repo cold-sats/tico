@@ -1,6 +1,6 @@
 # Builds the Tico images (server, runner and updater; linux/amd64 and linux/arm64) and publishes them to
-# ghcr.io/ticoteam: vX.Y.Z and latest on a v* tag. A manual run (Actions tab) first checks the images with the
-# compose smoke test, then publishes edge from the branch it ran on. Nothing else triggers it.
+# ghcr.io/ticoteam: vX.Y.Z and latest on a v* tag. A manual run publishes edge from its branch.
+# Tests, including Docker smoke checks, run locally before release; CI only builds and publishes.
 name: Docker
 
 on:
@@ -12,52 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          target: server
-          load: true
-          tags: tico:ci
-          cache-from: type=gha,scope=smoke-server
-          cache-to: type=gha,scope=smoke-server,mode=max
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          target: runner
-          load: true
-          tags: tico-runner:ci
-          cache-from: type=gha,scope=smoke-runner
-          cache-to: type=gha,scope=smoke-runner,mode=max
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          target: updater
-          load: true
-          tags: tico-updater:ci
-          cache-from: type=gha,scope=smoke-updater
-          cache-to: type=gha,scope=smoke-updater,mode=max
-      - run: docker/smoke.sh
-        env:
-          TICO_IMAGE: tico
-          TICO_RUNNER_IMAGE: tico-runner
-          TICO_UPDATER_IMAGE: tico-updater
-          TICO_TAG: ci
-      - run: docker/side-jobs-smoke.sh
-        env:
-          TICO_IMAGE: tico
-          TICO_RUNNER_IMAGE: tico-runner
-          TICO_TAG: ci
-
   build:
-    # The smoke test is skipped on a tag; a manual run must pass it.
-    needs: smoke
-    if: ${{ !cancelled() && (needs.smoke.result == 'success' || needs.smoke.result == 'skipped') }}
     strategy:
       fail-fast: true
       matrix:
@@ -99,7 +54,6 @@ jobs:
 
   publish:
     needs: build
-    # Explicit: the smoke job is skipped on a tag, and a skipped ancestor skips every job without its own condition.
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:

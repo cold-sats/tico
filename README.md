@@ -287,8 +287,7 @@ private GitHub repositories.
 
 ## Developer notes
 
-The suite is small on purpose and runs locally (CI runs it only when started by hand,
-`.github/workflows/ci.yml`). Write tests while you build if they help, then keep only the few that
+The suite is small on purpose and runs locally; GitHub Actions does not run tests. Write tests while you build if they help, then keep only the few that
 guard what matters most: security and privacy boundaries, data safety (migrations, backup, restore),
 the updater and release path, and core contracts (job claim and lease, task writes, chat, the API
 schema), plus one happy path per major feature. A full run, Python and browser, has to finish in

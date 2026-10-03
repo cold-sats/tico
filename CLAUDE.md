@@ -12,8 +12,7 @@ bot's own work is tasks, never issues.
 
 ## Tests
 `python3 -m pytest -q` (parallel by default) runs the Python suite; `npm run test:ui` runs the browser
-scripts in `ui/tests/` a few at a time (Playwright, needs `npm ci`). Tests run locally: CI does not run
-them on push or pull request (`.github/workflows/ci.yml` is manual). A full local run (pytest plus UI) must
+scripts in `ui/tests/` a few at a time (Playwright, needs `npm ci`). Tests run locally; GitHub Actions does not run tests. A full local run (pytest plus UI) must
 stay under 5 minutes; `python scripts/release_checks.py` runs both and records time and load. The suite is deliberately small: write tests while building if they help, then keep
 only the ones that guard a security or privacy boundary, data safety, or a core contract, and delete the
 rest. Adding tests that push the run past 5 minutes means cutting something else. `evals/botops/run.py` scores a real BotOps
