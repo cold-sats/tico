@@ -81,8 +81,9 @@ class Sending(unittest.TestCase):
 
     def test_the_result_carries_the_turns_tokens_the_model_and_how_it_is_billed(self):
         done = self.run_turn(FakeClient())
-        self.assertEqual(done["usage"], {"input_tokens": 100, "cached_tokens": 0, "output_tokens": 4, "model": "gpt-6-sol",
-                                         "runtime": "codex", "billing": "api"})
+        part = {"input_tokens": 100, "cached_tokens": 0, "output_tokens": 4, "model": "gpt-6-sol",
+                "runtime": "codex", "billing": "api", "harness": "codex", "effort": "", "profile_used": None}
+        self.assertEqual(done["usage"], {**part, "segments": [part]})
         self.assertEqual(self.run_turn(FakeClient(), "Signed in with ChatGPT")["usage"]["billing"], "subscription")
 
     def test_a_server_from_before_usage_gets_the_result_again_without_it(self):

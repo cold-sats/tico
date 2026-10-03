@@ -8681,6 +8681,108 @@
         ]
       }
     },
+    "/api/v2/subscriptions/name": {
+      "put": {
+        "summary": "Rename a subscription without changing its local login",
+        "operationId": "renameSubscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionNameEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionIdentity"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
+        ]
+      }
+    },
+    "/api/v2/subscriptions/weekly": {
+      "put": {
+        "summary": "Record or clear a manual weekly allowance observation",
+        "operationId": "recordSubscriptionWeekly",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionWeeklyEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionWeeklyResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscriptions"
+        ]
+      }
+    },
     "/api/v2/tags": {
       "get": {
         "summary": "Tags and templates",
@@ -10970,7 +11072,7 @@
     },
     "/api/v2/usage": {
       "get": {
-        "summary": "Estimated spend over from..to (UTC dates, default the last 7 days), grouped by bot (default), day or routine, optionally for one department. The owner and bot administrators see every bot; anyone else sees the bots they run or own. ?bot=<slug> is that bot's daily series and top routines instead",
+        "summary": "Estimated spend over from..to (UTC dates, default the last 7 days), grouped by bot (default), day, routine, harness, model, effort or subscription, filterable by those run dimensions and department (__unknown__ selects missing values). The owner and bot administrators see every bot; anyone else sees the bots they run or own. ?bot=<slug> is that bot's daily series and top routines instead",
         "operationId": "getUsage",
         "parameters": [
           {
@@ -12225,6 +12327,12 @@
               "null"
             ]
           },
+          "id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
           "source": {
             "type": "string"
           },
@@ -12263,6 +12371,8 @@
         },
         "required": [
           "computer",
+          "display_name",
+          "id",
           "problem",
           "profile",
           "signed_in",
@@ -18174,6 +18284,22 @@
         ],
         "additionalProperties": true
       },
+      "SubscriptionIdentity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "id"
+        ],
+        "additionalProperties": true
+      },
       "SubscriptionList": {
         "type": "object",
         "properties": {
@@ -18196,11 +18322,19 @@
                       "name": {
                         "type": "string"
                       },
+                      "id": {
+                        "type": "string"
+                      },
+                      "display_name": {
+                        "type": "string"
+                      },
                       "runtimes": {
                         "type": "object"
                       }
                     },
                     "required": [
+                      "display_name",
+                      "id",
                       "name",
                       "runtimes"
                     ],
@@ -18251,6 +18385,143 @@
         "required": [
           "assignments",
           "profiles_by_computer"
+        ],
+        "additionalProperties": true
+      },
+      "SubscriptionNameEdit": {
+        "properties": {
+          "runner_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Runner Id"
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 80,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Profile"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runner_id",
+          "profile",
+          "display_name"
+        ],
+        "title": "SubscriptionNameEdit"
+      },
+      "SubscriptionWeeklyEdit": {
+        "properties": {
+          "runner_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Runner Id"
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 80,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Profile"
+          },
+          "runtime": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude",
+              "gemini",
+              "grok"
+            ],
+            "title": "Runtime"
+          },
+          "used_percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used Percent"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resets At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runner_id",
+          "profile",
+          "runtime"
+        ],
+        "title": "SubscriptionWeeklyEdit"
+      },
+      "SubscriptionWeeklyResult": {
+        "type": "object",
+        "properties": {
+          "weekly": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "used_percent": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "resets_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reported_at": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "enum": [
+                      "manual"
+                    ]
+                  }
+                },
+                "required": [
+                  "reported_at",
+                  "resets_at",
+                  "source",
+                  "used_percent"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "weekly"
         ],
         "additionalProperties": true
       },
@@ -20085,7 +20356,11 @@
             "enum": [
               "bot",
               "day",
-              "routine"
+              "routine",
+              "harness",
+              "model",
+              "effort",
+              "subscription"
             ]
           },
           "department": {
@@ -20104,6 +20379,14 @@
               "description": "By bot: bot, name, department; by day: day; by routine: routine (null for runs that came from none), title, bot, name. Every row has the usage figures and `share`, its part of the total (estimate plus API-equivalent)",
               "additionalProperties": true
             }
+          },
+          "dimensions": {
+            "type": "object",
+            "description": "Available dimension filters, scoped to visible runs"
+          },
+          "dimension_labels": {
+            "type": "object",
+            "description": "Display labels keyed by immutable filter value; subscription names include their Computer"
           },
           "departments": {
             "type": "array",
