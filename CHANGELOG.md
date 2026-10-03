@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-10-03
+
+### Fixed
+- Task details show worktree error explanations inline, readable on touch screens and with a keyboard, with long paths wrapping to fit ([#53](https://github.com/ticoteam/tico/pull/53)).
+
 ## [0.3.15] - 2026-10-02
 
 ### Added
@@ -1800,7 +1805,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.15...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.16...HEAD
+[0.3.16]: https://github.com/ticoteam/tico/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/ticoteam/tico/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/ticoteam/tico/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/ticoteam/tico/compare/v0.3.12...v0.3.13
