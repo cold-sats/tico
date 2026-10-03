@@ -26,8 +26,7 @@ function overviewModel() {
   }
   if (shared.members.length) groups.push(shared);
   if (support.members.length) groups.push(support);
-  return {company: companyName(), groups, fresh: !!fresh, demo: !!S.config.demo,
-    theme: document.documentElement.dataset.theme || 'dark'};
+  return {company: companyName(), groups, fresh: !!fresh};
 }
 function pageOverview() {
   const main = $('#main'); main.classList.add('overview-layout');
@@ -44,8 +43,6 @@ function pageOverview() {
       if (person?.href) location.hash = person.href;
     }
   }, {signal: state.abort.signal});
-  state.theme = new MutationObserver(() => overviewRefresh());
-  state.theme.observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
   overviewRefresh();
 }
 function overviewRefresh() {
@@ -56,5 +53,5 @@ function overviewRefresh() {
 function overviewStop() {
   const state = OVERVIEW_PAGE; if (!state) return;
   state.frame.contentWindow?.postMessage({type: 'tico-overview-dispose'}, location.origin);
-  state.abort.abort(); state.theme.disconnect(); state.frame.remove(); OVERVIEW_PAGE = null;
+  state.abort.abort(); state.frame.remove(); OVERVIEW_PAGE = null;
 }

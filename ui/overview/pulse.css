@@ -1,4 +1,4 @@
-/* Quiet, functional controls leave the building as the main visual. */
+/* The building is the interface; details appear only after selecting a teammate. */
 *{box-sizing:border-box}
 html,body{width:100%;height:100%;margin:0;overflow:hidden}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#dfe9e2;--ink:#344c45;--muted:#60766e;--panel:#f7faf5e8;--border:#49655918;--shadow:#233b3410}
@@ -14,27 +14,7 @@ button svg{display:block;width:18px;height:18px}
 #world,#world canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 #world canvas{outline:none}
 .vignette{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 130px #41645308}
-.floor-navigation{position:absolute;z-index:4;top:24px;left:24px;display:flex;align-items:center;gap:8px}
-#department-picker{width:auto;max-width:240px;height:40px;padding:0 34px 0 14px;border:1px solid var(--border);border-radius:12px;background:var(--panel);font-size:13px;font-weight:500;text-overflow:ellipsis;box-shadow:0 3px 18px var(--shadow)}
-#back{font-size:18px}
-.top-actions{position:absolute;top:24px;right:24px;z-index:4;display:flex;gap:6px}
-.top-actions button{box-shadow:0 3px 18px var(--shadow)}
-.camera-controls{position:absolute;bottom:24px;right:24px;z-index:4;display:flex;align-items:center;padding:3px;gap:2px;background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:0 3px 18px var(--shadow)}
-.camera-controls button{background:transparent;border:0;font-size:22px;font-weight:400;width:36px;min-width:36px;height:36px;padding:0}
-.control-divider{width:1px;height:16px;background:var(--border);margin:0 3px}
-#help{position:absolute;left:24px;bottom:24px;z-index:4;font-size:15px;color:var(--muted)}
-#help-panel{position:fixed;inset:auto auto 76px 24px;margin:0;max-width:min(300px,calc(100vw - 48px));padding:20px;border:1px solid var(--border);border-radius:16px;color:var(--ink);background:var(--panel);box-shadow:0 8px 32px var(--shadow);font-size:13px;line-height:1.6;backdrop-filter:blur(16px)}
-#help-panel strong{font-weight:600}#help-panel p{margin:10px 0 0;color:var(--muted)}
-#connection-status{position:absolute;top:76px;left:24px;z-index:4;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:12px}
-.floor-label{position:absolute;z-index:3;display:flex;gap:10px;align-items:center;min-width:0;max-width:220px;height:auto;min-height:40px;padding:8px 12px;transform:translate(-100%,-50%);background:var(--panel);border-color:var(--border);text-align:left;white-space:nowrap;box-shadow:0 3px 18px var(--shadow)}
-.floor-label:after{content:"";position:absolute;right:-27px;top:50%;width:25px;height:1px;background:#7d988a55}
-.floor-label:hover,.floor-label.hovered{background:var(--panel);border-color:var(--border)}
-.floor-no{font-size:12px;font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
-.floor-text{min-width:0}.floor-text strong{display:block;max-width:155px;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:500;letter-spacing:0}
-.person-label{position:absolute;transform:translate(-50%,0);z-index:3;display:block;max-width:145px;min-width:0;height:32px;padding:0 11px;border-radius:10px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 3px 12px var(--shadow)}
-.person-label[data-state=running]:before{content:'●';color:#4ca97e;margin-right:5px;font-size:8px}
-.building-pages,.occupant-pages{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:8px;padding:2px;background:var(--panel);border:1px solid var(--border);border-radius:12px;font-size:12px;font-variant-numeric:tabular-nums}
-.building-pages button,.occupant-pages button{background:transparent;border:0;width:36px;min-width:36px;height:36px}
+#connection-status{position:absolute;top:24px;left:24px;z-index:4;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:12px}
 #hover-label{position:absolute;z-index:5;pointer-events:none;transform:translate(-50%,-130%);background:var(--panel);padding:9px 13px;border:1px solid var(--border);border-radius:10px;font-size:12px;max-width:280px;box-shadow:0 3px 16px var(--shadow)}
 #speech{position:absolute;z-index:6;width:240px;padding:19px;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 30px var(--shadow);transform:translate(-50%,-115%);backdrop-filter:blur(16px)}
 #speech-type{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}
@@ -47,28 +27,6 @@ button svg{display:block;width:18px;height:18px}
 #fallback{position:absolute;inset:0;z-index:12;background:#dfe9e2;overflow-y:auto;padding:32px}.night #fallback{background:#142932}
 #fallback h1{font-size:24px;font-weight:500}#fallback p{font-size:14px;color:var(--muted);line-height:1.6;max-width:440px}
 #fallback-team section{margin:28px 0}#fallback-team h2{font-size:16px}#fallback-team button{display:block;text-align:left;margin:8px 0;max-width:100%;height:auto;min-height:40px;padding:10px 14px;font-size:13px}
-@media(max-width:700px){
-  #fullscreen{display:none}.floor-text strong{max-width:115px}
-  .building-pages,.occupant-pages{left:24px;bottom:80px;transform:none}
-}
-@media(max-width:560px){
-  .floor-navigation{top:18px;left:18px;gap:6px}.top-actions{top:18px;right:18px}
-  #department-picker{max-width:190px;font-size:13px;padding-left:12px;padding-right:24px}.inside #department-picker{max-width:144px}
-  .top-actions button{width:36px;min-width:36px;height:40px}
-  .floor-label{width:34px;min-width:34px;height:36px;min-height:36px;justify-content:center;padding:0;background:var(--panel);border-color:var(--border);border-radius:10px}
-  .floor-label .floor-text{display:none}.floor-label:after{width:8px;right:-9px}
-  #people{position:absolute;left:18px;right:18px;bottom:142px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;z-index:3}
-  #people .person-label{position:static;transform:none;max-width:none;width:100%;min-width:0;font-size:11px;padding:0 7px;height:36px}
-  .camera-controls{right:18px;bottom:18px}#help{left:18px;bottom:18px}
-  #help-panel{left:18px;bottom:70px;max-width:calc(100vw - 36px)}
-  .building-pages,.occupant-pages{left:18px;bottom:80px}
-  #connection-status{left:18px;top:70px;max-width:calc(100vw - 36px)}
-  #speech{width:230px}
-}
-@media(max-height:480px){
-  #floors{display:none}.floor-navigation{top:18px;left:18px}.top-actions{top:18px;right:18px}
-  .camera-controls{right:18px;bottom:18px}#help{left:18px;bottom:18px}
-  #people{position:absolute;left:18px;right:18px;bottom:74px;display:flex;justify-content:center;gap:5px;flex-wrap:wrap;z-index:3}
-  #people .person-label{position:static;transform:none;max-width:120px;font-size:11px}
-  .building-pages,.occupant-pages{bottom:18px;left:74px;transform:none}
-}
+.scene-access{position:absolute;width:1px;height:1px;min-width:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.scene-access:focus-visible{position:fixed;z-index:8;bottom:20px;left:20px;width:auto;min-width:40px;height:40px;padding:0 14px;clip-path:none;background:var(--panel);font-size:13px}
+@media(max-width:560px){#speech{width:230px}#connection-status{top:18px;left:18px;font-size:12px;max-width:calc(100vw - 36px)}}

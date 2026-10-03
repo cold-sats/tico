@@ -8,7 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-- Overview turns the company into an interactive building with department floors, human and bot teammates, and reported bot status. It is available first in desktop and mobile navigation; Updates remains the default. Floors and teammates can be paged, with reduced-motion controls and an accessible roster when 3D is unavailable.
+- Overview turns the company into an interactive building with department floors, human and bot teammates, and reported bot status. It is available first in desktop and mobile navigation; Updates remains the default. The night scene has department signs on the back walls, direct floor exploration, reduced-motion support and an accessible roster when 3D is unavailable.
 
 ### Changed
 - Run all tests locally; GitHub Actions builds and publishes artifacts without Python, browser or Docker smoke-test jobs.
