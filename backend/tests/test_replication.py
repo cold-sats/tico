@@ -116,7 +116,9 @@ def test_the_credential_key_is_copied_when_it_appears_and_again_when_it_changes(
     mirror.put = lambda *a: pytest.fail("an unchanged key was sent again")
     assert replication.sync_credential_key(path, mirror, state)["copied_at"] == first["copied_at"]
     del mirror.put
+    before = path.stat()
     path.write_bytes(bytes(reversed(KEY)))
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
     assert replication.sync_credential_key(path, mirror, state)["stamp"] != ""
     restored = tmp_path / "restored.key"
     assert replication.restore_credential_key(mirror, restored) == "restored"
@@ -141,7 +143,11 @@ def test_the_loop_reports_the_key_copy_keeps_it_out_of_logs_and_the_status_file(
     saved = (tmp_path / "status.json").read_text()
     assert KEY.hex() not in saved and "\\x" not in saved and hashlib.sha256(KEY).hexdigest() not in saved
     # Changed after the copy: not current until the next round copies it.
+    before = key.stat()
     key.write_bytes(bytes(reversed(KEY)))
+    # tmpfs can give immediate same-size writes the same timestamp. Advance the
+    # metadata used by the status contract explicitly instead of depending on elapsed time.
+    os.utime(key, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
     assert replication.status(env)["credential_key"]["current"] is False
     replication.loop(env, sleep=lambda s: None, rounds=1)
     assert replication.status(env)["credential_key"]["current"] is True
