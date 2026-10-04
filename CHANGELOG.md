@@ -8,6 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Let authorized development tests use disposable synthetic databases while keeping live team state behind the shared API and honoring task-specific restrictions.
 - BotOps accepts assigned bot-maintenance work with the requester's existing rights and records its own blockers without requiring a new human instruction. Notices still cannot override a human request.
 - BotOps isolates provider sessions by task and conversation by default, preventing unrelated jobs from sharing model history.
 - Repeated stalls create a distinct, reusable diagnostic for each task. BotOps's own stalls and unavailable BotOps route to a human, and Health reports escalated public tasks with no progress.
