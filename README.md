@@ -1,6 +1,7 @@
 # Tico
 
-Tico is an open-source operating system for a team of humans and bots (Apache-2.0). Humans file
+Tico is a source-available operating system for a team of humans and bots, licensed under
+[PolyForm Perimeter 1.0.1](LICENSE). Humans file
 work, answer bots and approve actions in a web app; bots pick the work up, run it with
 the team's own model subscriptions, and report back. It is built for teams from a handful of bots up.
 A small pilot is what has been measured ([sizing](docs/sizing.md)).
@@ -307,6 +308,16 @@ The live checkout on an owner's Mac is what the runner executes: the launchd job
 the next run, and a pull without a restart leaves the old code running (`scripts/tico status` says
 so explicitly). Do development in a git worktree, never in the live checkout, and use
 `scripts/tico update`, which pulls and restarts after waiting for runs in flight.
+
+## License
+
+Tico is available under the [PolyForm Perimeter License 1.0.1](LICENSE). You may use and modify it
+for your team's internal use, and redistribute it for purposes permitted by the license. You may
+not provide a competing product to others, including a free competing product.
+
+This is a source-available license. It has no automatic change date. Earlier versions and
+contributions released under [Apache 2.0](licenses/Apache-2.0.txt) retain those grants; third-party components retain their own
+licenses, listed in [NOTICE](NOTICE). See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution terms.
 
 ## Contributing
 

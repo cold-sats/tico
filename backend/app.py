@@ -314,7 +314,7 @@ def create_app(settings=None):
             if request.url.path.startswith("/scim/v2/"):
                 return await call_next(request)
             # A Hermes profile with no credential pairs itself (backend/agents.py): it asks for a code, polls with its own
-            # secret, and fetches the open-source connector it runs. The person's approval is the authenticated step.
+            # secret, and fetches the source-available connector it runs. The person's approval is the authenticated step.
             agent_door = (request.url.path == "/api/v2/agents/pairings" and request.method == "POST"
                           or request.url.path.startswith("/api/v2/agents/pairings/") and request.method == "GET"
                           or request.url.path in ("/api/v2/agents/setup-script", "/api/v2/agents/sync-skill")
@@ -3326,14 +3326,14 @@ def create_app(settings=None):
 
     @app.get("/api/v2/agents/setup-script", response_class=PlainTextResponse)
     def agent_setup_script(request: Request):
-        """The one-file connector the agent's box downloads (clients/hermes_agent.py). Open source, holds no
+        """The one-file connector the agent's box downloads (clients/hermes_agent.py). Source available, holds no
         secret, and needs no sign-in: a profile with no credential yet fetches it to pair."""
         return (Path(__file__).resolve().parents[1] / "clients" / "hermes_agent.py").read_text()
 
     @app.get("/api/v2/agents/sync-skill", response_class=PlainTextResponse)
     def agent_sync_skill():
         """The "Tico sync" skill (skills/tico-sync/SKILL.md) the connector installs next to the agent and refreshes on
-        `update`. Open source, no secret, no sign-in: the same door as the connector."""
+        `update`. Source available, no secret, no sign-in: the same door as the connector."""
         return (Path(__file__).resolve().parents[1] / "skills" / "tico-sync" / "SKILL.md").read_text()
 
     def client_address(request):
