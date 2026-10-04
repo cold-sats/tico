@@ -617,23 +617,50 @@ fn start_updates(app: App) {
     });
 }
 
+fn configure_company_updater(
+    builder: tauri_plugin_updater::UpdaterBuilder,
+    policy: &hub::CompanyUpdatePolicy,
+) -> Result<tauri_plugin_updater::UpdaterBuilder, tauri_plugin_updater::Error> {
+    let endpoint = policy.endpoint().clone();
+    let policy = policy.clone();
+    builder.endpoints(vec![endpoint]).map(|builder| {
+        builder.configure_client(move |client| policy.configure_client(client))
+    })
+}
+
 async fn check_for_update(app: &App) {
     use tauri_plugin_updater::UpdaterExt;
     let selected = connection(app);
     if !config::is_generic() && selected.as_ref().map(|c| c.is_local()).unwrap_or(true) { return; }
     let builder = app.updater_builder();
-    let configured = app.config().plugins.0.get("updater").and_then(|p| p.get("endpoints"))
-        .and_then(Value::as_array).and_then(|a| a.first()).and_then(Value::as_str);
-    let endpoint = if config::is_generic() {
-        Some(config::GENERIC_UPDATER.parse().unwrap())
-    } else if configured == Some(config::GENERIC_UPDATER) {
-        // A direct cargo build with TICO_HUB_URL also retains the hub updater; scripts can
-        // override this with the separate, public runner hostname.
-        selected.map(|c| c.hub.join("download/latest.json").unwrap())
-    } else { None };
-    let updater = match if let Some(endpoint) = endpoint {
-        builder.endpoints(vec![endpoint]).and_then(|b| b.build())
-    } else { builder.build() } {
+    let company_policy = if config::is_generic() { None } else {
+        let Some(connection) = selected.as_ref() else { return };
+        if connection.hub.scheme() != "https" {
+            log::warn!("company updater requires an HTTPS hub origin");
+            return;
+        }
+        let configured = app.config().plugins.0.get("updater").and_then(|p| p.get("endpoints"))
+            .and_then(Value::as_array).and_then(|a| a.first()).and_then(Value::as_str);
+        let endpoint = match hub::company_update_endpoint(&connection.hub, configured) {
+            Ok(endpoint) if endpoint.scheme() == "https" => endpoint,
+            Ok(_) => { log::warn!("company updater requires an HTTPS feed"); return; }
+            Err(_) => { log::warn!("company updater feed is invalid"); return; }
+        };
+        let cookie = if hub::same_origin(&connection.hub, &endpoint) {
+            Client::new(connection.clone()).cookie_header(app, &endpoint)
+        } else {
+            None
+        };
+        // A cookie is optional: public team feeds work without an Access session. CompanyUpdatePolicy
+        // drops it for a configured runner_url on another origin and limits hub downloads/redirects.
+        Some(hub::CompanyUpdatePolicy::new(connection.hub.clone(), endpoint, cookie.as_deref()))
+    };
+    let updater_result = if let Some(policy) = &company_policy {
+        configure_company_updater(builder, policy).and_then(|builder| builder.build())
+    } else {
+        builder.build()
+    };
+    let updater = match updater_result {
         Ok(updater) => updater,
         Err(e) => { log::debug!("updater unavailable: {e}"); return; }
     };
@@ -642,6 +669,12 @@ async fn check_for_update(app: &App) {
         Ok(None) => return,
         Err(e) => { log::debug!("update check: {e}"); return; }
     };
+    if let Some(policy) = company_policy.as_ref() {
+        if update.download_url.scheme() != "https" || !policy.allows_download(&update.download_url) {
+            log::warn!("company updater artifact is outside the allowed update origin");
+            return;
+        }
+    }
     log::info!("update {} available; installing", update.version);
     if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
         log::warn!("update failed: {e}");
@@ -669,4 +702,271 @@ async fn refresh_status(app: &App) {
     if connection(app).map(|c| c.hub) != Some(config.hub) { return; }
     *state.status.lock().unwrap() = fresh;
     render_tray(app);
+}
+
+#[cfg(test)]
+mod updater_integration_tests {
+    use super::*;
+    use url::Url;
+    use minisign::{KeyPair, sign};
+    use base64::Engine;
+    use std::io::{Cursor, Read, Write};
+    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::thread;
+    use std::time::Duration;
+    use tauri_plugin_updater::UpdaterExt;
+
+    const VERSION: &str = "0.3.21";
+    const TARGET: &str = "tico-updater-test";
+    const COOKIE: &str = "CF_Authorization=synthetic-test-session";
+
+    fn key_and_signature(bytes: &[u8]) -> (String, String) {
+        let pair = KeyPair::generate_unencrypted_keypair().unwrap();
+        let public_key = pair.pk.to_box().unwrap().to_string();
+        let signature = sign(
+            Some(&pair.pk),
+            &pair.sk,
+            Cursor::new(bytes.to_vec()),
+            Some("version: 0.3.21"),
+            Some("synthetic updater test"),
+        ).unwrap().into_string();
+        (base64::engine::general_purpose::STANDARD.encode(public_key),
+         base64::engine::general_purpose::STANDARD.encode(signature))
+    }
+
+    fn test_app() -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert("updater".into(), serde_json::json!({"pubkey": "", "dangerousInsecureTransportProtocol": true}));
+        tauri::test::mock_builder()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .build(context)
+            .expect("build mock Tauri app")
+    }
+
+    fn test_updater(
+        builder: tauri_plugin_updater::UpdaterBuilder,
+        policy: &hub::CompanyUpdatePolicy,
+        public_key: String,
+    ) -> tauri_plugin_updater::Updater {
+        let executable = std::env::temp_dir()
+            .join("TicoUpdaterTest.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("Tico");
+        configure_company_updater(builder, policy).unwrap()
+            .pubkey(public_key)
+            .target(TARGET)
+            .version_comparator(|_, _| true)
+            .executable_path(executable)
+            .build()
+            .expect("build test updater")
+    }
+
+    fn bind() -> (TcpListener, SocketAddr) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        (listener, address)
+    }
+
+    fn url(address: SocketAddr, path: &str) -> Url {
+        Url::parse(&format!("http://{address}{path}")).unwrap()
+    }
+
+    fn manifest(artifact: &Url, signature: &str) -> String {
+        let mut platforms = serde_json::Map::new();
+        platforms.insert(
+            TARGET.to_string(),
+            serde_json::json!({
+                "url": artifact.as_str(),
+                "signature": signature
+            }),
+        );
+        serde_json::json!({
+            "version": VERSION,
+            "app_kind": "company",
+            "platforms": platforms
+        }).to_string()
+    }
+
+    fn read_request(socket: &mut TcpStream) -> String {
+        socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0; 1024];
+        loop {
+            let count = socket.read(&mut chunk).unwrap();
+            request.extend_from_slice(&chunk[..count]);
+            if count == 0 || request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&request).to_string()
+    }
+
+    fn respond(socket: &mut TcpStream, status: &str, headers: &[(&str, &str)], body: &[u8]) {
+        let mut response = format!(
+            "HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            response.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response.push_str("\r\n");
+        socket.write_all(response.as_bytes()).unwrap();
+        socket.write_all(body).unwrap();
+    }
+
+    fn signed_s3_location(address: SocketAddr) -> String {
+        format!(
+            "http://{address}/object?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test%2Fscope&X-Amz-Date=20261004T170000Z&X-Amz-Expires=60&X-Amz-SignedHeaders=host&X-Amz-Signature={}",
+            "ab".repeat(32)
+        )
+    }
+
+    fn new_hub_policy(address: SocketAddr) -> hub::CompanyUpdatePolicy {
+        let hub = url(address, "/");
+        let endpoint = hub.join("download/latest.json").unwrap();
+        hub::CompanyUpdatePolicy::new(hub, endpoint, Some(COOKIE))
+    }
+
+    #[tokio::test]
+    async fn tauri_updater_checks_hub_manifest_downloads_signed_s3_artifact_and_verifies_signature() {
+        let expected = b"synthetic Tico updater artifact";
+        let tampered = b"tampered synthetic updater artifact";
+        let (public_key, signature) = key_and_signature(expected);
+        let (hub_listener, hub_address) = bind();
+        let (storage_listener, storage_address) = bind();
+        let artifact_url = url(hub_address, "/download/file/0.3.21/Tico.tar.gz");
+        let feed_manifest = manifest(&artifact_url, &signature);
+        let storage_url = signed_s3_location(storage_address);
+        let hub_server = thread::spawn(move || {
+            let (mut feed_socket, _) = hub_listener.accept().unwrap();
+            let feed_request = read_request(&mut feed_socket);
+            respond(&mut feed_socket, "200 OK", &[("Content-Type", "application/json")],
+                    feed_manifest.as_bytes());
+            let mut artifact_requests = Vec::new();
+            for _ in 0..2 {
+                let (mut artifact_socket, _) = hub_listener.accept().unwrap();
+                artifact_requests.push(read_request(&mut artifact_socket));
+                respond(&mut artifact_socket, "302 Found", &[("Location", &storage_url)], b"");
+            }
+            (feed_request, artifact_requests)
+        });
+        let storage_server = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for body in [expected.as_slice(), tampered.as_slice()] {
+                let (mut socket, _) = storage_listener.accept().unwrap();
+                requests.push(read_request(&mut socket));
+                respond(&mut socket, "200 OK", &[("Content-Type", "application/octet-stream")], body);
+            }
+            requests
+        });
+
+        let policy = new_hub_policy(hub_address);
+        let app = test_app();
+        let updater = test_updater(app.updater_builder(), &policy, public_key);
+        let update = updater.check().await.unwrap().expect("hub manifest update");
+        assert_eq!(update.version, VERSION);
+        assert!(policy.allows_download(&update.download_url));
+        let downloaded = update.download(|_, _| {}, || {}).await.unwrap();
+        assert_eq!(downloaded.as_slice(), expected.as_slice());
+        assert!(update.download(|_, _| {}, || {}).await.is_err(),
+                "a tampered artifact must fail the updater signature check");
+
+        let (feed_request, artifact_requests) = hub_server.join().unwrap();
+        let storage_requests = storage_server.join().unwrap();
+        assert!(feed_request.starts_with("GET /download/latest.json "));
+        assert!(feed_request.to_ascii_lowercase().contains(&format!("cookie: {COOKIE}").to_ascii_lowercase()));
+        assert_eq!(artifact_requests.len(), 2);
+        assert!(artifact_requests.iter().all(|request| {
+            request.starts_with("GET /download/file/0.3.21/Tico.tar.gz ")
+                && request.to_ascii_lowercase().contains(&format!("cookie: {COOKIE}").to_ascii_lowercase())
+        }));
+        assert_eq!(storage_requests.len(), 2);
+        assert!(storage_requests.iter().all(|request| {
+            request.starts_with("GET /object?X-Amz-Algorithm=AWS4-HMAC-SHA256")
+                && !request.to_ascii_lowercase().contains("cookie:")
+                && !request.to_ascii_lowercase().contains("authorization:")
+        }));
+    }
+
+    #[tokio::test]
+    async fn tauri_updater_rejects_access_login_redirect_without_requesting_login_origin() {
+        let expected = b"synthetic Tico updater artifact";
+        let (public_key, signature) = key_and_signature(expected);
+        let (hub_listener, hub_address) = bind();
+        let (login_listener, login_address) = bind();
+        login_listener.set_nonblocking(true).unwrap();
+        let artifact_url = url(hub_address, "/download/file/0.3.21/Tico.tar.gz");
+        let login_manifest = manifest(&artifact_url, &signature);
+        let login_server = thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                match login_listener.accept() {
+                    Ok((mut socket, _)) => {
+                        let request = read_request(&mut socket);
+                        respond(&mut socket, "200 OK", &[("Content-Type", "application/json")],
+                                login_manifest.as_bytes());
+                        return Some(request);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+                        && std::time::Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return None,
+                    Err(error) => panic!("login listener failed: {error}"),
+                }
+            }
+        });
+        let hub_server = thread::spawn(move || {
+            let (mut socket, _) = hub_listener.accept().unwrap();
+            let request = read_request(&mut socket);
+            let location = format!("http://{login_address}/cdn-cgi/access/login");
+            respond(&mut socket, "302 Found", &[("Location", &location)], b"");
+            request
+        });
+
+        let policy = new_hub_policy(hub_address);
+        let app = test_app();
+        let updater = test_updater(app.updater_builder(), &policy, public_key);
+        assert!(updater.check().await.is_err(), "login redirects are not updater manifests");
+        let hub_request = hub_server.join().unwrap();
+        assert!(hub_request.to_ascii_lowercase().contains(&format!("cookie: {COOKIE}").to_ascii_lowercase()));
+        assert!(login_server.join().unwrap().is_none(),
+                "the updater must not request Cloudflare Access login endpoints");
+    }
+
+    #[tokio::test]
+    async fn tauri_updater_keeps_configured_public_runner_feed_and_artifact_unauthenticated() {
+        let bytes = b"synthetic public runner artifact";
+        let (public_key, signature) = key_and_signature(bytes);
+        let (runner_listener, runner_address) = bind();
+        let hub = Url::parse("https://tico.example.test/").unwrap();
+        let endpoint = url(runner_address, "/download/latest.json");
+        let policy = hub::CompanyUpdatePolicy::new(hub, endpoint.clone(), Some(COOKIE));
+        assert!(!policy.has_cookie());
+        let artifact_url = url(runner_address, "/download/file/0.3.21/Tico.tar.gz");
+        let body = manifest(&artifact_url, &signature);
+        let runner = thread::spawn(move || {
+            let (mut feed_socket, _) = runner_listener.accept().unwrap();
+            let feed_request = read_request(&mut feed_socket);
+            respond(&mut feed_socket, "200 OK", &[("Content-Type", "application/json")], body.as_bytes());
+            let (mut artifact_socket, _) = runner_listener.accept().unwrap();
+            let artifact_request = read_request(&mut artifact_socket);
+            respond(&mut artifact_socket, "200 OK", &[("Content-Type", "application/octet-stream")], bytes);
+            (feed_request, artifact_request)
+        });
+
+        let app = test_app();
+        let updater = test_updater(app.updater_builder(), &policy, public_key);
+        let update = updater.check().await.unwrap().expect("public runner update");
+        assert_eq!(update.download_url, artifact_url);
+        assert!(policy.allows_download(&update.download_url));
+        let downloaded = update.download(|_, _| {}, || {}).await.unwrap();
+        assert_eq!(downloaded.as_slice(), bytes.as_slice());
+        let (feed_request, artifact_request) = runner.join().unwrap();
+        assert!(feed_request.starts_with("GET /download/latest.json "));
+        assert!(artifact_request.starts_with("GET /download/file/0.3.21/Tico.tar.gz "));
+        assert!(!feed_request.to_ascii_lowercase().contains("cookie:"));
+        assert!(!artifact_request.to_ascii_lowercase().contains("cookie:"));
+    }
 }

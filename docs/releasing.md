@@ -147,6 +147,15 @@ is stamped from the tag. Every build uses the same updater signing key as the ge
 with `team.tico.env.<stable UUID>` as its bundle ID, its own name and PNG icon, its own server
 address, and `<runner_url or url>/download/latest.json` as the update endpoint.
 
+The company shell preserves its configured updater endpoint, including a separate public
+`runner_url`. If the configured endpoint is the generic default, it uses the selected hub's
+`/download/latest.json`. A hub-origin feed may use the signed-in WebView session when one exists;
+the cookie is optional for public feeds and is never attached to a different runner origin. Hub
+feeds do not follow redirects, and artifact URLs from them must stay on the selected hub origin.
+Tauri still verifies each updater signature before installation. An older shell that cannot reach
+the protected feed must be replaced from the team's signed-in **Download** page; see
+[Desktop app](desktop.md#your-companys-app).
+
 Keep the JSON list in the private repository Actions **secret** `TICO_COMPANY_APPS`. A secret is
 used instead of an Actions variable because the runner prints variables in its pre-step environment
 banner before masking commands can run. Company names and URLs must never enter repository
@@ -177,10 +186,14 @@ fonts or colored tray images are needed, and private labels are masked with othe
 configuration in CI.
 
 Prepare each company's IAM publisher role in its own AWS account, using the normal AWS
-credential chain. This script defaults to an offline dry run; inspect its output privately and
-run it with `--apply` when ready. It creates the GitHub OIDC provider if absent, trusts only
-`repo:ticoteam/tico:ref:refs/tags/v*` with audience `sts.amazonaws.com`, and grants only
-GetObject/PutObject beneath `[prefix/]releases/app/*` and ListBucket for that prefix.
+credential chain. This script defaults to a dry run that reads live OIDC settings with
+`gh api repos/ticoteam/tico/actions/oidc/customization/sub`; authenticate `gh` to the repository
+first. Inspect its output privately and run it with `--apply` when ready. It creates the GitHub
+OIDC provider if absent, trusts only the repository's default version-tag subject
+(`repo:ticoteam/tico:ref:refs/tags/v*` for legacy subjects or the configured repository-ID prefix
+for immutable subjects) with audience `sts.amazonaws.com`, and grants only GetObject/PutObject
+beneath `[prefix/]releases/app/*` and ListBucket for that prefix. Unsupported custom subject
+templates and failed settings discovery are rejected.
 
 ```bash
 scripts/aws/company-app-publisher.sh --slug acme --id 12345678-1234-4234-8234-123456789abc \
