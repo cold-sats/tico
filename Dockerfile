@@ -35,9 +35,12 @@ ARG TICO_VERSION=dev
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=dockercli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
 COPY docker/updater.py /usr/local/bin/tico-updater
+COPY LICENSE NOTICE /usr/share/doc/tico/
+COPY licenses/Apache-2.0.txt /usr/share/doc/tico/licenses/
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 LABEL org.opencontainers.image.version=${TICO_VERSION} \
-      org.opencontainers.image.source=https://github.com/ticoteam/tico
+      org.opencontainers.image.source=https://github.com/ticoteam/tico \
+      org.opencontainers.image.licenses=LicenseRef-PolyForm-Perimeter-1.0.1
 EXPOSE 8080
 CMD ["python", "/usr/local/bin/tico-updater"]
 
@@ -71,7 +74,7 @@ ENV PATH=/opt/tico/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
     TICO_VERSION=${TICO_VERSION} TICO_RELEASE=${TICO_VERSION}
 LABEL org.opencontainers.image.version=${TICO_VERSION} \
       org.opencontainers.image.source=https://github.com/ticoteam/tico \
-      org.opencontainers.image.licenses=Apache-2.0
+      org.opencontainers.image.licenses=LicenseRef-PolyForm-Perimeter-1.0.1
 
 FROM base AS runner
 RUN apt-get update && apt-get install -y --no-install-recommends \

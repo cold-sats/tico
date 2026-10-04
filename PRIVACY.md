@@ -1,7 +1,7 @@
 # Privacy
 
 What a Tico install sends outside your own server, and what the receiving side keeps: the anonymous usage count, the
-suggestions while you build your team chart, and, only when you press Send, a support ticket. Each has its own switch. Tico is open source, so you can read the code that
+suggestions while you build your team chart, and, only when you press Send, a support ticket. Each has its own switch. Tico's source is available, so you can read the code that
 sends them (`backend/census.py`, `backend/releases.py`, `backend/recruit.py`, `backend/support.py`) and the code that receives them (`hq/`).
 Tico HQ itself is described in [docs/tico-hq.md](docs/tico-hq.md).
 
