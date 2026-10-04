@@ -18,6 +18,7 @@ async function refresh(force) {
     S.overviewRosterFresh = true;
   } catch (e) { S.status = null; S.overviewRosterFresh = false; }
   await v2Refresh();                    // hub.db status and needs-you (docs/history/hub-v2.md)
+  await overviewLoadComputers();        // Only while the campus is open; share this refresh clock.
   overviewRefresh();
   if (S.me?.cloud) void updUnreadRefresh();
   renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync();
