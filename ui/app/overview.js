@@ -1,40 +1,75 @@
-/* The building receives only visible identities and read-permitted status. Its renderer is lazy and page-local. */
+/* The campus receives only visible identities, readable assignments and read-permitted status. */
 'use strict';
 let OVERVIEW_PAGE = null;
 function overviewModel() {
-  const groups = (S.orgGroups || []).map(g => ({id: String(g.id), name: String(g.name || g.id), parent: String(g.parent || ''), members: []}));
-  const byGroup = new Map(groups.map(g => [g.id, g]));
-  const shared = {id: '@shared', name: 'Shared space', parent: '', members: []};
-  const support = {id: '@support', name: 'Team services', parent: '', members: []};
+  const groups = [], machines = new Map(), humans = new Map(), placed = new Set();
   const fresh = S.overviewRosterFresh !== false && S.status !== null && S.v2.on;
-  const assign = (member, group, helper = false) => (helper ? support : byGroup.get(group) || shared).members.push(member);
+  const actor = value => String(typeof value === 'object' ? value?.id || '' : value || '').replace(/^human:/, '');
   for (const p of S.people || []) {
     if (p.hidden || !p.id) continue;
-    assign({id: 'human:' + p.id, name: p.name || p.id, type: 'human', state: 'human', focus: '',
-      detail: 'Human teammate. Presence is not tracked.', href: '#/person/' + encodeURIComponent(p.id)}, p.team);
+    humans.set(p.id, {id: 'human:' + p.id, name: p.name || p.id, type: 'human', state: 'human',
+      detail: 'Human teammate. Presence is not tracked.', href: '#/person/' + encodeURIComponent(p.id)});
   }
-  for (const e of S.emps || []) {
-    if (!e.name || ['archived', 'retired'].includes(e.status || e.state) || e.my_access?.see === false || !orgBranchVisible(e)) continue;
+  const computer = (id, label) => {
+    if (!machines.has(id)) {
+      const group = {id: 'computer:' + id, name: label || 'Computer', kind: 'computer', members: []};
+      machines.set(id, group); groups.push(group);
+    }
+    return machines.get(id);
+  };
+  for (const c of OVERVIEW_PAGE?.computers || []) {
+    if (c.id && !c.revoked_at) computer(String(c.id), c.label);
+  }
+  const commons = {id: '@commons', name: 'Shared pavilion', kind: 'commons', members: []};
+  const visible = (S.emps || []).filter(e => e.name && !['archived', 'retired'].includes(e.status || e.state)
+    && e.my_access?.see !== false && orgBranchVisible(e));
+  const byBot = new Map(visible.map(e => [e.name, e]));
+  for (const e of visible) {
     const readable = e.my_access?.read !== false;
     const live = readable && fresh ? S.v2.status[e.name] : null;
     const state = !readable ? 'restricted' : !fresh ? 'unknown' : ['paused', 'planned'].includes(e.status) ? e.status : live?.state || 'unknown';
     const word = state === 'restricted' ? 'Activity requires Read access.' : state === 'unknown' ? 'No current status available.' : V2_WORD[state] || statusWord(state);
-    // A status note may mention work outside this person's task visibility. Do not copy free-text focus into an overview.
-    assign({id: 'bot:' + e.name, name: botDisplayName(e.name) + (e.shared_from || e.is_branch ? ' · Your branch' : ''), type: 'bot',
-      state, focus: '', detail: word, href: readable || e.can_chat ? '#/bot/' + encodeURIComponent(e.name) : ''},
-      e.team, isBuiltInBot(e.name) || isHelperBot(e));
+    // Never infer a restricted bot's machine from inventory, even if the response happens to name it.
+    const location = readable ? e.machine : null;
+    const group = location?.runner_id ? computer(String(location.runner_id), location.label) : commons;
+    group.members.push({id: 'bot:' + e.name, name: botDisplayName(e.name) + (e.shared_from || e.is_branch ? ' · Your branch' : ''),
+      type: 'bot', state, detail: word, href: readable || e.can_chat ? '#/bot/' + encodeURIComponent(e.name) : ''});
+    if (group === commons) continue;
+    const collaborators = new Set([actor(e.operator), ...(e.users || []).map(actor), ...(e.owners || []).map(actor), ...(e.bot_owners || []).map(actor)]);
+    // Follow visible reporting chains too: a human may direct a bot through another bot.
+    let parent = e.reports_to; const seen = new Set([e.name]);
+    while (parent && !seen.has(parent)) {
+      if (String(parent).startsWith('human:')) { collaborators.add(actor(parent)); break; }
+      seen.add(parent); parent = byBot.get(parent)?.reports_to;
+    }
+    for (const id of collaborators) {
+      const person = humans.get(id);
+      if (person && !group.members.some(m => m.id === person.id)) { group.members.push({...person}); placed.add(id); }
+    }
   }
-  if (shared.members.length) groups.push(shared);
-  if (support.members.length) groups.push(support);
+  for (const [id, person] of humans) if (!placed.has(id)) commons.members.push(person);
+  if (commons.members.length) groups.push(commons);
+  groups.sort((a, b) => (a.kind === 'commons') - (b.kind === 'commons') || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  for (const group of groups) group.members.sort((a, b) => (a.type === 'bot') - (b.type === 'bot') || a.id.localeCompare(b.id));
   return {company: companyName(), groups, fresh: !!fresh};
+}
+async function overviewLoadComputers() {
+  const state = OVERVIEW_PAGE;
+  if (!state || state.loadingComputers) return;
+  state.loadingComputers = true;
+  try {
+    const result = await get('/v2/computers');
+    if (OVERVIEW_PAGE === state && Array.isArray(result.computers)) state.computers = result.computers.map(c => ({id: c.id, label: c.label, revoked_at: c.revoked_at}));
+  } catch {} // Readable bot assignments still provide their buildings when inventory is unavailable.
+  finally { state.loadingComputers = false; }
 }
 function pageOverview() {
   const main = $('#main'); main.classList.add('overview-layout');
   main.innerHTML = `<section class="overview-page" aria-label="Company overview">
-    <iframe id="overview-frame" class="overview-frame" title="Interactive building of your human and bot team" src="/tico/ui/overview/index.html" allow="fullscreen"></iframe>
+    <iframe id="overview-frame" class="overview-frame" title="Interactive campus of your computers, bots and human teammates" src="/tico/ui/overview/index.html" allow="fullscreen"></iframe>
   </section>`;
   const frame = $('#overview-frame');
-  const state = OVERVIEW_PAGE = {frame, abort: new AbortController(), ready: false, model: overviewModel()};
+  const state = OVERVIEW_PAGE = {frame, abort: new AbortController(), ready: false, computers: [], loadingComputers: false};
   window.addEventListener('message', ev => {
     if (OVERVIEW_PAGE !== state || ev.source !== frame.contentWindow || ev.origin !== location.origin) return;
     if (ev.data?.type === 'tico-overview-ready') { state.ready = true; overviewRefresh(); }
@@ -44,6 +79,7 @@ function pageOverview() {
     }
   }, {signal: state.abort.signal});
   overviewRefresh();
+  void overviewLoadComputers().then(() => { if (OVERVIEW_PAGE === state) overviewRefresh(); });
 }
 function overviewRefresh() {
   const state = OVERVIEW_PAGE; if (!state) return;

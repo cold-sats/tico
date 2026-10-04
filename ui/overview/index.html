@@ -5,17 +5,19 @@
 <title>Company overview</title><link rel="stylesheet" href="pulse.css">
 </head>
 <body class="night">
-<div id="world" aria-label="Interactive company building"></div>
+<div id="world" aria-label="Interactive company campus"></div>
 <div class="vignette" aria-hidden="true"></div>
+<header class="campus-heading"><span class="campus-eyebrow">YOUR LITTLE WORLD OF WORK</span><h1 id="campus-company"></h1><p id="campus-summary"></p></header>
 <div id="loading"><p>Loading your team…</p></div>
 <div id="fallback" hidden><h1>Overview</h1><p>The 3D view is unavailable. Your teammates are still accessible below.</p><div id="fallback-team"></div></div>
 <div id="connection-status" role="status" hidden>Status unavailable · Reconnecting…</div>
-<p id="scene-instructions" class="sr-only">Select a floor to enter. Select a teammate for details. Tap outside the room or press Escape to return. Drag to rotate and scroll to zoom.</p>
-<button id="back" class="scene-access" hidden>Back to building</button>
-<nav id="floors" aria-label="Explore departments"></nav>
-<nav id="people" aria-label="Teammates on this floor" hidden></nav>
+<p id="scene-instructions" class="sr-only">Each computer is a building. People appear with their bots on each computer they work with; this does not track presence. Select a building to enter. Select a teammate for details. Tap outside or press Escape to return. Drag to rotate and scroll to zoom.</p>
+<button id="back" class="campus-back" hidden>← Campus</button>
+<nav id="floors" aria-label="Explore computers and shared pavilion"></nav>
+<nav id="people" aria-label="Teammates in this building" hidden></nav>
 <div class="sr-only" id="floor-heading" hidden><span id="floor-number"></span><h1 id="floor-title"></h1><p id="floor-subtitle"></p></div>
 <div id="hover-label" hidden></div>
 <div id="speech" role="status" hidden><button id="speech-close" aria-label="Close teammate bubble">×</button><span id="speech-type"></span><strong id="speech-name"></strong><p id="speech-message"></p><button id="speech-open" class="speech-open">Open teammate →</button></div>
+<footer class="campus-footer"><span id="campus-hint">Select a building to step inside</span><span class="campus-legend"><i class="human-dot"></i> People <i class="bot-dot"></i> Bots</span></footer>
 <script type="module" src="bridge.js"></script>
 </body></html>

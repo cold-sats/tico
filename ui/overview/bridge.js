@@ -26,12 +26,17 @@ function fallback(message) {
 function currentData() {
   return {...model, offset: 0, groups: model.groups.map(g => ({...g, key: g.id}))};
 }
-function controls() { $('#connection-status').hidden = model.fresh; }
+function controls() {
+  $('#connection-status').hidden = model.fresh;
+  $('#campus-company').textContent = model.company;
+  const count = model.groups.filter(g => g.kind === 'computer').length;
+  $('#campus-summary').textContent = count + (count === 1 ? ' computer' : ' computers') + ' · One connected campus';
+}
 async function mount() {
   const seq = ++revision; scene?.dispose(); scene = null; failed = false; $('#world').replaceChildren();
   controls(); $('#fallback').hidden = true; $('#loading').hidden = false; $('#loading').classList.remove('gone');
   delete document.body.dataset.sceneReady;
-  if (!model.groups.length) { fallback('Your building will come to life when you add groups and teammates.'); return; }
+  if (!model.groups.length) { fallback('Your campus will come to life when you add computers and teammates.'); return; }
   try {
     const {createBuilding} = await import('./building.js');
     if (disposed || seq !== revision) return;
@@ -44,7 +49,7 @@ async function mount() {
 }
 function update(next) {
   if (!Array.isArray(next?.groups)) return;
-  const shape = JSON.stringify([next.company, next.groups.map(g => [g.id, g.name, g.parent, g.members.map(m => [m.id, m.name, m.type])])]);
+  const shape = JSON.stringify([next.company, next.groups.map(g => [g.id, g.name, g.kind, g.members.map(m => [m.id, m.name, m.type])])]);
   model = next;
   if (shape !== topology) { topology = shape; mount(); }
   else { controls(); scene?.update(currentData()); if (failed) fallback('The 3D view is unavailable. Explore your team below.'); }
