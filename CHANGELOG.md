@@ -8,7 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-- `python -m backend.manage delete-tasks` deletes tasks made by mistake, such as a bulk import run twice, with their conversations, in one transaction. It lists what would go unless given `--apply`, and refuses any list holding a task that carries work ([Tasks](docs/tasks.md#deleting-tasks-made-by-mistake)).
+- Delete a task made by mistake: its human requester, or anyone who may move any task, with `hub task delete`, `hub_task_delete` or `POST /api/v2/tasks/{id}/delete`. A task carrying work (a bot turn, a file, an approval, a subtask) is refused; bots close instead. `python -m backend.manage delete-tasks` deletes a list offline, such as a bulk import run twice ([Tasks](docs/tasks.md#deleting-tasks-made-by-mistake)).
 
 ### Changed
 - Overview turns the company into a solarpunk campus with one building per computer, bots at their assigned workstations and human collaborators shown on each computer they work with. Green roof terraces, solar canopies and illuminated cutaway tunnels connect the buildings. Select a building or teammate for details; keyboard navigation, reduced-motion support and an accessible roster remain available. Updates remains the default.

@@ -1,6 +1,7 @@
-"""Deleting tasks outright, offline: for tasks made by mistake, such as a bulk import run twice.
+"""Deleting tasks outright: for tasks made by mistake, such as a bulk import run twice.
 
-Tasks are history, so the API only closes them. This removes a list of tasks, their own rows
+The API deletes one task at a time for a person (`POST /api/v2/tasks/{id}/delete`); the offline
+command deletes a list. Either removes the tasks, their own rows
 (events, links, labels, delegations, reminders, a service key's mapping) and their conversations
 with every message, in one transaction. A task that carries work is refused whole, so nothing
 anyone or any bot did is lost: a turn, a job, an approval, a file, a routine occurrence, a
@@ -63,7 +64,7 @@ def _column(c, sql, values):
     return out
 
 
-def delete_tasks(c, ids, apply=False):
+def delete_tasks(c, ids, apply=False, actor=None):
     """What deleting `ids` removes, and with apply=True removes it. Refuses the whole list if any
     task is unknown or carries work; the report says which and why."""
     ids = list(dict.fromkeys(i.strip() for i in ids if i and i.strip()))
@@ -127,7 +128,7 @@ def delete_tasks(c, ids, apply=False):
     _delete(c, "tasks", "id", ids)
     for tid in ids:
         _, title, requester, owner, status = rows[tid]
-        H.event(c, H.KEEPER, "task.deleted", tid, {"title": title, "requester": requester,
+        H.event(c, actor or H.KEEPER, "task.deleted", tid, {"title": title, "requester": requester,
                                                    "owner": owner, "status": status})
     report["applied"] = True
     return report

@@ -439,18 +439,29 @@ in [Task comments](api.md#task-comments).
 
 ## Deleting tasks made by mistake
 
-The API and the app close a task; they never delete one. When tasks were made by mistake, such as a
-bulk import run twice, the owner deletes them offline on the server, after a snapshot
-([environments.md](environments.md)):
+Closing keeps a task as history. A task made by mistake, such as a duplicate, can be deleted
+instead: by its human requester, or by anyone who may move any task, signed in as themselves.
+Bots and delegated sessions close tasks; they never delete one.
+
+```sh
+hub task delete <task-id>
+```
+
+`hub_task_delete` (`id`) and `POST /api/v2/tasks/{id}/delete` with `{}` do the same; the answer is
+`{"deleted": "<id>"}`. A client can tell a server offers this by the `deleteTask` operation in
+`GET /api/v2/openapi.json`.
+
+The task goes with its events, links, labels, delegations, reminders, a service key's mapping, and
+its conversation with every message in it. A task carrying work is refused (`409 has_work`, close
+it instead), so deleting never takes away what someone did: a bot turn, a job, an approval, a file,
+a routine occurrence, a meeting delivery, or a subtask. The audit log keeps a `task.deleted` event
+with who deleted it and the task's title, requester, owner and status.
+
+To delete many at once, such as a bulk import run twice, the owner runs the offline command on the
+server after a snapshot ([environments.md](environments.md)). The whole list is refused, and
+nothing changes, if any id is unknown or any task carries work.
 
 ```sh
 python -m backend.manage delete-tasks /data/hub.sqlite --ids-file ids.txt          # lists what would go
 python -m backend.manage delete-tasks /data/hub.sqlite --ids-file ids.txt --apply  # deletes
 ```
-
-`ids.txt` has one task id per line. Each task goes with its events, links, labels, delegations,
-reminders, a service key's mapping, and its conversation with every message in it, in one
-transaction. The whole list is refused, and nothing changes, if any id is unknown or any task
-carries work: a bot turn, a job, an approval, a file, a routine occurrence, a meeting delivery, or
-a subtask or blocked task outside the list. The audit log keeps a `task.deleted` event for each,
-with its title, requester, owner and status.

@@ -28,6 +28,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task comment <id> "<text>"         on the record with your name
     hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
     hub task comment-delete <id> <comment-id>          take back a comment you wrote
+    hub task delete <id>                               delete a task made by mistake (a person only)
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
                     [--title "..."]        rename it: checked as a new task's title would be
     hub task close <id> [--note "..."]
@@ -709,6 +710,9 @@ def parser():
     s.add_argument("id")
     s.add_argument("comment_id", help="the comment's id (its id in the task's comments)")
     s.set_defaults(fn="task comment-delete")
+    s = task.add_parser("delete", help="delete a task made by mistake: its requester or a mover, never a bot")
+    s.add_argument("id")
+    s.set_defaults(fn="task delete")
     s = task.add_parser("link", help="attach a link: the pull request you opened, an issue, a document")
     s.add_argument("id")
     s.add_argument("url")
