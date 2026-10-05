@@ -18,6 +18,37 @@ from .store import Problem, readiness_document
 
 CLOSED = ('done', 'closed', 'declined')
 PR_FINISHED = ('merged', 'closed', 'shipped')
+RESTORE_PROGRESS = ('attached_pending', 'initializing', 'checkout_ready', 'setup_running',
+                    'setup_failed', 'ready', 'legacy_present', 'unverified')
+
+
+def restore_requested(row, detail):
+    if (row['state'] == 'removed' and detail.get('removed_by') == 'cleanup'
+            and detail.get('restore_on_reopen')):
+        return True
+    checkout_state = detail.get('checkout_state')
+    progress_recorded = (checkout_state in RESTORE_PROGRESS
+                         or detail.get('setup_pending') and checkout_state != 'queued')
+    return (row['state'] == 'pending' and row['added_by'].startswith('human:')
+            and not progress_recorded)
+
+
+def _demoted_legacy_report(row, detail):
+    """Recognize a legacy present row demoted by a heartbeat without checkout fields.
+
+    The old backend persisted these report fields before changing present to pending. They are
+    history for the upgraded runner to re-verify, not checkout completion proof by themselves.
+    """
+    last_commit = detail.get('last_commit')
+    dirty_files = detail.get('dirty_files')
+    return (row['state'] == 'pending'
+            and detail.get('checkout_state') in (None, 'unverified')
+            and not detail.get('setup_pending')
+            and not any(detail.get(key) for key in ('expected_head', 'checkout_target', 'expected_base'))
+            and bool(row['branch'])
+            and detail.get('current_branch') == row['branch']
+            and isinstance(last_commit, str) and re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', last_commit)
+            and type(dirty_files) is int and dirty_files >= 0)
 
 
 class Create(Contract):
@@ -37,6 +68,10 @@ class Update(Contract):
     branch: str | None = Field(default=None, max_length=200)
     cleanup: bool = False
     setup_pending: bool | None = None
+    checkout_state: Literal['queued', 'attached_pending', 'initializing', 'checkout_ready', 'setup_running', 'setup_failed', 'ready', 'legacy_present', 'unverified'] | None = None
+    expected_head: str | None = Field(default=None, pattern=r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')
+    checkout_target: str | None = Field(default=None, max_length=300)
+    expected_base: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     snapshot_skipped: str | None = Field(default=None, max_length=300)
     restore_source: str | None = Field(default=None, max_length=100)
     skipped_files: list[str] | None = Field(default=None, max_length=100)
@@ -89,13 +124,39 @@ def heartbeat(c, who, reports, capable, default_org=""):
             row['repo'] = grant['full_name'] if connection else report.repo
             c.execute('UPDATE task_links SET repo=? WHERE id=?', (row['repo'], row['id']))
         detail = json.loads(row['detail_json'] or '{}')
+        # 0.2.x runners do not send checkout_state. Keep their established report semantics
+        # for links that were already known to exist (including offline/unknown links), while
+        # never using that compatibility path for a modern queued/setup-pending checkout.
+        legacy_restore_receipt = (detail.get('legacy_restore_pending') is True
+                                  or (row['added_by'] or '').startswith('human:'))
+        legacy_restore_passthrough = (legacy_restore_receipt
+                                      and row['state'] in ('present', 'missing', 'unknown')
+                                      and report.state in ('present', 'missing')
+                                      and detail.get('checkout_state') is None
+                                      and report.checkout_state is None
+                                      and detail.get('setup_pending'))
+        legacy_passthrough = ((row['state'] in ('present', 'unknown', 'missing')
+                               and report.state in ('present', 'missing')
+                               and detail.get('checkout_state') is None and report.checkout_state is None
+                               and not detail.get('setup_pending'))
+                              or legacy_restore_passthrough)
         now = H.now()
         changed = (detail.get('last_commit') != report.last_commit or detail.get('dirty_files') != report.dirty_files
                    or detail.get('last_activity') != report.last_activity)
         if changed or 'activity_at' not in detail:
             detail['activity_at'] = now
             detail.pop('stalled_woke', None)
-        if report.state == 'missing':
+        if detail.get('checkout_state') == 'legacy_present' and row['state'] not in ('present', 'unknown'):
+            detail['checkout_state'] = 'unverified'
+        legacy_complete = (detail.get('checkout_state') == 'legacy_present'
+                           and row['state'] in ('present', 'unknown') and not detail.get('setup_pending'))
+        initialization_pending = (not legacy_complete and not legacy_passthrough and
+                                  (detail.get('checkout_state') != 'ready'
+                                   or not detail.get('expected_head')
+                                   or not detail.get('checkout_target')
+                                   or not detail.get('expected_base')
+                                   or detail.get('setup_pending')))
+        if report.state == 'missing' and not initialization_pending:
             detail.setdefault('missing_since', now)
         else:
             detail.pop('missing_since', None)
@@ -110,8 +171,27 @@ def heartbeat(c, who, reports, capable, default_org=""):
                     detail[key] = True
         if report.state == 'removed' and detail.get('cleanup_requested'):
             detail['removed_by'] = 'cleanup'
-        detail.update(report.model_dump(exclude={'link_id', 'state', 'branch'}))
-        state = 'pending' if row['state'] == 'pending' and row['repo'] and report.state == 'missing' else report.state
+        reported = report.model_dump(exclude_none=True,
+                                     exclude={'link_id', 'state', 'branch', 'checkout_state'})
+        detail.update(reported)
+        legacy_present = (report.state == 'present' and report.checkout_state == 'legacy_present'
+                          and not detail.get('setup_pending')
+                          and (row['state'] == 'present' and detail.get('checkout_state') in (None, 'legacy_present')
+                               or row['state'] == 'unknown' and detail.get('checkout_state') == 'legacy_present'
+                               or _demoted_legacy_report(row, detail)))
+        if report.checkout_state is not None and (report.checkout_state != 'legacy_present' or legacy_present):
+            detail['checkout_state'] = report.checkout_state
+        checkout_state = detail.get('checkout_state')
+        completion_proven = ((checkout_state == 'ready' and bool(detail.get('expected_head'))
+                              and bool(detail.get('checkout_target')) and bool(detail.get('expected_base'))
+                              and not detail.get('setup_pending')) or legacy_present
+                             or (checkout_state == 'legacy_present' and not detail.get('setup_pending')
+                                 and row['state'] in ('present', 'unknown')))
+        state = ('removed' if report.state == 'removed' else
+                 report.state if legacy_passthrough else
+                 'pending' if not completion_proven else
+                 'pending' if row['state'] == 'pending' and report.state == 'present' and report.checkout_state not in ('ready', 'legacy_present') else
+                 'pending' if row['state'] == 'pending' and row['repo'] and report.state == 'missing' else report.state)
         detail['current_branch'] = report.branch
         branch = report.branch if report.state == 'present' and row['branch'] is None else None
         c.execute('UPDATE task_links SET state=?,branch=coalesce(branch,?),detail_json=?,updated=? WHERE id=?',
@@ -132,9 +212,8 @@ def heartbeat(c, who, reports, capable, default_org=""):
         # Only worktrees that actually existed when closed are eligible on reopening.
         if closed and row['state'] == 'present' and not detail.get('delete_requested'):
             detail['restore_on_reopen'] = True
-        restore = (row['state'] == 'removed' and detail.get('removed_by') == 'cleanup' and detail.get('restore_on_reopen')
-                   or row['state'] == 'pending' and row['added_by'].startswith('human:'))
-        action = 'remove' if closed and (finished or detail.get('delete_requested')) and row['state'] != 'removed' else 'restore' if not closed and restore else None
+        action = ('remove' if closed and (finished or detail.get('delete_requested')) and row['state'] != 'removed'
+                  else 'restore' if not closed and restore_requested(row, detail) else None)
         if detail.get('delete_requested') and row['state'] == 'removed':
             c.execute('DELETE FROM task_links WHERE id=?', (row['id'],))
             continue
@@ -202,7 +281,12 @@ def install(app, store, auth, mutate):
             if existing['task_id'] != task['id'] or existing['path'] != path or owner != task['owner'] and existing['state'] != 'removed':
                 raise Problem('worktree_path', 'This worktree belongs to another task', 409)
             if existing['state'] != 'removed':
-                return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
+                detail = json.loads(existing['detail_json'] or '{}')
+                return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path'],
+                        'state': existing['state'],
+                        'checkout_state': detail.get('checkout_state'), 'setup_pending': detail.get('setup_pending', False),
+                        'expected_head': detail.get('expected_head'), 'checkout_target': detail.get('checkout_target'),
+                        'expected_base': detail.get('expected_base')}
         count = c.execute("SELECT count(*) FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? AND coalesce(l.state,'unknown')<>'removed'", (task['owner'],)).fetchone()[0]
         if count >= 10:
             raise Problem('worktree_limit', 'Finish or close older tasks before adding more than 10 worktrees', 409)
@@ -211,9 +295,17 @@ def install(app, store, auth, mutate):
             detail.pop('removed_by', None)
             detail.pop('cleanup_requested', None)
             detail['owner'] = task['owner']
+            detail.update(checkout_state='attached_pending' if attaching else 'queued', setup_pending=not attaching)
+            detail.pop('expected_head', None)
+            detail.pop('checkout_target', None)
+            detail.pop('expected_base', None)
             c.execute("UPDATE task_links SET state='pending',computer_id=?,detail_json=?,updated=? WHERE id=?",
                       (assigned['id'], json.dumps(detail), H.now(), existing['id']))
-            return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
+            return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path'],
+                    'state': 'pending',
+                    'checkout_state': 'attached_pending' if attaching else 'queued',
+                    'setup_pending': not attaching, 'expected_head': None, 'checkout_target': None,
+                    'expected_base': None}
         slug = re.sub('[^a-z0-9]+', '-', task['title'].lower()).strip('-')[:50] or 'task'
         branch = branch or (None if attaching else f'tico/{short}-{slug}{suffix}')
         if branch is not None and (not re.fullmatch(r'[A-Za-z0-9_./-]+', branch) or branch.startswith('-') or '..' in branch or '@{' in branch or branch.endswith(('/', '.', '.lock')) or '//' in branch):
@@ -221,8 +313,12 @@ def install(app, store, auth, mutate):
         link = uuid.uuid4().hex
         c.execute("INSERT INTO task_links(id,task_id,kind,url,title,state,added_by,created,repo,branch,computer_id,path,updated) VALUES(?,?,'worktree',?,?,'pending',?,?,?,?,?,?,?)",
                   (link, task['id'], 'worktree:' + link, repo or 'Worktree', who.actor, H.now(), repo, branch, assigned['id'], path, H.now()))
-        c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps({'owner': task['owner']}), link))
-        return {'link_id': link, 'branch': branch, 'path': path}
+        c.execute('UPDATE task_links SET detail_json=? WHERE id=?',
+                  (json.dumps({'owner': task['owner'], 'checkout_state': 'attached_pending' if attaching else 'queued',
+                               'setup_pending': not attaching}), link))
+        return {'link_id': link, 'branch': branch, 'path': path, 'state': 'pending',
+                'checkout_state': 'attached_pending' if attaching else 'queued', 'setup_pending': not attaching,
+                'expected_head': None, 'checkout_target': None, 'expected_base': None}
 
     @app.post('/api/v2/tasks/{tid}/worktrees')
     def create(request: Request, tid: str, body: Create):
@@ -260,6 +356,16 @@ def install(app, store, auth, mutate):
             if body.computer_id and body.computer_id != who.runner_id:
                 raise Problem('forbidden', 'Cannot attach on another computer', 403)
             detail = json.loads(link['detail_json'] or '{}')
+            checkout_state = body.checkout_state if body.checkout_state is not None else detail.get('checkout_state')
+            setup_pending = body.setup_pending if body.setup_pending is not None else detail.get('setup_pending', False)
+            legacy_restore_report = (who.role == 'runner' and body.state == 'present'
+                                     and body.checkout_state is None and body.setup_pending is True
+                                     and link['state'] == 'pending' and link['added_by'].startswith('human:')
+                                     and detail.get('checkout_state') in (None, 'queued'))
+            if body.state == 'present' and (checkout_state != 'ready' or setup_pending
+                    or not body.expected_head or not body.checkout_target or not body.expected_base) \
+                    and not legacy_restore_report:
+                raise Problem('worktree_not_ready', 'Checkout and setup must complete before a worktree is reported present', 409)
             if body.cleanup and who.role != 'runner':
                 raise Problem('forbidden', 'Only the computer reports cleanup', 403)
             if body.cleanup and body.state == 'removed':
@@ -268,14 +374,30 @@ def install(app, store, auth, mutate):
                 detail.pop('restore_on_reopen', None)
                 detail['removed_by'] = who.actor
                 detail.pop('cleanup_requested', None)
+            if legacy_restore_report:
+                # Released 0.2.x runners report a restored human worktree as present while
+                # setup_pending, without the newer checkout proof fields. Accept that legacy
+                # receipt so the runner stops repeating restore, but preserve the incomplete
+                # setup state and do not manufacture a completion marker.
+                for key in ('checkout_state', 'expected_head', 'checkout_target', 'expected_base'):
+                    detail.pop(key, None)
+                detail['legacy_restore_pending'] = True
             if body.setup_pending is not None:
                 detail['setup_pending'] = body.setup_pending
+            if body.checkout_state is not None:
+                detail['checkout_state'] = body.checkout_state
+            if body.expected_head is not None:
+                detail['expected_head'] = body.expected_head
+            if body.checkout_target is not None:
+                detail['checkout_target'] = body.checkout_target
+            if body.expected_base is not None:
+                detail['expected_base'] = body.expected_base
             if body.skipped_files is not None:
                 detail['skipped_files'] = [str(name)[:1000] for name in body.skipped_files]
             for key in ('snapshot_skipped', 'restore_source'):
                 if getattr(body, key) is not None:
                     detail[key] = getattr(body, key)
-            fields = body.model_dump(exclude_none=True, exclude={'cleanup', 'setup_pending', 'skipped_files', 'snapshot_skipped', 'restore_source'})
+            fields = body.model_dump(exclude_none=True, exclude={'cleanup', 'setup_pending', 'checkout_state', 'expected_head', 'checkout_target', 'expected_base', 'skipped_files', 'snapshot_skipped', 'restore_source'})
             fields['detail_json'] = json.dumps(detail)
             if 'path' in fields:
                 fields['path'] = relative(fields['path'])
@@ -305,8 +427,7 @@ def install(app, store, auth, mutate):
             closed = link['task_status'] in CLOSED or link['bot_state'] == 'archived' or detail.get('delete_requested')
             prs = [r[0] for r in c.execute("SELECT state FROM task_links WHERE task_id=? AND kind='pr'", (link['task_id'],))]
             removing = closed and link['state'] != 'removed' and (all(state in PR_FINISHED for state in prs) or detail.get('delete_requested'))
-            restoring = not closed and (link['state'] == 'removed' and detail.get('removed_by') == 'cleanup' and detail.get('restore_on_reopen')
-                                       or link['state'] == 'pending' and link['added_by'].startswith('human:'))
+            restoring = not closed and restore_requested(link, detail)
             if not assigned and not (removing or restoring):
                 raise Problem('forbidden', 'No worktree action on this computer', 403)
             service = app.state.github_app
