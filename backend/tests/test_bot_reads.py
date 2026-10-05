@@ -66,7 +66,8 @@ def test_a_bot_reads_daily_and_weekly_updates_and_one_update_in_full(api, live):
     _, _, attempt = setup_attempt(api, "ops")
     with api.app.state.store.transaction() as c:
         daily = updates.post(c, "cpo", "- Shipped the pricing page", kind="daily", day="2026-09-28")
-        weekly = updates.post(c, "finance", "- Closed the books for September", kind="weekly", day="2026-09-25")
+        weekly = updates.post(c, "finance", "", kind="weekly", day="2026-09-25", slides={
+            "goal": "Close every month in five days", "done": ["Closed the books for September"], "focus": ["Start October"]})
     token = attempt["token"]
 
     code, listed = hub(live, token, "update", "list", "--kind", "weekly")
