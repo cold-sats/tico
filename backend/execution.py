@@ -970,6 +970,11 @@ class Execution:
             incoming_task = H.message_task_id(H.message(c, row["id"]), H.conversation(c, row["conversation_id"]))
             if incoming_task and incoming_task != origin_task and row["kind"] == "notice":
                 continue                    # a new task gets its own run, even in the same bot room
+            if any(tid != origin_task and H.task_private(c, H.task(c, tid))
+                   for tid in privacy.message_tasks(c, row, include_run=False)):
+                # Folding another task's private message into this run would make the run private
+                # too, shutting out whoever started it. It waits queued and gets its own run.
+                continue
             if attempt["bot"] == H.FLEET_MAINTAINER:
                 refs = json.loads(row["refs_json"] or "{}")
                 origin = c.execute("SELECT j.message_id,m.from_actor FROM jobs j JOIN messages m ON m.id=j.message_id "
@@ -985,11 +990,30 @@ class Execution:
                 if (str(row["from_actor"]).startswith("human:") and (row["from_actor"] != requester or not related)
                         or row["kind"] == "notice" and not cancelled):
                     continue
-            c.execute("INSERT INTO attempt_inputs VALUES(?,?,NULL)", (aid, row["id"]))
+            # A message keeps one attempt_inputs row (message_id is the key). Its job being queued
+            # again means a finished run handed it back on purpose (a requeued or deferred turn, a
+            # resumed review), so that old row moves to this run, unacknowledged, and is delivered
+            # here once. A row still held by another live run is left alone, and one already on
+            # this run keeps its acknowledgement so it is not delivered twice.
+            prior = c.execute("SELECT i.attempt_id,a.state FROM attempt_inputs i "
+                              "LEFT JOIN attempts a ON a.id=i.attempt_id WHERE i.message_id=?",
+                              (row["id"],)).fetchone()
+            if prior and prior["attempt_id"] != aid and prior["state"] in ("leased", "running"):
+                continue
+            if prior and prior["attempt_id"] != aid:
+                # The earlier run did read this message, so it keeps the message's tasks for
+                # privacy (attempt_tasks reads this event) once the row is no longer its own.
+                privacy.record_moved_input(c, prior["attempt_id"], aid, row)
+            c.execute("INSERT INTO attempt_inputs VALUES(?,?,NULL) ON CONFLICT(message_id) DO UPDATE SET "
+                      "acked_at=CASE WHEN attempt_id=excluded.attempt_id THEN acked_at END,"
+                      "attempt_id=excluded.attempt_id", (aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))
         ids = c.execute("SELECT message_id FROM attempt_inputs WHERE attempt_id=? AND acked_at IS NULL", (aid,)).fetchall()
-        return {"messages": [m for row in ids if (m := H.message(c, row[0]))
+        # `attempt_id` lets the response check read these as the bot, as for the turn itself:
+        # each message was just checked readable by the bot, and a private task's message is
+        # never readable by the computer's own identity.
+        return {"attempt_id": aid, "messages": [m for row in ids if (m := H.message(c, row[0]))
                              and privacy.message_readable(c, "bot:" + attempt["bot"], m)]}
 
     def acknowledge_input(self, c, who, aid, mid):
