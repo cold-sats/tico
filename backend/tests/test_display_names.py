@@ -78,7 +78,7 @@ def test_every_stable_get_matches_reference_annotation(api, named_data, monkeypa
     params = {'/api/v2/docs/search': {'q': 'review'}, '/api/v2/context/search': {'q': 'review'},
               '/api/v2/context/document': {'id': named_data['doc']['id']},
               '/api/v2/meetings/transcript': {'id': 'review-meeting'},
-              '/api/v2/github/product-repos/preview': {'name': 'synthetic-product'}}
+              '/api/v2/github/product-repos/preview': {'name': 'review-product'}}
     checked = set()
     for route in routes:
         monkeypatch.setattr(route, 'app', request_response(route.get_route_handler()))
