@@ -165,6 +165,11 @@ def main(argv=None):
     owner.add_argument("--owner", dest="operator", help="the human who owns the computer")
     owner.add_argument("--operator", dest="operator", help=argparse.SUPPRESS)      # the old spelling, hidden for one release
     p.add_argument("--out", type=Path, required=True, help="New private file for the enrollment code")
+    p = sub.add_parser("delete-tasks", help="Delete tasks made by mistake, with their conversations; "
+                       "lists what would go unless --apply")
+    p.add_argument("database", type=Path)
+    p.add_argument("--ids-file", type=Path, required=True, help="One task id per line")
+    p.add_argument("--apply", action="store_true", help="Delete; without it nothing changes")
     p = sub.add_parser("backup")
     p.add_argument("database", type=Path)
     p.add_argument("--bucket", required=True)
@@ -223,6 +228,11 @@ def main(argv=None):
             H.event(c, H.KEEPER, "bot.repo_set", args.bot, {"repo": repo})
         report = {"bot": args.bot, "repo": repo,
                   "repo_url": repo_url(repo, store.settings.github_owner)}
+    elif args.command == "delete-tasks":
+        from .task_delete import delete_tasks
+        store = Store(Settings(db_path=args.database, registry_dir=registry_dir()))
+        with store.transaction() as c:
+            report = delete_tasks(c, args.ids_file.read_text().split(), apply=args.apply)
     elif args.command == "usage-count":
         from .census import Census
         from .releases import version

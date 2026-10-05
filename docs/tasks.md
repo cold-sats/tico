@@ -436,3 +436,21 @@ hub task comment-delete <task-id> <comment-id>
 The comment id is the `id` in the task's `comments` (`hub task show`). MCP: `hub_task_comment_edit`
 (`id`, `comment_id`, `text`) and `hub_task_comment_delete` (`id`, `comment_id`). The API routes are
 in [Task comments](api.md#task-comments).
+
+## Deleting tasks made by mistake
+
+The API and the app close a task; they never delete one. When tasks were made by mistake, such as a
+bulk import run twice, the owner deletes them offline on the server, after a snapshot
+([environments.md](environments.md)):
+
+```sh
+python -m backend.manage delete-tasks /data/hub.sqlite --ids-file ids.txt          # lists what would go
+python -m backend.manage delete-tasks /data/hub.sqlite --ids-file ids.txt --apply  # deletes
+```
+
+`ids.txt` has one task id per line. Each task goes with its events, links, labels, delegations,
+reminders, a service key's mapping, and its conversation with every message in it, in one
+transaction. The whole list is refused, and nothing changes, if any id is unknown or any task
+carries work: a bot turn, a job, an approval, a file, a routine occurrence, a meeting delivery, or
+a subtask or blocked task outside the list. The audit log keeps a `task.deleted` event for each,
+with its title, requester, owner and status.
