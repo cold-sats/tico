@@ -29,6 +29,16 @@ def named_data(api):
 
 
 def test_every_stable_get_matches_reference_annotation(api, named_data, monkeypatch):
+    # Product-repository preview is part of the stable GET contract, but needs a connected
+    # GitHub App and an exact product name. Keep this route check synthetic and local.
+    with api.app.state.store.transaction() as c:
+        api.app.state.github_app.save(c, "human:ana", "Acme", True, {
+            "id": 4242, "slug": "acme-tico", "client_id": "Iv1.synthetic",
+            "pem": "synthetic-private-key", "client_secret": "synthetic-client-secret",
+            "webhook_secret": "synthetic-webhook-secret",
+        })
+    monkeypatch.setattr(api.app.state.github_app, "product_repo_capability", lambda: {
+        "status": "available", "detail": "Synthetic test installation has Administration: write."})
     routes = [route for route in api.app.routes if isinstance(route, APIRoute)
               and 'GET' in route.methods and '{' not in route.path and STABLE_PATH.fullmatch(route.path)]
     assert len(routes) >= 40
@@ -67,7 +77,8 @@ def test_every_stable_get_matches_reference_annotation(api, named_data, monkeypa
     monkeypatch.setattr(APIRoute, 'get_route_handler', observed_handler)
     params = {'/api/v2/docs/search': {'q': 'review'}, '/api/v2/context/search': {'q': 'review'},
               '/api/v2/context/document': {'id': named_data['doc']['id']},
-              '/api/v2/meetings/transcript': {'id': 'review-meeting'}}
+              '/api/v2/meetings/transcript': {'id': 'review-meeting'},
+              '/api/v2/github/product-repos/preview': {'name': 'synthetic-product'}}
     checked = set()
     for route in routes:
         monkeypatch.setattr(route, 'app', request_response(route.get_route_handler()))

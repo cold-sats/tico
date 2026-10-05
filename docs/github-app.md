@@ -78,6 +78,12 @@ history can be published separately. The write is audited as `github.product_rep
 the same request key replay the saved receipt. This path is Owner-only; it does not alter the bot-prefixed
 creator or grant repository access to any bot.
 
+The Owner-only MCP tool `hub_repo_product_create` follows the same review step. Call it with `name` and a
+stable `operation_id` to receive the preview. After reviewing the returned `org/name` and capability, call
+it again with the same `operation_id` and `confirm_repository` set to that exact `org/name`. The tool
+fetches a fresh preview before writing and refuses a mismatched confirmation. If the installation lacks
+verified Administration: write, it returns the capability detail and does not issue a create request.
+
 Before sending the create request, Tico durably binds the Owner, operation key, request digest, and exact
 organization/name. If GitHub's response is lost, times out, or returns a server error, the API returns
 `409 github_create_outcome_unknown`; a retry with different content gets `409 idempotency_conflict`, and a
