@@ -159,6 +159,12 @@ def delete_tasks(c, ids, apply=False, actor=None):
                 if r not in chosen] if _has(c, "task_delegations", "message_id") else []
     if pointing:
         refusals["delegations of another task"] = len(pointing)
+    # A bot not yet woken about the task (its notice waits in a shared room) would wake to a missing task.
+    waking = _column(c, "SELECT j.id FROM jobs j JOIN messages m ON m.id=j.message_id "
+                        "WHERE j.state NOT IN ('completed','cancelled','failed') "
+                        "AND json_extract(m.refs_json,'$.task') IN ({})", ids)
+    if waking:
+        refusals["bot work queued about the task"] = len(waking)
     report = {"tasks": len(found), "missing": missing, "refused": refusals,
               "conversations": len(conversations), "messages": len(messages),
               "rows": {t: _count(c, t, "task_id", ids) for t in TASK_ROWS},

@@ -2509,7 +2509,7 @@ def create_app(settings=None):
                 raise Problem("not_found", "No deleted task " + str(tid) + " you may restore", 404)
             report = restore_tasks(c, [row["task_id"]], actor=who.actor)
             if report.get("conflict"):
-                raise Problem("conflict", "This task cannot go back: " + report["conflict"], 409)
+                raise Problem("conflict", "This task cannot go back: something newer has taken its place", 409)
             return {"restored": row["task_id"], "unlinked": report["unlinked"].get(row["task_id"], []),
                     "skipped": report["skipped"]}
         return mutate(request, body, work)
