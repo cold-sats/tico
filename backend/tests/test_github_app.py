@@ -581,6 +581,14 @@ def test_owner_mcp_product_repository_tool_previews_confirms_and_replays(api, gh
     assert not error and replay == created
     assert len(gh.of("/orgs/Acme/repos")) == 1, "the same MCP operation id replays its saved receipt"
 
+    gh.permissions = {"contents": "write", "metadata": "read"}
+    before = len(gh.of("/orgs/Acme/repos"))
+    error, unavailable = call({"name": "tico-recorder", "operation_id": "mcp-product-create-no-admin"})
+    assert not error and unavailable["preview"]["capability"] == "missing"
+    assert "Administration: write" in unavailable["preview"]["capability_detail"]
+    assert unavailable["created"] is False and unavailable["confirmation_required"] is False
+    assert len(gh.of("/orgs/Acme/repos")) == before, "missing Administration does not create a repository"
+
 
 def test_lost_github_create_response_keeps_durable_key_binding_and_never_retries_create(api, gh):
     connect(api, administration="true")
