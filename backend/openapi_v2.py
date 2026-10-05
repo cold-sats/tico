@@ -187,6 +187,8 @@ STABLE = [
     ("/api/v2/updates/read", "post", "Updates", "markUpdatesRead", "Mark updates read or unread", None),
     ("/api/v2/updates/{uid}", "get", "Updates", "getUpdate", "One update and the replies to it", None),
     ("/api/v2/updates/{uid}/reply", "post", "Updates", "replyToUpdate", "Reply to an update (goes to the bot)", None),
+    ("/api/v2/updates/redo", "post", "Updates", "redoUpdates",
+     "Ask the bots again for a past day's update in the current shape: the owner", None),
     ("/api/v2/needs-you", "get", "Needs you", "getNeedsYou",
      "What waits on the caller; count=true for the number alone", "NeedsYou"),
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),

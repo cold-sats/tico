@@ -1789,7 +1789,19 @@ def create_app(settings=None):
         def work(c):
             if who.role != "bot":
                 raise Problem("identity", "Only a bot posts an update", 403)
-            return {"update": updates.post(c, H.actor_id(who.actor), body.body, kind=body.kind)}
+            slides = body.slides.model_dump(exclude_none=True) if body.slides else None
+            updates.check_day(c, H.actor_id(who.actor), body.day)
+            return {"update": updates.post(c, H.actor_id(who.actor), body.body, kind=body.kind, day=body.day,
+                                           slides=slides)}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/updates/redo")
+    def update_redo(request: Request, body: M.UpdateRedo):
+        """Ask the bots again for a past day's update in the current shape (a week in review as slides)."""
+        who = request.state.identity
+        owner_only(who, "asks the bots to redo an update")
+        def work(c):
+            return {"kind": body.kind, "day": body.day, "bots": updates.redo(c, body.kind, body.day, body.bots)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/updates/read")

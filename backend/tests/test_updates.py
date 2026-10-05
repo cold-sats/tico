@@ -11,6 +11,7 @@ from backend.tests.test_api import api, get, headers, post, setup_attempt  # noq
 MORNING = datetime(2026, 9, 29, 13, 0, tzinfo=timezone.utc)      # Tuesday 06:00 Pacific
 FRIDAY = datetime(2026, 10, 2, 13, 0, tzinfo=timezone.utc)
 NIGHT = datetime(2026, 9, 29, 10, 0, tzinfo=timezone.utc)        # 03:00 Pacific, before the queue
+BEFORE_FIVE = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)  # Monday 03:00 Pacific: no queue of its own yet
 
 
 def out(c):
@@ -91,3 +92,47 @@ def test_an_update_is_one_to_five_plain_bullets_or_it_is_refused(api):
     assert ok.status_code == 200, ok.text
     assert ok.json()["update"]["headline"] == "Published the checklist page and linked it from six posts"
     assert updates.lint("\n".join("- " + " ".join(["word"] * 30) for _ in range(5)), "weekly") is None, "the week may run longer"
+
+
+SLIDES = {"goal": "Grow organic signups to 400 a month; at 310 and on pace.",
+          "kpis": [{"name": "Signups", "value": "310", "series": [240, 262, 281, 310], "note": "Two new pages ranked."}],
+          "done": ["Shipped four landing pages", "- Linked them from six older posts"],
+          "focus": ["Pitch the checklist to three newsletters"], "blockers": []}
+
+
+def test_a_week_in_review_is_five_slides_and_an_owner_can_have_last_week_redone(api):
+    """Owner, 2026-10-05: the weekly is a few swipeable slides: Goal, KPIs, done last week, focus next
+    week, biggest blockers; and last week's can be run again in the new shape."""
+    r, msg, attempt = setup_attempt(api, "ops")
+    bot = {"Authorization": "Bearer " + attempt["token"]}
+    send = lambda body, n: api.post("/api/v2/updates", json=body, headers={**bot, "Idempotency-Key": f"w-{n}"})
+    refused = send({"body": "- Shipped four pages", "kind": "weekly"}, 1)
+    assert refused.status_code == 422 and "five slides" in refused.json()["error"]["detail"], refused.text
+    long = send({"kind": "weekly", "slides": {**SLIDES, "done": ["word " * 30]}}, 2)
+    assert long.status_code == 422 and "done bullet is 30 words" in long.json()["error"]["detail"], long.text
+    ok = send({"kind": "weekly", "slides": SLIDES}, 3)
+    assert ok.status_code == 200, ok.text
+    week = ok.json()["update"]
+    assert week["slides"]["done"] == ["Shipped four landing pages", "Linked them from six older posts"]
+    assert week["slides"]["kpis"][0]["series"] == [240, 262, 281, 310] and "tracked" in week["slides"]
+    assert week["headline"].startswith("Grow organic signups") and "- Next: Pitch the checklist" in week["body"]
+    assert get(api, "updates?kind=weekly")["updates"][0]["slides"]["goal"] == SLIDES["goal"]
+
+    friday = "2026-10-02"
+    back = send({"kind": "weekly", "slides": SLIDES, "day": friday}, 4)
+    assert back.status_code == 422, "a bot never back-dates a post on its own"
+    post(api, "updates/redo", {"day": friday}, token="ben-test", expected=403)
+    asked = post(api, "updates/redo", {"day": friday, "bots": ["ops"]})
+    assert asked["bots"] == ["ops"]
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='ops'")      # its run is over, so it is free
+        assert updates.dispatch(c, BEFORE_FIVE) == "ops", "a redo of a past day is sent like today's requests"
+        request = c.execute("SELECT m.body FROM update_queue q JOIN messages m ON m.id=q.message_id "
+                            "WHERE q.state='sent' AND q.redo=1").fetchone()["body"]
+    assert "redoes your week in review for 2026-10-02" in request and "with day 2026-10-02" in request
+    redone = send({"kind": "weekly", "slides": SLIDES, "day": friday}, 5)
+    assert redone.status_code == 200 and redone.json()["update"]["day"] == friday, redone.text
+    with store.transaction() as c:
+        updates.dispatch(c, BEFORE_FIVE)
+        assert c.execute("SELECT state FROM update_queue WHERE bot='ops' AND day=?", (friday,)).fetchone()[0] == "posted"

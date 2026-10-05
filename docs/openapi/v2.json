@@ -11780,6 +11780,66 @@
         ]
       }
     },
+    "/api/v2/updates/redo": {
+      "post": {
+        "summary": "Ask the bots again for a past day's update in the current shape: the owner",
+        "operationId": "redoUpdates",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRedo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Updates"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/updates/unread": {
       "get": {
         "summary": "How many updates are unread",
@@ -21857,6 +21917,46 @@
         "additionalProperties": false,
         "type": "object",
         "title": "UpdateRead"
+      },
+      "UpdateRedo": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly"
+            ],
+            "title": "Kind",
+            "default": "weekly"
+          },
+          "day": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Day"
+          },
+          "bots": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "type": "array",
+                "maxItems": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bots"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day"
+        ],
+        "title": "UpdateRedo"
       },
       "UpdateReply": {
         "properties": {

@@ -2343,16 +2343,53 @@ def grokbot_sync(api, args):
 
 
 # ----------------------------------------------------------------------------- updates
+_SLIDE_LINES = lambda what, most: {"type": "array", "maxItems": most, "items": {"type": "string"}, "description": what}
+_SLIDES = {
+    "type": "object", "additionalProperties": False,
+    "description": "Your week in review as five slides, swiped left to right. Tico adds your goal KPIs to the KPI slide.",
+    "properties": {
+        "goal": _s("One sentence, at most 30 words: the goal you work toward and where it stands"),
+        "kpis": {"type": "array", "maxItems": 4, "description": "Up to four numbers that show the week",
+                 "items": {"type": "object", "additionalProperties": False, "required": ["name", "value"], "properties": {
+                     "name": _s("What it counts"), "value": _s("This week's value, as it should read"),
+                     "unit": _s("Unit, like $, % or signups"),
+                     "series": {"type": "array", "maxItems": 30, "items": {"type": "number"},
+                                "description": "Recent values, oldest first, drawn as a chart"},
+                     "note": _s("One short line on what moved it")}}},
+        "done": _SLIDE_LINES("What got done last week: 1-5 plain lines, at most 25 words each", 5),
+        "focus": _SLIDE_LINES("Your focus next week: 1-3 lines", 3),
+        "blockers": _SLIDE_LINES("Your biggest blockers and who can clear them: 0-3 lines (empty when nothing blocks you)", 3)},
+    "required": ["goal", "done", "focus"]}
+
+
 @tool("hub_update_create", "Post your daily update (or, on Friday, your week in review) when Tico asks "
-      "for it: one to five markdown bullets in plain English and nothing else. No title, no headings or "
-      "sections, no task ids. At most 25 words a bullet and 90 in all (Friday: 40 and 180); an update that "
-      "breaks this is refused with how to fix it. One a day; posting again replaces it.",
-      {"body": _s("One to five lines, each starting with '- '"),
-       "kind": _s("daily or weekly; Tico picks from the day when omitted", enum=["daily", "weekly"])},
-      required=("body",), writes=True)
+      "for it. A daily is `body`: one to five markdown bullets in plain English and nothing else, no title, "
+      "headings or task ids, at most 25 words a bullet and 90 in all. A week in review is `slides`: goal, "
+      "kpis, done, focus, blockers. One of each a day; posting again replaces it, and one that breaks the "
+      "rules is refused with how to fix it.",
+      {"body": _s("A daily: one to five lines, each starting with '- '"),
+       "slides": _SLIDES,
+       "kind": _s("daily or weekly; Tico picks from the day when omitted", enum=["daily", "weekly"]),
+       "day": _s("YYYY-MM-DD, only when Tico asks you to redo a past day")},
+      writes=True)
 def update_post(api, args):
-    return api.post("updates", {k: v for k, v in (("body", args["body"]), ("kind", args.get("kind"))) if v is not None},
-                    key=_key(args))["update"]
+    slides = args.get("slides")
+    if args.get("slides_file"):
+        slides = json.loads(Path(args["slides_file"]).read_text())
+    if isinstance(slides, str):
+        slides = json.loads(slides)
+    fields = (("body", args.get("body")), ("slides", slides), ("kind", args.get("kind")), ("day", args.get("day")))
+    return api.post("updates", {k: v for k, v in fields if v is not None}, key=_key(args))["update"]
+
+
+@tool("hub_update_redo", "Ask the bots again for a past day's update in the current shape, such as last "
+      "Friday's week in review as slides (the owner). Every active bot with that update on, or only `bots`.",
+      {"day": _s("YYYY-MM-DD"), "kind": _s("daily or weekly (default weekly)", enum=["daily", "weekly"]),
+       "bots": {"type": "array", "items": {"type": "string"}, "description": "Only these bots"}},
+      required=("day",), writes=True)
+def update_redo(api, args):
+    fields = (("day", args["day"]), ("kind", args.get("kind")), ("bots", args.get("bots") or None))
+    return api.post("updates/redo", {k: v for k, v in fields if v is not None}, key=_key(args))
 
 
 @tool("hub_update_list", "The bots' updates, newest first, with your read state: what each bot did, does "
