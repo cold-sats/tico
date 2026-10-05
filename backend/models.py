@@ -246,6 +246,11 @@ class TaskLink(Contract):
     remove: ID | None = None
 
 
+class TaskRelated(Contract):
+    task: ID
+    remove: bool = False
+
+
 class Preference(Contract):
     value: dict | list | str | int | float | bool | None = None
 

@@ -19771,6 +19771,9 @@
           "children": {
             "type": "array"
           },
+          "related": {
+            "type": "array"
+          },
           "comments": {
             "type": "array",
             "items": {
