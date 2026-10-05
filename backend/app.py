@@ -2465,10 +2465,10 @@ def create_app(settings=None):
     def task_delete(request: Request, tid: str, body: M.Empty):
         """A person deletes a task made by mistake: its human requester, or anyone who may move any
         task. Bots and delegated sessions close instead. A task carrying work (a bot turn, a file,
-        an approval, a subtask) is refused, so deleting never takes away what someone did."""
+        an approval, a subtask) is refused, so deleting never takes away what someone did. The task
+        goes to the trash, from which it can be restored."""
         who = request.state.identity
-        if who.role == "bot" or getattr(who, "via", "") or getattr(who, "task_actor", None):
-            raise Problem("forbidden", "Only a person, signed in as themselves, deletes a task; close it instead", 403)
+        person_only(who, "deletes a task; close it instead")
         def work(c):
             from .task_delete import delete_tasks
             task_id = auth.resolve_task(c, who, tid)
@@ -2480,6 +2480,37 @@ def create_app(settings=None):
                 reasons = ", ".join(sorted(report["refused"])) or "unknown task"
                 raise Problem("has_work", "This task carries work (" + reasons + "); close it instead", 409)
             return {"deleted": task_id}
+        return mutate(request, body, work)
+
+    def person_only(who, doing):
+        if who.role == "bot" or getattr(who, "via", "") or getattr(who, "task_actor", None):
+            raise Problem("forbidden", "Only a person, signed in as themselves, " + doing, 403)
+
+    @app.get("/api/v2/deleted-tasks")
+    def deleted_tasks(request: Request):
+        """Deleted tasks, newest first: all of them for someone who may move any task, otherwise the
+        ones this person deleted or asked for."""
+        who = request.state.identity
+        person_only(who, "sees deleted tasks")
+        from .task_delete import trash
+        with store.read() as c:
+            return {"tasks": trash(c, None if mover(c, who) else who.actor)}
+
+    @app.post("/api/v2/tasks/{tid}/restore")
+    def task_restore(request: Request, tid: str, body: M.Empty):
+        """Put a deleted task back with its conversation, comments, links and number: whoever deleted
+        it, its requester, or anyone who may move any task."""
+        who = request.state.identity
+        person_only(who, "restores a task")
+        def work(c):
+            from .task_delete import restore_tasks, trashed
+            row = trashed(c, tid)
+            if not row or row["deleted_by"] != who.actor and row["requester"] != who.actor and not mover(c, who):
+                raise Problem("not_found", "No deleted task " + str(tid) + " you may restore", 404)
+            report = restore_tasks(c, [row["task_id"]], actor=who.actor)
+            if report.get("conflict"):
+                raise Problem("conflict", "A task with this id exists again", 409)
+            return {"restored": row["task_id"], "unlinked": report["unlinked"].get(row["task_id"], [])}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/links")

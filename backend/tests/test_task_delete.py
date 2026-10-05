@@ -49,3 +49,82 @@ def test_a_person_deletes_a_task_they_asked_for_and_nobody_else_can(api):
     bots = post(api, "tasks", {"owner": "ops", "title": "Draft the newsletter", "body": "x"})
     r = api.post(f"/api/v2/tasks/{bots['id']}/delete", json={}, headers=headers(bot_token(api)))
     assert r.status_code == 403
+
+
+def test_a_deleted_task_comes_back_whole_and_keeps_its_number(api):
+    from backend.task_delete import purge_trash, restore_tasks
+    store = api.app.state.store
+    ticket = post(api, "tasks", {"owner": "priya", "title": "Fix the signup page", "body": "Imported."}, token="ben-test")
+    post(api, f"tasks/{ticket['id']}/links", {"url": "https://example.com/c/77"}, token="ben-test")
+    post(api, f"tasks/{ticket['id']}/comments", {"text": "Copied from the old board."}, token="ben-test")
+    before = get(api, "tasks/" + ticket["id"], token="ben-test")
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET number=41 WHERE id=?", (ticket["id"],))
+
+    assert post(api, f"tasks/{ticket['id']}/delete", {}, token="ben-test") == {"deleted": ticket["id"]}
+    get(api, "tasks/" + ticket["id"], token="ben-test", expected=404)
+    listed = get(api, "deleted-tasks", token="ben-test")["tasks"]
+    assert [t["id"] for t in listed] == [ticket["id"]] and listed[0]["number"] == 41
+    assert get(api, "deleted-tasks", token="priya-test")["tasks"] == []       # neither deleted nor asked for it
+    with store.read() as c:                                                 # the trash holds its number
+        assert c.execute("SELECT COALESCE(MAX(number),0) FROM tasks").fetchone()[0] < 41
+    # Someone who neither deleted nor asked for it cannot restore it; a bot never can.
+    assert post(api, f"tasks/{ticket['id']}/restore", {}, token="priya-test", expected=404)["error"]["code"] == "not_found"
+    r = api.post(f"/api/v2/tasks/{ticket['id']}/restore", json={}, headers=headers(bot_token(api)))
+    assert r.status_code == 403
+
+    assert post(api, "tasks/41/restore", {}, token="ben-test")["restored"] == ticket["id"]
+    after = get(api, "tasks/" + ticket["id"], token="ben-test")
+    for key in ("title", "body", "requester", "owner", "status", "conversation_id"):
+        assert after["task"][key] == before["task"][key] if "task" in before else after[key] == before[key], key
+    with store.read() as c:
+        assert c.execute("SELECT number FROM tasks WHERE id=?", (ticket["id"],)).fetchone()[0] == 41
+        assert c.execute("SELECT count(*) FROM task_links WHERE task_id=?", (ticket["id"],)).fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM messages m JOIN tasks t ON t.conversation_id=m.conversation_id "
+                         "WHERE t.id=? AND m.body='Copied from the old board.'", (ticket["id"],)).fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM events WHERE action='task.restored' AND target=?",
+                         (ticket["id"],)).fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM task_trash").fetchone()[0] == 0
+
+    # Purging lists unless applied, and only what is older than the cutoff.
+    post(api, f"tasks/{ticket['id']}/delete", {}, token="ben-test")
+    with store.transaction() as c:
+        assert purge_trash(c, 30, apply=True)["tasks"] == 0
+        c.execute("UPDATE task_trash SET deleted_at='2020-01-01T00:00:00.000000Z'")
+        assert purge_trash(c, 30)["applied"] is False
+        purged = purge_trash(c, 30, apply=True)
+        assert purged["tasks"] == 1 and purged["applied"] is True
+        assert c.execute("SELECT count(*) FROM events WHERE action='task.purged'").fetchone()[0] == 1
+        assert restore_tasks(c, [ticket["id"]])["missing"] == [ticket["id"]]
+
+
+def test_a_new_numbered_task_never_takes_a_deleted_tasks_number(api):
+    store = api.app.state.store
+    from backend import hubdb as H
+    first = post(api, "tasks", {"owner": "ben", "title": "Fix the login page", "body": "x"}, token="priya-test")
+    second = post(api, "tasks", {"owner": "ben", "title": "Fix the logout page", "body": "x"}, token="priya-test")
+    with store.transaction() as c:
+        c.execute("INSERT INTO task_types(id,name,created,updated,numbered) VALUES('t1','Ticket',?,?,1)", (H.now(), H.now()))
+        c.execute("UPDATE tasks SET type_id='t1', number=7 WHERE id=?", (first["id"],))
+        c.execute("UPDATE tasks SET type_id='t1' WHERE id=?", (second["id"],))
+    post(api, f"tasks/{first['id']}/delete", {}, token="priya-test")
+    with store.transaction() as c:
+        H._next_number(c, "human:priya", second["id"], "t1")
+        assert c.execute("SELECT number FROM tasks WHERE id=?", (second["id"],)).fetchone()[0] == 8
+
+
+def test_a_bulk_delete_and_restore_keeps_links_inside_the_list(api):
+    from backend.task_delete import restore_tasks
+    store = api.app.state.store
+    parent = post(api, "tasks", {"owner": "ben", "title": "Plan the import", "body": "x"})
+    child = post(api, "tasks", {"owner": "ben", "title": "Copy the cards", "body": "x", "parent_id": parent["id"]})
+    with store.transaction() as c:
+        assert delete_tasks(c, [parent["id"], child["id"]], apply=True)["applied"] is True
+        assert c.execute("SELECT count(*) FROM tasks WHERE id IN (?,?)", (parent["id"], child["id"])).fetchone()[0] == 0
+        assert restore_tasks(c, [parent["id"], child["id"]])["unlinked"] == {}
+        assert c.execute("SELECT parent_id FROM tasks WHERE id=?", (child["id"],)).fetchone()[0] == parent["id"]
+        assert c.execute("PRAGMA foreign_key_check").fetchall() == []
+        # Restoring only the subtask leaves its link to the still-deleted parent unset, and says so.
+        assert delete_tasks(c, [parent["id"], child["id"]], apply=True)["applied"] is True
+        assert restore_tasks(c, [child["id"]])["unlinked"] == {child["id"]: ["parent_id"]}
+        assert c.execute("SELECT parent_id FROM tasks WHERE id=?", (child["id"],)).fetchone()[0] is None
