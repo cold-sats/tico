@@ -2494,7 +2494,7 @@ def create_app(settings=None):
         person_only(who, "sees deleted tasks")
         from .task_delete import trash
         with store.read() as c:
-            return {"tasks": trash(c, None if mover(c, who) else who.actor)}
+            return {"tasks": trash(c, None if mover(c, who) else who.actor, audience=auth.task_sql(c, who))}
 
     @app.post("/api/v2/tasks/{tid}/restore")
     def task_restore(request: Request, tid: str, body: M.Empty):
@@ -2504,13 +2504,14 @@ def create_app(settings=None):
         person_only(who, "restores a task")
         def work(c):
             from .task_delete import restore_tasks, trashed
-            row = trashed(c, tid)
+            row = trashed(c, tid, audience=auth.task_sql(c, who))
             if not row or row["deleted_by"] != who.actor and row["requester"] != who.actor and not mover(c, who):
                 raise Problem("not_found", "No deleted task " + str(tid) + " you may restore", 404)
             report = restore_tasks(c, [row["task_id"]], actor=who.actor)
             if report.get("conflict"):
-                raise Problem("conflict", "A task with this id exists again", 409)
-            return {"restored": row["task_id"], "unlinked": report["unlinked"].get(row["task_id"], [])}
+                raise Problem("conflict", "This task cannot go back: " + report["conflict"], 409)
+            return {"restored": row["task_id"], "unlinked": report["unlinked"].get(row["task_id"], []),
+                    "skipped": report["skipped"]}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/links")

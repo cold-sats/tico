@@ -2,15 +2,18 @@
 
 The API deletes one task at a time for a person (`POST /api/v2/tasks/{id}/delete`); the offline
 command deletes a list. Either moves the tasks, their own rows (events, links, labels, delegations,
-reminders, a service key's mapping) and their conversations with every message into `task_trash`,
-in one transaction. Every read of `tasks` then simply no longer sees them, and a restore puts the
-same rows back. A task that carries work is refused whole, so nothing anyone or any bot did is
-touched: a turn, a job, an approval, a file, a routine occurrence, a meeting delivery, a subtask or
-a blocked task outside the list. The audit log keeps one `task.deleted` (and `task.restored`,
-`task.purged`) event per task. Purging the trash for good is offline and separate.
+reminders, a service key's mapping) and the conversations that belong to them (`conversations.task_id`)
+with every message into `task_trash`, in one transaction. A chat room a task only points at (a bot's
+room, a person's room with it) is never moved: the task just stops pointing at it. Every read of
+`tasks` then simply no longer sees the task, and a restore puts the same rows back. A task that
+carries work is refused whole, so nothing anyone or any bot did is touched: a turn, a job, an
+approval, a file, a routine occurrence, a meeting delivery, a subtask or a blocked task outside the
+list. The audit log keeps one `task.deleted` (and `task.restored`, `task.purged`) event per task.
+Purging is offline and separate; a purged task keeps only its trash row's number, so no new task takes it.
 """
 
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from .store import H
@@ -18,7 +21,8 @@ from .store import H
 
 TRASH = """CREATE TABLE IF NOT EXISTS task_trash(
  task_id TEXT PRIMARY KEY, number INTEGER, title TEXT, requester TEXT, owner TEXT, status TEXT,
- deleted_at TEXT NOT NULL, deleted_by TEXT NOT NULL, rows_json TEXT NOT NULL)"""
+ private INTEGER NOT NULL DEFAULT 1, deleted_at TEXT NOT NULL, deleted_by TEXT NOT NULL,
+ rows_json TEXT NOT NULL, purged_at TEXT)"""
 
 # Rows that only describe the task: kept with it in the trash.
 TASK_ROWS = ("task_events", "task_links", "task_tags", "task_delegations", "task_reminders",
@@ -34,9 +38,10 @@ CONVERSATION_WORK = ("attempt_conversations", "session_epochs", "assistant_actio
 MESSAGE_ROWS = (("slack_posts", "message_id"), ("slack_digests", "message_id"), ("update_queue", "message_id"),
                 ("task_file_reviews", "comment_id"), ("task_file_reviews", "ask_message_id"))
 CONVERSATION_ROWS = (("slack_digests", "conversation_id"), ("slack_threads", "conversation_id"))
-# Rows that point at the task but belong to something else: restored only if still unset.
-POINTERS = (("market_insights", "filed_task"),)
+# Rows that point at the task but belong to something else, by their key: restored only if still unset.
+POINTERS = (("market_insights", "id", "filed_task"),)
 LINKS = ("conversation_id", "parent_id", "blocked_by")
+CORE = ("tasks", "conversations", "messages")
 
 
 def ensure(c):
@@ -91,6 +96,11 @@ def _column(c, sql, values):
     return out
 
 
+def _owned_conversations(c, ids):
+    """The conversations that belong to these tasks; a room a task merely points at is not one."""
+    return list(dict.fromkeys(_column(c, "SELECT id FROM conversations WHERE task_id IN ({})", ids)))
+
+
 def _rowid_alias(c, table):
     """The INTEGER PRIMARY KEY column that is the rowid, if any: a restore lets SQLite pick it anew."""
     pks = [r for r in c.execute(f"PRAGMA table_info('{table}')") if r[5]]
@@ -100,8 +110,7 @@ def _rowid_alias(c, table):
 def _snapshot(c, tid):
     """Every row deleting task `tid` removes, by table, in the order a restore puts them back."""
     task = dict(c.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone())
-    conversations = list(dict.fromkeys(([task["conversation_id"]] if task.get("conversation_id") else [])
-                                       + _column(c, "SELECT id FROM conversations WHERE task_id IN ({})", [tid])))
+    conversations = _owned_conversations(c, [tid])
     messages = _column(c, "SELECT id FROM messages WHERE conversation_id IN ({})", conversations)
     rows = {"tasks": [task], "conversations": _rows(c, "conversations", "id", conversations),
             "messages": _rows(c, "messages", "id", messages)}
@@ -117,7 +126,7 @@ def _snapshot(c, tid):
         add(table, _rows(c, table, column, messages))
     for table, column in CONVERSATION_ROWS:
         add(table, _rows(c, table, column, conversations))
-    pointers = {f"{t}.{col}": [r["_rowid"] for r in _rows(c, t, col, [tid])] for t, col in POINTERS}
+    pointers = {f"{t}.{key}.{col}": [r[key] for r in _rows(c, t, col, [tid])] for t, key, col in POINTERS}
     return rows, conversations, messages, pointers
 
 
@@ -127,9 +136,7 @@ def delete_tasks(c, ids, apply=False, actor=None):
     ids = list(dict.fromkeys(i.strip() for i in ids if i and i.strip()))
     found = set(_column(c, "SELECT id FROM tasks WHERE id IN ({})", ids))
     missing = [i for i in ids if i not in found]
-    conversations = list(dict.fromkeys(
-        _column(c, "SELECT conversation_id FROM tasks WHERE id IN ({}) AND conversation_id IS NOT NULL", ids)
-        + _column(c, "SELECT id FROM conversations WHERE task_id IN ({})", ids)))
+    conversations = _owned_conversations(c, ids)
     messages = _column(c, "SELECT id FROM messages WHERE conversation_id IN ({})", conversations)
     chosen = set(ids)
     refusals = {}
@@ -148,6 +155,10 @@ def delete_tasks(c, ids, apply=False, actor=None):
     blocked = [r for r in _column(c, "SELECT id FROM tasks WHERE blocked_by IN ({})", ids) if r not in chosen]
     if blocked:
         refusals["tasks blocked by one outside the list"] = len(blocked)
+    pointing = [r for r in _column(c, "SELECT task_id FROM task_delegations WHERE message_id IN ({})", messages)
+                if r not in chosen] if _has(c, "task_delegations", "message_id") else []
+    if pointing:
+        refusals["delegations of another task"] = len(pointing)
     report = {"tasks": len(found), "missing": missing, "refused": refusals,
               "conversations": len(conversations), "messages": len(messages),
               "rows": {t: _count(c, t, "task_id", ids) for t in TASK_ROWS},
@@ -160,9 +171,11 @@ def delete_tasks(c, ids, apply=False, actor=None):
     for tid in ids:
         rows, convs, msgs, pointers = _snapshot(c, tid)
         task = rows["tasks"][0]
-        c.execute("INSERT INTO task_trash VALUES(?,?,?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO task_trash(task_id,number,title,requester,owner,status,private,deleted_at,"
+                  "deleted_by,rows_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
                   (tid, task.get("number"), task["title"], task["requester"], task["owner"], task["status"],
-                   now, actor, json.dumps({"rows": rows, "pointers": pointers}, default=str)))
+                   task.get("private", 1) if task.get("private") is not None else 1, now, actor,
+                   json.dumps({"rows": rows, "pointers": pointers}, default=str)))
         for table, column in MESSAGE_ROWS:
             _delete(c, table, column, msgs)
         for table, column in CONVERSATION_ROWS:
@@ -172,7 +185,7 @@ def delete_tasks(c, ids, apply=False, actor=None):
         # Status lines and filed insights keep their own history; they only stop pointing at the task.
         if _has(c, "bot_status", "task_id"):
             c.execute("UPDATE bot_status SET task_id=NULL WHERE task_id=?", (tid,))
-        for table, column in POINTERS:
+        for table, _, column in POINTERS:
             if _has(c, table, column):
                 c.execute(f"UPDATE {table} SET {column}=NULL WHERE {column}=?", (tid,))
         _delete(c, "messages", "id", msgs)
@@ -190,24 +203,29 @@ def delete_tasks(c, ids, apply=False, actor=None):
     return report
 
 
-def trash(c, actor=None):
-    """Deleted tasks, newest first; with `actor`, only the ones that person deleted or asked for."""
+def trash(c, actor=None, audience=None):
+    """Deleted tasks, newest first. `audience` is the reader's task-visibility SQL (auth.task_sql),
+    so a private task's title never shows to someone who could not open it; with `actor`, only the
+    ones that person deleted or asked for."""
     ensure(c)
     sql = ("SELECT task_id AS id, number, title, requester, owner, status, deleted_at, deleted_by "
-           "FROM task_trash")
-    args = ()
+           "FROM task_trash WHERE purged_at IS NULL")
+    args = []
+    if audience:
+        sql += f" AND ({audience})"
     if actor:
-        sql += " WHERE deleted_by=? OR requester=?"
-        args = (actor, actor)
+        sql += " AND (deleted_by=? OR requester=?)"
+        args += [actor, actor]
     return [dict(r) for r in c.execute(sql + " ORDER BY deleted_at DESC, task_id", args)]
 
 
-def trashed(c, ref):
-    """The trash row for a task id or number (`42` or `#42`), or None."""
+def trashed(c, ref, audience=None):
+    """The restorable trash row for a task id or number (`42` or `#42`) the reader may see, or None."""
     ensure(c)
-    row = c.execute("SELECT * FROM task_trash WHERE task_id=?", (ref,)).fetchone()
+    where = "purged_at IS NULL" + (f" AND ({audience})" if audience else "")
+    row = c.execute(f"SELECT * FROM task_trash WHERE task_id=? AND {where}", (ref,)).fetchone()
     if not row and str(ref).lstrip("#").isdigit():
-        row = c.execute("SELECT * FROM task_trash WHERE number=?", (int(str(ref).lstrip("#")),)).fetchone()
+        row = c.execute(f"SELECT * FROM task_trash WHERE number=? AND {where}", (int(str(ref).lstrip("#")),)).fetchone()
     return dict(row) if row else None
 
 
@@ -218,40 +236,62 @@ def _insert(c, table, row, skip=()):
     c.execute(f"INSERT INTO {table} ({','.join(data)}) VALUES ({_marks(list(data))})", list(data.values()))
 
 
+def _try_insert(c, table, row, skipped):
+    """Bookkeeping that something newer has taken (a service key's mapping, a Slack thread, a deleted
+    label) is left out rather than failing the restore; the report counts it."""
+    c.execute("SAVEPOINT trash_row")
+    try:
+        _insert(c, table, row)
+        c.execute("RELEASE trash_row")
+    except sqlite3.IntegrityError:
+        c.execute("ROLLBACK TO trash_row")
+        c.execute("RELEASE trash_row")
+        skipped[table] = skipped.get(table, 0) + 1
+
+
 def restore_tasks(c, ids, actor=None):
-    """Put trashed tasks back with every row they took. A task whose id or number is in use again, or a
-    link to a task that is still gone, is reported; links to missing tasks come back unset."""
+    """Put trashed tasks back with every row they took. A task, conversation or message that cannot go
+    back (its id in use again) refuses the whole restore with `conflict`; links to a task or room that
+    is gone come back unset, and the report says which."""
     ensure(c)
     actor = actor or H.KEEPER
     entries = []
     for tid in dict.fromkeys(ids):
-        row = c.execute("SELECT * FROM task_trash WHERE task_id=?", (tid,)).fetchone()
+        row = c.execute("SELECT * FROM task_trash WHERE task_id=? AND purged_at IS NULL", (tid,)).fetchone()
         if not row:
             return {"restored": [], "missing": [tid]}
         entries.append(dict(row))
-    for e in entries:
-        if c.execute("SELECT 1 FROM tasks WHERE id=?", (e["task_id"],)).fetchone():
-            return {"restored": [], "conflict": e["task_id"]}
     restoring = {e["task_id"] for e in entries}
-    unlinked = {}
+    unlinked, skipped = {}, {}
     snapshots = [(e, json.loads(e["rows_json"])) for e in entries]
+    c.execute("SAVEPOINT trash_restore")
+    try:
+        for e, snap in snapshots:
+            task = snap["rows"]["tasks"][0]
+            number = task.get("number")
+            if number is not None and c.execute("SELECT 1 FROM tasks WHERE number=?", (number,)).fetchone():
+                task["number"] = None
+                unlinked.setdefault(e["task_id"], []).append("number")
+            _insert(c, "tasks", task, skip=LINKS)
+        messages = []
+        for e, snap in snapshots:
+            for conv in snap["rows"].get("conversations", []):
+                _insert(c, "conversations", conv)
+            for msg in snap["rows"].get("messages", []):
+                _insert(c, "messages", msg)
+                messages.append(msg["id"])
+    except sqlite3.IntegrityError as error:
+        c.execute("ROLLBACK TO trash_restore")
+        c.execute("RELEASE trash_restore")
+        return {"restored": [], "conflict": str(error)}
+    c.execute("RELEASE trash_restore")
+    # The messages were read long ago: putting them back must not wake a bot on them again.
+    _delete(c, "jobs", "message_id", messages)
     for e, snap in snapshots:
-        task = snap["rows"]["tasks"][0]
-        number = task.get("number")
-        if number is not None and c.execute("SELECT 1 FROM tasks WHERE number=?", (number,)).fetchone():
-            task["number"] = None
-            unlinked.setdefault(e["task_id"], []).append("number")
-        _insert(c, "tasks", task, skip=LINKS)
-    for e, snap in snapshots:
-        rows = snap["rows"]
-        for conv in rows.get("conversations", []):
-            _insert(c, "conversations", conv)
-        for msg in rows.get("messages", []):
-            _insert(c, "messages", msg)
-        for table, found in rows.items():
-            if table not in ("tasks", "conversations", "messages"):
+        for table, found in snap["rows"].items():
+            if table not in CORE:
                 for row in found:
-                    _insert(c, table, row)
+                    _try_insert(c, table, row, skipped)
     for e, snap in snapshots:
         task = snap["rows"]["tasks"][0]
         links = {}
@@ -265,27 +305,29 @@ def restore_tasks(c, ids, actor=None):
         if links:
             c.execute(f"UPDATE tasks SET {', '.join(k + '=?' for k in links)} WHERE id=?",
                       (*links.values(), e["task_id"]))
-        for key, rowids in snap.get("pointers", {}).items():
-            table, column = key.split(".")
-            for rid in rowids:
-                c.execute(f"UPDATE {table} SET {column}=? WHERE rowid=? AND {column} IS NULL", (e["task_id"], rid))
+        for spec, keys in snap.get("pointers", {}).items():
+            table, key, column = spec.split(".")
+            for value in keys:
+                c.execute(f"UPDATE {table} SET {column}=? WHERE {key}=? AND {column} IS NULL", (e["task_id"], value))
         c.execute("DELETE FROM task_trash WHERE task_id=?", (e["task_id"],))
         H.event(c, actor, "task.restored", e["task_id"], {"title": e["title"], "deleted_by": e["deleted_by"],
                                                           "unlinked": unlinked.get(e["task_id"], [])})
-    return {"restored": [e["task_id"] for e in entries], "unlinked": unlinked}
+    return {"restored": [e["task_id"] for e in entries], "unlinked": unlinked, "skipped": skipped}
 
 
 def purge_trash(c, older_than_days, apply=False, actor=None):
-    """Remove for good what has been in the trash longer than `older_than_days`. Lists it unless apply."""
+    """Remove for good what has been in the trash longer than `older_than_days`. Lists it unless apply.
+    The trash row stays as a bare tombstone (number, title, who and when) so its number is never reused."""
     ensure(c)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     rows = [dict(r) for r in c.execute("SELECT task_id, title, deleted_at, deleted_by FROM task_trash "
-                                       "WHERE deleted_at < ? ORDER BY deleted_at", (cutoff,))]
+                                       "WHERE purged_at IS NULL AND deleted_at < ? ORDER BY deleted_at", (cutoff,))]
     report = {"tasks": len(rows), "older_than": cutoff, "applied": False}
     if not apply or not rows:
         return report
+    now = H.now()
     for r in rows:
-        c.execute("DELETE FROM task_trash WHERE task_id=?", (r["task_id"],))
+        c.execute("UPDATE task_trash SET rows_json='{}', purged_at=? WHERE task_id=?", (now, r["task_id"]))
         H.event(c, actor or H.KEEPER, "task.purged", r["task_id"], {"title": r["title"], "deleted_at": r["deleted_at"]})
     report["applied"] = True
     return report
