@@ -9,7 +9,7 @@ const FLOW_STAGES = [['created', 'New'], ['doing', 'Started'], ['waiting', 'Wait
 const FLOW_ALWAYS = ['created', 'doing', 'waiting', 'done', 'closed'];
 const FLOW_SPAN_WORD = {open: 'Before start', doing: 'Started', waiting: 'Waiting', review: 'In review',
   ready: 'Ready', done: 'Done, before close', declined: 'Declined'};
-const flowHours = h => h == null ? '' : h < 1 ? `${Math.max(1, Math.round(h * 60))}m`
+const flowHours = h => h == null ? '' : h < 1 / 60 ? '<1m' : h < 1 ? `${Math.round(h * 60)}m`
   : h < 48 ? `${h.toFixed(h < 10 ? 1 : 0)}h` : `${(h / 24).toFixed(1)}d`;
 const flowDay = day => new Date(day + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
 const flowLabelKey = l => typeof l === 'string' ? l : l?.key || l?.name || '';
@@ -126,7 +126,8 @@ function taskStatsRender() {
   if (!data) { body.innerHTML = '<div class="empty">Stats did not load. Try again.</div>'; return; }
   const totals = data.totals || {};
   const stages = flowStages(data, st.stage);
-  if (!stages.some(([k]) => k === st.stage)) st.stage = stages.find(([k]) => k === 'done' || /^step:/.test(k))?.[0] || 'created';
+  // A stage that is not on offer falls back to finishing: Done, or a type's last step.
+  if (!stages.some(([k]) => k === st.stage)) st.stage = stages.some(([k]) => k === 'done') ? 'done' : stages[stages.length - 1][0];
   const word = (stages.find(([k]) => k === st.stage) || [])[1] || st.stage;
   const tiles = stages.map(([k, label]) => `<button type="button" class="flow-tile${k === st.stage ? ' cur' : ''}" data-stage="${esc(k)}" aria-pressed="${k === st.stage}">
       <span class="flow-tile-n tnum">${totals[k] || 0}</span><span class="flow-tile-l">${esc(label)}</span></button>`).join('');
