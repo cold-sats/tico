@@ -82,5 +82,9 @@ def test_how_to_type_help_is_still_documentation_and_greeting_with_work_is_not_f
     assert result["fast"] is False
 
 
-def test_inventory_with_a_follow_up_write_request_is_not_a_fast_intent():
-    assert assistant.route("what task types do we use and create one?") == (None, None)
+@pytest.mark.parametrize("text", [
+    "what task types do we use and create one?",
+    "for create, what types of tasks do we use?",
+])
+def test_inventory_with_a_follow_up_write_request_is_not_a_fast_intent(text):
+    assert assistant.route(text) == (None, None)

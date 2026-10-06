@@ -359,7 +359,7 @@ WAITING = re.compile(r"\b(waiting (on|for) me|needs? (my|me)\b|need(s)? you|my (
                      r"what should i (do|work on)|what do i need to|anything (for me|waiting)|pending (for|on) me)")
 GREETING = re.compile(r"^(?:hi|hello|hey|good morning|good afternoon|good evening)$")
 TASK_TYPE_INVENTORY = re.compile(
-    r"^(?:for\s+[^,?]{1,80},\s*)?(?:what|which)\s+(?:kind\s+of\s+)?"
+    r"^(?:for\s+[a-z][a-z0-9&'-]{0,40},\s*)?(?:what|which)\s+(?:kind\s+of\s+)?"
     r"(?:task\s+types?|types?\s+of\s+tasks?)\s+"
     r"(?:do\s+we\s+use(?:\s+here)?|does\s+(?:this\s+)?(?:team|workspace)\s+use|are\s+available|exist)\b"
 )
@@ -389,7 +389,7 @@ def route(text, bots=()):
         return None, None
     if GREETING.fullmatch(t):
         return "greeting", None
-    if TASK_TYPE_INVENTORY.fullmatch(t) or TASK_TYPE_INVENTORY_ARE.fullmatch(t):
+    if (TASK_TYPE_INVENTORY.fullmatch(t) or TASK_TYPE_INVENTORY_ARE.fullmatch(t)) and not ACTION_WORDS.search(t):
         return "task_types", None
     if WAITING.search(t):
         return "waiting", None
