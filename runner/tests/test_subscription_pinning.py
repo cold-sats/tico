@@ -172,3 +172,22 @@ def test_old_binding_cannot_overwrite_or_clear_new_binding_rejection(execution):
     runner.clear_rejection('codex', 'one')
     assert runner.rejection('codex', 'one') is None
     assert runner.rejection('codex', old) is None
+
+
+def test_expired_oauth_rejects_only_the_login_that_failed(execution, monkeypatch):
+    from runner.hosts import base
+
+    runner, client, _ = execution
+    host = FakeHost()
+    error = "Failed to authenticate: OAuth session expired and could not be refreshed"
+    host.fail_next_turn(error)
+    monkeypatch.setattr(runner, 'host_factory', lambda *args: host)
+    runner.execute(attempt())
+    result = client.completion()
+    assert result['auth_rejected']['runtime'] == 'codex'
+    assert result['profile_used'] == 'one' and not result.get('retryable')
+    assert runner.rejection('codex', 'one') is not None
+    assert runner.rejection('codex', 'two') is None
+    assert runner.rejection('claude', 'one') is None
+    assert not base.is_auth_retryable(error)
+    assert base.is_auth_retryable('Another Claude Code process is refreshing oauth token: lock_busy')

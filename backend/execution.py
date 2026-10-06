@@ -1152,9 +1152,8 @@ class Execution:
             tries = c.execute("SELECT count(*) FROM attempts WHERE job_id=?", (row["job_id"],)).fetchone()[0]
             quick = (row["started"] or row["created"]) >= H.shift(H.now(), seconds=-NO_EFFECT_WITHIN)
             silent = kinds <= SILENT_KINDS and quick and tries < NO_EFFECT_TRIES
-        # A refused key or sign-in did nothing either, but only a changed credential fixes it:
-        # the job waits queued, and the runner takes no work for that runtime meanwhile, so it
-        # neither loops (silent) nor blocks the bot behind a review.
+        # A refused key or sign-in blocks this profile until its credential changes.
+        # Only runs with no evidence of actions may wait queued rather than held for review.
         rejected = body.outcome == "failed" and body.auth_rejected is not None
         if retryable and body.subscription_unavailable:
             from .repositories import save_metadata
@@ -1164,7 +1163,14 @@ class Execution:
             save_metadata(c, f"subscription-unavailable:{row['bot']}",
                           {**body.subscription_unavailable.model_dump(), "runner_id": row["runner_id"],
                            "primary_runtime": primary_runtime, "primary_harness": config.get("harness")})
-        requeue = limited or retryable or silent or rejected
+        # A refused sign-in invalidates readiness even mid-turn. Model output or tools
+        # mean the run may have acted; signing in cannot make replay safe.
+        rejected_acted = rejected and c.execute(
+            "SELECT 1 FROM attempt_events WHERE attempt_id=? AND kind IN ('delta','message','tool','tokens') LIMIT 1",
+            (aid,)).fetchone() is not None
+        if rejected:
+            silent = False
+        requeue = not rejected_acted if rejected else limited or retryable or silent
         c.execute("UPDATE jobs SET state=? WHERE id=?",
                   ("completed" if body.outcome == "completed" else "queued" if requeue else "uncertain", row["job_id"]))
         live_ref = (msg.get("refs") or {}).get("live_meeting")
@@ -1238,6 +1244,10 @@ class Execution:
             H.event(c, H.KEEPER, "attempt.limited", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime, "streak": streak,
                      "retry_after": retry})
+        elif rejected:
+            H.status_set(c, H.KEEPER, row["bot"], state="idle" if requeue else "crashed",
+                         focus=f"{body.auth_rejected.runtime} sign-in was rejected; " +
+                         ("sign in on this computer to continue" if requeue else "this run is saved for review"))
         elif silent:
             H.status_set(c, H.KEEPER, row["bot"], state="idle",
                          focus=f"{runtime} failed before the run began at {H.now()[11:16]} UTC; the run is back in the queue")

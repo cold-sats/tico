@@ -60,7 +60,7 @@ LIMIT_RE = re.compile(r"hit your usage limit|usage limit|usage_limit_reached|rat
 # Codex's "unexpected status 401 Unauthorized" after its reconnect loop is the same lost sign-in
 # (a mention check parked "uncertain" with nothing run).
 AUTH_RETRY_RE = re.compile(r"failed to refresh oauth token|another claude code process is refreshing"
-                           r"|exited mid-refresh|oauth session expired and could not be refreshed"
+                           r"|exited mid-refresh"
                            r"|oauth_refresh_lock|lock_busy|lock_timeout"
                            r"|unexpected status 401 unauthorized", re.I)
 
@@ -165,7 +165,8 @@ def is_limit(text):
 # A credential the provider refused outright: retrying cannot help until the key or sign-in changes.
 # It wins over AUTH_RETRY_RE, whose 401 pattern is a lost token renewal, not a wrong key.
 AUTH_REJECTED_RE = re.compile(r"incorrect api key|invalid[ _-]?(?:x-)?api[ _-]?key|api key (?:is )?(?:invalid|revoked|expired)"
-                              r"|not logged in|please run /login|invalid authentication credentials|authentication_error", re.I)
+                              r"|not logged in|please run /login|invalid authentication credentials|authentication_error"
+                              r"|oauth session expired and could not be refreshed", re.I)
 _SECRETISH = re.compile(r"\b(?:sk|pk|xai|gsk|key|ghp|github_pat)[-_][A-Za-z0-9_-]{6,}|Bearer\s+\S+|[A-Za-z0-9_-]{32,}")
 
 
