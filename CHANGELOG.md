@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Less work behind every poll from a computer and every privacy-checked read, found with the flight recorder on a busy install:
+  - A computer's credential polls ask once per bot which credentials it holds, instead of once per stored credential (about 195,000 queries a minute on an install with 662 credentials).
+  - A run's inputs are looked up by an index instead of scanning every message (about 10 ms each, the slowest query).
+  - Privacy-checked reads load only the private tasks, by an index, instead of every task's full row.
+
 ## [0.3.26] - 2026-10-06
 
 ### Fixed

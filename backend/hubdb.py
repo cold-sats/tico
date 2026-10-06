@@ -871,6 +871,9 @@ def migrate(conn, adopt_legacy=False):
     if "carried_by" not in columns:
         conn.execute("ALTER TABLE tasks ADD COLUMN carried_by TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_carried_by ON tasks(carried_by) WHERE carried_by IS NOT NULL")
+    if "private" in {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}:
+        # The few private tasks, which every privacy-checked read loads (backend/privacy_index.py).
+        conn.execute("CREATE INDEX IF NOT EXISTS tasks_private ON tasks(id) WHERE private IS NOT 0")
     # Status and provenance reads stay indexed as question and task history grows.
     conn.execute("CREATE INDEX IF NOT EXISTS messages_reply_kind ON messages(in_reply_to, kind)")
     conn.execute("CREATE INDEX IF NOT EXISTS messages_from_kind ON messages(from_actor, kind)")

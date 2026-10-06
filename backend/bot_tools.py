@@ -202,9 +202,10 @@ def granted(c, bot, raw):
     missing = {str(e.get("env")) for e in raw if e.get("credential") == "missing" and e.get("env")}
     if not missing:
         return raw
-    from .credentials import effective_grant
+    from .credentials import granted
+    held = granted(c, "bot:" + bot)
     have = {row["env"] for row in c.execute("SELECT id,env FROM credentials WHERE ciphertext IS NOT NULL AND env!=''")
-            if row["env"] in missing and effective_grant(c, row["id"], "bot:" + bot)}
+            if row["env"] in missing and row["id"] in held}
     return [dict(e, credential="present", granted=True) if e.get("credential") == "missing" and e.get("env") in have else e
             for e in raw]
 
