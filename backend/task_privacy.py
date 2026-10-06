@@ -33,24 +33,32 @@ def reference_strings(value):
         r"(?:#/task/|/tasks/)([a-zA-Z0-9_-]+)", value)}
 
 
-def references(c, value):
-    """Task ids anywhere in a structured reference or payload, including nested lists."""
-    snapshot(c)
-    found = set()
+def _candidates(value, out):
     if isinstance(value, str):
         if value[:1] in ("{", "["):
             parsed = H._json(value, None)
             if isinstance(parsed, (dict, list)):
-                return references(c, parsed)
-        for ident in reference_strings(value):
-            if c.execute("SELECT 1 FROM tasks WHERE id=?", (ident,)).fetchone():
-                found.add(ident)
+                return _candidates(parsed, out)
+        out.update(reference_strings(value))
     elif isinstance(value, dict):
         for item in value.values():
-            found.update(references(c, item))
+            _candidates(item, out)
     elif isinstance(value, (list, tuple)):
         for item in value:
-            found.update(references(c, item))
+            _candidates(item, out)
+    return out
+
+
+def references(c, value):
+    """Task ids anywhere in a structured reference or payload, including nested lists. Every string that could
+    name a task is gathered first and looked up in one query: one query per string was most of a busy server's SQL."""
+    snapshot(c)
+    names = [name for name in _candidates(value, set()) if name]
+    found = set()
+    for start in range(0, len(names), 500):
+        chunk = names[start:start + 500]
+        found.update(row[0] for row in c.execute(
+            "SELECT id FROM tasks WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk))
     return found
 
 
