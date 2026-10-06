@@ -430,8 +430,7 @@ def tag_update(api, args):
                     "description": "For a bot owner: do not wake it; its next run carries this task"},
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
-                                "a role not named stays. A role is a short name the team chooses (reviewer, qa, designer); a step that "
-                                "waits on a role puts the task on those people's lists"},
+                                "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
        "dry_run": {"type": "boolean", "default": False}},
       required=("owner", "title"), writes=True)
 def task_create(api, args):
@@ -506,7 +505,8 @@ def task_run(api, args):
                 "description": "queue (default), finished (most recently done first) or step (a board's columns in order)"},
        "number": {"type": "integer", "minimum": 1, "maximum": 999999999, "description": "Only this task number"},
        "updated_since": _s("Only tasks changed after this ISO-8601 time with a timezone"),
-       "waiting_on": _s("Only live tasks that wait on this person or bot now (`me`, a human id or a bot slug): their own, and the tasks whose step waits on a role they hold"),
+       "member": _s("Only tasks this person or bot is on in some role (`me`, a human id or a bot slug)"),
+       "role": _s("With member: only tasks they are on in this role"),
        "brief": {"type": "boolean", "description": "Leave out each task's body and acceptance criteria"},
        "all": {"type": "boolean", "default": False,
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
@@ -517,8 +517,10 @@ def task_list(api, args):
     if args.get("stuck"):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
     more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since") if args.get(name)}
-    if args.get("waiting_on"):
-        more["waiting_on"] = _target(api, args["waiting_on"])
+    if args.get("member"):
+        more["member"] = _target(api, args["member"])
+        if args.get("role"):
+            more["role"] = args["role"]
     if args.get("brief"):
         more["brief"] = "true"
     rows = api.get("tasks", owner=_target(api, args.get("owner")) if args.get("owner") else None,
@@ -555,8 +557,7 @@ def task_ask(api, args):
                         "put exactly what they must do in the note. An empty string clears it"),
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
-                                "a role not named stays. A role is a short name the team chooses (reviewer, qa, designer); a step that "
-                                "waits on a role puts the task on those people's lists"},
+                                "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
        "goal_id": _s("The goal this task serves; an empty string takes it off")},
       required=("id",), writes=True)
 def task_update(api, args):
@@ -597,11 +598,9 @@ def _roles(api, args):
 # Task types sit above the stable status contract; old bots can keep setting status.
 TASK_STEPS = {"type": "array", "items": {"type": "object", "properties": {
     "id": _s("Keep this id when editing an existing step"), "name": _s("Step name"),
-    "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)},
-    "waits_on": _s("The role a task in this step waits on (reviewer, qa ...); empty: its owner")},
+    "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)}},
     "required": ["name", "status"], "additionalProperties": False}}
 NUMBERED = {"type": "boolean", "description": "Give each task created on or moved onto the type the team's next number"}
-OWNER_ROLE = _s("The role the owner holds without being listed on a task (a ticket board: developer); a step waiting on it waits on the owner too. Empty takes it off")
 
 
 @tool("hub_task_types", "Task types and their steps, in order. Status remains the task contract.",
@@ -616,21 +615,19 @@ TYPE_BOTS = {"type": "string", "enum": ["parties", "read", "work"],
 
 
 @tool("hub_task_type_create", "Create a task type and its steps (movers only).",
-      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED, "owner_role": OWNER_ROLE}, required=("name",), writes=True)
+      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("name",), writes=True)
 def task_type_create(api, args):
     body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered"))}
     if args.get("bots"):
         body["bots"] = args["bots"]
-    if args.get("owner_role") is not None:
-        body["owner_role"] = args["owner_role"]
     return api.post("task-types", body, key=_key(args))
 
 
 @tool("hub_task_type_update", "Edit a task type (movers only). Steps replace the full list; keep retained ids. "
       "A step with tasks cannot be removed.", {"id": _s("Type id or name"), "name": _s("Type name"),
-      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED, "owner_role": OWNER_ROLE}, required=("id",), writes=True)
+      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("id",), writes=True)
 def task_type_update(api, args):
-    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered", "owner_role") if k in args and args[k] is not None},
+    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered") if k in args},
                     key=_key(args))
 
 

@@ -722,7 +722,6 @@ def create_app(settings=None):
         if c is not None:
             value["relations"] = TR.grouped(c, [row["id"]], visible_sql)[row["id"]]
             value["roles"] = TRo.roles_of(c, row["id"])
-            value["waits_on"] = TRo.waits_on(row, value["step"], value["roles"], typ.get("owner_role") if typ else None)
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
@@ -816,8 +815,6 @@ def create_app(settings=None):
             value.update({
                 "relations": relations[row["id"]],
                 "roles": roles[row["id"]],
-                "waits_on": TRo.waits_on(row, value["step"], roles[row["id"]],
-                                         next((t.get("owner_role") for t in pipelines if t["id"] == row.get("type_id")), None)),
                 "parts": parts.get(row["id"], {"total": 0, "done": 0}),
                 "links": links[row["id"]],
                 "children_summary": summaries[row["id"]],
@@ -2049,13 +2046,17 @@ def create_app(settings=None):
               lane: str | None = None, label: str | None = None, limit: int = 500,
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
               number: int | None = None, updated_since: str | None = None, brief: bool = False,
-              waiting_on: str | None = None):
+              member: str | None = None, role: str | None = None):
         with store.read() as c:
             owner = H.resolve_actor(c, owner) if owner else None
-            if waiting_on:
-                waiting_on = H.resolve_actor(c, waiting_on)
-                if not waiting_on:
-                    raise Problem("waiting_on", "waiting_on is a person or a bot on the roster", 422)
+            if member:
+                member = H.resolve_actor(c, member)
+                if not member:
+                    raise Problem("member", "member is a person or a bot on the roster", 422)
+            if role and not TRo.role_name(role):
+                raise Problem("role", "role is a short name in lower-case letters, digits, - or _", 422)
+            if role and not member:
+                raise Problem("role", "role filters member: pass both", 422)
             requester = H.resolve_actor(c, requester) if requester else None
             if lane and lane not in H.TASK_LANES:
                 raise Problem("kind", "lane is company or product", 422)
@@ -2084,7 +2085,7 @@ def create_app(settings=None):
                 status.split(",") if status and status != "all" else None, lane=lane, label=label,
                 limit=limit, offset=offset, order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids,
                 number=number, updated_since=views.since_time(updated_since) if since else None,
-                waiting_on=waiting_on)
+                member=member, role=TRo.role_name(role) if role else None)
             if brief:
                 # A board polling hundreds of tasks needs neither their text nor their criteria.
                 for row in rows:

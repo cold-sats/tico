@@ -169,9 +169,9 @@ STABLE = [
     ("/api/v2/task-types/{type_id}", "delete", "Tasks", "deleteTaskType", "Delete an unused task type (movers only)", "TaskTypeResult"),
     ("/api/v2/task-types/{type_id}/delete", "post", "Tasks", "deleteTaskTypePost", "Delete an unused type for clients using POST", "TaskTypeResult"),
     ("/api/v2/tasks", "get", "Tasks", "listTasks",
-     "Tasks the caller can see; type, step, number and updated_since filter, waiting_on=<actor> keeps the live "
-     "tasks that wait on that person or bot now (their own, and the tickets whose column waits on a role they hold), "
-     "sort=step orders a board's columns, brief=true leaves out bodies", "TaskList"),
+     "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that "
+     "person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, "
+     "brief=true leaves out bodies", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
     ("/api/v2/tasks/dry-run", "post", "Tasks", "checkTask", "The checks a create would fail; writes nothing", None),
     ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use", None),
@@ -468,13 +468,8 @@ SCHEMAS = {
                                         "`tool` is a short label such as \"Ran hub task create\", never its arguments or output"}),
     "Conversation": obj({"id": "s", "kind": "s", "subject": "s", "participants": items({"type": "string"}),
                          "created": "s", "last_message_at": "s", "closed_at": "n"}),
-    "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "position": "i", "status": "s"},
-                    waits_on={"type": ["string", "null"],
-                              "description": "The role a task in this step waits on (a short name the team chooses, such as "
-                                             "reviewer or qa); null means its owner, as a task with no board"}),
+    "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "position": "i", "status": "s"}),
     "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
-                    owner_role={"type": ["string", "null"], "description": "The role the owner holds without being listed in a "
-                                "task's roles (a ticket board: developer); a step waiting on it waits on the owner too"},
                     bots={"type": ["string", "null"], "enum": ["read", "work", None],
                           "description": "What every bot may do with the type's tasks beyond its own: read "
                                          "(read, comment, file subtasks) or work (also change them); null keeps "
@@ -506,16 +501,11 @@ SCHEMAS = {
                 step_rank={"type": ["number", "null"], "description": "Its place within its step, lower first"},
                 waiting_on={"type": ["string", "null"], "description": "The person a waiting task waits on; "
                             "the task is in their Needs you"},
-                roles={"type": "object", "description": "Who else is on the task, by role: each role a short name the team "
-                       "chooses (reviewer, qa, designer ...) with its actors in the order they were added; a role nobody holds "
-                       "is absent, and the owner is not repeated under the type's owner_role. Task update and create take the "
-                       "same shape to replace a role's people ([] clears one)",
-                       "additionalProperties": items({"type": "string"})},
-                waits_on=obj({"role": {"type": ["string", "null"]},
-                              "actors": items({"type": "string"}), "assigned": "b"}) | {
-                    "description": "Who the task waits on now: the role its step waits on (null: its owner), the "
-                                   "actors it waits on (that role's people; the owner first for the type's owner_role; or, "
-                                   "when nobody holds the role yet, the owner with assigned false), none once finished"}),
+                roles={"type": "object", "description": "Who is on the task, by role: each role a short name the team "
+                       "chooses (developer, reviewer, qa ...) with its actors in the order they were added; a role nobody "
+                       "holds is absent, and one actor may hold several roles. Tico gives roles no meaning or rights. Task "
+                       "update and create take the same shape to replace a role's people ([] clears one)",
+                       "additionalProperties": items({"type": "string"})}),
     "Person": obj({"id": "s", "name": "s", "email": "s", "title": "s", "team": "s", "reports_to": "n", "org_parent": "s"},
                   required=["id", "name", "org_parent"]),
     "Access": obj({"see": "b", "read": "b", "write": "b"},

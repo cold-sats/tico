@@ -170,8 +170,6 @@ class TaskStepInput(Contract):
     name: ID
     position: int | None = None
     status: Literal["open", "doing", "waiting", "review", "ready", "done", "closed", "declined"]
-    # The role a task in this step waits on (a short name such as reviewer or qa); None: its owner.
-    waits_on: str | None = Field(default=None, max_length=40)
 
 
 # What every bot may do with a type's tasks beyond its own (hubdb.TYPE_BOTS): parties keeps them to
@@ -184,8 +182,6 @@ class TaskTypeCreate(Contract):
     steps: list[TaskStepInput] = Field(default_factory=list)
     bots: TypeBots | None = None
     numbered: bool = False
-    # The role the type's owner holds without being listed on the task (a ticket board: developer).
-    owner_role: str | None = Field(default=None, max_length=40)
 
 
 class TaskTypeUpdate(Contract):
@@ -193,7 +189,6 @@ class TaskTypeUpdate(Contract):
     steps: list[TaskStepInput] | None = None
     bots: TypeBots | None = None
     numbered: bool | None = None
-    owner_role: str | None = Field(default=None, max_length=40)   # "" takes it off
 
 
 class QuestionOption(Contract):

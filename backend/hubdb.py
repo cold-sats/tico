@@ -862,7 +862,7 @@ def migrate(conn, adopt_legacy=False):
         conn.execute("ALTER TABLE tasks ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]'")
     # Every task-to-task relationship; idempotent, so a database at any version catches up.
     TR.migrate(conn)
-    # Who a ticket waits on: developers, reviewers and QA, and the role each step waits on.
+    # Who is on a task, by role (task_roles).
     TRo.migrate(conn)
     # Next-run tasks (`hub task create --next-run`): `next_run` marks a task that waits for its
     # owner's next run instead of starting one; `carried_by` is the attempt that took it there.
@@ -2037,8 +2037,7 @@ def _type_name(conn, actor, name, type_id=None):
 
 
 def _type_steps(conn, actor, type_id, steps):
-    typ = type_get(conn, type_id) or {}
-    existing = {row["id"]: row for row in typ.get("steps", [])}
+    existing = {row["id"]: row for row in (type_get(conn, type_id) or {}).get("steps", [])}
     clean, names, ids = [], set(), set()
     for position, raw in enumerate(steps):
         name = str(raw.get("name") or "").strip()
@@ -2050,17 +2049,10 @@ def _type_steps(conn, actor, type_id, steps):
             refuse(conn, actor, "not-found", "That step does not belong to this type")
         if status not in TASK_STATUSES:
             refuse(conn, actor, "kind", f"A step status is {'|'.join(TASK_STATUSES)}")
-        waits_on = raw.get("waits_on") or None
-        if waits_on is not None and not TRo.role_name(waits_on):
-            refuse(conn, actor, "kind", "A step waits on a role: a short name in lower-case letters, digits, - or _")
-        waits_on = TRo.role_name(waits_on) if waits_on else None
-        # A column of a ticket board always waits on someone: unsaid, its name says who.
-        if waits_on is None and typ.get("numbered"):
-            waits_on = TRo.default_role(name, status)
         names.add(name); ids.add(ident)
         clean.append({"id": ident, "type_id": type_id, "name": name,
                       "position": raw.get("position") if raw.get("position") is not None else position,
-                      "status": status, "waits_on": waits_on})
+                      "status": status})
     for row in clean:
         if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
                 and _one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (row["id"],))):
@@ -2075,38 +2067,25 @@ def _type_steps(conn, actor, type_id, steps):
     for ident in ids & set(existing):
         conn.execute("UPDATE task_steps SET name=? WHERE id=?", (new_id(), ident))
     for row in clean:
-        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status,waits_on) "
-                     "VALUES(:id,:type_id,:name,:position,:status,:waits_on) ON CONFLICT(id) DO UPDATE SET "
-                     "name=excluded.name,position=excluded.position,status=excluded.status,waits_on=excluded.waits_on", row)
+        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status) "
+                     "VALUES(:id,:type_id,:name,:position,:status) ON CONFLICT(id) DO UPDATE SET "
+                     "name=excluded.name,position=excluded.position,status=excluded.status", row)
 
 
-def _type_owner_role(conn, actor, owner_role):
-    """The role a type's owner holds without being listed on the task; '' takes it off."""
-    if owner_role in (None, ""):
-        return None
-    if not TRo.role_name(owner_role):
-        refuse(conn, actor, "kind", "owner_role is a role: a short name in lower-case letters, digits, - or _")
-    return TRo.role_name(owner_role)
-
-
-def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, owner_role=None):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     bots = _type_bots(conn, actor, bots)
-    owner_role = _type_owner_role(conn, actor, owner_role)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,bots,numbered,owner_role,created,updated) VALUES(?,?,?,?,?,?,?)",
-                 (ident, name, bots, int(bool(numbered)), owner_role, ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,bots,numbered,created,updated) VALUES(?,?,?,?,?,?)",
+                 (ident, name, bots, int(bool(numbered)), ts, ts))
     _type_steps(conn, actor, ident, steps)
-    # A ticket board whose columns got their roles by name: its owner is the developer.
-    if owner_role is None and numbered and _one(conn, "SELECT 1 FROM task_steps WHERE type_id=? AND waits_on='developer'", (ident,)):
-        conn.execute("UPDATE task_types SET owner_role='developer' WHERE id=?", (ident,))
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, owner_role=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -2122,8 +2101,6 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=No
         _type_steps(conn, actor, row["id"], steps)
     if bots is not None:
         conn.execute("UPDATE task_types SET bots=? WHERE id=?", (_type_bots(conn, actor, bots), row["id"]))
-    if owner_role is not None:
-        conn.execute("UPDATE task_types SET owner_role=? WHERE id=?", (_type_owner_role(conn, actor, owner_role), row["id"]))
     conn.execute("UPDATE task_types SET updated=? WHERE id=?", (now(), row["id"]))
     after = type_get(conn, row["id"])
     event(conn, actor, "task_type.update", row["id"], after)
@@ -3053,7 +3030,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     `waiting_on` names the person a `waiting` task waits on ("" clears it); only its owner bot names
     one (`_waiting_person`). Any other update to the status, the note or the owner clears it unless
     it names the person again, as does anything that leaves the task unreadable to them.
-    `roles` replaces the people in the roles it names ({developer|reviewer|qa: [actors]}; task_roles).
+    `roles` replaces the people in the roles it names ({role: [actors]}; task_roles).
     """
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -3072,8 +3049,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     mine = actor in (row["owner"], row["requester"])
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
                      (task_id, actor, now()))
-    mine = (mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
-            or TRo.on_task(conn, actor, task_id))
+    mine = mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     if not mine and not mover and actor != KEEPER:
@@ -4365,16 +4341,16 @@ STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
           offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
-          updated_since=None, tickets=True, waiting_on=None):
+          updated_since=None, tickets=True, member=None, role=None):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
     `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
     a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
-    `tickets=False` leaves out the tasks on a numbered type. `waiting_on` keeps the live tasks that
-    wait on that actor now (task_roles.waits_on): their own, or ones whose column waits on a role they hold."""
+    `tickets=False` leaves out the tasks on a numbered type. `member` keeps the tasks that actor is on
+    in some role (task_roles), or in `role` when given."""
     sql, args, where = "SELECT * FROM tasks", [], []
-    if waiting_on:
-        where.append(TRo.waits_on_sql())
-        args += list(TRo.waits_on_args(waiting_on))
+    if member:
+        where.append(TRo.member_sql(role))
+        args += [member] + ([role] if role else [])
     if visible and visible != "1":
         where.append("(" + visible + ")")
     if owner:

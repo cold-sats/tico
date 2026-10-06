@@ -37,7 +37,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task close <id> [--note "..."]
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
-    hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done] [--waiting-on me|X]
+    hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done] [--member me|X [--role R]]
                   [--all]                  the board: every task and every bot you may see, {tasks, bots}
                   [--stuck [--hours N]]    BotOps's sweep: open work untouched for a day that waits on nobody
     hub task show <id>                     <id> is the full id or its first 8+ characters (short_id in the list)
@@ -659,7 +659,6 @@ def parser():
     s.add_argument("--steps-file", dest="steps_file")
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action="store_true", default=None, help="number each task on the type")
-    s.add_argument("--owner-role", dest="owner_role", help="the role the owner holds without being listed on a task (a ticket board: developer)")
     s.set_defaults(fn="task type create")
     s = types.add_parser("update")
     s.add_argument("id")
@@ -668,7 +667,6 @@ def parser():
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action=argparse.BooleanOptionalAction, default=None,
                    help="number each task created on or moved onto the type")
-    s.add_argument("--owner-role", dest="owner_role", help="the role the owner holds without being listed on a task; '' takes it off")
     s.set_defaults(fn="task type update")
     s = types.add_parser("delete")
     s.add_argument("id")
@@ -774,7 +772,8 @@ def parser():
     s.add_argument("--sort", choices=["queue", "finished", "step"], help="step: in step order, then each one's place in it")
     s.add_argument("--number", type=int, help="only this task number")
     s.add_argument("--updated-since", help="only tasks changed after this ISO-8601 time with a timezone")
-    s.add_argument("--waiting-on", dest="waiting_on", help="only live tasks waiting on this person or bot now (me, a human id, a bot slug)")
+    s.add_argument("--member", help="only tasks this person or bot is on in some role (me, a human id, a bot slug)")
+    s.add_argument("--role", help="with --member: only tasks they are on in this role")
     s.add_argument("--brief", action="store_true", help="leave out bodies and acceptance criteria")
     s.add_argument("--all", action="store_true", help="the board: every task and every bot you may see, as {tasks, bots}")
     s.add_argument("--stuck", action="store_true",
