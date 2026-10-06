@@ -63,6 +63,10 @@ button.nav-librarian{border:0;background:none;cursor:pointer;padding:0}
 #heartbeat{display:flex;align-items:center;flex:none}
 #heartbeat-alert{font-size:11.5px;padding:0 10px 5px}
 .new-version{position:relative;padding:0 10px}
+#changelog-notice{display:flex;align-items:center;gap:8px;margin:0 10px;padding:6px 8px;border-radius:6px;color:var(--muted);font-size:12.5px;text-decoration:none}
+#changelog-notice:hover{background:var(--surface2);color:var(--ink)}
+.changelog-notice-dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--accent)}
+#changelog-badge{margin-left:auto;font-size:10px}
 #new-version{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:6px;background:none;color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
 #new-version:hover,#new-version[aria-expanded="true"]{background:var(--surface2);color:var(--ink)}
 #new-version .nv-dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--accent)}

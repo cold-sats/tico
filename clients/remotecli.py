@@ -103,6 +103,7 @@ def run(args, who=None):
         return bots(client, args)
     if fn in ("bot repo-create", "human add", "human list", "group list", "group update", "tool list", "tool learn", "tool add", "tool update", "tool remove",
               "update create", "update redo", "update list", "update show", "update mark-read", "update reply", "update settings",
+              "changelog list", "changelog mark-read",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
               "brief", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "run list",
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",

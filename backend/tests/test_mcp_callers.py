@@ -9,7 +9,7 @@ from clients import hubtools
 BOTOPS_ONLY = {"hub_credential_request", "hub_credential_set", "hub_message_redact",
                "hub_support_file"}
 HUMANS_ONLY = {"hub_brief", "hub_bot_recent", "hub_needs_you_start", "hub_needs_you_commit", "hub_proposal_decide",
-               "hub_update_reply", "hub_assistant_read", "hub_assistant_send"}
+               "hub_update_reply", "hub_assistant_read", "hub_assistant_send", "hub_changelog_list", "hub_changelog_mark_read"}
 BOTS_ONLY = {"hub_update_create", "hub_file_publish", "hub_file_link"}
 ASSIGNMENT_TOOLS = {"hub_bot_assignment_list", "hub_bot_assignment_policy", "hub_bot_assignment_create",
                     "hub_bot_assignment_update", "hub_bot_assignment_cleanup"}

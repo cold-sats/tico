@@ -43,6 +43,10 @@
       "description": "Daily and weekly updates bots post to people."
     },
     {
+      "name": "Changelog",
+      "description": "Shipped Tico releases, product announcements and the signed-in person's read state (docs/updates.md)."
+    },
+    {
       "name": "Needs you",
       "description": "What is waiting on the signed-in person: questions, tasks, approvals."
     },
@@ -2219,6 +2223,185 @@
         },
         "tags": [
           "Bots"
+        ]
+      }
+    },
+    "/api/v2/changelog": {
+      "get": {
+        "summary": "Shipped changes with your read state; kind=product|activity|all (default all), unread=true, q search, since_version for releases newer than a version, and limit/offset paging. Only installed releases or earlier appear. unread_count counts all unread product entries, independently of filters; reading does not acknowledge them.",
+        "operationId": "listChangelog",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "product",
+                "activity",
+                "all"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "unread",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Unread"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "since_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Version"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 250,
+              "minimum": 1,
+              "default": 250,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangelogList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Changelog"
+        ]
+      }
+    },
+    "/api/v2/changelog/read": {
+      "post": {
+        "summary": "Acknowledge only supplied product entry ids for the signed-in person. Other people's read state and unseen entries stay unchanged.",
+        "operationId": "markChangelogRead",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangelogRead"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangelogReadResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Changelog"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
         ]
       }
     },
@@ -14017,6 +14200,134 @@
         "required": [
           "bot",
           "limit"
+        ],
+        "additionalProperties": true
+      },
+      "ChangelogEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "bullets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "area": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "product",
+              "activity"
+            ]
+          },
+          "shipped_at": {
+            "type": "string"
+          },
+          "unread": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "area",
+          "bullets",
+          "id",
+          "kind",
+          "shipped_at",
+          "title"
+        ],
+        "additionalProperties": true
+      },
+      "ChangelogList": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangelogEntry"
+            }
+          },
+          "unread_count": {
+            "type": "integer"
+          },
+          "current_version": {
+            "type": "string"
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "drafts": {
+            "type": "array"
+          },
+          "can_review": {
+            "type": "boolean"
+          },
+          "can_add": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "can_add",
+          "can_review",
+          "current_version",
+          "drafts",
+          "entries",
+          "next_offset",
+          "unread_count"
+        ],
+        "additionalProperties": true
+      },
+      "ChangelogRead": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 250,
+            "title": "Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "ChangelogRead"
+      },
+      "ChangelogReadResult": {
+        "type": "object",
+        "properties": {
+          "unread_count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unread_count"
         ],
         "additionalProperties": true
       },
