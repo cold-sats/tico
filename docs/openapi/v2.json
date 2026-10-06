@@ -10402,7 +10402,7 @@
     },
     "/api/v2/tasks": {
       "get": {
-        "summary": "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, brief=true leaves out bodies",
+        "summary": "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, brief=true leaves out bodies. Each answer carries a `cursor`; changed_after=<cursor> with the same filters answers only the tasks changed since (`tasks`) and the ids that left (`gone`), or `reset: true` to read in full. A full read has an ETag: If-None-Match answers 304 when nothing changed",
         "operationId": "listTasks",
         "parameters": [
           {
@@ -10620,6 +10620,22 @@
               ],
               "title": "Role"
             }
+          },
+          {
+            "name": "changed_after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Changed After"
+            }
           }
         ],
         "responses": {
@@ -10781,7 +10797,7 @@
     },
     "/api/v2/tasks/labels": {
       "get": {
-        "summary": "Labels in use",
+        "summary": "Labels in use (ETag: If-None-Match answers 304 when unchanged)",
         "operationId": "listTaskLabels",
         "responses": {
           "200": {
@@ -21579,6 +21595,21 @@
               "null"
             ]
           },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque: pass as changed_after to read only what changed since"
+          },
+          "gone": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With changed_after: ids that changed and no longer match (deleted, no longer readable, or out of the filters)"
+          },
+          "reset": {
+            "type": "boolean",
+            "description": "With changed_after: the cursor is too old or no longer applies; read in full"
+          },
           "actors": {
             "type": "object",
             "additionalProperties": {
@@ -21588,6 +21619,7 @@
           }
         },
         "required": [
+          "cursor",
           "next_offset",
           "tasks"
         ],

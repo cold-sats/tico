@@ -19,7 +19,22 @@ const signInRedirect = (r, j) => {
   location.assign(to + '?next=' + encodeURIComponent(location.pathname + location.search + location.hash));
   return true;
 };
-const get = async p => { const r = await fetch(API + p, {cache:'no-store'}); window.TicoObservability?.response(r.status); const j = await r.json().catch(()=>({})); if (!r.ok) { signInRedirect(r, j); throw apiFailure(j, r); } return j; };
+// A list the server tags (tasks, labels, routines) is asked for again with its tag: unchanged, the answer is a 304
+// with no body and the copy kept here is read again, so the server neither loads nor sends it. A few dozen at most.
+const GET_TAGGED = new Map();
+const get = async p => {
+  const kept = GET_TAGGED.get(p);
+  const r = await fetch(API + p, {cache:'no-store', headers: kept ? {'If-None-Match': kept.tag} : {}});
+  window.TicoObservability?.response(r.status);
+  if (r.status === 304 && kept) return JSON.parse(kept.text);
+  const text = await r.text().catch(() => '');
+  let j; try { j = JSON.parse(text); } catch { j = {}; }
+  if (!r.ok) { signInRedirect(r, j); throw apiFailure(j, r); }
+  const tag = r.headers.get('ETag');
+  GET_TAGGED.delete(p);
+  if (tag) { GET_TAGGED.set(p, {tag, text}); if (GET_TAGGED.size > 40) GET_TAGGED.delete(GET_TAGGED.keys().next().value); }
+  return j;
+};
 const pendingWrites = new Map();
 const newRequestId = () => globalThis.crypto?.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
   const n = globalThis.crypto?.getRandomValues?.(new Uint8Array(1))[0] ?? Math.floor(Math.random() * 256);

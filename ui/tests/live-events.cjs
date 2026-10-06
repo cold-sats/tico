@@ -3,7 +3,9 @@
 //  - the chat follows its conversation on the page's one stream and reads its snapshot once per change, not on a timer;
 //  - the Needs-you count beside a bot follows the `needs` topic;
 //  - the task board takes a task changed or created elsewhere from the event itself, without reading the list again;
-//  - each reconnect resumes from the last change number.
+//  - each reconnect resumes from the last change number;
+//  - the 2-minute refresh asks only for the tasks changed since the list's cursor and applies them, and asks for the
+//    labels with the tag it was given (a 304 then).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -17,7 +19,7 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({viewport: {width: 1300, height: 820}, serviceWorkers: 'block'});
-  const errors = [], streams = [], reads = {snapshot: 0, tasks: 0};
+  const errors = [], streams = [], reads = {snapshot: 0, tasks: 0, active: 0, changed: [], labels: []};
   page.on('pageerror', e => errors.push(e.message));
   let snapshot = {messages: [{id: 'm1', from_actor: 'human:ana', body: 'Draft the release notes', created: now}], execution: null};
   await page.route('**/*', route => {
@@ -36,7 +38,21 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
     if (p === '/api/v2/conversations') return json({conversations: url.searchParams.get('chat_with')
       ? [{id: 'c-ops', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:ops']}] : []});
     if (p === '/api/v2/conversations/c-ops/snapshot') { reads.snapshot++; return json(snapshot); }
-    if (p === '/api/v2/tasks') { reads.tasks++; return json({tasks: [task()]}); }
+    if (p === '/api/v2/tasks' && url.searchParams.get('changed_after')) {
+      reads.changed.push(url.searchParams.get('changed_after'));
+      return json({tasks: [task({id: 't3', title: 'Send the release mail', status: 'open'})], gone: ['t2'], cursor: '21.a', next_offset: null});
+    }
+    if (p === '/api/v2/tasks') {
+      reads.tasks++;
+      if ((url.searchParams.get('status') || '').includes('open')) reads.active++;
+      return json({tasks: [task()], next_offset: null, cursor: '12.a'});
+    }
+    if (p === '/api/v2/tasks/labels') {
+      const tag = route.request().headers()['if-none-match'] || '';
+      reads.labels.push(tag);
+      if (tag) return route.fulfill({status: 304, headers: {ETag: tag}, body: ''});
+      return route.fulfill({contentType: 'application/json', headers: {ETag: 'W/"l1"'}, body: JSON.stringify({labels: ['launch'], tags: []})});
+    }
     if (p === '/api/v2/needs-you') return json({items: []});
     return json({});
   });
@@ -89,7 +105,19 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   await page.locator('#task-body', {hasText: 'Check the release links'}).waitFor();
   await page.waitForTimeout(600);
   assert.equal(reads.tasks, listed, 'a new task does not read the list again');
+
+  // The 2-minute refresh: only what changed since the list's cursor, applied in place; the labels come back as a 304.
+  const active = reads.active;
+  await page.evaluate(() => refresh(false));
+  await page.locator('#task-body', {hasText: 'Send the release mail'}).waitFor();
+  await page.waitForFunction(() => !document.querySelector('#task-body')?.innerText.includes('Check the release links'));
+  assert.deepEqual(reads.changed, ['12.a']);
+  assert.equal(reads.active, active, 'no full read of the open tasks');
+  assert.equal(await page.evaluate(() => TASKS_ST.cursor), '21.a');
+  assert.deepEqual(await page.evaluate(() => TASKS_ST.tasks.map(t => t.id).sort()), ['t1', 't3'], 'an unchanged task stays');
+  assert.deepEqual(reads.labels.slice(-1), ['W/"l1"']);
+  assert.deepEqual(await page.evaluate(() => TASKS_ST.labels), ['launch']);
   assert.deepEqual(errors, []);
-  console.log('live events: chat, Needs you and the task board follow one stream: ok');
+  console.log('live events: chat, Needs you and the task board follow one stream; the refresh reads only what changed: ok');
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

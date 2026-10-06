@@ -274,7 +274,7 @@ data: {"seq": 4121, "attempt_id": "a1", "conversation_id": "c1", "bot": "ops", "
 
 | Topic | `data` |
 |---|---|
-| `tasks` | `id` and `task`, or `gone: true` for a deleted task |
+| `tasks` | `id` and `task`, or `gone: true` for a deleted task; `bulk: true` (no `id`) when one change touched more than 100 tasks, such as a type edit: read task lists in full |
 | `messages` | `id`, `conversation_id` and `message`, or `deleted: true`; a chat goal set, paused, met or stopped is `goal_id` and `goal` |
 | `runs` | `attempt_id`, `conversation_id`, `bot`, and `output` (one step of the run) or `state` (the job's or attempt's state) |
 | `bots` | `bot` and `status`, as `GET /api/v2/status` lists it |
@@ -303,6 +303,28 @@ data: {"seq": 4121, "attempt_id": "a1", "conversation_id": "c1", "bot": "ops", "
 
 Reads that do not need a stream: `GET /api/v2/conversations/{id}/snapshot` is one snapshot; `GET
 /api/v2/conversations/{id}/messages` is the message history.
+
+### Catching a task list up
+
+A list you keep in memory (after a reconnect, a sleep, or as a slow backstop to the stream) need not be read again in
+full. Every `GET /api/v2/tasks` answer carries a `cursor`; keep the one from a full read's first page, and later ask
+with the same filters for what changed since:
+
+```
+GET /api/v2/tasks?lane=company&changed_after=<cursor>
+{"tasks": [...changed, still matching...], "gone": ["t7"], "cursor": "<next>", "next_offset": null}
+```
+
+- `tasks` are the tasks changed since the cursor that still match (with the tasks that show them, such as a parent whose
+  progress moved); replace your copies. `gone` are ids that changed and no longer match: deleted, no longer yours to
+  read, or out of the filters (a task that finished, under an active-status filter). Remove them. A task you could
+  never read is never named.
+- `reset: true` means the cursor cannot be caught up (older than the day the log keeps, from before your access changed,
+  more changes than a page, or one change to more than 100 tasks): read in full. Treat the cursor as opaque.
+- A task's open `ask` can lag: a change to who may read its conversation alone does not move the cursor or the ETag,
+  so it shows on the task's next change or full read.
+- A full read of `/api/v2/tasks` or `/api/v2/tasks/labels` (and `/api/v2/routines`) has an `ETag`. Send it back as
+  `If-None-Match` and an unchanged answer is `304` with no body.
 
 ### Which run took a message
 
@@ -373,7 +395,8 @@ Tico applies **no request-rate limit** to the API: it will answer as fast as it 
   `detail` says which.
 - Live events: an open `/api/v2/events` costs nothing while nothing changes, and one read per burst of changes; keep
   to one per page.
-- Be a good client: follow `/api/v2/events` instead of polling a chat, a task list or a badge; do not refetch `/api/v2/org` or `/api/v2/bots` on every render (cache them for a
+- Be a good client: follow `/api/v2/events` instead of polling a chat, a task list or a badge, and [catch a list
+  up](#catching-a-task-list-up) rather than reading it again; do not refetch `/api/v2/org` or `/api/v2/bots` on every render (cache them for a
   minute). Answers are marked `no-store`, so cache in your own code.
 - If you expose your frontend to many humans, set a limit at the reverse proxy (Caddy, Cloudflare) in front of Tico.
 

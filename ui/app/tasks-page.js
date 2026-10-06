@@ -304,21 +304,41 @@ function formFocus(root) {
 }
 const mergeTaskRows = (...groups) => [...new Map(groups.flat().map(task => [task.id, task])).values()];
 const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_TASK_STATUSES}&limit=100&offset=${offset}`;
+// Every status: a task that finished comes back as finished (as a live event brings it), not as gone.
+const tasksChangedPath = cursor => `/v2/tasks?lane=company&changed_after=${encodeURIComponent(cursor)}`;
 async function tasksLoad(state, opts = {}) {
   const seq = ++state.loadSeq;
   // Done keeps its own paging. A reload after a change folds in its newest page; the poll does that too, but only while
   // Done (or a type's board, which shows finished steps) is on screen, and never more than that one page.
   const doneShown = state.view === 'done' || state.view === 'board';
   const reloadDone = opts.poll ? doneShown && state.doneLoaded : (state.doneLoaded || doneShown);
+  // A list read in full keeps the cursor it was read at; from then on a load asks only for what changed since
+  // (backend/task_reads.py), unless the server says to read in full again (`reset`).
+  const cursor = state.cursor;
   state.loading = !(state.tasks || []).some(t => !['done', 'closed'].includes(String(t.status)));
-  tasksRender(state);
-  const [active, rec, lab] = await Promise.all([
-    v2Get(activeTasksPath()),
-    v2Get('/v2/routines'), v2Get('/v2/tasks/labels'), taskTypesLoad().then(t => { state.typesLoaded = true; return t; }).catch(() => TASK_TYPES)]);
-  if (TASKS_ST !== state || state.loadSeq !== seq) return;
-  const activeIds = new Set((active?.tasks || []).map(t => String(t.id)));
-  const finished = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status)) && !activeIds.has(String(t.id)));   // reopened ones are active again
-  state.tasks = mergeTaskRows(finished, active?.tasks || []);
+  if (!cursor) tasksRender(state);
+  const others = () => [v2Get('/v2/routines'), v2Get('/v2/tasks/labels'),
+    taskTypesLoad().then(t => { state.typesLoaded = true; return t; }).catch(() => TASK_TYPES)];
+  let changed = null, active = null, rec, lab;
+  if (cursor) {
+    [changed, rec, lab] = await Promise.all([v2Get(tasksChangedPath(cursor)), ...others()]);
+    if (TASKS_ST !== state || state.loadSeq !== seq) return;
+    if (!changed || changed.reset) { changed = null; state.cursor = null; }
+  }
+  if (!changed) {
+    if (cursor) tasksRender(state);
+    [active, rec, lab] = await Promise.all([v2Get(activeTasksPath()), ...others()]);
+    if (TASKS_ST !== state || state.loadSeq !== seq) return;
+  }
+  if (changed) {
+    const gone = new Set((changed.gone || []).map(String));
+    state.tasks = mergeTaskRows((state.tasks || []).filter(t => !gone.has(String(t.id))), changed.tasks || []);
+    state.cursor = changed.cursor;
+  } else {
+    const activeIds = new Set((active?.tasks || []).map(t => String(t.id)));
+    const finished = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status)) && !activeIds.has(String(t.id)));   // reopened ones are active again
+    state.tasks = mergeTaskRows(finished, active?.tasks || []);
+  }
   state.routines = rec?.routines || null;
   state.labels = lab?.labels || [];
   state.tags = lab?.tags || [];
@@ -347,7 +367,11 @@ async function tasksLoad(state, opts = {}) {
       tasksTools(state); tasksRender(state);
     }
   };
-  await drain(active?.next_offset);
+  if (active) {
+    await drain(active.next_offset);
+    // Only a list read to its end can be caught up from its cursor.
+    if (TASKS_ST === state && state.loadSeq === seq) state.cursor = active.cursor || null;
+  }
   if (reloadDone && TASKS_ST === state && state.loadSeq === seq) await (state.doneLoaded ? tasksDoneMerge(state) : tasksLoadDone(state, true));
 }
 // A save took its task out of the view? Once a load that started after the save has drawn, the list and the peek

@@ -171,10 +171,12 @@ STABLE = [
     ("/api/v2/tasks", "get", "Tasks", "listTasks",
      "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that "
      "person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, "
-     "brief=true leaves out bodies", "TaskList"),
+     "brief=true leaves out bodies. Each answer carries a `cursor`; changed_after=<cursor> with the same filters "
+     "answers only the tasks changed since (`tasks`) and the ids that left (`gone`), or `reset: true` to read in "
+     "full. A full read has an ETag: If-None-Match answers 304 when nothing changed", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
     ("/api/v2/tasks/dry-run", "post", "Tasks", "checkTask", "The checks a create would fail; writes nothing", None),
-    ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use", None),
+    ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use (ETag: If-None-Match answers 304 when unchanged)", None),
     ("/api/v2/tasks/{tid}", "get", "Tasks", "getTask", "A task with its history, comments and messages", "TaskDetail"),
     ("/api/v2/tasks/{tid}", "post", "Tasks", "updateTask",
      "Change a task; send the version you read (409 version_conflict otherwise)", "TaskResult"),
@@ -577,8 +579,13 @@ SCHEMAS = {
                                    "text (the reply so far; separate messages are joined by a blank line), parts, bot"}}),
     "MessageResult": obj({"message": ref("Message")}),
     "ChatResult": obj({"conversation": ref("Conversation"), "message": ref("Message")}),
-    "TaskList": obj({"tasks": items(ref("Task")), "next_offset": {"type": ["integer", "null"]}},
-                     required=["tasks", "next_offset"], actors=ACTORS),
+    "TaskList": obj({"tasks": items(ref("Task")), "next_offset": {"type": ["integer", "null"]},
+                     "cursor": {"type": "string", "description": "Opaque: pass as changed_after to read only what changed since"},
+                     "gone": {"type": "array", "items": {"type": "string"}, "description": "With changed_after: ids that "
+                              "changed and no longer match (deleted, no longer readable, or out of the filters)"},
+                     "reset": {"type": "boolean", "description": "With changed_after: the cursor is too old or no longer "
+                               "applies; read in full"}},
+                    required=["tasks", "next_offset", "cursor"], actors=ACTORS),
     "TaskResult": obj({"task": ref("Task")}),
     "TaskDetail": obj({"task": ref("Task"), "events": "a", "children": "a", "comments": items(ref("Message")),
                        "messages": items(ref("Message")), "has_more": "b", "can_comment": "b", "mover": "b"},

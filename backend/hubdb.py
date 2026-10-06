@@ -4352,12 +4352,13 @@ STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
           offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
-          updated_since=None, tickets=True, member=None, role=None):
+          updated_since=None, tickets=True, member=None, role=None, ids=None):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
     `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
     a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
     `tickets=False` leaves out the tasks on a numbered type. `member` keeps the tasks that actor is on
-    in some role (task_roles), or in `role` when given."""
+    in some role (task_roles), or in `role` when given. `ids` limits it to those tasks (a delta
+    read's changed ones)."""
     sql, args, where = "SELECT * FROM tasks", [], []
     if member:
         where.append(TRo.member_sql(role))
@@ -4385,6 +4386,9 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     if updated_since:
         where.append("updated>?")
         args.append(updated_since)
+    if ids is not None:
+        where.append("id IN (SELECT value FROM json_each(?))")
+        args.append(json.dumps(list(ids)))
     if not tickets:
         where.append("NOT EXISTS (SELECT 1 FROM task_types WHERE task_types.id=tasks.type_id AND task_types.numbered=1)")
     if label:
