@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.24] - 2026-10-06
+
+### Fixed
+- Open tabs no longer re-read the whole task list each time a task is created elsewhere: a new task arrives with its live event, like a changed one, and a bot's or person's task lists re-read at most every 15 seconds and not in a hidden tab. On a busy team v0.3.23 kept the server's CPU full and made it slow or unreachable.
+
 ### Added
 - Changelog automatically includes the installed release history and shows **What's new** since each person's last look. Search, browse older releases and mark only the shown changes as read; that state follows the person across devices. Users can also list and acknowledge changes through `hub_changelog_list` / `hub_changelog_mark_read`, `hub changelog` and the stable `/api/v2/changelog` API ([Updates](docs/updates.md#what-changed-since-your-last-look)).
 
