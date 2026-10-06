@@ -113,3 +113,26 @@ def test_a_bot_run_sees_the_relations_it_may_read_and_nothing_of_the_rest(api):
     assert attempt["task"]["relations"] == [{"kind": "blocks", "direction": "in", "id": blocker["id"],
                                              "title": "Write the refund copy", "status": "open"}]
     assert secret["id"] not in str(attempt) and "Secret salary" not in str(attempt)
+
+
+def test_sparse_relations_on_a_large_page_do_not_probe_all_task_pairs():
+    with sqlite3.connect(':memory:') as c:
+        c.row_factory = sqlite3.Row
+        c.execute('CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT,status TEXT,owner TEXT,private INTEGER)')
+        ids = [f'task-{i:04}' for i in range(1000)]
+        c.executemany('INSERT INTO tasks VALUES(?,?,?,?,?)',
+                      [(tid, tid, 'open', 'bot:cmo', int(i == 999)) for i, tid in enumerate(ids)])
+        c.executescript(TR.SCHEMA)
+        c.executemany("INSERT INTO task_relations(from_task,to_task,kind,created) VALUES(?,?,'blocks','now')",
+                      [(ids[0], ids[600]), (ids[700], ids[1]), (ids[0], ids[999])])
+        operations = [0]
+
+        def budget():
+            operations[0] += 1000
+            return int(operations[0] > 100_000)
+
+        c.set_progress_handler(budget, 1000)
+        result = TR.grouped(c, ids[:400], 'private=0')
+        assert [r['id'] for r in result[ids[0]]['blocks']] == [ids[600]]
+        assert [r['id'] for r in result[ids[1]]['blocks']] == [ids[700]]
+        assert result[ids[2]] == {}
