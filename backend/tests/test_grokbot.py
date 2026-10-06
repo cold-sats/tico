@@ -61,3 +61,20 @@ def test_tico_fetches_only_public_https_images():
     assert G.fetch_image("file:///etc/passwd") is None
     assert not G.public_host("localhost") and not G.public_host("127.0.0.1") and not G.public_host("169.254.169.254")
     assert G.fetch_image("https://127.0.0.1/a.png") is None
+
+
+def test_stale_import_warns_without_claiming_a_runtime_failure_or_changing_history(api, monkeypatch):
+    sync(api, designer())
+    old = H.now()
+    issues = lambda: [i for i in api.get('/api/status', headers=headers()).json()['health_issues']
+                      if i['bot'] == 'grok-designer']
+    assert issues() == []
+    later = H.shift(old, hours=27)
+    monkeypatch.setattr(H, 'now', staticmethod(lambda: later))
+    [issue] = issues()
+    assert issue['severity'] == 'warning' and not issue['needs_person']
+    with api.app.state.store.read() as c:
+        config = H._json(c.execute("SELECT config_json FROM bot_config WHERE bot='grok-designer'").fetchone()[0], {})
+        assert issue['since'] == config['grok']['last_sync'] < later
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='grok-designer'").fetchone()[0] == 0
+    assert len(room_messages(api, 'grok-designer')) == 2
