@@ -19,6 +19,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from clients.tico import CLIENT_VERSION
+
 BACKUP_POLL_S = 300        # every read runs at least this often while the stream is up
 RECONNECT_MAX_S = 60
 LEGACY_RETRY_S = 1800      # a server without the stream is asked again this often
@@ -56,6 +58,8 @@ def connect(client, after=None):
     query = "?" + urllib.parse.urlencode({"after": after}) if after is not None else ""
     request = urllib.request.Request(client.url + "/api/v2/runners/me/events" + query, headers={
         "Authorization": "Bearer " + client.token, "Accept": "text/event-stream",
+        # The runner's own agent, as on every other request: a proxy such as Cloudflare refuses Python's default.
+        "User-Agent": "Tico-Client/" + CLIENT_VERSION,
         **({"Last-Event-ID": str(after)} if after is not None else {})})
     try:
         response = client.opener.open(request, timeout=READ_TIMEOUT_S)
@@ -139,6 +143,10 @@ class Events:
                 clean = False
                 if self.state == "up":
                     self.log(f"Tico runner: event stream lost ({type(exc).__name__}); polling until it is back")
+                elif not getattr(self, "said_down", False):
+                    # Never up since start (a proxy refusing it, say): said once, so polling is not silent.
+                    self.said_down = True
+                    self.log(f"Tico runner: event stream unavailable ({type(exc).__name__}: {str(exc)[:120]}); polling")
             if clean:
                 delay = 1.0
                 continue                   # the server's own lifetime ran out: reconnect at once
