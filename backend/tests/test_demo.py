@@ -40,7 +40,7 @@ def test_saved_demo_reopens_with_edits_and_the_same_owner_session(built, monkeyp
                                                  "owner": "bot:support"},
                             headers={"Idempotency-Key": "restart-edit"})
         assert response.status_code == 200
-        task_id = response.json()["id"]
+        task_id = response.json()["task"]["id"]
     before = rows(settings.db_path)
     token = settings.local_owner_token_file.read_bytes()
     from backend import demo_seed
@@ -49,7 +49,7 @@ def test_saved_demo_reopens_with_edits_and_the_same_owner_session(built, monkeyp
     assert reopened.local_owner_token_file.read_bytes() == token
     assert rows(reopened.db_path) == before
     with signed_in(reopened) as api:
-        assert api.get("/api/v2/tasks/" + task_id).json()["title"] == "Keep this demo edit"
+        assert api.get("/api/v2/tasks/" + task_id).json()["task"]["title"] == "Keep this demo edit"
 
 
 def test_demo_refuses_existing_unrecognized_data_without_writing(tmp_path):
