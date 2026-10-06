@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- An idle computer no longer polls the server. A runner holds one event stream open (`GET /api/v2/runners/me/events`) and re-reads only what an event names: work for its bots, its assignments and their settings, credentials, repositories, worktree actions, sign-ins, harness actions, credential imports, quota reads and Restart. Events carry no values. The full readiness report goes when it changes and at least once a minute; everything is re-read once every five minutes as a backstop. While the stream is down, or against an older server, the runner polls as before; an older runner keeps polling the new server unchanged. With 8 idle computers, about 970 requests and 18,600 SQL statements a minute became about 30 requests and 1,100 statements ([How it works](docs/how-it-works.md#what-happens-when)).
+
 ## [0.3.27] - 2026-10-06
 
 ### Fixed

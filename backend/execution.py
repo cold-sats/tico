@@ -668,6 +668,30 @@ class Execution:
             selected.append(row)
         return None if row else {"attempt": None}
 
+    def stamp(self, c, who, runner, now):
+        """Record contact: `last_seen`, at most every CONTACT_EVERY, and a new waking period after a silence."""
+        awake_since = self.waking(runner, now)
+        if awake_since != runner["awake_since"]:
+            H.event(c, H.KEEPER, "runner.waking", who.runner_id,
+                    {"last_seen": runner["last_seen"], "awake_since": awake_since})
+        if awake_since != runner["awake_since"] or not runner["last_seen"] \
+                or runner["last_seen"] <= H.shift(now, seconds=-CONTACT_EVERY):
+            c.execute("UPDATE runners SET last_seen=?,awake_since=? WHERE id=?",
+                      (now, awake_since, who.runner_id))
+        return awake_since
+
+    def contact(self, c, who):
+        """A runner's open event stream is contact, as a claim or a heartbeat is: its keepalives keep
+        `last_seen` (Health, waking periods) current while the runner sends little else, and keep
+        `served_at` current so a lapsed lease is not mistaken for this server's stall. Problem 403
+        for a revoked computer."""
+        runner = self.runner(c, who)
+        if not runner:
+            raise Problem("forbidden", "This computer is no longer registered", 403)
+        now = H.now()
+        self.served_at = now
+        self.stamp(c, who, runner, now)
+
     def claim(self, c, who, body, selected=None):
         runner = self.runner(c, who)
         changes = c.total_changes
@@ -683,14 +707,7 @@ class Execution:
         # heartbeat runs on a fifteen-second timer that a wake this short never reaches. Until
         # this was recorded, the next wake compared itself against a heartbeat from before the
         # sleep, read the gap as one long stretch of presence, and took the work.
-        awake_since = self.waking(runner, now)
-        if awake_since != runner["awake_since"]:
-            H.event(c, H.KEEPER, "runner.waking", who.runner_id,
-                    {"last_seen": runner["last_seen"], "awake_since": awake_since})
-        if awake_since != runner["awake_since"] or not runner["last_seen"] \
-                or runner["last_seen"] <= H.shift(now, seconds=-CONTACT_EVERY):
-            c.execute("UPDATE runners SET last_seen=?,awake_since=? WHERE id=?",
-                      (now, awake_since, who.runner_id))
+        awake_since = self.stamp(c, who, runner, now)
         # An initial task notice can sit in the queue while another turn finishes
         # that task. Suppress only this obsolete wake, never a later human follow-up.
         obsolete = c.execute("SELECT j.id,j.message_id,t.id AS task_id FROM jobs j "

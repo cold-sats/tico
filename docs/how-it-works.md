@@ -162,8 +162,19 @@ bots produce for the team are published to Tico's private store and listed on th
 
 ## What happens when
 
+**A computer waits for work.** A runner holds one stream open, `GET /api/v2/runners/me/events`. When
+something changes for that computer (a job queued for one of its bots, its bots or their settings,
+the credentials or repositories they may use, a worktree to remove or restore, a sign-in, harness
+action, credential import or quota read someone asked it for, Restart), the server sends an event
+naming what changed and never a value, and the runner re-reads only that. With nothing to say, the
+server sends a keepalive every 15 s, which also keeps the computer *online*. The runner reports its
+readiness (heartbeat) when it changes and at least once a minute, and re-reads everything once
+every five minutes in case an event was missed. While the stream is down (a deploy, a network
+change) or on a server from before it, the runner polls as it always did until the stream is back,
+and picks up from the last event it saw.
+
 **You send a message or file a task.** hub.acme.example saves it and queues a job for the bot. The bot's
-runner claims it on its next poll, does one run (prompt = `AGENT.md`, the conversation, the task,
+runner hears of it on its event stream and claims it, does one run (prompt = `AGENT.md`, the conversation, the task,
 your message and attachments), and streams the reply back. The conversation shows *Saved — queued*,
 *Starting*, *Working*, then the reply. Closing the browser changes nothing.
 
@@ -178,8 +189,8 @@ without a heartbeat the bot shows *offline* and new messages show *Saved — wai
 A sleeping Mac is not reliably absent: macOS wakes it for a few seconds at a time to check the
 network, and the runner asks for work in those seconds. So a computer that has been silent for
 more than 60 s must then report in without a break for two minutes before it is given anything.
-Contact means a heartbeat or a claim, whichever arrives: a wake of a few seconds never reaches
-the runner's fifteen-second heartbeat timer, so counting only heartbeats let each brief wake
+Contact means a heartbeat, a claim or the runner's open event stream (a keepalive every 15 s), whichever
+arrives: a wake of a few seconds never reaches the runner's heartbeat timer, so counting only heartbeats let each brief wake
 stand on the record of the one before it and take work anyway,
 and until it has, its queued work reads *Saved — waiting for <computer> to stay awake*. A brief
 wake cannot take a 90 s lease it has no chance of finishing, and a computer that never went away

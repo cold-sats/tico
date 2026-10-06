@@ -3892,8 +3892,10 @@ def create_app(settings=None):
     from .tags import install as install_tags
     install_tags(app, store, auth, mutate, task_views)
     # One stream of live events for people's pages (backend/events.py).
-    from .events import install as install_events
+    from .events import install as install_events, install_runner as install_runner_events
     install_events(app, store, auth, task_views, task_view)
+    # And one for each computer, in place of its polls (runner/runner_events.py).
+    install_runner_events(app, store, execution)
 
     from .views import install_views
     from .task_types import install_task_types

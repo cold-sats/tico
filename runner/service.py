@@ -22,9 +22,9 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import container_probe, credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from . import redact as redact_mod
-from . import goals, memory_history, repositories, worktrees, safe_git, subscription_usage
+from . import goals, memory_history, repositories, runner_events, worktrees, safe_git, subscription_usage
 from .release_update import Follower
-from .login import Logins
+from .login import POLL_S as LOGIN_POLL_S, Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
 from .hosts.cursor import MODELS as CURSOR_HOST_MODELS
 from .hosts.pi import MODELS as PI_HOST_MODELS
@@ -133,6 +133,18 @@ def own_interrupt(exc):
 
 CHECKOUT_EVERY_S = 600
 
+# Keys whose values move on every report without anything having changed: left out when deciding
+# whether a heartbeat has news (runner/service.py `maintain`).
+VOLATILE = frozenset({"free_bytes", "checked_at", "reported_at", "at", "mono", "server_time"})
+
+
+def steady(value):
+    if isinstance(value, dict):
+        return {key: steady(item) for key, item in value.items() if key not in VOLATILE}
+    if isinstance(value, list):
+        return [steady(item) for item in value]
+    return value
+
 
 def checkout_status(root=None, running=None, run=subprocess.run):
     """How the runner's own checkout stands against origin/main, for the heartbeat (#492): commits
@@ -162,6 +174,9 @@ def checkout_status(root=None, running=None, run=subprocess.run):
 # for a person (it needs a pip install), and so is anything not run by a supervisor.
 CLAIM_EVERY = 0.25       # seconds between claims while work is arriving
 CLAIM_IDLE_MAX = 2       # and the most an idle runner leaves between them
+# With the event stream up, a claim waits for a `work` event (or the backup pass). One that comes up empty
+# (the bot is mid-turn, the computer has just woken) is tried again, backing off, for this long.
+CLAIM_HINT_S = 150
 SELF_UPDATE_DRAIN_S = 20 * 60
 # One long turn held every bot on a Mac for half an hour after a UI-only merge.
 # The runner process loads only these; everything else (bot repos, registry, prompts, the web UI,
@@ -595,6 +610,7 @@ class Runner:
                                 "readiness check succeeded again")
         self.published_agent_instructions = {}
         self.logins = Logins(self)
+        self.events = runner_events.Events(self.client, log=log)    # the server's word on what changed here
         self.shared_checkouts = {}
         self.assignments_seen = []    # the last runners/assignments answer, for the watchers (runner/watchers.py)
         self.watchers = Watchers(self)
@@ -3121,21 +3137,30 @@ class Runner:
             except Exception as exc:        # never let one saved result stop the runner starting
                 log(f"Tico runner: could not recover {row.get('id')} ({type(exc).__name__}); will retry")
 
-    def maintain(self):
-        repository_rows = self.repositories.poll()
-        assignments = self.client.get("runners/assignments")
-        self.process_assignment_cleanups()
-        self.migrate_credentials(assignments)
-        self.bot_credential_names = self.client.get("runner-credential-grants")["bots"]
-        self.assignments_seen = assignments
+    def maintain(self, full=True, forced=True):
+        """Readiness, and the server reads it rests on. `full` re-reads this computer's bots, their
+        credentials, repositories and worktrees from the server; without it (the event stream is up and
+        said nothing of them) the last answers stand, and the heartbeat is sent only when `forced`, when
+        what it reports has changed, or once HEARTBEAT_LIVE_S has passed."""
+        if full:
+            repository_rows = self.repositories.poll()
+            assignments = self.client.get("runners/assignments")
+            self.process_assignment_cleanups()
+            self.migrate_credentials(assignments)
+            self.bot_credential_names = self.client.get("runner-credential-grants")["bots"]
+            self.assignments_seen = assignments
+        else:
+            repository_rows, assignments = None, self.assignments_seen
         candidates = self.readiness_candidates(assignments)
         runtimes = self.runtime_report(candidates)
         self.runtime_rows = runtimes
         checks = self.preflight(candidates, runtimes)
         agent_instructions, instruction_versions = self.changed_agent_instructions(assignments)
         # Install on demand: only what the enabled providers and this runner's bots need.
-        self.tools.want(self.enabled_providers(), {row["config"].get("runtime") for row in assignments})
-        self.follower.poll()     # the server's release, not main, is what a runner follows once the server names one
+        self.tools.want(self.enabled_providers(fetch=full), {row["config"].get("runtime") for row in assignments})
+        # The server's release, not main, is what a runner follows once the server names one; the stream says it too.
+        release = getattr(getattr(self, "events", None), "release", None)
+        self.follower.poll(None if full else release)
         if not self.follower.following and time.monotonic() - getattr(self, "_checkout_at", -CHECKOUT_EVERY_S) >= CHECKOUT_EVERY_S:
             self._checkout_at = time.monotonic()
             self._checkout = checkout_status(running=getattr(self, "revision", None))
@@ -3171,11 +3196,22 @@ class Runner:
         if time.monotonic() >= getattr(self, "_profiles_after", 0):
             body["profiles"] = self.profile_report()
         if hasattr(self, "worktrees") and time.monotonic() >= getattr(self, "_worktrees_after", 0):
-            body["worktrees"] = self.worktrees.poll()
+            body["worktrees"] = self.worktrees.poll() if full else self.worktrees.latest()
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
                 row.pop("credential_source", None)
+        # The repositories report rides only on full passes, which are always sent.
+        printed = json.dumps(steady({key: value for key, value in body.items() if key != "repositories"}),
+                             sort_keys=True, default=str)
+        live = getattr(getattr(self, "events", None), "live", False)
+        if (not full and not forced and live and printed == getattr(self, "_beat_printed", None)
+                and time.monotonic() - getattr(self, "_beat_sent", 0) < runner_events.HEARTBEAT_LIVE_S):
+            (self.state.directory / "heartbeat").touch()     # alive and connected; nothing new to say
+            (self.state.directory / "runtimes.json").write_text(json.dumps(runtimes))
+            self.recover_output()
+            memory_history.due(self, assignments)
+            return
         try:
             beat = self.report_heartbeat(body)
         except APIError as exc:
@@ -3185,8 +3221,10 @@ class Runner:
             for row in runtime_rows:
                 row.pop("credential_source", None)
             beat = self.report_heartbeat(body)
-        if hasattr(self, "worktrees"):
-            self.worktrees.poll((beat or {}).get("worktree_actions", []))
+        self._beat_printed, self._beat_sent = printed, time.monotonic()
+        actions = (beat or {}).get("worktree_actions", [])
+        if hasattr(self, "worktrees") and (full or actions):
+            self.worktrees.poll(actions)
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
@@ -3347,17 +3385,23 @@ class Runner:
             except Exception as exc:
                 self.heartbeat.failed(exc)
             self.maintenance = None
-        if time.monotonic() - self.last_heartbeat >= 15 and self.maintenance is None:
-            self.maintenance = self.maintenance_pool.submit(self.maintain)
-            self.last_heartbeat = time.monotonic()
+        if self.maintenance is None:
+            # Readiness is worked out every 15 s as before; the server reads behind it run on the stream's word.
+            full = self.wants("sync", 15)
+            forced = self.wants("heartbeat", None)
+            if full or forced or time.monotonic() - self.last_heartbeat >= 15:
+                self.maintenance = self.maintenance_pool.submit(self.maintain, full, forced)
+                self.last_heartbeat = time.monotonic()
         self.warm.prune()
         self.poll_logins()
         # Optional on older servers; quota reads never interrupt turn execution.
         try:
-            from .subscription_refresh import Refreshes
+            from .subscription_refresh import POLL_SECONDS, Refreshes
             if not hasattr(self, 'subscription_refreshes'):
                 self.subscription_refreshes = Refreshes(self)
-            self.subscription_refreshes.poll()
+            refreshes = self.subscription_refreshes
+            # A refresh under way reports on its own timer; otherwise ask only when told to.
+            refreshes.poll(ask=None if refreshes.busy() else self.wants("refresh", POLL_SECONDS))
         except Exception:
             pass
         self.poll_credential_imports()
@@ -3372,7 +3416,7 @@ class Runner:
                 return        # a person asked: stop claiming so the running turns finish
         if self.follower.blocks_claims(bool(self.active)):
             return
-        while len(self.active) < self.capacity and time.monotonic() >= getattr(self, "next_claim", 0):
+        while len(self.active) < self.capacity and self.claim_due():
             result = self.claim_next()
             if result.get("attempt"):
                 attempt = result["attempt"]
@@ -3384,12 +3428,58 @@ class Runner:
                                                         (configured_fallback(config) or {}).get("runtime") or ""} - {""}
                 self.active[attempt["id"]] = self.pool.submit(self.execute, attempt)
             self.next_claim = time.monotonic() + self.claim_wait(bool(result.get("attempt")))
+            self.claimed(bool(result.get("attempt")))
             if result.get("paused") and result["paused"] != getattr(self, "_paused_note", None):
                 self._paused_note = result["paused"]
                 log(f"Tico runner: the server is not giving this computer work: {result['paused']}")
             if not result["attempt"]:
                 break
             self.next_claim = 0             # one job often means more: ask again at once
+
+    def wants(self, channel, every):
+        """Whether `channel`'s server read runs now: the event stream asked for it, it has never run, or
+        its interval has passed: `every` (None: never on a timer) while the stream is down, as before the
+        stream, and BACKUP_POLL_S while it is up (runner/runner_events.py)."""
+        now = time.monotonic()
+        polled = self.__dict__.setdefault("_polled", {})
+        events = getattr(self, "events", None)
+        if events is not None and events.take(channel):
+            due = True
+        elif every is None:
+            return False
+        elif channel not in polled:
+            due = True
+        else:
+            due = now - polled[channel] >= (runner_events.BACKUP_POLL_S if events is not None and events.live else every)
+        if due:
+            polled[channel] = now
+        return due
+
+    def claim_due(self):
+        """Whether to ask for work now. Without the stream, on the claim timer (claim_wait). With it: on a
+        `work` event, at once when capacity came free or the last claim took a job, and otherwise only to
+        follow up an event whose claim came up empty, or at the backup pass."""
+        now = time.monotonic()
+        events = getattr(self, "events", None)
+        if events is None or not events.live:
+            return now >= getattr(self, "next_claim", 0)
+        if events.take("claim"):
+            self._claim_hint = (now + CLAIM_HINT_S, CLAIM_IDLE_MAX)
+            return True
+        return getattr(self, "next_claim", 0) == 0 or now >= getattr(self, "_claim_live_at", 0)
+
+    def claimed(self, got):
+        """Schedule the next claim the stream would not prompt: a job queued for a bot mid-turn, or for a
+        computer the server holds back while it settles after waking, is asked for again, backing off."""
+        if got:
+            return
+        now = time.monotonic()
+        until, wait = getattr(self, "_claim_hint", (0, CLAIM_IDLE_MAX))
+        if now < until:
+            self._claim_live_at = now + wait
+            self._claim_hint = (until, min(60, wait * 2))
+        else:
+            self._claim_live_at = now + runner_events.BACKUP_POLL_S
 
     def claim_next(self):
         manager = getattr(self, "worktrees", None)
@@ -3415,7 +3505,7 @@ class Runner:
         turn uses that harness; a failure here is logged and never stops the runner."""
         busy = set().union(*self.attempt_runtimes.values()) if self.attempt_runtimes else set()
         try:
-            self.harness_relay.tick(busy)
+            self.harness_relay.tick(busy, ask=self.wants("harness", self.harness_relay.POLL_S))
         except Exception as exc:
             if getattr(self, "_harness_poll_error", None) != describe(exc):
                 self._harness_poll_error = describe(exc)
@@ -3430,9 +3520,10 @@ class Runner:
                 self._watcher_error = describe(exc)
                 log(f"Tico runner: watcher step failed ({self._watcher_error}); will retry")
 
-    def enabled_providers(self):
-        """The company's enabled AI providers, from the server; the last answer when it cannot be reached."""
-        if time.monotonic() - getattr(self, "_providers_at", -60) >= 60:
+    def enabled_providers(self, fetch=True):
+        """The company's enabled AI providers, from the server; the last answer when it cannot be reached
+        or was not asked (`fetch` false: a pass the event stream said nothing for)."""
+        if fetch and time.monotonic() - getattr(self, "_providers_at", -60) >= 60:
             try:
                 value = (self.client.get("config") or {}).get("enabled_providers")
                 if isinstance(value, list):
@@ -3443,9 +3534,13 @@ class Runner:
         return list(getattr(self, "_providers", []))
 
     def poll_logins(self):
-        """Browser sign-ins are best effort: a failed poll is tried again, never a runner outage."""
+        """Browser sign-ins are best effort: a failed poll is tried again, never a runner outage. One under
+        way is followed on its own timer (its terminal moves); otherwise the server is asked when it says."""
         try:
-            self.logins.poll()
+            if self.logins.sessions:
+                self.logins.poll()
+            elif self.wants("logins", LOGIN_POLL_S):
+                self.logins.poll(force=True)
         except Exception as exc:
             if getattr(self, "_login_poll_error", None) != describe(exc):
                 self._login_poll_error = describe(exc)
@@ -3454,9 +3549,8 @@ class Runner:
     def poll_credential_imports(self):
         """A credential administrator asked for one variable of a bot's own secrets file to move into Credentials
         (`hub credential import`). Best effort: a failed poll is tried again, never a runner outage."""
-        if time.monotonic() - getattr(self, "_imports_at", -CREDENTIAL_IMPORT_POLL_S) < CREDENTIAL_IMPORT_POLL_S:
+        if not self.wants("imports", CREDENTIAL_IMPORT_POLL_S):
             return
-        self._imports_at = time.monotonic()
         try:
             for item in (self.client.get("runner-credential-imports") or {}).get("imports", []):
                 self.import_credential(item)
@@ -3497,6 +3591,7 @@ class Runner:
             self.names()            # once at start, so no turn waits on it
             self.recover_output()
             threading.Thread(target=self.push_backlog, daemon=True).start()
+            self.events.start()
             while not self.stop.is_set():
                 try:
                     self.tick()
@@ -3510,6 +3605,7 @@ class Runner:
                 self.stop.wait(delay)
         finally:
             self.stop.set()
+            self.events.close()
             self.logins.stop()
             if hasattr(self, 'subscription_refreshes'):
                 self.subscription_refreshes.stop()

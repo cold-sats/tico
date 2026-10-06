@@ -35,8 +35,8 @@ def live(api, monkeypatch):
         time.sleep(0.01)
     assert server.started
     streams = []
-    yield lambda token="ana-test", query="", headers=None: streams.append(
-        Stream(f"http://127.0.0.1:{port}", token, query, headers)) or streams[-1]
+    yield lambda token="ana-test", query="", headers=None, path="/api/v2/events": streams.append(
+        Stream(f"http://127.0.0.1:{port}", token, query, headers, path)) or streams[-1]
     for stream in streams:
         stream.close()
     server.should_exit = True
@@ -48,10 +48,10 @@ def live(api, monkeypatch):
 class Stream:
     """An open `GET /api/v2/events`, read on a thread into a queue of {event, id, data}."""
 
-    def __init__(self, base, token, query="", headers=None):
+    def __init__(self, base, token, query="", headers=None, path="/api/v2/events"):
         url = urlparse(base)
         self.conn = http.client.HTTPConnection(url.hostname, url.port, timeout=30)
-        self.conn.request("GET", "/api/v2/events" + query,
+        self.conn.request("GET", path + query,
                           headers={"Authorization": "Bearer " + token, **(headers or {})})
         self.response = self.conn.getresponse()
         self.status = self.response.status
