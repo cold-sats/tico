@@ -109,7 +109,7 @@ class ContainerProbe:
 
     def due(self):
         every = FAILING_EVERY_S if self.last and self.last.get("ok") is False else EVERY_S
-        return self.at is None or time.monotonic() - self.at >= every
+        return self.at is None or time.monotonic() >= self.at + every
 
     def report(self):
         if not self.enabled:
