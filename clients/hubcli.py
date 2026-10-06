@@ -155,6 +155,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            humans and bots: who they are, Slack, what they own; each bot
                                            with its reports_to, group and template (the bots you may see)
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
+    hub health metrics [--minutes N]       the server's flight recorder (owners and admins)
                                            (the Assistant gets the live snapshot)
     hub update list [--kind daily|weekly] [--bot X] [--unread] [--limit N]
                                            the bots' updates, newest first
@@ -1164,9 +1165,13 @@ def parser():
     s.add_argument("--person", help="that human and everyone under them")
     s.add_argument("--team", help="a group id, like engineering or sales: that group and the groups in it")
     s.set_defaults(fn="team show")
-    s = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub").add_parser(
-        "check", help="what is wrong with the bots, most urgent first, each with its fix")
+    health = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub")
+    s = health.add_parser("check", help="what is wrong with the bots, most urgent first, each with its fix")
     s.set_defaults(fn="health check")
+    s = health.add_parser("metrics", help="the server's flight recorder: requests, CPU, loop lag, SQL, database size")
+    s.add_argument("--minutes", type=int)
+    s.add_argument("--section", help="requests, slow, process, sql, db or events; comma-separated")
+    s.set_defaults(fn="health metrics")
     changelog = sub.add_parser("changelog", help="shipped product changes and your own read state").add_subparsers(dest="sub")
     s = changelog.add_parser("list", help="what changed; --unread catches up since your last look")
     s.add_argument("--kind", choices=["product", "activity", "all"], default="product")

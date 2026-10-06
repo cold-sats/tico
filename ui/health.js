@@ -3,6 +3,7 @@
    the way into Settings, never in the main navigation. */
 let HL = null;
 let HL_LOAD = 0;
+let HL_METRICS = null;   // owners and admins: the last hour from the flight recorder (GET /api/v2/system/metrics)
 
 async function hlRefresh() {
   if (!S.me?.cloud) return null;
@@ -10,6 +11,11 @@ async function hlRefresh() {
   const data = await v2Get('/v2/health');
   if (seq !== HL_LOAD) return HL;
   HL = data && Array.isArray(data.checks) ? data : null;
+  if (HL && HL.audience !== 'human') {
+    const metrics = await v2Get('/v2/system/metrics?minutes=60');
+    if (seq !== HL_LOAD) return HL;
+    HL_METRICS = metrics && metrics.requests ? metrics : null;
+  } else HL_METRICS = null;
   // The sidebar's "New version" reads the same answer, so it never lags the page beside it.
   if (HL?.update && S.config) { S.config = {...S.config, update: HL.update}; window.renderNewVersion?.(); }
   hlNav();
@@ -99,9 +105,47 @@ function hlPageDraw() {
     : notes.length ? `Nothing urgent. ${notes.length} note${notes.length === 1 ? '' : 's'} below.` : 'Everything looks fine.'}</p>
     <ul class="hl-list">${HL.checks.map(hlCheckHtml).join('')}</ul>${hlStorageHtml(HL.storage)}
     ${notes.length ? `<h2>Not urgent</h2><ul class="hl-notes">${notes.map(issue => `<li><strong>${esc(issue.title)}</strong> <span class="muted">${esc(issue.detail || '')}</span></li>`).join('')}</ul>` : ''}
+    ${hlMetricsHtml(HL_METRICS)}
     ${HL.computers.length ? `<h2>Computers</h2><ul class="hl-computers">${HL.computers.map(hlComputerHtml).join('')}</ul>` : ''}
     ${HL.waiting.length || HL.slow.length ? `<h2>Bots waiting</h2><ul class="hl-bots">${bots(HL.waiting)}${bots(HL.slow)}</ul>` : ''}
     ${HL.failures.length ? `<h2>Failed in the last day</h2><ul class="hl-bots">${HL.failures.map(row => `<li>${esc(botDisplayName(row.bot))} <span class="muted">${esc(ago(row.at))}</span></li>`).join('')}</ul>` : ''}`;
+}
+
+const hlMs = ms => ms == null ? '–' : ms >= 60000 ? `${(ms / 60000).toFixed(1)} min` : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
+const hlPct = n => n == null ? '–' : `${Math.round(n)}%`;
+const hlAt = ts => ago(new Date(ts * 1000).toISOString());
+
+// The flight recorder's last hour (backend/flight.py): one line of numbers, then where the time went.
+function hlMetricsHtml(m) {
+  if (!m) return '';
+  const req = m.requests || {}, proc = m.process || {}, db = m.db || {};
+  const stalls = (m.events?.recent || []).filter(e => e.kind === 'stall');
+  const stat = (label, value, title = '') => `<span${title ? ` title="${esc(title)}"` : ''}><span class="muted">${label}</span> ${value}</span>`;
+  const growth = db.growth_24h == null ? '' : ` (${db.growth_24h >= 0 ? '+' : '−'}${bytes(Math.abs(db.growth_24h))}/day)`;
+  const stats = [
+    stat('CPU', hlPct(proc.cpu_avg), proc.cpu_max == null ? '' : `max ${hlPct(proc.cpu_max)}`),
+    stat('p95', hlMs(req.p95)),
+    stat('Loop lag', hlMs(proc.lag_max), 'max'),
+    stat('Requests', (req.n || 0).toLocaleString()),
+    req.errors ? `<span class="err">${req.errors.toLocaleString()} errors</span>` : '',
+    m.slow?.length ? stat('Slow', m.slow.length) : '',
+    proc.locked ? `<span class="err">${proc.locked} locked</span>` : '',
+    db.bytes ? stat('DB', bytes(db.bytes) + growth, db.wal_bytes ? `WAL ${bytes(db.wal_bytes)}` : '') : ''].filter(Boolean).join('');
+  const table = (head, rows) => rows.length ? `<div class="scroll"><table class="hl-table"><tr>${head.map((h, i) => `<th${i ? ' class="tnum"' : ''}>${h}</th>`).join('')}</tr>${rows.join('')}</table></div>` : '';
+  const routes = (req.routes || []).slice(0, 8).map(r => `<tr><td class="hl-code" title="${esc(Object.entries(r.callers || {}).map(([k, n]) => `${k} ${n}`).join(', '))}">${esc(r.route)}</td>
+    <td class="tnum">${r.n.toLocaleString()}</td><td class="tnum">${hlMs(r.p95)}</td><td class="tnum">${hlMs(r.total_ms)}</td></tr>`);
+  const sql = (m.sql?.queries || []).slice(0, 8).map(q => `<tr><td class="hl-code" title="${esc(q.sql)}">${esc(q.sql)}</td>
+    <td class="tnum">${q.n.toLocaleString()}</td><td class="tnum">${hlMs(q.p95)}</td><td class="tnum">${hlMs(q.total_ms)}</td></tr>`);
+  const slow = (m.slow || []).slice(0, 5).map(r => `<li><span class="hl-code">${esc(r.route)}</span> <span class="tnum">${hlMs(r.ms)}</span> <span class="muted">${esc(r.caller)} · ${esc(hlAt(r.ts))}</span></li>`).join('');
+  const stall = stalls.slice(0, 3).map(e => {
+    const loop = (e.threads?.busy || []).find(t => t.loop);
+    return `<li><details><summary><span class="err">Stalled ${esc(String(e.stalled_s))} s</span> <span class="muted">${esc(hlAt(e.at))}</span></summary>
+      <pre class="hl-stack">${esc((loop?.stack || []).slice().reverse().join('\n'))}</pre></details></li>`;
+  }).join('');
+  return `<h2>Performance <span class="muted hl-window">last hour</span></h2><div class="hl-stats tnum" data-hl-metrics>${stats}</div>
+    ${stall ? `<ul class="hl-bots">${stall}</ul>` : ''}
+    ${table(['Route', 'Calls', 'p95', 'Time'], routes)}${table(['SQL', 'Calls', 'p95', 'Time'], sql)}
+    ${slow ? `<h2>Slow requests</h2><ul class="hl-bots">${slow}</ul>` : ''}`;
 }
 
 async function hlCheckUpdates() {

@@ -177,3 +177,38 @@ Official SDK references consulted: [PostHog configuration](https://posthog.com/d
 [PostHog JavaScript SDK source/types](https://github.com/PostHog/posthog-js),
 [Sentry Python API](https://getsentry.github.io/sentry-python/api.html), and
 [Sentry JavaScript SDK](https://github.com/getsentry/sentry-javascript).
+
+## The flight recorder
+
+Separate from the optional services above, every server keeps its own performance history in its database, so a slow
+or pinned server can be explained with one query and a release compared with the one before it. Nothing in it leaves
+the server. It is on unless `TICO_FLIGHT_RECORDER=0`; the request path pays for two clock reads and a queue append, and a
+background thread does the rest and writes once a minute in one short transaction (`backend/flight.py`).
+
+| Table | What | Kept |
+| --- | --- | --- |
+| `flight_requests` | Per minute (`span` 60), per route template (`GET /api/v2/tasks`) and caller kind (`human`, `bot`, `runner`, `service`, `anonymous`): count, 5xx errors, response bytes, total, p50, p95 and max milliseconds. After two days, minutes become hours (`span` 3600). | 14 days |
+| `flight_slow` | Each request over one second: route, caller kind, actor id, milliseconds, bytes, status (at most 50 a minute). | 14 days, 5,000 rows |
+| `flight_process` | Per minute: CPU (% of one core), memory, threads, open files and sockets, event-loop lag (p95, max), SQL statements and time, write transactions with the longest lock wait and hold, and `database is locked` errors. | 14 days |
+| `flight_sql` | Per hour, per statement shape (literals folded): count, total, p95 and max milliseconds to the first row; the top 100 by time, the rest as `(other)`. | 90 days |
+| `flight_db` | Hourly: file, WAL and free bytes, size per table and index (when SQLite has `dbstat`), row counts of the growing tables and their oldest row. | 90 days |
+| `flight_events` | `start`: release, commit, Python, SQLite, a hash of the installed packages and of the non-secret settings (with a short hash per setting, so two starts show which changed; no values), and `provenance`: whether the image was built from its release tag's commit on GitHub (`match`, `mismatch`, `unverified`, `unknown`). `stall`: the event loop late by two seconds or more, with every busy thread's stack (file, line, function; never values), at most once in five minutes. | 90 days |
+
+Times are Unix seconds. A `mismatch` start shows as **Release image** on the Health page. The integrity of the
+database is checked by the daily verified backup (`PRAGMA integrity_check`), not here.
+
+Owners and admins (and BotOps for one of them) read it at `GET /api/v2/system/metrics?minutes=60&section=all`
+(`section`: any of `requests,slow,process,sql,db,events`), with `hub health metrics` or `hub_health_metrics`, and see the
+last hour under **Performance** on the Health page. `GET /api/v2/ops/timing` still answers with the last 300 requests per
+route since the start.
+
+```sql
+-- Where the last hour went, by route
+SELECT route, sum(n) AS calls, round(sum(total_ms) / 1000) AS seconds, max(p95) AS worst_p95
+FROM flight_requests WHERE ts > strftime('%s','now') - 3600 GROUP BY route ORDER BY seconds DESC LIMIT 10;
+-- CPU and loop lag around an incident
+SELECT datetime(ts,'unixepoch') AS minute, cpu, lag_max, wait_max, hold_max, locked FROM flight_process
+WHERE ts > strftime('%s','now') - 3 * 3600 ORDER BY ts;
+-- Stalls and what the event loop was doing
+SELECT datetime(ts,'unixepoch'), detail_json FROM flight_events WHERE kind='stall' ORDER BY id DESC LIMIT 5;
+```

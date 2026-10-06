@@ -3,7 +3,9 @@
 Per route, the last 300 requests: how long signing in took (it waits for a worker thread) and how
 long the whole answer took on the server. Also how late the event loop wakes up (a blocked loop
 delays every request) and how many requests are in flight. Numbers only: no paths with ids, no
-bodies, no people. `GET /api/v2/ops/timing` reads it; every answer carries `Server-Timing`.
+bodies, no people. `GET /api/v2/ops/timing` reads it; every answer carries `Server-Timing`. When the
+flight recorder is on (backend/flight.py), every request and loop wake is also handed to it, which keeps
+history in the database.
 """
 import asyncio
 import threading
@@ -25,16 +27,19 @@ class Timing:
         self.lag = deque(maxlen=keep)
         self.inflight = self.peak = 0
         self.since = time.time()
+        self.recorder = None
 
     def begin(self):
         with self.lock:
             self.inflight += 1
             self.peak = max(self.peak, self.inflight)
 
-    def end(self, route, auth_ms, total_ms):
+    def end(self, route, auth_ms, total_ms, caller="anonymous", status=200, nbytes=0, actor=""):
         with self.lock:
             self.inflight -= 1
             self.routes[route].append((auth_ms, total_ms))
+        if self.recorder is not None:
+            self.recorder.request(route, caller, status, total_ms, nbytes, actor)
 
     def summary(self):
         with self.lock:
@@ -53,7 +58,14 @@ class Timing:
 
 async def watch_loop(timing, stop, every=0.5):
     """How late the event loop wakes from a short sleep: anything blocking it shows here."""
-    while not stop.is_set():
-        started = time.perf_counter()
-        await asyncio.sleep(every)
-        timing.lag.append((time.perf_counter() - started - every) * 1000)
+    try:
+        while not stop.is_set():
+            started = time.perf_counter()
+            await asyncio.sleep(every)
+            lag = (time.perf_counter() - started - every) * 1000
+            timing.lag.append(lag)
+            if timing.recorder is not None:
+                timing.recorder.tick(lag)
+    finally:
+        if timing.recorder is not None:
+            timing.recorder.beat = None     # a probe that stopped is not a stalled loop

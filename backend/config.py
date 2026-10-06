@@ -147,6 +147,9 @@ class Settings:
     cors_origins: tuple[str, ...] = ()
     lease_seconds: int = 90
     scheduler_enabled: bool = False
+    # The flight recorder (backend/flight.py): request, process and database history in this database. On unless
+    # TICO_FLIGHT_RECORDER=0; off by default here so tests opt in.
+    flight_recorder: bool = False
     blob_dir: Path | None = None
     blob_bucket: str = ""
     blob_region: str = ""
@@ -333,6 +336,7 @@ class Settings:
             session_absolute_seconds=max(60, int(os.environ.get("TICO_SESSION_ABSOLUTE_SECONDS", "") or 90 * 86400)),
             cors_origins=os.environ.get("TICO_CORS_ORIGINS", ""),
             scheduler_enabled=not rehearsal and os.environ.get("TICO_SCHEDULER", "1") == "1",
+            flight_recorder=os.environ.get("TICO_FLIGHT_RECORDER", "1") != "0",
             rehearsal=rehearsal,
             blob_dir=Path(os.environ["TICO_BLOB_DIR"]) if os.environ.get("TICO_BLOB_DIR") else None,
             blob_bucket=os.environ.get("TICO_BLOB_BUCKET", ""),

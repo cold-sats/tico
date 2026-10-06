@@ -132,10 +132,13 @@ RUN chmod 0755 /usr/local/bin/tico-entrypoint \
 COPY --from=venv /opt/tico/.venv /opt/tico/.venv
 COPY --from=source /opt/tico /opt/tico
 ARG TICO_VERSION=dev
+# The commit is also in release-manifest.json, which the flight recorder checks against the release tag (backend/flight.py).
+ARG TICO_COMMIT
 WORKDIR /opt/tico
 ENV PATH=/opt/tico/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TICO_VERSION=${TICO_VERSION} TICO_RELEASE=${TICO_VERSION}
 LABEL org.opencontainers.image.version=${TICO_VERSION} \
+      org.opencontainers.image.revision=${TICO_COMMIT} \
       org.opencontainers.image.source=https://github.com/ticoteam/tico \
       org.opencontainers.image.licenses=LicenseRef-PolyForm-Perimeter-1.0.1
 EXPOSE 8765
