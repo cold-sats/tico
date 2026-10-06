@@ -1384,9 +1384,8 @@ class Store:
 
     def ring(self, seq):
         """After a commit that logged changes: wake the open event streams (backend/events.py)."""
-        if seq:
-            from .events import bell
-            bell(self).ring(seq)
+        from .events import ring
+        ring(self, seq)
 
     def enqueue_existing(self):
         with self.transaction() as c:

@@ -194,7 +194,7 @@ def test_a_bots_own_secret_moves_into_the_vault_over_its_computer_and_is_then_sh
         # A name that is not in that bot's own file (another bot's, or _shared.env's) is not found there.
         for env in ("OPS_ONLY_KEY", "SHARED_KEY"):
             missing = post(api, "credential-imports", {"env": env, "bot": "finance"}, "ana-test")
-            service._imports_at = -100
+            service._polled.pop("imports", None)
             service.poll_credential_imports()
             failed = get(api, f"credential-imports/{missing['id']}", "ana-test")
             assert failed["state"] == "failed" and "secrets file" in failed["message"], failed
@@ -241,7 +241,7 @@ def test_the_import_tool_asks_as_the_requester_and_waits_for_the_computer(api, b
             assert event["actor"] == "human:ana" and '"via": "botops"' in event["detail_json"]
         # A variable that is not in the file is a plain failure the tool reports, not a wait.
         (tmp_path / "secrets" / "finance.env").write_text("SOMETHING_ELSE=x\n")
-        service._imports_at = -100
+        service._polled.pop("imports", None)
         err, still = mcp(api, "hub_credential_import", {"env": "MISSING_KEY", "from_bot": "finance", "wait": 0}, token=ana["token"])
         assert not err and still["state"] == "waiting"
         service.poll_credential_imports()

@@ -42,6 +42,7 @@ from .store import H, Problem, encode
 TOPICS = ("tasks", "messages", "runs", "bots", "needs")
 KEEP_HOURS = 24           # a client away longer than this reads in full
 FALLBACK_SECONDS = 1.5    # the shared look for changes another process wrote
+RUNNER_FALLBACK_SECONDS = 5  # the same for computers' streams: work another process queued waits this long at most
 LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
 KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts
 GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
@@ -206,6 +207,107 @@ TRIGGERS = [
     ("changes_approvals_update", "UPDATE", "approvals", _changed("decision", "consumed_at"),
      _needs("approval", "(SELECT to_actor FROM messages WHERE id=NEW.message_id)")),
 ]
+
+# ---------------------------------------------------------------- what a computer is told
+#
+# A runner used to ask a dozen endpoints on timers whether anything was new for it, and almost
+# every answer was no. The same log now carries `runner` rows: one per computer a write concerns,
+# its id as the subject, naming which of the computer's reads to repeat. A row carries a kind and
+# at most a bot slug, never a value (`GET /api/v2/runners/me/events`, runner/runner_events.py).
+RUNNER_KINDS = ("work", "assignments", "credentials", "cleanups", "repositories", "worktrees", "restart",
+                "logins", "harness_actions", "credential_imports", "subscription_refresh")
+_BOT_RUNNER = "SELECT runner_id AS rid FROM assignments WHERE bot={bot}"
+# Credentials and repositories are rare company-wide changes: every computer re-reads its share.
+_ALL_RUNNERS = "SELECT id AS rid FROM runners WHERE revoked_at IS NULL"
+_TASK_COMPUTERS = "SELECT computer_id AS rid FROM task_links WHERE task_id={task} AND kind='worktree'"
+_REFRESH_RUNNER = ("SELECT substr(NEW.key,22,instr(substr(NEW.key,22),':')-1) AS rid "
+                   "WHERE NEW.key LIKE 'subscription-refresh:%'")
+_MIGRATIONS = "NEW.key IN ('credential-file-migration-v1','credential-file-migration-v2-hub')"
+_WORKTREE_LINK = "{row}.kind IN ('worktree','pr')"
+
+
+def _tell(kind, runners, bot="NULL"):
+    """A `runner` row of `kind` for each computer `runners` (a SELECT of one column, `rid`) yields."""
+    return (f"INSERT INTO changes(topic,kind,subject_id,bot,at) SELECT DISTINCT 'runner','{kind}',rid,{bot},{_NOW} "
+            f"FROM ({runners}) WHERE rid IS NOT NULL AND rid<>'';")
+
+
+def _bot_runner(kind, bot):
+    return _tell(kind, _BOT_RUNNER.format(bot=bot), bot)
+
+
+RUNNER_TRIGGERS = [
+    # Work for a bot this computer runs: a job queued or requeued (a lapsed lease), the bot resumed or undrained.
+    ("changes_runner_jobs_insert", "INSERT", "jobs", "NEW.state='queued'", _bot_runner("work", "NEW.bot")),
+    ("changes_runner_jobs_update", "UPDATE", "jobs", "NEW.state='queued' AND OLD.state IS NOT 'queued'",
+     _bot_runner("work", "NEW.bot")),
+    ("changes_runner_bots_update", "UPDATE", "bots", _changed("state"),
+     _bot_runner("work", "NEW.slug") + _bot_runner("assignments", "NEW.slug")),
+    ("changes_runner_bot_control_update", "UPDATE", "bot_control", None, _bot_runner("work", "NEW.bot")),
+    ("changes_runner_bot_control_delete", "DELETE", "bot_control", None, _bot_runner("work", "OLD.bot")),
+    # Which bots it runs, and how they are configured (runners/assignments carries the config).
+    ("changes_runner_assignments_insert", "INSERT", "assignments", None,
+     _tell("assignments", "SELECT NEW.runner_id AS rid", "NEW.bot") + _tell("work", "SELECT NEW.runner_id AS rid", "NEW.bot")),
+    ("changes_runner_assignments_update", "UPDATE", "assignments", _changed("runner_id", "generation"),
+     _tell("assignments", "SELECT OLD.runner_id AS rid UNION SELECT NEW.runner_id", "NEW.bot")
+     + _tell("work", "SELECT NEW.runner_id AS rid", "NEW.bot")),
+    ("changes_runner_assignments_delete", "DELETE", "assignments", None,
+     _tell("assignments", "SELECT OLD.runner_id AS rid", "OLD.bot")),
+    ("changes_runner_bot_config_update", "UPDATE", "bot_config", _changed("config_json", "operator", "team"),
+     _bot_runner("assignments", "NEW.bot")),
+    ("changes_runner_cleanup_insert", "INSERT", "assignment_branch_cleanup", "NEW.state='requested'",
+     _tell("cleanups", "SELECT NEW.runner_id AS rid")),
+    ("changes_runner_cleanup_update", "UPDATE", "assignment_branch_cleanup",
+     f"NEW.state='requested' AND ({_changed('state', 'attempt')})", _tell("cleanups", "SELECT NEW.runner_id AS rid")),
+    # The names of the credentials its bots are granted, and the one-time move of secrets files.
+    ("changes_runner_credential_grants_insert", "INSERT", "credential_grants", None, _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_credential_grants_update", "UPDATE", "credential_grants", _changed("revoked", "subject"),
+     _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_credential_grants_delete", "DELETE", "credential_grants", None, _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_credentials_insert", "INSERT", "credentials", None, _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_credentials_update", "UPDATE", "credentials",
+     f"{_changed('env')} OR (OLD.ciphertext IS NULL) IS NOT (NEW.ciphertext IS NULL)", _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_credentials_delete", "DELETE", "credentials", None, _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_migration_insert", "INSERT", "registry_metadata", _MIGRATIONS, _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_migration_update", "UPDATE", "registry_metadata", _MIGRATIONS, _tell("credentials", _ALL_RUNNERS)),
+    ("changes_runner_refresh_insert", "INSERT", "registry_metadata", "NEW.key LIKE 'subscription-refresh:%'",
+     _tell("subscription_refresh", _REFRESH_RUNNER)),
+    ("changes_runner_refresh_update", "UPDATE", "registry_metadata", "NEW.key LIKE 'subscription-refresh:%'",
+     _tell("subscription_refresh", _REFRESH_RUNNER)),
+    ("changes_runner_imports_insert", "INSERT", "credential_imports", "NEW.state='requested'",
+     _bot_runner("credential_imports", "NEW.bot")),
+    ("changes_runner_imports_update", "UPDATE", "credential_imports", "NEW.state='requested' AND OLD.state IS NOT 'requested'",
+     _bot_runner("credential_imports", "NEW.bot")),
+    # Repositories its bots may read: a bot's own list, or the company's.
+    ("changes_runner_repo_access_insert", "INSERT", "bot_repo_access", None, _bot_runner("repositories", "NEW.bot")),
+    ("changes_runner_repo_access_update", "UPDATE", "bot_repo_access", None, _bot_runner("repositories", "NEW.bot")),
+    ("changes_runner_repo_access_delete", "DELETE", "bot_repo_access", None, _bot_runner("repositories", "OLD.bot")),
+    ("changes_runner_repositories_insert", "INSERT", "repositories", None, _tell("repositories", _ALL_RUNNERS)),
+    ("changes_runner_repositories_update", "UPDATE", "repositories",
+     _changed("enabled", "default_branch", "setup_command", "full_name"), _tell("repositories", _ALL_RUNNERS)),
+    ("changes_runner_repositories_delete", "DELETE", "repositories", None, _tell("repositories", _ALL_RUNNERS)),
+    # A worktree action (remove, restore) comes due with its links or its pull requests. One due because its
+    # task closed rides on the next heartbeat (at least once a minute): a trigger on tasks reading task_links
+    # would break any migration that rebuilds task_links.
+    ("changes_runner_task_links_insert", "INSERT", "task_links", _WORKTREE_LINK.format(row="NEW"),
+     _tell("worktrees", _TASK_COMPUTERS.format(task="NEW.task_id"))),
+    ("changes_runner_task_links_update", "UPDATE", "task_links",
+     _WORKTREE_LINK.format(row="NEW") + " OR " + _WORKTREE_LINK.format(row="OLD"),
+     _tell("worktrees", _TASK_COMPUTERS.format(task="NEW.task_id") + " UNION SELECT OLD.computer_id")),
+    ("changes_runner_task_links_delete", "DELETE", "task_links", _WORKTREE_LINK.format(row="OLD"),
+     _tell("worktrees", _TASK_COMPUTERS.format(task="OLD.task_id") + " UNION SELECT OLD.computer_id")),
+    # Sign-ins, harness installs and quota reads a person asked this computer for, and Restart.
+    ("changes_runner_logins_insert", "INSERT", "model_logins", None, _tell("logins", "SELECT NEW.runner_id AS rid")),
+    ("changes_runner_logins_update", "UPDATE", "model_logins", None, _tell("logins", "SELECT NEW.runner_id AS rid")),
+    ("changes_runner_harness_insert", "INSERT", "runner_harness_actions", None,
+     _tell("harness_actions", "SELECT NEW.runner_id AS rid")),
+    ("changes_runner_harness_update", "UPDATE", "runner_harness_actions", None,
+     _tell("harness_actions", "SELECT NEW.runner_id AS rid")),
+    ("changes_runner_restart", "UPDATE", "runners",
+     "NEW.restart_requested IS NOT NULL AND OLD.restart_requested IS NULL", _tell("restart", "SELECT NEW.id AS rid")),
+]
+TRIGGERS += RUNNER_TRIGGERS
+
 # Tables (and `table.column`s) a trigger's body reads besides its own: without them it is skipped,
 # so a write never fails on a table this install does not have.
 NEEDS = {
@@ -219,6 +321,10 @@ NEEDS = {
     "changes_task_steps_update": ("tasks.step_id",),
     "changes_task_steps_delete": ("tasks.step_id",),
     "changes_attempts_carried": ("tasks.carried_by",),
+    "changes_runner_task_links_insert": ("task_links.computer_id",),
+    "changes_runner_task_links_update": ("task_links.computer_id",),
+    "changes_runner_task_links_delete": ("task_links.computer_id",),
+    "changes_runner_restart": ("runners.restart_requested",),
 }
 # #118's first cut, replaced by `changes`.
 _RETIRED = ["task_changes_insert", "task_changes_update", "task_changes_delete",
@@ -289,7 +395,32 @@ def claim(c, since, actor):
     if actor:
         c.execute("UPDATE changes SET actor=? WHERE seq>? AND actor IS NULL", (str(actor), since))
     newest = c.execute("SELECT COALESCE(MAX(seq),0) FROM changes").fetchone()[0]
-    return newest if newest > since else None
+    if newest <= since:
+        return None
+    logged = Logged(newest)
+    logged.runner = c.execute("SELECT MAX(seq) FROM changes WHERE topic='runner' AND seq>?", (since,)).fetchone()[0]
+    return logged
+
+
+class Logged(int):
+    """The newest change number a write logged; `runner` is its newest `runner` row, if it made one."""
+    runner = None
+
+
+def ring(store, seq):
+    """After a commit that logged changes: wake the open streams, and the computers' only when the
+    write logged something for a computer, so run output never wakes a runner's stream."""
+    if seq:
+        bell(store).ring(seq)
+        if getattr(seq, "runner", None):
+            runner_bell(store).ring(seq.runner)
+
+
+def runner_latest(c):
+    try:
+        return c.execute("SELECT COALESCE(MAX(seq),0) FROM changes WHERE topic='runner'").fetchone()[0]
+    except sqlite3.OperationalError:
+        return 0
 
 
 def latest(c):
@@ -327,7 +458,9 @@ class Doorbell:
     has nothing to read. One reader per event loop keeps it current for writes this process did
     not make, so no client polls on its own."""
 
-    def __init__(self):
+    def __init__(self, look=None, every=None):
+        self._look = look or latest       # what the shared reader asks the database for
+        self._every = every or FALLBACK_SECONDS
         self._lock = threading.Lock()
         self._waiters = set()
         self._readers = {}
@@ -387,10 +520,10 @@ class Doorbell:
     async def _read(self, store, loop, state):
         def look():
             with store.read() as c:
-                return latest(c)
+                return self._look(c)
         try:
             while True:
-                await asyncio.sleep(FALLBACK_SECONDS)
+                await asyncio.sleep(self._every)
                 with self._lock:
                     if state["count"] <= 0:
                         if self._readers.get(loop) is state:
@@ -412,6 +545,15 @@ def bell(store):
     existing = getattr(store, "bell", None)
     if existing is None:
         existing = store.bell = Doorbell()
+    return existing
+
+
+def runner_bell(store):
+    """The doorbell for `runner` rows only: its `latest` is the newest of them, so a runner's
+    stream sleeps through every other change."""
+    existing = getattr(store, "runner_bell", None)
+    if existing is None:
+        existing = store.runner_bell = Doorbell(runner_latest, RUNNER_FALLBACK_SECONDS)
     return existing
 
 
@@ -757,6 +899,133 @@ def install(app, store, auth, task_views, task_view):
                     if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
                         try:
                             await asyncio.to_thread(check)
+                        except Problem:
+                            yield "event: expired\ndata: {}\n\n"
+                            return
+                        yield ": keepalive\n\n"
+                        quiet_since = time.monotonic()
+            finally:
+                leave()
+
+        return StreamingResponse(generate(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------- a computer's stream
+
+RUNNER_GATHER_SECONDS = 0.25   # one write often tells a computer two things (an assignment and its work)
+
+
+def runner_read(c, runner_id, actor, after, limit=BATCH):
+    """What a computer is told after change `after`: (events, cursor, reset, more), each event
+    (seq, {"seq", "kind", "bots"}), one per kind however many rows said it. Its own writes (a report,
+    a heartbeat) tell it nothing it does not know, except work: a lease its heartbeat expired requeues
+    a job. One indexed read, no per-row lookups."""
+    c.execute("BEGIN")                  # one snapshot: the bounds and the rows agree
+    try:
+        # A runner's token is its row: revoking the row is revoking the token, checked on every wake.
+        if not c.execute("SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL", (runner_id,)).fetchone():
+            raise Problem("forbidden", "This computer is no longer registered", 403)
+        newest = latest(c)
+        first = oldest(c)
+        floor = (first - 1) if first is not None else newest
+        if after > newest or after < floor:
+            return [], newest, True, False
+        rows = c.execute("SELECT seq,kind,bot FROM changes WHERE topic='runner' AND seq>? AND subject_id=? "
+                         "AND (actor IS NOT ? OR kind='work') ORDER BY seq LIMIT ?",
+                         (after, runner_id, actor, limit)).fetchall()
+        more = len(rows) >= limit
+        cursor = rows[-1]["seq"] if more else newest
+        kinds = {}
+        for row in rows:
+            entry = kinds.setdefault(row["kind"], {"seq": row["seq"], "kind": row["kind"], "bots": []})
+            entry["seq"] = row["seq"]
+            if row["bot"] and row["bot"] not in entry["bots"]:
+                entry["bots"].append(row["bot"])
+        events = sorted(((entry["seq"], entry) for entry in kinds.values()), key=lambda item: item[0])
+        return events, cursor, False, more
+    finally:
+        if c.in_transaction:
+            c.rollback()
+
+
+def install_runner(app, store, execution):
+    doorbell = runner_bell(store)
+
+    @app.get("/api/v2/runners/me/events")
+    async def runner_events(request: Request, after: int | None = None):
+        """Server-sent events for a computer: what changed for it, as hints to re-read one of its
+        endpoints (`event: runner`, `data: {seq, kind, bots}`), never a value. `ready` names this
+        server's release; `reset` means re-read everything. Ends with `expired` once the computer is
+        revoked, and on its own after LIFETIME_SECONDS; the runner reconnects with `after`."""
+        who = request.state.identity
+        if who.role != "runner":
+            raise Problem("forbidden", "A registered computer is required", 403)
+        resume = request.headers.get("last-event-id", "")
+        if resume.isdigit():
+            after = int(resume)
+
+        def touch():
+            # Contact, and the same check of the computer's row as every read: last_seen moves while the
+            # stream is open, and a revoked computer's stream ends within KEEPALIVE_SECONDS.
+            with store.transaction() as c:
+                execution.contact(c, who)
+
+        def start():
+            touch()
+            with store.read() as c:
+                return latest(c), runner_latest(c)
+
+        def poll(cursor):
+            with store.read() as c:
+                return runner_read(c, who.runner_id, who.actor, cursor)
+
+        now_seq, runner_seq = await asyncio.to_thread(start)
+        doorbell.observe(runner_seq)
+        cursor = after if after is not None and after >= 0 else now_seq
+        from . import runner_versions
+
+        async def generate():
+            nonlocal cursor
+            leave = doorbell.reader(store)
+            try:
+                yield "retry: 1000\n\n"
+                yield _frame(None, "ready", {"seq": now_seq, "after": cursor,
+                                             "release": runner_versions.desired().get("version", "")})
+                deadline = time.monotonic() + LIFETIME_SECONDS
+                # Contact is due every KEEPALIVE_SECONDS whatever is sent, so last_seen never lapses.
+                quiet_since = time.monotonic()
+                due = after is not None          # a resume catches up first
+                while True:
+                    if await request.is_disconnected():
+                        return
+                    generation = doorbell.generation
+                    if due or doorbell.latest > cursor:
+                        try:
+                            sent, next_cursor, reset, more = await asyncio.to_thread(poll, cursor)
+                        except Problem:
+                            yield "event: expired\ndata: {}\n\n"
+                            return
+                        due = more
+                        if reset:
+                            cursor = next_cursor
+                            yield _frame(cursor, "reset", {"seq": cursor})
+                        else:
+                            for seq, data in sent:
+                                yield _frame(seq, "runner", data)
+                            cursor = max(cursor, next_cursor)
+                        if more:
+                            continue
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return
+                    wait = min(remaining, max(0.0, KEEPALIVE_SECONDS - (time.monotonic() - quiet_since)))
+                    if await doorbell.wait(generation, wait):
+                        await asyncio.sleep(RUNNER_GATHER_SECONDS)
+                        continue
+                    if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
+                        try:
+                            await asyncio.to_thread(touch)
                         except Problem:
                             yield "event: expired\ndata: {}\n\n"
                             return

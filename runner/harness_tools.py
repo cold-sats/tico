@@ -738,9 +738,12 @@ class Relay:
         except Exception:
             return False
 
-    def tick(self, busy=(), force=False):
-        """Take new requests, advance the installer one step, report what finished."""
-        if force or time.monotonic() - self.polled >= self.POLL_S:
+    def tick(self, busy=(), force=False, ask=None):
+        """Take new requests, advance the installer one step, report what finished. `ask`: whether to
+        ask the server for requests (the runner's event stream decides); None, every POLL_S."""
+        if ask is None:
+            ask = force or time.monotonic() - self.polled >= self.POLL_S
+        if ask:
             self.polled = time.monotonic()
             reply = self.client.get("runner-harness-actions")
             for row in (reply or {}).get("actions", []):

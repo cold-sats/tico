@@ -71,9 +71,19 @@ class Refreshes:
         self.lock = threading.Lock()
         self.cancelled = threading.Event()
 
-    def poll(self):
-        if self.cancelled.is_set() or time.monotonic() - self.polled < POLL_SECONDS:
+    def busy(self):
+        """A read under way or a result not yet delivered: followed on its own timer."""
+        with self.lock:
+            return self.result is not None or bool(self.thread and self.thread.is_alive())
+
+    def poll(self, ask=None):
+        """`ask`: whether to ask the server for work (the runner's event stream decides); None, on POLL_SECONDS."""
+        if self.cancelled.is_set():
             return
+        if ask is None:
+            if time.monotonic() - self.polled < POLL_SECONDS:
+                return
+            ask = True
         self.polled = time.monotonic()
         with self.lock:
             result, work = self.result, self.work
@@ -86,7 +96,7 @@ class Refreshes:
                     raise
             with self.lock:
                 self.result = self.work = None
-        if self.thread and self.thread.is_alive():
+        if self.thread and self.thread.is_alive() or not ask:
             return
         wanted = (self.runner.client.get('runner-subscription-refreshes') or {}).get('refreshes', [])
         if not wanted:

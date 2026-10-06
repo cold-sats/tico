@@ -409,10 +409,12 @@ class Follower:
         return self.kind != "docker" and (self.config.get("self_update") is False
                                           or self.env.get("TICO_RUNNER_SELF_UPDATE") == "0")
 
-    def poll(self):
+    def poll(self, desired=None):
+        """`desired`: the release the server's event stream named, so it need not be asked."""
         from clients.tico import APIError
         try:
-            self.desired = str((self.client.get("runners/desired") or {}).get("version") or "")
+            self.desired = str(desired if desired is not None else
+                               (self.client.get("runners/desired") or {}).get("version") or "")
         except APIError as exc:
             if exc.status not in (404, 405):
                 return                   # a blip: keep what we knew
