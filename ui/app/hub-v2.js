@@ -112,7 +112,7 @@ function agentNotice(slug) {
   const a = e.agent, name = agentKind(a);
   // A Grok Bot is synced in by its person's own Grok routine (docs/grok-bot-sync.md): its
   // history is copied here, but nothing written here reaches it yet.
-  if (a.synced) return `${empName(slug)} is a Grok Bot synced from Grok${a.last_seen ? ` · last synced ${ago(a.last_seen)}` : ''} — its Grok history is copied here; messages sent here wait for it`;
+  if (a.synced) return `${empName(slug)} is a Grok Bot synced from Grok${a.last_seen ? ` · last synced ${ago(a.last_seen)}` : ''} — its Grok history is copied here; messages sent here are stored in Tico and are not relayed back to Grok`;
   const issue = (S.status?.health_issues || []).find(i => i.kind === 'agent' && i.bot === slug);
   if (issue ? /no agent credential/.test(issue.title) : !a.credential)
     return `${empName(slug)} is a ${name} with no credential yet — messages wait until one is created in Settings and installed on its computer`;
