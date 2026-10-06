@@ -7,7 +7,8 @@ signed-in person as they commit, filtered to what that person may read:
 
 - `tasks`: a task as the list shows it to the viewer, or `gone` for one deleted. Anything the list
   shows of a task (its tags, files, relations, open ask, routine, step) logs the task, so a task
-  list can also be caught up from a change number (backend/task_reads.py).
+  list can also be caught up from a change number (backend/task_reads.py). One change to more than
+  FAN_CAP tasks (a type or tag edit) is a single `bulk: true`: read task lists in full.
 - `messages`: a message as a conversation page shows it, a deleted one, or a chat goal change.
 - `runs`: a bot run's output step, or its state moving (queued, started, finished).
 - `bots`: a bot's status line, as `GET /api/v2/status` shows it.
@@ -75,16 +76,27 @@ def _changed(*columns):
     return " OR ".join(f"OLD.{column} IS NOT NEW.{column}" for column in columns)
 
 
-def _fan(kind, ids, where=None):
+FAN_CAP = 100      # more tasks than this in one change: one `bulk` row, and lists read in full
+
+
+def _fan(kind, ids):
     """A `tasks` row for each task id `ids` (a SELECT of one column, `id`) yields: a change to
-    something many tasks show, such as a tag or a step."""
-    return (f"INSERT INTO changes(topic,kind,subject_id,at) SELECT 'tasks','{kind}',id,{_NOW} FROM ({ids}) "
-            f"WHERE id IS NOT NULL" + (f" AND {where}" if where else "") + ";")
+    something many tasks show, such as a tag or a step. Past FAN_CAP tasks (a type holding hundreds),
+    one `bulk` row instead: per-task rows would be hundreds of events to every open page, each
+    task loaded per viewer, where one full read of the list costs less."""
+    found = f"(SELECT id FROM ({ids}) WHERE id IS NOT NULL)"
+    many = f"(SELECT count(*) FROM (SELECT 1 FROM {found} LIMIT {FAN_CAP + 1}))>{FAN_CAP}"
+    return (f"INSERT INTO changes(topic,kind,subject_id,at) SELECT 'tasks','{kind}',id,{_NOW} FROM {found} "
+            f"WHERE NOT {many};"
+            f"INSERT INTO changes(topic,kind,at) SELECT 'tasks','bulk',{_NOW} WHERE {many};")
 
 
 # Who could read a task before this write: its parties and privacy, kept on the row when they
 # change (and on a delete), so a delta read says `gone` only to someone who could have seen it.
 _WAS = "json_array(OLD.owner,OLD.requester,OLD.private)"
+_MEDIA = ("width", "height", "thumb_blob_id", "poster_blob_id")
+_MEDIA_TASKS = ("SELECT task_id AS id FROM task_assets WHERE blob_id=NEW.blob_id UNION SELECT f.task_id "
+                "FROM bot_file_versions v JOIN bot_files f ON f.id=v.file_id WHERE v.blob_id=NEW.blob_id")
 _ASK_TASK = ("(SELECT " + H.MESSAGE_TASK_SQL + " FROM messages m LEFT JOIN conversations cv "
              "ON cv.id=m.conversation_id WHERE m.id={mid})")
 
@@ -126,12 +138,11 @@ TRIGGERS = [
     ("changes_bot_files_update", "UPDATE", "bot_files",
      f"(NEW.task_id IS NOT NULL OR OLD.task_id IS NOT NULL) AND ({_changed('task_id', 'archived', 'current_version', 'mime', 'locator')})",
      _fan("files", "SELECT NEW.task_id AS id UNION SELECT OLD.task_id")),
-    ("changes_blob_media_insert", "INSERT", "blob_media", None,
-     _fan("files", "SELECT task_id AS id FROM task_assets WHERE blob_id=NEW.blob_id UNION SELECT f.task_id "
-                   "FROM bot_file_versions v JOIN bot_files f ON f.id=v.file_id WHERE v.blob_id=NEW.blob_id")),
-    ("changes_blob_media_update", "UPDATE", "blob_media", None,
-     _fan("files", "SELECT task_id AS id FROM task_assets WHERE blob_id=NEW.blob_id UNION SELECT f.task_id "
-                   "FROM bot_file_versions v JOIN bot_files f ON f.id=v.file_id WHERE v.blob_id=NEW.blob_id")),
+    # The media pass writes blob_media for every blob, most of them on no task: only a size, a
+    # thumbnail or a poster (what a task's cover shows) is looked up, by index.
+    ("changes_blob_media_insert", "INSERT", "blob_media",
+     " OR ".join(f"NEW.{column} IS NOT NULL" for column in _MEDIA), _fan("files", _MEDIA_TASKS)),
+    ("changes_blob_media_update", "UPDATE", "blob_media", _changed(*_MEDIA), _fan("files", _MEDIA_TASKS)),
     ("changes_schedule_occurrences_insert", "INSERT", "schedule_occurrences", "NEW.task_id IS NOT NULL",
      _row("tasks", "routine", "NEW.task_id")),
     ("changes_task_asks_insert", "INSERT", "messages", "NEW.kind IN ('ask','answer')",
@@ -233,9 +244,12 @@ def ensure(c):
         if column and table not in columns:
             columns[table] = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
         return not column or column in columns[table]
-    if has("tasks.carried_by"):
-        # The run trigger finds a next-run task by the attempt carrying it.
-        c.execute("CREATE INDEX IF NOT EXISTS tasks_carried_by ON tasks(carried_by) WHERE carried_by IS NOT NULL")
+    # What the triggers look tasks up by: a next-run task by the attempt carrying it, a cover by its blob.
+    for need, index in (("tasks.carried_by", "tasks_carried_by ON tasks(carried_by) WHERE carried_by IS NOT NULL"),
+                        ("task_assets", "task_assets_blob ON task_assets(blob_id)"),
+                        ("bot_file_versions", "bot_file_versions_blob ON bot_file_versions(blob_id)")):
+        if has(need):
+            c.execute("CREATE INDEX IF NOT EXISTS " + index)
     wanted = set()
     for name, event, table, when, body in TRIGGERS:
         if table not in tables or not all(has(need) for need in NEEDS.get(name, ())):
@@ -451,16 +465,21 @@ class _Viewer:
 
 def _tasks(view, rows, task_views):
     c, who = view.c, view.who
+    # A change to more tasks than one event each is worth (FAN_CAP): one `bulk` event, read lists in full.
+    bulk = [row for row in rows if row["kind"] == "bulk"]
+    out = [(bulk[-1], {"bulk": True})] if bulk else []
     last = {}
     for row in rows:
-        last[row["subject_id"]] = row
+        if row["kind"] != "bulk":
+            last[row["subject_id"]] = row
     ids = list(last)
+    if not ids:
+        return out
     visible_sql = view.auth.task_sql(c, who)
     marks = ",".join("?" * len(ids))
     found = H._rows(c.execute(f"SELECT * FROM tasks WHERE id IN ({marks}) AND ({visible_sql})", ids))
     views = {item["id"]: item for item in task_views(found, c, who, visible_sql)}
     present = {r[0] for r in c.execute(f"SELECT id FROM tasks WHERE id IN ({marks})", ids)}
-    out = []
     for task_id, row in last.items():
         entry = {"id": task_id}
         if task_id in views:

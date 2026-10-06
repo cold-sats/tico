@@ -3,6 +3,7 @@ what changed and what left, never naming a task the reader could not have seen; 
 resets; an unchanged full read is a 304."""
 
 from backend import events as E
+from backend.auth import Identity
 from backend import hubdb as H
 from backend.tests.test_api import api, get, headers, post, restrict  # noqa: F401
 
@@ -90,3 +91,27 @@ def test_an_unchanged_full_read_is_a_304_until_a_task_or_a_grant_changes(api):
         restrict(c, "ops", people=["ana"])
     hidden = read("tasks?" + ACTIVE, tag)
     assert hidden.status_code == 200 and task["id"] not in hidden.text
+
+
+def test_one_change_to_many_tasks_is_one_bulk_change_and_resets_lists(api):
+    seed = post(api, "tasks", {"owner": "ben", "title": "Tag the launch work", "body": "Please."})
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("INSERT INTO tags(id,key,label,created,updated) VALUES('tg1','launch','Launch',?,?)", (H.now(), H.now()))
+        columns = [row[1] for row in c.execute("PRAGMA table_info(tasks)") if row[1] not in ("id", "number")]
+        for n in range(E.FAN_CAP + 1):
+            c.execute(f"INSERT INTO tasks(id,{','.join(columns)}) SELECT ?,{','.join(columns)} FROM tasks WHERE id=?",
+                      (f"bulk{n}", seed["id"]))
+            c.execute("INSERT INTO task_tags(task_id,tag_id) VALUES(?, 'tg1')", (f"bulk{n}",))
+    cursor = tasks(api, ACTIVE)["cursor"]
+    with store.transaction() as c:
+        before = E.latest(c)
+        c.execute("UPDATE tags SET label='Launch week' WHERE id='tg1'")
+        assert [tuple(r) for r in c.execute("SELECT topic, kind, subject_id FROM changes WHERE seq>?", (before,))] == [
+            ("tasks", "bulk", None)]
+    assert delta(api, ACTIVE, cursor)["reset"] is True
+    # The stream sends it as one event, not one per task.
+    with store.read() as c:
+        ana = Identity("human:ana", "owner", "ana@acme.example")
+        sent, *_ = E.read(c, api.app.state.auth, ana, before, topics=("tasks",))
+    assert [data for _, _, data in sent if data.get("bulk")] and len(sent) == 1

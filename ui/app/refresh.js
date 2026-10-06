@@ -42,6 +42,10 @@ async function refresh(force) {
 // heartbeat, the paused notice), and Needs you (the tree's counts). Each surface redraws once per burst.
 function liveTasksApply(events) {
   const state = TASKS_ST;
+  // One change to many tasks (a type or tag edit) comes as one `bulk` event: the open list reads in full once (its
+  // cursor resets), and the other lists below reload as for any change.
+  const bulk = events.some(d => d.bulk);
+  if (bulk && state && isTasksRoute(S.route)) liveThrottle('tasks-bulk', () => { if (TASKS_ST === state) void tasksLoad(state); }, 5000);
   if (state && isTasksRoute(S.route) && state.tasks) {
     const known = new Map(state.tasks.map((t, i) => [String(t.id), i]));
     let changed = false;
@@ -61,7 +65,7 @@ function liveTasksApply(events) {
   // These read whole lists, so at most every 15 s and not in a hidden tab (liveThrottle).
   if (BOT && isKeeper(BOT.slug)) {
     const me = 'bot:' + BOT.slug;
-    if (events.some(d => d.gone || d.task?.owner === me || d.task?.requester === me)) liveThrottle('bot-tasks', () => {
+    if (events.some(d => d.bulk || d.gone || d.task?.owner === me || d.task?.requester === me)) liveThrottle('bot-tasks', () => {
       if (!BOT || BOT.slug !== me.slice(4)) return;
       if (BOT.loaded.has('tasks')) void loadBotTasksV2(BOT.slug);
       if (BOT.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
@@ -70,9 +74,9 @@ function liveTasksApply(events) {
   }
   if (typeof PERSON_TASKS !== 'undefined' && PERSON_TASKS) {
     const me = 'human:' + PERSON_TASKS;
-    if (events.some(d => d.gone || d.task?.owner === me)) liveThrottle('person-tasks', personTasksReload);
+    if (events.some(d => d.bulk || d.gone || d.task?.owner === me)) liveThrottle('person-tasks', personTasksReload);
   }
-  if (TASK_CHAT && events.some(d => String(d.id) === String(TASK_CHAT.id))) taskChatLive(TASK_CHAT);
+  if (TASK_CHAT && events.some(d => d.bulk || String(d.id) === String(TASK_CHAT.id))) taskChatLive(TASK_CHAT);
 }
 function liveWire() {
   if (!S.me?.cloud || !liveAvailable()) return;

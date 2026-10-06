@@ -274,7 +274,7 @@ data: {"seq": 4121, "attempt_id": "a1", "conversation_id": "c1", "bot": "ops", "
 
 | Topic | `data` |
 |---|---|
-| `tasks` | `id` and `task`, or `gone: true` for a deleted task |
+| `tasks` | `id` and `task`, or `gone: true` for a deleted task; `bulk: true` (no `id`) when one change touched more than 100 tasks, such as a type edit: read task lists in full |
 | `messages` | `id`, `conversation_id` and `message`, or `deleted: true`; a chat goal set, paused, met or stopped is `goal_id` and `goal` |
 | `runs` | `attempt_id`, `conversation_id`, `bot`, and `output` (one step of the run) or `state` (the job's or attempt's state) |
 | `bots` | `bot` and `status`, as `GET /api/v2/status` lists it |
@@ -320,7 +320,9 @@ GET /api/v2/tasks?lane=company&changed_after=<cursor>
   read, or out of the filters (a task that finished, under an active-status filter). Remove them. A task you could
   never read is never named.
 - `reset: true` means the cursor cannot be caught up (older than the day the log keeps, from before your access changed,
-  or more changes than a page): read in full. Treat the cursor as opaque.
+  more changes than a page, or one change to more than 100 tasks): read in full. Treat the cursor as opaque.
+- A task's open `ask` can lag: a change to who may read its conversation alone does not move the cursor or the ETag,
+  so it shows on the task's next change or full read.
 - A full read of `/api/v2/tasks` or `/api/v2/tasks/labels` (and `/api/v2/routines`) has an `ETag`. Send it back as
   `If-None-Match` and an unchanged answer is `304` with no body.
 

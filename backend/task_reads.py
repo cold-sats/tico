@@ -11,7 +11,8 @@ find that almost none had moved. Two things make a re-read cheap:
   longer match: deleted, no longer readable by the caller, or out of the filters) and a new
   `cursor`. A cursor older than the log keeps (24 h), ahead of it, malformed, read with different
   access (a grant, a team or a bot's access changed), or naming more changes than a page holds
-  answers `reset: true`, the events stream's word for it, and the client reads in full.
+  (or one change to many tasks, such as a type edit) answers `reset: true`, the events stream's
+  word for it, and the client reads in full.
 - **ETags.** A full read of tasks or labels is tagged with the newest task change, the reader's
   access, the display names and the query; routines with their rows. A matching `If-None-Match`
   is answered 304 with no body before any task row is loaded.
@@ -88,8 +89,10 @@ def changed(c, after, visible_sql):
     if seq > newest or seq < floor:
         return None
     was = {}
-    for subject, ref in c.execute("SELECT subject_id, ref FROM changes WHERE topic='tasks' AND seq>? ORDER BY seq",
-                                  (seq,)):
+    for subject, ref, kind in c.execute("SELECT subject_id, ref, kind FROM changes WHERE topic='tasks' AND seq>? "
+                                        "ORDER BY seq", (seq,)):
+        if kind == "bulk":          # one change to many tasks (events.FAN_CAP): read in full
+            return None
         if subject:
             was.setdefault(subject, [])
             if ref:
