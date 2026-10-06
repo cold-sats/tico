@@ -8,10 +8,11 @@ orjson encode, done in the thread pool for a sync handler. Anything orjson refus
 import functools
 import inspect
 import json
+import typing
 
 import orjson
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 OPTIONS = orjson.OPT_NON_STR_KEYS
 
@@ -39,16 +40,31 @@ def answering_json(endpoint, status_code=None):
     if inspect.isgeneratorfunction(endpoint) or inspect.isasyncgenfunction(endpoint):
         return endpoint
     code = status_code or 200
+    # A handler that takes FastAPI's `response: Response` sets headers (an ETag) or a status on it; FastAPI only
+    # applies those to answers it builds itself, so they are carried over here.
+    try:
+        hints = typing.get_type_hints(endpoint)
+    except Exception:
+        hints = getattr(endpoint, "__annotations__", {})
+    sub = next((name for name, kind in hints.items()
+                if name != "return" and isinstance(kind, type) and issubclass(kind, Response)), None)
 
-    def answer(out):
-        return OrjsonResponse(out, status_code=code) if isinstance(out, (dict, list)) else out
+    def answer(out, kwargs):
+        if not isinstance(out, (dict, list)):
+            return out
+        given = kwargs.get(sub) if sub else None
+        response = OrjsonResponse(out, status_code=(given.status_code if given is not None and given.status_code
+                                                    else code))
+        if given is not None:
+            response.headers.raw.extend((k, v) for k, v in given.headers.raw if k != b"content-length")
+        return response
 
     if inspect.iscoroutinefunction(endpoint):
         @functools.wraps(endpoint)
         async def run(*args, **kwargs):
-            return answer(await endpoint(*args, **kwargs))
+            return answer(await endpoint(*args, **kwargs), kwargs)
     else:
         @functools.wraps(endpoint)
         def run(*args, **kwargs):
-            return answer(endpoint(*args, **kwargs))
+            return answer(endpoint(*args, **kwargs), kwargs)
     return run

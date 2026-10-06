@@ -49,3 +49,16 @@ def test_handlers_keep_their_signature_and_kind():
     assert json.loads(asyncio.run(async_wrapped("t2")).body) == ["t2"]
     assert fast_json.answering_json(stream) is stream
     assert fast_json.answering_json(lambda: "text")() == "text"
+
+
+def test_headers_set_on_fastapis_response_are_kept():
+    from fastapi import Response
+
+    def listing(response: Response):
+        response.headers["ETag"] = '"v1"'
+        return {"tasks": []}
+
+    sub = Response()
+    sub.status_code = None
+    out = fast_json.answering_json(listing)(response=sub)
+    assert out.headers["etag"] == '"v1"' and out.status_code == 200 and json.loads(out.body) == {"tasks": []}
