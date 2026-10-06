@@ -1942,13 +1942,15 @@ def _task_private_writer(conn, actor, row):
         refuse(conn, actor, "not-found", "Task not found")
 
 
-def private_tasks_default(conn, actor):
+def private_tasks_default(conn, actor, declared=None):
+    """`declared(slug)` answers from bot configurations already read (backend/bot_rows.py)."""
     if not is_bot(actor) or not _has_table(conn, "bot_config"):
         return False
-    from .shared_bots import declared, source_of
-    config = declared(conn, actor_id(actor))
+    from .shared_bots import declared as stored, source_of
+    declared = declared or (lambda slug: stored(conn, slug))
+    config = declared(actor_id(actor))
     if source_of(config):
-        config = declared(conn, source_of(config))
+        config = declared(source_of(config))
     return config.get("private_tasks_default", config.get("template") == "general-counsel") is True
 
 
@@ -2361,7 +2363,16 @@ def _lane_for(conn, lane, owner, actor):
 
 
 def _has_table(conn, name):
-    return bool(conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+    # A store connection remembers the tables it has seen, per database file (backend/store.py `_pooled`):
+    # tables are created at start and not dropped while serving, and a restored file is a new file.
+    seen = getattr(conn, "tables_seen", None)
+    known = seen.setdefault(conn.pool_file, set()) if seen is not None and conn.pool_file is not None else None
+    if known is not None and name in known:
+        return True
+    present = bool(conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+    if present and known is not None:
+        known.add(name)
+    return present
 
 
 def _queue_end(conn, owner, top=False):
@@ -3564,6 +3575,23 @@ def next_run_tasks(conn, bot, exclude=None):
         "ORDER BY t.created,t.id", ("bot:" + bot, exclude)))
 
 
+def chunks(values, size=500):
+    """`values` in slices small enough for one statement's `IN (?,...)`."""
+    values = list(values)
+    return [values[start:start + size] for start in range(0, len(values), size)]
+
+
+def next_run_tasks_by(conn, bots):
+    """`next_run_tasks` for many bots in one query per 500: {slug: [task, ...]}, each oldest first."""
+    out = {bot: [] for bot in bots}
+    for part in chunks(out):
+        for row in _rows(conn.execute(
+                f"SELECT t.* FROM tasks t WHERE t.owner IN ({','.join('?' * len(part))}) AND {NEXT_RUN_WAITING_SQL} "
+                "ORDER BY t.created,t.id", ["bot:" + bot for bot in part])):
+            out[actor_id(row["owner"])].append(row)
+    return out
+
+
 def stuck_tasks(conn, hours=STUCK_HOURS, hidden=()):
     """Open work on an active bot that has not moved in `hours` and is waiting on nobody: no person
     owes an answer, no open task blocks it, it is not a quiet task, and no run for its bot is queued
@@ -3814,6 +3842,17 @@ def notes_waiting(conn, bot, limit=50):
     return _rows(conn.execute(
         f"SELECT n.* FROM notes n WHERE n.to_actor=? AND {NOTE_WAITING_SQL} ORDER BY n.created,n.id LIMIT ?",
         ("bot:" + bot, limit)))
+
+
+def notes_waiting_counts(conn, bots, limit=500):
+    """`len(notes_waiting(conn, bot, limit))` for many bots in one query per 500: {slug: count}."""
+    out = dict.fromkeys(bots, 0)
+    for part in chunks(out):
+        for row in conn.execute(f"SELECT n.to_actor,count(*) FROM notes n WHERE n.to_actor IN "
+                                f"({','.join('?' * len(part))}) AND {NOTE_WAITING_SQL} GROUP BY n.to_actor",
+                                ["bot:" + bot for bot in part]):
+            out[actor_id(row[0])] = min(row[1], limit)
+    return out
 
 
 def _wake(conn, task_row, target, body, refs=None, quiet_bots=False, quiet=False):

@@ -513,17 +513,23 @@ class Auth:
         owner_row = access._load_json(c, access.OWNER) or {}
         return email not in admins and email != str(owner_row.get("email") or "").lower()
 
-    def member_bot(self, c, slug):
+    def member_bot(self, c, slug, row=None, creators=None):
         """Whether a member (not an owner or an Admin) created this bot: those go only on computers that
-        accept members' bots. A bot with no recorded creator is the company's."""
-        row = c.execute("SELECT created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        accept members' bots. A bot with no recorded creator is the company's. `row` is the bot's
+        bot_config row when read already; `creators` ({created_by: answer}) keeps the answer per creator
+        across many bots in one request."""
+        row = row or c.execute("SELECT created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
         if not row or not row["created_by"] or not str(row["created_by"]).startswith("human:"):
             return False
+        if creators is not None and row["created_by"] in creators:
+            return creators[row["created_by"]]
         try:
-            creator = self.identity_for_actor(c, row["created_by"])
+            member = self.company_role(self.identity_for_actor(c, row["created_by"])) == "member"
         except Problem:
-            return True
-        return self.company_role(creator) == "member"
+            member = True
+        if creators is not None:
+            creators[row["created_by"]] = member
+        return member
 
     def company_role(self, who):
         """`owner`, `admin` or `member`: what the person is to the company."""

@@ -62,7 +62,8 @@ def references(c, value):
     return found
 
 
-def message_tasks(c, message, seen=None, include_run=True):
+def message_tasks(c, message, seen=None, include_run=True, current=False):
+    """`current`: `message` is its row as stored, read in this snapshot, so it is not read again."""
     snapshot(c)
     if not message:
         return set()
@@ -75,7 +76,7 @@ def message_tasks(c, message, seen=None, include_run=True):
         # An unbounded reply chain is an unsupported provenance path.
         raise Problem("privacy", "Message provenance is too deep to authorize", 403)
     seen.add(mid)
-    if mid:
+    if mid and not current:
         message = H.message(c, mid, include_deleted=True) or message
     conv = H.conversation(c, message["conversation_id"]) if message.get("conversation_id") else None
     refs = message.get("refs") or H._json(message.get("refs_json"), {}) or {}
@@ -129,19 +130,26 @@ def record_moved_input(c, from_attempt, to_attempt, message):
 def readable(c, actor, ids):
     snapshot(c)
     principals = actor if isinstance(actor, tuple) else (actor,)
-    return all(H.task_private_readable(c, a, H.task(c, tid)) for tid in ids for a in principals)
+    for tid in ids:
+        # The row alone decides: H.task's labels are not read, and it is read once for every principal.
+        row = H._one(c, "SELECT * FROM tasks WHERE id=?", (tid,))
+        if not all(H.task_private_readable(c, a, row) for a in principals):
+            return False
+    return True
 
 
-def message_readable(c, actor, message):
+def message_readable(c, actor, message, current=False):
+    """`current`: `message` is its full messages row, read in this snapshot (a join's `m.*`)."""
     snapshot(c)
     if not message:
         return False
     message = dict(message)
-    message = H.message(c, message.get("id"), include_deleted=True) or message
+    stored = message if current else H.message(c, message.get("id"), include_deleted=True)
+    message = stored or message
     if message.get("deleted_at") or message.get("deleted"):
         return False
     try:
-        return readable(c, actor, message_tasks(c, message))
+        return readable(c, actor, message_tasks(c, message, current=bool(stored)))
     except Problem:
         return False
 
@@ -192,8 +200,12 @@ def deleted_comment_ack(c, principal, payload):
     return readable(c, principal, message_tasks(c, current))
 
 
-def require_payload(c, who, payload, principal=None):
-    """Cached writes are reads too; a stored response cannot restore revoked access."""
+def require_payload(c, who, payload, principal=None, checked_for=None):
+    """Cached writes are reads too; a stored response cannot restore revoked access.
+
+    `checked_for` is the principal an enclosing call already checked every task this value names for:
+    a nested value names only tasks its container names, so that check is not run again for it (it was
+    one query per nested dict). Everything else is still checked at every level."""
     principal = principal or actor(who)
     if who.role == "runner" and isinstance(payload, dict) and principal == who.actor:
         attempt = payload.get("attempt")
@@ -209,7 +221,7 @@ def require_payload(c, who, payload, principal=None):
             principal = "bot:" + attempt["bot"]
             if not attempt_readable(c, principal, attempt.get("id")):
                 raise Problem("privacy", "This execution is no longer available", 403)
-    if not readable(c, principal, references(c, payload)):
+    if principal != checked_for and not readable(c, principal, references(c, payload)):
         raise Problem("privacy", "This response contains a task you can no longer read", 403)
     if isinstance(payload, dict):
         key = payload.get("key")
@@ -233,11 +245,11 @@ def require_payload(c, who, payload, principal=None):
             payload["answers"] = [answer for answer in payload["answers"] if answer in visible_answers]
         for value in payload.values():
             if isinstance(value, (dict, list)):
-                require_payload(c, who, value, principal)
+                require_payload(c, who, value, principal, principal)
     elif isinstance(payload, list):
         for value in payload:
             if isinstance(value, (dict, list)):
-                require_payload(c, who, value, principal)
+                require_payload(c, who, value, principal, principal)
     return payload
 
 
@@ -329,7 +341,39 @@ def require_destination(c, who, to, conversation_id, refs, reply=None):
         raise Problem("privacy", "Discuss private tasks in their task conversation", 403)
 
 
-def status(c, who, row, *, tasks=None, approvals=None):
+# A bot's unanswered questions to people, and its undecided approvals: `status` counts the readable ones.
+# `{}` is `=?` for one bot or `IN (...)` for many (`status_inputs`).
+ASKS_SQL = (f"SELECT m.*, {H.MESSAGE_TASK_SQL} AS about FROM messages m "
+            "JOIN conversations cv ON cv.id=m.conversation_id "
+            "WHERE m.kind='ask' AND m.from_actor{} AND m.to_actor LIKE 'human:%' "
+            "AND m.answered_by IS NULL AND m.deleted_at IS NULL AND NOT EXISTS "
+            "(SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')")
+APPROVALS_SQL = ("SELECT m.*, a.task_id AS approval_task{by} FROM approvals a JOIN messages m ON m.id=a.message_id "
+                 "WHERE a.requested_by{match} AND a.decision IS NULL")
+
+
+def status_inputs(c, bots):
+    """What `status` reads for each of many bots, one query per kind per 500 bots:
+    {slug: {"tasks": [...], "approvals": [...], "asks": [...]}}, to pass to `status` as keywords."""
+    snapshot(c)
+    out = {bot: {"tasks": [], "approvals": [], "asks": []} for bot in bots}
+    for part in H.chunks(out):
+        actors = ["bot:" + bot for bot in part]
+        marks = " IN (" + ",".join("?" * len(actors)) + ")"
+        for t in c.execute(f"SELECT * FROM tasks WHERE owner{marks} OR requester{marks}", actors * 2):
+            t = dict(t)
+            for party in {t["owner"], t["requester"]}:
+                if party in actors:
+                    out[H.actor_id(party)]["tasks"].append(t)
+        # Who asked is read alongside, to sort the rows, and left out of the rows `status` is given.
+        for m in c.execute(APPROVALS_SQL.format(by=", a.requested_by AS by_", match=marks), actors):
+            out[H.actor_id(m["by_"])]["approvals"].append({k: m[k] for k in m.keys() if k != "by_"})
+        for m in c.execute(ASKS_SQL.format(marks), actors):
+            out[H.actor_id(m["from_actor"])]["asks"].append(m)
+    return out
+
+
+def status(c, who, row, *, tasks=None, approvals=None, asks=None):
     """Free-form focus/results can contain task content; hide it when provenance is lost."""
     snapshot(c)
     if not row:
@@ -358,17 +402,10 @@ def status(c, who, row, *, tasks=None, approvals=None):
                  if (t["requester"] == bot and H.is_human(t["owner"]))
                  or (t["owner"] == bot and t["status"] == "waiting" and H.is_human(t.get("waiting_on") or ""))}
         if len(waits) < len(live):
-            for m in c.execute(
-                    f"SELECT m.*, {H.MESSAGE_TASK_SQL} AS about FROM messages m "
-                    "JOIN conversations cv ON cv.id=m.conversation_id "
-                    "WHERE m.kind='ask' AND m.from_actor=? AND m.to_actor LIKE 'human:%' "
-                    "AND m.answered_by IS NULL AND m.deleted_at IS NULL AND NOT EXISTS "
-                    "(SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')", (bot,)):
+            for m in asks if asks is not None else c.execute(ASKS_SQL.format("=?"), (bot,)):
                 if m["about"] in live and m["about"] not in waits and message_readable(c, actor(who), m):
                     waits.add(m["about"])
-        approvals = approvals if approvals is not None else c.execute(
-            "SELECT m.*, a.task_id AS approval_task FROM approvals a JOIN messages m ON m.id=a.message_id "
-            "WHERE a.requested_by=? AND a.decision IS NULL", ("bot:" + row["bot"],))
+        approvals = approvals if approvals is not None else c.execute(APPROVALS_SQL.format(by="", match="=?"), ("bot:" + row["bot"],))
         # An approval on a task already counted is the same wait, counted once (hubdb.status_counts).
         row["needs_human"] = len(waits) + sum(
             message_readable(c, actor(who), m) and not (dict(m).get("approval_task") in waits)
@@ -383,6 +420,20 @@ def job_count(c, who, bot, states=("queued",)):
                (not row["attempt_id"] or attempt_readable(c, actor(who), row["attempt_id"]))
                for row in c.execute("SELECT m.*,j.attempt_id FROM jobs j JOIN messages m ON m.id=j.message_id "
                                     f"WHERE j.bot=? AND j.state IN ({marks})", (bot, *states)))
+
+
+def job_counts(c, who, bots, states=("queued",)):
+    """`job_count` for many bots, reading their jobs in one query per 500 bots: {slug: count}.
+    Each job is still checked on its own."""
+    snapshot(c)
+    out = dict.fromkeys(bots, 0)
+    marks = ",".join("?" * len(states))
+    for part in H.chunks(out):
+        for row in c.execute("SELECT m.*,j.attempt_id,j.bot AS job_bot FROM jobs j JOIN messages m ON m.id=j.message_id "
+                             f"WHERE j.bot IN ({','.join('?' * len(part))}) AND j.state IN ({marks})", (*part, *states)):
+            out[row["job_bot"]] += bool(message_readable(c, actor(who), row, current=True) and
+                                        (not row["attempt_id"] or attempt_readable(c, actor(who), row["attempt_id"])))
+    return out
 
 
 def blob_readable(c, actor, bid, seen=None):

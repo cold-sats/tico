@@ -31,12 +31,17 @@ def source_of(config):
     return str((config or {}).get("shared_from") or "")
 
 
-def follow(c, bot, config):
-    """A branch's config with the original's behaviour in it; any other bot's config as it is."""
+def follow(c, bot, config, rows=None):
+    """A branch's config with the original's behaviour in it; any other bot's config as it is.
+    `rows(slug)` answers from bot_config rows already read (backend/bot_rows.py)."""
     source = source_of(config)
     if not source:
         return config
-    original = declared(c, source)
+    if rows is not None:
+        found = rows(source)
+        original = _json(found["config_json"]) if found else {}
+    else:
+        original = declared(c, source)
     if not original:
         return config
     merged = dict(config)
@@ -45,7 +50,8 @@ def follow(c, bot, config):
             merged[key] = original[key]
         else:
             merged.pop(key, None)
-    row = c.execute("SELECT repo FROM bot_config WHERE bot=?", (source,)).fetchone()
+    row = rows(source) if rows is not None else c.execute(
+        "SELECT repo FROM bot_config WHERE bot=?", (source,)).fetchone()
     if row:
         merged["repo"] = row["repo"] or "emp-" + source
     return merged

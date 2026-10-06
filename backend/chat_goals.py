@@ -52,10 +52,14 @@ def capabilities(c, auth, conv):
     return bot, supported, commands
 
 
-def readable_active(c, auth, who, bot):
-    for row in c.execute("SELECT conversation_id FROM chat_goals WHERE bot=? AND status='active'", (bot,)):
+def readable_active(c, auth, who, bot, conversations=None):
+    """`conversations`: the bot's active goals' conversation ids, when the caller has read them already."""
+    if conversations is None:
+        conversations = [row[0] for row in c.execute(
+            "SELECT conversation_id FROM chat_goals WHERE bot=? AND status='active'", (bot,))]
+    for conversation in conversations:
         try:
-            auth.conversation(c, who, row[0])
+            auth.conversation(c, who, conversation)
             auth.require_read(c, who, bot)
             return True
         except Problem:

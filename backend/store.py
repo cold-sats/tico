@@ -558,6 +558,7 @@ def _pooled(base):
     body = {name: taint(name) for name in names if hasattr(base, name)}
     body["tainted"] = False
     body["pool_file"] = None
+    body["tables_seen"] = {}    # {pool_file: tables seen to exist}, shared by this store's connections (hubdb._has_table)
     return type("Pooled" + base.__name__, (base,), body)
 
 
