@@ -41,7 +41,7 @@ KEEP_HOURS = 24           # a client away longer than this reads in full
 FALLBACK_SECONDS = 1.5    # the shared look for changes another process wrote
 LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
 KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts
-GATHER_SECONDS = 0.05     # a burst of writes (a run's output) goes out as one read
+GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
 BATCH = 500
 MAX_FILTER = 20           # conversation= and bot= values per stream
 
