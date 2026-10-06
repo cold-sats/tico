@@ -214,6 +214,8 @@ def create_app(settings=None):
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store, app.state.auth, app.state.execution = store, auth, execution
+    from .ui_compression import UiCompression
+    app.add_middleware(UiCompression)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
@@ -565,7 +567,8 @@ def create_app(settings=None):
             handler = super().get_route_handler()
 
             async def named_response(request):
-                return await display_names(request, await handler(request))
+                from .json_response import compress
+                return await compress(request, await display_names(request, await handler(request)))
             return named_response
 
     # HTTP middleware's call_next wraps every response as a stream, hiding its original
@@ -3925,7 +3928,8 @@ def create_app(settings=None):
                 headers["Cache-Control"] = cache_control
             if gz is not None:
                 headers["Vary"] = "Accept-Encoding"
-                if "gzip" in request.headers.get("accept-encoding", ""):
+                from .json_response import accepts_gzip
+                if accepts_gzip(request.headers):
                     body, etag, headers["ETag"], headers["Content-Encoding"] = gz, gz_etag, gz_etag, "gzip"
             # A weak form of the tag (Cloudflare sends one) matches too: a 304 needs only the same content.
             if etag in [t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")]:

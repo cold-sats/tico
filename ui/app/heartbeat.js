@@ -13,12 +13,12 @@ function renderHeartbeat() {
   const st = S.status, hb = $('#heartbeat');
   const issues = st?.health_issues || [];
   const urgent = issues.filter(needsPerson);
-  const problem = !st ? 'Tico unreachable' : !st.keeper_alive ? (st.cloud ? 'Cloud scheduler needs attention' : 'Computer stopped')
+  const problem = !st ? (S.statusPending ? '' : 'Tico unreachable') : !st.keeper_alive ? (st.cloud ? 'Cloud scheduler needs attention' : 'Computer stopped')
     : urgent.length ? `${urgent.length} ${urgent.length === 1 ? 'thing needs' : 'things need'} you · click to handle` : '';
-  const label = problem || (st.cloud ? 'Cloud backend connected' : 'Computer running');
+  const label = problem || (!st ? 'Connecting' : st.cloud ? 'Cloud backend connected' : 'Computer running');
   hb.title = label;
   hb.setAttribute('aria-label', label);
-  hb.innerHTML = `<span class="dot ${problem ? 'failed' : ''}" ${problem ? '' : 'style="background:var(--ok)"'} aria-hidden="true"></span>`;
+  hb.innerHTML = `<span class="dot ${problem ? 'failed' : ''}" ${!problem && st ? 'style="background:var(--ok)"' : ''} aria-hidden="true"></span>`;
   const alert = $('#heartbeat-alert');
   alert.textContent = problem;
   alert.hidden = !problem;

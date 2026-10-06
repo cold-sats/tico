@@ -6,17 +6,20 @@
 async function refresh(force) {
   try {
     // BotOps and other sessions can change the chart. Publish a complete roster together so groups and members agree.
-    const [st, issues, emps, people] = await Promise.all([get('/status'), get('/issues'), get('/employees'), get('/humans')]);
-    S.status = st;
-    S.issues = issues.map(i => {
+    const [st, issues, emps, people] = await Promise.allSettled([get('/status'), get('/issues'), get('/employees'), get('/humans')]);
+    S.status = st.status === 'fulfilled' ? st.value : null;
+    S.statusPending = false;
+    if (issues.status === 'fulfilled') S.issues = issues.value.map(i => {
       if (!pendingClosedIssues.has(i.number)) return i;
       if (i.state === 'CLOSED') pendingClosedIssues.delete(i.number);
       return {...i, state: 'CLOSED', needs_human: false};
     });
-    S.emps = namedRoster(emps);
-    if (people?.people) setPeople(people);
-    S.overviewRosterFresh = true;
-  } catch (e) { S.status = null; S.overviewRosterFresh = false; }
+    if (emps.status === 'fulfilled' && people.status === 'fulfilled' && people.value?.people) {
+      S.emps = namedRoster(emps.value);
+      setPeople(people.value);
+      S.overviewRosterFresh = true;
+    } else S.overviewRosterFresh = false;
+  } catch (e) { S.overviewRosterFresh = false; }
   await v2Refresh();                    // hub.db status and needs-you (docs/history/hub-v2.md)
   await overviewLoadComputers();        // Only while the campus is open; share this refresh clock.
   overviewRefresh();

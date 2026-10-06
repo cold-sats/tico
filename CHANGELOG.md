@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The web and desktop app open their first page without waiting for health diagnostics or sidebar counts. Sign-in reads chat permissions directly, and API JSON plus standalone UI assets use gzip when accepted to reduce transfer time.
+
+### Fixed
+- A failed roster refresh preserves the last complete roster and no longer marks a reachable server offline. Loading health checks show Connecting until their result arrives.
+
 ### Added
 - Changelog automatically includes the installed release history and shows **What's new** since each person's last look. Search, browse older releases and mark only the shown changes as read; that state follows the person across devices. Users can also list and acknowledge changes through `hub_changelog_list` / `hub_changelog_mark_read`, `hub changelog` and the stable `/api/v2/changelog` API ([Updates](docs/updates.md#what-changed-since-your-last-look)).
 
