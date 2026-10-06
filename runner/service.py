@@ -2557,10 +2557,20 @@ class Runner:
         if attempt.get("notes"):
             # Quiet notes (hub note create): read, not answered. Bot Desk reads this block back too.
             lines.append(NOTES_HEADER + "\n" + json.dumps(attempt["notes"], ensure_ascii=False))
-        if (conversation.get("kind") == "chat" and not setup
-                and str(attempt.get("message", {}).get("from_actor") or "").startswith("human:")):
+        from_person = str(attempt.get("message", {}).get("from_actor") or "").startswith("human:")
+        if conversation.get("kind") == "chat" and not setup and (from_person or attempt.get("task")):
+            # A task worked in a bot's chat room delivers its reply to the person there too.
             lines.append(
-                "Human chat response contract: lead with the answer or outcome. Use enough explanation, evidence, "
+                "Plain English in chat: your reply goes to a person. Answer first, in plain words a busy "
+                "person reads in seconds, then only what they must decide or do. Leave out task IDs, commit "
+                "hashes, message IDs, s3:// URIs, file paths, tool names and how you checked; that evidence "
+                "belongs in the task note or a report. Offer it instead of pasting it. Name things as the "
+                "person would: the vendor, the amount, the date. When you correct an earlier answer, say what "
+                "changed in one sentence."
+            )
+        if conversation.get("kind") == "chat" and not setup and from_person:
+            lines.append(
+                "Human chat response contract: lead with the answer or outcome. Use enough explanation, "
                 "comparison rows or list items to fulfill the request. If the person asks for one thing, focus on "
                 "that thing; do not substitute the standing backlog or add unrelated tasks. "
                 "For a next-priority question, first run `hub health check` and use its current open, doing, waiting, and "

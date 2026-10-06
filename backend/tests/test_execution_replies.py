@@ -47,6 +47,16 @@ def test_equal_answers_to_distinct_inputs_are_delivered_once(api, kind):
             assert H.message(c, reply["id"])["refs"]["answers"] == [second["id"], folded["id"]]
 
 
+def test_runner_notices_leave_the_reply_text(api):
+    runner, origin, attempt = setup_attempt(api)
+    start(api, runner, attempt)
+    reply = finish(api, runner, attempt, "Done.\n\nnot pushed: a commit made this turn contains a secret")
+    with api.app.state.store.read() as c:
+        row = H.message(c, reply["id"])
+    assert row["body"] == "Done."
+    assert row["refs"]["warnings"] == ["not pushed: a commit made this turn contains a secret"]
+
+
 @pytest.mark.parametrize("route", ["linked"])
 def test_current_attempt_tool_reply_is_not_duplicated(api, route):
     runner, origin, attempt = setup_attempt(api)

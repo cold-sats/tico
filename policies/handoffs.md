@@ -146,7 +146,7 @@ Should the homepage headline be our next test?
 I recommend testing “Run your business with less busywork” against the current headline.
 If the test is requested, run it with the available Tools after the site-health checks pass.
 
-Full proposal: s3://<company>-tico-hub/cro/deliverables/<task-id>/funnel-review.md
+Full proposal: <the link `hub task attach` printed>
 ```
 
 ## Make human assignments actionable
@@ -243,7 +243,9 @@ hub task update <task-id> --status done --note "<result and deliverable URIs>"
 The requester reviews and closes the task. A bot owner never closes a task it did not request.
 When work cannot continue, use `waiting` with the exact dependency or `declined` with the reason.
 
-The final note stays under 200 words and covers:
+Chat shows a note folded under its task title; the person reads it only when they open it. Your
+reply in chat carries the plain-English result, without IDs, hashes or `s3://` URIs. The final note
+stays under 200 words and covers:
 
 ```text
 ## Done

@@ -227,20 +227,25 @@ function v2RunRow(verb, what, {task = '', href = '', failed = false, title = ''}
   return `<div class="did${failed ? ' failed' : ''}"${tip}>${inner}</div>`;
 }
 const tookWords = s => s == null ? '' : s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m`;
+// What the run did reads as one folded line under the reply, named by its first few actions.
 function v2RunHTML(m) {
-  const run = m.run || {}, rows = [], given = new Set((run.did || []).filter(d => d.kind === 'task').map(d => d.task_id));
+  const run = m.run || {}, rows = [], said = [], given = new Set((run.did || []).filter(d => d.kind === 'task').map(d => d.task_id));
   for (const [id, t] of Object.entries(m.ref_tasks || {}))
     if (!given.has(id)) rows.push(v2RunRow('task ·', esc(t.title), {task: id}));
   for (const d of run.did || []) {
-    if (d.kind === 'task') rows.push(v2RunRow(d.owner === m.from_actor ? 'made itself a task ·' : `gave ${esc(youAware(d.owner))} a task ·`, esc(d.title), {task: d.task_id}));
-    else if (d.kind === 'link') {
+    if (d.kind === 'task') {
+      const verb = d.owner === m.from_actor ? 'made itself a task' : `gave ${youAware(d.owner)} a task`;
+      rows.push(v2RunRow(esc(verb) + ' ·', esc(d.title), {task: d.task_id})); said.push(verb);
+    } else if (d.kind === 'link') {
       const ref = shortRef(d.url);
       const mark = ref ? `<span class="ref ref-${ref.kind}">${esc(ref.label)}</span> ` : '';
-      rows.push(v2RunRow('filed', mark + esc(d.title || (ref ? '' : d.url)), {href: d.url, title: d.url}));
+      rows.push(v2RunRow('filed', mark + esc(d.title || (ref ? '' : d.url)), {href: d.url, title: d.url})); said.push('filed');
     } else if (d.kind === 'ask' || d.kind === 'say') {
-      const slug = actorSlug(d.to);
-      rows.push(v2RunRow(`${d.kind === 'ask' ? 'asked' : 'messaged'} ${esc(youAware(d.to))} ·`, esc(d.text), {href: slug ? `#/bot/${encodeURIComponent(slug)}` : ''}));
-    } else if (d.kind === 'refused') rows.push(v2RunRow('refused ·', esc(d.text || d.rule), {failed: true, title: `Tico refused this (${d.rule})`}));
+      const slug = actorSlug(d.to), verb = `${d.kind === 'ask' ? 'asked' : 'messaged'} ${youAware(d.to)}`;
+      rows.push(v2RunRow(esc(verb) + ' ·', esc(d.text), {href: slug ? `#/bot/${encodeURIComponent(slug)}` : ''})); said.push(verb);
+    } else if (d.kind === 'refused') {
+      rows.push(v2RunRow('refused ·', esc(d.text || d.rule), {failed: true, title: `Tico refused this (${d.rule})`})); said.push('refused');
+    }
   }
   if (run.steps) {
     const label = [`${run.steps} step${run.steps === 1 ? '' : 's'}`, run.tool_calls ? `${run.tool_calls} tool call${run.tool_calls === 1 ? '' : 's'}` : '', tookWords(run.took_s)].filter(Boolean).join(' · ');
@@ -248,8 +253,18 @@ function v2RunHTML(m) {
     rows.push(`<details class="run-steps" data-turn="${esc(turn)}"${open ? ' open' : ''}><summary>${esc(label)}</summary><div class="steps-list">${
       V2C?.steps?.[turn] || '<div class="step muted">Loading…</div>'}</div></details>`);
   }
-  return rows.length ? `<div class="run-did">${rows.join('')}</div>` : '';
+  const about = Object.values(m.ref_tasks || {})[0]?.title;
+  if (!said.length && !about) return rows.length ? `<div class="run-did">${rows.join('')}</div>` : '';
+  // Named by what it did; a reply that only worked its task is named by the task.
+  const named = [...new Set(said)], head = named.length
+    ? named.slice(0, 2).join(', ') + (named.length > 2 ? ` +${named.length - 2}` : '') : chatLine(about, 60);
+  const label = [head.charAt(0).toUpperCase() + head.slice(1), tookWords(run.took_s)].filter(Boolean).join(' · ');
+  return `<details class="run-did run-fold" data-fold="${esc(m.id || '')}"${v2FoldOpen(m) ? ' open' : ''}><summary>${esc(label)}</summary>${rows.join('')}</details>`;
 }
+const chatLine = (text, n) => { const t = String(text || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+// Folded lines stay as the reader left them across redraws.
+const v2FoldOpen = m => !!(m.id && V2C?.openFolds?.has(m.id));
+const v2FoldAttrs = m => `data-fold="${esc(m.id || '')}"${v2FoldOpen(m) ? ' open' : ''}`;
 // A turn's steps are read when someone opens them, once, and kept open across redraws.
 function v2StepsHTML(d) {
   const steps = d.steps || [];
@@ -291,10 +306,16 @@ function v2MessageHTML(m) {
   if (m.refs?.action) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-action-host="${esc(m.refs.action)}"><div class="asst-state">Loading the card…</div></div></div>`;
   // A met or stopped goal's notice from the server is the compact goal line (ui/app/chat-goal.js), not a Task line.
   if (m.refs?.chat_goal) return chatGoalNoticeHTML(m);
-  if (m.kind === 'notice' || m.refs?.note) {
-    const when = `<div class="chat-meta"><time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>`;
-    return `<div class="chat-system"><b>${m.refs?.note ? 'Note' : 'Task'}</b> ${esc(plainActors(m.body))}${when}</div>`;
+  const when = `<time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time>`;
+  // A task's note is its work log: chat names the task and keeps the note one click away.
+  if (m.refs?.note) {
+    const title = Object.values(m.ref_tasks || {})[0]?.title || chatLine(plainActors(m.body), 80);
+    return `<details class="chat-system chat-fold" ${v2FoldAttrs(m)}><summary><b>Note</b> · ${esc(title)} ${when}</summary><div class="md">${safeMd(plainActors(m.body), {shortLinks: true})}</div></details>`;
   }
+  if (m.kind === 'notice') return `<div class="chat-system"><b>Task</b> ${esc(plainActors(m.body))}<div class="chat-meta">${when}</div></div>`;
+  // One bot's message to another, landed in a person's room: shown as an aside, not a reply.
+  if (String(m.from_actor || '').startsWith('bot:') && String(m.to_actor || '').startsWith('bot:') && m.to_actor !== m.from_actor)
+    return `<details class="chat-system chat-fold" ${v2FoldAttrs(m)}><summary><b>${esc(actorLabel(m.from_actor))} → ${esc(actorLabel(m.to_actor))}</b> · ${esc(chatLine(plainActors(m.body), 80))} ${when}</summary><div class="md">${safeMd(m.body || '', {shortLinks: true})}</div></details>`;
   const pid = actorPerson(m.from_actor);
   const mine = !!pid;                       // any person's message sits on the right, under their name
   const who = mine ? esc(personHandle(pid)) : esc(actorLabel(m.from_actor));
@@ -307,6 +328,7 @@ function v2MessageHTML(m) {
       <span class="tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</span></div>
     <div class="bubble ${mine ? 'you' : 'bot reply'}"><span class="who">${who}</span>${
       mine ? esc(m.body || '') : `<div class="md">${safeMd(m.body || '', {shortLinks: true})}</div>`}${chatCopyHTML(m.body)}</div>
+    ${(m.refs?.warnings || []).map(w => `<div class="chat-warn" title="From the runner, not the bot">${esc(w.charAt(0).toUpperCase() + w.slice(1))}</div>`).join('')}
     ${S.me?.cloud ? chatAttachmentsHTML(m.refs?.attachments || []) : ''}
     ${v2RunHTML(m)}${v2MessageCards(m)}</div>`;
 }
@@ -371,7 +393,12 @@ function v2ChatRender(state) {
         if (state.followLatest) v2Jump(state);
       }
     }, {passive: true});
-    thread.addEventListener('toggle', ev => { if (ev.target.matches?.('details.run-steps') && V2C === state) v2StepsOpen(state, ev.target); }, true);
+    thread.addEventListener('toggle', ev => {
+      if (V2C !== state) return;
+      if (ev.target.matches?.('details.run-steps')) v2StepsOpen(state, ev.target);
+      const fold = ev.target.dataset?.fold;
+      if (fold) { state.openFolds ||= new Set(); state.openFolds[ev.target.open ? 'add' : 'delete'](fold); }
+    }, true);
     thread.addEventListener('click', ev => {
       if (!ev.target.closest('[data-pending-dismiss]') || V2C !== state) return;
       state.dismissed = ev.target.closest('[data-pending]')?.dataset.pending;
@@ -636,6 +663,28 @@ document.addEventListener('click', async ev => {
   ev.preventDefault(); ev.stopPropagation();
   try {
     const data = await get('/v2/tasks/' + encodeURIComponent(button.dataset.taskConversation));
+    void taskModalShow(data.task);
+  } catch (error) { toast(error.message, true); }
+});
+// Bots link a task as <hub>/tasks/<id>, an address the server does not serve, or as #/task/<id>,
+// which leaves the chat. Either opens the task pop-up in place.
+function taskLinkId(a) {
+  let url; try { url = new URL(a.getAttribute('href') || '', location.href); } catch { return ''; }
+  if (!hubUrl(url)) return '';
+  const m = url.hash.match(/^#\/tasks?\/([^/?#]+)$/) || (!url.hash && url.pathname.match(/^\/tasks?\/([A-Za-z0-9-]{8,80})\/?$/));
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return ''; }
+}
+document.addEventListener('click', async ev => {
+  if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+  const a = ev.target.closest('a[href]');
+  if (!a || a.hasAttribute('download')) return;
+  const id = taskLinkId(a);
+  // a #/task/ link outside a message (the board, a run row) still goes to the Tasks page
+  if (!id || (a.getAttribute('href').startsWith('#') && !a.closest('.md, .bubble, .conv-run, .upd-card, .upd-msg'))) return;
+  ev.preventDefault();
+  try {
+    const data = await get('/v2/tasks/' + encodeURIComponent(id));
     void taskModalShow(data.task);
   } catch (error) { toast(error.message, true); }
 });
