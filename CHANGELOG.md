@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- A task list's refresh costs only what changed. The Tasks page's 2-minute refresh, a tab waking or coming back online, and the refresh of a browser without live events now ask `GET /api/v2/tasks?changed_after=<cursor>` for the tasks changed since the list was read and apply them in place (`gone` lists the ones that left), instead of reading every open task again; an unchanged list of tasks, labels or routines is answered `304` from its `ETag`. Tags, files, routines, open asks and steps now reach the change log too, so live events carry them ([Catching a task list up](docs/custom-frontend.md#catching-a-task-list-up)).
+
 ## [0.3.24] - 2026-10-06
 
 ### Fixed
@@ -1469,7 +1472,7 @@ from your own scripts or agents.
   operator installs the value on the bot's computer.
 - Live replies for custom frontends: `execution.parts` in `/watch` and `/snapshot` lists the pieces of the run's reply so
   far, in order, as `{kind: "progress"|"reply"|"tool", text, at}`. A tool call is one short label ("Ran hub task create"),
-  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#streaming).
+  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#live-events).
 - Messages say which run handled them. On the `messages`, `snapshot` and `watch` routes a message a run has taken carries
   `run: {job_id, attempt_id, state}`, with `state` `started_run` or, for a follow-up delivered into a run already working,
   `added_to_run`. A bot's reply carries `run: {job_id, attempt_id}` and `answers`, the ids of every message that run

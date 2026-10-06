@@ -248,6 +248,12 @@ def test_every_source_writes_its_topic(api):
         ("tasks", "update"), ("needs", "task")}
     assert logged(lambda c: c.execute("INSERT INTO task_links(id,task_id,kind,url,created) VALUES('l1',?,'pr','u',?)",
                                       (task["id"], H.now()))) == {("tasks", "link")}
+    # What a task's row shows besides its own columns: its tags, and a tag's own name.
+    with store.transaction() as c:
+        c.execute("INSERT INTO tags(id,key,label,created,updated) VALUES('tg1','coverage','Coverage',?,?)", (H.now(), H.now()))
+    assert logged(lambda c: c.execute("INSERT INTO task_tags(task_id,tag_id) VALUES(?,'tg1')",
+                                      (task["id"],))) == {("tasks", "tags")}
+    assert logged(lambda c: c.execute("UPDATE tags SET label='Covered' WHERE id='tg1'")) == {("tasks", "tags")}
     assert ("messages", "update") in logged(lambda c: c.execute("UPDATE messages SET body='edited' WHERE id=?", (msg["id"],)))
     assert logged(lambda c: c.execute("UPDATE messages SET read_at=? WHERE id=?", (H.now(), msg["id"]))) == set()
     assert logged(lambda c: c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) "

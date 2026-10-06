@@ -649,7 +649,8 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get('/api/v2/routines')
-    def all_routines(request: Request, include_deleted: bool = False):
+    def all_routines(request: Request, response: Response, include_deleted: bool = False):
+        from . import task_reads as reads
         who = request.state.identity
         if who.role not in ('human', 'owner'):
             raise Problem('forbidden', 'This endpoint is available only to people', 403)
@@ -657,6 +658,11 @@ def create_app(settings=None):
             readable = auth.bot_accesses(c, who)
             rows = [row for row in routines.listing(c, include_deleted=include_deleted, summary=True)
                     if readable.get(row['bot'], auth.FULL)['read']]
+            # The rows are one small query; the answer's names and bytes are what a match saves.
+            tag = reads.etag('routines', rows, reads.names(c))
+            if reads.fresh(request, tag):
+                return reads.not_modified(tag)
+            response.headers['ETag'] = tag
             return {'routines': rows}
 
     @app.get('/api/v2/routines/{schedule_id}/occurrences')
@@ -837,9 +843,9 @@ def create_app(settings=None):
         return who.role == "owner" or who.role == "human" and H.can_move(c, who.actor)
 
     def visible_tasks(c, who, owner=None, requester=None, status=None, lane=None, label=None,
-                      limit=500, offset=0, order="queue", **more):
+                      limit=500, offset=0, order="queue", visible_sql=None, **more):
         auth.domain(who)
-        visible_sql = auth.task_sql(c, who)
+        visible_sql = visible_sql or auth.task_sql(c, who)
         rows = H.tasks(c, owner=owner, requester=requester, status=status, lane=lane, label=label,
                        limit=limit + 1, offset=offset, order=order, visible=visible_sql, **more)
         page, has_more = rows[:limit], len(rows) > limit
@@ -2038,10 +2044,14 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks")
-    def tasks(request: Request, owner: str | None = None, requester: str | None = None, status: str | None = None,
-              lane: str | None = None, label: str | None = None, limit: int = 500,
+    def tasks(request: Request, response: Response, owner: str | None = None, requester: str | None = None,
+              status: str | None = None, lane: str | None = None, label: str | None = None, limit: int = 500,
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
-              number: int | None = None, updated_since: str | None = None, brief: bool = False):
+              number: int | None = None, updated_since: str | None = None, brief: bool = False,
+              changed_after: str | None = None):
+        from . import task_reads as reads
+        who = request.state.identity
+        auth.domain(who)
         with store.read() as c:
             owner = H.resolve_actor(c, owner) if owner else None
             requester = H.resolve_actor(c, requester) if requester else None
@@ -2068,16 +2078,35 @@ def create_app(settings=None):
             since = H.parse_ts(updated_since) if updated_since else None
             if updated_since and (not since or since.tzinfo is None):
                 raise Problem("date", "updated_since must be an ISO-8601 date/time with a timezone", 422)
-            rows, next_offset = visible_tasks(c, request.state.identity, owner, requester,
-                status.split(",") if status and status != "all" else None, lane=lane, label=label,
-                limit=limit, offset=offset, order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids,
-                number=number, updated_since=views.since_time(updated_since) if since else None)
+            # One read: the visibility, the rows, the cursor and the ETag agree (backend/task_reads.py).
+            visible_sql = auth.task_sql(c, who)
+            filters = dict(status=status.split(",") if status and status != "all" else None, lane=lane, label=label,
+                           order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids, number=number,
+                           updated_since=views.since_time(updated_since) if since else None, visible_sql=visible_sql)
+            if changed_after is not None:
+                found = reads.changed(c, changed_after, visible_sql)
+                ids = reads.around(c, found[0]) if found else []
+                if found is None or len(ids) > reads.CAP:
+                    return {"tasks": [], "gone": [], "reset": True, "cursor": reads.cursor(c, visible_sql),
+                            "next_offset": None}
+                was, cursor = found
+                rows = visible_tasks(c, who, owner, requester, limit=len(ids), ids=ids, **filters)[0] if ids else []
+                gone = reads.gone(c, visible_sql, was, {row["id"] for row in rows})
+                result = {"tasks": rows, "gone": gone, "cursor": cursor, "next_offset": None}
+            else:
+                tag = reads.etag("tasks", reads.version(c), reads.access(visible_sql), reads.names(c), who.actor,
+                                 who.task_actor, sorted(request.query_params.multi_items()))
+                if reads.fresh(request, tag):
+                    return reads.not_modified(tag)
+                rows, next_offset = visible_tasks(c, who, owner, requester, limit=limit, offset=offset, **filters)
+                response.headers["ETag"] = tag
+                result = {"tasks": rows, "next_offset": next_offset, "cursor": reads.cursor(c, visible_sql)}
             if brief:
                 # A board polling hundreds of tasks needs neither their text nor their criteria.
                 for row in rows:
                     for field in ("body", "acceptance_criteria", "acceptance_json"):
                         row.pop(field, None)
-            return {"tasks": rows, "next_offset": next_offset}
+            return result
 
     # ------------------------------------------------------------------ quiet notes
     def note_view(row, c):
@@ -2147,11 +2176,17 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks/labels")
-    def task_labels(request: Request):
+    def task_labels(request: Request, response: Response):
+        from . import task_reads as reads
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            keys = H.labels_in_use(c, auth.task_sql(c, who))
+            visible_sql = auth.task_sql(c, who)
+            tag = reads.etag("labels", reads.version(c), reads.access(visible_sql), reads.names(c), who.actor)
+            if reads.fresh(request, tag):
+                return reads.not_modified(tag)
+            keys = H.labels_in_use(c, visible_sql)
+            response.headers["ETag"] = tag
             return {"labels": keys, "tags": [H.tag_by_key(c, key) for key in keys]}
 
     @app.get("/api/v2/tasks/stuck")

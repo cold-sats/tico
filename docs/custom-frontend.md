@@ -205,7 +205,7 @@ routes. Every `POST` also needs an `Idempotency-Key` header. Answers below are t
 | Who can use a bot | `GET /api/v2/bots/{bot}/access` / `PUT` | `{"bot", "see": {"everyone": true, "people": [], "teams": [], "bots": []}, "read": {...}, "write": {...}, "revision", "you": {"see", "read", "write"}, "teams": [{"id", "name"}]}`. For the owner, bot administrators and the humans the bot reports up to; anyone else gets `403`. `PUT` takes `see`, `read`, `write` (each `{"everyone": true}` or lists of `people` ids, `teams` and `bots` slugs) and the `revision` you read; `409 version_conflict` if it moved. See [permissions.md](permissions.md). |
 | My chats | `GET /api/v2/conversations?chat_with=ops` | `{"conversations": [{"id", "participants", "last_message_at"}]}`: my open chat with that bot (none yet is an empty list). |
 | Messages | `GET /api/v2/conversations/{id}/messages` | `{"messages": [{"id", "from_actor": "human:ana", "from_name": "Ana", "to_actor": "bot:ops", "to_name": "Ops", "body", "created", "refs", "run": {"job_id", "attempt_id", "state": "started_run"\|"added_to_run"}}], "actors": {...}, "has_more", "next_before"}`. Oldest first, up to 200; `?before=<next_before>` pages back. `run` says which run took a message and is absent until one has; a bot's reply carries `run` and `answers` too ([below](#which-run-took-a-message)). |
-| Send to a bot | `POST /api/v2/chat/ops` `{"text": "Hello"}` | `{"conversation": {"id"}, "message": {"id", "body"}}`. Opens the chat if needed; the reply arrives [live](#streaming). |
+| Send to a bot | `POST /api/v2/chat/ops` `{"text": "Hello"}` | `{"conversation": {"id"}, "message": {"id", "body"}}`. Opens the chat if needed; the reply arrives [live](#live-events). |
 | Send in a chat | `POST /api/v2/conversations/{id}/messages` `{"text": "Again"}` | `{"message": {...}}` |
 | Tasks | `GET /api/v2/tasks?status=open,doing&owner=human:ana&limit=100` | `{"tasks": [{"id", "title", "body", "owner", "owner_name", "requester", "requester_name", "status", "due", "version", "labels", "number", "step_rank"}], "actors": {...}, "next_offset": null}`. Statuses: `open doing waiting review ready done declined`. `?offset=` pages. `?type=` and `?step=` (ids or names) and `?number=` filter, and `?sort=step` lists a type's board in order ([tasks.md](tasks.md)). To poll, keep the largest `updated` you have seen and ask `?updated_since=<it, ISO 8601 with a timezone>`: only tasks changed after it come back, closed ones included. Closing, reopening, commenting, a question asked or answered on it, a link or an attachment added or removed, a linked pull request's state and any change to its fields all change `updated`. `?brief=true` leaves out each task's `body` and `acceptance_criteria`; read one task for them. |
 | One task | `GET /api/v2/tasks/{id}` | `{"task": {...}, "events": [...], "comments": [...], "children": [...]}` |
@@ -304,6 +304,26 @@ data: {"seq": 4121, "attempt_id": "a1", "conversation_id": "c1", "bot": "ops", "
 Reads that do not need a stream: `GET /api/v2/conversations/{id}/snapshot` is one snapshot; `GET
 /api/v2/conversations/{id}/messages` is the message history.
 
+### Catching a task list up
+
+A list you keep in memory (after a reconnect, a sleep, or as a slow backstop to the stream) need not be read again in
+full. Every `GET /api/v2/tasks` answer carries a `cursor`; keep the one from a full read's first page, and later ask
+with the same filters for what changed since:
+
+```
+GET /api/v2/tasks?lane=company&changed_after=<cursor>
+{"tasks": [...changed, still matching...], "gone": ["t7"], "cursor": "<next>", "next_offset": null}
+```
+
+- `tasks` are the tasks changed since the cursor that still match (with the tasks that show them, such as a parent whose
+  progress moved); replace your copies. `gone` are ids that changed and no longer match: deleted, no longer yours to
+  read, or out of the filters (a task that finished, under an active-status filter). Remove them. A task you could
+  never read is never named.
+- `reset: true` means the cursor cannot be caught up (older than the day the log keeps, from before your access changed,
+  or more changes than a page): read in full. Treat the cursor as opaque.
+- A full read of `/api/v2/tasks` or `/api/v2/tasks/labels` (and `/api/v2/routines`) has an `ETag`. Send it back as
+  `If-None-Match` and an unchanged answer is `304` with no body.
+
 ### Which run took a message
 
 Messages sent while a bot is working are folded into its current run (`execution.label` reads "Working - follow-up
@@ -373,7 +393,8 @@ Tico applies **no request-rate limit** to the API: it will answer as fast as it 
   `detail` says which.
 - Live events: an open `/api/v2/events` costs nothing while nothing changes, and one read per burst of changes; keep
   to one per page.
-- Be a good client: follow `/api/v2/events` instead of polling a chat, a task list or a badge; do not refetch `/api/v2/org` or `/api/v2/bots` on every render (cache them for a
+- Be a good client: follow `/api/v2/events` instead of polling a chat, a task list or a badge, and [catch a list
+  up](#catching-a-task-list-up) rather than reading it again; do not refetch `/api/v2/org` or `/api/v2/bots` on every render (cache them for a
   minute). Answers are marked `no-store`, so cache in your own code.
 - If you expose your frontend to many humans, set a limit at the reverse proxy (Caddy, Cloudflare) in front of Tico.
 
