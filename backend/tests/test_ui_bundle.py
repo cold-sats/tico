@@ -33,6 +33,21 @@ def test_the_page_names_one_versioned_script_and_one_stylesheet(api):
     # The bundle is one strict script, and neither it nor the page is served without a session.
     assert api.get("/tico/ui/app.bundle.js", headers=AUTH).text.startswith("'use strict';\n")
     assert api.get("/tico/ui/app.bundle.js").status_code == 401 and api.get("/").status_code == 401
+    uncompressed = api.get("/tico/ui/app.bundle.js", headers={**AUTH, "Accept-Encoding": "gzip;q=0"})
+    assert "content-encoding" not in uncompressed.headers
+
+
+def test_standalone_scripts_are_compressed_and_still_revalidate_privately(api):
+    path = "/tico/ui/health.js"
+    plain = api.get(path, headers={**AUTH, "Accept-Encoding": "identity"})
+    zipped = api.get(path, headers={**AUTH, "Accept-Encoding": "gzip"})
+    assert zipped.content == plain.content
+    assert zipped.headers["content-encoding"] == "gzip"
+    assert int(zipped.headers["content-length"]) < len(zipped.content) // 2
+    assert zipped.headers["etag"].startswith("W/")
+    assert zipped.headers["cache-control"] == "private, no-cache"
+    assert api.get(path, headers={**AUTH, "If-None-Match": zipped.headers["etag"]}).status_code == 304
+    assert api.get(path, headers={"Accept-Encoding": "gzip"}).status_code == 401
 
 
 def test_a_change_to_a_listed_file_changes_the_url(tmp_path):

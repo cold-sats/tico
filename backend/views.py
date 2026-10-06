@@ -845,7 +845,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                              "icon": icon_of(configs.get(slug, {}) or {}),
                              "helper": helper(configs.get(slug, {}) or {}),
-                             "can_chat": may_chat(c, auth, who, slug)})
+                             "can_chat": level["write"] and slug != auth.settings.assistant_bot})
                 continue
             config = configs.get(slug, {})
             # Configuration contains connector requirements, never connector credentials.
@@ -873,7 +873,8 @@ def install_views(app, store, auth, mutate, task_view):
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                          "icon": icon_of(config), "helper": helper(config),
-                         "my_access": level, **policy, "can_chat": may_chat(c, auth, who, slug)})
+                         "my_access": level, **policy,
+                         "can_chat": level["write"] and slug != auth.settings.assistant_bot})
         return rows
 
     @app.get("/api/me")
@@ -883,7 +884,12 @@ def install_views(app, store, auth, mutate, task_view):
         with store.read() as c:
             r = roster(c)
             person = P.person(H.actor_id(who.actor), r) or {}
-            bots = [row["name"] for row in employee_rows(c, who) if row["can_chat"]]
+            # Sign-in needs chat choices, not every bot's routines, machine and setup state.
+            access = auth.bot_accesses(c, who)
+            bots = [row["slug"] for row in H.bots(c)
+                    if row["state"] != "archived" and row["slug"] != store.settings.assistant_bot
+                    and access.get(row["slug"], auth.FULL)["see"]
+                    and access.get(row["slug"], auth.FULL)["write"]]
             from .credentials import administrator, can_open
             from .onboarding import config_view
             from .mail import can_access
@@ -1343,4 +1349,3 @@ def install_views(app, store, auth, mutate, task_view):
             snap = conversation_snapshot(c, cid, request.state.identity)
             turns.annotate(c, auth, request.state.identity, snap["messages"])
             return snap
-
