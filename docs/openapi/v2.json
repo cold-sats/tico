@@ -10402,7 +10402,7 @@
     },
     "/api/v2/tasks": {
       "get": {
-        "summary": "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, brief=true leaves out bodies",
+        "summary": "Tasks the caller can see; type, step, number and updated_since filter, waiting_on=<actor> keeps the live tasks that wait on that person or bot now (their own, and the tickets whose column waits on a role they hold), sort=step orders a board's columns, brief=true leaves out bodies",
         "operationId": "listTasks",
         "parameters": [
           {
@@ -10587,6 +10587,22 @@
               "type": "boolean",
               "default": false,
               "title": "Brief"
+            }
+          },
+          {
+            "name": "waiting_on",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Waiting On"
             }
           }
         ],
@@ -20943,6 +20959,63 @@
             ],
             "description": "The person a waiting task waits on; the task is in their Needs you"
           },
+          "roles": {
+            "type": "object",
+            "description": "Who else is on the task, by role: developer, reviewer and qa, each a list of actors in the order they were added (the owner is the first developer and is not repeated here). Task update and create take the same shape to replace a role's people",
+            "properties": {
+              "developer": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "reviewer": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "qa": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "waits_on": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "developer",
+                  "reviewer",
+                  "qa",
+                  null
+                ]
+              },
+              "actors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "assigned": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "actors",
+              "assigned",
+              "role"
+            ],
+            "additionalProperties": true,
+            "description": "Who the task waits on now: the role its step waits on (null: its owner), the actors it waits on (the owner and the other developers; the reviewers or qa; or, when nobody holds that role yet, the owner with assigned false), none once finished"
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -21259,6 +21332,23 @@
               }
             ],
             "title": "Number"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roles"
           }
         },
         "additionalProperties": false,
@@ -21651,6 +21741,19 @@
           },
           "status": {
             "type": "string"
+          },
+          "waits_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "developer",
+              "reviewer",
+              "qa",
+              null
+            ],
+            "description": "The role a task in this step waits on: its developers, reviewers or qa; null means its owner, as a task with no board"
           }
         },
         "required": [
@@ -21658,7 +21761,8 @@
           "name",
           "position",
           "status",
-          "type_id"
+          "type_id",
+          "waits_on"
         ],
         "additionalProperties": true
       },
@@ -21707,6 +21811,22 @@
               "declined"
             ],
             "title": "Status"
+          },
+          "waits_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "developer",
+                  "reviewer",
+                  "qa"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waits On"
           }
         },
         "additionalProperties": false,
@@ -22120,6 +22240,23 @@
               }
             ],
             "title": "Number"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roles"
           },
           "on_behalf_of": {
             "anyOf": [

@@ -75,6 +75,7 @@ from pathlib import Path
 
 from .batch_work import isolated
 from . import task_relations as TR
+from . import task_roles as TRo
 from clients.manifest import repo_dir
 from backend.chat_goals_schema import SCHEMA as CHAT_GOALS_SCHEMA
 from backend.repositories_schema import SCHEMA as REPOSITORIES_SCHEMA
@@ -861,6 +862,8 @@ def migrate(conn, adopt_legacy=False):
         conn.execute("ALTER TABLE tasks ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]'")
     # Every task-to-task relationship; idempotent, so a database at any version catches up.
     TR.migrate(conn)
+    # Who a ticket waits on: developers, reviewers and QA, and the role each step waits on.
+    TRo.migrate(conn)
     # Next-run tasks (`hub task create --next-run`): `next_run` marks a task that waits for its
     # owner's next run instead of starting one; `carried_by` is the attempt that took it there.
     if "next_run" not in columns:
@@ -2034,7 +2037,8 @@ def _type_name(conn, actor, name, type_id=None):
 
 
 def _type_steps(conn, actor, type_id, steps):
-    existing = {row["id"]: row for row in (type_get(conn, type_id) or {}).get("steps", [])}
+    typ = type_get(conn, type_id) or {}
+    existing = {row["id"]: row for row in typ.get("steps", [])}
     clean, names, ids = [], set(), set()
     for position, raw in enumerate(steps):
         name = str(raw.get("name") or "").strip()
@@ -2046,10 +2050,16 @@ def _type_steps(conn, actor, type_id, steps):
             refuse(conn, actor, "not-found", "That step does not belong to this type")
         if status not in TASK_STATUSES:
             refuse(conn, actor, "kind", f"A step status is {'|'.join(TASK_STATUSES)}")
+        waits_on = raw.get("waits_on") or None
+        if waits_on not in (None, *TRo.ROLES):
+            refuse(conn, actor, "kind", f"A step waits on {'|'.join(TRo.ROLES)}, or nobody in particular")
+        # A column of a ticket board always waits on someone: unsaid, its name says who.
+        if waits_on is None and typ.get("numbered"):
+            waits_on = TRo.default_role(name, status)
         names.add(name); ids.add(ident)
         clean.append({"id": ident, "type_id": type_id, "name": name,
                       "position": raw.get("position") if raw.get("position") is not None else position,
-                      "status": status})
+                      "status": status, "waits_on": waits_on})
     for row in clean:
         if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
                 and _one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (row["id"],))):
@@ -2064,9 +2074,9 @@ def _type_steps(conn, actor, type_id, steps):
     for ident in ids & set(existing):
         conn.execute("UPDATE task_steps SET name=? WHERE id=?", (new_id(), ident))
     for row in clean:
-        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status) "
-                     "VALUES(:id,:type_id,:name,:position,:status) ON CONFLICT(id) DO UPDATE SET "
-                     "name=excluded.name,position=excluded.position,status=excluded.status", row)
+        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status,waits_on) "
+                     "VALUES(:id,:type_id,:name,:position,:status,:waits_on) ON CONFLICT(id) DO UPDATE SET "
+                     "name=excluded.name,position=excluded.position,status=excluded.status,waits_on=excluded.waits_on", row)
 
 
 def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
@@ -3014,7 +3024,7 @@ def _retitle(conn, actor, row, title, owner, type_id):
 @private_task_write
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, rank=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
-                step_rank=None, number=None, title=None, private=None, waiting_on=None):
+                step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
@@ -3027,6 +3037,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     `waiting_on` names the person a `waiting` task waits on ("" clears it); only its owner bot names
     one (`_waiting_person`). Any other update to the status, the note or the owner clears it unless
     it names the person again, as does anything that leaves the task unreadable to them.
+    `roles` replaces the people in the roles it names ({developer|reviewer|qa: [actors]}; task_roles).
     """
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -3045,7 +3056,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     mine = actor in (row["owner"], row["requester"])
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
                      (task_id, actor, now()))
-    mine = mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
+    mine = (mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
+            or TRo.on_task(conn, actor, task_id))
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     if not mine and not mover and actor != KEEPER:
@@ -3140,6 +3152,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if labels is not None:
         _set_task_tags(conn, actor, task_id, labels, note or "")
         sets.append("updated=:updated")
+    if roles is not None:
+        try:
+            touched = TRo.set_roles(conn, actor, task_id, roles, mover=mover, note=note or "")
+        except ValueError as exc:
+            refuse(conn, actor, "kind", str(exc))
+        if touched:
+            sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
         if private_tasks_default(conn, new_owner):
@@ -4330,12 +4349,16 @@ STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
           offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
-          updated_since=None, tickets=True):
+          updated_since=None, tickets=True, waiting_on=None):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
     `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
     a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
-    `tickets=False` leaves out the tasks on a numbered type."""
+    `tickets=False` leaves out the tasks on a numbered type. `waiting_on` keeps the live tasks that
+    wait on that actor now (task_roles.waits_on): their own, or ones whose column waits on a role they hold."""
     sql, args, where = "SELECT * FROM tasks", [], []
+    if waiting_on:
+        where.append(TRo.waits_on_sql())
+        args += list(TRo.waits_on_args(waiting_on))
     if visible and visible != "1":
         where.append("(" + visible + ")")
     if owner:

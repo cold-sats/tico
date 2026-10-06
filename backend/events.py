@@ -93,6 +93,11 @@ TRIGGERS = [
      _row("tasks", "relation", "NEW.from_task") + _row("tasks", "relation", "NEW.to_task")),
     ("changes_task_relations_delete", "DELETE", "task_relations", None,
      _row("tasks", "relation", "OLD.from_task") + _row("tasks", "relation", "OLD.to_task")),
+    # Who is on a ticket (developers, reviewers, QA) changes who it waits on, so every board follows it.
+    ("changes_task_roles_insert", "INSERT", "task_roles", None,
+     _row("tasks", "roles", "NEW.task_id") + _needs("task", "NEW.actor")),
+    ("changes_task_roles_delete", "DELETE", "task_roles", None,
+     _row("tasks", "roles", "OLD.task_id") + _needs("task", "OLD.actor")),
     ("changes_messages_insert", "INSERT", "messages", None,
      _row("messages", "insert", "NEW.id", conversation="NEW.conversation_id")
      + _needs("ask", "NEW.to_actor", "NEW.from_actor", where="NEW.kind IN ('ask','answer')")),

@@ -244,7 +244,9 @@ def _mine(conn, actor, row, mover):
     mine = actor in (row["owner"], row["requester"]) or bool(H._one(
         conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
         (row["id"], actor, H.now())))
-    mine = mine or H.task_ancestor_party(conn, actor, row) or H.type_bot_works(conn, actor, row)
+    from . import task_roles as TRo
+    mine = (mine or H.task_ancestor_party(conn, actor, row) or H.type_bot_works(conn, actor, row)
+            or TRo.on_task(conn, actor, row["id"]))
     if not mine and not mover and actor != H.KEEPER:
         H.refuse(conn, actor, "identity", f"{row['id']} is not yours to change")
 

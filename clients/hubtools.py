@@ -428,6 +428,12 @@ def tag_update(api, args):
        "goal_id": _s("The goal this task serves (hub_goal_list); optional"),
        "next_run": {"type": "boolean", "default": False,
                     "description": "For a bot owner: do not wake it; its next run carries this task"},
+       "developers": {"type": "array", "items": {"type": "string"},
+                      "description": "Replace the ticket's other developers (the owner is the first; never listed here): people or bots; [] clears"},
+       "reviewers": {"type": "array", "items": {"type": "string"},
+                     "description": "Replace the ticket's reviewers: people or bots; [] clears. A column that waits on the reviewer puts the ticket on their list"},
+       "qa": {"type": "array", "items": {"type": "string"},
+              "description": "Replace the ticket's QA people: people or bots; [] clears. A QA column puts the ticket on their list"},
        "dry_run": {"type": "boolean", "default": False}},
       required=("owner", "title"), writes=True)
 def task_create(api, args):
@@ -440,6 +446,9 @@ def task_create(api, args):
             body[field] = args[field]
     if args.get("private") is not None:
         body["private"] = args["private"]
+    roles = _roles(api, args)
+    if roles:
+        body["roles"] = roles
     if args.get("dry_run"):
         return api.post("tasks/dry-run", body)
     return api.post("tasks", body, key=_key(args))
@@ -499,6 +508,7 @@ def task_run(api, args):
                 "description": "queue (default), finished (most recently done first) or step (a board's columns in order)"},
        "number": {"type": "integer", "minimum": 1, "maximum": 999999999, "description": "Only this task number"},
        "updated_since": _s("Only tasks changed after this ISO-8601 time with a timezone"),
+       "waiting_on": _s("Only live tasks that wait on this person or bot now (`me`, a human id or a bot slug): their own, and the tickets whose column waits on a role they hold (developer, reviewer, qa)"),
        "brief": {"type": "boolean", "description": "Leave out each task's body and acceptance criteria"},
        "all": {"type": "boolean", "default": False,
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
@@ -509,6 +519,8 @@ def task_list(api, args):
     if args.get("stuck"):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
     more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since") if args.get(name)}
+    if args.get("waiting_on"):
+        more["waiting_on"] = _target(api, args["waiting_on"])
     if args.get("brief"):
         more["brief"] = "true"
     rows = api.get("tasks", owner=_target(api, args.get("owner")) if args.get("owner") else None,
@@ -525,7 +537,7 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, or what blocks it. "
+@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, who is on it (developers, reviewers, qa), or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes. "
       "Done stays Done, including tasks you requested for yourself; closing is a separate decision.",
       {"id": TASK_ID,
@@ -543,6 +555,12 @@ def task_ask(api, args):
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
        "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you; "
                         "put exactly what they must do in the note. An empty string clears it"),
+       "developers": {"type": "array", "items": {"type": "string"},
+                      "description": "Replace the ticket's other developers (the owner is the first; never listed here): people or bots; [] clears"},
+       "reviewers": {"type": "array", "items": {"type": "string"},
+                     "description": "Replace the ticket's reviewers: people or bots; [] clears. A column that waits on the reviewer puts the ticket on their list"},
+       "qa": {"type": "array", "items": {"type": "string"},
+              "description": "Replace the ticket's QA people: people or bots; [] clears. A QA column puts the ticket on their list"},
        "goal_id": _s("The goal this task serves; an empty string takes it off")},
       required=("id",), writes=True)
 def task_update(api, args):
@@ -560,7 +578,23 @@ def task_update(api, args):
         body["private"] = args["private"]
     if args.get("waiting_on") is not None:
         body["waiting_on"] = args["waiting_on"]
+    roles = _roles(api, args)
+    if roles:
+        body["roles"] = roles
     return api.post("tasks/" + args["id"], body, key=_key(args))
+
+
+def _roles(api, args):
+    """{developer|reviewer|qa: [actors]} from the developers, reviewers and qa arguments given (None: not given)."""
+    out = {}
+    for arg, role in (("developers", "developer"), ("reviewers", "reviewer"), ("qa", "qa")):
+        people = args.get(arg)
+        if people is None:
+            continue
+        if isinstance(people, str):
+            people = [p for p in people.split(",")]
+        out[role] = [_target(api, p.strip()) for p in people if str(p).strip()]
+    return out
 
 
 # Task types sit above the stable status contract; old bots can keep setting status.

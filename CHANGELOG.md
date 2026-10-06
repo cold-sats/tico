@@ -8,6 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A ticket says who it waits on. Besides its owner, a task carries **developers**, **reviewers** and **QA** (`roles`), and each step of a type says which role its tasks wait on (`waits_on`), so every task answer carries `waits_on`: the role and the people it waits on now, or the owner when nobody holds that role yet. Moving a ticket to a review column hands it to its reviewers, a rejection brings it back, a QA column hands it to QA; someone in a role on a ticket may move it as its owner could. `hub task update --reviewers ... --qa ...`, `hub task list --waiting-on me`, `hub_task_update`/`hub_task_create` (`developers`, `reviewers`, `qa`), `hub_task_list` and `GET /api/v2/tasks` (`waiting_on`); the task page has a row per role and says who it waits on. A numbered type's existing steps get defaults by column name ([Tasks](docs/tasks.md#who-a-ticket-waits-on-developers-reviewers-and-qa)).
 - Changelog automatically includes the installed release history and shows **What's new** since each person's last look. Search, browse older releases and mark only the shown changes as read; that state follows the person across devices. Users can also list and acknowledge changes through `hub_changelog_list` / `hub_changelog_mark_read`, `hub changelog` and the stable `/api/v2/changelog` API ([Updates](docs/updates.md#what-changed-since-your-last-look)).
 
 ## [0.3.23] - 2026-10-06
