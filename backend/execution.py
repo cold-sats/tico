@@ -1,6 +1,7 @@
 """Durable delivery, runner enrollment, and transactionally fenced execution attempts."""
 
 import json
+import re
 import secrets
 import sqlite3
 
@@ -123,6 +124,21 @@ def forget_report(c, runner_id, bot):
     if bot in (document.get("bots") or {}):
         del document["bots"][bot]
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (encode(document), runner_id))
+
+
+# The runner appends these after the bot's own words when it holds back a commit (runner/service.py).
+# They are the runner's, not the bot's, so chat shows them as a warning beside the reply.
+RUNNER_NOTICE = re.compile(r"(not pushed: a commit made this turn contains a secret"
+                           r"|left out of the commit: .+ \(contains a secret\))")
+
+
+def split_runner_notices(text):
+    """The reply without the runner's trailing notices, and those notices. A reply that is only
+    notices keeps them as its text so the person still hears about them."""
+    parts, notices = text.split("\n\n"), []
+    while len(parts) > 1 and RUNNER_NOTICE.fullmatch(parts[-1].strip()):
+        notices.insert(0, parts.pop().strip())
+    return "\n\n".join(parts), notices
 
 
 class Execution:
@@ -1086,6 +1102,7 @@ class Execution:
         actor = "bot:" + row["bot"]
         reply = None
         if body.text and body.outcome == "completed":
+            text, notices = split_runner_notices(body.text)
             already = c.execute("SELECT id FROM messages WHERE from_actor=? AND in_reply_to=?",
                                 (actor, msg["id"])).fetchone()
             # Tool sends need not name in_reply_to. Their authenticated mutation receipt,
@@ -1096,7 +1113,7 @@ class Execution:
                 "WHERE i.actor=? AND i.operation IN (?,?) "
                 "AND m.conversation_id=? AND m.from_actor=? AND m.body=?",
                 (actor + ":" + aid, "/api/v2/messages", "/api/v2/conversations/" + conv["id"] + "/messages",
-                 conv["id"], actor, body.text)).fetchone()
+                 conv["id"], actor, text)).fetchone()
             task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
             if not already and not same and (msg["kind"] in ("say", "ask", "steer") or task):
                 target = msg["from_actor"]
@@ -1112,10 +1129,11 @@ class Execution:
                     else:
                         replyable = actor == task["owner"] and task["status"] == "done"
                 if target not in (H.KEEPER, actor) and replyable:
-                    refs = {"turn_id": aid, **({"task": task["id"]} if task else {})}
+                    refs = {"turn_id": aid, **({"task": task["id"]} if task else {}),
+                            **({"warnings": notices} if notices and msg["kind"] != "ask" else {})}
                     privacy.require_destination(c, Identity(actor, "bot", attempt_id=aid), target, conv["id"], refs, msg)
                     reply = H.answer(c, actor, msg["id"], body.text) if msg["kind"] == "ask" else H.say(
-                        c, actor, target, body.text, conversation_id=conv["id"],
+                        c, actor, target, text, conversation_id=conv["id"],
                         in_reply_to=msg["id"], refs=refs)
         if reply:
             # Which run wrote this and which messages it took in (the one it was started for and

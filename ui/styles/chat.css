@@ -268,6 +268,17 @@ body:has(#app-nudge:not([hidden])) #main.bot-split-layout>#bot-top{margin-top:8p
 .p-bot{display:none}
 .chat-system{margin:10px 0;padding:0 2px;font-size:13px;color:var(--muted);line-height:1.45}
 .chat-system b{color:var(--ink);font-weight:600}
+.chat-fold>summary{cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-fold>summary:hover{color:var(--ink)}
+.chat-fold .chat-time{margin-left:6px;font-size:11.5px}
+.chat-fold>.md{margin:6px 0 0;padding-left:10px;border-left:2px solid var(--line);color:var(--ink)}
+.run-fold{display:block}
+.run-fold>.did{margin-left:2px}
+.run-fold>summary{cursor:pointer;color:var(--muted);font-size:12.5px}
+.run-fold>summary:hover{color:var(--ink)}
+.chat-warn{align-self:flex-start;margin:2px 0;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);font-size:12px}
+/* the hover time and the copy button are chrome: copying the thread copies only what was said */
+.chat-stamp,.chat-message-actions,.chat-fold .chat-time{user-select:none;-webkit-user-select:none}
 .plain-message{white-space:pre-wrap;overflow-wrap:anywhere}
 .chat-time{font-size:10.5px;color:var(--muted);padding:0 4px}
 .p-hint{padding:0 4px 7px;font-size:12.5px}
