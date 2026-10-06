@@ -44,6 +44,7 @@ from . import updates
 from . import providers as Providers
 from . import access as Access
 from . import releases, runner_versions, ui_bundle
+from .bot_rows import BotRows
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
@@ -1399,16 +1400,13 @@ def create_app(settings=None):
     SEE_ONLY = ("slug", "display_name", "state", "description", "team", "operator", "reports_to", "owners",
                 "thread_mode", "temp", "access", "bot_owners", "onboarding_state", "private_tasks_default")
 
-    def bot_view(c, bot, level, access, registry_roster, registry_entries, who):
+    def bot_view(c, bot, level, access, registry_roster, registry_entries, who, rows):
         """One bot as the bot list and the bot detail show it: everything for a caller who may read
-        it, only its profile for one who may only see it."""
+        it, only its profile for one who may only see it. `rows` (backend/bot_rows.py) holds what
+        was read for every bot in the answer."""
         row = {k: v for k, v in bot.items() if k not in ("token_hash", "cwd", "thread_id")}
-        config = c.execute("SELECT team,operator,owner_ids_json,revision,description,reports_to,repo,"
-                           "thread_mode,config_json,onboarding_state FROM bot_config WHERE bot=?",
-                           (bot["slug"],)).fetchone()
-        assignment = c.execute("SELECT a.bot,a.runner_id,a.generation,r.label,r.operator,r.last_seen,"
-                               "r.revoked_at FROM assignments a JOIN runners r ON r.id=a.runner_id "
-                               "WHERE a.bot=?", (bot["slug"],)).fetchone() if level["read"] else None
+        config = rows.config(bot["slug"])
+        assignment = rows.assignments.get(bot["slug"]) if level["read"] else None
         row["access"] = level
         row["team"] = config["team"] if config else None
         row["operator"] = config["operator"] if config else None
@@ -1419,7 +1417,8 @@ def create_app(settings=None):
         if config:
             repo = config["repo"] or ("emp-" + bot["slug"])
             from .shared_bots import follow
-            declared = follow(c, bot["slug"], json.loads(config["config_json"]) if config["config_json"] else {})
+            declared = follow(c, bot["slug"], json.loads(config["config_json"]) if config["config_json"] else {},
+                              rows.config)
             if declared.get("shared_from"):
                 repo = declared.get("repo") or repo
                 row.update({"model": declared.get("model") or "", "runtime": declared.get("runtime") or "",
@@ -1430,32 +1429,35 @@ def create_app(settings=None):
                         "reports_to": config["reports_to"], "repo": repo,
                         "repo_url": repo_url(repo, settings.github_owner),
                         "bot_contact": declared.get("bot_contact") or "open",
-                        "private_tasks_default": H.private_tasks_default(c, "bot:" + bot["slug"]),
+                        "private_tasks_default": H.private_tasks_default(c, "bot:" + bot["slug"], rows.declared),
                         "template": declared.get("template") or "",
                         "template_version": declared.get("template_version") or "",
                         "shared": bool(declared.get("shared")),
                         "shared_from": str(declared.get("shared_from") or ""),
                         "temp": bool(declared.get("temp")),
-                        "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"])})
+                        "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"], config)})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
-        owner_rows = ([H.human(c, owner) for owner in configured] if configured is not None
+        owner_rows = ([rows.human(owner) for owner in configured] if configured is not None
                       else P.primary_users(bot["slug"], registry_roster, registry_entries))
         row["owners"] = [P.brief(owner) for owner in owner_rows if owner]
-        row["bot_owners"] = settings_admin.owner_rows(c, bot["slug"]) if config else []
+        row["bot_owners"] = settings_admin.owner_rows(c, bot["slug"], config, registry_roster) if config else []
         if row.get("reports_to") and not str(row["reports_to"]).startswith("human:") \
                 and not access.get(row["reports_to"], auth.FULL)["see"]:
             row["reports_to"] = ""      # a bot this caller may not see is not named to them
         if not level["read"]:
             return {k: v for k, v in row.items() if k in SEE_ONLY}
-        row["draining"] = bool(c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot["slug"],)).fetchone())
-        row["status"] = privacy.status(c, who, H.status(c, bot["slug"]))
+        slug = bot["slug"]
+        row["draining"] = slug in rows.draining
+        status = rows.statuses.get(slug)
+        row["status"] = privacy.status(c, who, dict(status), **rows.status_inputs[slug]) if status else status
         row["assignment"] = dict(assignment) if assignment else None
         row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
                              and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
-        row["queued"] = privacy.job_count(c, who, bot["slug"])
-        row["next_run"] = sum(privacy.task_readable(c, who, t) for t in H.next_run_tasks(c, bot["slug"]))
-        row["notes"] = len(H.notes_waiting(c, bot["slug"], limit=500))
-        external = agents.presence(c, bot["slug"])
+        row["queued"] = rows.queued[slug]
+        row["next_run"] = sum(privacy.task_readable(c, who, t) for t in rows.next_run[slug])
+        row["notes"] = rows.notes[slug]
+        harness = rows.external_harness(slug)
+        external = agents.presence(c, slug, harness) if harness else None
         row["agent"] = external["agent"] if external else None
         if external:
             row["online"] = external["online"]
@@ -1471,20 +1473,23 @@ def create_app(settings=None):
             raise Problem("can", "can is read or write", 422)
         # Archived bots are gone from every picker; an admin view that needs them asks with ?include_archived=1.
         with_archived = (include_archived or "").lower() in ("1", "true", "yes")
+        from .chat_goals import readable_active
         with store.read() as c:
-            result = []
             registry_roster, registry_entries = views.roster(c), views.entries(c, settings.github_owner)
             access = auth.bot_accesses(c, who)
+            shown = []
             for bot in H.bots(c):
                 level = access.get(bot["slug"], auth.FULL)
                 if not level["see"] or (can and not level[can]):
                     continue
                 if bot.get("state") == "archived" and not with_archived:
                     continue
-                from .chat_goals import readable_active
-                result.append({**bot_view(c, bot, level, access, registry_roster, registry_entries, who),
-                               "goal_active": readable_active(c, auth, who, bot["slug"])})
-            return result
+                shown.append((bot, level))
+            rows = BotRows(c, who, [bot["slug"] for bot, _ in shown],
+                           {bot["slug"] for bot, level in shown if level["read"]})
+            return [{**bot_view(c, bot, level, access, registry_roster, registry_entries, who, rows),
+                     "goal_active": readable_active(c, auth, who, bot["slug"], rows.goals.get(bot["slug"], []))}
+                    for bot, level in shown]
 
     @app.get("/api/v2/bots/{bot}")
     def bot_detail(request: Request, bot: str):
@@ -1501,7 +1506,8 @@ def create_app(settings=None):
             watched = [bot] + ([config["reports_to"]] if config and config["reports_to"] else [])
             access = auth.bot_accesses(c, who, watched)
             level = access[bot]
-            value = bot_view(c, row, level, access, views.roster(c), views.entries(c, settings.github_owner), who)
+            value = bot_view(c, row, level, access, views.roster(c), views.entries(c, settings.github_owner), who,
+                             BotRows(c, who, [bot], {bot} if level["read"] else set()))
             if config and level["read"]:
                 value["goals"] = config["goals"] or ""
             reports = value.get("reports_to") or ""

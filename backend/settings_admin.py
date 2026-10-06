@@ -375,10 +375,11 @@ class SettingsAdmin:
         H.event(c, who.actor, "bot.co_owners_changed", bot, {"before": before, "after": after})
         return {"bot": bot, "bot_owners": self.owner_rows(c, bot), "revision": config["revision"] + 1}
 
-    def owner_rows(self, c, bot):
-        config = self._config(c, bot)
+    def owner_rows(self, c, bot, config=None, roster=None):
+        """`config` (its bot_config row) and `roster` when the caller has read them already."""
+        config = config or self._config(c, bot)
         ids = list(dict.fromkeys([*BA.owner_ids(config["bot_owners_json"]), config["operator"]]))
-        roster = self._roster(c)
+        roster = roster if roster is not None else self._roster(c)
         return [{"id": i, "name": (P.person(i, roster) or {}).get("name") or i} for i in ids if i]
 
     def _default_manager(self, c, body):

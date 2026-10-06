@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The bot list and a computer's polls cost about the same for 90 bots as for 7: each request reads every bot's configuration, assignment, status, queue, next-run tasks, notes and goals in one query per kind instead of one per bot, then checks privacy per task, job and message as before. Measured with the flight recorder at 90 bots: `GET /api/v2/bots` 1,375 statements to 25, a computer's heartbeat 633 to 32, `GET /api/v2/runners/me/repositories` 610 to 12 and `GET /api/v2/runners/assignments` 377 to 12. Answers are unchanged.
+  - Whether a table exists is asked once per database file instead of on every check.
+  - A privacy check no longer reads again a message it was handed straight from the database, a task's labels, or the tasks of a nested part of a response it has already checked as a whole.
+
 ## [0.3.27] - 2026-10-06
 
 ### Fixed

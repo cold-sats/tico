@@ -70,22 +70,31 @@ def limit_cooldown(c, bot):
     return LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
 
 
-def bot_repository(c, settings, bot):
+def _github_app(c):
+    try:
+        return c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
+    except sqlite3.OperationalError:
+        return None
+
+
+def bot_repository(c, settings, bot, rows=None, app=None):
     """`owner/name` of a bot's GitHub repository, resolved the way the token route resolves it, or "".
-    The runner clones and publishes this one (runner/service.py `fetch_repository`)."""
+    The runner clones and publishes this one (runner/service.py `fetch_repository`). `rows(slug)` (its
+    bot_config row with config_json and repo) and `app` ((the github_app row,)) when read already."""
     from .github_app import repo_of
-    from .shared_bots import declared, source_of
-    config = declared(c, bot)
+    from .shared_bots import _json, declared, source_of
+    if rows is None:
+        config = declared(c, bot)
+    else:
+        found = rows(bot)
+        config = _json(found["config_json"]) if found else {}
     # Assignment instances clone the source repository into a private machine-local tree.
     # They must never receive the source's scoped GitHub token or publish task work to its trunk.
     if config.get("assignment_branch"):
         return ""
     bot = source_of(config) or bot
-    config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
-    try:
-        app = c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
-    except sqlite3.OperationalError:
-        app = None
+    config = rows(bot) if rows is not None else c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    app = app[0] if app is not None else _github_app(c)
     return repo_of(config["repo"] if config else "", (app["org"] if app else "") or settings.github_owner) or ""
 
 
@@ -345,7 +354,17 @@ class Execution:
         # The runner gets a concrete runtime and model; a bot that names none runs on the
         # company default, so changing the default moves it without editing the bot.
         company = providers.load(c, self.store.settings)
-        from .shared_bots import follow
+        from .shared_bots import _json, follow, source_of
+        # Every hosted bot's configuration and its original's, read once (shared_bots.follow, bot_repository).
+        configs = {}
+
+        def load(slugs):
+            for part in H.chunks(slugs):
+                configs.update((r["bot"], r) for r in c.execute(
+                    "SELECT bot,config_json,repo,created_by FROM bot_config WHERE bot IN (%s)" % ",".join("?" * len(part)), part))
+        load([row["bot"] for row in rows])
+        load(sorted({source_of(_json(r["config_json"])) for r in configs.values()} - {""} - set(configs)))
+        app, creators = (_github_app(c),), {}
         for row in rows:
             row_config = json.loads(row["config_json"] or "{}")
             assignment_info = None
@@ -360,11 +379,12 @@ class Execution:
                 assignment_info = {"id": active["id"], "phase": active["phase"], "task_id": active["task_id"],
                                   "revision": active["revision"],
                                   "checkpoint": H._json(active["checkpoint_json"], {}) or {}}
-            takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'])
+            takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'], configs.get(row['bot']), creators)
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
-            result.append({**dict(row), 'computer_label': runner['label'], 'profile': effective(c, row['bot'], subscription_context)[0], 'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']))),
-                           'repository': bot_repository(c, self.store.settings, row['bot']),
+            result.append({**dict(row), 'computer_label': runner['label'], 'profile': effective(c, row['bot'], subscription_context)[0],
+                           'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']), configs.get)),
+                           'repository': bot_repository(c, self.store.settings, row['bot'], configs.get, app),
                            'mail_agent': bool(P.inbox_person(row['bot'], people)),
                            **({'assignment': assignment_info} if assignment_info else {})})
         return result

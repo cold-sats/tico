@@ -34,11 +34,12 @@ def entries(c):
     return result
 
 
-def thread_mode(c, bot):
-    """The main assistant is structurally personal; CPO is shared before registry republish."""
+def thread_mode(c, bot, row=None):
+    """The main assistant is structurally personal; CPO is shared before registry republish.
+    `row` is the bot's bot_config row when the caller has read it already."""
     if bot == "coo":
         return PERSONAL
-    row = c.execute("SELECT thread_mode,config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    row = row or c.execute("SELECT thread_mode,config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
     config = json.loads(row["config_json"] or "{}") if row else {}
     value = str((row["thread_mode"] if row else None) or config.get("thread_mode") or "").strip().lower()
     if value in (PERSONAL, SHARED):
