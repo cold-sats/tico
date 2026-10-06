@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.27] - 2026-10-06
+
 ### Fixed
 - Less work behind every poll from a computer and every privacy-checked read, found with the flight recorder on a busy install:
   - A computer's credential polls ask once per bot which credentials it holds, instead of once per stored credential (about 195,000 queries a minute on an install with 662 credentials).
