@@ -571,7 +571,13 @@ function v2ChatStream(state, loaded = false) {
         if (d.goal_id) void v2ChatGoalChanged(state);
         liveSoon('chat:' + cid, () => v2ChatSnapshot(state), 120);
       }),
-      liveOn('runs', d => { if (mine(d)) liveSoon('chat:' + cid, () => v2ChatSnapshot(state), 120); }),
+      // A run's output arrives step by step (hundreds a minute while it works): the snapshot reads again at most every
+      // 3 s for those, and not in a hidden tab. A run starting or ending reads at once.
+      liveOn('runs', d => {
+        if (!mine(d)) return;
+        if (d.output) liveThrottle('chat-output:' + cid, () => { if (V2C === state) void v2ChatSnapshot(state); }, 3000);
+        else liveSoon('chat:' + cid, () => v2ChatSnapshot(state), 120);
+      }),
       liveOn('reset', () => { if (V2C === state) void v2ChatSnapshot(state); }),
       // A stream that stays down for a few seconds (not the moment it takes to reconnect) marks the reply as interrupted;
       // persisted messages stay on the page meanwhile.

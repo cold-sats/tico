@@ -45,6 +45,7 @@ FALLBACK_SECONDS = 1.5    # the shared look for changes another process wrote
 LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
 KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts
 GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
+AUTH_SECONDS = 30         # a stream's sign-in is checked again this often while changes keep waking it
 GATHER_CHAT_SECONDS = 0.25  # a stream following a conversation: its messages and run output stay prompt
 BATCH = 500
 MAX_FILTER = 20           # conversation= and bot= values per stream
@@ -702,8 +703,14 @@ def install(app, store, auth, task_views, task_view):
         def check():
             auth.authenticate(request.headers)
 
+        checked = [0.0]
+
         def poll(cursor):
-            auth.authenticate(request.headers)
+            # Sign-in is checked again at most every AUTH_SECONDS: every change wakes every open stream, and each
+            # check reads the session and the person's access again. A lapsed sign-in still ends within that time.
+            if time.monotonic() - checked[0] >= AUTH_SECONDS:
+                auth.authenticate(request.headers)
+                checked[0] = time.monotonic()
             with store.read() as c:
                 return read(c, auth, who, cursor, topics=wanted, conversations=conversations, bots=bots,
                             task_views=task_views, task_view=task_view)

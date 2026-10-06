@@ -54,6 +54,9 @@ def supported(c):
     return 'computer_id' in {r[1] for r in c.execute('PRAGMA table_info(task_links)')}
 
 
+CLEANUP_TRIES = 6     # a refused worktree cleanup is asked again after 2, 4, ... 64 minutes, then left
+
+
 def inventory(c, computer):
     if not supported(c):
         return []
@@ -89,6 +92,7 @@ def heartbeat(c, who, reports, capable, default_org=""):
             row['repo'] = grant['full_name'] if connection else report.repo
             c.execute('UPDATE task_links SET repo=? WHERE id=?', (row['repo'], row['id']))
         detail = json.loads(row['detail_json'] or '{}')
+        before = (row['state'], row['branch'], dict(detail))
         now = H.now()
         changed = (detail.get('last_commit') != report.last_commit or detail.get('dirty_files') != report.dirty_files
                    or detail.get('last_activity') != report.last_activity)
@@ -114,8 +118,11 @@ def heartbeat(c, who, reports, capable, default_org=""):
         state = 'pending' if row['state'] == 'pending' and row['repo'] and report.state == 'missing' else report.state
         detail['current_branch'] = report.branch
         branch = report.branch if report.state == 'present' and row['branch'] is None else None
-        c.execute('UPDATE task_links SET state=?,branch=coalesce(branch,?),detail_json=?,updated=? WHERE id=?',
-                  (state, branch, json.dumps(detail), H.now(), row['id']))
+        # Every heartbeat reports every worktree; only a difference is written. A write is a task change that every
+        # open board follows (backend/events.py), and a computer retrying a failed cleanup reports every few seconds.
+        if (state, row['branch'] or branch, detail) != before:
+            c.execute('UPDATE task_links SET state=?,branch=coalesce(branch,?),detail_json=?,updated=? WHERE id=?',
+                      (state, branch, json.dumps(detail), H.now(), row['id']))
         row['state'] = state
         row['detail_json'] = json.dumps(detail)
         if branch:
@@ -126,6 +133,7 @@ def heartbeat(c, who, reports, capable, default_org=""):
     actions = []
     for row in rows.values():
         detail = json.loads(row['detail_json'] or '{}')
+        stored = dict(detail)
         prs = [r[0] for r in c.execute("SELECT state FROM task_links WHERE task_id=? AND kind='pr'", (row['task_id'],))]
         finished = all(state in PR_FINISHED for state in prs)
         closed = row['task_status'] in CLOSED or row['bot_state'] == 'archived' or detail.get('delete_requested')
@@ -140,7 +148,20 @@ def heartbeat(c, who, reports, capable, default_org=""):
             continue
         if action == 'remove':
             detail['cleanup_requested'] = True
-        c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), row['id']))
+            # A refused cleanup (a worktree holding files it keeps) is asked again with backoff, then left for a
+            # person: retried on every heartbeat it never succeeds and only churns the task (CLEANUP_TRIES).
+            if detail.get('error'):
+                now = H.now()
+                if detail.get('cleanup_retry_at') and now < detail['cleanup_retry_at']:
+                    action = None
+                elif detail.get('cleanup_attempts', 0) >= CLEANUP_TRIES:
+                    action = None
+                    detail['cleanup_gave_up'] = True
+                else:
+                    detail['cleanup_attempts'] = detail.get('cleanup_attempts', 0) + 1
+                    detail['cleanup_retry_at'] = H.shift(now, minutes=2 ** detail['cleanup_attempts'])
+        if detail != stored:
+            c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), row['id']))
         if action and (action == 'remove' or row['repo'] and row['branch']):
             actions.append({'link_id': row['id'], 'action': action, 'branch': row['branch'], 'path': row['path'],
                             'task_id': row['task_id'], 'repo': row['repo'], 'owner': H.actor_id(row['owner']),
