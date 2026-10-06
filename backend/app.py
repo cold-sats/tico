@@ -22,6 +22,7 @@ from . import agents, batch, grokbot, inbox_isolation, harness_actions, model_lo
 from . import team_rules, usage_limits
 from . import task_privacy as privacy
 from . import task_relations as TR
+from . import task_roles as TRo
 from . import placement as placing
 from .statuses import is_parked
 from . import turns as turn_work
@@ -720,6 +721,7 @@ def create_app(settings=None):
         value["step"] = next((s for s in typ["steps"] if s["id"] == row.get("step_id")), None) if typ else None
         if c is not None:
             value["relations"] = TR.grouped(c, [row["id"]], visible_sql)[row["id"]]
+            value["roles"] = TRo.roles_of(c, row["id"])
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
@@ -757,6 +759,7 @@ def create_app(settings=None):
                      f"AND r.to_task IN ({marks}) AND t.id IN (SELECT id FROM tasks WHERE {visible_sql}) "
                      f"GROUP BY r.to_task", ids)}
         relations = TR.grouped(c, ids, visible_sql)
+        roles = TRo.grouped(c, ids)
         routines_by_task = {row["task_id"]: row["schedule_id"] for row in c.execute(
             f"SELECT task_id,schedule_id FROM schedule_occurrences WHERE task_id IN ({marks})", ids)}
 
@@ -811,6 +814,7 @@ def create_app(settings=None):
             value = task_view(row, pipelines=pipelines)
             value.update({
                 "relations": relations[row["id"]],
+                "roles": roles[row["id"]],
                 "parts": parts.get(row["id"], {"total": 0, "done": 0}),
                 "links": links[row["id"]],
                 "children_summary": summaries[row["id"]],
@@ -2041,9 +2045,18 @@ def create_app(settings=None):
     def tasks(request: Request, owner: str | None = None, requester: str | None = None, status: str | None = None,
               lane: str | None = None, label: str | None = None, limit: int = 500,
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
-              number: int | None = None, updated_since: str | None = None, brief: bool = False):
+              number: int | None = None, updated_since: str | None = None, brief: bool = False,
+              member: str | None = None, role: str | None = None):
         with store.read() as c:
             owner = H.resolve_actor(c, owner) if owner else None
+            if member:
+                member = H.resolve_actor(c, member)
+                if not member:
+                    raise Problem("member", "member is a person or a bot on the roster", 422)
+            if role and not TRo.role_name(role):
+                raise Problem("role", "role is a short name in lower-case letters, digits, - or _", 422)
+            if role and not member:
+                raise Problem("role", "role filters member: pass both", 422)
             requester = H.resolve_actor(c, requester) if requester else None
             if lane and lane not in H.TASK_LANES:
                 raise Problem("kind", "lane is company or product", 422)
@@ -2071,7 +2084,8 @@ def create_app(settings=None):
             rows, next_offset = visible_tasks(c, request.state.identity, owner, requester,
                 status.split(",") if status and status != "all" else None, lane=lane, label=label,
                 limit=limit, offset=offset, order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids,
-                number=number, updated_since=views.since_time(updated_since) if since else None)
+                number=number, updated_since=views.since_time(updated_since) if since else None,
+                member=member, role=TRo.role_name(role) if role else None)
             if brief:
                 # A board polling hundreds of tasks needs neither their text nor their criteria.
                 for row in rows:
@@ -2305,6 +2319,11 @@ def create_app(settings=None):
             H.task_link(c, who.actor, row["id"], url, mover=True)
         for other, kind in others:
             TR.relate(c, who.actor, row["id"], other, kind, mover=mover(c, who) or None)
+        if body.roles:
+            try:
+                TRo.set_roles(c, who.actor, row["id"], body.roles, mover=mover(c, who) or None)
+            except ValueError as exc:
+                raise Problem("roles", str(exc), 422)
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who)}
 
     @app.post("/api/v2/tasks")
@@ -2345,7 +2364,7 @@ def create_app(settings=None):
                 raise Problem("not_found", "Unknown goal", 404)
             if body.close:
                 if any(v is not None for v in (body.title, body.status, body.owner, body.due, body.body, body.lane,
-                                               body.labels, body.waiting_on, body.rank,
+                                               body.labels, body.waiting_on, body.rank, body.roles,
                                                body.goal_id, body.type, body.step, body.step_rank, body.number, body.private)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 note = body.note or ""

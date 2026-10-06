@@ -169,7 +169,8 @@ STABLE = [
     ("/api/v2/task-types/{type_id}", "delete", "Tasks", "deleteTaskType", "Delete an unused task type (movers only)", "TaskTypeResult"),
     ("/api/v2/task-types/{type_id}/delete", "post", "Tasks", "deleteTaskTypePost", "Delete an unused type for clients using POST", "TaskTypeResult"),
     ("/api/v2/tasks", "get", "Tasks", "listTasks",
-     "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, "
+     "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that "
+     "person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, "
      "brief=true leaves out bodies", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
     ("/api/v2/tasks/dry-run", "post", "Tasks", "checkTask", "The checks a create would fail; writes nothing", None),
@@ -499,7 +500,12 @@ SCHEMAS = {
                         "(#18945); given once on a numbered type and never changed"},
                 step_rank={"type": ["number", "null"], "description": "Its place within its step, lower first"},
                 waiting_on={"type": ["string", "null"], "description": "The person a waiting task waits on; "
-                            "the task is in their Needs you"}),
+                            "the task is in their Needs you"},
+                roles={"type": "object", "description": "Who is on the task, by role: each role a short name the team "
+                       "chooses (developer, reviewer, qa ...) with its actors in the order they were added; a role nobody "
+                       "holds is absent, and one actor may hold several roles. Tico gives roles no meaning or rights. Task "
+                       "update and create take the same shape to replace a role's people ([] clears one)",
+                       "additionalProperties": items({"type": "string"})}),
     "Person": obj({"id": "s", "name": "s", "email": "s", "title": "s", "team": "s", "reports_to": "n", "org_parent": "s"},
                   required=["id", "name", "org_parent"]),
     "Access": obj({"see": "b", "read": "b", "write": "b"},

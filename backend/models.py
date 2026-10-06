@@ -128,6 +128,8 @@ class TaskCreate(Contract):
     step: str | None = Field(default=None, max_length=200)
     # An imported ticket's own number (a mover's); a numbered type gives the next one otherwise.
     number: TaskNumber | None = None
+    # Who else is on the task, by role: {role: [actors]} (backend/task_roles.py).
+    roles: dict[str, list[str]] | None = None
 
 
 class NoteCreate(Contract):
@@ -156,6 +158,8 @@ class TaskUpdate(Contract):
     step: str | None = Field(default=None, max_length=200)   # "" clears the step
     step_rank: float | None = Field(default=None, allow_inf_nan=False)   # its place within its step
     number: TaskNumber | None = None      # a mover's, for a task that has none
+    # Replace the people in the roles named: {role: [actors]}; [] clears one.
+    roles: dict[str, list[str]] | None = None
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
     # delegated_identity): checked as that person, never as BotOps.
     on_behalf_of: ID | None = None

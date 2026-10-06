@@ -10402,7 +10402,7 @@
     },
     "/api/v2/tasks": {
       "get": {
-        "summary": "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, brief=true leaves out bodies",
+        "summary": "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, brief=true leaves out bodies",
         "operationId": "listTasks",
         "parameters": [
           {
@@ -10587,6 +10587,38 @@
               "type": "boolean",
               "default": false,
               "title": "Brief"
+            }
+          },
+          {
+            "name": "member",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Member"
+            }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
             }
           }
         ],
@@ -20943,6 +20975,16 @@
             ],
             "description": "The person a waiting task waits on; the task is in their Needs you"
           },
+          "roles": {
+            "type": "object",
+            "description": "Who is on the task, by role: each role a short name the team chooses (developer, reviewer, qa ...) with its actors in the order they were added; a role nobody holds is absent, and one actor may hold several roles. Tico gives roles no meaning or rights. Task update and create take the same shape to replace a role's people ([] clears one)",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -21259,6 +21301,23 @@
               }
             ],
             "title": "Number"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roles"
           }
         },
         "additionalProperties": false,
@@ -22120,6 +22179,23 @@
               }
             ],
             "title": "Number"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roles"
           },
           "on_behalf_of": {
             "anyOf": [

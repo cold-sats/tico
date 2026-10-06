@@ -224,6 +224,13 @@ def task_dry_run(c, auth, who, body):
         if dup and H.task_private_readable(c, who.actor, H.task(c, dup["id"])) and (
                 not who.task_actor or H.task_private_readable(c, who.task_actor, H.task(c, dup["id"]))):
             problems.append(f"{dup['id']} already asks {H.actor_id(target)} for this")
+    if body.roles:
+        from . import task_roles as TRo
+        try:
+            for people in (TRo.clean(body.roles) or {}).values():
+                problems += [f"{p} is not a bot or a person on the roster" for p in people if not H.resolve_actor(c, p)]
+        except ValueError as exc:
+            problems.append(str(exc))
     if not typ:
         problems.append("No such task type")
     elif body.step:

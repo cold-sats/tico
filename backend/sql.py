@@ -143,7 +143,7 @@ def guarded(c, auth, who, inner, function):
         "tasks": tasks,
         "tags": tag_gate, "task_tags": by_task,
         "task_events": by_task + " AND " + content_gate(("old", "new", "note")), "task_delegations": by_task,
-        "task_reminders": by_task, "task_assets": by_task, "task_links": by_task,
+        "task_reminders": by_task, "task_assets": by_task, "task_links": by_task, "task_roles": by_task,
         # A relation is read only when the caller may read both of its tasks.
         "task_relations": "from_task IN (SELECT id FROM tasks) AND to_task IN (SELECT id FROM tasks)",
         "message_assets": by_message,

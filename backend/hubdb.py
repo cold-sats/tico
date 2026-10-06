@@ -75,6 +75,7 @@ from pathlib import Path
 
 from .batch_work import isolated
 from . import task_relations as TR
+from . import task_roles as TRo
 from clients.manifest import repo_dir
 from backend.chat_goals_schema import SCHEMA as CHAT_GOALS_SCHEMA
 from backend.repositories_schema import SCHEMA as REPOSITORIES_SCHEMA
@@ -861,6 +862,8 @@ def migrate(conn, adopt_legacy=False):
         conn.execute("ALTER TABLE tasks ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]'")
     # Every task-to-task relationship; idempotent, so a database at any version catches up.
     TR.migrate(conn)
+    # Who is on a task, by role (task_roles).
+    TRo.migrate(conn)
     # Next-run tasks (`hub task create --next-run`): `next_run` marks a task that waits for its
     # owner's next run instead of starting one; `carried_by` is the attempt that took it there.
     if "next_run" not in columns:
@@ -3017,7 +3020,7 @@ def _retitle(conn, actor, row, title, owner, type_id):
 @private_task_write
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, rank=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
-                step_rank=None, number=None, title=None, private=None, waiting_on=None):
+                step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
@@ -3030,6 +3033,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     `waiting_on` names the person a `waiting` task waits on ("" clears it); only its owner bot names
     one (`_waiting_person`). Any other update to the status, the note or the owner clears it unless
     it names the person again, as does anything that leaves the task unreadable to them.
+    `roles` replaces the people in the roles it names ({role: [actors]}; task_roles).
     """
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -3177,7 +3181,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if row.get(field) is not None:
                 _task_event(conn, task_id, actor, field, row[field], None, note or "")
             sets.append(field + "=NULL")
-    if not sets and not state_change:
+    if not sets and not state_change and not roles:
         return row
     if closing_step:
         task_close(conn, actor, task_id, note=note or "", quiet=quiet, type=type, step=step)
@@ -3187,6 +3191,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     args["updated"] = ts
     if sets:
         conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
+    if roles:
+        # After the rest is saved, so who may be added is checked against the new owner and privacy;
+        # the checks above already said this actor may change the task.
+        try:
+            TRo.set_roles(conn, actor, task_id, roles, note=note or "", checked=True)
+        except ValueError as exc:
+            refuse(conn, actor, "kind", str(exc))
     if title is not None:
         # The task's own thread was named after it; a room many tasks share keeps its subject.
         conn.execute("UPDATE conversations SET subject=? WHERE id=? AND task_id=? AND subject=?",
@@ -4333,12 +4344,16 @@ STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
           offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
-          updated_since=None, tickets=True):
+          updated_since=None, tickets=True, member=None, role=None):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
     `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
     a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
-    `tickets=False` leaves out the tasks on a numbered type."""
+    `tickets=False` leaves out the tasks on a numbered type. `member` keeps the tasks that actor is on
+    in some role (task_roles), or in `role` when given."""
     sql, args, where = "SELECT * FROM tasks", [], []
+    if member:
+        where.append(TRo.member_sql(role))
+        args += [member] + ([role] if role else [])
     if visible and visible != "1":
         where.append("(" + visible + ")")
     if owner:

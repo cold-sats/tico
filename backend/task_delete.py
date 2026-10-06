@@ -28,7 +28,7 @@ TRASH = """CREATE TABLE IF NOT EXISTS task_trash(
 
 # Rows that only describe the task: kept with it in the trash.
 TASK_ROWS = ("task_events", "task_links", "task_tags", "task_delegations", "task_reminders",
-             "service_key_tasks")
+             "service_key_tasks", "task_roles")
 # Rows that are work done on the task: any one of them refuses the run.
 TASK_WORK = ("turns", "approvals", "task_assets", "bot_files", "bot_file_activity",
              "bot_tool_requests", "meeting_deliveries", "schedule_occurrences", "watcher_items")

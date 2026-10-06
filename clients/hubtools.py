@@ -428,6 +428,9 @@ def tag_update(api, args):
        "goal_id": _s("The goal this task serves (hub_goal_list); optional"),
        "next_run": {"type": "boolean", "default": False,
                     "description": "For a bot owner: do not wake it; its next run carries this task"},
+       "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                 "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
+                                "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
        "dry_run": {"type": "boolean", "default": False}},
       required=("owner", "title"), writes=True)
 def task_create(api, args):
@@ -440,6 +443,9 @@ def task_create(api, args):
             body[field] = args[field]
     if args.get("private") is not None:
         body["private"] = args["private"]
+    roles = _roles(api, args)
+    if roles:
+        body["roles"] = roles
     if args.get("dry_run"):
         return api.post("tasks/dry-run", body)
     return api.post("tasks", body, key=_key(args))
@@ -499,6 +505,8 @@ def task_run(api, args):
                 "description": "queue (default), finished (most recently done first) or step (a board's columns in order)"},
        "number": {"type": "integer", "minimum": 1, "maximum": 999999999, "description": "Only this task number"},
        "updated_since": _s("Only tasks changed after this ISO-8601 time with a timezone"),
+       "member": _s("Only tasks this person or bot is on in some role (`me`, a human id or a bot slug)"),
+       "role": _s("With member: only tasks they are on in this role"),
        "brief": {"type": "boolean", "description": "Leave out each task's body and acceptance criteria"},
        "all": {"type": "boolean", "default": False,
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
@@ -509,6 +517,10 @@ def task_list(api, args):
     if args.get("stuck"):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
     more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since") if args.get(name)}
+    if args.get("member"):
+        more["member"] = _target(api, args["member"])
+        if args.get("role"):
+            more["role"] = args["role"]
     if args.get("brief"):
         more["brief"] = "true"
     rows = api.get("tasks", owner=_target(api, args.get("owner")) if args.get("owner") else None,
@@ -525,7 +537,7 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, or what blocks it. "
+@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, who is on it by role, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes. "
       "Done stays Done, including tasks you requested for yourself; closing is a separate decision.",
       {"id": TASK_ID,
@@ -543,6 +555,9 @@ def task_ask(api, args):
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
        "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you; "
                         "put exactly what they must do in the note. An empty string clears it"),
+       "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                 "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
+                                "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
        "goal_id": _s("The goal this task serves; an empty string takes it off")},
       required=("id",), writes=True)
 def task_update(api, args):
@@ -560,7 +575,24 @@ def task_update(api, args):
         body["private"] = args["private"]
     if args.get("waiting_on") is not None:
         body["waiting_on"] = args["waiting_on"]
+    roles = _roles(api, args)
+    if roles:
+        body["roles"] = roles
     return api.post("tasks/" + args["id"], body, key=_key(args))
+
+
+def _roles(api, args):
+    """{role: [actors]} from `roles` (the tool's object) and `role` (the CLI's `--role name=a,b`, repeatable;
+    `name=` clears the role), each person or bot resolved as an owner would be."""
+    out = {}
+    for role, people in (args.get("roles") or {}).items():
+        if isinstance(people, str):
+            people = people.split(",")
+        out[str(role).strip().lower()] = [_target(api, str(p).strip()) for p in (people or []) if str(p).strip()]
+    for item in args.get("role") or []:
+        name, _, people = str(item).partition("=")
+        out[name.strip().lower()] = [_target(api, p.strip()) for p in people.split(",") if p.strip()]
+    return out
 
 
 # Task types sit above the stable status contract; old bots can keep setting status.

@@ -303,6 +303,31 @@ never listed, and a bot's run gets the relations it may read in its assigned tas
 its relations in the trash; restoring it puts back each one whose other task still exists. In SQL they
 are the `task_relations` table ([Hub SQL](hub-sql.md)).
 
+## People on a task by role
+
+Besides its owner, a task can list any number of people or bots, each under a **role**: a short
+name the team chooses (`developer`, `reviewer`, `qa`, `designer` ...). Tico keeps no list of roles
+and gives them no meaning or rights; a client decides what they mean, such as which board column
+waits on the reviewer. One person may hold several roles, and the owner may hold any of them too.
+
+```json
+"roles": {"developer": ["human:bob"], "reviewer": ["human:charlie"], "qa": ["human:matt", "bot:qa-bot"]}
+```
+
+```sh
+hub task update <task-id> --role developer=bob --role reviewer=charlie   # replace a role's people; NAME= clears
+hub task list --member me                                                # every task you are on
+hub task list --member me --role reviewer                                # the ones you review
+```
+
+`hub_task_update` and `hub_task_create` take `roles` (`{role: [people]}`; each role named replaces
+that role's people, `[]` clears one, a role not named stays); `hub_task_list` and `GET /api/v2/tasks`
+take `member=<actor>` and optionally `role=<name>`. The API shape on task update and create is the
+same `"roles"` object. Whoever may change the task's other fields may change who is on it; on a
+private task only people who can read it can be added. Each change is in the task's history
+(`role:<name>`) and on the live events stream. Deleting a task takes its people to the trash and
+back. In SQL they are the `task_roles` table ([Hub SQL](hub-sql.md)).
+
 ## Files, versions and questions
 
 Attach a file to the task so anyone who can read the task can open it. Uploading the same name
