@@ -78,7 +78,9 @@ def reset_bot_sessions(c, bot):
 def create_app(settings=None):
     settings = settings or Settings.from_env()
     telemetry = Observability(settings)
-    store = Store(settings)
+    from . import flight
+    recorder = flight.Recorder() if settings.flight_recorder else None
+    store = Store(settings, recorder)
     census = Census(store, settings)
     releases.CHECKER.bind(census)
     auth = Auth(store)
@@ -131,6 +133,9 @@ def create_app(settings=None):
         stop = asyncio.Event()
         from .timing import watch_loop
         timing_task = asyncio.create_task(watch_loop(app.state.timing, stop))
+        recorder_thread = flight.Flight(recorder, store, settings) if recorder else None
+        if recorder_thread:
+            recorder_thread.start()
         async def schedule_loop():
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
@@ -212,6 +217,8 @@ def create_app(settings=None):
                 await app.state.granola.close()
             from .repositories import stop_sync
             await asyncio.to_thread(stop_sync, app.state.github_app)
+            if recorder_thread:
+                await asyncio.to_thread(recorder_thread.stop)
             telemetry.close()
 
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
@@ -265,6 +272,8 @@ def create_app(settings=None):
     from .timing import Timing
     AUTH_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tico-auth")
     app.state.timing = Timing()
+    app.state.timing.recorder = recorder
+    app.state.flight = recorder
 
     from .assistant import write_allowed as assistant_writes, own_room as assistant_room, create_proposal
     from .assistant import describe as describe_action
@@ -528,6 +537,7 @@ def create_app(settings=None):
         request.state.auth_ms = 0.0
         app.state.timing.begin()
         route = request.url.path
+        response = None
         try:
             response = await call_next(request)
             found = request.scope.get("route")
@@ -538,7 +548,12 @@ def create_app(settings=None):
         finally:
             found = request.scope.get("route")
             key = request.method + " " + (getattr(found, "path", None) or ("static" if not request.url.path.startswith("/api") else "unmatched"))
-            app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000)
+            # The flight recorder's caller kind, status and size (backend/flight.py); a raised error counts as a 500.
+            who = getattr(request.state, "identity", None)
+            size = response.headers.get("content-length") if response is not None else None
+            app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000,
+                                 flight.caller_kind(who), response.status_code if response is not None else 500,
+                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "")
 
     async def display_names(request, response):
         """Stable v2 answers carry display names beside actor ids (backend/names.py)."""
@@ -3932,6 +3947,7 @@ def create_app(settings=None):
     install_getting_started(app, store, auth, mutate, settings)
     from .health import install as install_health
     install_health(app, store, auth, settings)
+    flight.install(app, store, auth)
     from .assistant import install as install_assistant
     install_assistant(app, store, auth, mutate, onboarding)
     from .librarian import install as install_librarian

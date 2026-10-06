@@ -1,4 +1,5 @@
-// Settings > Health: the owner's Storage row from GET /api/v2/health `storage` (local disk or S3, files and size,
+// Settings > Health: the owner's Performance section from GET /api/v2/system/metrics (owners and admins; members never
+// ask for it), and the owner's Storage row from GET /api/v2/health `storage` (local disk or S3, files and size,
 // copy progress, failures in red, a Set up S3 link on local disk); nobody else sees it; no sideways scroll on a
 // phone. Every request is intercepted. TICO_SHOTS=<dir> saves screenshots (desktop and phone, dark and light).
 const {chromium} = require('playwright');
@@ -18,6 +19,17 @@ const shots = process.env.TICO_SHOTS || '';
     const checks = [{id: 'version', label: 'Version', status: 'ok', summary: 'v0.3.0', fixes: []}];
     let health = {audience: 'owner', attention: 0, checks, computers: [], waiting: [], slow: [], failures: [], checked: new Date().toISOString(),
       storage: {mode: 's3', bucket: 'acme-tico-files', region: 'us-east-1', files: 1204, bytes: 3435973837, copy: {done: 120, total: 400, failed: 3}}};
+    const now = Math.floor(Date.now() / 1000);
+    const metrics = {minutes: 60, now, since: now - 3600,
+      requests: {n: 48210, errors: 3, p50: 9.5, p95: 152.6, routes: [
+        {route: 'GET /api/v2/tasks', n: 21000, errors: 0, bytes: 9e8, total_ms: 1830000, max_ms: 9200, p50: 40, p95: 310, callers: {bot: 20400, human: 600}},
+        {route: 'POST /api/v2/runners/{runner_id}/heartbeat', n: 24000, errors: 3, bytes: 1e6, total_ms: 240000, max_ms: 800, p50: 8, p95: 24, callers: {runner: 24000}}]},
+      slow: [{ts: now - 300, route: 'GET /api/v2/tasks', caller: 'bot', actor: 'bot:finance', ms: 9200, bytes: 4e6, status: 200}],
+      process: {cpu_avg: 61.2, cpu_max: 99.8, rss: 512e6, threads: 70, lag_max: 2400, lag_p95: 180, wait_max: 1200, hold_max: 900, locked: 0, minutes: []},
+      sql: {queries: [{sql: "SELECT t.* FROM tasks t WHERE t.status IN (?,…) AND coalesce(t.private,N)=N ORDER BY t.updated DESC LIMIT ?", n: 81000, total_ms: 1210000, max_ms: 950, p95: 61}]},
+      db: {at: now - 600, bytes: 1.07e9, wal_bytes: 4.2e7, free_bytes: 1e6, growth_24h: 1.2e7},
+      events: {start: {version: '0.3.0'}, recent: [{id: 1, at: now - 900, kind: 'stall', stalled_s: 3.4,
+        threads: {busy: [{thread: 'MainThread', loop: true, stack: ['backend/app.py:520 request_timing', 'backend/hubdb.py:900 task_list']}], idle: 60}}]}};
     await page.route('**/*', route => {
       const p = new URL(route.request().url()).pathname;
       const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
@@ -32,6 +44,7 @@ const shots = process.env.TICO_SHOTS || '';
       if (p === '/api/me') return json({id: 'ana', role: 'owner', name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
       if (p === '/api/v2/config') return json(config);
       if (p === '/api/v2/health') return json(health);
+      if (p === '/api/v2/system/metrics') return json(metrics);
       if (p === '/api/employees' || p === '/api/issues') return json([]);
       if (p === '/api/humans' || p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}], teams: {}});
       if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
@@ -61,6 +74,9 @@ const shots = process.env.TICO_SHOTS || '';
     });
     assert.equal(red[0], red[1], 'failures in red');
     assert.equal(await row.locator('a').count(), 0);
+    // the flight recorder's last hour: numbers, a stall, top routes and SQL, slow requests
+    await page.locator('[data-hl-metrics]').waitFor();
+    assert.equal(await page.locator('#hl-page .hl-table').count(), 2);
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`storage-s3-desktop-${mode}`); }
     // local disk: no copy line, a docs link
     health = {...health, storage: {mode: 'local', bucket: null, region: null, files: 1, bytes: 2048, copy: {done: 0, total: 0, failed: 0}}};
@@ -82,6 +98,7 @@ const shots = process.env.TICO_SHOTS || '';
     health = {...health, audience: 'admin', storage: undefined};
     await redraw();
     assert.equal(await page.locator('#hl-page .hl-storage').count(), 0);
+    assert.equal(await page.locator('[data-hl-metrics]').count(), 1);
     assert.deepEqual(errors, []);
     console.log(`PASS: Health storage row, owner only, S3 copy progress, local disk, phone (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   } finally { await browser.close(); }

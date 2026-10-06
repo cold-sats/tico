@@ -12,6 +12,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Removed
 - Unused dependencies: `websockets` (Slack's Socket Mode uses slack_sdk's built-in client) and `pytest` from the server image (it stays a development dependency).
+### Added
+- A **flight recorder**: each server keeps its own request, process and database history. Per minute and route template, by caller kind: calls, errors, p50/p95/max and bytes; each request over a second; CPU, memory, event-loop lag, write-lock waits and hold times; per hour, SQL time by statement shape and database size by table; each start's release, commit, package and settings hashes, and whether the image runs the code of its release tag (code changed after the build, or an image built from another commit, shows in Health); and when the event loop stalls two seconds, every busy thread's stack. Owners and admins read it under **Performance** on the Health page, at `GET /api/v2/system/metrics`, with `hub health metrics` or `hub_health_metrics`. Nothing leaves the server; `TICO_FLIGHT_RECORDER=0` turns it off ([Observability](docs/observability.md#the-flight-recorder)).
 
 ## [0.3.24] - 2026-10-06
 

@@ -433,6 +433,16 @@ def view(c, who, settings, auth, github, config):
         else:
             checks.append(_check("version", "Version", "ok", f"Running {_v(releases.version())}, the latest we know of."
                                  if notice.get("latest") else f"Running {_v(releases.version())}."))
+        # The image this server started from was not built from its release's tag (backend/flight.py).
+        from .flight import last_start
+        start = last_start(c)
+        state = (start or {}).get("provenance")
+        if state in ("mismatch", "modified") and start.get("version") == releases.version():
+            checks.append(_check("image", "Release image", "warn",
+                                 f"This server's code differs from the published {_v(start['version'])} image."
+                                 if state == "modified" else
+                                 f"This image says {_v(start['version'])} but was built from commit "
+                                 f"{str(start.get('commit'))[:7]}, not the published release."))
 
     notice = access.bot_access_notice(c) if kind == "owner" else None
     if notice:

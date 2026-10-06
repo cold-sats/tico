@@ -62,6 +62,7 @@ RUN python - <<'PY'
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 commit = os.environ.get("TICO_COMMIT", "")
@@ -69,7 +70,11 @@ repository = os.environ.get("TICO_REPOSITORY", "")
 if os.environ.get("TICO_VERSION", "dev") != "dev" or commit or repository:
     if not re.fullmatch(r"[0-9a-f]{40}", commit) or not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
         raise SystemExit("Image provenance requires TICO_COMMIT (full SHA) and TICO_REPOSITORY (owner/repo)")
-Path("release-manifest.json").write_text(json.dumps({"commit": commit, "repository": repository}) + "\n")
+# The shipped code's hash: files copied over a release image later show as modified (backend/flight.py).
+sys.path.insert(0, ".")
+from backend.code_hash import digest
+Path("release-manifest.json").write_text(json.dumps({"commit": commit, "repository": repository,
+                                                     "code": digest(".")}) + "\n")
 PY
 RUN chmod -R go-w,go+rX /opt/tico
 # The venv is only mounted here, so this stage's /opt/tico holds the source alone.
@@ -132,10 +137,13 @@ RUN chmod 0755 /usr/local/bin/tico-entrypoint \
 COPY --from=venv /opt/tico/.venv /opt/tico/.venv
 COPY --from=source /opt/tico /opt/tico
 ARG TICO_VERSION=dev
+# The commit is also in release-manifest.json, which the flight recorder checks against the release tag (backend/flight.py).
+ARG TICO_COMMIT
 WORKDIR /opt/tico
 ENV PATH=/opt/tico/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TICO_VERSION=${TICO_VERSION} TICO_RELEASE=${TICO_VERSION}
 LABEL org.opencontainers.image.version=${TICO_VERSION} \
+      org.opencontainers.image.revision=${TICO_COMMIT} \
       org.opencontainers.image.source=https://github.com/ticoteam/tico \
       org.opencontainers.image.licenses=LicenseRef-PolyForm-Perimeter-1.0.1
 EXPOSE 8765

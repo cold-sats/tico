@@ -2091,6 +2091,16 @@ def health_check(api, args):
     return _as_person(api).get("health/issues")
 
 
+@tool("hub_health_metrics", "The server's flight recorder, for owners and admins: per route request counts, errors, p50/p95 and "
+      "bytes by caller kind; slow requests; CPU, memory, event-loop lag and stalls with thread stacks; top SQL by total "
+      "time; write-lock waits; database size and growth by table; and each start's release and image check.",
+      {"minutes": {"type": "integer", "description": "Look back this many minutes (default 60, at most 20160)"},
+       "section": _s("all (default) or a comma list of requests, slow, process, sql, db, events")})
+def health_metrics(api, args):
+    query = {k: args[k] for k in ("minutes", "section") if args.get(k)}
+    return _as_person(api).get("system/metrics", **query)
+
+
 @tool("hub_slack_channel_list", "The Slack channels bots may read and post in: each one's name and id, which bots read it, "
       "whether bots may post there, and its note. Also whether an old registry/slack-channels.yaml is still waiting to be imported.", {})
 def slack_channel_list(api, args):
@@ -2948,6 +2958,7 @@ AUDIENCE = {
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
+    "hub_health_metrics": REQUESTER,
     **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync",
                                    "hub_meeting_pending", "hub_meeting_approve", "hub_meeting_dismiss", "hub_meeting_restore")},
     # The Assistant only.
