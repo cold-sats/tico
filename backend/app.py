@@ -2164,6 +2164,31 @@ def create_app(settings=None):
             return {"tasks": [t for t in H.stuck_tasks(c, hours=max(1, hours), hidden=auth.unreadable_bots(c, who))
                               if privacy.task_readable(c, who, H.task(c, t["id"]))]}
 
+    @app.get("/api/v2/tasks/flow")
+    def tasks_flow(request: Request, days: int = 30, tz: int = 0, owner: str | None = None,
+                   requester: str | None = None, owner_kind: str | None = None, label: str | None = None,
+                   recurring: bool | None = None, type: str | None = None):
+        """Status changes over time for the Tasks page's stats: counts by day, time in each stage."""
+        who = request.state.identity
+        if who.role not in ("human", "owner"):
+            raise Problem("forbidden", "Task stats are for humans", 403)
+        if days < 1 or days > 365:
+            raise Problem("days", "days is between 1 and 365", 422)
+        if owner_kind not in (None, "", "bot", "human"):
+            raise Problem("owner_kind", "owner_kind is bot or human", 422)
+        with store.read() as c:
+            owner = H.resolve_actor(c, owner) if owner else None
+            requester = H.resolve_actor(c, requester) if requester else None
+            typ = H.type_get(c, type) if type else None
+            if type and not typ:
+                raise Problem("type", "No task type " + type, 422)
+            tz = max(-840, min(840, tz))       # minutes east of UTC; days are the viewer's days
+            today = H.shift(H.now(), minutes=tz)[:10] + "T00:00:00.000000Z"
+            since = H.shift(today, days=1 - days, minutes=-tz)
+            return {"since": since, **H.task_flow(c, since, tz_minutes=tz, visible=auth.task_sql(c, who),
+                                                 owner=owner, requester=requester, owner_kind=owner_kind or None,
+                                                 label=label, recurring=recurring, type_id=typ["id"] if typ else None)}
+
     @app.get("/api/v2/tasks/{tid}")
     def task(request: Request, tid: str):
         with store.read() as c:
