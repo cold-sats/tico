@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import os
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 
@@ -535,6 +537,28 @@ class Problem(Exception):
         self.extra = extra or {}
 
 
+POOL_IDLE = 16     # read connections kept open between reads
+
+
+def _pooled(base):
+    """`base` for pooled reads: one a caller changed (a function, an authorizer, a progress handler, a pragma that
+    lasts) is closed after its read instead of reused, so no state reaches another caller's read."""
+    def taint(name):
+        method = getattr(base, name)
+
+        def changed(self, *args, **kwargs):
+            self.tainted = True
+            return method(self, *args, **kwargs)
+        return changed
+
+    names = ("create_function", "create_aggregate", "create_window_function", "create_collation", "set_authorizer",
+             "set_progress_handler", "set_trace_callback", "enable_load_extension", "setlimit", "executescript")
+    body = {name: taint(name) for name in names if hasattr(base, name)}
+    body["tainted"] = False
+    body["pool_file"] = None
+    return type("Pooled" + base.__name__, (base,), body)
+
+
 class Store:
     def __init__(self, settings, recorder=None):
         self.settings = settings
@@ -544,9 +568,14 @@ class Store:
         if recorder is not None:
             from .flight import connection_class
             self.factory = connection_class(recorder)
+        # Reads reuse their connections (`read`): a new one parses the whole schema before its first statement,
+        # which on a large install cost more than most reads themselves.
+        self.pooled = _pooled(self.factory)
+        self.pool, self.pool_file, self.pool_lock = [], None, threading.Lock()
 
-    def connect(self):
-        c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None, factory=self.factory)
+    def connect(self, factory=None, check_same_thread=True):
+        c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None,
+                            factory=factory or self.factory, check_same_thread=check_same_thread)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA foreign_keys=ON")
         # As hubdb.connect: a writer waits out a backup checkpoint or a long scheduler pass
@@ -1120,11 +1149,49 @@ class Store:
 
     @contextmanager
     def read(self):
-        c = self.connect()
+        c = self._take()
         try:
             yield c
         finally:
-            c.close()
+            self._give(c)
+
+    def _file(self):
+        try:
+            stat = os.stat(self.settings.db_path)
+        except OSError:
+            return None
+        return stat.st_dev, stat.st_ino
+
+    def _take(self):
+        identity = self._file()
+        with self.pool_lock:
+            if identity != self.pool_file:
+                # A restored or replaced database file: connections to the old one are not reused.
+                stale, self.pool, self.pool_file = self.pool, [], identity
+            else:
+                stale = []
+            c = self.pool.pop() if self.pool else None
+        for old in stale:
+            old.close()
+        if c is None:
+            c = self.connect(factory=self.pooled, check_same_thread=False)
+            c.pool_file = identity
+        return c
+
+    def _give(self, c):
+        # Only a connection left as it was handed out goes back: no open transaction, nothing per-caller installed.
+        try:
+            if c.in_transaction:
+                c.rollback()
+            if c.row_factory is not sqlite3.Row:
+                c.row_factory = sqlite3.Row
+        except sqlite3.Error:
+            c.tainted = True
+        with self.pool_lock:
+            if not c.tainted and c.pool_file == self.pool_file and len(self.pool) < POOL_IDLE:
+                self.pool.append(c)
+                return
+        c.close()
 
     @contextmanager
     def transaction(self):

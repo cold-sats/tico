@@ -8,7 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
-- A server no longer burns CPU on its own follow-up work while bots run. An open chat reads its conversation again at most every 3 seconds while a run streams output (it read the whole conversation for every step), and not in a hidden tab; a run starting or ending still shows at once. A computer's heartbeat only writes a worktree that changed, so it is no longer a task change every few seconds that every open board followed. A live-update stream checks its sign-in at most every 30 seconds instead of on every change.
+- A server no longer burns CPU on its own follow-up work while bots run. An open chat reads its conversation again at most every 3 seconds while a run streams output (it read the whole conversation for every step), and not in a hidden tab; a run starting or ending still shows at once. A computer's heartbeat only writes a worktree that changed, so it is no longer a task change every few seconds that every open board followed.
+- Reads reuse their database connections instead of opening a new one each time: a new connection parsed the whole schema before its first statement, about 4-10 ms per read on a large install. A connection a caller changed (a function, an authorizer) is closed instead of reused.
+- Privacy checks look up the tasks a message or run refers to in one query instead of one query per reference; on a busy server that was most of its SQL.
 - A worktree cleanup the computer refuses (it keeps files) is asked again after 2, 4, ... 64 minutes and then left for a person, instead of on every heartbeat forever.
 
 ## [0.3.25] - 2026-10-06
