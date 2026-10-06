@@ -161,13 +161,16 @@ def grouped(conn, task_ids, visible_sql="1"):
     out = {tid: {} for tid in task_ids}
     for part in _parts(task_ids):
         marks = ",".join("?" * len(part))
+        # Enumerate existing edges before targets: otherwise large IN lists can make SQLite
+        # probe every page/visible-task pair through the composite relationship key.
         rows = conn.execute(
             "SELECT * FROM (SELECT r.from_task AS here, CASE WHEN r.kind='related' THEN 'both' ELSE 'out' END "
             "AS direction, r.kind, r.created AS at, r.rowid AS rid, t.id, t.title, t.status, t.owner "
-            "FROM task_relations r JOIN tasks t ON t.id=r.to_task "
+            "FROM task_relations r INDEXED BY task_relations_from CROSS JOIN tasks t ON t.id=r.to_task "
             f"WHERE r.from_task IN ({marks}) "
             "UNION ALL SELECT r.to_task, CASE WHEN r.kind='related' THEN 'both' ELSE 'in' END, r.kind, r.created, "
-            "r.rowid, t.id, t.title, t.status, t.owner FROM task_relations r JOIN tasks t ON t.id=r.from_task "
+            "r.rowid, t.id, t.title, t.status, t.owner "
+            "FROM task_relations r INDEXED BY task_relations_to CROSS JOIN tasks t ON t.id=r.from_task "
             f"WHERE r.to_task IN ({marks}) AND r.kind<>'parent') "
             f"WHERE id IN (SELECT id FROM tasks WHERE {visible_sql}) ORDER BY at, rid", (*part, *part))
         for row in rows:
