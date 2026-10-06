@@ -12,7 +12,7 @@ instead of them:
 Nothing here reads more than the `humans` and `bots` tables, and a name is only a label.
 """
 
-import json
+from . import fast_json
 import re
 
 ACTOR_KEYS = ("owner", "requester", "from_actor", "to_actor", "actor", "author", "operator", "reports_to",
@@ -103,10 +103,10 @@ def annotate(conn, payload, render_notices=False, actors=True):
 def annotate_json(conn, raw, render_notices=False, actors=True):
     """The same for a JSON body; returns the new bytes, or None when the body is not an object or list."""
     try:
-        payload = json.loads(raw)
+        payload = fast_json.loads(raw)
     except ValueError:
         return None
     if not isinstance(payload, (dict, list)):
         return None
     annotate(conn, payload, render_notices, actors)
-    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+    return fast_json.dumps(payload)

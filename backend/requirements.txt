@@ -41,24 +41,22 @@ h11==0.16.0
     #   uvicorn
 httpcore==1.0.9
     # via httpx
+httptools==0.8.0
+    # via -r backend/requirements.in
 httpx==0.28.1
     # via -r backend/requirements.in
 idna==3.19
     # via
     #   anyio
     #   httpx
-iniconfig==2.3.0
-    # via pytest
 jmespath==1.1.0
     # via
     #   boto3
     #   botocore
-packaging==26.3
-    # via pytest
+orjson==3.12.0
+    # via -r backend/requirements.in
 pillow==12.3.0
     # via -r backend/requirements.in
-pluggy==1.6.0
-    # via pytest
 psycopg==3.3.6
     # via -r backend/requirements.in
 psycopg-binary==3.3.6
@@ -69,8 +67,6 @@ pydantic==2.13.5
     # via fastapi
 pydantic-core==2.46.5
     # via pydantic
-pygments==2.21.0
-    # via pytest
 pyjwt==2.15.0
     # via -r backend/requirements.in
 pymongo==4.18.2
@@ -78,8 +74,6 @@ pymongo==4.18.2
 pymysql==1.2.3
     # via -r backend/requirements.in
 pypdf==6.19.0
-    # via -r backend/requirements.in
-pytest==9.1.1
     # via -r backend/requirements.in
 python-dateutil==2.9.0.post0
     # via
@@ -119,5 +113,5 @@ urllib3==2.8.0
     #   sentry-sdk
 uvicorn==0.52.4
     # via -r backend/requirements.in
-websockets==15.0.1
+uvloop==0.23.0
     # via -r backend/requirements.in
