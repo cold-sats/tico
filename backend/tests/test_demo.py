@@ -33,6 +33,34 @@ def signed_in(settings):
     return client
 
 
+def test_saved_demo_reopens_with_edits_and_the_same_owner_session(built, monkeypatch):
+    directory, settings = built
+    with signed_in(settings) as api:
+        response = api.post("/api/v2/tasks", json={"title": "Keep this demo edit", "body": "Sample work",
+                                                 "owner": "bot:support"},
+                            headers={"Idempotency-Key": "restart-edit"})
+        assert response.status_code == 200
+        task_id = response.json()["task"]["id"]
+    before = rows(settings.db_path)
+    token = settings.local_owner_token_file.read_bytes()
+    from backend import demo_seed
+    monkeypatch.setattr(demo_seed, "populate", lambda *args: pytest.fail("saved demo was reseeded"))
+    reopened = demo.build(directory, now=NOW)
+    assert reopened.local_owner_token_file.read_bytes() == token
+    assert rows(reopened.db_path) == before
+    with signed_in(reopened) as api:
+        assert api.get("/api/v2/tasks/" + task_id).json()["task"]["title"] == "Keep this demo edit"
+
+
+def test_demo_refuses_existing_unrecognized_data_without_writing(tmp_path):
+    database = tmp_path / "hub.sqlite"
+    database.write_bytes(b"existing install or incomplete seed")
+    with pytest.raises(demo.Problem, match="completed Tico demo"):
+        demo.build(tmp_path, now=NOW)
+    assert database.read_bytes() == b"existing install or incomplete seed"
+    assert list(tmp_path.iterdir()) == [database]
+
+
 def test_only_localhost_may_ask(built):
     with signed_in(built[1]) as api:
         assert api.get("/api/v2/config", headers={"Host": "192.168.1.20:8765"}).status_code == 421

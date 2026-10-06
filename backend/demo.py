@@ -230,8 +230,18 @@ def build(directory, now=None, url="", public=False):
     """A ready demo in `directory`: its registry, database and files. Returns its Settings."""
     from . import demo_seed
     os.environ["TICO_UPDATE_CHECK"] = "off"
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / ".tico-demo"
+    data = [directory / name for name in ("hub.sqlite", "registry", "local-owner.token", "blobs")]
+    # Only a completed seed may reopen as a demo owner. Never overwrite another install or a partial seed.
+    if marker.is_file() and marker.read_text() == "tico-demo-v1\n" and all(p.exists() for p in data[:3]):
+        return prepare(directory, url, public)
+    if marker.exists() or any(p.exists() for p in data):
+        raise Problem("demo_data", "This directory is not a completed Tico demo; use an empty directory", 409)
     settings = prepare(directory, url, public)
     demo_seed.populate(settings, now)
+    marker.write_text("tico-demo-v1\n")
     return settings
 
 
