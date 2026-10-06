@@ -637,8 +637,7 @@ document.addEventListener('click', async ev => {
 // which leaves the chat. Either opens the task pop-up in place.
 function taskLinkId(a) {
   let url; try { url = new URL(a.getAttribute('href') || '', location.href); } catch { return ''; }
-  const ours = [location.origin, publicUrl()].some(o => { try { return new URL(o).host === url.host; } catch { return false; } });
-  if (!ours) return '';
+  if (!hubUrl(url)) return '';
   const m = url.hash.match(/^#\/tasks?\/([^/?#]+)$/) || (!url.hash && url.pathname.match(/^\/tasks?\/([A-Za-z0-9-]{8,80})\/?$/));
   if (!m) return '';
   try { return decodeURIComponent(m[1]); } catch { return ''; }

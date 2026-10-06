@@ -6,6 +6,12 @@
 // content and attributes, and proxy bucket images through the authenticated hub route.
 const SAFE_MD_TAGS = new Set(['P','BR','HR','H1','H2','H3','H4','H5','H6','STRONG','EM','DEL','UL','OL','LI','BLOCKQUOTE','PRE','CODE','TABLE','THEAD','TBODY','TR','TH','TD','A','IMG']);
 const DROP_MD_TAGS = new Set(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','SVG','MATH','FORM','INPUT','BUTTON','TEXTAREA','SELECT','OPTION','LINK','META']);
+// This hub's own address (the page's, or the public one bots write in links).
+function hubUrl(url) {
+  return [location.origin, publicUrl()].some(o => { try { return new URL(o).host === url.host; } catch { return false; } });
+}
+// A route of the app (#/...) or a task (/tasks/<id>, which the task link handler opens), not a file or the API.
+const hubPageUrl = url => hubUrl(url) && (url.hash.startsWith('#/') || /^\/tasks?\/[A-Za-z0-9-]{8,80}\/?$/.test(url.pathname));
 function safeMd(s, options = {}) {
   const tpl = document.createElement('template');
   try { tpl.innerHTML = marked.parse(String(s ?? '')); }
@@ -31,7 +37,8 @@ function safeMd(s, options = {}) {
         const url = new URL(href, location.href);
         if (!['http:','https:','mailto:'].includes(url.protocol)) throw new Error('unsafe link');
         el.setAttribute('href', href); el.setAttribute('rel', 'noopener');
-        if (url.protocol !== 'mailto:') el.setAttribute('target', '_blank');
+        // A page of this hub opens in place; in the desktop app a new window would go nowhere.
+        if (url.protocol !== 'mailto:' && !hubPageUrl(url)) el.setAttribute('target', '_blank');
         if (options.shortLinks) shortLink(el, href);
       } catch { el.removeAttribute('href'); }
     }
