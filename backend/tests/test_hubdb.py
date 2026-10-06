@@ -61,8 +61,19 @@ class Schema(HubCase):
         indexes = {r["name"] for r in self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'")}
         self.assertLessEqual({"messages_to_delivered", "messages_conversation",
+                              "bot_file_versions_blob_media",
                               "tasks_owner_status", "tasks_requester_status", "events_ts"},
                              indexes)
+
+    def test_existing_database_gains_the_media_version_lookup_index(self):
+        self.conn.execute("DROP INDEX bot_file_versions_blob_media")
+        self.conn.close()
+        migrated = H.connect(Path(self.dir.name) / "hub.db")
+        self.addCleanup(migrated.close)
+        plan = " ".join(r[3] for r in migrated.execute(
+            "EXPLAIN QUERY PLAN SELECT 1 FROM bot_file_versions "
+            "WHERE blob_id='existing-blob' AND media_state='pending'"))
+        self.assertIn("COVERING INDEX bot_file_versions_blob_media", plan)
 
 class RegistrySync(HubCase):
     def test_sync_is_idempotent_and_keeps_tokens_threads_and_quarantine(self):
