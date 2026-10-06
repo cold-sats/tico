@@ -254,3 +254,38 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
         task = c.execute("SELECT owner FROM tasks WHERE title=?", ("Find why ops's runs keep stopping",)).fetchone()
     assert task and task['owner'] == H.bot_actor(H.FLEET_MAINTAINER)
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
+
+
+@pytest.mark.parametrize('activity', [None, 'tool', 'delta'])
+def test_rejected_signin_cannot_replay_a_run_that_acted(api, activity):
+    import json
+
+    from backend.tests.test_api import runner, assign
+    from backend.tests.test_subscriptions import set_runtime
+
+    acted = activity is not None
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    set_runtime(api, 'codex')
+    post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test', 'readiness': {
+        'schema_version': 1, 'runtimes': {'codex': {'installed': True, 'authenticated': 'ready'}},
+        'bots': {'ops': {'runtime': 'codex', 'ready': True}}}}, machine['token'])
+    post(api, 'chat/ops', {'text': 'Review the request'})
+    attempt = claim(api, machine)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'signin-test'}, machine['token'])
+    if acted:
+        post(api, f"attempts/{attempt['id']}/events",
+             {'events': [{'seq': 1, 'kind': activity, 'payload': {'text': 'Working', 'name': 'send_email'}}]}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/complete", {
+        'outcome': 'failed', 'last_seq': int(acted),
+        'auth_rejected': {'runtime': 'codex', 'reason': 'OAuth session expired and could not be refreshed'}
+    }, machine['token'])
+    with api.app.state.store.read() as c:
+        job = c.execute('SELECT state FROM jobs WHERE attempt_id=?', (attempt['id'],)).fetchone()[0]
+        assert job == ('uncertain' if acted else 'queued')
+        status = c.execute("SELECT state,focus FROM bot_status WHERE bot='ops'").fetchone()
+        assert status['state'] == ('crashed' if acted else 'idle')
+        assert 'sign-in' in status['focus']
+        report = json.loads(c.execute('SELECT readiness_json FROM runners WHERE id=?', (machine['runner_id'],)).fetchone()[0])
+        assert report['runtimes']['codex']['authenticated'] == 'rejected'
+    assert claim(api, machine) is None
