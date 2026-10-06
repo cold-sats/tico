@@ -3,14 +3,16 @@
 import json
 import re
 from datetime import timezone
+from typing import Literal
 
 import yaml
-from fastapi import Request
+from fastapi import Query, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from . import access as Access
 from . import bot_access as A
 from . import models as M
+from . import changelog as CL
 from . import providers, runner_versions
 from . import rooms, team_rules, turns
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
@@ -726,34 +728,6 @@ def fleet_snapshot(c, auth, identity, task_view):
             "approvals": [row for row in items if row.get("kind") == "approval"]}
 
 
-def _stored_product_updates(c):
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key='product_updates'").fetchone()
-    return json.loads(row[0]) if row else []
-
-
-def _packaged_product_updates(settings):
-    path = Path(settings.registry_dir) / "product-updates.yaml"
-    if not path.exists():
-        return []
-    rows = yaml.safe_load(path.read_text()) or []
-    out = []
-    for i, row in enumerate(rows if isinstance(rows, list) else []):
-        if not isinstance(row, dict) or not str(row.get("title") or "").strip():
-            continue
-        bullets = [str(item).strip() for item in (row.get("bullets") or []) if str(item).strip()]
-        if not bullets:
-            continue
-        out.append({"id": "packaged-" + str(i), "title": str(row["title"]).strip(),
-                    "bullets": bullets, "shipped_at": str(row.get("shipped_at") or "")})
-    return out
-
-
-def _product_updates(c, settings):
-    extra = _stored_product_updates(c)
-    seen = {row.get("title") for row in extra}
-    return extra + [row for row in _packaged_product_updates(settings) if row["title"] not in seen]
-
-
 def install_views(app, store, auth, mutate, task_view):
     def visible_turns(c, who, bot=None, limit=200):
         auth.domain(who)
@@ -1079,14 +1053,20 @@ def install_views(app, store, auth, mutate, task_view):
             return "\n".join(lines) + "\n"
 
     @app.get("/api/changelog")
-    def changelog(request: Request):
+    @app.get("/api/v2/changelog")
+    def changelog(request: Request, kind: Literal["product", "activity", "all"] = "all", unread: bool = False,
+                  q: str = "", since_version: str | None = None,
+                  limit: int = Query(250, ge=1, le=250), offset: int = Query(0, ge=0)):
         who = request.state.identity
         human_only(who)
+        if since_version is not None and CL.releases.parse(since_version) is None:
+            raise Problem("version", "since_version must be a version such as 0.3.0", 422)
         with store.read() as c:
+            read = CL.read_ids(c, who.actor)
+            products = [{**row, "unread": row["id"] not in read} for row in CL.products(c, store.settings)]
             entries = []
-            for row in _product_updates(c, store.settings):
-                entries.append({**row, "area": "Product", "kind": "product"})
-            for task in H.tasks(c, status="done"):
+            activity = H.tasks(c, status="done") if kind != "product" and not unread and since_version is None else []
+            for task in activity:
                 if not str(task.get("owner", "")).startswith("bot:") or len((task.get("note") or "").strip()) < 20:
                     continue
                 try:
@@ -1098,8 +1078,31 @@ def install_views(app, store, auth, mutate, task_view):
                                 "bullets": [note[:280]], "area": "Agent activity", "kind": "activity",
                                 "shipped_at": task.get("done_at") or task["updated"], "task_id": task["id"]})
             entries.sort(key=lambda row: row["shipped_at"] or "", reverse=True)
-            return {"entries": entries[:120], "drafts": [], "can_review": False,
+            # Busy bot activity cannot push shipped releases out of the product view.
+            entries = products + entries[:120]
+            entries.sort(key=lambda row: row["shipped_at"] or "", reverse=True)
+            if kind != "all":
+                entries = [row for row in entries if row["kind"] == kind]
+            if unread:
+                entries = [row for row in entries if row.get("unread")]
+            if since_version is not None:
+                entries = [row for row in entries if CL.releases.newer(row.get("version"), since_version)]
+            if q.strip():
+                words = q.lower().split()
+                entries = [row for row in entries if all(word in (row["title"] + " " + " ".join(row["bullets"])).lower()
+                                                         for word in words)]
+            next_offset = offset + limit if offset + limit < len(entries) else None
+            return {"entries": entries[offset:offset + limit], "next_offset": next_offset,
+                    "unread_count": sum(row["unread"] for row in products),
+                    "current_version": CL.releases.version(), "drafts": [], "can_review": False,
                     "can_add": who.role == "owner"}
+
+    @app.post("/api/changelog/read")
+    @app.post("/api/v2/changelog/read")
+    def read_changelog(request: Request, body: M.ChangelogRead):
+        who = request.state.identity
+        human_only(who)
+        return mutate(request, body, lambda c: CL.mark_read(c, store.settings, who.actor, body.ids))
 
     @app.post("/api/changelog")
     def add_product_update(request: Request, body: M.ChangelogPost):
@@ -1111,7 +1114,7 @@ def install_views(app, store, auth, mutate, task_view):
         if not bullets:
             raise Problem("changelog", "A product update needs at least one bullet", 422)
         def work(c):
-            extra = _stored_product_updates(c)
+            extra = CL.stored_products(c)
             extra.insert(0, {"id": "product-" + H.now().replace(":", "").replace("-", ""),
                              "title": body.title.strip(), "bullets": bullets, "shipped_at": H.now()})
             c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('product_updates',?)",

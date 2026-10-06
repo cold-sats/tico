@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Changelog automatically includes the installed release history and shows **What's new** since each person's last look. Search, browse older releases and mark only the shown changes as read; that state follows the person across devices. Users can also list and acknowledge changes through `hub_changelog_list` / `hub_changelog_mark_read`, `hub changelog` and the stable `/api/v2/changelog` API ([Updates](docs/updates.md#what-changed-since-your-last-look)).
+
+## [0.3.23] - 2026-10-06
+
 ### Breaking
 - Task relationships moved to `task_relations`: `tasks.parent_id` and `tasks.blocked_by` are dropped (migrations 30 and cloud 60 move them over). Task answers no longer carry `parent_id`, `blocked_by`, `blocker` or `parent`; read `relations` instead. Task create takes `relations: [{task, kind}]` instead of `parent_id`, and task update no longer takes `parent_id` or `blocked_by`: use `POST /api/v2/tasks/{id}/relations`. `hub task parent`, `hub_task_reparent` and `hub task update --blocked-by` are gone (use `hub task relate --kind parent|blocked_by`); `hub_task_create` and `hub_task_child_create` take `parent` instead of `parent_id`. SQL that read the old columns joins `task_relations` ([Hub SQL](docs/hub-sql.md)).
 
@@ -35,6 +40,36 @@ All notable changes to Tico are recorded here. The format follows
 - A bot with a stopped run saved for later shows idle, not crashed, after each later run that finishes cleanly; the saved run stays in Health until reviewed.
 - The server updater refuses an update when `compose.override.yaml` pins the `server` or `slack` image, and rolls back when the switched server does not run the pulled image or report the target release. A rollback from an untagged image returns to the release the server reported ([Updates](docs/updates.md#moving-a-hand-managed-install-onto-the-updater)).
 - Docker installs pass `TICO_APP_NAME`, `TICO_ASSISTANT_NAME`, `TICO_INTEGRATIONS_DIR`, `AWS_REGION` and `AWS_DEFAULT_REGION` to the server and Slack, and `TICO_SLACK_SECRET_ARN` to Slack, when set; an empty AWS region is treated as unset.
+
+## [0.3.22] - 2026-10-05
+
+### Added
+- Delete a task made by mistake into a trash it can be restored from: its human requester, or anyone who may move any task, with `hub task delete`, `hub_task_delete` or `POST /api/v2/tasks/{id}/delete`. The task leaves every list, board, search and bot context at once and keeps its number; `hub task restore` puts it back with its conversation, comments and links. A task carrying work (a bot turn, a file, an approval, a subtask) is refused; bots close instead. `python -m backend.manage delete-tasks` deletes a list offline, such as a bulk import run twice, and `purge-deleted-tasks` empties the trash for good ([Tasks](docs/tasks.md#deleting-tasks-made-by-mistake)).
+- Live Meetings: bots join a text meeting, answer when named, and the meeting can be replayed; attaching a bot needs Write access to it, and the saved meeting waits in each person's review queue.
+- Temporary assignment branches: a task can get its own short-lived engineer copy of a role, with a shared learning trunk, a three-slot limit and cleanup that never removes unpublished or stashed work.
+- An Owner can create an empty private product repository from Settings or `hub repo product-create`, after a preview and an exact-name confirmation.
+- Owners and admins can delete a group from the team chart; its teammates and groups move up a level.
+- A bot can mark its task as waiting on a named person (`hub task update --status waiting --on <person>`); the task shows in that person's Needs you with a Waiting label and counts as needing them.
+- Each computer checks every 15 minutes that it can really start a container; Health warns, naming the computer and its operator, after two failures in a row.
+
+### Changed
+- The Librarian is the market's curator: it builds the first market map and now keeps it current, with a daily **Curate the market** routine and an **Urgent market insight** routine, both seeded on a new install and added to an existing Librarian at its next start. The server accepts market graph writes, and serves the insight queue, only to the Librarian and the owner ([Librarian](docs/librarian.md)).
+- BotOps writes a missing setup answer as a hold on the one step that needs it (publishing, sending, a rollout), never as "stop if setup is incomplete" for a whole routine; the routines guide says the same ([Routines](docs/routines.md#writing-one)).
+- Overview turns the company into a solarpunk campus with one building per computer, bots at their assigned workstations and human collaborators shown on each computer they work with. Green roof terraces, solar canopies and illuminated cutaway tunnels connect the buildings. Select a building or teammate for details; keyboard navigation, reduced-motion support and an accessible roster remain available. Updates remains the default.
+- License current Tico development under PolyForm Perimeter 1.0.1: internal use and modification remain permitted; providing competing products to others is restricted. Earlier Apache 2.0 versions and third-party licenses retain their terms. New contributions are licensed under both PolyForm Perimeter 1.0.1 and Apache 2.0 so they can be included in a future Apache release.
+
+### Removed
+- The Market Research Analyst bot and its `market` catalog template. Its playbooks and market knowledge moved into the Librarian. An install that still has a `market-analyst` bot archives it at its next start and hands its open tasks to the Librarian; its history and repository stay.
+
+### Fixed
+- A bot's Send never does nothing silently. A send the server did not confirm with a message says "Not sent" and keeps the draft; Return while a message is still sending sends the next one after it; text filled in without typing still sends on a click.
+- A bot with a stopped run saved for later shows idle, not crashed, after each later run that finishes cleanly; the saved run stays in Health until reviewed.
+- The server updater refuses an update when `compose.override.yaml` pins the `server` or `slack` image, and rolls back when the switched server does not run the pulled image or report the target release. A rollback from an untagged image returns to the release the server reported ([Updates](docs/updates.md#moving-a-hand-managed-install-onto-the-updater)).
+- Docker installs pass `TICO_APP_NAME`, `TICO_ASSISTANT_NAME`, `TICO_INTEGRATIONS_DIR`, `AWS_REGION` and `AWS_DEFAULT_REGION` to the server and Slack, and `TICO_SLACK_SECRET_ARN` to Slack, when set; an empty AWS region is treated as unset.
+- A runner input that was taken in and then requeued no longer fails every poll; it moves to the next run once, and a private task's input waits for its own run instead of joining another task's.
+- Interrupted worktree creation resumes, and worktrees on computers still running an older release keep their state instead of looping restores.
+- A Codex model at capacity counts as a usage limit, not a failed run.
+- A task number given by hand can no longer take a deleted task's number, so a restored task keeps it.
 
 ## [0.3.21] - 2026-10-04
 

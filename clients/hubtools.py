@@ -2347,6 +2347,30 @@ def grokbot_sync(api, args):
 
 
 # ----------------------------------------------------------------------------- updates
+@tool("hub_changelog_list", "Shipped Tico releases and team product announcements, with your own read state and full change bullets. "
+      "Use unread=true to catch up since your last look; reading does not mark anything read. "
+      "Only releases installed on this server or earlier appear. since_version selects releases newer than that version. "
+      "next_offset reads the next page; unread_count counts all unread product entries, independently of filters.",
+      {"kind": _s("product (default), activity, or all", enum=["product", "activity", "all"]),
+       "unread": {"type": "boolean", "description": "Only product changes you have not acknowledged"},
+       "q": _s("Search titles and change bullets"),
+       "since_version": _s("Only releases newer than this version, e.g. 0.3.0"),
+       "offset": {"type": "integer", "minimum": 0, "description": "next_offset from the preceding page"},
+       "limit": {"type": "integer", "minimum": 1, "maximum": 250}})
+def changelog_list(api, args):
+    return api.get("changelog", kind=args.get("kind") or "product", unread="true" if args.get("unread") else None,
+                   q=args.get("q"), since_version=args.get("since_version"), offset=args.get("offset"), limit=args.get("limit"))
+
+
+@tool("hub_changelog_mark_read", "Acknowledge only the product entry ids you have shown the user. "
+      "Read status belongs to the signed-in person and is shared with the web app; other people are unaffected. "
+      "Newer or unseen entries stay unread.",
+      {"ids": {"type": "array", "maxItems": 250, "items": {"type": "string", "maxLength": 100},
+               "description": "Product entry ids returned by hub_changelog_list"}}, required=("ids",), writes=True)
+def changelog_read(api, args):
+    return api.post("changelog/read", {"ids": args["ids"]}, key=_key(args))
+
+
 _SLIDE_LINES = lambda what, most: {"type": "array", "maxItems": most, "items": {"type": "string"}, "description": what}
 _SLIDES = {
     "type": "object", "additionalProperties": False,
@@ -2873,7 +2897,7 @@ REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
 ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
-                    "hub_update_mark_read", "hub_assistant_propose"}
+                    "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
@@ -2901,6 +2925,7 @@ AUDIENCE = {
     "hub_brief": HUMANS_AND_ASSISTANT, "hub_bot_recent": HUMANS_AND_ASSISTANT,
     "hub_mcp_stats": HUMANS_AND_ASSISTANT + BOTOPS,
     "hub_update_mark_read": HUMANS_AND_ASSISTANT, "hub_update_reply": PEOPLE, "hub_grokbot_sync": ("owner", "admin"),
+    "hub_changelog_list": HUMANS_AND_ASSISTANT, "hub_changelog_mark_read": HUMANS_AND_ASSISTANT,
     "hub_proposal_decide": PEOPLE,
     **{f"hub_needs_you_{step}": PEOPLE for step in ("start", "next", "respond", "commit", "abandon")},
     "hub_tool_report": ("agent",),

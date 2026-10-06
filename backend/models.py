@@ -74,6 +74,10 @@ class ChangelogPost(Contract):
     bullets: list[str] = Field(min_length=1, max_length=12)
 
 
+class ChangelogRead(Contract):
+    ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(max_length=250)
+
+
 class TaskChat(Contract):
     text: Text
     expected_recipient: ID | None = None

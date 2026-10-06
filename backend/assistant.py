@@ -75,7 +75,7 @@ def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, di
         return True
     if method != "POST":
         return False
-    if path in ("/api/v2/updates/read", "/api/notes", "/api/v2/assistant/actions"):
+    if path in ("/api/v2/updates/read", "/api/v2/changelog/read", "/api/notes", "/api/v2/assistant/actions"):
         return True
     try:
         fields = json.loads(body or b"{}")

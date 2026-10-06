@@ -3,6 +3,10 @@
 A release is a version tag. Pushing `vX.Y.Z` runs `.github/workflows/release.yml`, which builds the
 installer bundle, checks the tag against [CHANGELOG.md](../CHANGELOG.md) and publishes the GitHub
 release. Running installations look for that release to show "New version" in the sidebar.
+The installed `CHANGELOG.md` also supplies the in-app, API and MCP product changelog, so each
+release's versioned notes automatically reach its users. No separate product announcement is required.
+Keep those versioned sections on `main` after publishing a tag; move only new work into Unreleased,
+so later builds retain the complete history and do not announce already shipped work again.
 
 ## The fast path
 

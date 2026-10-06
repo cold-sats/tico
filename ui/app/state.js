@@ -57,6 +57,7 @@ function applyConfig(config) {
   if (S.config.rehearsal && !S.config.demo) $('#demo-banner').innerHTML = '<strong>Rehearsal: nothing runs or leaves this server</strong>';
   renderOnboardingNav();
   renderNewVersion();
+  window.renderChangelogNotice?.();
   noticeUpdatedServer();
   renderUsageNotice();
   return S.config;
