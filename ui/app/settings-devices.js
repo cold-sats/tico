@@ -5,6 +5,9 @@
 // An external agent (a Hermes profile) has no computer: the cell holds its credential instead.
 // The token is shown once, when it is minted; after that only rotate and revoke remain.
 const agentKind = a => `${settingsHarnessName(a.harness) || a.harness} agent`;
+// An imported snapshot's freshness says nothing about its external process.
+const agentPresenceLabel = (a, online) => a.synced ? (online ? 'History synced recently' : a.last_seen ? 'History not synced lately' : 'History not synced yet')
+  : !a.credential ? 'No credential yet' : online ? 'Reporting in' : 'Not reporting';
 function settingsAgentCell(e) {
   const a = e.agent, name = agentKind(a);
   const manage = settingsCanManageBot(e);

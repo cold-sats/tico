@@ -170,6 +170,7 @@ function settingsMachineSelect(e) {
 // A problem worth a badge on the bot's row; a bot that is fine shows nothing.
 function settingsBotProblem(e) {
   if (e.status !== 'active') return '';
+  if (e.agent?.synced) return e.online ? '' : 'history not synced';
   if (e.agent) return !e.agent.credential ? 'no credential' : e.online ? '' : 'not reporting';
   return !e.machine ? 'no computer' : e.online && e.ready ? '' : e.online ? (e.readiness?.problems?.[0] || 'Computer not ready') : 'offline';
 }
