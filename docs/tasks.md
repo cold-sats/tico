@@ -303,47 +303,51 @@ never listed, and a bot's run gets the relations it may read in its assigned tas
 its relations in the trash; restoring it puts back each one whose other task still exists. In SQL they
 are the `task_relations` table ([Hub SQL](hub-sql.md)).
 
-## Who a ticket waits on: developers, reviewers and QA
+## Roles on a task, and who it waits on
 
-A ticket on a board passes through several hands, and the board says whose it is in at each
-column. Besides its owner, a task can carry people in three roles: more **developers**, its
-**reviewers** and its **QA**. Each step of a type says which role its tasks wait on (`waits_on`:
-`developer`, `reviewer` or `qa`; empty means the owner, as a task with no board). From the two,
-every task answer carries `waits_on`:
+A task on a board passes through several hands, and the board says whose it is at each step.
+Besides its owner, a task can carry any number of people or bots, each under a **role**: a short
+name the team chooses (`reviewer`, `qa`, `designer`, `approver` ...); Tico keeps no list of
+roles. Each step of a type says which role its tasks wait on (`waits_on`; empty means the owner,
+as a task with no board), and a type can name the role its owner holds without being listed
+(`owner_role`: on a ticket board the owner is the developer). From these, every task answer
+carries who it waits on now:
 
 ```json
-"roles": {"developer": [], "reviewer": ["human:dana"], "qa": ["human:matt", "bot:qa-bot"]},
+"roles": {"reviewer": ["human:dana"], "qa": ["human:matt", "bot:qa-bot"]},
 "waits_on": {"role": "reviewer", "actors": ["human:dana"], "assigned": true}
 ```
 
-- The owner is the first developer and is never repeated in `roles.developer`. A column that
-  waits on the developer waits on the owner and the other developers.
-- A column that waits on a role nobody holds yet waits on the owner, with `assigned: false`, so a
-  page can say a reviewer is still needed; a ticket never waits on nobody. A finished task waits
-  on nobody.
-- Moving a ticket is what hands it on: to a review column, it leaves the developer's list and
-  lands on the reviewers'; a rejection column brings it back; a QA column puts it on QA's.
-- Someone in a role on a ticket may change it as its owner could (move it on, comment, link),
-  so a reviewer sends it back or on without being made its owner.
+- `roles` lists the roles somebody holds, each in the order its people were added. The owner is
+  never repeated under the type's `owner_role`; a step that waits on that role waits on the owner
+  first, then the others in it.
+- A step that waits on a role nobody holds yet waits on the owner, with `assigned: false`, so a
+  page can say a reviewer is still needed; a task never waits on nobody. A finished task waits on
+  nobody.
+- Moving a task is what hands it on: to a step that waits on `reviewer`, it leaves the owner's
+  list and lands on the reviewers'; a step back returns it. Someone in a role on a task may
+  change it as its owner could (move it on, comment, link), so a reviewer sends it back or on
+  without being made its owner.
 
 A ticket board whose steps were made before steps could say this (one copied from Trello) gets
-defaults once by column name: review columns wait on the reviewer; QA, UAT, staging, production,
-native build and store columns wait on QA; a rejection, a dependency and Dev Owned QA on the
-developer; the rest on the developer. A mover changes a step's `waits_on` through the type's
-steps (`POST /api/v2/task-types/{id}` with `steps`, `hub types update --steps-file`).
+defaults once by column name: review columns wait on `reviewer`; QA, UAT, staging, production,
+native build and store columns on `qa`; a rejection, a dependency and Dev Owned QA on
+`developer`; the rest on `developer`; and the type's `owner_role` becomes `developer`. A mover
+sets a step's `waits_on` and a type's `owner_role` through the type (`POST /api/v2/task-types/{id}`,
+`hub task type update --steps-file --owner-role`, `hub_task_type_update`).
 
 ```sh
-hub task update <task-id> --reviewers dana --qa matt,qa-bot      # replace a role's people; '' clears
-hub task list --waiting-on me                                    # everything waiting on you now
+hub task update <task-id> --role reviewer=dana --role qa=matt,qa-bot    # replace a role's people; NAME= clears
+hub task list --waiting-on me                                          # everything waiting on you now
 ```
 
-`hub_task_update` and `hub_task_create` take `developers`, `reviewers` and `qa` (each a list that
-replaces that role's people); `hub_task_list` and `GET /api/v2/tasks` take `waiting_on=<actor>`.
-The API shape on task update and create is `"roles": {"reviewer": ["dana"], "qa": []}`: a role
-not named is left as it is. Whoever may change the task's other fields may change who is on it;
-on a private task only its parties can be named. Each change is in the task's history
-(`developers`, `reviewers`, `qa`) and on the live events stream, so every open board follows it.
-In SQL the people are the `task_roles` table ([Hub SQL](hub-sql.md)).
+`hub_task_update` and `hub_task_create` take `roles` (`{role: [people]}`; each role named replaces
+that role's people, `[]` clears one, a role not named stays); `hub_task_list` and `GET /api/v2/tasks`
+take `waiting_on=<actor>`. The API shape on task update and create is the same `"roles"` object.
+Whoever may change the task's other fields may change who is on it; on a private task only its
+parties can be named. Each change is in the task's history (`role:<name>`) and on the live events
+stream, so every open board follows it. In SQL the people are the `task_roles` table
+([Hub SQL](hub-sql.md)).
 
 ## Files, versions and questions
 

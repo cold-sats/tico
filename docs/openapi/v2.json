@@ -20961,25 +20961,11 @@
           },
           "roles": {
             "type": "object",
-            "description": "Who else is on the task, by role: developer, reviewer and qa, each a list of actors in the order they were added (the owner is the first developer and is not repeated here). Task update and create take the same shape to replace a role's people",
-            "properties": {
-              "developer": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "reviewer": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "qa": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
+            "description": "Who else is on the task, by role: each role a short name the team chooses (reviewer, qa, designer ...) with its actors in the order they were added; a role nobody holds is absent, and the owner is not repeated under the type's owner_role. Task update and create take the same shape to replace a role's people ([] clears one)",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
               }
             }
           },
@@ -20990,12 +20976,6 @@
                 "type": [
                   "string",
                   "null"
-                ],
-                "enum": [
-                  "developer",
-                  "reviewer",
-                  "qa",
-                  null
                 ]
               },
               "actors": {
@@ -21014,7 +20994,7 @@
               "role"
             ],
             "additionalProperties": true,
-            "description": "Who the task waits on now: the role its step waits on (null: its owner), the actors it waits on (the owner and the other developers; the reviewers or qa; or, when nobody holds that role yet, the owner with assigned false), none once finished"
+            "description": "Who the task waits on now: the role its step waits on (null: its owner), the actors it waits on (that role's people; the owner first for the type's owner_role; or, when nobody holds the role yet, the owner with assigned false), none once finished"
           },
           "tags": {
             "type": "array",
@@ -21747,13 +21727,7 @@
               "string",
               "null"
             ],
-            "enum": [
-              "developer",
-              "reviewer",
-              "qa",
-              null
-            ],
-            "description": "The role a task in this step waits on: its developers, reviewers or qa; null means its owner, as a task with no board"
+            "description": "The role a task in this step waits on (a short name the team chooses, such as reviewer or qa); null means its owner, as a task with no board"
           }
         },
         "required": [
@@ -21816,11 +21790,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "developer",
-                  "reviewer",
-                  "qa"
-                ]
+                "maxLength": 40
               },
               {
                 "type": "null"
@@ -21861,6 +21831,13 @@
               "$ref": "#/components/schemas/TaskStep"
             }
           },
+          "owner_role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The role the owner holds without being listed in a task's roles (a ticket board: developer); a step waiting on it waits on the owner too"
+          },
           "bots": {
             "type": [
               "string",
@@ -21880,6 +21857,7 @@
           "id",
           "name",
           "numbered",
+          "owner_role",
           "steps",
           "updated"
         ],
@@ -21920,6 +21898,18 @@
             "type": "boolean",
             "title": "Numbered",
             "default": false
+          },
+          "owner_role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Role"
           }
         },
         "additionalProperties": false,
@@ -22011,6 +22001,18 @@
               }
             ],
             "title": "Numbered"
+          },
+          "owner_role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Role"
           }
         },
         "additionalProperties": false,

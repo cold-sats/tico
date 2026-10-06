@@ -2051,8 +2051,9 @@ def _type_steps(conn, actor, type_id, steps):
         if status not in TASK_STATUSES:
             refuse(conn, actor, "kind", f"A step status is {'|'.join(TASK_STATUSES)}")
         waits_on = raw.get("waits_on") or None
-        if waits_on not in (None, *TRo.ROLES):
-            refuse(conn, actor, "kind", f"A step waits on {'|'.join(TRo.ROLES)}, or nobody in particular")
+        if waits_on is not None and not TRo.role_name(waits_on):
+            refuse(conn, actor, "kind", "A step waits on a role: a short name in lower-case letters, digits, - or _")
+        waits_on = TRo.role_name(waits_on) if waits_on else None
         # A column of a ticket board always waits on someone: unsaid, its name says who.
         if waits_on is None and typ.get("numbered"):
             waits_on = TRo.default_role(name, status)
@@ -2079,20 +2080,33 @@ def _type_steps(conn, actor, type_id, steps):
                      "name=excluded.name,position=excluded.position,status=excluded.status,waits_on=excluded.waits_on", row)
 
 
-def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
+def _type_owner_role(conn, actor, owner_role):
+    """The role a type's owner holds without being listed on the task; '' takes it off."""
+    if owner_role in (None, ""):
+        return None
+    if not TRo.role_name(owner_role):
+        refuse(conn, actor, "kind", "owner_role is a role: a short name in lower-case letters, digits, - or _")
+    return TRo.role_name(owner_role)
+
+
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, owner_role=None):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     bots = _type_bots(conn, actor, bots)
+    owner_role = _type_owner_role(conn, actor, owner_role)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,bots,numbered,created,updated) VALUES(?,?,?,?,?,?)",
-                 (ident, name, bots, int(bool(numbered)), ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,bots,numbered,owner_role,created,updated) VALUES(?,?,?,?,?,?,?)",
+                 (ident, name, bots, int(bool(numbered)), owner_role, ts, ts))
     _type_steps(conn, actor, ident, steps)
+    # A ticket board whose columns got their roles by name: its owner is the developer.
+    if owner_role is None and numbered and _one(conn, "SELECT 1 FROM task_steps WHERE type_id=? AND waits_on='developer'", (ident,)):
+        conn.execute("UPDATE task_types SET owner_role='developer' WHERE id=?", (ident,))
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, owner_role=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -2108,6 +2122,8 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=No
         _type_steps(conn, actor, row["id"], steps)
     if bots is not None:
         conn.execute("UPDATE task_types SET bots=? WHERE id=?", (_type_bots(conn, actor, bots), row["id"]))
+    if owner_role is not None:
+        conn.execute("UPDATE task_types SET owner_role=? WHERE id=?", (_type_owner_role(conn, actor, owner_role), row["id"]))
     conn.execute("UPDATE task_types SET updated=? WHERE id=?", (now(), row["id"]))
     after = type_get(conn, row["id"])
     event(conn, actor, "task_type.update", row["id"], after)

@@ -38,7 +38,7 @@ function taskPropsHTML(t, opts = {}) {
     extra: t.private ? '<small>Reassigning grants the new assignee access and removes the previous assignee’s access unless they requested the task.</small>' : ''}));
   const asker = taskRequester(t);
   rows.push(row('asker', 'Asked by', asker ? actorFace(asker, 16) + txt(actorLabel(asker)) : txt('Unknown'), {words: actorLabel(asker) || 'Unknown', empty: !asker}));
-  if (typed) rows.push(taskRoleRowsHTML(t, r));
+  if (typed) rows.push(taskRoleRowsHTML(t, r, type));
   rows.push(`<div class="prop" data-prop-row="private"><span class="prop-k">Private</span><span class="prop-vwrap"><label><input type="checkbox" data-task-private ${t.private ? 'checked' : ''} ${r.party && (!t.private || myActor() === t.requester) ? '' : 'disabled'}> ${t.private ? '<span class="nav-icon" aria-hidden="true">lock</span> Private' : 'Company'}</label><small>Only the requester and assignee can see a private task.</small></span></div>`);
   // Due: a person's deadline (red once passed), or when a bot's parked task wakes (muted "Wakes Oct 2")
   const dueAt = parseServerTime(t.due);
@@ -74,36 +74,44 @@ function taskPropsHTML(t, opts = {}) {
   return `<div class="props">${rows.join('')}</div><div class="props-msg" data-props-msg role="status" aria-live="polite"></div>`;
 }
 // A refused save's reason stays under the properties until that property saves (several: one line each, named).
-const PROP_WORDS = {status: 'Status', owner: 'Owner', due: 'Due', tags: 'Tags', parent: 'Part of', type: 'Type', step: 'Step',
-  'role-developer': 'Developers', 'role-reviewer': 'Reviewers', 'role-qa': 'QA'};
+const PROP_WORDS = {status: 'Status', owner: 'Owner', due: 'Due', tags: 'Tags', parent: 'Part of', type: 'Type', step: 'Step'};
 
-// Who else is on a ticket, a row a role, and who it waits on now (the server's `roles` and `waits_on`): a task on a
-// type whose steps say which role they wait on. × takes someone off; + adds a person or a bot to the role.
-const ROLE_WORDS = {developer: 'Developers', reviewer: 'Reviewers', qa: 'QA'};
-function taskRoleRowsHTML(t, r) {
+// Who else is on a task, a row a role, and who it waits on now (the server's `roles`, `waits_on` and the type's
+// `owner_role`): shown for a task on a type. The rows are the roles the type's steps wait on and any role someone
+// holds on this task; × takes someone off, + adds a person or a bot, and "Add a role" names a new one.
+const roleWord = role => role === 'qa' ? 'QA' : String(role || '').replace(/[-_]/g, ' ').replace(/^\w/, c => c.toUpperCase());
+function taskRoleNames(t, type) {
+  const names = new Set();
+  for (const s of type?.steps || []) if (s.waits_on) names.add(s.waits_on);
+  for (const role of Object.keys(t.roles || {})) names.add(role);
+  return [...names];
+}
+function taskRoleRowsHTML(t, r, type) {
   if (!t.roles || !t.waits_on) return '';
   const rows = [];
-  for (const role of ['developer', 'reviewer', 'qa']) {
+  for (const role of taskRoleNames(t, type)) {
     const people = t.roles[role] || [];
+    const word = roleWord(role), owners = role === type?.owner_role;
     const chips = people.map(a => `<span class="prop-chip">${actorFace(a, 16)}<span class="prop-txt">${esc(actorLabel(a))}</span>${r.edit
-      ? `<button type="button" class="prop-x" data-prop-clear-role="${role}" data-actor="${esc(a)}" aria-label="Take ${esc(actorLabel(a))} off ${ROLE_WORDS[role]}" title="Take off">${TL_ICON.x}</button>` : ''}</span>`).join('');
+      ? `<button type="button" class="prop-x" data-prop-clear-role="${esc(role)}" data-actor="${esc(a)}" aria-label="Take ${esc(actorLabel(a))} off ${esc(word)}" title="Take off">${TL_ICON.x}</button>` : ''}</span>`).join('');
     const add = !r.edit ? '' : chips
-      ? `<button type="button" class="prop-add" data-prop="role:${role}" aria-haspopup="menu" aria-label="Add to ${ROLE_WORDS[role]}" title="Add">${TL_ICON.plus}</button>`
-      : `<button type="button" class="prop-v empty" data-prop="role:${role}" aria-haspopup="menu" aria-label="${ROLE_WORDS[role]}: none, add someone"><span class="prop-txt">${role === 'qa' ? 'Add QA' : `Add a ${role}`}</span></button>`;
-    rows.push(`<div class="prop" data-prop-row="role-${role}"><span class="prop-k" aria-hidden="true">${ROLE_WORDS[role]}</span><span class="prop-vwrap"><span class="prop-tags" aria-label="${ROLE_WORDS[role]}">${chips
+      ? `<button type="button" class="prop-add" data-prop="role:${esc(role)}" aria-haspopup="menu" aria-label="Add to ${esc(word)}" title="Add">${TL_ICON.plus}</button>`
+      : `<button type="button" class="prop-v empty" data-prop="role:${esc(role)}" aria-haspopup="menu" aria-label="${esc(word)}: none, add someone"><span class="prop-txt">${owners ? 'Add another' : 'Add'}</span></button>`;
+    rows.push(`<div class="prop" data-prop-row="role-${esc(role)}"><span class="prop-k" aria-hidden="true">${esc(owners ? word + ' (also)' : word)}</span><span class="prop-vwrap"><span class="prop-tags" aria-label="${esc(word)}">${chips
       || (r.edit ? '' : '<span class="prop-v ro empty"><span class="prop-txt">None</span></span>')}${add}</span></span></div>`);
   }
+  if (r.edit) rows.push(`<div class="prop" data-prop-row="role-new"><span class="prop-k" aria-hidden="true"></span><span class="prop-vwrap"><button type="button" class="prop-v empty" data-prop="role-new" aria-haspopup="menu" aria-label="Add a role"><span class="prop-txt">Add a role</span></button></span></div>`);
   const w = t.waits_on;
   const faces = (w.actors || []).map(a => `<span class="prop-chip">${actorFace(a, 16)}<span class="prop-txt">${esc(actorLabel(a))}</span></span>`).join('');
   const words = !w.actors?.length ? '<span class="prop-v ro empty"><span class="prop-txt">Nobody: it is finished</span></span>'
-    : faces + (w.role && !w.assigned ? `<small>No ${ROLE_WORDS[w.role] === 'QA' ? 'QA' : ROLE_WORDS[w.role].toLowerCase()} yet, so the owner holds it.</small>` : '');
+    : faces + (w.role && !w.assigned ? `<small>Nobody is on it as ${esc(roleWord(w.role))} yet, so the owner holds it.</small>` : w.role ? `<small>as ${esc(roleWord(w.role))}</small>` : '');
   rows.push(`<div class="prop" data-prop-row="waits-on"><span class="prop-k" aria-hidden="true">Waits on</span><span class="prop-vwrap"><span class="prop-tags" aria-label="Waits on: ${esc((w.actors || []).map(actorLabel).join(', ') || 'nobody')}">${words}</span></span></div>`);
   return rows.join('');
 }
 function taskPropsMsgPaint(d) {
   const box = $('[data-props-msg]', d); if (!box) return;
   const errs = d.propsErrs?.id === String(d.dataset.task) ? [...d.propsErrs.map] : [];
-  box.textContent = errs.length === 1 ? errs[0][1] : errs.map(([k, text]) => `${PROP_WORDS[k] || 'Task'}: ${text}`).join('\n');
+  box.textContent = errs.length === 1 ? errs[0][1] : errs.map(([k, text]) => `${PROP_WORDS[k] || (k.startsWith('role-') ? roleWord(k.slice(5)) : 'Task')}: ${text}`).join('\n');
 }
 
 // ---- one small menu for every row (and the "…" menu): arrow keys, Home/End, Enter, Esc; an optional find box
@@ -245,14 +253,27 @@ function taskPropsBind(d, task, change) {
       }});
     } else if (key === 'type') {
       taskTypeMenu(d, b, task, save);
-    } else if (key.startsWith('role:')) {
-      const role = key.slice(5), have = new Set((task.roles || {})[role] || []);
-      const opts = new DOMParser().parseFromString(`<select>${taskOwnerOptions('')}</select>`, 'text/html').querySelectorAll('option[value]:not([value=""])');
-      const items = [...opts].map(o => ({value: o.value, text: o.textContent, actor: o.value.includes(':') ? o.value : 'bot:' + o.value,
-        html: `<span class="tl-opt-face">${actorFace(o.value.includes(':') ? o.value : 'bot:' + o.value, 16)}</span><span>${esc(o.textContent)}</span>`}))
-        .filter(it => !have.has(it.actor) && !(role === 'developer' && it.actor === task.owner));
-      propMenu(d, b, {label: 'Add to ' + ROLE_WORDS[role], find: 'Find a person or bot', items, none: 'Everyone is on it',
-        onPick: it => void save('role-' + role, cur => ({roles: {[role]: [...((cur.roles || {})[role] || []), it.value]}}))});
+    } else if (key.startsWith('role:') || key === 'role-new') {
+      const people = role => {
+        const have = new Set((task.roles || {})[role] || []);
+        const opts = new DOMParser().parseFromString(`<select>${taskOwnerOptions('')}</select>`, 'text/html').querySelectorAll('option[value]:not([value=""])');
+        const items = [...opts].map(o => ({value: o.value, text: o.textContent, actor: o.value.includes(':') ? o.value : 'bot:' + o.value,
+          html: `<span class="tl-opt-face">${actorFace(o.value.includes(':') ? o.value : 'bot:' + o.value, 16)}</span><span>${esc(o.textContent)}</span>`}))
+          .filter(it => !have.has(it.actor) && !(role === type?.owner_role && it.actor === task.owner));
+        propMenu(d, b, {label: 'Add to ' + roleWord(role), find: 'Find a person or bot', items, none: 'Everyone is on it',
+          onPick: it => void save('role-' + role, cur => ({roles: {[role]: [...((cur.roles || {})[role] || []), it.value]}}))});
+      };
+      if (key === 'role-new') {
+        // A role is a short name the team chooses; the menu offers the ones this board already uses.
+        const known = taskRoleNames(task, type);
+        propMenu(d, b, {label: 'Add a role', entry: 'Role, like reviewer', none: 'Type a role name, then Enter',
+          items: known.map(k => ({value: k, text: k, html: `<span>${esc(roleWord(k))}</span>`})),
+          onPick: it => setTimeout(() => people(it.value)), onEntry: v => {
+            const role = v.trim().toLowerCase().replace(/\s+/g, '-');
+            if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(role)) { d.propsErrs = {id: String(task.id), map: new Map([['role-new', 'A role is a short name: letters, digits, - or _.']])}; taskPropsMsgPaint(d); return; }
+            setTimeout(() => people(role));
+          }});
+      } else people(key.slice(5));
     } else if (key === 'owner') {
       const opts = new DOMParser().parseFromString(`<select>${taskOwnerOptions('')}</select>`, 'text/html').querySelectorAll('option[value]:not([value=""])');
       propMenu(d, b, {label: 'Owner', find: 'Find a person or bot', items: [...opts].map(o => {

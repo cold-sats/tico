@@ -722,7 +722,7 @@ def create_app(settings=None):
         if c is not None:
             value["relations"] = TR.grouped(c, [row["id"]], visible_sql)[row["id"]]
             value["roles"] = TRo.roles_of(c, row["id"])
-            value["waits_on"] = TRo.waits_on(row, value["step"], value["roles"])
+            value["waits_on"] = TRo.waits_on(row, value["step"], value["roles"], typ.get("owner_role") if typ else None)
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
@@ -816,7 +816,8 @@ def create_app(settings=None):
             value.update({
                 "relations": relations[row["id"]],
                 "roles": roles[row["id"]],
-                "waits_on": TRo.waits_on(row, value["step"], roles[row["id"]]),
+                "waits_on": TRo.waits_on(row, value["step"], roles[row["id"]],
+                                         next((t.get("owner_role") for t in pipelines if t["id"] == row.get("type_id")), None)),
                 "parts": parts.get(row["id"], {"total": 0, "done": 0}),
                 "links": links[row["id"]],
                 "children_summary": summaries[row["id"]],

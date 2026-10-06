@@ -128,7 +128,7 @@ class TaskCreate(Contract):
     step: str | None = Field(default=None, max_length=200)
     # An imported ticket's own number (a mover's); a numbered type gives the next one otherwise.
     number: TaskNumber | None = None
-    # Who else is on the ticket: {developer|reviewer|qa: [actors]} (backend/task_roles.py).
+    # Who else is on the task, by role: {role: [actors]} (backend/task_roles.py).
     roles: dict[str, list[str]] | None = None
 
 
@@ -158,7 +158,7 @@ class TaskUpdate(Contract):
     step: str | None = Field(default=None, max_length=200)   # "" clears the step
     step_rank: float | None = Field(default=None, allow_inf_nan=False)   # its place within its step
     number: TaskNumber | None = None      # a mover's, for a task that has none
-    # Replace the people in the roles named: {developer|reviewer|qa: [actors]}; [] clears one.
+    # Replace the people in the roles named: {role: [actors]}; [] clears one.
     roles: dict[str, list[str]] | None = None
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
     # delegated_identity): checked as that person, never as BotOps.
@@ -170,8 +170,8 @@ class TaskStepInput(Contract):
     name: ID
     position: int | None = None
     status: Literal["open", "doing", "waiting", "review", "ready", "done", "closed", "declined"]
-    # The role a task in this step waits on (its developers, reviewers or QA); None: its owner.
-    waits_on: Literal["developer", "reviewer", "qa"] | None = None
+    # The role a task in this step waits on (a short name such as reviewer or qa); None: its owner.
+    waits_on: str | None = Field(default=None, max_length=40)
 
 
 # What every bot may do with a type's tasks beyond its own (hubdb.TYPE_BOTS): parties keeps them to
@@ -184,6 +184,8 @@ class TaskTypeCreate(Contract):
     steps: list[TaskStepInput] = Field(default_factory=list)
     bots: TypeBots | None = None
     numbered: bool = False
+    # The role the type's owner holds without being listed on the task (a ticket board: developer).
+    owner_role: str | None = Field(default=None, max_length=40)
 
 
 class TaskTypeUpdate(Contract):
@@ -191,6 +193,7 @@ class TaskTypeUpdate(Contract):
     steps: list[TaskStepInput] | None = None
     bots: TypeBots | None = None
     numbered: bool | None = None
+    owner_role: str | None = Field(default=None, max_length=40)   # "" takes it off
 
 
 class QuestionOption(Contract):

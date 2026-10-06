@@ -469,10 +469,12 @@ SCHEMAS = {
     "Conversation": obj({"id": "s", "kind": "s", "subject": "s", "participants": items({"type": "string"}),
                          "created": "s", "last_message_at": "s", "closed_at": "n"}),
     "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "position": "i", "status": "s"},
-                    waits_on={"type": ["string", "null"], "enum": ["developer", "reviewer", "qa", None],
-                              "description": "The role a task in this step waits on: its developers, reviewers or qa; "
-                                             "null means its owner, as a task with no board"}),
+                    waits_on={"type": ["string", "null"],
+                              "description": "The role a task in this step waits on (a short name the team chooses, such as "
+                                             "reviewer or qa); null means its owner, as a task with no board"}),
     "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
+                    owner_role={"type": ["string", "null"], "description": "The role the owner holds without being listed in a "
+                                "task's roles (a ticket board: developer); a step waiting on it waits on the owner too"},
                     bots={"type": ["string", "null"], "enum": ["read", "work", None],
                           "description": "What every bot may do with the type's tasks beyond its own: read "
                                          "(read, comment, file subtasks) or work (also change them); null keeps "
@@ -504,16 +506,16 @@ SCHEMAS = {
                 step_rank={"type": ["number", "null"], "description": "Its place within its step, lower first"},
                 waiting_on={"type": ["string", "null"], "description": "The person a waiting task waits on; "
                             "the task is in their Needs you"},
-                roles={"type": "object", "description": "Who else is on the task, by role: developer, reviewer and qa, "
-                       "each a list of actors in the order they were added (the owner is the first developer and is "
-                       "not repeated here). Task update and create take the same shape to replace a role's people",
-                       "properties": {"developer": items({"type": "string"}), "reviewer": items({"type": "string"}),
-                                      "qa": items({"type": "string"})}},
-                waits_on=obj({"role": {"type": ["string", "null"], "enum": ["developer", "reviewer", "qa", None]},
+                roles={"type": "object", "description": "Who else is on the task, by role: each role a short name the team "
+                       "chooses (reviewer, qa, designer ...) with its actors in the order they were added; a role nobody holds "
+                       "is absent, and the owner is not repeated under the type's owner_role. Task update and create take the "
+                       "same shape to replace a role's people ([] clears one)",
+                       "additionalProperties": items({"type": "string"})},
+                waits_on=obj({"role": {"type": ["string", "null"]},
                               "actors": items({"type": "string"}), "assigned": "b"}) | {
                     "description": "Who the task waits on now: the role its step waits on (null: its owner), the "
-                                   "actors it waits on (the owner and the other developers; the reviewers or qa; or, "
-                                   "when nobody holds that role yet, the owner with assigned false), none once finished"}),
+                                   "actors it waits on (that role's people; the owner first for the type's owner_role; or, "
+                                   "when nobody holds the role yet, the owner with assigned false), none once finished"}),
     "Person": obj({"id": "s", "name": "s", "email": "s", "title": "s", "team": "s", "reports_to": "n", "org_parent": "s"},
                   required=["id", "name", "org_parent"]),
     "Access": obj({"see": "b", "read": "b", "write": "b"},

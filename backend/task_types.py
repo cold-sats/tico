@@ -33,7 +33,8 @@ def install_task_types(app, store, auth, mutate, mover):
             who = request.state.identity
             require_mover(c, who)
             return {"type": H.type_create(c, who.actor, body.name,
-                    [step.model_dump() for step in body.steps], mover=True, bots=body.bots, numbered=body.numbered)}
+                    [step.model_dump() for step in body.steps], mover=True, bots=body.bots, numbered=body.numbered,
+                    owner_role=body.owner_role)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/task-types/{type_id}")
@@ -42,7 +43,8 @@ def install_task_types(app, store, auth, mutate, mover):
             who = request.state.identity
             require_mover(c, who)
             steps = [step.model_dump() for step in body.steps] if body.steps is not None else None
-            return {"type": H.type_update(c, who.actor, type_id, body.name, steps, mover=True, bots=body.bots, numbered=body.numbered)}
+            return {"type": H.type_update(c, who.actor, type_id, body.name, steps, mover=True, bots=body.bots, numbered=body.numbered,
+                                          owner_role=body.owner_role)}
         return mutate(request, body, work)
 
     @app.delete("/api/v2/task-types/{type_id}")
