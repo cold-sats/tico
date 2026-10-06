@@ -157,7 +157,7 @@ function botAlertHTML(slug) {
   if (s && ['crashed', 'quarantined', 'limited', 'blocked'].includes(s.state)) { word = V2_WORD[s.state]; why = s.focus || ''; }
   else if (s?.state === 'paused' && /^Paused: over /.test(s.focus || '')) { word = s.focus; why = 'No new work until it resets or the limit is raised. A run in progress finishes.'; }
   else if (!s && stateOf(slug) === 'failed') word = 'Last run failed';
-  else if (e.agent?.synced && !e.online) { word = agentPresenceLabel(e.agent, false); why = 'This imported copy needs a history sync; it does not report whether the Grok bot is running.'; }
+  else if (e.agent?.synced && !e.online) { word = agentPresenceLabel(e.agent, false); why = 'Imported history needs a sync.'; }
   else if (e.agent?.credential && !e.online && ((S.status?.queued || []).some(q => (q.bot || q.employee) === slug) || s?.open_tasks))
     word = 'Offline with work waiting';
   return word ? `<span class="bot-alert" role="status"${why ? ` title="${esc(why)}"` : ''}><span aria-hidden="true">⚠</span> ${esc(word)}</span>` : '';

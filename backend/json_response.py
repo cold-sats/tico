@@ -22,7 +22,8 @@ def accepts_gzip(headers):
 
 
 async def compress(request, response):
-    if (not isinstance(response, JSONResponse) or request.method == "HEAD"
+    # Behind Cloudflare (cf-ray) the edge compresses for the browser; doing it here too only spends this server's CPU.
+    if (not isinstance(response, JSONResponse) or request.method == "HEAD" or "cf-ray" in request.headers
             or response.status_code != 200 or len(response.body) < 1024
             or "content-encoding" in response.headers
             or "content-disposition" in response.headers or "x-content-sha256" in response.headers):

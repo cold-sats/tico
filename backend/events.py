@@ -45,6 +45,7 @@ FALLBACK_SECONDS = 1.5    # the shared look for changes another process wrote
 LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
 KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts
 GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
+GATHER_CHAT_SECONDS = 0.25  # a stream following a conversation: its messages and run output stay prompt
 BATCH = 500
 MAX_FILTER = 20           # conversation= and bot= values per stream
 
@@ -252,7 +253,9 @@ def ensure(c):
     # What the triggers look tasks up by: a next-run task by the attempt carrying it, a cover by its blob.
     for need, index in (("tasks.carried_by", "tasks_carried_by ON tasks(carried_by) WHERE carried_by IS NOT NULL"),
                         ("task_assets", "task_assets_blob ON task_assets(blob_id)"),
-                        ("bot_file_versions", "bot_file_versions_blob ON bot_file_versions(blob_id)")):
+                        # The same index hubdb.migrate makes; its leading blob_id serves the cover lookup.
+                        ("bot_file_versions.media_state",
+                         "bot_file_versions_blob_media ON bot_file_versions(blob_id,media_state)")):
         if has(need):
             c.execute("CREATE INDEX IF NOT EXISTS " + index)
     wanted = set()
@@ -749,7 +752,7 @@ def install(app, store, auth, task_views, task_view):
                         return
                     wait = min(remaining, max(0.0, KEEPALIVE_SECONDS - (time.monotonic() - quiet_since)))
                     if await doorbell.wait(generation, wait):
-                        await asyncio.sleep(GATHER_SECONDS)
+                        await asyncio.sleep(GATHER_CHAT_SECONDS if conversations else GATHER_SECONDS)
                         continue
                     if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
                         try:

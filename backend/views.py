@@ -333,7 +333,6 @@ def operation_issues(c, who, auth):
                 bot=slug, needs_person=False)
         elif agent and bot["state"] == "active" and not location["online"] and agent.get("synced"):
             detail = ("Last sync " + agent["last_seen"] + "." if agent["last_seen"] else "No history has synced yet.")
-            detail += " Tico keeps imported history; this does not report whether the Grok bot is running."
             if queued:
                 detail += (f" {queued} unread message{'s' if queued != 1 else ''} stored in Tico; "
                            "messages are not relayed back to Grok.")

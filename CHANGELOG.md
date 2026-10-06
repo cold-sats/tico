@@ -7,24 +7,31 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
-### Changed
-- JSON answers are encoded by orjson in the request's own thread instead of FastAPI's pure-Python encoder on the event loop: a page of 500 tasks takes about 1 ms to encode instead of about 100 ms, during which no other request (health checks and runner heartbeats included) could run. Display names are added with orjson too. The server also uses uvloop and httptools, uvicorn's faster event loop and HTTP parser.
-
-### Removed
-- Unused dependencies: `websockets` (Slack's Socket Mode uses slack_sdk's built-in client) and `pytest` from the server image (it stays a development dependency).
 ### Added
 - A **flight recorder**: each server keeps its own request, process and database history. Per minute and route template, by caller kind: calls, errors, p50/p95/max and bytes; each request over a second; CPU, memory, event-loop lag, write-lock waits and hold times; per hour, SQL time by statement shape and database size by table; each start's release, commit, package and settings hashes, and whether the image runs the code of its release tag (code changed after the build, or an image built from another commit, shows in Health); and when the event loop stalls two seconds, every busy thread's stack. Owners and admins read it under **Performance** on the Health page, at `GET /api/v2/system/metrics`, with `hub health metrics` or `hub_health_metrics`. Nothing leaves the server; `TICO_FLIGHT_RECORDER=0` turns it off ([Observability](docs/observability.md#the-flight-recorder)).
 - A task list's refresh costs only what changed. The Tasks page's 2-minute refresh, a tab waking or coming back online, and the refresh of a browser without live events now ask `GET /api/v2/tasks?changed_after=<cursor>` for the tasks changed since the list was read and apply them in place (`gone` lists the ones that left), instead of reading every open task again; an unchanged list of tasks, labels or routines is answered `304` from its `ETag`. Tags, files, routines, open asks and steps now reach the change log too, so live events carry them ([Catching a task list up](docs/custom-frontend.md#catching-a-task-list-up)).
+
+### Changed
+- JSON answers are encoded by orjson in the request's own thread instead of FastAPI's pure-Python encoder on the event loop: a page of 500 tasks takes about 1 ms to encode instead of about 100 ms, during which no other request (health checks and runner heartbeats included) could run. Display names are added with orjson too. The server also uses uvloop and httptools, uvicorn's faster event loop and HTTP parser.
+- The web and desktop app open their first page without waiting for health diagnostics or sidebar counts. Sign-in reads chat permissions directly, and API JSON (when no proxy such as Cloudflare compresses it) and standalone UI assets use gzip when accepted to reduce transfer time.
+- New indexes keep busy installs fast as history grows: unanswered questions, answers, tasks carried by a run and the media check's file-version lookup. Linked tasks on a large page are found without probing unrelated task pairs.
+- Live updates gather a busy team's writes for up to a second before sending them; a stream following an open conversation waits at most a quarter second, so messages and run output stay prompt.
+
+### Fixed
+- A failed roster refresh preserves the last complete roster and no longer marks a reachable server offline. Loading health checks show Connecting until their result arrives.
+- A model sign-in that expires mid-run no longer replays a run that already acted: the run is saved for review, and the bot waits for a new sign-in on that computer.
+- Operations alerts for container installs report the backup system they actually use, not the imported VM timers' old history.
+- A Grok bot whose imported history has not synced lately shows a history-sync warning instead of a runtime failure, in Health and across the app.
+- A saved demo reopens with its edits and owner session after a restart, and a demo refuses a directory holding other data.
+- Container health probes run at their scheduled deadline instead of a probe's rounding skipping one.
+
+### Removed
+- Unused dependencies: `websockets` (Slack's Socket Mode uses slack_sdk's built-in client) and `pytest` from the server image (it stays a development dependency).
 
 ## [0.3.24] - 2026-10-06
 
 ### Fixed
 - Open tabs no longer re-read the whole task list each time a task is created elsewhere: a new task arrives with its live event, like a changed one, and a bot's or person's task lists re-read at most every 15 seconds and not in a hidden tab. On a busy team v0.3.23 kept the server's CPU full and made it slow or unreachable.
-### Changed
-- The web and desktop app open their first page without waiting for health diagnostics or sidebar counts. Sign-in reads chat permissions directly, and API JSON plus standalone UI assets use gzip when accepted to reduce transfer time.
-
-### Fixed
-- A failed roster refresh preserves the last complete roster and no longer marks a reachable server offline. Loading health checks show Connecting until their result arrives.
 
 ### Added
 - People on a task by role. Besides its owner, a task can list people and bots under roles the team names (`roles`: `{"developer": ["bob"], "reviewer": ["charlie"]}`); one person may hold several roles, and Tico gives roles no meaning or rights, so clients decide what they mean. `hub task update --role reviewer=charlie`, `hub task list --member me [--role reviewer]`, `hub_task_update`/`hub_task_create` (`roles`), `hub_task_list` and `GET /api/v2/tasks` (`member`, `role`); the task page has a People row ([Tasks](docs/tasks.md#people-on-a-task-by-role)).
