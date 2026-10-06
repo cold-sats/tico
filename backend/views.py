@@ -1,6 +1,7 @@
 """Existing frontend read models over cloud records. Never import the local hub server."""
 
 import json
+import os
 import re
 from datetime import timezone
 from typing import Literal
@@ -368,6 +369,8 @@ def operation_issues(c, who, auth):
             machine=runner_id, since=entry["since"], severity="warning", needs_person=False)
         issues[-1]["bots"] = entry["slugs"]     # the bot pages find their machine's issue by this
     if who.role == "owner":
+        # Container backups report through replication; imported VM timer history stays historical.
+        managed_backups = bool(os.environ.get("TICO_BACKUP_MODE"))
         for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,version,checkout_json,restart_requested "
                              "FROM runners WHERE revoked_at IS NULL"):
             online = row["last_seen"] and row["last_seen"] > H.shift(H.now(), seconds=-60)
@@ -378,6 +381,8 @@ def operation_issues(c, who, auth):
             if online:
                 checkout_issue(add, row, runner_busy(c, row["id"]))
         for row in c.execute("SELECT service,last_error,detail_json FROM service_health WHERE last_error IS NOT NULL"):
+            if managed_backups and row["service"] in ("backup", "restore-check"):
+                continue
             detail = json.loads(row["detail_json"] or "{}")
             if row["service"] == "github:token":
                 # Only the App itself failing is a system problem, and only while it is recent and unrecovered.
@@ -406,7 +411,15 @@ def operation_issues(c, who, auth):
         # the same limits as the CloudWatch alarms; the hub is the notification channel.
         # Both run daily after 03:00 UTC and the restore check retries hourly, so 36 hours
         # means the retries are failing too.
-        for service, label, limit in (("backup", "verified backup", 36), ("restore-check", "isolated restore check", 36)):
+        if managed_backups:
+            from . import health, replication
+            check = health._backups({"backup": replication.status()}, auth.settings)
+            if check["status"] in ("warn", "bad"):
+                add("service", "Backups need attention", check["summary"],
+                    severity="error" if check["status"] == "bad" else "warning",
+                    action="Review Backups in Settings → Health.")
+        for service, label, limit in (() if managed_backups else
+                (("backup", "verified backup", 36), ("restore-check", "isolated restore check", 36))):
             row = c.execute("SELECT last_success FROM service_health WHERE service=?", (service,)).fetchone()
             last = H.parse_ts(row["last_success"]) if row and row["last_success"] else None
             if last and last < H.parse_ts(H.shift(H.now(), hours=-limit)):
