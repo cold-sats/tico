@@ -1464,7 +1464,7 @@ from your own scripts or agents.
   operator installs the value on the bot's computer.
 - Live replies for custom frontends: `execution.parts` in `/watch` and `/snapshot` lists the pieces of the run's reply so
   far, in order, as `{kind: "progress"|"reply"|"tool", text, at}`. A tool call is one short label ("Ran hub task create"),
-  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#streaming).
+  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#live-events).
 - Messages say which run handled them. On the `messages`, `snapshot` and `watch` routes a message a run has taken carries
   `run: {job_id, attempt_id, state}`, with `state` `started_run` or, for a follow-up delivered into a run already working,
   `added_to_run`. A bot's reply carries `run: {job_id, attempt_id}` and `answers`, the ids of every message that run
