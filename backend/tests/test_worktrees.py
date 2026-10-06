@@ -180,3 +180,38 @@ def test_old_computer_token_needs_an_outstanding_action(prepared):
     with api.app_state.store.transaction() as c:
         c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
     assert post(api, route, {}, 'runner-test').status_code == 200
+
+
+def test_heartbeat_writes_only_changes_and_backs_off_a_refused_cleanup(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    report = {'link_id': link['link_id'], 'state': 'present', 'branch': link['branch'], 'ahead': 0, 'dirty_files': 0,
+              'last_commit': 'abc'}
+    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'bots': {}, 'worktrees': True},
+            'worktrees': [report]}
+
+    def changes():
+        with api.app_state.store.read() as c:
+            return c.execute("SELECT count(*) FROM changes WHERE topic='tasks' AND kind='link' AND subject_id=?",
+                             (tid,)).fetchone()[0]
+    post(api, 'runners/heartbeat', body, 'runner-test')
+    seen = changes()
+    for _ in range(3):
+        assert post(api, 'runners/heartbeat', body, 'runner-test').status_code == 200
+    assert changes() == seen, 'an unchanged report is not a task change'
+    # Closed and finished: cleanup is asked. The computer refuses (it keeps files), so it is asked again only after
+    # a wait, and not at all after CLEANUP_TRIES.
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'][0]['action'] == 'remove'
+    report['error'] = 'Worktree action failed; history kept. kept: ignored files'
+    asked = [post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] for _ in range(4)]
+    assert sum(1 for a in asked if a) == 1, asked
+    from backend import worktrees
+    with api.app_state.store.transaction() as c:
+        detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
+        detail.update(cleanup_attempts=worktrees.CLEANUP_TRIES, cleanup_retry_at=None)
+        c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), link['link_id']))
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    with api.app_state.store.read() as c:
+        assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])['cleanup_gave_up']
