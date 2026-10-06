@@ -880,6 +880,8 @@ def migrate(conn, adopt_legacy=False):
     add_column(conn, "messages", "deleted_at", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS messages_pending_conversation ON messages(conversation_id) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
+    # The media check visits blobs often; an unindexed version lookup multiplies both histories.
+    conn.execute("CREATE INDEX IF NOT EXISTS bot_file_versions_blob_media ON bot_file_versions(blob_id,media_state)")
     # Quiet notes (`hub note`): a line left for a bot's next run, asking nothing. `carried_by` is
     # the attempt that took it there; a cancelled note never goes.
     conn.execute("CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, from_actor TEXT NOT NULL, "
