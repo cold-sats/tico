@@ -9,7 +9,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from backend import flight, releases
+from backend import code_hash, flight, releases
 from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
@@ -32,7 +32,11 @@ def test_requests_and_sql_are_aggregated_per_minute_route_and_caller(store):
     rec.request("GET /api/v2/tasks", "human", 503, 5, 10, "human:ana")
     with store.transaction() as c:
         c.execute("SELECT * FROM tasks WHERE id='x1'").fetchall()
-        c.execute("SELECT * FROM tasks WHERE id='y22'").fetchall()
+        c.execute("SELECT * FROM tasks WHERE id='y22'").fetchone()
+        # Rows fetched after the first count toward the statement's one sample, however they are read.
+        many = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) SELECT x FROM n"
+        assert sum(x for (x,) in c.execute(many, (200_000,))) == 200_000 * 200_001 // 2
+        c.execute(many, (3,)).fetchmany(2)
     rec.drain(MINUTE)
     taken = rec.take(MINUTE)
     with store.transaction() as c:
@@ -41,6 +45,7 @@ def test_requests_and_sql_are_aggregated_per_minute_route_and_caller(store):
         slow = c.execute("SELECT route,caller,actor,status FROM flight_slow").fetchall()
         shapes = {r[0]: r[1] for r in c.execute("SELECT fingerprint,n FROM flight_sql")}
         process = c.execute("SELECT requests,txns FROM flight_process").fetchone()
+        rows_ms = c.execute("SELECT total_ms FROM flight_sql WHERE fingerprint LIKE 'WITH RECURSIVE%'").fetchone()[0]
     bot = rows["bot"]
     assert (bot["n"], bot["errors"], bot["bytes"], bot["max_ms"]) == (20, 0, 2000, 1500)
     assert 10 <= bot["p50"] <= 12.5 and 900 <= bot["p95"] <= 1500
@@ -48,7 +53,17 @@ def test_requests_and_sql_are_aggregated_per_minute_route_and_caller(store):
     assert [tuple(r) for r in slow] == [("GET /api/v2/tasks", "bot", "bot:finance", 200)]
     # Literals are folded: two lookups are one query shape, and no value is kept.
     assert shapes["SELECT * FROM tasks WHERE id='?'"] == 2 and not any("x1" in fp for fp in shapes)
+    assert shapes[flight.fingerprint(many)] == 2 and rows_ms > 5
     assert process["requests"] == 21 and process["txns"] >= 1
+
+
+def test_a_full_buffer_counts_what_it_drops(monkeypatch):
+    monkeypatch.setattr(flight, "BUFFER", 3)
+    rec = flight.Recorder()
+    for _ in range(5):
+        rec.query("SELECT 1", 0.1)
+    rec.drain(MINUTE)
+    assert rec.take(MINUTE)["process"][-1] == 2 and rec.take(MINUTE)["process"][-1] == 0
 
 
 def test_only_owners_and_admins_read_the_metrics(tmp_path):
@@ -147,3 +162,12 @@ def test_the_start_record_keeps_no_secret_and_flags_an_image_not_built_from_its_
     assert event["version"] == "0.3.22" and event["provenance"] == "mismatch"
     monkeypatch.setattr(releases, "TRANSPORT", httpx.MockTransport(lambda request: httpx.Response(200, text="a" * 40)))
     assert flight.provenance(settings, "0.3.22") == "match"
+    # Files copied over a release image after it was built: `modified`, whatever the commit says. Compiled files are not code.
+    image = tmp_path / "image"
+    (image / "backend" / "__pycache__").mkdir(parents=True)
+    (image / "backend" / "app.py").write_text("release = 1\n")
+    (image / "release-manifest.json").write_text(json.dumps({"commit": "a" * 40, "code": code_hash.digest(image)}))
+    (image / "backend" / "__pycache__" / "app.cpython-312.pyc").write_bytes(b"compiled")
+    assert flight.provenance(settings, "0.3.22", image) == "match"
+    (image / "backend" / "app.py").write_text("release = 1  # patched\n")
+    assert flight.provenance(settings, "0.3.22", image) == "modified"

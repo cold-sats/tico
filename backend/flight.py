@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS flight_slow(id INTEGER PRIMARY KEY, ts INTEGER NOT NU
   actor TEXT, ms REAL, bytes INTEGER, status INTEGER);
 CREATE TABLE IF NOT EXISTS flight_process(ts INTEGER PRIMARY KEY, cpu REAL, rss INTEGER, threads INTEGER,
   fds INTEGER, sockets INTEGER, lag_p95 REAL, lag_max REAL, requests INTEGER, queries INTEGER, sql_ms REAL,
-  txns INTEGER, wait_max REAL, hold_max REAL, hold_p95 REAL, locked INTEGER);
+  txns INTEGER, wait_max REAL, hold_max REAL, hold_p95 REAL, locked INTEGER, dropped INTEGER);
 CREATE TABLE IF NOT EXISTS flight_sql(ts INTEGER NOT NULL, fingerprint TEXT NOT NULL, n INTEGER NOT NULL,
   total_ms REAL NOT NULL, p95 REAL, max_ms REAL, hist TEXT, PRIMARY KEY(ts, fingerprint)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS flight_db(ts INTEGER PRIMARY KEY, bytes INTEGER, wal_bytes INTEGER, free_bytes INTEGER,
@@ -117,6 +117,7 @@ class Recorder:
         self.loop_thread = None
         self.last_stall = 0.0
         self.cpu = (time.monotonic(), time.process_time())
+        self.dropped = 0
 
     def _reset(self):
         self.requests = {}          # (route, caller) -> [n, errors, bytes, total, max, hist]
@@ -130,14 +131,21 @@ class Recorder:
         self.hold = {}
         self.locked = 0
 
-    # The hot paths: one append each, safe from any thread.
+    # The hot paths: one append each, safe from any thread. A full buffer (the background thread is not keeping up)
+    # discards the oldest sample; `dropped` counts them, approximately, so the gap shows in the minute's row.
     def request(self, route, caller, status, ms, nbytes=0, actor=""):
+        if len(self.samples) >= BUFFER:
+            self.dropped += 1
         self.samples.append(("r", route, caller, status, ms, nbytes, actor))
 
     def query(self, sql, ms, locked=False):
+        if len(self.samples) >= BUFFER:
+            self.dropped += 1
         self.samples.append(("q", sql, ms, locked))
 
     def transaction(self, wait_ms, hold_ms, locked=False):
+        if len(self.samples) >= BUFFER:
+            self.dropped += 1
         self.samples.append(("t", wait_ms, hold_ms, locked))
 
     def tick(self, lag_ms):
@@ -145,6 +153,8 @@ class Recorder:
         self.beat = time.monotonic()
         if self.loop_thread is None:
             self.loop_thread = threading.get_ident()
+        if len(self.samples) >= BUFFER:
+            self.dropped += 1
         self.samples.append(("l", lag_ms))
 
     def drain(self, now=None):
@@ -218,6 +228,7 @@ class Recorder:
             requests, slow, lag, lag_max = self.requests, self.slow, self.lag, self.lag_max
             totals = (self.queries, self.sql_ms, self.txns, self.wait_max, self.hold_max, self.hold, self.locked)
             self._reset()
+            dropped, self.dropped = self.dropped, 0
             sql = {hour: {fp: [r[0], r[1], r[2], dict(r[3])] for fp, r in shapes.items()}
                    for hour, shapes in self.sql.items() if shapes}
             current = max(self.sql) if self.sql else None
@@ -232,7 +243,7 @@ class Recorder:
         proc = (minute, round(100 * (cpu - then[1]) / max(mono - then[0], 1e-6), 1), process["rss"], process["threads"],
                 process["fds"], process["sockets"], quantile(lag, .95), round(lag_max, 1),
                 sum(r[0] for r in requests.values()), queries, round(sql_ms, 1), txns, round(wait_max, 1),
-                round(hold_max, 1), quantile(hold, .95), locked)
+                round(hold_max, 1), quantile(hold, .95), locked, dropped)
         sql_rows = []
         for hour, shapes in sql.items():
             ranked = sorted(shapes.items(), key=lambda kv: -kv[1][1])
@@ -251,7 +262,7 @@ class Recorder:
 def write(c, taken):
     c.executemany("INSERT OR REPLACE INTO flight_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", taken["requests"])
     c.executemany("INSERT INTO flight_slow(ts,route,caller,actor,ms,bytes,status) VALUES(?,?,?,?,?,?,?)", taken["slow"])
-    c.execute("INSERT OR REPLACE INTO flight_process VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", taken["process"])
+    c.execute("INSERT OR REPLACE INTO flight_process VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", taken["process"])
     c.executemany("INSERT OR REPLACE INTO flight_sql VALUES(?,?,?,?,?,?,?)", taken["sql"])
 
 
@@ -317,33 +328,97 @@ def stacks(loop_thread=None, depth=14, limit=24):
     return {"busy": out[:limit], "idle": idle}
 
 
-class TimedConnection(sqlite3.Connection):
-    """A Store connection that times every statement (to its first row) for the flight recorder."""
+_clock = time.perf_counter
+
+
+class TimedCursor(sqlite3.Cursor):
+    """A statement's cursor that adds the time spent fetching its rows to the statement's one sample, recorded when the
+    rows run out, at `fetchall`, or when the cursor is dropped. Iteration is timed row by row, never the caller's work
+    between rows."""
     recorder = None
+    _sql = None
+    _ms = 0.0
+
+    def _record(self):
+        sql = self._sql
+        if sql is not None:
+            self._sql = None
+            self.recorder.query(sql, self._ms)
+
+    def fetchone(self):
+        started = _clock()
+        row = super().fetchone()
+        self._ms += (_clock() - started) * 1000
+        if row is None:
+            self._record()
+        return row
+
+    def fetchall(self):
+        started = _clock()
+        rows = super().fetchall()
+        self._ms += (_clock() - started) * 1000
+        self._record()
+        return rows
+
+    def fetchmany(self, size=None):
+        started = _clock()
+        rows = super().fetchmany() if size is None else super().fetchmany(size)
+        self._ms += (_clock() - started) * 1000
+        if len(rows) < (self.arraysize if size is None else size):
+            self._record()
+        return rows
+
+    def __iter__(self):
+        return self._rows()
+
+    def _rows(self):
+        # Rows are stepped in small batches so the clock is read per batch, not per row.
+        fetch = sqlite3.Cursor.fetchmany
+        while True:
+            started = _clock()
+            rows = fetch(self, 32)
+            self._ms += (_clock() - started) * 1000
+            if not rows:
+                self._record()
+                return
+            yield from rows
+
+    def __del__(self):
+        if self._sql is not None:
+            self._record()
+
+
+class TimedConnection(sqlite3.Connection):
+    """A Store connection whose statements are timed, rows fetched included, for the flight recorder."""
+    recorder = None
+    cursor_class = TimedCursor
 
     def execute(self, sql, parameters=()):
-        started = time.perf_counter()
-        locked = False
+        cursor = self.cursor(self.cursor_class)
+        started = _clock()
         try:
-            return super().execute(sql, parameters)
+            cursor.execute(sql, parameters)
         except sqlite3.OperationalError as exc:
-            locked = "locked" in str(exc)
+            self.recorder.query(sql, (_clock() - started) * 1000, "locked" in str(exc))
             raise
-        finally:
-            if self.recorder:
-                self.recorder.query(sql, (time.perf_counter() - started) * 1000, locked)
+        except Exception:
+            self.recorder.query(sql, (_clock() - started) * 1000)
+            raise
+        cursor._ms = (_clock() - started) * 1000
+        cursor._sql = sql
+        return cursor
 
     def executemany(self, sql, parameters):
-        started = time.perf_counter()
+        started = _clock()
         try:
             return super().executemany(sql, parameters)
         finally:
-            if self.recorder:
-                self.recorder.query(sql, (time.perf_counter() - started) * 1000)
+            self.recorder.query(sql, (_clock() - started) * 1000)
 
 
 def connection_class(recorder):
-    return type("RecordedConnection", (TimedConnection,), {"recorder": recorder})
+    cursor = type("RecordedCursor", (TimedCursor,), {"recorder": recorder})
+    return type("RecordedConnection", (TimedConnection,), {"recorder": recorder, "cursor_class": cursor})
 
 
 # ---------------------------------------------------------------------------- what this server is
@@ -373,10 +448,26 @@ def dependency_hash():
     return hashlib.sha256("\n".join(pins).encode()).hexdigest()[:16]
 
 
-def provenance(settings, version):
-    """Whether this image was built from the commit its release tag names on GitHub. `mismatch` is an image built
-    elsewhere and labelled as a release; `unverified` a release label with no commit to check."""
+def code_state(root=ROOT):
+    """`modified` when the code differs from what the image was built with (files copied over a release image), `match`
+    when it is the same, None when the image recorded no hash (a source checkout, or an image from before the hash)."""
+    try:
+        expected = json.loads(open(os.path.join(root, "release-manifest.json")).read()).get("code")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not expected:
+        return None
+    from .code_hash import digest
+    return "match" if digest(root) == expected else "modified"
+
+
+def provenance(settings, version, root=ROOT):
+    """Whether this image runs the code it was built with, from the commit its release tag names on GitHub. `modified`
+    is code changed after the build (files copied over a release image); `mismatch` an image built elsewhere and
+    labelled as a release; `unverified` a release label with no commit to check."""
     from . import releases
+    if code_state(root) == "modified":
+        return "modified"
     if not releases.parse(version) or settings.rehearsal or not releases.Checker.enabled():
         return "unknown"
     if not settings.release_commit or not settings.release_repo:
@@ -607,7 +698,8 @@ def _process(c, since):
             "rss": rows[-1]["rss"] if rows else None, "threads": rows[-1]["threads"] if rows else None,
             "sockets": rows[-1]["sockets"] if rows else None, "lag_max": peak("lag_max"), "lag_p95": peak("lag_p95"),
             "wait_max": peak("wait_max"), "hold_max": peak("hold_max"),
-            "locked": sum(r["locked"] or 0 for r in rows), "minutes": rows[-180:]}
+            "locked": sum(r["locked"] or 0 for r in rows), "dropped": sum(r["dropped"] or 0 for r in rows),
+            "minutes": rows[-180:]}
 
 
 def _db(c, now):

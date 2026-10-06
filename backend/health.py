@@ -436,10 +436,13 @@ def view(c, who, settings, auth, github, config):
         # The image this server started from was not built from its release's tag (backend/flight.py).
         from .flight import last_start
         start = last_start(c)
-        if start and start.get("provenance") == "mismatch" and start.get("version") == releases.version():
+        state = (start or {}).get("provenance")
+        if state in ("mismatch", "modified") and start.get("version") == releases.version():
             checks.append(_check("image", "Release image", "warn",
+                                 f"This server's code differs from the published {_v(start['version'])} image."
+                                 if state == "modified" else
                                  f"This image says {_v(start['version'])} but was built from commit "
-                                 f"{str(start.get('commit'))[:7]}, not the published release. Pull the release image."))
+                                 f"{str(start.get('commit'))[:7]}, not the published release."))
 
     notice = access.bot_access_notice(c) if kind == "owner" else None
     if notice:

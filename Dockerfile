@@ -62,6 +62,7 @@ RUN python - <<'PY'
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 commit = os.environ.get("TICO_COMMIT", "")
@@ -69,7 +70,11 @@ repository = os.environ.get("TICO_REPOSITORY", "")
 if os.environ.get("TICO_VERSION", "dev") != "dev" or commit or repository:
     if not re.fullmatch(r"[0-9a-f]{40}", commit) or not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
         raise SystemExit("Image provenance requires TICO_COMMIT (full SHA) and TICO_REPOSITORY (owner/repo)")
-Path("release-manifest.json").write_text(json.dumps({"commit": commit, "repository": repository}) + "\n")
+# The shipped code's hash: files copied over a release image later show as modified (backend/flight.py).
+sys.path.insert(0, ".")
+from backend.code_hash import digest
+Path("release-manifest.json").write_text(json.dumps({"commit": commit, "repository": repository,
+                                                     "code": digest(".")}) + "\n")
 PY
 RUN chmod -R go-w,go+rX /opt/tico
 # The venv is only mounted here, so this stage's /opt/tico holds the source alone.
