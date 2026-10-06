@@ -87,20 +87,27 @@ def clean(value):
     return out
 
 
-def set_roles(conn, actor, task_id, roles, mover=None, note=""):
+def set_roles(conn, actor, task_id, roles, mover=None, note="", checked=False):
     """Replace the people in each role named in `roles` ({role: [actors]}); a role not named is
-    left as it is, and [] clears one. Returns True when anything changed."""
+    left as it is, and [] clears one. Returns True when anything changed. `checked`: the caller
+    (task update) has already said this actor may change the task. A refusal on a private task
+    stays content-free (hubdb.private_task_write)."""
+    return _H().private_task_write(_set_roles)(conn, actor, task_id, roles, mover, note, checked)
+
+
+def _set_roles(conn, actor, task_id, roles, mover, note, checked):
     H = _H()
     from . import task_relations as TR
     wanted = clean(roles)
     if not wanted:
         return False
-    H._writer(conn, actor)
     row = H.task(conn, task_id)
     if not row:
         H.refuse(conn, actor, "not-found", f"no task {task_id}")
-    H._task_private_writer(conn, actor, row)
-    TR._mine(conn, actor, row, TR._mover(conn, actor, mover))
+    if not checked:
+        H._writer(conn, actor)
+        H._task_private_writer(conn, actor, row)
+        TR._mine(conn, actor, row, TR._mover(conn, actor, mover))
     have = roles_of(conn, task_id)
     changed, at = False, H.now()
     for role, people in wanted.items():

@@ -201,8 +201,8 @@ function taskPropsBind(d, task, change) {
     if (ev.target.closest('[data-tag-key],[data-drop-label],[data-open-task]')) return;   // a tag opens its page; × and ↗ are bound in taskModalBind
     const off = ev.target.closest('[data-prop-clear-role]');
     if (off) {
-      const role = off.dataset.propClearRole;
-      void save('people', {roles: {[role]: ((task.roles || {})[role] || []).filter(a => a !== off.dataset.actor)}});
+      const role = off.dataset.propClearRole, gone = off.dataset.actor;
+      void save('people', cur => ({roles: {[role]: ((cur.roles || {})[role] || []).filter(a => a !== gone)}}));
       return;
     }
     const clear = ev.target.closest('[data-prop-clear]');

@@ -3144,13 +3144,6 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if labels is not None:
         _set_task_tags(conn, actor, task_id, labels, note or "")
         sets.append("updated=:updated")
-    if roles is not None:
-        try:
-            touched = TRo.set_roles(conn, actor, task_id, roles, mover=mover, note=note or "")
-        except ValueError as exc:
-            refuse(conn, actor, "kind", str(exc))
-        if touched:
-            sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
         if private_tasks_default(conn, new_owner):
@@ -3185,7 +3178,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if row.get(field) is not None:
                 _task_event(conn, task_id, actor, field, row[field], None, note or "")
             sets.append(field + "=NULL")
-    if not sets and not state_change:
+    if not sets and not state_change and not roles:
         return row
     if closing_step:
         task_close(conn, actor, task_id, note=note or "", quiet=quiet, type=type, step=step)
@@ -3195,6 +3188,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     args["updated"] = ts
     if sets:
         conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
+    if roles:
+        # After the rest is saved, so who may be added is checked against the new owner and privacy;
+        # the checks above already said this actor may change the task.
+        try:
+            TRo.set_roles(conn, actor, task_id, roles, note=note or "", checked=True)
+        except ValueError as exc:
+            refuse(conn, actor, "kind", str(exc))
     if title is not None:
         # The task's own thread was named after it; a room many tasks share keeps its subject.
         conn.execute("UPDATE conversations SET subject=? WHERE id=? AND task_id=? AND subject=?",
