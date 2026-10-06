@@ -102,7 +102,12 @@ class Schedule(unittest.TestCase):
 
     def test_only_two_failures_in_a_row_are_reported(self):
         probe, seen = self.schedule(FAIL, PASS, FAIL, FAIL, FAIL, PASS, background=False)
-        self.assertEqual(probe.report(), PASS)          # a slow first start, then a good one: no warning
+        # Subtracting this timestamp from its deadline rounds the interval down below 900.
+        with mock.patch.object(container_probe.time, "monotonic", return_value=1000.1):
+            self.assertEqual(probe.report(), PASS)      # a slow first start, then a good one: no warning
+        with self.later(probe, container_probe.EVERY_S - 1):
+            self.assertEqual(probe.report(), PASS)
+        self.assertEqual(len(seen), 2)                 # not due before the deadline
         with self.later(probe, container_probe.EVERY_S):
             self.assertEqual(probe.report(), FAIL)      # failed, and failed again at once
         with self.later(probe, container_probe.FAILING_EVERY_S):
