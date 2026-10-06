@@ -12,6 +12,7 @@ from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.datastructures import DefaultPlaceholder
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
@@ -35,6 +36,7 @@ from .execution import Execution, bot_repository
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
 from . import rooms
+from . import fast_json
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
 from .route_renames import old_paths as old_route_paths
@@ -564,6 +566,14 @@ def create_app(settings=None):
         return response
 
     class DisplayNameRoute(APIRoute):
+        def __init__(self, path, endpoint, **options):
+            # FastAPI calls the handler it was given; the JSON it answers is encoded by orjson (backend/fast_json.py).
+            # `endpoint` stays the handler itself, for the callers that read its dicts (backend/route_renames.py).
+            plain = isinstance(options.get("response_class", DefaultPlaceholder(None)), DefaultPlaceholder)
+            super().__init__(path, fast_json.answering_json(endpoint, options.get("status_code")) if plain else endpoint,
+                             **options)
+            self.endpoint = endpoint
+
         def get_route_handler(self):
             handler = super().get_route_handler()
 

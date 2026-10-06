@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- JSON answers are encoded by orjson in the request's own thread instead of FastAPI's pure-Python encoder on the event loop: a page of 500 tasks takes about 1 ms to encode instead of about 100 ms, during which no other request (health checks and runner heartbeats included) could run. Display names are added with orjson too. The server also uses uvloop and httptools, uvicorn's faster event loop and HTTP parser.
+
+### Removed
+- Unused dependencies: `websockets` (Slack's Socket Mode uses slack_sdk's built-in client) and `pytest` from the server image (it stays a development dependency).
+
 ## [0.3.24] - 2026-10-06
 
 ### Fixed
