@@ -15,9 +15,11 @@ class ReadIndex:
         privacy.snapshot(c)
         self.c, self.who = c, who
         self.principals = privacy.actor(who)
-        tasks = [dict(r) for r in c.execute("SELECT id,requester,owner,private FROM tasks")]
-        self.known_tasks = {r["id"] for r in tasks}
-        self.private = {r["id"]: r for r in tasks if r["private"] is None or r["private"]}
+        # Ids from the primary key and the private rows by their partial index (tasks_private): reading every task's
+        # whole row for this was a busy server's slowest query.
+        self.known_tasks = {r[0] for r in c.execute("SELECT id FROM tasks")}
+        self.private = {r["id"]: dict(r) for r in c.execute(
+            "SELECT id,requester,owner,private FROM tasks WHERE private IS NOT 0")}
         self.denied = {tid for tid, row in self.private.items() if not privacy.task_readable(c, who, row)}
         self._attempts = self._attachments = self._tags = self._intervals = None
         # Each instance belongs to one consistent read transaction.

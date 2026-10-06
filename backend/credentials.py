@@ -64,6 +64,17 @@ def effective_grant(c, credential, subject):
                      (credential, subject)).fetchone()
 
 
+def granted(c, subject):
+    """The credential ids `subject` holds an effective grant to, in one query: `effective_grant` for each of them.
+    The runner endpoints poll every few seconds for every bot, so one query per credential was most of a server's SQL."""
+    return {r[0] for r in c.execute('SELECT g.credential_id FROM credential_grants g '
+                                    'LEFT JOIN credential_grants p ON p.id=g.parent_id '
+                                    "LEFT JOIN bot_config bc ON g.subject='bot:'||bc.bot "
+                                    'WHERE g.subject=? AND g.revoked IS NULL '
+                                    "AND (g.parent_id IS NULL OR (p.revoked IS NULL AND p.id IS NOT NULL "
+                                    "AND p.subject='human:'||bc.operator))", (subject,))}
+
+
 def permitted(c, who, credential, admins):
     return administrator(c, who, admins) or (who.role in ('human', 'owner', 'bot')
                                              and effective_grant(c, credential, who.actor) is not None)
@@ -382,9 +393,10 @@ def install_credentials(app,store,delegate=None,propose=None):
         with store.read() as c:
             migration_runner(c,who)
             bots={r[0]:[] for r in c.execute('SELECT bot FROM assignments WHERE runner_id=?',(who.runner_id,))}
+            stored=c.execute('SELECT id,env FROM credentials WHERE ciphertext IS NOT NULL AND env!=\'\'').fetchall()
             for bot,names in bots.items():
-                names.extend(r['env'] for r in c.execute('SELECT id,env FROM credentials WHERE ciphertext IS NOT NULL AND env!=\'\'')
-                             if effective_grant(c,r['id'],'bot:'+bot))
+                held=granted(c,'bot:'+bot)
+                names.extend(r['env'] for r in stored if r['id'] in held)
             return {'bots':bots}
 
     @app.post('/api/v2/runner-credential-migration')
@@ -544,8 +556,9 @@ def install_credentials(app,store,delegate=None,propose=None):
         with store.transaction() as c:
             validate_identity(c,who)
             values=[]
+            held=granted(c,who.actor)
             for row in c.execute('SELECT * FROM credentials ORDER BY id'):
-                if row['ciphertext'] is not None and effective_grant(c,row['id'],who.actor):
+                if row['ciphertext'] is not None and row['id'] in held:
                     values.append({'id':row['id'],'name':row['name'],'env':row['env'],'kind':row['kind'],**vault.reveal(c,who,row['id'])})
             return {'credentials':values}
 
@@ -558,8 +571,9 @@ def install_credentials(app,store,delegate=None,propose=None):
                              'WHERE a.runner_id=? AND a.bot=? AND b.state=\'active\'',(who.runner_id,bot)).fetchone():
                 raise Problem('forbidden','That active bot is not on this Computer',403)
             values=[]
+            held=granted(c,'bot:'+bot)
             for row in c.execute('SELECT * FROM credentials ORDER BY id'):
-                if row['ciphertext'] is not None and row['env'] and effective_grant(c,row['id'],'bot:'+bot):
+                if row['ciphertext'] is not None and row['env'] and row['id'] in held:
                     values.append({'id':row['id'],'env':row['env'],'kind':row['kind'],'value':vault.cipher.decrypt(c,row)})
                     H.event(c,who.actor,'credential.sent_to_computer',row['id'],{'bot':bot,'runner':who.runner_id,'use':'watcher'})
             return {'credentials':values}
@@ -576,8 +590,9 @@ def install_credentials(app,store,delegate=None,propose=None):
             if not c.execute('SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL',(who.runner_id,)).fetchone():
                 raise Problem('forbidden','Only a registered computer may ask for this',403)
             found={}
+            held=granted(c,COMPUTERS)
             for row in c.execute('SELECT * FROM credentials WHERE ciphertext IS NOT NULL ORDER BY id'):
-                if row['env'] in names and row['env'] not in found and effective_grant(c,row['id'],COMPUTERS):
+                if row['env'] in names and row['env'] not in found and row['id'] in held:
                     found[row['env']]=(row['id'],vault.cipher.decrypt(c,row))
             for env,(cid,_) in found.items():
                 H.event(c,who.actor,'credential.sent_to_computer',cid,{'env':env,'runner':who.runner_id})

@@ -186,6 +186,8 @@ CREATE TABLE IF NOT EXISTS attempt_conversations(
 CREATE TABLE IF NOT EXISTS attempt_inputs(
  attempt_id TEXT NOT NULL REFERENCES attempts(id), message_id TEXT PRIMARY KEY REFERENCES messages(id),
  acked_at TEXT);
+-- A run's inputs by run (backend/task_privacy.py attempt_tasks): without it each lookup scanned every message.
+CREATE INDEX IF NOT EXISTS attempt_inputs_attempt ON attempt_inputs(attempt_id);
 CREATE TABLE IF NOT EXISTS idempotency(
  actor TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
  request_hash TEXT NOT NULL, response_json TEXT NOT NULL, created TEXT NOT NULL,
