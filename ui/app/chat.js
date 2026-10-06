@@ -666,3 +666,25 @@ document.addEventListener('click', async ev => {
     void taskModalShow(data.task);
   } catch (error) { toast(error.message, true); }
 });
+// Bots link a task as <hub>/tasks/<id>, an address the server does not serve, or as #/task/<id>,
+// which leaves the chat. Either opens the task pop-up in place.
+function taskLinkId(a) {
+  let url; try { url = new URL(a.getAttribute('href') || '', location.href); } catch { return ''; }
+  if (!hubUrl(url)) return '';
+  const m = url.hash.match(/^#\/tasks?\/([^/?#]+)$/) || (!url.hash && url.pathname.match(/^\/tasks?\/([A-Za-z0-9-]{8,80})\/?$/));
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return ''; }
+}
+document.addEventListener('click', async ev => {
+  if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+  const a = ev.target.closest('a[href]');
+  if (!a || a.hasAttribute('download')) return;
+  const id = taskLinkId(a);
+  // a #/task/ link outside a message (the board, a run row) still goes to the Tasks page
+  if (!id || (a.getAttribute('href').startsWith('#') && !a.closest('.md, .bubble, .conv-run, .upd-card, .upd-msg'))) return;
+  ev.preventDefault();
+  try {
+    const data = await get('/v2/tasks/' + encodeURIComponent(id));
+    void taskModalShow(data.task);
+  } catch (error) { toast(error.message, true); }
+});
