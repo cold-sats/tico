@@ -47,6 +47,24 @@ function liveSoon(key, fn, ms = 250) {
   if (LIVE_SOON.has(key)) return;
   LIVE_SOON.set(key, setTimeout(() => { LIVE_SOON.delete(key); fn(); }, ms));
 }
+// Run `fn` at most once per `ms`, the last call winning, and never while the tab is hidden: a hidden tab runs it once
+// when it is shown again. For the reads a change sets off that fetch whole lists.
+const LIVE_THROTTLE = new Map();
+function liveThrottle(key, fn, ms = 15000) {
+  const t = LIVE_THROTTLE.get(key) || {at: 0, timer: 0, hidden: false};
+  t.fn = fn; LIVE_THROTTLE.set(key, t);
+  if (document.hidden) { t.hidden = true; return; }
+  if (t.timer) return;
+  t.timer = setTimeout(() => {
+    t.timer = 0;
+    if (document.hidden) { t.hidden = true; return; }
+    t.at = Date.now(); t.fn();
+  }, Math.max(0, t.at + ms - Date.now()));
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  for (const [key, t] of LIVE_THROTTLE) if (t.hidden) { t.hidden = false; liveThrottle(key, t.fn); }
+});
 function liveStart() {
   if (LIVE.started || !liveAvailable()) return;
   LIVE.started = true;

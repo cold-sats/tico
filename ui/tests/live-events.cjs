@@ -2,7 +2,7 @@
 // what changed, as the server does when a write commits.
 //  - the chat follows its conversation on the page's one stream and reads its snapshot once per change, not on a timer;
 //  - the Needs-you count beside a bot follows the `needs` topic;
-//  - the task board takes a task changed elsewhere from the event itself, without reading the list again;
+//  - the task board takes a task changed or created elsewhere from the event itself, without reading the list again;
 //  - each reconnect resumes from the last change number.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -77,11 +77,18 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   await page.evaluate(() => { location.hash = '#/board'; });
   await page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && document.querySelector('#task-body .tl-row, #task-body .bcard'), null, {timeout: 8000})
     .catch(async e => { throw new Error(e.message + ' ' + JSON.stringify(errors) + (await page.evaluate(() => document.querySelector('#main')?.innerText.slice(0, 400)))); });
+  for (let seen = -1; seen !== reads.tasks;) { seen = reads.tasks; await page.waitForTimeout(400); }   // Done's page lands after the list
   const listed = reads.tasks;
   const third = await send(() => true, block(13, 'tasks', {id: 't1', actor: 'human:ben', task: task({title: 'Draft the final release notes', version: 4})}));
   assert.equal(third.searchParams.get('after'), '12');
   await page.locator('#task-body', {hasText: 'Draft the final release notes'}).waitFor();
   assert.equal(reads.tasks, listed, 'the change came with the event');
+  // A new task arrives whole too: a busy team's bots create tasks every few seconds, and every open tab gets each one.
+  const fourth = await send(() => true, block(14, 'tasks', {id: 't2', actor: 'bot:ops', task: task({id: 't2', title: 'Check the release links', status: 'open'})}));
+  assert.equal(fourth.searchParams.get('after'), '13');
+  await page.locator('#task-body', {hasText: 'Check the release links'}).waitFor();
+  await page.waitForTimeout(600);
+  assert.equal(reads.tasks, listed, 'a new task does not read the list again');
   assert.deepEqual(errors, []);
   console.log('live events: chat, Needs you and the task board follow one stream: ok');
   await browser.close();

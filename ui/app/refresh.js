@@ -44,27 +44,34 @@ function liveTasksApply(events) {
   const state = TASKS_ST;
   if (state && isTasksRoute(S.route) && state.tasks) {
     const known = new Map(state.tasks.map((t, i) => [String(t.id), i]));
-    let unknown = false, changed = false;
+    let changed = false;
     for (const d of events) {
       const i = known.get(String(d.id));
       if (d.gone) { if (i != null) { state.tasks = state.tasks.filter(t => String(t.id) !== String(d.id)); known.clear(); state.tasks.forEach((t, j) => known.set(String(t.id), j)); changed = true; } continue; }
       if (!d.task) continue;
       if ((d.task.lane || 'company') !== 'company') { if (i != null) { state.tasks = state.tasks.filter(t => String(t.id) !== String(d.id)); known.clear(); state.tasks.forEach((t, j) => known.set(String(t.id), j)); changed = true; } continue; }
-      if (i != null) { state.tasks = state.tasks.map((t, j) => j === i ? d.task : t); changed = true; }
-      else unknown = true;                // a new task, or one this page has not loaded: the list reads again
+      if (i != null) state.tasks = state.tasks.map((t, j) => j === i ? d.task : t);
+      else { state.tasks = [...state.tasks, d.task]; known.set(String(d.id), state.tasks.length - 1); }   // a new task arrives whole
+      changed = true;
     }
-    if (unknown) void tasksLoad(state, {poll: true});
-    else if (changed) { tasksTools(state); tasksRender(state); }
+    // Never the whole list again: every open tab gets every change, and a busy team's bots change tasks every few
+    // seconds. The 2-minute refresh still reads it.
+    if (changed) { tasksTools(state); tasksRender(state); }
   }
+  // These read whole lists, so at most every 15 s and not in a hidden tab (liveThrottle).
   if (BOT && isKeeper(BOT.slug)) {
     const me = 'bot:' + BOT.slug;
-    if (events.some(d => d.gone || d.task?.owner === me || d.task?.requester === me)) {
+    if (events.some(d => d.gone || d.task?.owner === me || d.task?.requester === me)) liveThrottle('bot-tasks', () => {
+      if (!BOT || BOT.slug !== me.slice(4)) return;
       if (BOT.loaded.has('tasks')) void loadBotTasksV2(BOT.slug);
       if (BOT.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
       if ($('#bot-ticker')) void botTickerLoad(BOT.slug);
-    }
+    });
   }
-  if (typeof PERSON_TASKS !== 'undefined' && PERSON_TASKS) personTasksReload();
+  if (typeof PERSON_TASKS !== 'undefined' && PERSON_TASKS) {
+    const me = 'human:' + PERSON_TASKS;
+    if (events.some(d => d.gone || d.task?.owner === me)) liveThrottle('person-tasks', personTasksReload);
+  }
   if (TASK_CHAT && events.some(d => String(d.id) === String(TASK_CHAT.id))) taskChatLive(TASK_CHAT);
 }
 function liveWire() {
