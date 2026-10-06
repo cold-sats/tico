@@ -61,8 +61,31 @@ class Schema(HubCase):
         indexes = {r["name"] for r in self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'")}
         self.assertLessEqual({"messages_to_delivered", "messages_conversation",
+                              "messages_reply_kind", "messages_from_kind", "tasks_carried_by",
+                              "messages_pending_conversation",
                               "tasks_owner_status", "tasks_requester_status", "events_ts"},
                              indexes)
+
+    def test_existing_database_gains_reply_and_carried_task_indexes(self):
+        row = H.task_create(self.conn, ANA, "Prepare packet", "Gather the source files.", CMO, lint=False)
+        self.conn.execute("UPDATE tasks SET carried_by='existing-run' WHERE id=?", (row["id"],))
+        self.conn.execute("DROP INDEX messages_reply_kind")
+        self.conn.execute("DROP INDEX tasks_carried_by")
+        self.conn.execute("DROP INDEX messages_from_kind")
+        self.conn.execute("DROP INDEX messages_pending_conversation")
+        self.conn.commit()
+        self.conn.close()
+        migrated = H.connect(Path(self.dir.name) / "hub.db")
+        self.addCleanup(migrated.close)
+        self.assertEqual(migrated.execute("SELECT id FROM tasks WHERE carried_by='existing-run'").fetchone()[0], row["id"])
+        for query, index in (
+                ("SELECT id FROM tasks WHERE carried_by='existing-run'", "tasks_carried_by"),
+                ("SELECT 1 FROM messages WHERE in_reply_to='question' AND kind='answer'", "messages_reply_kind"),
+                ("SELECT id FROM messages WHERE from_actor='bot:cmo' AND kind='ask'", "messages_from_kind"),
+                ("SELECT id FROM messages WHERE conversation_id='task-thread' AND kind='ask' "
+                 "AND answered_by IS NULL AND deleted_at IS NULL", "messages_pending_conversation")):
+            plan = " ".join(r[3] for r in migrated.execute("EXPLAIN QUERY PLAN " + query))
+            self.assertIn(index, plan)
 
 class RegistrySync(HubCase):
     def test_sync_is_idempotent_and_keeps_tokens_threads_and_quarantine(self):
