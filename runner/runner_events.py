@@ -30,6 +30,7 @@ CHANNELS = {
     "work": ("claim",),
     "assignments": ("sync",),
     "credentials": ("sync",),
+    "config": ("sync", "config"),
     "cleanups": ("sync",),
     "repositories": ("sync",),
     "worktrees": ("heartbeat",),
@@ -39,7 +40,7 @@ CHANNELS = {
     "credential_imports": ("imports",),
     "subscription_refresh": ("refresh",),
 }
-ALL = ("claim", "sync", "heartbeat", "logins", "harness", "imports", "refresh")
+ALL = ("claim", "sync", "config", "heartbeat", "logins", "harness", "imports", "refresh")
 
 
 class NotSupported(Exception):

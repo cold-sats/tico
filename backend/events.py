@@ -214,7 +214,7 @@ TRIGGERS = [
 # every answer was no. The same log now carries `runner` rows: one per computer a write concerns,
 # its id as the subject, naming which of the computer's reads to repeat. A row carries a kind and
 # at most a bot slug, never a value (`GET /api/v2/runners/me/events`, runner/runner_events.py).
-RUNNER_KINDS = ("work", "assignments", "credentials", "cleanups", "repositories", "worktrees", "restart",
+RUNNER_KINDS = ("work", "assignments", "credentials", "config", "cleanups", "repositories", "worktrees", "restart",
                 "logins", "harness_actions", "credential_imports", "subscription_refresh")
 _BOT_RUNNER = "SELECT runner_id AS rid FROM assignments WHERE bot={bot}"
 # Credentials and repositories are rare company-wide changes: every computer re-reads its share.
@@ -268,6 +268,9 @@ RUNNER_TRIGGERS = [
     ("changes_runner_credentials_update", "UPDATE", "credentials",
      f"{_changed('env')} OR (OLD.ciphertext IS NULL) IS NOT (NEW.ciphertext IS NULL)", _tell("credentials", _ALL_RUNNERS)),
     ("changes_runner_credentials_delete", "DELETE", "credentials", None, _tell("credentials", _ALL_RUNNERS)),
+    # The company's AI providers (backend/providers.py): a computer installs what is enabled.
+    ("changes_runner_providers_insert", "INSERT", "registry_metadata", "NEW.key='providers'", _tell("config", _ALL_RUNNERS)),
+    ("changes_runner_providers_update", "UPDATE", "registry_metadata", "NEW.key='providers'", _tell("config", _ALL_RUNNERS)),
     ("changes_runner_migration_insert", "INSERT", "registry_metadata", _MIGRATIONS, _tell("credentials", _ALL_RUNNERS)),
     ("changes_runner_migration_update", "UPDATE", "registry_metadata", _MIGRATIONS, _tell("credentials", _ALL_RUNNERS)),
     ("changes_runner_refresh_insert", "INSERT", "registry_metadata", "NEW.key LIKE 'subscription-refresh:%'",
