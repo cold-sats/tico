@@ -885,6 +885,9 @@ def migrate(conn, adopt_legacy=False):
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_finished_lane_time ON tasks("
                  "lane,COALESCE(closed_at,done_at,updated,created) DESC,id DESC) "
                  "WHERE status IN ('done','closed')")
+    # A task's history, and the Tasks page's stats: how many tasks reached each status, by day.
+    conn.execute("CREATE INDEX IF NOT EXISTS task_events_task ON task_events(task_id, ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS task_events_field_ts ON task_events(field, ts)")
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schedule_occurrences'").fetchone():
         conn.execute("CREATE INDEX IF NOT EXISTS schedule_occurrences_task ON schedule_occurrences(task_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS events_task_origin ON events(actor,action,target,ts DESC)")
@@ -4405,6 +4408,80 @@ def tasks_due_for_bots(conn, through):
         "AND owner LIKE 'bot:%' AND due IS NOT NULL AND due!='' AND substr(due,1,10)<=? "
         "AND NOT EXISTS (SELECT 1 FROM task_reminders r WHERE r.task_id=tasks.id AND r.due=tasks.due) "
         "ORDER BY created,id", (through,)))
+
+
+FLOW_STATUSES = ("created",) + TASK_STATUSES
+
+
+def task_flow(conn, since, until=None, tz_minutes=0, visible="1", owner=None, requester=None,
+              owner_kind=None, label=None, recurring=None, type_id=None):
+    """How tasks moved through their statuses between `since` and `until`, read from `task_events`.
+
+    Every status change is already an event, so nothing extra is stored. `days` counts the tasks
+    that entered each stage on each local day ("created" is a new task, "open" a reopened one);
+    with `type_id`, each of that type's steps is a stage too, keyed "step:<id>". `stages` is how
+    long tasks sat in a stage they left in the window, and `people` is the same count by the
+    task's current owner. `visible` is the caller's WHERE fragment over task columns
+    (`Auth.task_sql`); the other filters also apply to the task as it is now.
+    """
+    where, args = ["(" + (visible or "1") + ")", "lane='company'"], []
+    if owner:
+        where.append("owner=?"); args.append(owner)
+    if requester:
+        where.append("requester=?"); args.append(requester)
+    if owner_kind in ("bot", "human"):
+        where.append("owner LIKE ?"); args.append(owner_kind + ":%")
+    if type_id:
+        where.append("type_id=?"); args.append(type_id)
+    if label:
+        where.append("EXISTS (SELECT 1 FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
+                     "WHERE task_tags.task_id=tasks.id AND tags.key=?)")
+        args.append(str(label).strip().lower())
+    if recurring is not None:
+        if _has_table(conn, "schedule_occurrences"):
+            where.append(("" if recurring else "NOT ") + "EXISTS (SELECT 1 FROM schedule_occurrences o WHERE o.task_id=tasks.id)")
+        elif recurring:
+            where.append("0")
+    picked = "picked AS (SELECT id, owner FROM tasks WHERE " + " AND ".join(where) + ")"
+    fields = "e.field='status'" if not type_id else "(e.field='status' OR (e.field='step' AND e.new IS NOT NULL))"
+    window = f"{fields} AND e.ts>=?" + (" AND e.ts<?" if until else "")
+    window_args = [since] + ([until] if until else [])
+    stage = ("CASE WHEN e.field='step' THEN 'step:' || e.new WHEN e.old IS NULL THEN 'created' ELSE e.new END")
+    days, people = {}, {}
+    for day, owner_actor, name, n in conn.execute(
+            f"WITH {picked} SELECT date(e.ts, ?) AS day, t.owner, {stage} AS stage, count(*) FROM task_events e "
+            f"JOIN picked t ON t.id=e.task_id WHERE {window} GROUP BY day, t.owner, stage",
+            (*args, f"{int(tz_minutes):+d} minutes", *window_args)):
+        days.setdefault(day, {})
+        days[day][name] = days[day].get(name, 0) + n
+        people.setdefault(owner_actor, {})
+        people[owner_actor][name] = people[owner_actor].get(name, 0) + n
+    # Time in a stage: from entering it to the field's next change, for stages left in the window.
+    spans = {}
+    for name, hours in conn.execute(
+            f"WITH {picked}, s AS (SELECT e.field, e.new, e.ts, LEAD(e.ts) OVER "
+            "(PARTITION BY e.task_id, e.field ORDER BY e.ts, e.id) AS left_at FROM task_events e "
+            f"WHERE {fields} AND e.task_id IN (SELECT e.task_id FROM task_events e JOIN picked t ON t.id=e.task_id "
+            f"WHERE {window})) SELECT CASE WHEN field='step' THEN 'step:' || new ELSE new END, "
+            "(julianday(left_at)-julianday(ts))*24 FROM s WHERE new IS NOT NULL AND left_at>=?"
+            + (" AND left_at<?" if until else ""),
+            (*args, *window_args, *window_args)):
+        spans.setdefault(name, []).append(hours)
+
+    def summary(values):
+        values = sorted(values)
+        pick = lambda q: round(values[min(len(values) - 1, int(q * len(values)))], 2)
+        return {"n": len(values), "median_hours": pick(0.5), "p90_hours": pick(0.9)}
+    totals = {}
+    for counts in days.values():
+        for name, n in counts.items():
+            totals[name] = totals.get(name, 0) + n
+    steps = _rows(conn.execute("SELECT id, name, position FROM task_steps WHERE type_id=? ORDER BY position, id",
+                               (type_id,))) if type_id else []
+    return {"days": [{"day": day, **days[day]} for day in sorted(days)], "totals": totals, "steps": steps,
+            "stages": {name: summary(values) for name, values in spans.items()},
+            "people": sorted(({"actor": actor, **counts} for actor, counts in people.items()),
+                             key=lambda row: (-sum(v for k, v in row.items() if k != "actor"), row["actor"]))}
 
 
 def task_history(conn, task_id):

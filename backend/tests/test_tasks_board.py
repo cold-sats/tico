@@ -584,3 +584,19 @@ def test_a_type_grants_extra_bot_permissions_while_ordinary_tasks_are_readable(a
     assert get(api, 'tasks/' + ticket['id'], token=token)['task']['id'] == ticket['id']
     assert ticket['id'] in listed()
     post(api, 'tasks/' + ticket['id'], {'version': moved['version'], 'status': 'doing'}, token=token, expected=403)
+
+
+# ----------------------------------------------------------------------------- stats
+def test_task_flow_counts_status_changes_by_day_and_filters_by_owner(api):
+    """The Tasks page's stats read task_events: what entered each status, by day and by owner."""
+    ops = post(api, "tasks", {"owner": "ops", "title": "Check the invoices", "body": "x"})
+    post(api, "tasks", {"owner": "ana", "title": "Approve the budget", "body": "x"})
+    post(api, "tasks/" + ops["id"], {"version": ops["version"], "status": "doing"})
+    flow = get(api, "tasks/flow?days=7")
+    assert flow["totals"] == {"created": 2, "doing": 1}
+    assert flow["days"][-1]["created"] == 2 and flow["stages"]["open"]["n"] == 1
+    assert get(api, "tasks/flow?owner_kind=bot")["totals"] == {"created": 1, "doing": 1}
+    assert [(p["actor"], p["created"]) for p in get(api, "tasks/flow?owner=ana")["people"]] == [("human:ana", 1)]
+    steps = get(api, "tasks/flow?type=" + H.GENERAL_TYPE)
+    assert steps["steps"] and any(k.startswith("step:") for k in steps["totals"])
+    get(api, "tasks/flow?days=0", expected=422)

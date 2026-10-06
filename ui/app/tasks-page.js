@@ -43,6 +43,7 @@ function pageTasks(forced, openId = '') {
           <button type="button" class="tl-addf" id="task-filter" aria-haspopup="true">${TL_ICON.filter}<span>Filter</span></button>
           <button type="button" class="linkish tl-clear" id="task-filter-clear" hidden>Clear</button></div>
         <span class="spacer"></span>
+        ${S.me?.role === 'bot' ? '' : `<button type="button" class="tl-addf" id="task-stats" aria-label="Task stats" title="Task stats">${TL_ICON.chart}<span>Stats</span></button>`}
         <button type="button" class="tl-addf tl-pin" id="task-pin" aria-pressed="false">Pin</button>
         <button type="button" class="tl-addf tl-selmode" id="task-select-mode" aria-pressed="false" hidden>Select</button>
         <span class="tl-groupby" id="task-group-wrap"></span>
@@ -58,6 +59,7 @@ function pageTasks(forced, openId = '') {
     else if (ev.target.closest('#task-type-more')) taskPipelineMenu(state, $('#task-type-more'));
   };
   $('#task-pin').onclick = () => tasksPinToggle(state);
+  $('#task-stats')?.addEventListener('click', () => taskStatsOpen(state));
   $('#task-new').onclick = () => { const p = tasksCreatePrefill(state); openTaskCreate(p.owner, {labels: p.labels}); };
   const search = $('#task-q');
   search.oninput = () => {
