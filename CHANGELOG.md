@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.29] - 2026-10-06
+
 ### Fixed
 - A computer's event stream opens behind Cloudflare: it sent Python's default user agent, which Cloudflare's bot protection refuses (403), so every computer silently kept polling. It now names itself as the runner's other requests do, and says once in its log when the stream is unavailable.
 
