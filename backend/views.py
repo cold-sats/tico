@@ -331,6 +331,15 @@ def operation_issues(c, who, auth):
             add("agent", bot["display_name"] + " has no agent credential",
                 "Create one in Settings → Bots and install it in the " + agent["harness"] + " profile.",
                 bot=slug, needs_person=False)
+        elif agent and bot["state"] == "active" and not location["online"] and agent.get("synced"):
+            detail = ("Last sync " + agent["last_seen"] + "." if agent["last_seen"] else "No history has synced yet.")
+            detail += " Tico keeps imported history; this does not report whether the Grok bot is running."
+            if queued:
+                detail += (f" {queued} unread message{'s' if queued != 1 else ''} stored in Tico; "
+                           "messages are not relayed back to Grok.")
+            add("agent", bot["display_name"] + "'s history has not synced lately", detail,
+                bot=slug, since=agent["last_seen"], severity="warning", needs_person=False,
+                action="Run the existing history sync in Grok Bot to refresh this copy.")
         elif agent and bot["state"] == "active" and not location["online"]:
             detail = ("Last heartbeat " + agent["last_seen"] + "." if agent["last_seen"]
                       else "No heartbeat yet: install the credential and the heartbeat timer on its box.")
