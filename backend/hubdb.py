@@ -870,10 +870,16 @@ def migrate(conn, adopt_legacy=False):
         conn.execute("ALTER TABLE tasks ADD COLUMN next_run INTEGER NOT NULL DEFAULT 0")
     if "carried_by" not in columns:
         conn.execute("ALTER TABLE tasks ADD COLUMN carried_by TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS tasks_carried_by ON tasks(carried_by) WHERE carried_by IS NOT NULL")
+    # Status and provenance reads stay indexed as question and task history grows.
+    conn.execute("CREATE INDEX IF NOT EXISTS messages_reply_kind ON messages(in_reply_to, kind)")
+    conn.execute("CREATE INDEX IF NOT EXISTS messages_from_kind ON messages(from_actor, kind)")
     # A task comment its author changed or took back (task_comment_edit, task_comment_delete). Checked on
     # every start rather than numbered, so no migration number collides with another branch's.
     add_column(conn, "messages", "edited_at", "TEXT")
     add_column(conn, "messages", "deleted_at", "TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS messages_pending_conversation ON messages(conversation_id) "
+                 "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
     # Quiet notes (`hub note`): a line left for a bot's next run, asking nothing. `carried_by` is
     # the attempt that took it there; a cancelled note never goes.
     conn.execute("CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, from_actor TEXT NOT NULL, "
