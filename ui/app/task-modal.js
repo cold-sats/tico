@@ -370,7 +370,7 @@ function taskCommentsRender(state, data) {
   // `can_comment`: false for someone who may read the task but not comment on it; they get no box and no answer controls
   const can = data.can_comment !== false, d = state.dialog;
   $('form', host).hidden = !can;
-  if (d.canComment !== can) { d.canComment = can; if (d.tfEl) tfViewPaint(d); }
+  if (d.canComment !== can) { d.canComment = can; if (d.tfEl) tfPaint(d); }
   // a new comment may have carried a new version of a file, or answered a question on one
   const count = (data.comments || data.messages || []).length;
   if (state.count != null && count !== state.count) void tfLoad(state.dialog, state.id);

@@ -124,6 +124,12 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
         return route.fulfill({contentType: 'application/octet-stream', body: 'not a real file'});
       }
       if (p === '/api/v2/tasks' && req.method() === 'GET') return json({tasks: [task, plain], next_offset: null});
+      if (p === '/api/v2/tasks/t1/files' && req.method() === 'POST') {
+        const name = (req.postDataBuffer() || Buffer.alloc(0)).toString('latin1').match(/filename="([^"]+)"/)?.[1];
+        posted.push({path: p, body: {file: name}});
+        files.push({id: 'f-up' + files.length, name, mime: 'image/png', current_version: 1, archived: false, versions: [version('f-up' + files.length, 1, {mime: 'image/png', by: 'human:ana'})]});
+        return json({file: {id: files.at(-1).id, name}, file_id: files.at(-1).id, version: 1});
+      }
       if (p === '/api/v2/tasks/t1/files') return json({files});
       if (p === '/api/v2/tasks/t2/files') return json({files: plainFiles});
       if (p === '/api/v2/tasks/t1/answers' && req.method() === 'POST') {
@@ -206,6 +212,29 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     assert(requested.includes('/api/v2/files/f-cut/thumb?v=3'), 'the versioned thumb');
     assert.equal(await modal.locator('.tf-tile[data-tf-file="f-logo"] .tf-thumb img').count(), 0, 'no picture: a type mark');
     thumbDelay = 0;
+    // files reach an open task by the +, a drop anywhere on it, or a pasted screenshot; a comment being typed stays
+    assert.equal(await modal.locator('.task-files [data-tf-add]').isVisible(), true);
+    await modal.locator('.task-chat textarea').fill('Half-written note');
+    await modal.evaluate(d => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['spec'], 'mockup.png', {type: 'image/png'}));
+      for (const type of ['dragenter', 'dragover', 'drop']) d.dispatchEvent(new DragEvent(type, {dataTransfer: dt, bubbles: true, cancelable: true}));
+    });
+    await modal.locator('.tf-tile .tf-name', {hasText: 'mockup.png'}).waitFor();
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/t1/files', body: {file: 'mockup.png'}});
+    await modal.locator('.task-chat textarea').evaluate(box => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['shot'], 'image.png', {type: 'image/png'}));
+      box.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+    });
+    await modal.locator('.tf-tile .tf-name', {hasText: /^screenshot-/}).waitFor();
+    assert.match(posted.at(-1).body.file, /^screenshot-\d{8}-\d{6}\.png$/);
+    assert.equal(await modal.locator('.task-chat textarea').inputValue(), 'Half-written note');
+    assert.equal(await modal.evaluate(d => d.classList.contains('over')), false);
+    await modal.locator('.task-chat textarea').fill('');
+    files.splice(-2);
+    await page.evaluate(() => tfLoad($('#task-modal'), 't1'));
+    await modal.locator('.tf-tile .tf-name', {hasText: 'mockup.png'}).waitFor({state: 'detached'});
     // a comment that carried files: a small thumb for the image, a chip for the video at its version
     const m1 = modal.locator('.tcomment', {hasText: 'Second pass and a frame grab.'});
     await m1.locator('.tc-thumb[data-tf-jump="f-frame"]').waitFor();
@@ -367,6 +396,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
       assert.equal(await font.locator('.ask-opt.ro').count(), 2);
       assert.equal(await modal.locator('.task-chat .ask button, .task-chat .ask input').count(), 0, 'no answer controls');
       assert.equal(await modal.locator('.task-chat form').isHidden(), true, 'no comment box');
+      assert.equal(await modal.locator('.task-files [data-tf-add]').isHidden(), true, 'a reader cannot add files');
       await font.locator('.ask-opt.ro').first().click();
       await modal.locator('.tf-tile[data-tf-file="f-notes"]').click();
       await view.locator('.ask-q[data-qid="ok"]').waitFor();
@@ -376,6 +406,21 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
       await modal.locator('[data-modal-close]').click();
     }
     assert.equal(posted.filter(x => x.path.endsWith('/answers')).length, answersBefore, 'a reader sends nothing');
+    // the new-task form takes dropped files and pasted screenshots into its one file input
+    await page.evaluate(() => openTaskCreate('bot:editor'));
+    await page.locator('#task-create-form').evaluate(form => {
+      const dropped = new DataTransfer();
+      dropped.items.add(new File(['pdf'], 'brief.pdf', {type: 'application/pdf'}));
+      for (const type of ['dragenter', 'dragover', 'drop']) form.dispatchEvent(new DragEvent(type, {dataTransfer: dropped, bubbles: true, cancelable: true}));
+      const pasted = new DataTransfer();
+      pasted.items.add(new File(['shot'], 'image.png', {type: 'image/png'}));
+      form.body.dispatchEvent(new ClipboardEvent('paste', {clipboardData: pasted, bubbles: true, cancelable: true}));
+    });
+    const held = await page.locator('#task-create-form input[type=file]').evaluate(input => [...input.files].map(f => f.name));
+    assert.equal(held[0], 'brief.pdf');
+    assert.match(held[1], /^screenshot-.*\.png$/);
+    assert.match(await page.locator('#task-create-form .files').innerText(), /brief\.pdf.*screenshot-/s);
+    await page.locator('#task-create [data-modal-close]').click();
     assert.deepEqual(errors, []);
     console.log(`PASS: files strip, viewer, versions, compare, asks, comment files, linked images, covers, pins, phone (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   } finally { await browser.close(); }
