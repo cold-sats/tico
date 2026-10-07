@@ -39,6 +39,12 @@ def test_a_browser_missing_libraries_is_reported(tmp_path, monkeypatch):
     chrome.chmod(0o755)
     said = ("headless_shell: error while loading shared libraries: libglib-2.0.so.0: "
             "cannot open shared object file: No such file or directory\n")
-    result = tool_probes.browser(run=lambda args, **kw: subprocess.CompletedProcess(args, 127, "", said))
+    monkeypatch.setenv("HUB_TOKEN", "runner-secret")
+    assert tool_probes.browser.__defaults__[0] is tool_probes.isolation.run    # bot-writable binary: never the supervisor
+
+    def run(args, **kw):
+        assert "HUB_TOKEN" not in kw["env"]
+        return subprocess.CompletedProcess(args, 127, "", said)
+    result = tool_probes.browser(run=run)
     assert result["ok"] is False and "libglib-2.0.so.0" in result["error"]
     StructuredReadiness.model_validate({"browser_launch": result})

@@ -24,6 +24,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import isolation, safe_git
+
 API = "https://api.github.com"
 GITHUB_LIMIT_S = 15
 BROWSER_LIMIT_S = 30
@@ -80,15 +82,19 @@ def browsers(home=None):
     return sorted((path for path in found if os.access(path, os.X_OK)), reverse=True)
 
 
-def browser(run=subprocess.run, home=None):
-    """{ok, seconds, error, checked_at} for starting the newest installed Chromium headless, or None."""
+def browser(run=isolation.run, home=None):
+    """{ok, seconds, error, checked_at} for starting the newest installed Chromium headless, or None.
+
+    The executable sits in the bots' shared cache, where bot code can replace it, so it runs as the bot user
+    (runner/isolation.py) with only process settings in its environment, never as the supervisor."""
     found = browsers(home)
     if not found:
         return None
     started = time.monotonic()
     try:
         done = run([found[0], "--headless", "--no-sandbox", "--disable-gpu", "--dump-dom", "about:blank"],
-                   capture_output=True, text=True, timeout=BROWSER_LIMIT_S, stdin=subprocess.DEVNULL)
+                   capture_output=True, text=True, timeout=BROWSER_LIMIT_S, stdin=subprocess.DEVNULL,
+                   env=safe_git.process_environment())
     except subprocess.TimeoutExpired:
         return _result(False, started, f"the browser did not start within {BROWSER_LIMIT_S} s")
     except OSError as exc:
