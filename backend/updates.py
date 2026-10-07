@@ -69,6 +69,11 @@ CREATE TABLE IF NOT EXISTS updates(
 CREATE INDEX IF NOT EXISTS updates_created ON updates(created);
 CREATE TABLE IF NOT EXISTS update_reads(
  update_id TEXT NOT NULL, actor TEXT NOT NULL, read_at TEXT NOT NULL, PRIMARY KEY(update_id, actor));
+CREATE TABLE IF NOT EXISTS update_archive_overrides(
+ update_id TEXT NOT NULL, actor TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('archived','restored')), updated_at TEXT NOT NULL,
+ PRIMARY KEY(update_id, actor));
+CREATE INDEX IF NOT EXISTS update_archive_actor ON update_archive_overrides(actor, state, updated_at);
 CREATE TABLE IF NOT EXISTS update_queue(
  id TEXT PRIMARY KEY, bot TEXT NOT NULL, kind TEXT NOT NULL, day TEXT NOT NULL, rank INTEGER NOT NULL,
  state TEXT NOT NULL, message_id TEXT, sent_at TEXT, done_at TEXT, reason TEXT,
@@ -494,6 +499,15 @@ def post(c, bot, body, kind=None, day=None, slides=None):
         uid = H.new_id()
         c.execute("INSERT INTO updates(id,bot,kind,day,headline,body,slides_json,created,updated) VALUES(?,?,?,?,?,?,?,?,?)",
                   (uid, bot, kind, day, headline, body, stored, now, now))
+        # A new latest logical day supersedes updates this reader previously restored. A backdated
+        # redo must not revoke a restore: there is already a newer day, and this post did not
+        # supersede it. Removing just restore overrides keeps manual archives intact. Same-day
+        # retries and replacements take the existing-row path above and have no archive side effects.
+        has_newer = c.execute("SELECT 1 FROM updates WHERE bot=? AND kind=? AND day>? LIMIT 1",
+                              (bot, kind, day)).fetchone()
+        if not has_newer:
+            c.execute("DELETE FROM update_archive_overrides WHERE state='restored' AND update_id IN "
+                      "(SELECT id FROM updates WHERE bot=? AND kind=? AND day<?)", (bot, kind, day))
     H.event(c, H.bot_actor(bot), "update.post", uid, {"kind": kind, "day": day})
     return one(c, uid)
 
@@ -508,6 +522,7 @@ def purge_rejected(c):
         if not lint(row["body"], row["kind"]):
             continue
         c.execute("DELETE FROM update_reads WHERE update_id=?", (row["id"],))
+        c.execute("DELETE FROM update_archive_overrides WHERE update_id=?", (row["id"],))
         c.execute("DELETE FROM updates WHERE id=?", (row["id"],))
         last = c.execute("SELECT coalesce(max(rank), 0) FROM update_queue WHERE day=?", (row["day"],)).fetchone()[0]
         c.execute("INSERT INTO update_queue(id,bot,kind,day,rank,state,tries) VALUES(?,?,?,?,?,'queued',0) "
@@ -530,6 +545,39 @@ def one(c, uid):
     return _decode(row) if row else None
 
 
+def _is_archived_sql(update="u", override="ao"):
+    """Logical-day supersession plus a person's bounded archive/restore choice.
+
+    Existing history needs no content rewrite: any later day from the same bot and kind hides an
+    older update. A manual archive always hides it; an explicit restore overrides that automatic
+    state until another later-day post clears the restore override.
+    """
+    newer = (f"EXISTS (SELECT 1 FROM updates newer WHERE newer.bot={update}.bot "
+             f"AND newer.kind={update}.kind AND newer.day>{update}.day)")
+    return f"(coalesce({override}.state='archived',0) OR ({override}.state IS NULL AND {newer}))"
+
+
+def archived(c, actor, uid):
+    row = c.execute("SELECT " + _is_archived_sql() + " AS archived FROM updates u "
+                    "LEFT JOIN update_archive_overrides ao ON ao.update_id=u.id AND ao.actor=? WHERE u.id=?",
+                    (actor, uid)).fetchone()
+    return bool(row and row["archived"])
+
+
+def inbox_ids(c, actor, readable, created_after=None):
+    """IDs in this person's default feed, for the existing Mark all read action."""
+    if not readable:
+        return []
+    clause, values = _only(sorted(readable))
+    where = [clause, f"NOT {_is_archived_sql()}"]
+    args = [actor, *values]
+    if created_after:
+        where.append("u.created>=?"); args.append(created_after)
+    return [r["id"] for r in c.execute(
+        "SELECT u.id FROM updates u LEFT JOIN update_archive_overrides ao ON ao.update_id=u.id AND ao.actor=? "
+        "WHERE " + " AND ".join(where), args).fetchall()]
+
+
 def thread(c, uid):
     """Replies to an update (messages carrying refs.update) and the bot's answers to them."""
     replies = [dict(r) for r in c.execute(
@@ -548,7 +596,8 @@ def _only(bots, column="u.bot"):
     return f"{column} IN ({','.join('?' * len(bots))})", list(bots)
 
 
-def listing(c, actor, readable, kind=None, bot=None, unread=False, before=None, limit=40):
+def listing(c, actor, readable, kind=None, bot=None, unread=False, before=None, limit=40,
+            archive=False, include_archive=False):
     """The feed, newest first, with this person's read state, reply counts, and the requests that
     ended without an update (so a silent bot shows). `readable` is the set of bots to show."""
     where, args = ["1=1"], []
@@ -562,22 +611,29 @@ def listing(c, actor, readable, kind=None, bot=None, unread=False, before=None, 
         where.append("u.kind=?"); args.append(kind)
     if bot:
         where.append("u.bot=?"); args.append(bot)
-    if before:
-        where.append("u.created<?"); args.append(before)
+    is_archived = _is_archived_sql()
     if unread:
         where.append("r.read_at IS NULL")
+    if not include_archive:
+        where.append(is_archived if archive else f"NOT {is_archived}")
+    if before:
+        where.append("u.created<?"); args.append(before)
     rows = c.execute(
-        "SELECT u.*, r.read_at FROM updates u LEFT JOIN update_reads r ON r.update_id=u.id AND r.actor=? "
-        "WHERE " + " AND ".join(where) + " ORDER BY u.created DESC LIMIT ?", (actor, *args, limit)).fetchall()
+        f"SELECT u.*, r.read_at, CASE WHEN {is_archived} THEN 1 ELSE 0 END AS archived "
+        "FROM updates u LEFT JOIN update_reads r ON r.update_id=u.id AND r.actor=? "
+        "LEFT JOIN update_archive_overrides ao ON ao.update_id=u.id AND ao.actor=? "
+        "WHERE " + " AND ".join(where) + " ORDER BY u.created DESC LIMIT ?",
+        (actor, actor, *args, limit)).fetchall()
     items = []
     for row in rows:
         item = _decode(row)
         item["read"] = bool(item.pop("read_at"))
+        item["archived"] = bool(row["archived"])
         item["replies"] = c.execute("SELECT count(*) FROM messages WHERE json_extract(refs_json,'$.update')=?",
                                     (row["id"],)).fetchone()[0]
         items.append(item)
     missed = []
-    if not unread and not before:
+    if not unread and not before and not archive and not include_archive:
         for row in c.execute("SELECT bot, kind, day, reason, done_at FROM update_queue WHERE state='missed' "
                              "AND day>=? ORDER BY done_at DESC", (H.shift(H.now(), days=-2)[:10],)).fetchall():
             late = c.execute("SELECT 1 FROM updates WHERE bot=? AND kind=? AND day=?",
@@ -596,9 +652,34 @@ def count_unread(c, actor, readable, kind=None):
     if not readable:
         return 0
     clause, values = _only(sorted(readable))
+    is_archived = _is_archived_sql()
     return c.execute("SELECT count(*) FROM updates u LEFT JOIN update_reads r ON r.update_id=u.id AND r.actor=? "
-                     f"WHERE r.read_at IS NULL AND u.created>=? AND {clause}" + (" AND u.kind=?" if kind else ""),
-                     (actor, H.shift(H.now(), days=-14), *values, *([kind] if kind else []))).fetchone()[0]
+                     "LEFT JOIN update_archive_overrides ao ON ao.update_id=u.id AND ao.actor=? "
+                     f"WHERE r.read_at IS NULL AND u.created>=? AND {clause} "
+                     f"AND NOT {is_archived}"
+                     + (" AND u.kind=?" if kind else ""),
+                     (actor, actor, H.shift(H.now(), days=-14), *values, *([kind] if kind else []))).fetchone()[0]
+
+
+def set_archived(c, actor, ids, archived=True):
+    """Set this reader's archive choice. Restoring a globally superseded update creates a
+    per-reader exception; restoring a current update simply removes the manual archive."""
+    now = H.now()
+    for uid in ids:
+        if archived:
+            c.execute("INSERT INTO update_archive_overrides(update_id,actor,state,updated_at) VALUES(?,?,?,?) "
+                      "ON CONFLICT(update_id,actor) DO UPDATE SET state='archived',updated_at=excluded.updated_at",
+                      (uid, actor, "archived", now))
+        else:
+            newer = c.execute("SELECT 1 FROM updates u WHERE u.id=? AND EXISTS (SELECT 1 FROM updates n "
+                              "WHERE n.bot=u.bot AND n.kind=u.kind AND n.day>u.day)", (uid,)).fetchone()
+            if newer:
+                c.execute("INSERT INTO update_archive_overrides(update_id,actor,state,updated_at) VALUES(?,?,?,?) "
+                          "ON CONFLICT(update_id,actor) DO UPDATE SET state='restored',updated_at=excluded.updated_at",
+                          (uid, actor, "restored", now))
+            else:
+                c.execute("DELETE FROM update_archive_overrides WHERE update_id=? AND actor=?", (uid, actor))
+    return len(ids)
 
 
 def mark(c, actor, ids, read=True):

@@ -10,21 +10,36 @@
 // in small batches, and a reply shows the moment it is sent. j / k move, r replies, u flips read,
 // o opens the bot, ← / → turn a week's slides (desktop).
 let UPD = null;
-const UPD_CACHE = kind => 'tico.updates.' + kind;
-function updCacheRead(kind) {
-  try { return JSON.parse(sessionStorage.getItem(UPD_CACHE(kind)) || 'null'); } catch { return null; }
+const UPD_DRAFTS = new Map();
+const UPD_CACHE = state => `tico.updates.${state.kind}.${state.view}.${state.mine ? 'mine' : 'all'}`;
+function updCacheRead(state) {
+  try { return JSON.parse(sessionStorage.getItem(UPD_CACHE(state)) || 'null'); } catch { return null; }
 }
-function updCacheWrite(kind, data) {
-  try { sessionStorage.setItem(UPD_CACHE(kind), JSON.stringify(data)); } catch {}
+function updCacheWrite(state, data) {
+  try { sessionStorage.setItem(UPD_CACHE(state), JSON.stringify(data)); } catch {}
+}
+function updCacheClear() {
+  try { for (let i = sessionStorage.length - 1; i >= 0; i--) {
+    const key = sessionStorage.key(i); if (key?.startsWith('tico.updates.')) sessionStorage.removeItem(key);
+  } } catch {}
+}
+function updSaveDrafts() {
+  for (const form of document.querySelectorAll('#upd-feed [data-upd-form]')) {
+    const id = form.closest('[data-upd]')?.dataset.upd, text = form.querySelector('textarea')?.value;
+    if (id) { if (text) UPD_DRAFTS.set(id, text); else UPD_DRAFTS.delete(id); }
+  }
 }
 function pageUpdates() {
-  const kind = new URLSearchParams(S.route.split('?')[1] || '').get('kind') === 'weekly' ? 'weekly' : 'daily';
-  const cached = updCacheRead(kind);
+  const params = new URLSearchParams(S.route.split('?')[1] || '');
+  const kind = params.get('kind') === 'weekly' ? 'weekly' : 'daily';
+  const view = params.get('view') === 'archive' ? 'archive' : 'inbox';
   // "a filter at the top, on by default, to only show my bots" (the bots I own).
   let mine = true;
   try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
-  const state = UPD = {kind, mine, data: cached, open: new Set(), threads: {}, pending: new Set(), manualUnread: new Set(),
-                       sel: -1, loading: !cached, fromCache: !!cached};
+  const state = UPD = {kind, view, mine, data: null, open: new Set(), threads: {}, pending: new Set(), manualUnread: new Set(),
+                       archivePending: new Set(), loadSeq: 0, mutationSeq: 0, sel: -1, loading: true, fromCache: false};
+  const cached = state.data = updCacheRead(state);
+  state.loading = !cached; state.fromCache = !!cached;
   if (cached) updOrder(state, true);
   $('#main').innerHTML = `<div class="upd-page">
     <div class="upd-head">
@@ -35,19 +50,28 @@ function pageUpdates() {
       </div>
       <span class="spacer"></span>
       <button type="button" class="upd-chip" id="upd-mine" aria-pressed="${state.mine}" aria-label="My bots" title="My bots"><span class="nav-icon" aria-hidden="true">person</span><span class="upd-lbl">My bots</span></button>
-      <button type="button" class="ghost upd-allread" id="upd-allread">Mark all read</button>
+      <button type="button" class="upd-chip upd-view" id="upd-view" aria-label="${view === 'archive' ? 'Open inbox' : 'Open archive'}" title="${view === 'archive' ? 'Inbox' : 'Archive'}"><span class="nav-icon" aria-hidden="true">${view === 'archive' ? 'inbox' : 'archive'}</span><span class="upd-lbl">${view === 'archive' ? 'Inbox' : 'Archive'}</span></button>
+      <button type="button" class="ghost upd-allread" id="upd-allread"${view === 'archive' ? ' hidden' : ''}>Mark all read</button>
     </div>
     <div id="upd-feed" class="upd-feed" aria-live="polite"></div>
   </div>`;
   $('#main').querySelector('.upd-seg').onclick = ev => {
     const b = ev.target.closest('[data-upd-kind]'); if (!b || b.dataset.updKind === state.kind) return;
-    location.hash = UPDATES + (b.dataset.updKind === 'weekly' ? '?kind=weekly' : '');
+    const q = new URLSearchParams(); if (b.dataset.updKind === 'weekly') q.set('kind', 'weekly');
+    if (state.view === 'archive') q.set('view', 'archive');
+    location.hash = UPDATES + (q.toString() ? '?' + q : '');
+  };
+  $('#upd-view').onclick = () => {
+    const q = new URLSearchParams(); if (state.kind === 'weekly') q.set('kind', 'weekly');
+    if (state.view !== 'archive') q.set('view', 'archive');
+    location.hash = UPDATES + (q.toString() ? '?' + q : '');
   };
   $('#upd-mine').onclick = () => {
     state.mine = !state.mine;
     $('#upd-mine').setAttribute('aria-pressed', String(state.mine));
     try { localStorage.setItem('tico.updates.mine', state.mine ? '1' : '0'); } catch {}
-    state.ordered = false;
+    state.data = updCacheRead(state); state.fromCache = !!state.data; state.loading = !state.data;
+    state.order = null; state.ordered = false;
     updRender(state);
     void updLoad(state);                          // its own count and order
   };
@@ -61,15 +85,18 @@ function pageUpdates() {
   void updLoad(state);
 }
 async function updLoad(state, more = false) {
+  const request = ++state.loadSeq;
+  const mutation = state.mutationSeq;
   const q = new URLSearchParams({kind: state.kind, limit: '40'});
   if (state.mine) q.set('mine', 'true');           // the count and the feed agree with My bots
+  if (state.view === 'archive') q.set('archive', 'true');
   if (more && state.data?.next_before) q.set('before', state.data.next_before);
   const r = await v2Get('/v2/updates?' + q);
-  if (UPD !== state) return;
+  if (UPD !== state || request !== state.loadSeq || mutation !== state.mutationSeq) return;
   state.loading = false;
   if (!r) { if (!state.data) $('#upd-feed').innerHTML = '<div class="empty">Could not load the updates yet; trying again…</div>'; setTimeout(() => UPD === state && updLoad(state, more), 4000); return; }
   if (more && state.data) state.data = {...r, updates: [...state.data.updates, ...r.updates], missed: state.data.missed};
-  else { state.data = r; updCacheWrite(state.kind, r); state.fromCache = false; }
+  else { state.data = r; updCacheWrite(state, r); state.fromCache = false; }
   updOrder(state, !more);
   updBadge(r.unread);
   updRender(state);
@@ -96,7 +123,7 @@ function updCard(u, i, state) {
   const open = state.open.has(u.id);
   const thread = state.threads[u.id];
   const body = String(u.body || '').trim();
-  return `<article class="upd-card${u.read ? '' : ' unread'}${open ? ' open' : ''}${i === state.sel ? ' sel' : ''}" data-upd="${esc(u.id)}" data-i="${i}" tabindex="-1">
+  return `<article class="upd-card${u.read ? '' : ' unread'}${!u.slides && state.view === 'inbox' ? ' swipeable' : ''}${open ? ' open' : ''}${i === state.sel ? ' sel' : ''}" data-upd="${esc(u.id)}" data-i="${i}" tabindex="-1">
     <div class="upd-av">${avatar(u.bot, 36)}</div>
     <div class="upd-main">
       <div class="upd-meta"><a href="#/bot/${encodeURIComponent(u.bot)}" class="upd-name" data-upd-bot>${empName(u.bot)}</a>
@@ -106,11 +133,12 @@ function updCard(u, i, state) {
       <div class="upd-actions">
         <button type="button" class="upd-act" data-upd-reply><span class="nav-icon" aria-hidden="true">chat_bubble</span>${u.replies ? u.replies : 'Reply'}</button>
         <button type="button" class="upd-act" data-upd-toggle>${u.read ? 'Mark unread' : 'Mark read'}</button>
+        <button type="button" class="upd-act" data-upd-archive aria-label="${state.view === 'archive' ? 'Restore update' : 'Archive update'}"${state.archivePending.has(u.id) ? ' disabled' : ''}>${state.view === 'archive' ? 'Restore' : 'Archive'}</button>
       </div>
       ${open ? `<div class="upd-thread">${thread ? thread.map(m => `<div class="upd-msg${String(m.from_actor).startsWith('bot:') ? ' bot' : ''}${m.pending ? ' pending' : ''}">
           <b>${esc(actorLabel(m.from_actor))}</b> ${String(m.from_actor).startsWith('bot:') ? `<div class="md">${safeMd(m.body || '', {shortLinks: true})}</div>` : esc(String(m.body || '').replace(/^Re your update "[^"]*": /, ''))}
           <span class="muted">${m.pending ? 'sending…' : esc(ago(m.created))}</span></div>`).join('') : (u.replies ? '<div class="muted">Loading replies…</div>' : '')}
-        <form class="upd-reply" data-upd-form><textarea rows="1" placeholder="Reply to ${esc(botDisplayName(u.bot))}…" aria-label="Reply"></textarea>
+        <form class="upd-reply" data-upd-form><textarea rows="1" placeholder="Reply to ${esc(botDisplayName(u.bot))}…" aria-label="Reply">${esc(UPD_DRAFTS.get(u.id) || '')}</textarea>
           <button class="primary" type="submit" aria-label="Send">Send</button></form>
         <div class="muted upd-hint">Goes to ${esc(botDisplayName(u.bot))}'s chat too.</div></div>` : ''}
     </div></article>`;
@@ -178,6 +206,7 @@ function updDecksBind(state) {
 }
 function updRender(state) {
   const feed = $('#upd-feed'); if (!feed || UPD !== state) return;
+  updSaveDrafts();
   const data = state.data;
   if (!data) { feed.innerHTML = '<div class="upd-skel"></div><div class="upd-skel"></div><div class="upd-skel"></div>'; return; }
   const meId = S.me?.id;
@@ -190,11 +219,13 @@ function updRender(state) {
   state.list = items;
   // Just the updates in a feed; no greeting, no progress, no who did not report.
   let html = items.map((u, i) => updCard(u, i, state)).join('');
-  if (!items.length) html += '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">dynamic_feed</span><b>No updates yet.</b><span class="muted">The bots report in one at a time each morning.</span></div>';
+  if (!items.length) html += state.view === 'archive'
+    ? '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">archive</span><b>No archived updates.</b></div>'
+    : '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">dynamic_feed</span><b>No updates yet.</b><span class="muted">The bots report in one at a time each morning.</span></div>';
   if (data.next_before) html += '<button type="button" class="ghost upd-more" data-upd-more>Load older</button>';
   feed.innerHTML = html;
   updDecksBind(state);
-  const allRead = $('#upd-allread'); if (allRead) allRead.hidden = !items.some(u => !u.read);   // nothing to mark, no button
+  const allRead = $('#upd-allread'); if (allRead) allRead.hidden = state.view === 'archive' || !items.some(u => !u.read);   // nothing to mark, no button
   updWatch(state);
 }
 // Seen for most of a second is read: queued here and sent in one small request.
@@ -226,7 +257,7 @@ function updSeen(state, id) {
 async function updFlush(state) {
   const ids = [...state.pending]; state.pending.clear();
   if (!ids.length) return;
-  try { await post('/v2/updates/read', {ids}); updCacheWrite(state.kind, state.data); } catch { ids.forEach(id => state.pending.add(id)); }
+  try { await post('/v2/updates/read', {ids}); if (UPD === state) updCacheWrite(state, state.data); } catch { ids.forEach(id => state.pending.add(id)); }
 }
 async function updOpen(state, id, focusReply) {
   const u = state.data.updates.find(x => x.id === id); if (!u) return;
@@ -256,6 +287,7 @@ async function updReply(state, id, text) {
     toast(`Sent to ${botDisplayName(u.bot)}`);
   } catch (e) {
     state.threads[id] = (state.threads[id] || []).filter(m => m !== mine); u.replies--;
+    UPD_DRAFTS.set(id, text);
     updRender(state);
     toast(e.message || 'Could not send the reply', true);
   }
@@ -265,10 +297,47 @@ async function updToggle(state, id) {
   u.read = !u.read;
   if (u.read) state.manualUnread.delete(id);
   else { state.manualUnread.add(id); state.pending.delete(id); }
-  updCacheWrite(state.kind, state.data);
+  updCacheWrite(state, state.data);
   updBadge(Math.max(0, (S.updUnread || 0) + (u.read ? -1 : 1)));
   updRender(state);
   try { await post('/v2/updates/read', {ids: [id], read: u.read}); } catch (e) { toast(e.message || 'Could not save', true); }
+}
+async function updArchive(state, id) {
+  const update = state.data?.updates?.find(u => u.id === id);
+  if (!update || state.archivePending.has(id)) return;
+  const archived = state.view !== 'archive';
+  state.archivePending.add(id); state.loadSeq++; state.mutationSeq++;
+  const button = document.querySelector(`#upd-feed [data-upd="${CSS.escape(id)}"] [data-upd-archive]`);
+  if (button) button.disabled = true;                  // no repaint: an open reply draft stays put
+  try {
+    await post('/v2/updates/archive', {ids: [id], archived});
+    updCacheClear();                                    // another view/scope must not paint stale state
+    const unreadRefresh = updUnreadRefresh();             // uses the signed-in person's current My Bots scope
+    state.mutationSeq++;
+    if (UPD !== state) return;
+    updSaveDrafts();
+    state.archivePending.delete(id);
+    state.data.updates = state.data.updates.filter(u => u.id !== id);
+    state.pending.delete(id);
+    state.list = (state.list || []).filter(u => u.id !== id);
+    updRender(state);
+    updCacheWrite(state, state.data);
+    void unreadRefresh.then(result => {
+      if (result && UPD === state && state.data) {
+        state.data.unread = result.unread;
+        updCacheWrite(state, state.data);
+      }
+    });
+    toast(archived ? 'Archived' : 'Restored to Inbox');
+  } catch (e) {
+    state.mutationSeq++;
+    state.archivePending.delete(id);
+    if (UPD === state) {
+      const current = document.querySelector(`#upd-feed [data-upd="${CSS.escape(id)}"] [data-upd-archive]`);
+      if (current) current.disabled = false;
+    }
+    toast(e.message || (archived ? 'Could not archive the update' : 'Could not restore the update'), true);
+  }
 }
 function updSelect(state, i) {
   const list = state.list || []; if (!list.length) return;
@@ -282,6 +351,10 @@ function updBind(state) {
   const feed = $('#upd-feed');
   feed.addEventListener('click', ev => {
     const card = ev.target.closest('[data-upd]');
+    if (state.ignoreClick && Date.now() < state.ignoreClick.until && card?.dataset.upd === state.ignoreClick.id) {
+      state.ignoreClick = null; return;                 // consume only this swipe's synthetic click
+    }
+    if (state.ignoreClick && Date.now() >= state.ignoreClick.until) state.ignoreClick = null;
     if (ev.target.closest('[data-upd-more]')) { void updLoad(state, true); return; }
     if (!card || ev.target.closest('[data-upd-bot], a, textarea, form')) return;
     const deck = ev.target.closest('[data-upd-deck]');
@@ -293,14 +366,16 @@ function updBind(state) {
     const id = card.dataset.upd;
     if (ev.target.closest('[data-upd-reply]')) return void updOpen(state, id, true);
     if (ev.target.closest('[data-upd-toggle]')) return void updToggle(state, id);
+    if (ev.target.closest('[data-upd-archive]')) return void updArchive(state, id);
     if (ev.target.closest('.upd-body') && !ev.target.closest('a')) return void updOpen(state, id);
   });
   feed.addEventListener('submit', ev => {
     const form = ev.target.closest('[data-upd-form]'); if (!form) return;
     ev.preventDefault();
     const ta = form.querySelector('textarea'), text = ta.value;
-    ta.value = '';
-    void updReply(state, form.closest('[data-upd]').dataset.upd, text);
+    const id = form.closest('[data-upd]').dataset.upd;
+    ta.value = ''; UPD_DRAFTS.delete(id);
+    void updReply(state, id, text);
   });
   feed.addEventListener('keydown', ev => {
     const ta = ev.target.closest('[data-upd-form] textarea'); if (!ta) return;
@@ -309,8 +384,28 @@ function updBind(state) {
   });
   feed.addEventListener('input', ev => {
     const ta = ev.target.closest('[data-upd-form] textarea'); if (!ta) return;
+    const id = ta.closest('[data-upd]')?.dataset.upd;
+    if (id) { if (ta.value) UPD_DRAFTS.set(id, ta.value); else UPD_DRAFTS.delete(id); }
     ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
   });
+  feed.addEventListener('pointerdown', ev => {
+    if (ev.pointerType !== 'touch' && !matchMedia('(pointer:coarse)').matches) return;
+    const card = ev.target.closest('[data-upd]');
+    if (!card || state.view !== 'inbox' || ev.target.closest('a,button,input,textarea,select,form,[contenteditable],[data-upd-deck]')) {
+      state.swipe = null; return;
+    }
+    state.swipe = {id: card.dataset.upd, x: ev.clientX, y: ev.clientY};
+  }, {passive: true});
+  feed.addEventListener('pointerup', ev => {
+    const start = state.swipe; state.swipe = null;
+    if (!start || (ev.pointerType !== 'touch' && !matchMedia('(pointer:coarse)').matches)) return;
+    const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+    if (dx < -80 && Math.abs(dy) < 48) {
+      state.ignoreClick = {id: start.id, until: Date.now() + 500};
+      void updArchive(state, start.id);
+    }
+  }, {passive: true});
+  feed.addEventListener('pointercancel', () => { state.swipe = null; }, {passive: true});
   state.keys = ev => {
     if (UPD !== state || !$('#upd-feed')) return document.removeEventListener('keydown', state.keys);
     if (ev.target.closest('input, textarea, select, [contenteditable]') || ev.metaKey || ev.ctrlKey || ev.altKey) return;
@@ -334,6 +429,7 @@ async function updUnreadRefresh() {
   try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
   const r = await v2Get('/v2/updates/unread' + (mine ? '?mine=true' : ''));
   if (r) { updBadge(r.unread); meetPendingBadge(r.meetings_pending || 0); }
+  return r;
 }
 // The bot's latest update heads the Updates section of its right rail: its age, the text (long ones fold
 // behind a small "More"), and an icon to all of its updates. Once the rail shows it, it counts as read.
@@ -367,7 +463,7 @@ function botLatestSeen() {
 // Every update the bot posted, newest first; what is shown here is read.
 async function botHistoryLoad(slug, before) {
   const host = $('#bot-history'); if (!host) return;
-  const q = new URLSearchParams({bot: slug, limit: '30'}); if (before) q.set('before', before);
+  const q = new URLSearchParams({bot: slug, limit: '30', include_archive: 'true'}); if (before) q.set('before', before);
   const r = await v2Get('/v2/updates?' + q);
   if (!$('#bot-history') || BOT?.slug !== slug) return;
   if (!r) { if (!before) host.innerHTML = '<div class="empty">Could not load the updates.</div>'; return; }

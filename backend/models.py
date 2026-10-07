@@ -1560,6 +1560,11 @@ class UpdateRead(Contract):
     read: bool = True
 
 
+class UpdateArchive(Contract):
+    ids: list[ID] = Field(min_length=1, max_length=500)
+    archived: bool = True
+
+
 class UpdateReply(Contract):
     text: Text
 
