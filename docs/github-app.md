@@ -167,8 +167,11 @@ all use its token, with no `gh auth login`. People's own GitHub logins come from
 The App's token wins for every repository in the connected organization. A `GH_TOKEN` or `GITHUB_TOKEN`
 credential granted to a bot does not override it there; it is kept for repositories outside the
 organization only. A login shell (`bash -l`, which Codex uses) resets `PATH`; the runner image puts the
-turn's `PATH` back (`/etc/profile.d/tico-turn.sh`), so the wrapper stays first. On a Mac a login shell may
-find Homebrew's `gh` first, which then uses the turn's `GH_TOKEN`: still the App's, and valid for the turn.
+turn's `PATH` back (`/etc/profile.d/tico-turn.sh`), so the wrapper stays first. Mac turns pass Bash and
+zsh startup hooks through their environment. They read the user's existing startup files, then restore
+the turn's PATH so Homebrew's `gh` cannot take precedence over the per-call wrapper. No machine or user
+shell startup file is edited. A bare `gh` that bypasses the wrapper still uses the starting App token,
+which can expire during a long turn.
 
 Every 15 minutes each computer asks GitHub who a bot's App token is (`GET /installation/repositories`).
 Two 401 answers in a row show in Health as "<computer>: GitHub sign-in failed".
