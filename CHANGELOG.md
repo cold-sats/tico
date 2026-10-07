@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.31] - 2026-10-07
+
 ### Added
 - **Stuck bots** on Overview and in Health: a bot with queued work that its computer cannot start (no model sign-in, no repository, computer offline) shows at once with the computer's reason, for example "Claude login required on Team box", and one fix: Sign in, Move to a computer that can run it, or the settings page. Work not started after 15 minutes shows too, unless the bot or its computer is busy with other turns.
 - The bot Model control greys out harnesses its computer cannot run ("sign in", "not installed", "no key"), judged by the same rule as a model change and a move, and its editor offers Sign in or Move to a computer that can. Bulk "Change model" lists those bots as "Can't run" instead of sending the change.
@@ -18,6 +20,9 @@ All notable changes to Tico are recorded here. The format follows
 - Health flags a task whose status changes 20 times in 24 hours as a likely loop, naming who moves it, and tells its owner and requester once a day. Nothing is blocked.
 - Health shows "<computer>: GitHub sign-in failed" when a bot's GitHub App token gets 401 there, and "<computer>: browser does not start" when the Chromium a bot installed cannot launch. Each computer checks every 15 minutes and reports two failures in a row ([GitHub App](docs/github-app.md#how-bots-sign-in-to-github), [harnesses](docs/harnesses.md)).
 - `hub human list` shows each person's GitHub login, and a bot that opens a pull request for a person requests their review by it.
+- **BotOps keeps the asking person's rights** when it follows through later on a task that person filed: it cites the task (`--on-behalf-of <task id>` on `hub api` and `hub bot model`), acts with that person's role, and every such change is recorded with the person, the cited request and whether it came from a live chat or a follow-through run. Runs started by Slack, meetings, watchers or comments, and bot requests, keep only the bot's rights ([Permissions](docs/permissions.md)).
+- A refused BotOps action says what the person should click, with a link to the exact setting.
+- A model change, by BotOps or `hub bot model`, is checked against the bot's own sign-in on its computer (its subscription, its own key, or the computer's shared sign-in) and refused with the fix when the computer cannot run it; the answer says whether the computer can run the new model.
 
 ### Changed
 - A task worktree whose pull requests are all merged or closed frees itself once its bot is idle, even while the task stays open; one with unsaved or unpushed work is kept, with the reason. The worktree limit error says which pull requests to merge and which worktrees free themselves.
