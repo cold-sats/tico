@@ -2852,6 +2852,8 @@ def create_app(settings=None):
 
     DELEGATION_DAYS = 7               # the message that started the turn (a queued turn may wait)
     DELEGATION_CITED_HOURS = 24       # a message cited by id
+    # Keeper wakes a follow-through run may start from: the daily update, and a task's due, stall or routine notice.
+    FOLLOW_THROUGH_WAKES = ("update", "due", "stalled", "occurrence")
 
     def delegated_identity(c, who, ref):
         """Resolve the run's requester, never a human named in its text. Human messages and tasks
@@ -2995,8 +2997,13 @@ def create_app(settings=None):
             raise Problem("on_behalf_of", "That task is closed; ask the person again", 403)
         made = c.execute("SELECT actor,detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
                          (task["id"],)).fetchone()
-        if not made or made["actor"] != requester or H._json(made["detail_json"], {}).get("via") == "assistant":
+        via = H._json(made["detail_json"], {}).get("via") if made else None
+        if not made or made["actor"] != requester or via == "assistant":
             raise Problem("on_behalf_of", "That task was not filed by the person who asked for it", 403)
+        if via and not task.get("request_id"):
+            # Filed by BotOps as the person: only a continuation of their message (--request-id) counts, dated by that
+            # message, or a follow-through run could file a fresh task as them and so never run out of week.
+            raise Problem("on_behalf_of", "BotOps filed that task without the person's message; ask the person again", 403)
         origin = H.message(c, task["request_id"]) if task.get("request_id") else None
         if task.get("request_id") and (not origin or origin["from_actor"] != requester):
             raise Problem("on_behalf_of", "That task's request is not the person's own", 403)
@@ -3005,6 +3012,19 @@ def create_app(settings=None):
         current = delegated_identity(c, who, "turn")
         if current.actor not in (who.actor, requester):
             raise Problem("on_behalf_of", "This run is for " + current.actor + "; it keeps that requester's rights", 403)
+        if current.actor == who.actor:
+            # A run with no requester lends a person's rights only when the keeper started it on its own schedule. A
+            # Slack digest, a live meeting, a watcher or a task comment also start such runs, with words anyone there
+            # wrote; those never carry a person's rights (Slack and comments are refused the same way above).
+            turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
+                             (who.attempt_id,)).fetchone()
+            start = H.message(c, turn["message_id"]) if turn else None
+            refs = (start or {}).get("refs") or {}
+            if (not start or start["from_actor"] != H.KEEPER or start["kind"] != "notice"
+                    or refs.get("wake") not in FOLLOW_THROUGH_WAKES
+                    or any(refs.get(k) for k in ("slack", "routing", "via", "assistant", "comment", "live_meeting"))):
+                raise Problem("on_behalf_of", "This run started from words others wrote; act on the person's task in "
+                              "their chat or the next daily update", 403)
         H.VIA.set("botops")
         return auth.identity_for_actor(c, requester)
 

@@ -168,8 +168,11 @@ If a friendly tool refuses for permissions, BotOps retries the same action with 
 request, a retry once a busy bot is idle, a notice. Nobody's request is attached to that run, so by default BotOps has
 only its own rights. To act for the person, BotOps cites the open task they asked it for: `hub api ... --on-behalf-of
 <task id>` or `hub bot model ... --on-behalf-of <task id>` (MCP: `on_behalf_of`). The server accepts a task BotOps owns
-that the person filed themselves (not through the Assistant), still open, at most a week old, and only in a run that no
-bot and no other person started: a run a bot started keeps that bot's rights whatever task it cites. It is recorded as
+that the person filed themselves (not through the Assistant; one BotOps filed as them counts only as a continuation of
+their message, `--request-id`, dated by that message), still open, at most a week old, and only in a run the person
+started or the keeper started on its schedule (the daily update, a task's due, stall or routine notice). A run a bot or
+another person started keeps that requester's rights whatever task it cites, and a run a Slack digest, a live meeting,
+a watcher or a task comment started lends no one's rights: anyone there wrote its words. It is recorded as
 the person's, via BotOps, like any other delegated change, and Credentials stay as above (never a value).
 
 **Refusals say what to click.** A refused BotOps call (403, or a computer that cannot run the bot) answers with `fix`,
