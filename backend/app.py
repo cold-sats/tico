@@ -123,9 +123,10 @@ def create_app(settings=None):
             telemetry.capture("message_bots", exc)
         # This release may ship merged product tasks that waited for it (backend/github.py).
         try:
-            from .github import ship_deployed
+            from .github import ship_deployed, ship_running_release
             with store.transaction() as c:
                 ship_deployed(c, settings)
+                ship_running_release(c, settings)
         except Exception as exc:
             telemetry.capture("github", exc)
         # A deploy keeps the API down longer than a lease; do not fail turns for that.

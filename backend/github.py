@@ -8,6 +8,7 @@ signed with `TICO_GITHUB_WEBHOOK_SECRET`; nothing else on this path is trusted:
 - checks, conflicts and reviews     -> specific owner notices grouped within three minutes
 - a review requested or withdrawn   -> that person is on or off the task in `github_review_role`
 - a push to main                    -> the commits are recorded, in order, in `main_pushes`
+- a release tag (vX.Y.Z) pushed or published -> `waiting` tasks whose merged work it contains go to `review`
 
 The last hop is a fact of the deploy, not of GitHub: the release manifest names the commit the
 running code was built from (`release.py` writes it from CI), and `ship_deployed` marks `ready`
@@ -31,6 +32,8 @@ from .store import Problem
 
 PATH = "/api/v2/github/webhook"   # under /api/v2: the runner hostname routes only that prefix
 PR_LINK = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)/?$", re.IGNORECASE)
+COMMIT_LINK = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/commit/([0-9a-f]{7,40})/?$", re.IGNORECASE)
+TAGS_KEY = "github-release-tags:"     # registry_metadata: {tag: commit} for each repository, the latest 50
 
 
 def verify(secret, headers, body):
@@ -425,6 +428,13 @@ def push(c, payload):
             else:
                 detail.pop("head_login", None)
             c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
+    if ref.startswith("refs/tags/"):
+        tag = ref[len("refs/tags/"):]
+        commit = str(head_commit.get("id") or payload.get("after") or "")
+        if payload.get("deleted") or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            return {"ref": ref, "commits": 0}
+        remember_tag(c, repo, tag, commit)
+        return {"ref": ref, "commits": 0, "released": ship_release(c, repo, tag, commit)}
     if ref != "refs/heads/" + default:
         return {"ref": ref, "commits": 0}
     shas = [str(x.get("id") or "") for x in (payload.get("commits") or [])]
@@ -437,6 +447,94 @@ def push(c, payload):
             c.execute("INSERT INTO main_pushes(sha, repo, pushed_at) VALUES(?,?,?)", (sha, repo, H.now()))
             n += 1
     return {"ref": ref, "commits": n}
+
+
+def remember_tag(c, repo, tag, commit):
+    """A tag's commit, kept so a `release` event that names only the tag can be placed later."""
+    from .repositories import metadata, save_metadata
+    key = TAGS_KEY + repo.lower()
+    tags = {k: v for k, v in metadata(c, key).items() if k != tag}
+    tags[tag] = commit
+    save_metadata(c, key, dict(list(tags.items())[-50:]))
+
+
+def release(c, payload):
+    """A published GitHub release: its tag's commit, from the event or from the tag push recorded before it."""
+    repo = str((payload.get("repository") or {}).get("full_name") or "")
+    rel = payload.get("release") or {}
+    if payload.get("action") not in ("published", "released") or rel.get("draft") or rel.get("prerelease"):
+        return {"released": []}
+    from .repositories import metadata
+    tag = str(rel.get("tag_name") or "")
+    target = str(rel.get("target_commitish") or "")
+    commit = target if re.fullmatch(r"[0-9a-f]{40}", target) else metadata(c, TAGS_KEY + repo.lower()).get(tag, "")
+    return {"released": ship_release(c, repo, tag, commit) if commit else []}
+
+
+def ship_release(c, repo, tag, commit):
+    """Every `waiting` task whose merged work is in release `tag` (built from `commit` on main) leaves Waiting.
+
+    A task waiting on a release has nothing left to wait for once the release that contains its work is out; nothing
+    else tells it, when the release was cut outside the bot that waits. It goes to `review`, not `done`: a published
+    release is not proof that the change is live or accepted, and Review puts that last check in front of a person
+    without closing anything on their behalf. Work is contained when its merge commit is the release commit or was
+    pushed to main before it (`main_pushes`); a release the server cannot place on main moves nothing."""
+    from . import releases
+    version = re.sub(r"^v(?=\d)", "", str(tag or ""))
+    parsed = releases.parse(version)
+    if not parsed or parsed[3] != (1,) or not repo or not commit:
+        return []
+    here = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (commit,)).fetchone()
+    if not here:
+        return []
+    repo = repo.lower()
+    candidates = [r[0] for r in c.execute(
+        "SELECT DISTINCT t.id FROM tasks t JOIN task_links l ON l.task_id=t.id WHERE t.status='waiting' "
+        "AND ((l.kind='pr' AND lower(l.repo)=? AND l.state IN ('merged','shipped')) OR (l.kind='url' AND lower(l.url) LIKE ?))",
+        (repo, f"https://github.com/{repo}/commit/%"))]
+
+    def contained(sha):
+        if not sha:
+            return False
+        if sha == commit:
+            return True
+        row = c.execute("SELECT seq FROM main_pushes WHERE (sha=? OR (length(?)<40 AND sha LIKE ?||'%')) AND lower(repo)=? "
+                        "ORDER BY seq LIMIT 1", (sha, sha, sha, repo)).fetchone()
+        return bool(row) and row[0] <= here[0]
+
+    moved = []
+    for tid in candidates:
+        with isolated(c, "ship_release", tid):
+            task = H.task(c, tid)
+            if H.children_summaries(c, [tid])[tid]["open"]:
+                continue
+            links = H.task_links(c, tid)
+            prs = [l for l in links if l["kind"] == "pr"]
+            commits = [m.group(3).lower() for m in (COMMIT_LINK.match(str(l["url"]).split("?")[0]) for l in links
+                       if l["kind"] == "url") if m and f"{m.group(1)}/{m.group(2)}".lower() == repo]
+            if any(l["state"] not in ("merged", "closed", "shipped") for l in prs):
+                continue
+            merged = [l for l in prs if l["state"] in ("merged", "shipped")]
+            if not merged and not commits:
+                continue
+            if any(str(l.get("repo") or "").lower() != repo or not contained(l.get("pr_sha")) for l in merged):
+                continue
+            if not all(contained(sha) for sha in commits):
+                continue
+            after = _move(c, task, "review", f"Shipped in v{version}.")
+            if after["status"] != "review":
+                continue
+            H.event(c, H.KEEPER, "github.released", tid, {"release": "v" + version, "commit": commit, "repository": repo})
+            moved.append(tid)
+    return moved
+
+
+def ship_running_release(c, settings):
+    """The release this server runs is a published release too: the waiting work it contains leaves Waiting."""
+    from . import releases
+    if settings.rehearsal or not settings.release_repo or not settings.release_commit:
+        return []
+    return ship_release(c, settings.release_repo, releases.version(), settings.release_commit)
 
 
 DEPLOY_QUERY = ("SELECT l.*,p.seq AS merge_seq FROM task_links l JOIN tasks t ON t.id=l.task_id "
@@ -599,6 +697,8 @@ def install_github(app, settings, store):
             elif event == "push":
                 result = push(c, payload)
                 result["shipped"] = ship_deployed(c, settings)
+            elif event == "release":
+                result = release(c, payload)
             else:
                 return Response(status_code=204)
         return {"ok": True, **result}

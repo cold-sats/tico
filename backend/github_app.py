@@ -599,7 +599,7 @@ def manifest(settings, name, administration):
             "hook_attributes": {"url": public + "/api/v2/github/webhook", "active": True},
             "public": False, "default_permissions": permissions,
             "default_events": ["pull_request", "pull_request_review", "pull_request_review_comment",
-                               "check_run", "check_suite", "status", "push"]}
+                               "check_run", "check_suite", "status", "push", "release"]}
 
 
 def extra_repos(c, bot):
