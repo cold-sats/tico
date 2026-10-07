@@ -213,7 +213,15 @@ p:empty{display:none}
 .model-login-actions{display:flex;justify-content:flex-end;gap:8px;padding:8px 16px 16px}
 .machine-enroll{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
 .machine-enroll input{min-width:180px}
-.machine-enroll-status{flex-basis:100%;font-size:12px;color:var(--muted);margin:0}
+.machine-enroll-status{flex-basis:100%;font-size:12px;color:var(--muted);margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.machine-enroll-status:empty{display:none}.machine-enroll-status details{max-width:100%}.machine-enroll-status summary{cursor:pointer}
+.machine-command{display:flex;align-items:center;gap:6px;max-width:100%;margin-bottom:4px}
+.machine-command code{display:block;min-width:0;overflow-x:auto;white-space:nowrap;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface2);color:var(--ink)}
+.machine-command .ghost,.machine-login-command .ghost{flex-shrink:0;padding:1px 8px;font-size:11.5px}
+.machine-login-command{display:inline-flex;align-items:center;gap:4px;max-width:100%;min-width:0}
+.machine-runtime-item{max-width:100%;min-width:0}
+.machine-login-command code{font-size:11.5px;overflow-x:auto;white-space:nowrap;min-width:0;padding:1px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface2)}
+.machine-signin-link{font-size:12px}
 .settings-services summary{cursor:pointer;font-weight:600}
 .settings-services-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px 14px;margin-top:12px;font-size:12px}
 .settings-team-icon{display:flex;align-items:center;gap:20px;padding:16px 0}
@@ -253,7 +261,7 @@ p:empty{display:none}
 .transition-dialog{width:min(580px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .transition-body{padding:16px 18px 18px}.transition-progress{margin:12px 0;padding:10px;border-radius:7px;background:var(--bg)}
 .transition-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-@media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
+@media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll>select,.machine-enroll>input,.machine-enroll>button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
 /* Settings header: Dark, Light or System for this browser (ui/theme.js) */
 .theme-seg{display:inline-flex;flex:none;background:var(--surface2);border-radius:999px;padding:3px}
 .theme-seg button{border:0;background:none;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}

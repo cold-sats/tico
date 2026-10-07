@@ -154,7 +154,7 @@ async function settingsAgentRevoke(slug) {
 }
 // The Add computer flow, shared by Settings and the first-run wizard: one private short-lived
 // setup file, downloaded by the browser. The commands that consume it are shown by the caller.
-// A Linux or cloud server needs no file: the one-time code goes on the docker run line.
+// A Linux server, a Mac with Docker Desktop and a Windows PC (WSL 2) need no file: the one-time code goes on the line.
 async function enrollmentCode(operator) { return post('/v2/enrollments', {operator}); }
 const shellSafe = value => String(value).replace(/["$`\\\n]/g, '');
 // The release the server runs, as the tag its installer and images carry; '' for a build with none.
@@ -164,7 +164,9 @@ const serverReleaseTag = () => {
 };
 // The installer sets the runner up with its updater sidecar, so it follows the server's releases;
 // a bare `docker run` has no sidecar and stays where it is.
-function dockerRunnerCommands(code, label, runtime) {
+// The container name follows from the code, so the commands of one Add computer agree with each other.
+const runnerName = code => `${String(S.config?.compose_project || 'tico').toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20)}-${String(code).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'computer'}`;
+function dockerRunnerCommands(code, label, runtime, kind = 'linux') {
   const tag = serverReleaseTag(), quoted = `"${shellSafe(label)}"`;
   const installer = tag ? `https://github.com/ticoteam/tico/releases/download/${tag}/install.sh`
                         : 'https://github.com/ticoteam/tico/releases/latest/download/install.sh';
@@ -173,19 +175,29 @@ function dockerRunnerCommands(code, label, runtime) {
   const local = !!S.config?.local;
   const join = local ? '--url http://server:8765' : `--url ${runnerUrl()}`;
   const network = String(S.config?.server_network || 'tico_default').replace(/[^a-zA-Z0-9_.-]/g, '');
-  const project = String(S.config?.compose_project || 'tico').toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
-  const name = `${project}-${String(code).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'computer'}`;
+  const name = runnerName(code);
   const container = `tico-runner-${name}`;
   return [
     [local ? 'Set up the runner on this computer (installs Docker if it is missing; keeps itself on this server\'s release)'
+           : kind === 'mac' ? 'Set up the runner on that Mac (Docker Desktop must be running; keeps itself on this server\'s release)'
            : 'Set up the runner on the server (installs Docker if it is missing; keeps itself on this server\'s release)',
      `curl -fsSL ${installer} | sh -s -- --runner --name ${name} ${join}${local ? ` --server-network ${network}` : ''} --code ${code} --label ${quoted}`],
     // Signing in to a model comes only once a provider is chosen; before that there is no model to name.
-    runtime ? ['Sign the bots in to a model, once (the runner installs the model CLI first; give it a minute)',
-     `docker exec -it ${container} ${runtime === 'claude' ? 'claude setup-token' : 'codex login --device-auth'}`] : null,
+    // `claude auth login` signs the CLI in; `claude setup-token` would only print a token. As `bot`, the user turns run as.
+    runtime ? ['Sign the bots in to a model, once: Sign in on Settings > Computers, or run this (the runner installs the model CLI first; give it a minute)',
+     `docker exec -it -u bot ${container} ${runtime === 'claude' ? 'claude auth login' : 'codex login --device-auth'}`] : null,
     ['Or with plain Docker instead of the line above. It has no updater, so it will not follow the server\'s releases',
      `docker run -d --name ${container} --restart unless-stopped${local ? ` --network ${network}` : ''} -v ${container}_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code ${code} --label ${quoted}`],
   ];
+}
+// A Windows PC runs the Linux runner in WSL 2 (infra/windows/install-wsl.ps1, published with each release).
+function windowsRunnerCommands(code, label) {
+  const tag = serverReleaseTag();
+  const script = tag ? `https://github.com/ticoteam/tico/releases/download/${tag}/install-wsl.ps1`
+                     : 'https://github.com/ticoteam/tico/releases/latest/download/install-wsl.ps1';
+  const quoted = `'${shellSafe(label).replace(/'/g, "''")}'`;
+  return [['In PowerShell as administrator on that PC (sets up WSL 2 and Ubuntu if needed; may ask for a restart)',
+    `& ([scriptblock]::Create((irm ${script}))) -Url ${runnerUrl()} -Code ${code} -Label ${quoted} -Name ${runnerName(code)}`]];
 }
 async function enrollmentDownload(operator, label) {
   const filename = `tico-enrollment-${operator}-${Date.now().toString(36)}.json`;
@@ -196,21 +208,55 @@ async function enrollmentDownload(operator, label) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return filename;
 }
+// One chip per AI tool on a computer: its version and whether it is signed in, from the computer's readiness
+// (`harnesses` per tool, `runtimes` per runtime; an older runner sends only `runtimes`). Only what the team's providers
+// or an assigned bot use, plus anything installed anyway. Codex and Claude Code sign in from here: the computer runs
+// the login as the bot user and relays only the link and one-time code (backend/model_login.py, runner/login.py).
+// The others have no login the computer can relay, so the chip says what to run there.
+const MACHINE_SIGNIN = ['codex', 'claude'];
+const MACHINE_LOGIN_COMMANDS = {grok: 'grok login', cursor: 'cursor-agent login'};   // backend/providers.py `login`
+const MACHINE_KEY_ONLY = ['gemini', 'pi'];
+// The server's rule (model_login._operator): the owner, an admin, or the person whose computer it is.
+const machineCanSignIn = machine => settingsIsAdmin() || (!!S.me?.id && machine.operator === S.me.id);
+function machineLoginCommand(machine, name) {
+  const command = MACHINE_LOGIN_COMMANDS[name];
+  return command && machine.update?.kind === 'docker' ? `docker exec -it -u bot <container> ${command}` : command;
+}
+function machineToolsHtml(machine, online) {
+  const needed = Array.isArray(machine.needed_runtimes) ? new Set(machine.needed_runtimes) : null;
+  const isNeeded = name => !needed || needed.has(name);
+  const runtimes = machine.readiness?.runtimes || {};
+  const tools = Object.values(machine.readiness?.harnesses || {});
+  const toolFor = name => tools.find(tool => tool.runtime === name && tool.installed) || tools.find(tool => tool.runtime === name) || {};
+  const names = [...new Set([...Object.keys(runtimes), ...tools.filter(tool => tool.installed).map(tool => tool.runtime)])]
+    .filter(name => isNeeded(name) || runtimes[name]?.installed || toolFor(name).installed);
+  const manage = machineCanSignIn(machine) && !machine.revoked_at;
+  return names.map(name => {
+    const tool = toolFor(name), value = runtimes[name] || {installed: !!tool.installed, authenticated: tool.authenticated};
+    const installed = value.installed || tool.installed, auth = value.authenticated;
+    const state = !installed ? 'not installed' : auth === 'ready' ? 'signed in' : auth === 'rejected' ? 'sign-in rejected'
+      : auth === 'unknown' ? 'checking' : 'not signed in';
+    const tone = auth === 'ready' ? 'ok' : auth === 'rejected' ? 'fail' : auth === 'unknown' || !isNeeded(name) ? 'waiting' : 'fail';
+    const label = `${tool.name || harnessWords(name)}${installed && tool.version ? ' ' + tool.version : ''} · ${state}`;
+    let action = '';
+    if (manage && installed && auth !== 'ready') {
+      const command = machineLoginCommand(machine, name);
+      if (MACHINE_SIGNIN.includes(name)) action = online
+        ? ` <button class="ghost machine-signin" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(name)}" data-machine="${esc(machine.label)}">Sign in</button>` : '';
+      else if (command) action = ` <span class="machine-login-command" title="Run on the computer${command.includes('<container>') ? '; docker ps shows the container name' : ''}"><code>${esc(command)}</code><button class="ghost machine-signin" type="button" data-machine-copy-login="${esc(command)}">Copy</button></span>`;
+      else if (MACHINE_KEY_ONLY.includes(name)) action = ' <a class="machine-signin-link" href="#/credentials">Add key</a>';
+    }
+    const rejected = auth === 'rejected'
+      ? `<span class="err machine-rejected" data-rejected="${esc(name)}">${value.rejected_at ? esc(ago(value.rejected_at)) + '. ' : ''}${value.rejected_reason ? esc(value.rejected_reason) + '. ' : ''}${hlCredentialFix(value.credential_source)}. It takes no work that needs ${esc(name)} until then.</span>` : '';
+    return `<span class="machine-runtime-item" data-machine-tool="${esc(name)}"><span class="pill ${tone}" title="${esc(value.detail || '')}">${esc(label)}</span>${action}${rejected}</span>`;
+  }).join('');
+}
 function renderSettingsMachines() {
   const el = $('#set-machines'); if (!el) return;
   const expanded = new Set([...el.querySelectorAll('details[data-machine-details][open]')].map(node => node.dataset.machineDetails));
   const cards = SETTINGS_DATA.machines.map(machine => {
     const online = !machine.revoked_at && machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
-    // Only what the team's providers or an assigned bot use, plus anything installed anyway: a
-    // model nobody enabled being absent is not a problem. An older server sends no list; all show then.
-    const needed = Array.isArray(machine.needed_runtimes) ? new Set(machine.needed_runtimes) : null;
-    const isNeeded = name => !needed || needed.has(name);
-    const runtimes = Object.entries(machine.readiness?.runtimes || {}).filter(([name, value]) => isNeeded(name) || value.installed);
-    // Codex and Claude sign in from here; the computer prints the link and code, this page shows them.
-    const signIn = (name, value) => S.me?.role === 'owner' && online && value.installed && value.authenticated !== 'ready' && ['codex', 'claude'].includes(name)
-      ? ` <button class="ghost machine-signin" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(name)}" data-machine="${esc(machine.label)}">Sign in</button>` : '';
-    const runtime = runtimes.map(([name, value]) => `<span class="machine-runtime-item"><span class="pill ${value.authenticated === 'ready' ? 'ok' : value.authenticated === 'rejected' ? 'fail' : value.authenticated === 'unknown' || !isNeeded(name) ? 'waiting' : 'fail'}" title="${esc(value.detail || '')}">${esc(harnessWords(name))} · ${esc(value.authenticated === 'rejected' ? 'sign-in rejected' : value.authenticated === 'ready' ? 'signed in' : value.authenticated)}</span>${signIn(name, value)}${value.authenticated === 'rejected'
-      ? `<span class="err machine-rejected" data-rejected="${esc(name)}">${value.rejected_at ? esc(ago(value.rejected_at)) + '. ' : ''}${value.rejected_reason ? esc(value.rejected_reason) + '. ' : ''}${hlCredentialFix(value.credential_source)}. It takes no work that needs ${esc(name)} until then.</span>` : ''}</span>`).join('');
+    const tools = machineToolsHtml(machine, online);
     // The model CLIs the computer runs: version, pin, and the owner's Update / Pin actions. The
     // computer applies them between turns (backend/harness_actions.py, runner/harness_tools.py).
     const asked = new Set((machine.harness_actions || []).filter(row => ['requested', 'running'].includes(row.state)).map(row => `${row.harness}:${row.action}`));
@@ -241,7 +287,7 @@ function renderSettingsMachines() {
         ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>`
         : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
       <td data-label="Bots"><strong>${bots.length} bot${bots.length === 1 ? '' : 's'}</strong>${bots.length ? `<div class="settings-cell-note">${botList}${moreBots}<div><a href="#/settings" data-computer-reassign>Manage bot assignments</a></div></div>` : ''}${failures ? ` <span class="err">${failures} not ready</span>` : ''}</td>
-      <td data-label="AI connections"><div class="machine-runtime">${runtime || '<span class="muted">No AI connections reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Installed tools and updates</summary><p class="settings-cell-note">Versions and update controls for the AI tools on this computer.</p><div class="machine-harnesses" aria-label="Tools on ${esc(machine.label)}">${harnesses}</div></details>` : ''}</td>
+      <td data-label="AI tools"><div class="machine-runtime" aria-label="AI tools on ${esc(machine.label)}">${tools || '<span class="muted">No AI tools reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Updates</summary><div class="machine-harnesses">${harnesses}</div></details>` : ''}</td>
       <td data-label="Status">${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}${!machine.revoked_at && (settingsIsAdmin() || machine.operator === S.me?.id) ? `<button class="ghost" type="button" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''}</td></tr>`;
   }).join('');
   el.onchange = async event => {
@@ -256,6 +302,8 @@ function renderSettingsMachines() {
   };
   el.onclick = async event => {
     if (event.target.closest('[data-computer-reassign]')) { settingsShow('bots'); return; }
+    const login = event.target.closest('[data-machine-copy-login]');
+    if (login) { void copyText(login.dataset.machineCopyLogin).then(() => toast('Command copied')); return; }
     const remove = event.target.closest('[data-computer-remove]');
     if (remove) {
       remove.disabled = true;
@@ -281,20 +329,20 @@ function renderSettingsMachines() {
       <td>${esc(settingsPersonName(S.emps.find(row => row.name === agent.bot)?.operator))}</td>
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
       <td>${agent.revoked_at ? '<span class="pill fail">revoked</span>' : agent.online ? '<span class="pill ok">reporting in</span>' : '<span class="pill">not reporting</span>'}${agent.last_seen ? `<span class="settings-cell-note">${esc(ago(agent.last_seen))}</span>` : ''}</td></tr>`).join('');
-  const list = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>AI connections</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
+  const list = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>AI tools</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
     ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Owner</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}`;
   // Only the list is redrawn; the Add computer form (and the code it shows) keeps what was typed.
   if (!el.querySelector('.machine-enroll')) el.innerHTML = `<div data-machines-list></div>
     <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Computer owner">
       ${people.map(person => `<option value="${esc(person.id)}" ${person.id === S.me?.id ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select>
-      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option></select>
+      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option><option value="windows">Windows PC</option></select>
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
-      <p class="machine-enroll-status" id="machine-enroll-status"></p></div>`;
+      <div class="machine-enroll-status" id="machine-enroll-status"></div></div>`;
   el.querySelector('[data-machines-list]').innerHTML = `<p class="settings-cell-note">Computers run your bots. The operator manages the computer; each bot can use its own named subscription.</p>${list}`;
   el.querySelectorAll('details[data-machine-details]').forEach(node => { node.open = expanded.has(node.dataset.machineDetails); });
   const machineDefaultLabel = () => $('#machine-kind').value === 'linux' && S.config?.local ? 'This computer'
-    : `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
+    : `${settingsPersonName($('#machine-operator').value)}'s ${({linux: 'server', windows: 'PC'})[$('#machine-kind').value] || 'Mac'}`;
   $('#machine-operator').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
   $('#machine-kind').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
   $('#register-machine').onclick = async event => {
@@ -302,19 +350,28 @@ function renderSettingsMachines() {
     if (!label) { toast('Give this computer a recognizable name', true); return; }
     event.target.disabled = true;
     try {
-      const status = $('#machine-enroll-status');
-      if ($('#machine-kind').value === 'linux') {
-        const {code} = await enrollmentCode(operator);
-        const commands = dockerRunnerCommands(code, label, S.config?.default_runtime).filter(Boolean);
-        status.innerHTML = `Code for <strong>${esc(label)}</strong>, good 15 minutes. Run on that server:${commands.map(([note, command], i) => `<br><span class="muted">${esc(note)}</span><br><code>${esc(command)}</code> <button class="ghost" type="button" data-machine-copy="${i}">Copy</button>`).join('')}`;
-        status.querySelectorAll('[data-machine-copy]').forEach(button => button.onclick = () =>
-          void copyText(commands[Number(button.dataset.machineCopy)][1]).then(() => toast('Command copied')));
-        return;
-      }
-      const filename = await enrollmentDownload(operator, label);
-      status.innerHTML = `Setup file downloaded. Run on that Mac:<br><code>scripts/setup-runner.sh "$HOME/Downloads/${esc(filename)}"</code> <button class="ghost" type="button" id="copy-enrollment-command">Copy command</button> <button class="ghost" type="button" id="copy-enrollment-prompt">Copy AI setup prompt</button>`;
-      $('#copy-enrollment-command').onclick = () => void copyText(`scripts/setup-runner.sh "$HOME/Downloads/${filename}"`).then(() => toast('Setup command copied'));
-      $('#copy-enrollment-prompt').onclick = () => void copyText(settingsEnrollmentPrompt(operator, filename)).then(() => toast('Computer setup prompt copied'));
+      const status = $('#machine-enroll-status'), kind = $('#machine-kind').value;
+      const {code} = await enrollmentCode(operator);
+      // Settings signs the computer in from its row, so the Docker sign-in line is left to the setup wizard.
+      const [main, ...more] = kind === 'windows' ? windowsRunnerCommands(code, label)
+        : dockerRunnerCommands(code, label, '', kind).filter(Boolean);
+      const line = ([note, command], i) => `<span class="muted">${esc(note)}</span><span class="machine-command"><code>${esc(command)}</code><button class="ghost" type="button" data-machine-copy="${i}">Copy</button></span>`;
+      status.innerHTML = `<span>Code for <strong>${esc(label)}</strong>, good 15 minutes. Then sign it in here.</span>${line(main, 0)}`
+        + (more.length ? `<details><summary>Other ways</summary>${more.map((row, i) => line(row, i + 1)).join('')}</details>` : '')
+        + (kind === 'mac' ? '<button class="ghost" type="button" id="machine-checkout">Use a Tico checkout instead</button>' : '');
+      const commands = [main, ...more];
+      status.querySelectorAll('[data-machine-copy]').forEach(button => button.onclick = () =>
+        void copyText(commands[Number(button.dataset.machineCopy)][1]).then(() => toast('Command copied')));
+      const checkout = $('#machine-checkout');
+      if (checkout) checkout.onclick = async () => {
+        checkout.disabled = true;
+        try {
+          const filename = await enrollmentDownload(operator, label);
+          status.innerHTML = `Setup file downloaded. Run in the Tico checkout on that Mac:<span class="machine-command"><code>scripts/setup-runner.sh "$HOME/Downloads/${esc(filename)}"</code><button class="ghost" type="button" id="copy-enrollment-command">Copy</button></span><button class="ghost" type="button" id="copy-enrollment-prompt">Copy AI setup prompt</button>`;
+          $('#copy-enrollment-command').onclick = () => void copyText(`scripts/setup-runner.sh "$HOME/Downloads/${filename}"`).then(() => toast('Setup command copied'));
+          $('#copy-enrollment-prompt').onclick = () => void copyText(settingsEnrollmentPrompt(operator, filename)).then(() => toast('Computer setup prompt copied'));
+        } catch (error) { toast(error.message, true); checkout.disabled = false; }
+      };
     } catch (error) { toast(error.message, true); }
     finally { event.target.disabled = false; }
   };

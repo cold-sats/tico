@@ -563,7 +563,7 @@ function recruitFor({department, briefing, share}) {
       return [onbCommands(state).map(([label]) => label.slice(0, 3)).join(''), onbCommands({...state, kind: 'linux'}).map(([label]) => label.slice(0, 3)).join('')];
     }), ['2 ·3 ·4 ·', '2 ·3 ·4 ·']);
     assert.match(await page.evaluate(() => onbCommands({...ONB, providers: {default: {runtime: 'codex'}}})[1][1]), /profile login default codex/);
-    assert.match(await page.evaluate(() => onbCommands({...ONB, kind: 'linux', providers: {default: {runtime: 'claude'}}})[1][1]), /docker exec -it tico-runner-tico-[a-z0-9]+ claude setup-token/);
+    assert.match(await page.evaluate(() => onbCommands({...ONB, kind: 'linux', providers: {default: {runtime: 'claude'}}})[1][1]), /docker exec -it -u bot tico-runner-tico-[a-z0-9]+ claude auth login/);
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> install bot/);
     await page.locator('#onb-enroll').click();
     await page.waitForFunction(() => !/<setup-file>/.test(document.querySelector('#onb-step').textContent));
@@ -739,6 +739,11 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#register-machine').click();
     await page.waitForFunction(() => /--code enroll-code --label "Ana Rivera's server"/.test(document.querySelector('#machine-enroll-status').textContent));
     assert.match(await page.locator('#machine-enroll-status').textContent(), /join --url https:\/\/initech\.test/);
+    // A Windows PC gets one PowerShell line: the release's WSL installer with the same code, URL and name.
+    await page.locator('#machine-kind').selectOption('windows');
+    await page.locator('#register-machine').click();
+    await page.waitForFunction(() => /install-wsl\.ps1/.test(document.querySelector('#machine-enroll-status').textContent));
+    assert.match(await page.locator('#machine-enroll-status').textContent(), /irm https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install-wsl\.ps1\)\)\) -Url https:\/\/initech\.test -Code enroll-code -Label 'Ana Rivera''s PC' -Name tico-enrollco/);
     await page.locator('#machine-kind').selectOption('mac');
     await page.locator('[data-settings-tab=bots]').click();
     await page.locator('#settings-add-catalog:not([disabled])').click();

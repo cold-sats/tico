@@ -90,15 +90,15 @@ rollback step: it runs on the candidate's updater.
 
 The workflow then:
 
-- runs `scripts/build_install_bundle.py`, which attaches the one-line installer: `install.sh` with the tag baked into it,
-  `tico-bundle-vX.Y.Z.tar.gz` (`compose.yaml`, `.env.example`, `docker/runner.compose.yaml` and the `setup/` wizard) and
-  `SHA256SUMS` over both. `install.sh` checks the bundle against `SHA256SUMS` before it unpacks anything;
+- runs `scripts/build_install_bundle.py`, which attaches the one-line installers: `install.sh` and the Windows
+  `install-wsl.ps1` with the tag baked into them, `tico-bundle-vX.Y.Z.tar.gz` (`compose.yaml`, `.env.example`,
+  `docker/runner.compose.yaml` and the `setup/` wizard) and `SHA256SUMS` over all three. `install.sh` checks the bundle against `SHA256SUMS` before it unpacks anything;
 - waits until `ghcr.io/ticoteam/{tico,tico-runner,tico-updater}:vX.Y.Z` exist (the Docker workflow builds them from the
   same tag, in about 2 minutes), so no release is published whose installer would fail on `docker compose pull`;
 - uses the `[X.Y.Z]` section of the changelog, unchanged, as the release notes, and fails if the
   section is missing or empty. A tag with a suffix such as `v0.2.0-rc.1` is marked a prerelease,
   which the update check ignores;
-- publishes the release with those three files and the notes. That is everything the installer, the server's update
+- publishes the release with those four files and the notes. That is everything the installer, the server's update
   check and the updater read (`install.sh`, the bundle and `SHA256SUMS`), so the server rollout can start at once.
 
 Docker images are published by a separate workflow (on the same `v*` tag, plus a manual run) and set `TICO_VERSION` in the image, which is how the running app
