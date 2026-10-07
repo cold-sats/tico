@@ -78,3 +78,11 @@ turn off **Task results in Slack**. You can also ask BotOps to turn it off for y
 `POST /api/v2/humans/<id>` with `{"notify_slack_task_done": false}` (through the API or MCP's `hub_api`).
 Turning it on again uses `true`. Self-completed tasks and quiet updates do not send a DM;
 no linked Slack account or a disabled gateway means no Slack delivery. In-app notices continue.
+
+## Bot messages
+
+A bot's message to you is also copied into your Tico DM in Slack, including the report a bot writes
+at the end of a run. To keep these in Tico only, turn off **Bot messages in Slack** under
+**Profile → Notifications**, or send `{"notify_slack_bot_messages": false}` to `POST /api/v2/humans/<id>`.
+A bot's reply to something you sent from Slack still goes back to Slack, since you started that
+conversation there. Turning it off does not change task results, which have their own switch above.

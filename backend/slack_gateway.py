@@ -952,6 +952,23 @@ class Gateway:
             ('%"' + actor + '"%',)).fetchone()
         return row["channel"] if row else None
 
+    def stays_in_tico(self, c, row):
+        """A bot message to someone who turned off bot messages in Slack stays in Tico, unless it
+        answers a message they sent from Slack: they started that conversation there."""
+        person = P.person(row["to_actor"][6:], roster(c)) or {}
+        if person.get("notify_slack_bot_messages") is not False:
+            return False
+        return not (row["in_reply_to"] and c.execute(
+            "SELECT 1 FROM messages WHERE id=? AND json_extract(refs_json,'$.slack.event_id') IS NOT NULL",
+            (row["in_reply_to"],)).fetchone())
+
+    def keep_in_tico(self, c, row, channel="", thread_ts="", bot=""):
+        """Mark a message handled without posting it, so the next pass does not pick it up again."""
+        now = self.clock()
+        c.execute("INSERT OR IGNORE INTO slack_posts(message_id,channel,thread_ts,bot,text,state,error,created,updated) "
+                  "VALUES(?,?,?,?,'','cancelled','Bot messages in Slack are off',?,?)",
+                  (row["id"], channel, thread_ts, bot, now, now))
+
     def originate(self):
         """A bot message to a person with no Slack mapping yet: open (or reuse) their Tico DM.
 
@@ -960,7 +977,7 @@ class Gateway:
         """
         with self.store.read() as c:
             rows = [dict(r) for r in c.execute(
-                "SELECT m.id,m.body,m.conversation_id,m.from_actor,m.to_actor FROM messages m "
+                "SELECT m.id,m.body,m.conversation_id,m.from_actor,m.to_actor,m.in_reply_to FROM messages m "
                 "WHERE m.kind IN ('say','ask','answer','notice') AND m.from_actor LIKE 'bot:%' "
                 "AND m.to_actor LIKE 'human:%' AND m.deleted_at IS NULL "
                 "AND json_extract(m.refs_json,'$.task_completion') IS NULL "
@@ -976,6 +993,9 @@ class Gateway:
                     continue
                 if c.execute("SELECT 1 FROM slack_threads WHERE conversation_id=?",
                              (row["conversation_id"],)).fetchone():
+                    continue
+                if self.stays_in_tico(c, row):
+                    self.keep_in_tico(c, row, bot=bot)
                     continue
                 channel = self.im_channel(c, pid)
                 if not channel:
@@ -1026,13 +1046,16 @@ class Gateway:
         """New bot replies in mapped conversations become posts to make, once each."""
         with self.store.transaction() as c:
             rows = c.execute(
-                "SELECT m.id,m.body,m.in_reply_to,t.channel,t.thread_ts,t.bot FROM messages m "
+                "SELECT m.id,m.body,m.in_reply_to,m.to_actor,t.channel,t.thread_ts,t.bot FROM messages m "
                 "JOIN slack_threads t ON t.conversation_id=m.conversation_id AND m.from_actor='bot:'||t.bot "
                 "WHERE m.created>t.created AND m.kind IN ('say','ask','answer','notice') AND m.to_actor LIKE 'human:%' "
                 "AND m.deleted_at IS NULL AND json_extract(m.refs_json,'$.task_completion') IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) ORDER BY m.created LIMIT 50").fetchall()
             for r in rows:
                 if not privacy.public_message(c, H.message(c, r["id"])):
+                    continue
+                if self.stays_in_tico(c, r):
+                    self.keep_in_tico(c, r, r["channel"], r["thread_ts"], r["bot"])
                     continue
                 # The reply goes where the message it answers was: the thread root in a channel;
                 # in a DM, the bottom of the DM unless the person wrote inside a reply thread.

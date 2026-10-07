@@ -542,6 +542,26 @@ def test_task_results_are_one_tico_dm_per_task_status(gateway, hub):
     assert len(rows(hub, 'SELECT * FROM slack_posts')) == 1
 
 
+def test_bot_messages_in_slack_off_keeps_them_in_tico_except_replies_to_slack(gateway, hub):
+    link_task_requester(hub)
+    with hub.transaction() as c:
+        raw = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()[0])
+        raw["people"] = [{**p, "notify_slack_bot_messages": False} if p["id"] == "ana" else p for p in raw["people"]]
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(raw),))
+    # Ana asked from Slack, so the answer still goes back there.
+    answer = routed_reply(gateway, hub)
+    thread = rows(hub, "SELECT * FROM slack_threads")[0]
+    with hub.transaction() as c:
+        later = H.say(c, "bot:legal", "human:ana", "Run report.", conversation_id=thread["conversation_id"])["id"]
+        fresh = H.say(c, "bot:cmo", "human:ana", "Done with the launch plan.")["id"]
+    gateway.originate()
+    gateway.mirror()
+    posts = {r["message_id"]: r["state"] for r in rows(hub, "SELECT * FROM slack_posts")}
+    assert posts == {answer: "ready", later: "cancelled", fresh: "cancelled"}
+    assert len(rows(hub, "SELECT * FROM slack_threads")) == 1
+    assert [r["message_id"] for r in gateway.deliver()] == [answer]
+
+
 @pytest.mark.parametrize('skip', ['outside', 'wrong_person'])
 def test_task_result_skips(gateway, hub, skip):
     link_task_requester(hub, slack_id={'outside': 'U8', 'wrong_person': 'U2'}[skip])

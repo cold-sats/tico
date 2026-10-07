@@ -19157,6 +19157,17 @@
             ],
             "title": "Notify Slack Task Done"
           },
+          "notify_slack_bot_messages": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notify Slack Bot Messages"
+          },
           "reports_to": {
             "anyOf": [
               {

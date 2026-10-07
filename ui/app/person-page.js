@@ -88,6 +88,9 @@ function pagePerson(id, tab) {
       <label class="person-notify" title="A Slack DM when a task they asked for is finished or declined">
         <input type="checkbox" role="switch" class="people-switch" id="person-notify-slack" ${p.notify_slack_task_done !== false ? 'checked' : ''}>
         <span>Task results in Slack</span></label>
+      <label class="person-notify" title="A bot's messages to them are copied to their Tico DM in Slack. Off: they stay in Tico, except replies to something sent from Slack">
+        <input type="checkbox" role="switch" class="people-switch" id="person-notify-bots" ${p.notify_slack_bot_messages !== false ? 'checked' : ''}>
+        <span>Bot messages in Slack</span></label>
       <div class="err" role="status" id="person-notify-status"></div></section>` : ''}
   </div>
   <div id="pane-pslack" ${tab === 'slack' ? '' : 'hidden'}>
@@ -104,19 +107,23 @@ function pagePerson(id, tab) {
     const rest = $('#goal-rest'), open = rest.hidden;
     rest.hidden = !open; more.textContent = open ? 'less' : 'more'; more.setAttribute('aria-expanded', String(open));
   };
-  const notifySlack = $('#person-notify-slack');
-  if (notifySlack) notifySlack.onchange = async () => {
-    const value = notifySlack.checked, status = $('#person-notify-status');
-    notifySlack.disabled = true; status.textContent = '';
-    try {
-      const row = await post(`/v2/humans/${encodeURIComponent(p.id)}`, {notify_slack_task_done: value});
-      p.notify_slack_task_done = row.notify_slack_task_done;
-      notifySlack.checked = row.notify_slack_task_done !== false;
-    } catch (e) {
-      notifySlack.checked = !value;
-      status.textContent = e.message || 'Could not save.';
-    } finally { notifySlack.disabled = false; }
+  const notifySwitch = (id, key) => {
+    const box = $(id);
+    if (box) box.onchange = async () => {
+      const value = box.checked, status = $('#person-notify-status');
+      box.disabled = true; status.textContent = '';
+      try {
+        const row = await post(`/v2/humans/${encodeURIComponent(p.id)}`, {[key]: value});
+        p[key] = row[key];
+        box.checked = row[key] !== false;
+      } catch (e) {
+        box.checked = !value;
+        status.textContent = e.message || 'Could not save.';
+      } finally { box.disabled = false; }
+    };
   };
+  notifySwitch('#person-notify-slack', 'notify_slack_task_done');
+  notifySwitch('#person-notify-bots', 'notify_slack_bot_messages');
   const cards = $('#pane-profile').querySelectorAll('section.card');
   const goalsCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Goals');
   const notesCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Notes');
