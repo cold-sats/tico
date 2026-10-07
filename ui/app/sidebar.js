@@ -480,8 +480,8 @@ let MY_AGENT, MY_AGENT_AT = 0;
 async function loadMyAgent() {
   MY_AGENT_AT = Date.now();
   try {
-    const rows = (await get('/v2/me/tokens')).tokens || [], now = Date.now();
-    MY_AGENT = rows.some(r => r.last_used && !r.revoked_at && !(r.expires_at && new Date(r.expires_at) < now));
+    const data = await get('/v2/me/tokens'), rows = data.tokens || [], now = Date.now();
+    MY_AGENT = data.can_create === false ? null : rows.some(r => r.last_used && !r.revoked_at && !(r.expires_at && new Date(r.expires_at) < now));
   } catch { MY_AGENT = null; }
   renderTree();
 }

@@ -1371,7 +1371,10 @@ def create_app(settings=None):
     @app.get("/api/v2/me/tokens")
     def my_tokens(request: Request):
         with store.read() as c:
-            return {"tokens": personal_tokens.listing(c, request.state.identity)}
+            who = request.state.identity
+            # can_create: the team chart offers Connect only to someone who may make a token (personal_tokens.create)
+            return {"tokens": personal_tokens.listing(c, who),
+                    "can_create": bool(auth.bot_admin(who) or team_rules.load(c)["member_tokens"])}
 
     @app.post("/api/v2/me/tokens")
     def create_my_token(request: Request, body: M.PersonalTokenCreate):
