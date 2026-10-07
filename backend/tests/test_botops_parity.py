@@ -571,6 +571,7 @@ def test_a_later_run_acts_for_the_person_whose_open_task_it_cites_and_a_bot_run_
     with api.app.state.store.read() as c:
         row = c.execute("SELECT actor,detail_json FROM events WHERE action='bot.model_changed' AND target='ops'").fetchone()
         assert row["actor"] == "human:ana" and '"via": "botops"' in row["detail_json"]
+        assert json.loads(row["detail_json"])["delegation"] == {"for": "human:ana", "cited": task_id, "run": "follow_through"}
     # Still never a secret.
     leaked = act(api, later, "POST", "bots/ops/definition", {"expected_revision": revision + 1,
                                                             "config": {"api_key": "sk-live-not-for-you"}}, ref=task_id)
@@ -606,12 +607,14 @@ def test_a_later_run_acts_for_the_person_whose_open_task_it_cites_and_a_bot_run_
                ref=task_id).status_code == 403
 
 
-def test_a_model_change_reports_and_checks_whether_the_bots_computer_can_run_it(api, botops):
+def test_a_model_change_checks_this_bots_own_sign_in_on_its_computer(api, botops):
     assign(api, botops, "ops")
     def report(signed):
+        # Pi's runtime row says "missing" because another bot on the computer has no key: never this bot's verdict.
         post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {
             "schema_version": 1, "runtimes": {"codex": {"installed": True, "authenticated": "ready"},
-                                              "claude": {"installed": True, "authenticated": signed}},
+                                              "claude": {"installed": True, "authenticated": signed},
+                                              "pi": {"installed": True, "authenticated": "missing"}},
             "bots": {name: {"ready": True, "repository_present": True, "runtime": "codex", "model": "gpt-6-luna",
                             "problems": []} for name in ("ops", "botops")}}}, botops["token"])
     report("missing")
@@ -619,10 +622,19 @@ def test_a_model_change_reports_and_checks_whether_the_bots_computer_can_run_it(
     revision = act(api, ana, "GET", "bots/ops/access").json()["revision"]
     refused = act(api, ana, "POST", "bots/ops/model", {"model": "claude-opus-5-5", "expected_revision": revision})
     assert refused.status_code == 409 and refused.json()["error"]["code"] == "runner_not_ready"
-    assert refused.json()["error"]["link"] == "#/settings" and "Sign in" in refused.json()["error"]["fix"]
-    report("ready")
-    changed = act(api, ana, "POST", "bots/ops/model", {"model": "claude-opus-5-5", "expected_revision": revision})
-    assert changed.status_code == 200, changed.text
-    readiness = changed.json()["readiness"]
-    # The computer runs Claude; the bot's own row still describes its previous runtime until the next heartbeat.
-    assert readiness["can_run"] is True and readiness["reported"] is False
+    assert refused.json()["error"]["link"].endswith("/#/settings") and "Sign in" in refused.json()["error"]["fix"]
+    # Pi takes a key per bot: ops has none, so it is refused, pointing at Credentials ...
+    keyless = act(api, ana, "POST", "bots/ops/model", {"model": "kimi-k3", "expected_revision": revision})
+    assert keyless.status_code == 409 and keyless.json()["error"]["link"].endswith("/#/credentials")
+    # ... and once ops holds its own key, the computer-wide "missing" (another bot's) does not block it.
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO credentials(id,name,kind,env,ciphertext,nonce,created,updated,updated_by) "
+                  "VALUES('k1','OpenRouter','api_key','OPENROUTER_API_KEY',x'00',x'00',?,?,'human:ana')", (H.now(), H.now()))
+        c.execute("INSERT INTO credential_grants(id,credential_id,subject,granted_by,created) "
+                  "VALUES('g1','k1','bot:ops','human:ana',?)", (H.now(),))
+    keyed = act(api, ana, "POST", "bots/ops/model", {"model": "kimi-k3", "expected_revision": revision})
+    assert keyed.status_code == 200, keyed.text
+    assert keyed.json()["readiness"]["can_run"] is True and keyed.json()["readiness"]["reported"] is False
+    with api.app.state.store.read() as c:
+        assert '"cited": "' + ana["message"]["id"] + '"' in c.execute(
+            "SELECT detail_json FROM events WHERE action='bot.model_changed' AND target='ops'").fetchone()[0]

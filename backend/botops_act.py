@@ -242,7 +242,11 @@ def fix(path, code, status, acting, names, base=""):
         link = "#/settings"
     elif status != 403:
         return None
-    elif acting.actor == "bot:botops" or code == "on_behalf_of":
+    elif code == "on_behalf_of":
+        # The cited request lends nothing (closed, too old, another person's, words others wrote): the detail says why.
+        text = ("BotOps can't act on that earlier request: ask it again in your BotOps chat so it acts with your "
+                "rights now, or change " + where + " yourself")
+    elif acting.actor == "bot:botops":
         text = ("No one's request was attached to this run, so BotOps used its own rights: say go ahead in your "
                 "BotOps chat, or change " + where + " yourself")
     elif acting.role == "bot":

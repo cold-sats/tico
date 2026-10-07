@@ -181,11 +181,18 @@ one sentence on what the person does, and `link`, the place in the app (`#/bot/<
 chat), a requesting bot's (the same, or change it yourself), or the person's own (ask an owner or admin). BotOps relays
 it as one sentence and the link.
 
-**Checking the result.** A model change answers with `readiness`: whether the bot's computer can run the new runtime
-(`can_run` true, false, or null when the computer has not said), the problem, and the fix. `POST bots/<slug>/model`
-refuses a runtime the computer reports as not installed or not signed in, as a prepared change already does, and an
-applied change read back (`GET settings/transitions/<id>`) carries the same `readiness`. `reported` turns true once
-the bot's own readiness row reflects the new runtime, after the computer's next heartbeat.
+**Checking the result.** A model change answers with `readiness` (`backend/readiness.py` `can_run`, the one check
+behind a prepared change, `POST bots/<slug>/model` and Health): whether **this bot** can run the new runtime on its
+computer, judged by its own subscription profile's sign-in, its own API-key Credential for the runtimes that take one
+per bot (Gemini CLI, Pi), and otherwise the computer's shared sign-in. Another bot's missing key never blocks it.
+`can_run` is true, false (with `fix` and `link`), or null when nothing says (offline, an older computer). A bot an
+external agent runs (Hermes, OpenClaw, Grok Bot) answers `applicable: false`: no computer check applies. A change is
+refused only on false. `reported` turns true once the bot's own readiness row reflects the new runtime, after the
+computer's next heartbeat.
+
+**What is recorded.** Every event BotOps writes with a person's rights carries `via: botops` and `delegation`: the
+person (`for`), the request that lent the rights (`cited`: their message, or the task cited in a later run), and
+`run`: `live` when they asked in this run, `follow_through` when BotOps cited their open task in a later one.
 
 The same goes for routines and quarantine: human-requested BotOps work uses that human’s management rights,
 including work requested through a task. Task comments do not lend human authority. The run must be able to read

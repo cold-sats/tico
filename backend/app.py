@@ -48,7 +48,8 @@ from .bot_rows import BotRows
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
-from .settings_admin import SettingsAdmin, repository_present, runtime_readiness
+from .settings_admin import SettingsAdmin, repository_present
+from .readiness import absolute as absolute_link, can_run
 from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
 from .credential_cards import install_credential_cards, scrub_attempt
@@ -257,6 +258,8 @@ def create_app(settings=None):
             found = await asyncio.get_running_loop().run_in_executor(None, hint)
             if found:
                 exc.extra = {**getattr(exc, "extra", {}), **found}
+        if getattr(exc, "extra", None) and str(exc.extra.get("link") or "").startswith("#/"):
+            exc.extra = absolute_link(exc.extra, settings.public_url)
         return JSONResponse({"error": {"code": exc.code, "detail": exc.detail,
                                        "retryable": exc.retryable, **getattr(exc, "extra", {})}},
                             status_code=exc.status)
@@ -321,7 +324,7 @@ def create_app(settings=None):
 
     @app.middleware("http")
     async def request_guard(request, call_next):
-        via_reset = None
+        via_reset = delegation_reset = None
         try:
             # The sign-in exemptions below match on prefixes; a dot segment would carry one of
             # them onto the static files ("/download/../index.html").
@@ -450,6 +453,8 @@ def create_app(settings=None):
                     request.state.identity = replace(acted, task_actor=caller.task_actor or caller.actor)
                     if via_reset is None:
                         via_reset = H.VIA.set("botops")
+                    if getattr(request.state, "delegation", None):
+                        delegation_reset = H.DELEGATION.set(request.state.delegation)
             response = early or await call_next(request)
             if response.status_code >= 500:
                 from .diagnostics import request_failure
@@ -515,6 +520,8 @@ def create_app(settings=None):
         finally:
             if via_reset is not None:
                 H.VIA.reset(via_reset)
+            if delegation_reset is not None:
+                H.DELEGATION.reset(delegation_reset)
 
     from . import routines
 
@@ -2869,9 +2876,11 @@ def create_app(settings=None):
                            attempt_id=who.attempt_id, agent=who.agent)
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps applies changes on a requester's behalf", 403)
-        def acting_as(principal):
+        def acting_as(principal, cited="", run="live"):
             # Keep the actual bot's credential so writes revalidate its lease under the lock,
             # and private reads intersect the requester with the bot doing the work.
+            if H.is_human(principal.actor):
+                H.DELEGATION.set({"for": principal.actor, "cited": cited, "run": run})
             return replace(principal, via="botops", confirmed=True, task_actor=who.actor,
                            runner_id=who.runner_id, attempt_id=who.attempt_id, agent=who.agent)
         message_id = ref
@@ -2883,7 +2892,7 @@ def create_app(settings=None):
         if explicit:
             cited = followed_task(c, ref)
             if cited:
-                return acting_as(follow_through(c, who, cited))
+                return acting_as(follow_through(c, who, cited), cited["id"], "follow_through")
         if not explicit:
             if not turn:
                 return who
@@ -2917,14 +2926,14 @@ def create_app(settings=None):
                                      "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                     if made and H._json(made["detail_json"], {}).get("via") != "assistant":
                         person = auth.identity_for_actor(c, task["requester"])
-                        return acting_as(person)
+                        return acting_as(person, task_id)
                 origin = c.execute("SELECT actor FROM events WHERE action='botops.task_requested' AND target=? "
                                    "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                 if origin and str(origin["actor"]).startswith("human:"):
                     auth.conversation(c, who, task["conversation_id"])
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
-                    return acting_as(person)
+                    return acting_as(person, task_id)
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 made = c.execute("SELECT 1 FROM events WHERE action='task.create' AND target=? AND actor=? LIMIT 1",
@@ -2975,13 +2984,14 @@ def create_app(settings=None):
             raise Problem("on_behalf_of", "Cite a request from the conversation you are working on", 403) from None
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
-        return acting_as(person)
+        return acting_as(person, message_id)
 
     def followed_task(c, ref):
         """The task `ref` names (its id, or an unambiguous prefix of eight or more), or None when it names none."""
         ref = str(ref or "")
-        rows = c.execute("SELECT id FROM tasks WHERE id=? OR (length(?)>=8 AND id LIKE ? || '%') LIMIT 2",
-                         (ref, ref, ref)).fetchall()
+        prefix = ref.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = c.execute("SELECT id FROM tasks WHERE id=? OR (length(?)>=8 AND id LIKE ? || '%' ESCAPE '\\') LIMIT 2",
+                         (ref, ref, prefix)).fetchall()
         exact = [r for r in rows if r["id"] == ref]
         return H.task(c, (exact or rows)[0]["id"]) if len(exact or rows) == 1 else None
 
@@ -3046,8 +3056,15 @@ def create_app(settings=None):
         who = request.state.identity
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps acts on a person's behalf", 403)
+        # Runs on an executor thread: the delegation record is read back here and set again for the route.
+        token = H.DELEGATION.set(None)
+        try:
+            with store.read() as c:
+                acting = delegated_identity(c, who, ref)
+            request.state.delegation = H.DELEGATION.get()
+        finally:
+            H.DELEGATION.reset(token)
         with store.read() as c:
-            acting = delegated_identity(c, who, ref)
             if acting.actor == who.actor:
                 return None, None
             body = botops_act.parse_body(getattr(request, "_body", b"")) if request.method != "GET" else None
@@ -3830,7 +3847,7 @@ def create_app(settings=None):
                 # Asking again for what is set is how a caller re-checks that the bot's computer runs it.
                 return {"bot": bot, "model": choice["id"], "runtime": runtime, "harness": harness,
                         "effort": effort, "revision": row["revision"], "sessions_reset": 0,
-                        "readiness": runtime_readiness(c, bot, runtime, choice["id"], harness)}
+                        "readiness": absolute_link(can_run(c, bot, runtime, harness=harness, model=choice["id"]), settings.public_url)}
             before = settings_admin.snapshot(c, bot, "model")
             execution.expire(c)
             active = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (bot,)).fetchone()
@@ -3838,7 +3855,7 @@ def create_app(settings=None):
                 raise Problem("busy", "Wait for the current run to finish before changing models", 409)
             # The same check a prepared change makes (settings_admin._target): a model the bot's computer reports it
             # cannot run is refused with the fix, not saved for a bot that then never runs.
-            can = runtime_readiness(c, bot, runtime, choice["id"], harness)
+            can = absolute_link(can_run(c, bot, runtime, harness=harness, model=choice["id"]), settings.public_url)
             if can["can_run"] is False:
                 raise Problem("runner_not_ready", can["problem"], 409, extra={"fix": can["fix"], "link": can["link"]})
             config.update({"model": choice["id"], "runtime": runtime, "harness": harness,

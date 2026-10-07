@@ -11,6 +11,8 @@ choice.
      `link`. Tell the person at once, in one sentence with the link: "Release Manager can't run Claude on Tico Team box
      yet: sign Claude in on that computer in Settings > Computers (link), or I can keep it on GPT-6.1 Sol."
    - `can_run: null`: the computer has not said (offline, or too old to report). Say so and check again.
+   - `applicable: false`: an external agent (Hermes, OpenClaw, Grok Bot) runs this bot outside Tico. There is no
+     computer to check or put it on; report the change and stop.
    - `can_run: true`: the computer has that AI tool signed in.
 3. **Check the bot itself after the next heartbeat** (about a minute): run the same `hub bot model` command again. It
    changes nothing and answers with fresh `readiness`. Done means `reported: true`, `bot_ready: true` and no
