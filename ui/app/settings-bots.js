@@ -55,7 +55,7 @@ const settingsMachineOperator = id => (SETTINGS_DATA.machines || []).find(row =>
 function settingsBlockedNote(e, harnesses) {
   return harnesses.map(id => [id, settingsRuntimeBlock(e, id)]).filter(([, block]) => block && (block.move || block.signIn))
     .filter(([, block], i, rows) => rows.findIndex(([, other]) => other.runtime === block.runtime) === i)
-    .map(([id, block]) => `<p class="settings-choice-block" data-choice-block="${esc(block.runtime)}"><span>${esc(harnessWords(block.runtime) || settingsHarnessName(id))}: ${esc(block.reason)}</span>
+    .map(([id, block]) => `<p class="settings-choice-block" data-choice-block="${esc(block.runtime)}"><span>${block.reason.toLowerCase().includes(block.runtime) ? '' : esc(harnessWords(block.runtime) || settingsHarnessName(id)) + ': '}${esc(block.reason)}</span>
       ${block.signIn ? `<button class="ghost" type="button" data-model-login data-runner="${esc(block.signIn.runner_id)}" data-runtime="${esc(block.runtime)}" data-machine="${esc(block.signIn.computer)}">Sign in</button>` : ''}
       ${block.move ? `<button class="ghost" type="button" data-choice-move="${esc(block.move.id)}" data-machine="${esc(block.move.label)}">Move to ${esc(block.move.label)}</button>` : ''}</p>`).join('');
 }
