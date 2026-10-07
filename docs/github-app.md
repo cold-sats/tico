@@ -152,9 +152,26 @@ The app's private key, client secret and webhook secret are encrypted (AES-GCM) 
 With `TICO_CREDENTIAL_KMS_KEY` set the key is the credential vault's KMS-wrapped data key; otherwise
 it is a random `github-app.key` (mode 0600) beside the database, so a database copy alone does not
 carry the app's key. No API returns the key and it is never logged. Installation tokens are cached in
-server memory only, until five minutes before they expire. The runner holds the run's token in the
-run's process environment (`GH_TOKEN`, and an inline git credential helper); nothing is written to disk.
-A token is fixed for its run, and a run may outlast it only after about fifty minutes of the hour.
+server memory only, and reused only while at least 45 minutes remain, so a turn's starting token lasts at
+least 45 minutes. The runner holds the run's token in the run's process environment (`GH_TOKEN` and
+`GITHUB_TOKEN`, and an inline git credential helper); nothing is written to disk. git asks for a fresh token
+each time it needs one, and so does `gh` through the turn's `gh` wrapper, which also picks the token for the
+repository it is working on.
+
+## How bots sign in to GitHub
+
+The GitHub App is every bot's GitHub identity: `git push`, `gh pr create`, `gh pr view` and `gh api` in a turn
+all use its token, with no `gh auth login`. People's own GitHub logins come from their profiles (Contact,
+**GitHub**); a bot that opens a pull request for a person requests that person's review by that login.
+
+The App's token wins for every repository in the connected organization. A `GH_TOKEN` or `GITHUB_TOKEN`
+credential granted to a bot does not override it there; it is kept for repositories outside the
+organization only. A login shell (`bash -l`, which Codex uses) resets `PATH`; the runner image puts the
+turn's `PATH` back (`/etc/profile.d/tico-turn.sh`), so the wrapper stays first. On a Mac a login shell may
+find Homebrew's `gh` first, which then uses the turn's `GH_TOKEN`: still the App's, and valid for the turn.
+
+Every 15 minutes each computer asks GitHub who a bot's App token is (`GET /installation/repositories`).
+Two 401 answers in a row show in Health as "<computer>: GitHub sign-in failed".
 
 ## Rotating the key
 

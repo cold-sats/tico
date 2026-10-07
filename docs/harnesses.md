@@ -115,7 +115,9 @@ volume, so harnesses survive a restart or a new image. The directory is put last
   directory only when the harness is missing, and never updates one it did not install. Installing needs `node` and
   `npm` on the Mac.
 - **Linux (Docker)**: the image has node, npm, python, pip, git, gh, build tools, ripgrep, jq and curl, and no model
-  CLI.
+  CLI. It also has the system libraries Chromium needs, so a browser a bot installs (`npx playwright install
+  chromium`) starts. When a Playwright Chromium is on a computer, the runner starts it headless every 15 minutes;
+  two failures in a row show in Health as "<computer>: browser does not start".
 - **Current Docker runner**: the supervisor `ticorun` (UID 10002) owns the tools directory, registration
   and runner state; bot code runs as `bot` (UID 10003) and cannot replace those files. Bots still share
   their bot user, workspace and model logins. Start with the release's

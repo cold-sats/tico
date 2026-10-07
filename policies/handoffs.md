@@ -34,6 +34,8 @@ refuses it once the rule is enforced; `hub task create --dry-run` shows what it 
   are a product or engineering bot) and moves Backlog → Doing → In review → Ready to ship →
   Shipped. Set `--status review` when your pull request is open and attach it with
   `hub task link <task-id> <pr url>`; the merge and the deploy move it the rest of the way.
+  When a person asked for the change, request their review (`gh pr create --reviewer <login>`) with the
+  GitHub login on their profile (`github` in `hub human list`); skip it when they have none.
   Everything else is the **Team** lane.
 - A project is a label: `hub task label <task-id> --add pricing-page`. So is a kind (`bug`).
 - Another task that belongs with yours: `hub task relate <task-id> <other-id>` (related; add

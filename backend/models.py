@@ -727,6 +727,9 @@ class StructuredReadiness(Contract):
     mail_key: Literal["exposed"] | None = None      # the mail key is where bots can read it (runner/mail_key.py)
     shared_env: Literal[True] | None = None         # secrets/_shared.env holds keys every bot there receives
     container_exec: ContainerExecReadiness | None = None
+    # A bot's GitHub App token asked GitHub who it is, and Playwright's Chromium started (runner/tool_probes.py).
+    github_auth: ContainerExecReadiness | None = None
+    browser_launch: ContainerExecReadiness | None = None
     # The runner's last WARN/ERROR-like log lines, for a support bundle a person chooses to send (backend/diagnostics.py).
     # Long lines are cut, never refused: a refused report would hide the computer (0.3.2 runners sent 301 characters).
     recent_errors: list[Annotated[str, BeforeValidator(lambda v: v[:300] if isinstance(v, str) else v),
@@ -737,8 +740,9 @@ class StructuredReadiness(Contract):
         data = handler(self)
         if data.get("disk") is None:
             data.pop("disk", None)
-        if data.get("container_exec") is None:
-            data.pop("container_exec", None)
+        for field in ("container_exec", "github_auth", "browser_launch"):
+            if data.get(field) is None:
+                data.pop(field, None)
         if not data.get("recent_errors"):
             data.pop("recent_errors", None)       # a stored report keeps only what the runner sent
         return data

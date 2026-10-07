@@ -20,7 +20,7 @@ import yaml
 from clients import mcp_servers
 from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
-from . import container_probe, credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
+from . import container_probe, credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, tool_probes, usage
 from . import redact as redact_mod
 from . import goals, memory_history, repositories, runner_events, worktrees, safe_git, subscription_usage
 from .release_update import Follower
@@ -608,6 +608,9 @@ class Runner:
         self.claude_cold_start = threading.Lock()
         self.maintenance_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.container_probe = container_probe.ContainerProbe()
+        # Rare checks that a bot's `gh` can sign in and its browser starts here (runner/tool_probes.py).
+        self.github_probe = container_probe.ContainerProbe(check=lambda: tool_probes.github(self.client, self.github_bots()))
+        self.browser_probe = container_probe.ContainerProbe(check=tool_probes.browser)
         self.maintenance = None
         self.renew_interval = 10
         self.cloud = Outage("Tico runner")
@@ -1018,6 +1021,11 @@ class Runner:
             if granted.get("repository"):
                 env[git_credentials.REPOSITORY_KEY] = str(granted["repository"])
         return env, ""
+
+    def github_bots(self):
+        """The bots this computer runs whose turns get a GitHub App token: hosted here, not a task assignment."""
+        return sorted(row["bot"] for row in self.assignments_seen
+                      if self.assigned_here(row) and not is_assignment(row.get("config")))
 
     def assignment_marker(self, bot):
         root = Path(self.config["projects_dir"]) / "assignments" / ".registrations"
@@ -2418,6 +2426,11 @@ class Runner:
         container = probe.report() if probe else None
         if container:
             document["container_exec"] = container      # Health warns while containers do not start here
+        for field, name in (("github_auth", "github_probe"), ("browser_launch", "browser_probe")):
+            probe = getattr(self, name, None)
+            result = probe.report() if probe else None
+            if result:
+                document[field] = result                 # Health warns: GitHub sign-in failed, browser does not start
         if self.tools is not None and time.monotonic() >= self._harness_after:
             document["harnesses"] = self.tools.report(runtimes)
         if RECENT:
@@ -3351,7 +3364,7 @@ class Runner:
 
     def _report_heartbeat(self, body):
         readiness = body["readiness"]
-        optional = ("worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec")
+        optional = ("worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch")
         unsupported = self.__dict__.setdefault("_readiness_unsupported", {})
         for field, until in list(unsupported.items()):
             if time.monotonic() < until:
@@ -3433,7 +3446,7 @@ class Runner:
                               re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
                 generic = extra and "readiness." not in detail
                 if not field and generic:
-                    field = next((name for name in ("worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "disk")
+                    field = next((name for name in ("worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk")
                                   if name in readiness), None)
                 if field:
                     readiness.pop(field, None)

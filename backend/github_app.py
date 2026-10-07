@@ -37,7 +37,10 @@ log = logging.getLogger("tico.github_app")
 API = "https://api.github.com"
 STATE_TTL = 3600
 LIVE_TTL = 60                 # how long the installation's live permissions are trusted
-REFRESH_MARGIN = 300          # a cached token is dropped this long before GitHub expires it
+# A cached token is reused only while it has this long left. A turn's shell holds the token it started with
+# (`GH_TOKEN`), and a `gh` that a login shell finds ahead of the turn's wrapper uses that value for the whole turn;
+# with a five-minute margin it could expire minutes into the turn (gh: HTTP 401 Bad credentials).
+REFRESH_MARGIN = 45 * 60
 # What a bot's turn needs in its own repository, and nothing else.
 TURN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
 CREATE_PERMISSIONS = {"administration": "write", "contents": "read"}

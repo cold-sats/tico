@@ -54,6 +54,7 @@ def _computers(c, runners_online, settings):
                      "platform": r["platform"] or "", "update": runner_versions.view(fleet.get(r["id"])),
                      "disk": document.get("disk"),
                      "operator": r["operator"], "container_exec": document.get("container_exec"),
+                     "github_auth": document.get("github_auth"), "browser_launch": document.get("browser_launch"),
                      # Only what the company or an assigned bot uses, or what is installed anyway: the
                      # other harnesses are not this computer's business, so they are not listed.
                      "runtimes": [{"name": n, "installed": bool(v.get("installed")),
@@ -712,6 +713,16 @@ def view(c, who, settings, auth, github, config):
                 checks.append(_check("container_exec:" + computer["id"], "Containers", "warn",
                                      f"{computer['label']} ({computer['operator']}): containers do not start "
                                      f"({container.get('error') or 'failed'}). Restart Docker there; bot container work stalls until then.",
+                                     [_fix("Open Computers", "#/settings", "devices")]))
+            if computer["online"] and (computer.get("github_auth") or {}).get("ok") is False:
+                checks.append(_check("github_auth:" + computer["id"], "GitHub sign-in", "warn",
+                                     f"{computer['label']}: GitHub sign-in failed ({computer['github_auth'].get('error') or 'HTTP 401'}). "
+                                     "Bots there cannot open pull requests. Check the GitHub connection.",
+                                     [_fix("Open GitHub settings", "#/settings", "cloud"), _fix("Open Computers", "#/settings", "devices")]))
+            if computer["online"] and (computer.get("browser_launch") or {}).get("ok") is False:
+                checks.append(_check("browser_launch:" + computer["id"], "Browser", "warn",
+                                     f"{computer['label']}: browser does not start ({computer['browser_launch'].get('error') or 'failed'}). "
+                                     "Bots there cannot run browser checks. Update the computer, or install the browser's system libraries.",
                                      [_fix("Open Computers", "#/settings", "devices")]))
         wanted = _wanted_runtimes(providers.load(c, settings))
         signed = _signed_in_runtime(online, wanted)
