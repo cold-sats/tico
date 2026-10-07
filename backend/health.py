@@ -219,6 +219,17 @@ def _waiting(c, online_ids):
         "WHERE r.revoked_at IS NULL")}
     # A starter bot still waiting for its first setup holds its work on purpose: not slow.
     parked = {r["bot"] for r in c.execute("SELECT bot FROM bot_config WHERE onboarding_state IN ('needs_setup','needs_onboarding')")}
+    # A bot in the middle of a turn has its next message waiting behind it: busy, not stuck (partial index).
+    busy = {r["bot"] for r in c.execute("SELECT bot FROM attempts WHERE state IN ('leased','running')")}
+    documents = {}      # one parse per computer, and only for bots with queued work: Health is polled by every tab
+
+    def report_for(slug, where):
+        if not where:
+            return {}
+        if where[0] not in documents:
+            documents[where[0]] = readiness_document(where[2]).get("bots") or {}
+        report = documents[where[0]].get(slug)
+        return report if isinstance(report, dict) else {}
     waiting, slow, stuck = [], [], []
     for bot in c.execute("SELECT slug,display_name FROM bots WHERE state='active' ORDER BY slug"):
         slug = bot["slug"]
@@ -226,7 +237,7 @@ def _waiting(c, online_ids):
         where = assigned.get(slug)
         row = {"bot": slug, "name": bot["display_name"] or slug, "queued": count, "oldest": oldest,
                "computer": where[1] if where else ""}
-        report = ((readiness_document(where[2]).get("bots") or {}).get(slug) if where else None) or {}
+        report = report_for(slug, where) if count else {}
         if where and where[0] not in online_ids:
             waiting.append({**row, "reason": "computer_offline"})
             if count:
@@ -235,7 +246,7 @@ def _waiting(c, online_ids):
             if not online_ids:
                 waiting.append({**row, "reason": "no_computer"})
             stuck.append({**row, "reason": "no_computer", "runner_id": "", "runtime": ""})
-        elif where and count and report.get("ready") is False:
+        elif where and count and report.get("ready") is False and slug not in parked:
             # The computer says this bot cannot start (no sign-in, no repository, ...): stuck now, not in 15 minutes.
             stuck.append({**row, "reason": "not_ready", "runner_id": where[0], "runtime": report.get("runtime") or "",
                           "problem": str((report.get("problems") or ["Not ready"])[0])[:200]})
@@ -243,7 +254,8 @@ def _waiting(c, online_ids):
                 slow.append({**row, "reason": "slow"})
         elif where and count and oldest and oldest < cutoff and slug not in parked:
             slow.append({**row, "reason": "slow"})
-            stuck.append({**row, "reason": "slow", "runner_id": where[0], "runtime": report.get("runtime") or ""})
+            if slug not in busy:
+                stuck.append({**row, "reason": "slow", "runner_id": where[0], "runtime": report.get("runtime") or ""})
     return waiting, slow, stuck
 
 
@@ -306,19 +318,32 @@ def _stuck(c, rows, online_ids, who, full):
     return out
 
 
+TOKEN_CACHE_SECONDS = 300
+_TOKEN_CACHE = {}   # (database, threshold) -> (monotonic time, answer)
+
+
 def _token_heavy(c, threshold):
     """(bot, tokens) for bots whose input tokens, cached included, passed `threshold` in the last day.
-    Both halves filter on `turns.started` (indexed) before summing."""
+    Both halves filter on `turns.started` (indexed) before summing; the sum still visits every turn of the day
+    (about 90 ms at 30,000 turns), so one answer serves every tab's Health poll for five minutes."""
     if not threshold or threshold <= 0:
         return []
+    import time
+    key = (next((r[2] for r in c.execute("PRAGMA database_list") if r[1] == "main"), ""), threshold)
+    hit = _TOKEN_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < TOKEN_CACHE_SECONDS:
+        return hit[1]
     since = H.shift(H.now(), hours=-RECENT_HOURS)
-    return [(r["bot"], r["n"]) for r in c.execute(
+    answer = [(r["bot"], r["n"]) for r in c.execute(
         "SELECT bot, sum(n) AS n FROM ("
         "SELECT t.bot, coalesce(s.input_tokens,0)+coalesce(s.cached_tokens,0) AS n FROM turns t "
         "JOIN turn_usage_segments s ON s.turn_id=t.id WHERE t.started>=? "
         "UNION ALL SELECT t.bot, coalesce(t.input_tokens,0)+coalesce(t.cached_tokens,0) FROM turns t "
         "WHERE t.started>=? AND NOT EXISTS (SELECT 1 FROM turn_usage_segments s WHERE s.turn_id=t.id)) "
         "GROUP BY bot HAVING sum(n)>? ORDER BY sum(n) DESC", (since, since, threshold))]
+    _TOKEN_CACHE.clear()
+    _TOKEN_CACHE[key] = (time.monotonic(), answer)
+    return answer
 
 
 def _bot_name(c, bot):
@@ -492,8 +517,8 @@ def view(c, who, settings, auth, github, config):
     online_ids = {r["id"] for r in online}
     computers = _computers(c, online, settings)
     waiting, slow, stuck_rows = _waiting(c, online_ids)
-    if not full:      # someone who is not an administrator hears only about the bots they may read
-        readable = auth.bot_accesses(c, who)
+    if not full and stuck_rows:      # someone who is not an administrator hears only about the bots they may read
+        readable = auth.bot_accesses(c, who, [row["bot"] for row in stuck_rows])
         stuck_rows = [row for row in stuck_rows if readable.get(row["bot"], auth.FULL)["read"]]
     blocked = _stuck(c, stuck_rows, online_ids, who, full)
     failed, failures = _failed(c)
