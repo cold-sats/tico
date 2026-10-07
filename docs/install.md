@@ -579,6 +579,7 @@ turns on systemd in Ubuntu, then runs `install.sh --runner` inside it, so Docker
 as on a Linux server. If WSL was just enabled, Windows asks for a restart first: restart, take a new code from Add
 computer (codes last 15 minutes) and run the line again. WSL stops an idle distribution, so the script adds a logon task,
 **Tico runner keep-alive**, that holds Ubuntu open, and turns off sleep on mains power (`-AllowSleep` leaves it alone).
+To undo both: `Unregister-ScheduledTask 'Tico runner keep-alive'` and `powercfg /change standby-timeout-ac 30`.
 Bots run while that Windows user is signed in. Sign the computer in to Claude Code or Codex from **Settings > Computers**.
 Docker Desktop is not needed; if its WSL integration is on for Ubuntu, the runner uses it.
 

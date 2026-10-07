@@ -743,7 +743,7 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#machine-kind').selectOption('windows');
     await page.locator('#register-machine').click();
     await page.waitForFunction(() => /install-wsl\.ps1/.test(document.querySelector('#machine-enroll-status').textContent));
-    assert.match(await page.locator('#machine-enroll-status').textContent(), /irm https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install-wsl\.ps1\)\)\) -Url https:\/\/initech\.test -Code enroll-code -Label 'Ana Rivera''s PC' -Name tico-enrollco/);
+    assert.match(await page.locator('#machine-enroll-status').textContent(), /irm https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install-wsl\.ps1\)\)\) -Url https:\/\/initech\.test -Code 'enroll-code' -Label 'Ana Rivera''s PC' -Name tico-enrollco/);
     await page.locator('#machine-kind').selectOption('mac');
     await page.locator('[data-settings-tab=bots]').click();
     await page.locator('#settings-add-catalog:not([disabled])').click();

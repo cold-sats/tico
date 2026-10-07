@@ -48,9 +48,18 @@ function Invoke-Wsl([string]$Script) {
   return $LASTEXITCODE
 }
 
+# Windows PowerShell 5.1 turns a native command's redirected stderr into errors, which 'Stop' would make fatal; wsl.exe
+# writes its "no distribution" messages there. Native calls whose stderr is redirected go through these two.
 function Get-WslText([string[]]$Arguments) {
+  $ErrorActionPreference = 'Continue'
   $text = & wsl.exe @Arguments 2>&1 | Out-String
   return ($text -replace "`0", '')
+}
+
+function Invoke-WslQuiet([string[]]$Arguments) {
+  $ErrorActionPreference = 'Continue'
+  & wsl.exe @Arguments *> $null
+  return $LASTEXITCODE
 }
 
 function Test-Distro {
@@ -62,7 +71,7 @@ function Test-Distro {
 
 if ($Url -notmatch '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$') { Die '-Url is your Tico server, such as https://tico.example.com (no path).' }
 if ($Code -notmatch '^[A-Za-z0-9_-]+$') { Die '-Code is the one-time code from Settings > Computers > Add computer.' }
-if ($Label -notmatch '^[^"$`\\]{1,80}$') { Die '-Label is 1 to 80 characters without quotes, dollar signs, backticks or backslashes.' }
+if ($Label -notmatch '^[^"$`\\]{1,100}$') { Die '-Label is 1 to 100 characters without quotes, dollar signs, backticks or backslashes.' }
 if ($Name -and $Name -notmatch '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$') { Die '-Name needs lowercase letters, digits or dashes, such as -Name build.' }
 if ($Distro -notmatch '^[A-Za-z0-9._-]+$') { Die '-Distro is a WSL distribution name, such as Ubuntu.' }
 if (-not $Version) { $Version = if ($Baked -match $VersionPattern) { $Baked } else { '' } }
@@ -87,8 +96,7 @@ Step "WSL 2 and $Distro"
 $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
 $ready = $false
 if ($wsl) {
-  & wsl.exe --status *> $null
-  $ready = ($LASTEXITCODE -eq 0) -and (Test-Distro)
+  $ready = ((Invoke-WslQuiet @('--status')) -eq 0) -and (Test-Distro)
 }
 if (-not $ready) {
   Say "Installing WSL and $Distro (a few minutes) ..."
@@ -96,7 +104,7 @@ if (-not $ready) {
   if ($LASTEXITCODE -ne 0) {
     Die "WSL asks for a restart before it can finish. Restart Windows, then get a new command from Settings > Computers > Add computer (codes last 15 minutes) and run it again."
   }
-  & wsl.exe --set-default-version 2 *> $null
+  Invoke-WslQuiet @('--set-default-version', '2') | Out-Null
 }
 # A store install registers the distribution on its first start; `install --root` does that without asking for a
 # Linux user name, which the runner does not need (it runs as root in the distribution and as its own users in Docker).
@@ -104,8 +112,7 @@ if (-not (Test-Distro)) {
   $launcher = Get-Command (($Distro -replace '[^A-Za-z0-9]', '').ToLower() + '.exe') -ErrorAction SilentlyContinue
   if ($launcher) { & $launcher.Source install --root }
 }
-& wsl.exe -d $Distro -u root --exec true *> $null
-if ($LASTEXITCODE -ne 0) {
+if ((Invoke-WslQuiet @('-d', $Distro, '-u', 'root', '--exec', 'true')) -ne 0) {
   Die "$Distro does not start yet. Restart Windows, then get a new command from Settings > Computers > Add computer and run it again."
 }
 Say "ok: $Distro is installed"
@@ -129,7 +136,7 @@ sed -i '/^[[:space:]]*systemd[[:space:]]*=/d' /etc/wsl.conf
 if grep -q '^\[boot\]' /etc/wsl.conf; then sed -i '/^\[boot\]/a systemd=true' /etc/wsl.conf; else printf '\n[boot]\nsystemd=true\n' >> /etc/wsl.conf; fi
 '@
   if ($status -ne 0) { Die "Could not write /etc/wsl.conf in $Distro." }
-  & wsl.exe --terminate $Distro *> $null
+  Invoke-WslQuiet @('--terminate', $Distro) | Out-Null
   Start-Sleep -Seconds 8
   $init = (Get-WslText @('-d', $Distro, '-u', 'root', '--exec', 'cat', '/proc/1/comm')).Trim()
   if ($init -ne 'systemd') { Die "systemd did not start in $Distro. Update WSL (wsl --update), restart Windows, and run this again." }
@@ -147,10 +154,10 @@ $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAM
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName $TaskName
-Say "ok: the '$TaskName' task keeps $Distro running while you are signed in"
+Say "ok: the '$TaskName' task keeps $Distro running while you are signed in (to undo: Unregister-ScheduledTask '$TaskName')"
 if (-not $AllowSleep) {
   & powercfg.exe /change standby-timeout-ac 0
-  Say 'ok: this PC no longer sleeps on mains power (run again with -AllowSleep to leave sleep alone)'
+  Say 'ok: this PC no longer sleeps on mains power (to undo: powercfg /change standby-timeout-ac 30; -AllowSleep skips this)'
 }
 
 # ------------------------------------------------------------------------------------------- the runner
@@ -160,7 +167,8 @@ $flags = "--runner --url $(ShQuote $Url) --code $(ShQuote $Code) --label $(ShQuo
 if ($Name) { $flags += " --name $(ShQuote $Name)" }
 $status = Invoke-Wsl @"
 set -e
-command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl ca-certificates; }
+# Nothing here may read standard input: it is the rest of this script.
+command -v curl >/dev/null 2>&1 || { apt-get update -qq </dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates </dev/null; }
 curl -fsSL $(ShQuote $Installer) -o /tmp/tico-install.sh
 sh /tmp/tico-install.sh $flags </dev/null
 rm -f /tmp/tico-install.sh

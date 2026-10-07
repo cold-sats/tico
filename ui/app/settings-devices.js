@@ -191,13 +191,14 @@ function dockerRunnerCommands(code, label, runtime, kind = 'linux') {
   ];
 }
 // A Windows PC runs the Linux runner in WSL 2 (infra/windows/install-wsl.ps1, published with each release).
+// The code is quoted: a code may start with '-', which PowerShell would read as a parameter name.
 function windowsRunnerCommands(code, label) {
   const tag = serverReleaseTag();
   const script = tag ? `https://github.com/ticoteam/tico/releases/download/${tag}/install-wsl.ps1`
                      : 'https://github.com/ticoteam/tico/releases/latest/download/install-wsl.ps1';
   const quoted = `'${shellSafe(label).replace(/'/g, "''")}'`;
   return [['In PowerShell as administrator on that PC (sets up WSL 2 and Ubuntu if needed; may ask for a restart)',
-    `& ([scriptblock]::Create((irm ${script}))) -Url ${runnerUrl()} -Code ${code} -Label ${quoted} -Name ${runnerName(code)}`]];
+    `& ([scriptblock]::Create((irm ${script}))) -Url ${runnerUrl()} -Code '${code}' -Label ${quoted} -Name ${runnerName(code)}`]];
 }
 async function enrollmentDownload(operator, label) {
   const filename = `tico-enrollment-${operator}-${Date.now().toString(36)}.json`;
