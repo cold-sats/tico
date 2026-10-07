@@ -191,6 +191,14 @@ counts as the bot. New heads reset mergeability to Unknown, and conflicts wake o
 until a clean result clears the marker. Check suites are tracked separately by App.
 The grouping survives server restarts and keeps at most 50 distinct notice items per burst.
 
+A review request can also put the reviewer on the task. Set `TICO_GITHUB_REVIEW_ROLE` to a task role
+(for example `reviewer`) and restart the API, then give each person their GitHub login under **GitHub**
+in the Contact card of their profile (or `POST /api/v2/people/{id}` with `{"github": "login"}`).
+A request adds them to that role and a withdrawn request takes them off; a request GitHub drops because
+the review arrived leaves them on. Logins are unique on the team: setting one someone else has returns
+`409 github_taken`, and a login two people already share changes nobody. Unknown logins, people who
+cannot read a private task, and finished tasks are skipped. Unset, review requests change no roles.
+
 Several PRs can belong to one task. Automatic Ready requires every tracked PR merged or
 closed and at least one merge. Tracking applies to repositories in the connected org that are
 reachable, ticked or have received a PR webhook on any task. Without a GitHub App, a new repository counts as tracked only after its first PR webhook. Until then, the first task linking that repository can reach Ready before all of its PRs finish. Abandoning every PR returns Review or Ready to Doing. A human can always move

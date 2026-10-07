@@ -53,6 +53,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .person-muted{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:8px 0 0 44px;font-size:13px}.person-muted[hidden]{display:none}.person-muted select{width:auto;min-width:0;flex:none;padding:2px 6px;font-size:13px}
 #person-notify-status:empty{display:none}#person-notify-status{margin-top:8px;font-size:13px}
 .person-head-form{display:grid;gap:8px;margin-top:6px;max-width:640px}.person-head-form input,.person-head-form textarea{width:100%}
+.person-github-form{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.person-github-form input{width:auto;flex:0 1 200px;min-width:0}
 .bot-more-btn{order:3;flex:none;align-self:center;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:6px;color:var(--muted);text-decoration:none}
 .bot-more-btn:hover,.bot-more-btn.cur{color:var(--ink)}
 .bot-more-btn:hover{text-decoration:none}

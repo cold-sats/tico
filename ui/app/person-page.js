@@ -67,6 +67,7 @@ function pagePerson(id, tab) {
         ${boss ? `<dt>Reports to</dt><dd><a href="#/person/${encodeURIComponent(boss.id)}">${personAvatar(boss, 18)} ${esc(boss.name)}</a></dd>` : ''}
         ${p.email ? `<dt>Email</dt><dd><a href="mailto:${esc(p.email)}">${esc(p.email)}</a></dd>` : ''}
         ${p.slack ? `<dt>Slack</dt><dd>@${esc(p.slack)}</dd>` : ''}
+        ${p.github || edit ? `<dt>GitHub</dt><dd id="person-github"></dd>` : ''}
         ${p.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(p.phone)}">${esc(p.phone)}</a></dd>` : ''}
         ${p.bot ? `<dt>Notes go to</dt><dd>${empChip(p.bot)}</dd>` : ''}
       </dl></section>
@@ -150,7 +151,42 @@ function pagePerson(id, tab) {
     if (add) add.onchange = () => add.value && save([...muted, add.value]);
   };
   mutedPaint();
-  const cards = $('#pane-profile').querySelectorAll('section.card');
+  // The GitHub login a review request names: it puts them on the task linked to that pull request.
+  const githubPaint = editing => {
+    const box = $('#person-github');
+    if (!box) return;
+    if (!editing) {
+      box.innerHTML = `${p.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">@${esc(p.github)}</a>`
+          : '<span class="muted">None set.</span>'}
+        ${edit ? `<button class="linkish person-edit-btn" type="button" data-github-edit>${p.github ? 'Edit' : 'Add'}</button>` : ''}`;
+      const open = box.querySelector('[data-github-edit]');
+      if (open) open.onclick = () => githubPaint(true);
+      return;
+    }
+    box.innerHTML = `<form class="person-github-form">
+        <input type="text" name="github" maxlength="40" aria-label="GitHub login" placeholder="GitHub login" value="${esc(p.github || '')}"
+          pattern="@?[A-Za-z0-9][A-Za-z0-9\\-]{0,38}" autocomplete="off" spellcheck="false">
+        <button class="primary" type="submit">Save</button><button class="ghost" type="button" data-cancel>Cancel</button>
+        <span class="muted" data-status></span></form>`;
+    const form = box.querySelector('form');
+    form.github.focus();
+    form.querySelector('[data-cancel]').onclick = () => githubPaint(false);
+    form.onsubmit = async ev => {
+      ev.preventDefault();
+      const status = form.querySelector('[data-status]');
+      form.querySelectorAll('button').forEach(b => b.disabled = true);
+      status.textContent = 'Saving…';
+      try {
+        p.github = (await post(`/v2/humans/${encodeURIComponent(p.id)}`, {github: form.github.value.trim()})).github;
+        githubPaint(false);
+      } catch (e) {
+        status.innerHTML = `<span class="err">${esc(e.message)}</span>`;
+        form.querySelectorAll('button').forEach(b => b.disabled = false);
+      }
+    };
+  };
+  githubPaint(false);
+  const cards =$('#pane-profile').querySelectorAll('section.card');
   const goalsCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Goals');
   const notesCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Notes');
   if (goalsCard) bindFieldEditor(goalsCard, async text => {

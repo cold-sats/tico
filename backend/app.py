@@ -1607,6 +1607,11 @@ def create_app(settings=None):
                     raise Problem("forbidden", "You can only move people under yourself or your own reports", 403)
                 if who.role != "owner" and not boss:
                     raise Problem("forbidden", "Only the owner puts someone at the top of the chart", 403)
+            login = body.github.strip().lstrip("@").lower() if body.github is not None else None
+            # A review request names one login (backend/github.py), so two people never share one.
+            if login and any(row["id"] != pid and not row.get("hidden") and str(row.get("github") or "").lower() == login
+                             for row in roster["people"]):
+                raise Problem("github_taken", "Someone else on the team already has this GitHub login", 409)
             people = list(roster["people"])
             for i, row in enumerate(people):
                 if row["id"] != pid:
@@ -1621,8 +1626,8 @@ def create_app(settings=None):
                     row = {**row, "notes": body.notes}
                 if body.notify_slack_task_done is not None:
                     row = {**row, "notify_slack_task_done": body.notify_slack_task_done}
-                if body.github is not None:
-                    row = {**row, "github": body.github.strip().lstrip("@").lower()}
+                if login is not None:
+                    row = {**row, "github": login}
                 if body.notify_slack_bot_messages is not None:
                     row = {**row, "notify_slack_bot_messages": body.notify_slack_bot_messages}
                 if body.slack_muted_bots is not None:
