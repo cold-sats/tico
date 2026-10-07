@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- When GitHub asks someone to review a pull request linked to a task, Tico can put them on the task in a role, and take them off if the request is withdrawn. Off unless `TICO_GITHUB_REVIEW_ROLE` names the role (for example `reviewer`); people are matched by a new `github` login on the roster (`POST /api/v2/people/{id}` with `{"github": "login"}`).
+
 ## [0.3.29] - 2026-10-06
 
 ### Fixed
