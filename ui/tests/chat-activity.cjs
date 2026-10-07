@@ -55,17 +55,26 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(await disclosure.count(), 1, 'consecutive typed task and note records share one row');
     assert.match(await summary.innerText(), /4 task and status updates/);
     assert.equal(await disclosure.evaluate(el => el.open), false, 'activity starts collapsed');
+    await page.setViewportSize({width:320,height:740});
+    const labelLines = await summary.locator('b').evaluate(el => {
+      const range = document.createRange(); range.selectNodeContents(el);
+      return range.getClientRects().length;
+    });
+    assert.equal(labelLines, 1, 'the collapsed activity label occupies one line at phone width');
+    await page.setViewportSize({width:1100,height:760});
+
     assert.equal(await thread.locator('.chat-goal-line').count(), 1, 'the ended goal is not absorbed into the activity row');
     const topOrder = await thread.evaluate(el => [...el.children].filter(x => x.matches('.chat-activity,.chat-goal-line'))
       .map(x => x.classList.contains('chat-activity') ? 'activity' : 'goal'));
     assert.deepEqual(topOrder.slice(0,2), ['activity','goal'], 'goal-line insertion stays after grouped activity');
-    assert.equal(await thread.locator('.bubble').count(), 15, 'ordinary chat remains in its own messages');
+    assert.equal(await thread.locator('.bubble').count(), 14, 'ordinary chat remains in its own messages');
     assert.match(await thread.innerText(), /New task from Head of Engineering is only a quote here/);
     assert.match(await thread.innerText(), /Note Cloud transcript shows performance goal\./);
     assert.match(await thread.innerText(), /Note: I checked the release page\./);
 
     await summary.focus(); await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.querySelector('#conv-thread details.chat-activity')?.open);
+    await page.waitForFunction(() => V2C.openFolds?.has('activity:task-created'));
     await page.evaluate(() => v2ChatRender(V2C));
     await page.waitForFunction(() => document.querySelector('#conv-thread details.chat-activity')?.open);
     assert.match(await disclosure.innerText(), /New task from Head of Engineering: Review the next release/);
@@ -78,6 +87,8 @@ const {html, uiFile} = require('./support/page.cjs');
     await page.waitForFunction(() => !document.querySelector('#conv-thread details.chat-activity')?.open);
 
     const older = page.locator('#conv-older'), button = older.locator('[data-cloud-older]');
+    await thread.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await page.waitForFunction(() => document.querySelector('#conv-older').hidden);
     assert.equal(await older.isHidden(), true, 'older history control stays away from the latest messages');
     await thread.evaluate(el => { el.scrollTop = 0; });
     await page.waitForFunction(() => !document.querySelector('#conv-older').hidden);
