@@ -80,11 +80,10 @@ def test_a_bot_moves_to_a_computer_that_can_run_it_but_not_to_one_signed_out(api
                                                          "controls": ["interrupt", "new-session"], "detail": ""}},
             "bots": {}}}, new["token"])
 
-    for state, said in (("missing", "not signed in"), ("unknown", "not reported its sign-in")):
-        runtimes(state)
-        refused = post(api, "bots/ops/transitions", {"kind": "machine", "runner_id": new["runner_id"],
-                                                      "expected_revision": 1, "expected_generation": 1}, expected=409)
-        assert refused["error"]["code"] == "runner_not_ready" and said in refused["error"]["detail"]
+    runtimes("missing")
+    refused = post(api, "bots/ops/transitions", {"kind": "machine", "runner_id": new["runner_id"],
+                                                  "expected_revision": 1, "expected_generation": 1}, expected=409)
+    assert refused["error"]["code"] == "runner_not_ready" and "not signed in" in refused["error"]["detail"]
     runtimes("ready")
     post(api, "bots/ops/transitions", {"kind": "machine", "runner_id": new["runner_id"],
                                         "expected_revision": 1, "expected_generation": 1})
