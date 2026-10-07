@@ -212,3 +212,53 @@ def test_superseded_leased_control_never_sets_the_old_native_goal(api, live, tmp
         assert claim(api, machine)['message']['body'] == '/goal New Acme summary'
     finally:
         service.pool.shutdown()
+
+
+def test_resume_no_goal_snapshot_does_not_cancel_new_goal(api, live, tmp_path):
+    """Reproduce cloud receipts: cleared resume snapshot, active set, work, met."""
+    machine, cid = setup(api)
+    goal = action(api, cid, objective='Produce the Acme summary')['goal']
+    class SnapshotHost(FakeHost):
+        def request(self, method, params):
+            assert method == 'thread/goal/get'
+            assert params == {'threadId': self.prompts[0][0]}
+            return {'goal': {'objective': goal['objective'], 'status': 'active'}}
+        def start_goal(self, thread, action, objective, effort=None):
+            self.emit('goal', thread, None, status='cleared', note='')
+            turn = super().start_goal(thread, action, objective, effort)
+            self.goal_met(thread)
+            return turn
+    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
+                     tmp_path / 'runner', host_factory=lambda *args: SnapshotHost(replies=['Done.']),
+                     push=lambda *a, **k: None)
+    try:
+        service.execute(claim(api, machine))
+        actual = get(api, f'conversations/{cid}/goal')['goal']
+        assert actual['status'] == 'met'
+        notices = get(api, f'conversations/{cid}/messages')
+        assert not [m for m in notices if m['refs'].get('goal_status') == 'stopped']
+        assert len([m for m in notices if m['refs'].get('goal_status') == 'met']) == 1
+    finally:
+        service.pool.shutdown()
+
+
+def test_real_native_clear_still_stops_active_goal(api, live, tmp_path):
+    machine, cid = setup(api)
+    action(api, cid, objective='Acme summary')
+    class ClearHost(FakeHost):
+        def request(self, method, params):
+            assert method == 'thread/goal/get'
+            return {'goal': None}
+        def start_goal(self, thread, action, objective, effort=None):
+            self.emit('goal', thread, None, status='active', objective=objective)
+            self.emit('goal', thread, None, status='cleared', note='')
+            return self.start_turn(thread, objective, effort)
+    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
+                     tmp_path / 'runner', host_factory=lambda *args: ClearHost(replies=['Stopped.']),
+                     push=lambda *a, **k: None)
+    try:
+        service.execute(claim(api, machine))
+        actual = get(api, f'conversations/{cid}/goal')['goal']
+        assert actual['status'] == 'stopped' and actual['note'] == 'The harness cleared the goal'
+    finally:
+        service.pool.shutdown()
