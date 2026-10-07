@@ -10,10 +10,18 @@ All notable changes to Tico are recorded here. The format follows
 ### Added
 - When GitHub asks someone to review a pull request linked to a task, Tico can put them on the task in a role, and take them off if the request is withdrawn. Off unless `TICO_GITHUB_REVIEW_ROLE` names the role (for example `reviewer`); people are matched by a new `github` login on the roster (`POST /api/v2/people/{id}` with `{"github": "login"}`).
 - **Bot messages in Slack**, under Profile → Notifications: turn it off to keep every bot's messages to you in Tico instead of your Tico DM in Slack, end-of-run reports included, or mute only some bots. A bot you are talking to in Slack still answers there. Also `notify_slack_bot_messages` and `slack_muted_bots` on `POST /api/v2/humans/<id>` ([Slack](docs/slack.md#bot-messages)).
+- The Assistant answers "hi" and "what task types do we use?" at once, from the workspace's own task types, without waiting on a model or starting a job.
+- **Connect on your own row** of the Team chart until one of your personal tokens has reached Tico; it opens the connect dialog. Only shown to someone who may make a personal token (`can_create` on `GET /api/v2/me/tokens`).
 
 ### Changed
 - A bot's page on a phone: the top line is only back, the bot and its tabs. Its goals lead More, then Learnings, branches and temporary assignments; the cards follow in groups, compact, with tools one line each and tables one line a row; status history, runs, tools, access and the session show three and "Show all". The rotating task line under the name is gone (the "needs you" card above the chat says it), and so are its two task reads per refresh.
 - "Temporary assignments need Allow branches" no longer shows on every bot's page; the switch stays in the bot's Settings.
+- The goal target beside a bot's chat box is now a mode instead of a form: while it is on, Send reads "Set goal", the box says "Goal for <bot>…", and what you send becomes the chat's pinned goal. It stays on for that bot until you turn it off; attached files still go as a message.
+- Task and note cards in a row fold into one line in the chat, "4 updates" with the latest time; a single card shows as it is.
+- A human's synced Grok Bots show as chips beside their name on the Team chart (one by name, then "+N") instead of rows under them.
+
+### Fixed
+- A Codex goal whose resumed thread reported "no goal" is checked with the harness before it is stopped, so a new goal is no longer cancelled at once; once a goal is met, a later clear is left alone.
 
 ## [0.3.29] - 2026-10-06
 
