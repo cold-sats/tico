@@ -54,6 +54,7 @@ def supported(c):
     return 'computer_id' in {r[1] for r in c.execute('PRAGMA table_info(task_links)')}
 
 
+LIMIT = 10            # live worktrees per bot
 CLEANUP_TRIES = 6     # a refused worktree cleanup is asked again after 2, 4, ... 64 minutes, then left
 
 
@@ -66,6 +67,39 @@ def inventory(c, computer):
             f"LEFT JOIN bots b ON ('bot:' || b.slug)={owner} "
             "WHERE l.kind='worktree' AND l.computer_id=? AND (coalesce(l.state,'unknown')<>'removed' "
             "OR (t.status NOT IN ('done','closed','declined') AND b.state='active'))", (computer,))]
+
+
+def holdings(c, owner):
+    """The bot's live worktrees, each with what clears it: `merged` or `closed` (its pull requests are finished and the
+    computer releases it once the bot is idle), `merge_ready` (an approved, passing pull request), `task_finished`,
+    or `in_progress`. A worktree the computer kept says why in `kept`."""
+    rows = c.execute("SELECT l.id,l.task_id,l.path,l.repo,l.branch,l.detail_json,t.title,t.status FROM task_links l "
+                     "JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(l.state,'unknown')<>'removed' "
+                     "AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? ORDER BY l.created", (owner,)).fetchall()
+    out = []
+    for row in rows:
+        prs = c.execute("SELECT url,state,review_state,checks,mergeable FROM task_links WHERE task_id=? AND kind='pr'",
+                        (row['task_id'],)).fetchall()
+        states = [p['state'] for p in prs]
+        if row['status'] in CLOSED:
+            clear, why = 'task_finished', 'task ' + row['status']
+        elif prs and all(s in PR_FINISHED for s in states):
+            clear = 'merged' if any(s in ('merged', 'shipped') for s in states) else 'closed'
+            why = 'pull request ' + clear
+        elif any(p['state'] == 'open' and p['review_state'] == 'approved' and p['checks'] != 'failing'
+                 and p['mergeable'] != 'conflict' for p in prs):
+            clear, why = 'merge_ready', 'pull request approved, ready to merge'
+        else:
+            clear, why = 'in_progress', 'in progress'
+        detail = json.loads(row['detail_json'] or '{}')
+        item = {'link_id': row['id'], 'task_id': row['task_id'], 'task': row['title'], 'path': row['path'],
+                'repo': row['repo'], 'branch': row['branch'], 'clear': clear, 'why': why,
+                'pull_requests': [{'url': p['url'], 'state': p['state']} for p in prs]}
+        if detail.get('error') and (detail.get('cleanup_requested') or detail.get('release_requested')):
+            item['kept'] = detail['error']
+        out.append(item)
+    order = {'merged': 0, 'closed': 1, 'task_finished': 2, 'merge_ready': 3, 'in_progress': 4}
+    return sorted(out, key=lambda w: order[w['clear']])
 
 
 def heartbeat(c, who, reports, capable, default_org=""):
@@ -99,6 +133,10 @@ def heartbeat(c, who, reports, capable, default_org=""):
         if changed or 'activity_at' not in detail:
             detail['activity_at'] = now
             detail.pop('stalled_woke', None)
+            if changed and detail.get('release_requested'):
+                # A released worktree kept for unsaved work is tried again once that work changes (pushed, saved).
+                for key in ('cleanup_attempts', 'cleanup_retry_at', 'cleanup_gave_up'):
+                    detail.pop(key, None)
         if report.state == 'missing':
             detail.setdefault('missing_since', now)
         else:
@@ -137,12 +175,23 @@ def heartbeat(c, who, reports, capable, default_org=""):
         prs = [r[0] for r in c.execute("SELECT state FROM task_links WHERE task_id=? AND kind='pr'", (row['task_id'],))]
         finished = all(state in PR_FINISHED for state in prs)
         closed = row['task_status'] in CLOSED or row['bot_state'] == 'archived' or detail.get('delete_requested')
+        # A worktree whose pull requests are all merged or closed has done its job even while its task waits on
+        # something else (a release, an acceptance): it is released so it stops counting against the bot's limit.
+        # The computer removes it only while the bot is idle and only when it is clean and pushed (runner/worktrees.py).
+        released = not closed and bool(prs) and finished and row['state'] == 'present'
+        if released and not detail.get('release_requested'):
+            detail['release_requested'] = True
+            for key in ('cleanup_attempts', 'cleanup_retry_at', 'cleanup_gave_up'):
+                detail.pop(key, None)
+        elif not released and detail.get('release_requested') and row['state'] != 'removed':
+            detail.pop('release_requested', None)
         # Only worktrees that actually existed when closed are eligible on reopening.
         if closed and row['state'] == 'present' and not detail.get('delete_requested'):
             detail['restore_on_reopen'] = True
         restore = (row['state'] == 'removed' and detail.get('removed_by') == 'cleanup' and detail.get('restore_on_reopen')
                    or row['state'] == 'pending' and row['added_by'].startswith('human:'))
-        action = 'remove' if closed and (finished or detail.get('delete_requested')) and row['state'] != 'removed' else 'restore' if not closed and restore else None
+        action = ('remove' if (closed and (finished or detail.get('delete_requested')) or released) and row['state'] != 'removed'
+                  else 'restore' if not closed and restore else None)
         if detail.get('delete_requested') and row['state'] == 'removed':
             c.execute('DELETE FROM task_links WHERE id=?', (row['id'],))
             continue
@@ -165,7 +214,7 @@ def heartbeat(c, who, reports, capable, default_org=""):
         if action and (action == 'remove' or row['repo'] and row['branch']):
             actions.append({'link_id': row['id'], 'action': action, 'branch': row['branch'], 'path': row['path'],
                             'task_id': row['task_id'], 'repo': row['repo'], 'owner': H.actor_id(row['owner']),
-                            'prs_finished': bool(prs) and finished})
+                            'prs_finished': bool(prs) and finished, **({'release': True} if released else {})})
 
     return actions
 
@@ -225,8 +274,13 @@ def install(app, store, auth, mutate):
             if existing['state'] != 'removed':
                 return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path']}
         count = c.execute("SELECT count(*) FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? AND coalesce(l.state,'unknown')<>'removed'", (task['owner'],)).fetchone()[0]
-        if count >= 10:
-            raise Problem('worktree_limit', 'Finish or close older tasks before adding more than 10 worktrees', 409)
+        if count >= LIMIT:
+            held = holdings(c, task['owner'])
+            ready = [w for w in held if w['clear'] != 'in_progress']
+            detail = f'Finish or close older tasks before adding more than {LIMIT} worktrees'
+            if ready:
+                detail += '. Clear these first: ' + '; '.join(f"{w['path']} ({w['why']})" for w in ready[:LIMIT])
+            raise Problem('worktree_limit', detail, 409, extra={'worktrees': held})
         if existing:
             detail = json.loads(existing['detail_json'] or '{}')
             detail.pop('removed_by', None)
@@ -325,7 +379,8 @@ def install(app, store, auth, mutate):
             detail = json.loads(link['detail_json'] or '{}')
             closed = link['task_status'] in CLOSED or link['bot_state'] == 'archived' or detail.get('delete_requested')
             prs = [r[0] for r in c.execute("SELECT state FROM task_links WHERE task_id=? AND kind='pr'", (link['task_id'],))]
-            removing = closed and link['state'] != 'removed' and (all(state in PR_FINISHED for state in prs) or detail.get('delete_requested'))
+            removing = link['state'] != 'removed' and (closed and (all(state in PR_FINISHED for state in prs) or detail.get('delete_requested'))
+                                                      or detail.get('release_requested'))
             restoring = not closed and (link['state'] == 'removed' and detail.get('removed_by') == 'cleanup' and detail.get('restore_on_reopen')
                                        or link['state'] == 'pending' and link['added_by'].startswith('human:'))
             if not assigned and not (removing or restoring):

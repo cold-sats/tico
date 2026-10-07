@@ -215,3 +215,30 @@ def test_heartbeat_writes_only_changes_and_backs_off_a_refused_cleanup(prepared)
     assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
     with api.app_state.store.read() as c:
         assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])['cleanup_gave_up']
+
+
+def test_finished_pr_releases_an_open_tasks_worktree_and_the_limit_names_it(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
+    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'bots': {}, 'worktrees': True},
+            'worktrees': [{'link_id': link['link_id'], 'state': 'present', 'branch': link['branch'], 'last_commit': 'abc'}]}
+    with api.app_state.store.transaction() as c:
+        H.task_link(c, 'bot:cmo', tid, 'https://github.com/Acme/product/pull/1')
+        c.execute("UPDATE tasks SET status='waiting' WHERE id=?", (tid,))
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='merged' WHERE kind='pr'")
+    actions = post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions']
+    assert len(actions) == 1 and actions[0]['action'] == 'remove' and actions[0]['release'] is True
+    for i in range(9):
+        assert post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/extra{i}', 'repo': 'Acme/product'},
+                    'bot-test').status_code == 200
+    refused = post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/eleven', 'repo': 'Acme/product'}, 'bot-test')
+    assert refused.status_code == 409
+    error = refused.json()['error']
+    assert error['code'] == 'worktree_limit' and 'Clear these first' in error['detail']
+    assert len(error['worktrees']) == 10 and {w['clear'] for w in error['worktrees']} == {'merged'}
+    # A new open pull request on the task means its worktree is in use again: no release.
+    with api.app_state.store.transaction() as c:
+        H.task_link(c, 'bot:cmo', tid, 'https://github.com/Acme/product/pull/2')
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
