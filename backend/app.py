@@ -1618,6 +1618,10 @@ def create_app(settings=None):
                     row = {**row, "notes": body.notes}
                 if body.notify_slack_task_done is not None:
                     row = {**row, "notify_slack_task_done": body.notify_slack_task_done}
+                if body.notify_slack_bot_messages is not None:
+                    row = {**row, "notify_slack_bot_messages": body.notify_slack_bot_messages}
+                if body.slack_muted_bots is not None:
+                    row = {**row, "slack_muted_bots": list(dict.fromkeys(body.slack_muted_bots))}
                 if body.reports_to is not None:
                     row = {**row, "reports_to": body.reports_to.strip()}
                 if body.left:
@@ -1628,6 +1632,8 @@ def create_app(settings=None):
                 H.event(c, who.actor, "person.updated", pid, {"title": body.title is not None, "about": body.about is not None,
                                                               "goals": body.goals is not None, "notes": body.notes is not None,
                                                               "notify_slack_task_done": body.notify_slack_task_done,
+                                                              "notify_slack_bot_messages": body.notify_slack_bot_messages,
+                                                              "slack_muted_bots": body.slack_muted_bots,
                                                               "reports_to": body.reports_to, "left": bool(body.left)})
                 if caller is not who:
                     H.event(c, caller.actor, "person.update_delegated", pid,
