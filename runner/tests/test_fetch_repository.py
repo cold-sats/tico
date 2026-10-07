@@ -139,6 +139,15 @@ class FetchRepository(unittest.TestCase):
                 self.assertEqual(row["ready"], ready, row["problems"])
                 self.assertEqual(any("shares no history" in p for p in row["problems"]), not ready)
                 self.assertEqual((path / "notes.md").read_text(), "unpushed work\n")     # never touched
+                if not ready:
+                    # A turn checks for itself, without waiting for the publish pass: a fresh runner refuses it.
+                    fresh = self.runner(Cloud())
+                    fresh.push_lock, fresh.publish_notes = threading.Lock(), {}
+                    with mock.patch.object(git_credentials, "publish_history",
+                                           lambda p, repository, env=None, **kw: real(p, repository, {**(env or {}), **GIT},
+                                                                                       url=str(self.remote))):
+                        with self.assertRaisesRegex(RuntimeError, "shares no history"):
+                            fresh.prepare_history("helper", 2, path, {git_credentials.REPOSITORY_KEY: REPO})
                 shutil.rmtree(path)
 
     def test_a_computer_only_fetches_what_is_assigned_to_it(self):

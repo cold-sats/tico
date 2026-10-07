@@ -164,6 +164,36 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
         return "failed", type(exc).__name__
 
 
+def fast_forward(path, env=None, timeout=60):
+    """Bring a checkout that tracks GitHub up to it, only when that loses nothing: (state, detail), state `updated`,
+    `current` (already there, or ahead), `skipped` (no upstream to follow) or `kept` (local changes, diverged, or
+    GitHub unreachable; the copy is left exactly as it was)."""
+    path = Path(path)
+    env = safe_git.environment(env)
+
+    def git(*args, timeout=15):
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+
+    try:
+        if git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode != 0:
+            return "skipped", "no upstream"
+        if git("fetch", "--quiet", "--no-tags", timeout=timeout).returncode != 0:
+            return "kept", "could not reach GitHub"
+        if git("merge-base", "--is-ancestor", "@{u}", "HEAD").returncode == 0:
+            return "current", ""
+        if git("merge-base", "--is-ancestor", "HEAD", "@{u}").returncode != 0:
+            return "kept", "it has commits GitHub does not, and GitHub has commits it does not"
+        if git("status", "--porcelain", "--untracked-files=no").stdout.strip():
+            return "kept", "it has uncommitted changes"
+        merged = git("merge", "--ff-only", "--quiet", "@{u}", timeout=timeout)
+        return ("updated", "") if merged.returncode == 0 else ("kept", "fast-forward failed")
+    except subprocess.TimeoutExpired:
+        return "kept", "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "kept", type(exc).__name__
+
+
 def _unrelated(git, commits):
     """Whether HEAD shares no commit with any of `commits` (already fetched). Only a definite answer counts:
     a shallow checkout or a git error is not proof, so it is never called unrelated."""

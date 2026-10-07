@@ -964,6 +964,42 @@ class Runner:
                 self.publish_notes[bot] = message
             else:
                 self.publish_notes.pop(bot, None)
+        return state, detail
+
+    def prepare_history(self, bot, generation, path, env):
+        """Before every turn: catch a returning bot's old clone up to GitHub, publish a new checkout, and refuse the
+        turn when the copy here shares no history with GitHub's (a template copy after a move or restart). That is
+        checked here, not only by the hourly publish pass, so such a copy never gets a turn; the next heartbeat
+        marks the bot not ready and the server stops sending it work here."""
+        self.catch_up(bot, generation, path, env)
+        state, detail = self.publish(bot, path, env) or ("", "")
+        if state == "failed" and "unrelated history" in detail:
+            self.last_heartbeat = float("-inf")
+            raise RuntimeError(f"this computer's copy of {bot} shares no history with GitHub ({detail}); no turn runs on it")
+
+    def catch_up(self, bot, generation, path, env):
+        """Once per placement, before its first turn here: bring a clean checkout that tracks GitHub up to GitHub's
+        history (`git_credentials.fast_forward`). A computer that hosted the bot before still holds the clone it
+        left with; without this, the bot would work from that stale copy. A copy with local changes or one that
+        diverged is kept as it is, and says so on the bot (Settings, Health)."""
+        done = self.__dict__.setdefault("caught_up", {})
+        if (bot in done and done[bot] == generation) or not (Path(path) / ".git").exists():
+            return
+        try:
+            state, detail = git_credentials.fast_forward(path, env)
+        except Exception as exc:
+            state, detail = "kept", type(exc).__name__
+        if detail != "could not reach GitHub":
+            done[bot] = generation                  # an unreachable GitHub is asked again before the next turn
+        notes = self.__dict__.setdefault("catch_up_notes", {})
+        if state == "updated":
+            isolation.chown(path, recursive=True)      # updated by the supervisor; the bot user works in it
+            log(f"Tico runner: {bot}: brought up to GitHub's history before its first turn here")
+        if state == "kept":
+            notes[bot] = detail
+            log(f"Tico runner: {bot}: kept this computer's copy as it is, not GitHub's latest ({detail})")
+        else:
+            notes.pop(bot, None)
 
     def github_access(self, bot):
         """(environment, problem) for talking to this bot's GitHub repository. The environment carries the
@@ -2363,6 +2399,9 @@ class Runner:
             note = getattr(self, "publish_notes", {}).get(row["bot"])
             if note:
                 bots[row["bot"]]["warnings"].append(PUBLISH_WARNING + note)
+            kept = self.__dict__.get("catch_up_notes", {}).get(row["bot"])
+            if kept:
+                bots[row["bot"]]["warnings"].append("Not brought up to GitHub's history: " + kept)
         document = {"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": True}
         try:
             usage = shutil.disk_usage("/" if self.follower.kind == "docker" else self.state.directory)
@@ -2774,7 +2813,7 @@ class Runner:
                 socket_path = self.arm_credentials(env, attempt, bot)
                 if not is_assignment(config):
                     git_credentials.apply(env, self.client, bot, self.config_path if not socket_path else None, socket_path)
-                    self.publish(bot, self.local_path(bot), env)
+                    self.prepare_history(bot, attempt.get("generation"), self.local_path(bot), env)
                 redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))
                 if self.credentials:
                     redactor = redactor or redact_mod.Redactor([])

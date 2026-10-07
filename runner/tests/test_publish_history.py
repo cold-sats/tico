@@ -73,3 +73,21 @@ def test_a_remote_with_different_history_is_left_alone_and_reported(tmp_path):
     assert state == "failed" and "unrelated history" in detail
     assert git(remote, "rev-parse", "main") == before, "never force-pushed"
 
+
+
+def test_a_returning_bots_clean_clone_catches_up_and_a_changed_one_is_kept(tmp_path):
+    remote = bare(tmp_path)
+    path, env = checkout(tmp_path)
+    assert G.publish_history(path, REPO, env)[0] == "published"
+    newer = tmp_path / "elsewhere"
+    git(tmp_path, "clone", "-q", str(remote), str(newer), env=env)
+    (newer / "memory.md").write_text("learned elsewhere")
+    git(newer, "add", "-A", env=env)
+    git(newer, "commit", "-q", "-m", "elsewhere", env=env)
+    git(newer, "push", "-q", "origin", "main", env=env)
+    (path / "f0.txt").write_text("edited here")              # a local change: kept exactly as it is
+    assert G.fast_forward(path, env)[0] == "kept"
+    assert (path / "f0.txt").read_text() == "edited here" and not (path / "memory.md").exists()
+    git(path, "checkout", "--", "f0.txt", env=env)
+    assert G.fast_forward(path, env) == ("updated", "")
+    assert (path / "memory.md").read_text() == "learned elsewhere"

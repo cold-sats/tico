@@ -36,18 +36,34 @@ def repository_present(c, bot):
     return bool(report.get("repository_present"))
 
 
-def refuse_runtime(readiness, config, label):
-    """Refuse a move to a computer whose runtime for this bot is not installed or not signed in."""
-    runtime = str(config.get("runtime") or "")
+def refuse_runtime(c, readiness, config, runner, bot):
+    """Refuse a move to a computer that cannot run the bot now: its runtime missing, or not signed in with the bot's
+    own subscription (or the computer's sign-in when it has none). A sign-in not reported yet is not taken as ready."""
+    runtime, label = str(config.get("runtime") or ""), runner["label"]
     if not runtime or config.get("harness") == "antigravity":
         return                    # Antigravity's sign-in is checked by its first real turn
-    row = (readiness.get("runtimes") or {}).get(runtime) or {}
-    name = (HARNESS_BY_ID.get(runtime) or {}).get("label") or runtime
+    runtimes = readiness.get("runtimes")
+    if not isinstance(runtimes, dict) or not runtimes:
+        raise Problem("runner_not_ready", "Update the destination runner before moving this bot", 409)
+    row, name = runtimes.get(runtime) or {}, (HARNESS_BY_ID.get(runtime) or {}).get("label") or runtime
     if not row.get("installed"):
         raise Problem("runner_not_ready", f"{name} is not installed on {label}; install it there before moving this bot", 409)
-    if row.get("authenticated") in ("missing", "failed", "rejected"):
-        raise Problem("runner_not_ready", f"{label} is not signed in to {name}"
-                      + (f" ({row['detail']})" if row.get("detail") else "") + "; sign it in before moving this bot", 409)
+    from .subscriptions import effective
+    profile = effective(c, bot)[0]
+    if profile:
+        report = c.execute("SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?",
+                           (runner["id"], profile)).fetchone()
+        signed = (_json(report[0], {}) or {}).get(runtime, {}).get("signed_in") if report else None
+        state = {True: "ready", False: "missing"}.get(signed, "unknown")
+        whose = f"{name} with the {profile} subscription"
+    else:
+        state, whose = str(row.get("authenticated") or "unknown"), name
+    if state in ("missing", "failed", "rejected"):
+        raise Problem("runner_not_ready", f"{label} is not signed in to {whose}"
+                      + (f" ({row['detail']})" if row.get("detail") and not profile else "")
+                      + "; sign it in before moving this bot", 409)
+    if state != "ready":
+        raise Problem("runner_not_ready", f"{label} has not reported its sign-in to {whose} yet; try again in a minute", 409)
 
 
 class SettingsAdmin:
@@ -623,7 +639,7 @@ class SettingsAdmin:
                 # A computer that does not host the bot has no report on it, so it is judged by whether it can
                 # run the bot's runtime. The move is what makes its runner clone the repository from GitHub,
                 # which is refused when GitHub does not hold that history.
-                refuse_runtime(readiness, desired, runner["label"])
+                refuse_runtime(c, readiness, desired, runner, bot)
                 source = self.execution_assignment(c, bot)
                 blocked = stranded(c, self.store.settings, bot, source, runner["id"]) if source else ""
                 if blocked:

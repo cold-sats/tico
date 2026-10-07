@@ -142,5 +142,10 @@ def test_a_reserved_variable_name_is_refused_and_an_old_one_is_named_in_health(a
         c.execute("INSERT INTO credential_grants(id,credential_id,subject,granted_by,created) VALUES('g-old',?,'bot:ops','human:ana','2026-01-01')",
                   (row['id'],))
     assert post(api,f"credentials/{row['id']}/grants",{'subject':'bot:cpo'},expected=422)['error']['code']=='env'
+    rotate={'name':'Acme update key','secret':'k-synthetic-rotated','expected_revision':row['revision']}
+    kept=post(api,f"credentials/{row['id']}",{**rotate,'env':'TICO_UPDATE_KEY_ACME'},expected=422)
+    assert 'Rename the variable in the same save' in kept['error']['detail']
     check={x['id']:x for x in get(api,'health')['checks']}['reserved_credentials']
     assert 'Acme update key (TICO_UPDATE_KEY_ACME) for ops' in check['summary']
+    assert post(api,f"credentials/{row['id']}",{**rotate,'env':'UPDATE_KEY_ACME'})['env']=='UPDATE_KEY_ACME'
+    assert 'reserved_credentials' not in {x['id'] for x in get(api,'health')['checks']}
