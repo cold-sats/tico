@@ -26,7 +26,7 @@ else if (!location.hash || location.hash === '#/') { BOOT_DEFAULT_ROUTE = true; 
 const CONFIG_DEFAULTS = {environment_id: '', company_name: '', app_name: 'Tico', assistant_name: 'Assistant',
                          assistant_bot: 'coo', public_url: '', runner_url: location.origin,
                          github_owner: '', local: false, release: '', onboarding_needed: false, version: '', update: null};
-const S = { emps: [], people: [], orgGroups: [], status: null, issues: [], me: null, route: location.hash || UPDATES,
+const S = { emps: [], people: [], orgGroups: [], status: null, statusPending: true, issues: [], me: null, route: location.hash || UPDATES,
             config: {...CONFIG_DEFAULTS},
             v2: {on: false, status: {}, needs: []} };
 const appName = () => S.config.app_name || CONFIG_DEFAULTS.app_name;
@@ -57,6 +57,7 @@ function applyConfig(config) {
   if (S.config.rehearsal && !S.config.demo) $('#demo-banner').innerHTML = '<strong>Rehearsal: nothing runs or leaves this server</strong>';
   renderOnboardingNav();
   renderNewVersion();
+  window.renderChangelogNotice?.();
   noticeUpdatedServer();
   renderUsageNotice();
   return S.config;

@@ -8,7 +8,117 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- When GitHub asks someone to review a pull request linked to a task, Tico can put them on the task in a role, and take them off if the request is withdrawn. Off unless `TICO_GITHUB_REVIEW_ROLE` names the role (for example `reviewer`); people are matched by a new `github` login on the roster (`POST /api/v2/people/{id}` with `{"github": "login"}`).
+- **Bot messages in Slack**, under Profile → Notifications: turn it off to keep every bot's messages to you in Tico instead of your Tico DM in Slack, end-of-run reports included, or mute only some bots. A bot you are talking to in Slack still answers there. Also `notify_slack_bot_messages` and `slack_muted_bots` on `POST /api/v2/humans/<id>` ([Slack](docs/slack.md#bot-messages)).
+
+### Changed
+- A bot's page on a phone: the top line is only back, the bot and its tabs. Its goals lead More, then Learnings, branches and temporary assignments; the cards follow in groups, compact, with tools one line each and tables one line a row; status history, runs, tools, access and the session show three and "Show all". The rotating task line under the name is gone (the "needs you" card above the chat says it), and so are its two task reads per refresh.
+- "Temporary assignments need Allow branches" no longer shows on every bot's page; the switch stays in the bot's Settings.
+
+## [0.3.29] - 2026-10-06
+
+### Fixed
+- A computer's event stream opens behind Cloudflare: it sent Python's default user agent, which Cloudflare's bot protection refuses (403), so every computer silently kept polling. It now names itself as the runner's other requests do, and says once in its log when the stream is unavailable.
+
+## [0.3.28] - 2026-10-06
+
+### Changed
+- An idle computer no longer polls the server. A runner holds one event stream open (`GET /api/v2/runners/me/events`) and re-reads only what an event names: work for its bots, its assignments and their settings, credentials, repositories, worktree actions, sign-ins, harness actions, credential imports, quota reads and Restart. Events carry no values. The full readiness report goes when it changes and at least once a minute; everything is re-read once every five minutes as a backstop. While the stream is down, or against an older server, the runner polls as before; an older runner keeps polling the new server unchanged. With 8 idle computers, about 970 requests and 18,600 SQL statements a minute became about 30 requests and 1,100 statements ([How it works](docs/how-it-works.md#what-happens-when)).
+
+### Fixed
+- The bot list and a computer's polls cost about the same for 90 bots as for 7: each request reads every bot's configuration, assignment, status, queue, next-run tasks, notes and goals in one query per kind instead of one per bot, then checks privacy per task, job and message as before. Measured with the flight recorder at 90 bots: `GET /api/v2/bots` 1,375 statements to 25, a computer's heartbeat 633 to 32, `GET /api/v2/runners/me/repositories` 610 to 12 and `GET /api/v2/runners/assignments` 377 to 12. Answers are unchanged.
+  - Whether a table exists is asked once per database file instead of on every check.
+  - A privacy check no longer reads again a message it was handed straight from the database, a task's labels, or the tasks of a nested part of a response it has already checked as a whole.
+
+## [0.3.27] - 2026-10-06
+
+### Fixed
+- Less work behind every poll from a computer and every privacy-checked read, found with the flight recorder on a busy install:
+  - A computer's credential polls ask once per bot which credentials it holds, instead of once per stored credential (about 195,000 queries a minute on an install with 662 credentials).
+  - A run's inputs are looked up by an index instead of scanning every message (about 10 ms each, the slowest query).
+  - Privacy-checked reads load only the private tasks, by an index, instead of every task's full row.
+
+## [0.3.26] - 2026-10-06
+
+### Fixed
+- A server no longer burns CPU on its own follow-up work while bots run. An open chat reads its conversation again at most every 3 seconds while a run streams output (it read the whole conversation for every step), and not in a hidden tab; a run starting or ending still shows at once. A computer's heartbeat only writes a worktree that changed, so it is no longer a task change every few seconds that every open board followed.
+- Reads reuse their database connections instead of opening a new one each time: a new connection parsed the whole schema before its first statement, about 4-10 ms per read on a large install. A connection a caller changed (a function, an authorizer) is closed instead of reused.
+- Privacy checks look up the tasks a message or run refers to in one query instead of one query per reference; on a busy server that was most of its SQL.
+- A worktree cleanup the computer refuses (it keeps files) is asked again after 2, 4, ... 64 minutes and then left for a person, instead of on every heartbeat forever.
+
+## [0.3.25] - 2026-10-06
+
+### Added
+- A **flight recorder**: each server keeps its own request, process and database history. Per minute and route template, by caller kind: calls, errors, p50/p95/max and bytes; each request over a second; CPU, memory, event-loop lag, write-lock waits and hold times; per hour, SQL time by statement shape and database size by table; each start's release, commit, package and settings hashes, and whether the image runs the code of its release tag (code changed after the build, or an image built from another commit, shows in Health); and when the event loop stalls two seconds, every busy thread's stack. Owners and admins read it under **Performance** on the Health page, at `GET /api/v2/system/metrics`, with `hub health metrics` or `hub_health_metrics`. Nothing leaves the server; `TICO_FLIGHT_RECORDER=0` turns it off ([Observability](docs/observability.md#the-flight-recorder)).
+- A task list's refresh costs only what changed. The Tasks page's 2-minute refresh, a tab waking or coming back online, and the refresh of a browser without live events now ask `GET /api/v2/tasks?changed_after=<cursor>` for the tasks changed since the list was read and apply them in place (`gone` lists the ones that left), instead of reading every open task again; an unchanged list of tasks, labels or routines is answered `304` from its `ETag`. Tags, files, routines, open asks and steps now reach the change log too, so live events carry them ([Catching a task list up](docs/custom-frontend.md#catching-a-task-list-up)).
+
+### Changed
+- JSON answers are encoded by orjson in the request's own thread instead of FastAPI's pure-Python encoder on the event loop: a page of 500 tasks takes about 1 ms to encode instead of about 100 ms, during which no other request (health checks and runner heartbeats included) could run. Display names are added with orjson too. The server also uses uvloop and httptools, uvicorn's faster event loop and HTTP parser.
+- The web and desktop app open their first page without waiting for health diagnostics or sidebar counts. Sign-in reads chat permissions directly, and API JSON (when no proxy such as Cloudflare compresses it) and standalone UI assets use gzip when accepted to reduce transfer time.
+- New indexes keep busy installs fast as history grows: unanswered questions, answers, tasks carried by a run and the media check's file-version lookup. Linked tasks on a large page are found without probing unrelated task pairs.
+- Live updates gather a busy team's writes for up to a second before sending them; a stream following an open conversation waits at most a quarter second, so messages and run output stay prompt.
+
+### Fixed
+- A failed roster refresh preserves the last complete roster and no longer marks a reachable server offline. Loading health checks show Connecting until their result arrives.
+- A model sign-in that expires mid-run no longer replays a run that already acted: the run is saved for review, and the bot waits for a new sign-in on that computer.
+- Operations alerts for container installs report the backup system they actually use, not the imported VM timers' old history.
+- A Grok bot whose imported history has not synced lately shows a history-sync warning instead of a runtime failure, in Health and across the app.
+- A saved demo reopens with its edits and owner session after a restart, and a demo refuses a directory holding other data.
+- Container health probes run at their scheduled deadline instead of a probe's rounding skipping one.
+
+### Removed
+- Unused dependencies: `websockets` (Slack's Socket Mode uses slack_sdk's built-in client) and `pytest` from the server image (it stays a development dependency).
+
+## [0.3.24] - 2026-10-06
+
+### Fixed
+- Open tabs no longer re-read the whole task list each time a task is created elsewhere: a new task arrives with its live event, like a changed one, and a bot's or person's task lists re-read at most every 15 seconds and not in a hidden tab. On a busy team v0.3.23 kept the server's CPU full and made it slow or unreachable.
+
+### Added
+- People on a task by role. Besides its owner, a task can list people and bots under roles the team names (`roles`: `{"developer": ["bob"], "reviewer": ["charlie"]}`); one person may hold several roles, and Tico gives roles no meaning or rights, so clients decide what they mean. `hub task update --role reviewer=charlie`, `hub task list --member me [--role reviewer]`, `hub_task_update`/`hub_task_create` (`roles`), `hub_task_list` and `GET /api/v2/tasks` (`member`, `role`); the task page has a People row ([Tasks](docs/tasks.md#people-on-a-task-by-role)).
+- Changelog automatically includes the installed release history and shows **What's new** since each person's last look. Search, browse older releases and mark only the shown changes as read; that state follows the person across devices. Users can also list and acknowledge changes through `hub_changelog_list` / `hub_changelog_mark_read`, `hub changelog` and the stable `/api/v2/changelog` API ([Updates](docs/updates.md#what-changed-since-your-last-look)).
+
+## [0.3.23] - 2026-10-06
+
+### Breaking
+- Task relationships moved to `task_relations`: `tasks.parent_id` and `tasks.blocked_by` are dropped (migrations 30 and cloud 60 move them over). Task answers no longer carry `parent_id`, `blocked_by`, `blocker` or `parent`; read `relations` instead. Task create takes `relations: [{task, kind}]` instead of `parent_id`, and task update no longer takes `parent_id` or `blocked_by`: use `POST /api/v2/tasks/{id}/relations`. `hub task parent`, `hub_task_reparent` and `hub task update --blocked-by` are gone (use `hub task relate --kind parent|blocked_by`); `hub_task_create` and `hub_task_child_create` take `parent` instead of `parent_id`. SQL that read the old columns joins `task_relations` ([Hub SQL](docs/hub-sql.md)).
+
+### Added
+- Long chats show an **Outline**: a list of every prompt a person sent, across all pages, that jumps to the one you pick ([Conversation](docs/conversation.md)).
+- A **nightly learning run**: at 3:00 each night Tico reads the day's chats, task comments and notes, Slack channel messages, mail a teammate sent from their own mailbox and live company meetings once, scores each item with the decision model, and gives each working bot and the Librarian one task with its packet; **Learnings** in the account menu shows what each night changed. `POST /api/v2/learnings/run` runs it now ([Learnings](docs/learnings.md#nightly-learning-run)).
+- A bot's **Learnings** button beside its name shows every change to its `memory/` and `knowledge/` as a history, newest first: the commit subject, who made it and when, the diff once pushed, a GitHub link, and the task or chat it came from when the reader may see it. The computer running the bot reports these commits after each run and every five minutes ([Learnings](docs/learnings.md)).
+- **Update keys** and the Release Manager's rollout. The owner makes a service key with `--scope update` (`hub service-key create --label ... --scope update`); it can only check for updates, start an update to a named release and read the update status (`/api/v2/system/update`), and is refused everywhere else. `GET /api/v2/system/update` also counts the online computers by state. The Release Manager template gains `playbooks/rollout.md` and `software/rollout.py`: once the owner approves a version on its release task, it pushes the tag at the approved commit with its repository write grant, waits for the GitHub release, updates the team's own install as the canary and then the other installs together with their update keys, stops at the first failure or rollback, and reports each install's version before and after ([Releasing](docs/releasing.md#the-release-managers-rollout), [Service keys](docs/service-keys.md#update-keys)).
+- Relate tasks to each other, the way cards are attached on a board: related, duplicate of, follow-up of, blocks and blocked by (several blockers now), and parent, all in one `task_relations` table. The task page's Related section groups them by kind, + asks which kind, and board cards show a related count. `hub task relate <id> <other> --kind ...`, `hub_task_relate` and `POST /api/v2/tasks/{id}/relations`; a bot's run sees the ones it may read. Builds on Steven's draft #110 ([Tasks](docs/tasks.md#related-tasks)).
+- Live events: one stream, `GET /api/v2/events`, carries every change to tasks, the messages and runs of a conversation, bots' status lines and the person's own Needs you as it commits, so the web app no longer polls for them. Only what the viewer may read is sent; `after` resumes from a change number, `reset` says the client was away longer than the day the log keeps, and bots are refused. The chat, the Goal Manager, the Librarian, task boards, a bot's columns and ticker, the open task and the Needs-you counts follow it; the full refresh that remains (issues, roster, computers, Updates) runs every 2 minutes instead of 30 seconds while it is connected ([Live events](docs/custom-frontend.md#live-events)). Builds on the task change feed from #118.
 - Delete a task made by mistake into a trash it can be restored from: its human requester, or anyone who may move any task, with `hub task delete`, `hub_task_delete` or `POST /api/v2/tasks/{id}/delete`. The task leaves every list, board, search and bot context at once and keeps its number; `hub task restore` puts it back with its conversation, comments and links. A task carrying work (a bot turn, a file, an approval, a subtask) is refused; bots close instead. `python -m backend.manage delete-tasks` deletes a list offline, such as a bulk import run twice, and `purge-deleted-tasks` empties the trash for good ([Tasks](docs/tasks.md#deleting-tasks-made-by-mistake)).
+
+### Changed
+- Releases are much faster. The release gate is `python scripts/release_checks.py --release`: it builds the candidate images once and runs the smoke, side-jobs and a shortened journey (install, upgrade, migrating rollback) at the same time, in a few minutes, instead of the full suite every PR already ran. The GitHub release is published as soon as the Docker images exist; desktop apps no longer hold it up, are built only when the shell changed (otherwise the previous app is carried forward), and use a Rust cache. Images copy the source last, so a release rebuilds one small layer, and health checks probe every 2 seconds while a container starts, so updates and rollbacks finish sooner ([Releasing](docs/releasing.md)).
+- The Librarian is the market's curator: it builds the first market map and now keeps it current, with a daily **Curate the market** routine and an **Urgent market insight** routine, both seeded on a new install and added to an existing Librarian at its next start. The server accepts market graph writes, and serves the insight queue, only to the Librarian and the owner ([Librarian](docs/librarian.md)).
+- BotOps writes a missing setup answer as a hold on the one step that needs it (publishing, sending, a rollout), never as "stop if setup is incomplete" for a whole routine; the routines guide says the same ([Routines](docs/routines.md#writing-one)).
+- Overview turns the company into a solarpunk campus with one building per computer, bots at their assigned workstations and human collaborators shown on each computer they work with. Green roof terraces, solar canopies and illuminated cutaway tunnels connect the buildings. Select a building or teammate for details; keyboard navigation, reduced-motion support and an accessible roster remain available. Updates remains the default.
+- License current Tico development under PolyForm Perimeter 1.0.1: internal use and modification remain permitted; providing competing products to others is restricted. Earlier Apache 2.0 versions and third-party licenses retain their terms. New contributions are licensed under both PolyForm Perimeter 1.0.1 and Apache 2.0 so they can be included in a future Apache release.
+
+### Removed
+- **Breaking:** `GET /api/v2/conversations/{id}/watch` and `GET /api/v2/conversations/{id}/stream`. Follow `GET /api/v2/events?topics=messages,runs&conversation={id}` and read `GET /api/v2/conversations/{id}/snapshot` when it says the conversation changed; `examples/custom-frontend` shows how ([Live events](docs/custom-frontend.md#live-events)).
+- The Market Research Analyst bot and its `market` catalog template. Its playbooks and market knowledge moved into the Librarian. An install that still has a `market-analyst` bot archives it at its next start and hands its open tasks to the Librarian; its history and repository stay.
+
+### Fixed
+- A bot's Send never does nothing silently. A send the server did not confirm with a message says "Not sent" and keeps the draft; Return while a message is still sending sends the next one after it; text filled in without typing still sends on a click.
+- A bot with a stopped run saved for later shows idle, not crashed, after each later run that finishes cleanly; the saved run stays in Health until reviewed.
+- The server updater refuses an update when `compose.override.yaml` pins the `server` or `slack` image, and rolls back when the switched server does not run the pulled image or report the target release. A rollback from an untagged image returns to the release the server reported ([Updates](docs/updates.md#moving-a-hand-managed-install-onto-the-updater)).
+- Docker installs pass `TICO_APP_NAME`, `TICO_ASSISTANT_NAME`, `TICO_INTEGRATIONS_DIR`, `AWS_REGION` and `AWS_DEFAULT_REGION` to the server and Slack, and `TICO_SLACK_SECRET_ARN` to Slack, when set; an empty AWS region is treated as unset.
+
+## [0.3.22] - 2026-10-05
+
+### Added
+- Delete a task made by mistake into a trash it can be restored from: its human requester, or anyone who may move any task, with `hub task delete`, `hub_task_delete` or `POST /api/v2/tasks/{id}/delete`. The task leaves every list, board, search and bot context at once and keeps its number; `hub task restore` puts it back with its conversation, comments and links. A task carrying work (a bot turn, a file, an approval, a subtask) is refused; bots close instead. `python -m backend.manage delete-tasks` deletes a list offline, such as a bulk import run twice, and `purge-deleted-tasks` empties the trash for good ([Tasks](docs/tasks.md#deleting-tasks-made-by-mistake)).
+- Live Meetings: bots join a text meeting, answer when named, and the meeting can be replayed; attaching a bot needs Write access to it, and the saved meeting waits in each person's review queue.
+- Temporary assignment branches: a task can get its own short-lived engineer copy of a role, with a shared learning trunk, a three-slot limit and cleanup that never removes unpublished or stashed work.
+- An Owner can create an empty private product repository from Settings or `hub repo product-create`, after a preview and an exact-name confirmation.
+- Owners and admins can delete a group from the team chart; its teammates and groups move up a level.
+- A bot can mark its task as waiting on a named person (`hub task update --status waiting --on <person>`); the task shows in that person's Needs you with a Waiting label and counts as needing them.
+- Each computer checks every 15 minutes that it can really start a container; Health warns, naming the computer and its operator, after two failures in a row.
 
 ### Changed
 - The Librarian is the market's curator: it builds the first market map and now keeps it current, with a daily **Curate the market** routine and an **Urgent market insight** routine, both seeded on a new install and added to an existing Librarian at its next start. The server accepts market graph writes, and serves the insight queue, only to the Librarian and the owner ([Librarian](docs/librarian.md)).
@@ -20,8 +130,14 @@ All notable changes to Tico are recorded here. The format follows
 - The Market Research Analyst bot and its `market` catalog template. Its playbooks and market knowledge moved into the Librarian. An install that still has a `market-analyst` bot archives it at its next start and hands its open tasks to the Librarian; its history and repository stay.
 
 ### Fixed
+- A bot's Send never does nothing silently. A send the server did not confirm with a message says "Not sent" and keeps the draft; Return while a message is still sending sends the next one after it; text filled in without typing still sends on a click.
+- A bot with a stopped run saved for later shows idle, not crashed, after each later run that finishes cleanly; the saved run stays in Health until reviewed.
 - The server updater refuses an update when `compose.override.yaml` pins the `server` or `slack` image, and rolls back when the switched server does not run the pulled image or report the target release. A rollback from an untagged image returns to the release the server reported ([Updates](docs/updates.md#moving-a-hand-managed-install-onto-the-updater)).
 - Docker installs pass `TICO_APP_NAME`, `TICO_ASSISTANT_NAME`, `TICO_INTEGRATIONS_DIR`, `AWS_REGION` and `AWS_DEFAULT_REGION` to the server and Slack, and `TICO_SLACK_SECRET_ARN` to Slack, when set; an empty AWS region is treated as unset.
+- A runner input that was taken in and then requeued no longer fails every poll; it moves to the next run once, and a private task's input waits for its own run instead of joining another task's.
+- Interrupted worktree creation resumes, and worktrees on computers still running an older release keep their state instead of looping restores.
+- A Codex model at capacity counts as a usage limit, not a failed run.
+- A task number given by hand can no longer take a deleted task's number, so a restored task keeps it.
 
 ## [0.3.21] - 2026-10-04
 
@@ -1416,7 +1532,7 @@ from your own scripts or agents.
   operator installs the value on the bot's computer.
 - Live replies for custom frontends: `execution.parts` in `/watch` and `/snapshot` lists the pieces of the run's reply so
   far, in order, as `{kind: "progress"|"reply"|"tool", text, at}`. A tool call is one short label ("Ran hub task create"),
-  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#streaming).
+  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#live-events).
 - Messages say which run handled them. On the `messages`, `snapshot` and `watch` routes a message a run has taken carries
   `run: {job_id, attempt_id, state}`, with `state` `started_run` or, for a follow-up delivered into a run already working,
   `added_to_run`. A bot's reply carries `run: {job_id, attempt_id}` and `answers`, the ids of every message that run

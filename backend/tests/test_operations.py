@@ -47,3 +47,32 @@ def test_failed_restore_check_does_not_advance_prior_success(api, tmp_path):
     assert row["last_success"] == before and row["last_error"] == "RuntimeError"
     assert cw.put_metric_data.call_args.kwargs["MetricData"][0]["Value"] == 0
 
+
+
+def test_backup_notifications_follow_active_implementation_without_rewriting_history(api, monkeypatch):
+    from backend import replication
+    from backend.tests.test_api import headers
+
+    old = H.shift(H.now(), hours=-50)
+    with api.app.state.store.transaction() as c:
+        for service in ("backup", "restore-check"):
+            c.execute("INSERT INTO service_health(service,last_success,last_error) VALUES(?,?,?)",
+                      (service, old, "Old timer failed"))
+    issues = lambda: [i for i in api.get("/api/status", headers=headers()).json()["health_issues"]
+                      if i["kind"] == "service"]
+    monkeypatch.delenv("TICO_BACKUP_MODE", raising=False)
+    assert {i["title"] for i in issues()} == {"backup needs attention", "restore-check needs attention"}
+    monkeypatch.setenv("TICO_BACKUP_MODE", "remote")
+    current = {"mode": "remote", "target_kind": "s3", "last_replicated_at": H.now()}
+    monkeypatch.setattr(replication, "status", lambda: current)
+    assert issues() == []
+    current["last_replicated_at"] = old
+    assert len(issues()) == 1 and issues()[0]["title"] == "Backups need attention"
+    current.update(mode="off", last_replicated_at=None)
+    assert issues()[0]["severity"] == "error"
+    current.update(mode="remote", last_replicated_at=H.now(),
+                   credential_key={"present": True, "current": False})
+    assert "credential key" in issues()[0]["detail"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM service_health WHERE last_success=? AND last_error=?",
+                         (old, "Old timer failed")).fetchone()[0] == 2

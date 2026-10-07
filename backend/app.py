@@ -12,6 +12,7 @@ from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.datastructures import DefaultPlaceholder
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
@@ -21,6 +22,8 @@ from clients.agent_skill import WHO_NEEDS_ME
 from . import agents, batch, grokbot, inbox_isolation, harness_actions, model_login, oidc, personal_tokens, views
 from . import team_rules, usage_limits
 from . import task_privacy as privacy
+from . import task_relations as TR
+from . import task_roles as TRo
 from . import placement as placing
 from .statuses import is_parked
 from . import turns as turn_work
@@ -33,6 +36,7 @@ from .execution import Execution, bot_repository
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
 from . import rooms
+from . import fast_json
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
 from .route_renames import old_paths as old_route_paths
@@ -40,6 +44,7 @@ from . import updates
 from . import providers as Providers
 from . import access as Access
 from . import releases, runner_versions, ui_bundle
+from .bot_rows import BotRows
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
@@ -55,7 +60,7 @@ from .store import H, P, Problem, Store, bot_readiness, encode, message_page, re
 
 # The stable v2 routes whose answers carry display names (backend/names.py); streams are left alone.
 STABLE_PATH = re.compile("|".join(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(spelling))
-                                  for path, *_ in STABLE_ROUTES if not path.endswith(("/stream", "/watch"))
+                                  for path, *_ in STABLE_ROUTES if path != "/api/v2/events"
                                   for spelling in (path, *old_route_paths(path))))
 
 
@@ -74,7 +79,9 @@ def reset_bot_sessions(c, bot):
 def create_app(settings=None):
     settings = settings or Settings.from_env()
     telemetry = Observability(settings)
-    store = Store(settings)
+    from . import flight
+    recorder = flight.Recorder() if settings.flight_recorder else None
+    store = Store(settings, recorder)
     census = Census(store, settings)
     releases.CHECKER.bind(census)
     auth = Auth(store)
@@ -127,6 +134,9 @@ def create_app(settings=None):
         stop = asyncio.Event()
         from .timing import watch_loop
         timing_task = asyncio.create_task(watch_loop(app.state.timing, stop))
+        recorder_thread = flight.Flight(recorder, store, settings) if recorder else None
+        if recorder_thread:
+            recorder_thread.start()
         async def schedule_loop():
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
@@ -192,7 +202,12 @@ def create_app(settings=None):
             app.state.github_app.repository_stop.set()
             if demo_task:
                 await demo_task
-            await timing_task
+            # The lag probe sleeps half a second at a time; cancel it rather than wait out the sleep.
+            timing_task.cancel()
+            try:
+                await timing_task
+            except asyncio.CancelledError:
+                pass
             if scheduler_task:
                 await scheduler_task
             if directory_task:
@@ -203,11 +218,15 @@ def create_app(settings=None):
                 await app.state.granola.close()
             from .repositories import stop_sync
             await asyncio.to_thread(stop_sync, app.state.github_app)
+            if recorder_thread:
+                await asyncio.to_thread(recorder_thread.stop)
             telemetry.close()
 
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store, app.state.auth, app.state.execution = store, auth, execution
+    from .ui_compression import UiCompression
+    app.add_middleware(UiCompression)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
@@ -254,6 +273,8 @@ def create_app(settings=None):
     from .timing import Timing
     AUTH_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tico-auth")
     app.state.timing = Timing()
+    app.state.timing.recorder = recorder
+    app.state.flight = recorder
 
     from .assistant import write_allowed as assistant_writes, own_room as assistant_room, create_proposal
     from .assistant import describe as describe_action
@@ -517,6 +538,7 @@ def create_app(settings=None):
         request.state.auth_ms = 0.0
         app.state.timing.begin()
         route = request.url.path
+        response = None
         try:
             response = await call_next(request)
             found = request.scope.get("route")
@@ -527,7 +549,12 @@ def create_app(settings=None):
         finally:
             found = request.scope.get("route")
             key = request.method + " " + (getattr(found, "path", None) or ("static" if not request.url.path.startswith("/api") else "unmatched"))
-            app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000)
+            # The flight recorder's caller kind, status and size (backend/flight.py); a raised error counts as a 500.
+            who = getattr(request.state, "identity", None)
+            size = response.headers.get("content-length") if response is not None else None
+            app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000,
+                                 flight.caller_kind(who), response.status_code if response is not None else 500,
+                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "")
 
     async def display_names(request, response):
         """Stable v2 answers carry display names beside actor ids (backend/names.py)."""
@@ -555,11 +582,20 @@ def create_app(settings=None):
         return response
 
     class DisplayNameRoute(APIRoute):
+        def __init__(self, path, endpoint, **options):
+            # FastAPI calls the handler it was given; the JSON it answers is encoded by orjson (backend/fast_json.py).
+            # `endpoint` stays the handler itself, for the callers that read its dicts (backend/route_renames.py).
+            plain = isinstance(options.get("response_class", DefaultPlaceholder(None)), DefaultPlaceholder)
+            super().__init__(path, fast_json.answering_json(endpoint, options.get("status_code")) if plain else endpoint,
+                             **options)
+            self.endpoint = endpoint
+
         def get_route_handler(self):
             handler = super().get_route_handler()
 
             async def named_response(request):
-                return await display_names(request, await handler(request))
+                from .json_response import compress
+                return await compress(request, await display_names(request, await handler(request)))
             return named_response
 
     # HTTP middleware's call_next wraps every response as a stream, hiding its original
@@ -643,7 +679,8 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get('/api/v2/routines')
-    def all_routines(request: Request, include_deleted: bool = False):
+    def all_routines(request: Request, response: Response, include_deleted: bool = False):
+        from . import task_reads as reads
         who = request.state.identity
         if who.role not in ('human', 'owner'):
             raise Problem('forbidden', 'This endpoint is available only to people', 403)
@@ -651,6 +688,11 @@ def create_app(settings=None):
             readable = auth.bot_accesses(c, who)
             rows = [row for row in routines.listing(c, include_deleted=include_deleted, summary=True)
                     if readable.get(row['bot'], auth.FULL)['read']]
+            # The rows are one small query; the answer's names and bytes are what a match saves.
+            tag = reads.etag('routines', rows, reads.names(c))
+            if reads.fresh(request, tag):
+                return reads.not_modified(tag)
+            response.headers['ETag'] = tag
             return {'routines': rows}
 
     @app.get('/api/v2/routines/{schedule_id}/occurrences')
@@ -713,10 +755,8 @@ def create_app(settings=None):
         value["type"] = {"id": typ["id"], "name": typ["name"]} if typ else None
         value["step"] = next((s for s in typ["steps"] if s["id"] == row.get("step_id")), None) if typ else None
         if c is not None:
-            for relation in ("parent_id", "blocked_by"):
-                if row.get(relation) and not c.execute("SELECT 1 FROM tasks WHERE id=? AND (" + visible_sql + ")",
-                                                       (row[relation],)).fetchone():
-                    value[relation] = None
+            value["relations"] = TR.grouped(c, [row["id"]], visible_sql)[row["id"]]
+            value["roles"] = TRo.roles_of(c, row["id"])
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
@@ -730,12 +770,9 @@ def create_app(settings=None):
             value["links"] = H.task_links(c, row["id"])
             value["children_summary"] = H.children_summary(c, row["id"], visible_sql)
             value["pr_state"] = H.pr_state(value["links"])
-            if value.get("blocked_by"):
-                blocker = H.task(c, row["blocked_by"])
-                value["blocker"] = {"id": blocker["id"], "title": blocker["title"], "status": blocker["status"]} if blocker else None
             if parts is None:
-                counts = c.execute("SELECT COUNT(*), SUM(status IN ('done','closed')) FROM tasks WHERE parent_id=? AND (" + visible_sql + ")",
-                                   (row["id"],)).fetchone()
+                counts = c.execute("SELECT COUNT(*), SUM(status IN ('done','closed')) FROM tasks WHERE id IN ("
+                                   + TR.CHILD_IDS + ") AND (" + visible_sql + ")", (row["id"],)).fetchone()
                 parts = {"total": counts[0] or 0, "done": counts[1] or 0}
             value["parts"] = parts
         return value
@@ -752,8 +789,12 @@ def create_app(settings=None):
 
         parts = {row["parent_id"]: {"total": row["total"] or 0, "done": row["done"] or 0}
                  for row in c.execute(
-                     f"SELECT parent_id,COUNT(*) total,SUM(status IN ('done','closed')) done FROM tasks "
-                     f"WHERE parent_id IN ({marks}) AND ({visible_sql}) GROUP BY parent_id", ids)}
+                     f"SELECT r.to_task parent_id,COUNT(*) total,SUM(t.status IN ('done','closed')) done "
+                     f"FROM task_relations r JOIN tasks t ON t.id=r.from_task WHERE r.kind='parent' "
+                     f"AND r.to_task IN ({marks}) AND t.id IN (SELECT id FROM tasks WHERE {visible_sql}) "
+                     f"GROUP BY r.to_task", ids)}
+        relations = TR.grouped(c, ids, visible_sql)
+        roles = TRo.grouped(c, ids)
         routines_by_task = {row["task_id"]: row["schedule_id"] for row in c.execute(
             f"SELECT task_id,schedule_id FROM schedule_occurrences WHERE task_id IN ({marks})", ids)}
 
@@ -767,13 +808,6 @@ def create_app(settings=None):
                 f"SELECT a.task_id,b.* FROM task_assets a JOIN blobs b ON b.id=a.blob_id "
                 f"WHERE a.task_id IN ({marks})", ids):
             attachments[asset["task_id"]].append(brief(asset))
-
-        blocker_ids = list({row.get("blocked_by") for row in rows if row.get("blocked_by")})
-        blockers = {}
-        if blocker_ids:
-            blocker_marks = ",".join("?" * len(blocker_ids))
-            blockers = {row["id"]: dict(row) for row in c.execute(
-                f"SELECT id,title,status FROM tasks WHERE id IN ({blocker_marks}) AND ({visible_sql})", blocker_ids)}
 
         from .privacy_index import ReadIndex
         provenance = ReadIndex(c, who)
@@ -813,11 +847,9 @@ def create_app(settings=None):
         result = []
         for row in rows:
             value = task_view(row, pipelines=pipelines)
-            for relation in ("parent_id", "blocked_by"):
-                if row.get(relation) and not c.execute("SELECT 1 FROM tasks WHERE id=? AND (" + visible_sql + ")",
-                                                       (row[relation],)).fetchone():
-                    value[relation] = None
             value.update({
+                "relations": relations[row["id"]],
+                "roles": roles[row["id"]],
                 "parts": parts.get(row["id"], {"total": 0, "done": 0}),
                 "links": links[row["id"]],
                 "children_summary": summaries[row["id"]],
@@ -825,8 +857,6 @@ def create_app(settings=None):
                 "attachments": attachments[row["id"]], "cover": covers.get(row["id"]),
                 "ask": asks.get(row["id"]), "open_asks": open_counts.get(row["id"], 0),
             })
-            if row.get("blocked_by"):
-                value["blocker"] = blockers.get(row["blocked_by"])
             if row.get("next_run"):
                 value["next_run_waiting"] = H.next_run_waiting(c, row)
             if row["id"] in routines_by_task:
@@ -846,9 +876,9 @@ def create_app(settings=None):
         return who.role == "owner" or who.role == "human" and H.can_move(c, who.actor)
 
     def visible_tasks(c, who, owner=None, requester=None, status=None, lane=None, label=None,
-                      limit=500, offset=0, order="queue", **more):
+                      limit=500, offset=0, order="queue", visible_sql=None, **more):
         auth.domain(who)
-        visible_sql = auth.task_sql(c, who)
+        visible_sql = visible_sql or auth.task_sql(c, who)
         rows = H.tasks(c, owner=owner, requester=requester, status=status, lane=lane, label=label,
                        limit=limit + 1, offset=offset, order=order, visible=visible_sql, **more)
         page, has_more = rows[:limit], len(rows) > limit
@@ -964,9 +994,15 @@ def create_app(settings=None):
         with store.read() as c:
             return {**config_view(c, settings, request.state.identity), "features": {"task_files_multipart": True}}
 
+    def updater_only(who, what):
+        """The owner, or an `update` service key (backend/service_keys.py) held by a release bot on another install."""
+        if who.role == "service" and who.scope == "update":
+            return
+        owner_only(who, what)
+
     @app.get("/api/v2/system/update")
     def system_update_status(request: Request):
-        owner_only(request.state.identity, "sees update progress")
+        updater_only(request.state.identity, "sees update progress")
         result = releases.status()
         if result.get("state") in ("healthy", "rolled_back", "failed"):
             record_update_outcome(result)
@@ -976,7 +1012,20 @@ def create_app(settings=None):
         result["running"] = releases.version()
         result["previous"] = ran[-2]["version"] if len(ran) > 1 else ""
         result["history"] = ran[-5:]
+        # How the computers stand against this server's release, so a rollout can see them follow.
+        result["computers"] = computer_releases()
         return result
+
+    def computer_releases():
+        """Online computers counted by state (backend/runner_versions.py): current, updating, needs_update, ..."""
+        counts = {}
+        with store.read() as c:
+            cutoff = H.shift(H.now(), seconds=-views.AWAKE_GAP)
+            known = runner_versions.load(c)
+            for row in c.execute("SELECT id FROM runners WHERE revoked_at IS NULL AND last_seen>?", (cutoff,)):
+                state = runner_versions.view(known.get(row["id"]))["state"]
+                counts[state] = counts.get(state, 0) + 1
+        return counts
 
     @app.get("/api/v2/system/usage-count")
     def usage_count_status(request: Request):
@@ -1002,7 +1051,7 @@ def create_app(settings=None):
 
     @app.post("/api/v2/system/update/check")
     def system_update_check(request: Request):
-        owner_only(request.state.identity, "checks for updates")
+        updater_only(request.state.identity, "checks for updates")
         return releases.check_now()
 
     # The updater restarts this process, so the outcome is written by whichever process first
@@ -1021,7 +1070,7 @@ def create_app(settings=None):
     @app.post("/api/v2/system/update")
     def system_update(request: Request, body: M.SystemUpdate):
         who = request.state.identity
-        owner_only(who, "updates the installation")
+        updater_only(who, "updates the installation")
         result = releases.start(body.version)
         target = str(body.version).lstrip("v")
         with store.transaction() as c:
@@ -1322,7 +1371,10 @@ def create_app(settings=None):
     @app.get("/api/v2/me/tokens")
     def my_tokens(request: Request):
         with store.read() as c:
-            return {"tokens": personal_tokens.listing(c, request.state.identity)}
+            who = request.state.identity
+            # can_create: the team chart offers Connect only to someone who may make a token (personal_tokens.create)
+            return {"tokens": personal_tokens.listing(c, who),
+                    "can_create": bool(auth.bot_admin(who) or team_rules.load(c)["member_tokens"])}
 
     @app.post("/api/v2/me/tokens")
     def create_my_token(request: Request, body: M.PersonalTokenCreate):
@@ -1351,16 +1403,13 @@ def create_app(settings=None):
     SEE_ONLY = ("slug", "display_name", "state", "description", "team", "operator", "reports_to", "owners",
                 "thread_mode", "temp", "access", "bot_owners", "onboarding_state", "private_tasks_default")
 
-    def bot_view(c, bot, level, access, registry_roster, registry_entries, who):
+    def bot_view(c, bot, level, access, registry_roster, registry_entries, who, rows):
         """One bot as the bot list and the bot detail show it: everything for a caller who may read
-        it, only its profile for one who may only see it."""
+        it, only its profile for one who may only see it. `rows` (backend/bot_rows.py) holds what
+        was read for every bot in the answer."""
         row = {k: v for k, v in bot.items() if k not in ("token_hash", "cwd", "thread_id")}
-        config = c.execute("SELECT team,operator,owner_ids_json,revision,description,reports_to,repo,"
-                           "thread_mode,config_json,onboarding_state FROM bot_config WHERE bot=?",
-                           (bot["slug"],)).fetchone()
-        assignment = c.execute("SELECT a.bot,a.runner_id,a.generation,r.label,r.operator,r.last_seen,"
-                               "r.revoked_at FROM assignments a JOIN runners r ON r.id=a.runner_id "
-                               "WHERE a.bot=?", (bot["slug"],)).fetchone() if level["read"] else None
+        config = rows.config(bot["slug"])
+        assignment = rows.assignments.get(bot["slug"]) if level["read"] else None
         row["access"] = level
         row["team"] = config["team"] if config else None
         row["operator"] = config["operator"] if config else None
@@ -1371,7 +1420,8 @@ def create_app(settings=None):
         if config:
             repo = config["repo"] or ("emp-" + bot["slug"])
             from .shared_bots import follow
-            declared = follow(c, bot["slug"], json.loads(config["config_json"]) if config["config_json"] else {})
+            declared = follow(c, bot["slug"], json.loads(config["config_json"]) if config["config_json"] else {},
+                              rows.config)
             if declared.get("shared_from"):
                 repo = declared.get("repo") or repo
                 row.update({"model": declared.get("model") or "", "runtime": declared.get("runtime") or "",
@@ -1382,32 +1432,35 @@ def create_app(settings=None):
                         "reports_to": config["reports_to"], "repo": repo,
                         "repo_url": repo_url(repo, settings.github_owner),
                         "bot_contact": declared.get("bot_contact") or "open",
-                        "private_tasks_default": H.private_tasks_default(c, "bot:" + bot["slug"]),
+                        "private_tasks_default": H.private_tasks_default(c, "bot:" + bot["slug"], rows.declared),
                         "template": declared.get("template") or "",
                         "template_version": declared.get("template_version") or "",
                         "shared": bool(declared.get("shared")),
                         "shared_from": str(declared.get("shared_from") or ""),
                         "temp": bool(declared.get("temp")),
-                        "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"])})
+                        "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"], config)})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
-        owner_rows = ([H.human(c, owner) for owner in configured] if configured is not None
+        owner_rows = ([rows.human(owner) for owner in configured] if configured is not None
                       else P.primary_users(bot["slug"], registry_roster, registry_entries))
         row["owners"] = [P.brief(owner) for owner in owner_rows if owner]
-        row["bot_owners"] = settings_admin.owner_rows(c, bot["slug"]) if config else []
+        row["bot_owners"] = settings_admin.owner_rows(c, bot["slug"], config, registry_roster) if config else []
         if row.get("reports_to") and not str(row["reports_to"]).startswith("human:") \
                 and not access.get(row["reports_to"], auth.FULL)["see"]:
             row["reports_to"] = ""      # a bot this caller may not see is not named to them
         if not level["read"]:
             return {k: v for k, v in row.items() if k in SEE_ONLY}
-        row["draining"] = bool(c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot["slug"],)).fetchone())
-        row["status"] = privacy.status(c, who, H.status(c, bot["slug"]))
+        slug = bot["slug"]
+        row["draining"] = slug in rows.draining
+        status = rows.statuses.get(slug)
+        row["status"] = privacy.status(c, who, dict(status), **rows.status_inputs[slug]) if status else status
         row["assignment"] = dict(assignment) if assignment else None
         row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
                              and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
-        row["queued"] = privacy.job_count(c, who, bot["slug"])
-        row["next_run"] = sum(privacy.task_readable(c, who, t) for t in H.next_run_tasks(c, bot["slug"]))
-        row["notes"] = len(H.notes_waiting(c, bot["slug"], limit=500))
-        external = agents.presence(c, bot["slug"])
+        row["queued"] = rows.queued[slug]
+        row["next_run"] = sum(privacy.task_readable(c, who, t) for t in rows.next_run[slug])
+        row["notes"] = rows.notes[slug]
+        harness = rows.external_harness(slug)
+        external = agents.presence(c, slug, harness) if harness else None
         row["agent"] = external["agent"] if external else None
         if external:
             row["online"] = external["online"]
@@ -1423,20 +1476,23 @@ def create_app(settings=None):
             raise Problem("can", "can is read or write", 422)
         # Archived bots are gone from every picker; an admin view that needs them asks with ?include_archived=1.
         with_archived = (include_archived or "").lower() in ("1", "true", "yes")
+        from .chat_goals import readable_active
         with store.read() as c:
-            result = []
             registry_roster, registry_entries = views.roster(c), views.entries(c, settings.github_owner)
             access = auth.bot_accesses(c, who)
+            shown = []
             for bot in H.bots(c):
                 level = access.get(bot["slug"], auth.FULL)
                 if not level["see"] or (can and not level[can]):
                     continue
                 if bot.get("state") == "archived" and not with_archived:
                     continue
-                from .chat_goals import readable_active
-                result.append({**bot_view(c, bot, level, access, registry_roster, registry_entries, who),
-                               "goal_active": readable_active(c, auth, who, bot["slug"])})
-            return result
+                shown.append((bot, level))
+            rows = BotRows(c, who, [bot["slug"] for bot, _ in shown],
+                           {bot["slug"] for bot, level in shown if level["read"]})
+            return [{**bot_view(c, bot, level, access, registry_roster, registry_entries, who, rows),
+                     "goal_active": readable_active(c, auth, who, bot["slug"], rows.goals.get(bot["slug"], []))}
+                    for bot, level in shown]
 
     @app.get("/api/v2/bots/{bot}")
     def bot_detail(request: Request, bot: str):
@@ -1453,7 +1509,8 @@ def create_app(settings=None):
             watched = [bot] + ([config["reports_to"]] if config and config["reports_to"] else [])
             access = auth.bot_accesses(c, who, watched)
             level = access[bot]
-            value = bot_view(c, row, level, access, views.roster(c), views.entries(c, settings.github_owner), who)
+            value = bot_view(c, row, level, access, views.roster(c), views.entries(c, settings.github_owner), who,
+                             BotRows(c, who, [bot], {bot} if level["read"] else set()))
             if config and level["read"]:
                 value["goals"] = config["goals"] or ""
             reports = value.get("reports_to") or ""
@@ -1564,6 +1621,12 @@ def create_app(settings=None):
                     row = {**row, "notes": body.notes}
                 if body.notify_slack_task_done is not None:
                     row = {**row, "notify_slack_task_done": body.notify_slack_task_done}
+                if body.github is not None:
+                    row = {**row, "github": body.github.strip().lstrip("@").lower()}
+                if body.notify_slack_bot_messages is not None:
+                    row = {**row, "notify_slack_bot_messages": body.notify_slack_bot_messages}
+                if body.slack_muted_bots is not None:
+                    row = {**row, "slack_muted_bots": list(dict.fromkeys(body.slack_muted_bots))}
                 if body.reports_to is not None:
                     row = {**row, "reports_to": body.reports_to.strip()}
                 if body.left:
@@ -1574,6 +1637,9 @@ def create_app(settings=None):
                 H.event(c, who.actor, "person.updated", pid, {"title": body.title is not None, "about": body.about is not None,
                                                               "goals": body.goals is not None, "notes": body.notes is not None,
                                                               "notify_slack_task_done": body.notify_slack_task_done,
+                                                              "github": body.github is not None,
+                                                              "notify_slack_bot_messages": body.notify_slack_bot_messages,
+                                                              "slack_muted_bots": body.slack_muted_bots,
                                                               "reports_to": body.reports_to, "left": bool(body.left)})
                 if caller is not who:
                     H.event(c, caller.actor, "person.update_delegated", pid,
@@ -1700,6 +1766,30 @@ def create_app(settings=None):
             turn_work.annotate(c, auth, request.state.identity, page["messages"])
             return {"conversation": H.conversation(c, cid), **page}
 
+    @app.get("/api/v2/conversations/{cid}/outline")
+    def outline(request: Request, cid: str):
+        """The humans' prompts in a chat, oldest first, for the Outline list: id, time, a short excerpt and the task
+        it names. It reaches past the loaded pages, so each row passes the same message and task checks a page does."""
+        who = request.state.identity
+        with store.read() as c:
+            auth.conversation(c, who, cid)
+            prompts = []
+            for row in c.execute("SELECT * FROM messages WHERE conversation_id=? AND from_actor LIKE 'human:%' "
+                                 "AND deleted_at IS NULL ORDER BY rowid DESC", (cid,)):
+                refs = H._json(row["refs_json"], {}) or {}
+                if refs.get("goal_action") or refs.get("maintenance") or not privacy.message_readable(c, privacy.actor(who), row):
+                    continue
+                task, tid = None, refs.get("task") or refs.get("task_id")
+                tid = tid[0] if isinstance(tid, list) and tid else tid
+                if isinstance(tid, str) and (t := H.task(c, tid)) and privacy.task_readable(c, who, t):
+                    task = {"id": tid, "title": t["title"]}
+                text = " ".join(str(row["body"] or "").split())
+                prompts.append({"id": row["id"], "created": row["created"], "task": task,
+                                "text": text if len(text) <= 140 else text[:139].rstrip() + "…"})
+                if len(prompts) >= 500:
+                    break
+            return {"prompts": prompts[::-1]}
+
     @app.post("/api/v2/messages")
     def say(request: Request, body: M.MessageCreate):
         return mutate(request, body, lambda c: send(c, request.state.identity, body))
@@ -1789,7 +1879,19 @@ def create_app(settings=None):
         def work(c):
             if who.role != "bot":
                 raise Problem("identity", "Only a bot posts an update", 403)
-            return {"update": updates.post(c, H.actor_id(who.actor), body.body, kind=body.kind)}
+            slides = body.slides.model_dump(exclude_none=True) if body.slides else None
+            updates.check_day(c, H.actor_id(who.actor), body.day)
+            return {"update": updates.post(c, H.actor_id(who.actor), body.body, kind=body.kind, day=body.day,
+                                           slides=slides)}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/updates/redo")
+    def update_redo(request: Request, body: M.UpdateRedo):
+        """Ask the bots again for a past day's update in the current shape (a week in review as slides)."""
+        who = request.state.identity
+        owner_only(who, "asks the bots to redo an update")
+        def work(c):
+            return {"kind": body.kind, "day": body.day, "bots": updates.redo(c, body.kind, body.day, body.bots)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/updates/read")
@@ -1992,12 +2094,24 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks")
-    def tasks(request: Request, owner: str | None = None, requester: str | None = None, status: str | None = None,
-              lane: str | None = None, label: str | None = None, limit: int = 500,
+    def tasks(request: Request, response: Response, owner: str | None = None, requester: str | None = None,
+              status: str | None = None, lane: str | None = None, label: str | None = None, limit: int = 500,
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
-              number: int | None = None, updated_since: str | None = None, brief: bool = False):
+              number: int | None = None, updated_since: str | None = None, brief: bool = False,
+              member: str | None = None, role: str | None = None, changed_after: str | None = None):
+        from . import task_reads as reads
+        who = request.state.identity
+        auth.domain(who)
         with store.read() as c:
             owner = H.resolve_actor(c, owner) if owner else None
+            if member:
+                member = H.resolve_actor(c, member)
+                if not member:
+                    raise Problem("member", "member is a person or a bot on the roster", 422)
+            if role and not TRo.role_name(role):
+                raise Problem("role", "role is a short name in lower-case letters, digits, - or _", 422)
+            if role and not member:
+                raise Problem("role", "role filters member: pass both", 422)
             requester = H.resolve_actor(c, requester) if requester else None
             if lane and lane not in H.TASK_LANES:
                 raise Problem("kind", "lane is company or product", 422)
@@ -2022,16 +2136,36 @@ def create_app(settings=None):
             since = H.parse_ts(updated_since) if updated_since else None
             if updated_since and (not since or since.tzinfo is None):
                 raise Problem("date", "updated_since must be an ISO-8601 date/time with a timezone", 422)
-            rows, next_offset = visible_tasks(c, request.state.identity, owner, requester,
-                status.split(",") if status and status != "all" else None, lane=lane, label=label,
-                limit=limit, offset=offset, order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids,
-                number=number, updated_since=views.since_time(updated_since) if since else None)
+            # One read: the visibility, the rows, the cursor and the ETag agree (backend/task_reads.py).
+            visible_sql = auth.task_sql(c, who)
+            filters = dict(status=status.split(",") if status and status != "all" else None, lane=lane, label=label,
+                           order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids, number=number,
+                           updated_since=views.since_time(updated_since) if since else None, visible_sql=visible_sql,
+                           member=member, role=TRo.role_name(role) if role else None)
+            if changed_after is not None:
+                found = reads.changed(c, changed_after, visible_sql)
+                ids = reads.around(c, found[0]) if found else []
+                if found is None or len(ids) > reads.CAP:
+                    return {"tasks": [], "gone": [], "reset": True, "cursor": reads.cursor(c, visible_sql),
+                            "next_offset": None}
+                was, cursor = found
+                rows = visible_tasks(c, who, owner, requester, limit=len(ids), ids=ids, **filters)[0] if ids else []
+                gone = reads.gone(c, visible_sql, was, {row["id"] for row in rows})
+                result = {"tasks": rows, "gone": gone, "cursor": cursor, "next_offset": None}
+            else:
+                tag = reads.etag("tasks", reads.version(c), reads.access(visible_sql), reads.names(c), who.actor,
+                                 who.task_actor, sorted(request.query_params.multi_items()))
+                if reads.fresh(request, tag):
+                    return reads.not_modified(tag)
+                rows, next_offset = visible_tasks(c, who, owner, requester, limit=limit, offset=offset, **filters)
+                response.headers["ETag"] = tag
+                result = {"tasks": rows, "next_offset": next_offset, "cursor": reads.cursor(c, visible_sql)}
             if brief:
                 # A board polling hundreds of tasks needs neither their text nor their criteria.
                 for row in rows:
                     for field in ("body", "acceptance_criteria", "acceptance_json"):
                         row.pop(field, None)
-            return {"tasks": rows, "next_offset": next_offset}
+            return result
 
     # ------------------------------------------------------------------ quiet notes
     def note_view(row, c):
@@ -2101,11 +2235,17 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks/labels")
-    def task_labels(request: Request):
+    def task_labels(request: Request, response: Response):
+        from . import task_reads as reads
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            keys = H.labels_in_use(c, auth.task_sql(c, who))
+            visible_sql = auth.task_sql(c, who)
+            tag = reads.etag("labels", reads.version(c), reads.access(visible_sql), reads.names(c), who.actor)
+            if reads.fresh(request, tag):
+                return reads.not_modified(tag)
+            keys = H.labels_in_use(c, visible_sql)
+            response.headers["ETag"] = tag
             return {"labels": keys, "tags": [H.tag_by_key(c, key) for key in keys]}
 
     @app.get("/api/v2/tasks/stuck")
@@ -2117,6 +2257,31 @@ def create_app(settings=None):
         with store.read() as c:
             return {"tasks": [t for t in H.stuck_tasks(c, hours=max(1, hours), hidden=auth.unreadable_bots(c, who))
                               if privacy.task_readable(c, who, H.task(c, t["id"]))]}
+
+    @app.get("/api/v2/tasks/flow")
+    def tasks_flow(request: Request, days: int = 30, tz: int = 0, owner: str | None = None,
+                   requester: str | None = None, owner_kind: str | None = None, label: str | None = None,
+                   recurring: bool | None = None, type: str | None = None):
+        """Status changes over time for the Tasks page's stats: counts by day, time in each stage."""
+        who = request.state.identity
+        if who.role not in ("human", "owner"):
+            raise Problem("forbidden", "Task stats are for humans", 403)
+        if days < 1 or days > 365:
+            raise Problem("days", "days is between 1 and 365", 422)
+        if owner_kind not in (None, "", "bot", "human"):
+            raise Problem("owner_kind", "owner_kind is bot or human", 422)
+        with store.read() as c:
+            owner = H.resolve_actor(c, owner) if owner else None
+            requester = H.resolve_actor(c, requester) if requester else None
+            typ = H.type_get(c, type) if type else None
+            if type and not typ:
+                raise Problem("type", "No task type " + type, 422)
+            tz = max(-840, min(840, tz))       # minutes east of UTC; days are the viewer's days
+            today = H.shift(H.now(), minutes=tz)[:10] + "T00:00:00.000000Z"
+            since = H.shift(today, days=1 - days, minutes=-tz)
+            return {"since": since, **H.task_flow(c, since, tz_minutes=tz, visible=auth.task_sql(c, who),
+                                                 owner=owner, requester=requester, owner_kind=owner_kind or None,
+                                                 label=label, recurring=recurring, type_id=typ["id"] if typ else None)}
 
     @app.get("/api/v2/tasks/{tid}")
     def task(request: Request, tid: str):
@@ -2131,15 +2296,9 @@ def create_app(settings=None):
             # come back here; the rest of that room stays on Chat.
             who = request.state.identity
             children = [{"id": t["id"], "title": t["title"], "status": t["status"], "owner": t["owner"]}
-                        for t in H._rows(c.execute("SELECT id,title,status,owner FROM tasks WHERE parent_id=? AND ("
+                        for t in H._rows(c.execute("SELECT id,title,status,owner FROM tasks WHERE id IN (" + TR.CHILD_IDS + ") AND ("
                                                    + auth.task_sql(c, who) + ") ORDER BY (rank IS NULL), rank, created",
                                                    (tid,)))]
-            parent = H.task(c, row["parent_id"]) if row.get("parent_id") else None
-            if parent:
-                try:
-                    auth.task_row(c, who, parent)
-                except Problem:
-                    parent = None
             from .task_review import comment_rights
             try:
                 comment_rights(c, auth, who, tid)
@@ -2150,7 +2309,6 @@ def create_app(settings=None):
                     "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
                     "can_comment": can_comment,
                     "children": children,
-                    "parent": {"id": parent["id"], "title": parent["title"], "status": parent["status"]} if parent else None,
                     "comments": H.task_comments(c, tid, actor=privacy.actor(request.state.identity)),
                     "mover": mover(c, request.state.identity),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
@@ -2165,27 +2323,34 @@ def create_app(settings=None):
         request_id = body.request_id
         if request_id:
             who = delegated_identity(c, who, request_id)
-        if body.parent_id:
-            body.parent_id = auth.resolve_task(c, who, body.parent_id)
+        parents = [r.task for r in body.relations if r.kind == "parent"]
+        if len(parents) > 1:
+            raise Problem("relations", "A task has one parent", 422)
+        parent_id = auth.resolve_task(c, who, parents[0]) if parents else None
+        others = [(auth.resolve_task(c, who, r.task), r.kind) for r in body.relations if r.kind != "parent"]
         from .shared_bots import route
         original = auth.target(c, who, body.owner, need="write")
         owner = auth.target(c, who, route(c, who.actor, original), need="write")
+        if auth.assignment_task_for_bot(c, owner):
+            raise Problem("assignment_scope", "A temporary assignment cannot receive another task; continue on its linked delivery task", 403)
         if privacy.private_execution(c, source):
             privacy.require_destination(c, source, owner, None, {})
             privacy.require_destination(c, source, who.actor, None, {})
-        auth.require_bot_contact(c, who, owner, task_id=body.parent_id, kind="task")
+        auth.require_bot_contact(c, who, owner, task_id=parent_id, kind="task")
         # A subtask is the shape that parks the filer as `waiting` and makes it care when the
         # other one finishes. A bot set to `tasks` has opted out of that on both sides: it does
         # not wait, and its own completions are quiet, so parking on one would wait for ever.
         # Every other bot keeps the handoff flow in `policies/handoffs.md`.
-        if (body.parent_id and who.role == "bot" and owner != who.actor
+        if (parent_id and who.role == "bot" and owner != who.actor
                 and str(owner).startswith("bot:")
                 and (H.tasks_only(c, who.actor) or H.tasks_only(c, owner))):
             raise Problem("subtask", "A bot set to tasks-only files work flat: give it its own "
                                      "task without a parent, and do not wait for it.", 422)
-        if body.parent_id:
-            auth.task(c, who, body.parent_id)
-        parent = H.task(c, body.parent_id) if body.parent_id else None
+        if parent_id:
+            auth.task(c, who, parent_id)
+        for other, _ in others:
+            auth.task(c, who, other)
+        parent = H.task(c, parent_id) if parent_id else None
         # Delegation retains the bot's sensitive default and cannot use a person's
         # explicit-public choice to override either creator or assignee defaults.
         if actual_bot and body.private is False:
@@ -2200,7 +2365,7 @@ def create_app(settings=None):
         if body.goal_id and not G.goal(c, body.goal_id):
             raise Problem("not_found", "Unknown goal", 404)
         requester_actor = None
-        if (who.role == "bot" and owner == who.actor and not body.parent_id and who.attempt_id
+        if (who.role == "bot" and owner == who.actor and not parent_id and who.attempt_id
                 and private):
             origin = c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
                                "JOIN messages m ON m.id=j.message_id WHERE a.id=? AND a.bot=?",
@@ -2218,11 +2383,11 @@ def create_app(settings=None):
                 raise Problem("privacy", "The verified requester cannot receive this private execution's other context", 403)
         if private and actual_bot and actual_bot not in (requester_actor or who.actor, owner):
             raise Problem("privacy", "The acting bot must be a current participant of the private task", 403)
-        row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, body.parent_id,
+        row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, parent_id,
                             requester_actor=requester_actor,
                             private=private, conversation_id=rooms.task_conversation_id(c, auth, owner,
-                                H.task(c, body.parent_id)["requester"] if body.parent_id and H.is_human(who.actor)
-                                and H.is_human(H.task(c, body.parent_id)["requester"]) else who.actor),
+                                parent["requester"] if parent and H.is_human(who.actor)
+                                and H.is_human(parent["requester"]) else who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step,
                             number=body.number, mover=mover(c, who) or None)
@@ -2232,6 +2397,13 @@ def create_app(settings=None):
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))
         for url in body.links:
             H.task_link(c, who.actor, row["id"], url, mover=True)
+        for other, kind in others:
+            TR.relate(c, who.actor, row["id"], other, kind, mover=mover(c, who) or None)
+        if body.roles:
+            try:
+                TRo.set_roles(c, who.actor, row["id"], body.roles, mover=mover(c, who) or None)
+            except ValueError as exc:
+                raise Problem("roles", str(exc), 422)
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who)}
 
     @app.post("/api/v2/tasks")
@@ -2272,7 +2444,7 @@ def create_app(settings=None):
                 raise Problem("not_found", "Unknown goal", 404)
             if body.close:
                 if any(v is not None for v in (body.title, body.status, body.owner, body.due, body.body, body.lane,
-                                               body.labels, body.blocked_by, body.waiting_on, body.parent_id, body.rank,
+                                               body.labels, body.waiting_on, body.rank, body.roles,
                                                body.goal_id, body.type, body.step, body.step_rank, body.number, body.private)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 note = body.note or ""
@@ -2285,10 +2457,6 @@ def create_app(settings=None):
                 H.task_close(c, who.actor, task_id, note=note, quiet=body.quiet)
             else:
                 fields = body.model_dump(exclude={"version", "close", "on_behalf_of"})
-                for name in ("blocked_by", "parent_id"):
-                    if fields[name]:
-                        fields[name] = auth.resolve_task(c, who, fields[name])
-                        auth.task(c, who, fields[name])
                 H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None)
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
             return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who), who=who)}
@@ -2529,6 +2697,19 @@ def create_app(settings=None):
             return {"links": H.task_links(c, task_id)}
         return mutate(request, body, work)
 
+    @app.post("/api/v2/tasks/{tid}/relations")
+    def task_relation(request: Request, tid: str, body: M.TaskRelation):
+        """Relate another task to this one (`{id} kind {task}`), or take the relation off with `remove`."""
+        who = request.state.identity
+        def work(c):
+            task_id = auth.resolve_task(c, who, tid)
+            other_id = auth.resolve_task(c, who, body.task)
+            auth.task(c, who, task_id)
+            auth.task(c, who, other_id)
+            TR.relate(c, who.actor, task_id, other_id, body.kind, remove=body.remove, mover=mover(c, who) or None)
+            return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who), who=who)}
+        return mutate(request, body, work)
+
     @app.get("/api/v2/preferences/{key}")
     def preference(request: Request, key: str):
         who = request.state.identity
@@ -2599,20 +2780,15 @@ def create_app(settings=None):
             from . import usage_limits
             default = usage_limits.company(c)
 
-            def with_bot_state(row):
-                if row:
-                    row = privacy.status(c, who, row)
-                    row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
-                    row = usage_limits.overlay(c, row, default)      # over a spend limit: paused, and why
-                return row
+            from .events import status_line            # the same line live events send
             if bot:
                 auth.target(c, who, bot, need="read")
                 from .views import since_time
-                return {"bot": bot, "status": with_bot_state(H.status(c, bot)),
+                return {"bot": bot, "status": status_line(c, who, bot, default),
                         "history": [privacy.status(c, who, r) for r in H.status_history(c, bot, since=since_time(since))]}
             from .views import updating
             readable = auth.bot_accesses(c, who)
-            return {"bots": [with_bot_state(s) for s in H.status_all(c)
+            return {"bots": [status_line(c, who, s["bot"], default) for s in H.status_all(c)
                              if readable.get(s["bot"], auth.FULL)["read"]],
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
@@ -3731,50 +3907,13 @@ def create_app(settings=None):
     def retry(request: Request, jid: str, body: M.Retry):
         return mutate(request, body, lambda c: execution.retry(c, request.state.identity, jid, body))
 
-    @app.get("/api/v2/conversations/{cid}/stream")
-    async def stream(request: Request, cid: str, after: int = 0):
-        who = request.state.identity
-        def allowed():
-            with store.read() as c:
-                auth.conversation(c, who, cid)
-        await asyncio.to_thread(allowed)
-        # The reads run on a worker thread: on the event loop, every open stream held up every
-        # other request for its query once a second.
-        def poll(cursor):
-            auth.authenticate(request.headers)
-            with store.read() as c:
-                conv = auth.conversation(c, who, cid)
-                # The run's output is the bot's activity (Read); the messages are the conversation.
-                bot = rooms.room_bot(conv)
-                if bot and not auth.bot_access(c, who, bot)["read"]:
-                    return [], privacy.page(c, who, cid)["messages"]
-                rows = c.execute("SELECT e.* FROM attempt_events e JOIN attempts a ON a.id=e.attempt_id "
-                                 "JOIN jobs j ON j.id=a.job_id JOIN messages m ON m.id=j.message_id "
-                                 "WHERE m.conversation_id=? AND e.id>? ORDER BY e.id LIMIT 200",
-                                 (cid, cursor)).fetchall()
-                return [dict(r) for r in rows if privacy.attempt_readable(c, privacy.actor(who), r["attempt_id"])
-                        and privacy.content_readable(c, privacy.actor(who), dict(r))], privacy.page(c, who, cid)["messages"]
-        async def generate():
-            cursor = max(after, 0)
-            # Bounded connection lifetime ensures periodic reauthentication.
-            for _ in range(55):
-                if await request.is_disconnected():
-                    return
-                try:
-                    rows, messages_now = await asyncio.to_thread(poll, cursor)
-                except Problem:
-                    yield 'event: expired\ndata: {}\n\n'
-                    return
-                for row in rows:
-                    cursor = row["id"]
-                    yield f"id: {cursor}\nevent: output\ndata: {encode(row)}\n\n"
-                yield f"event: messages\ndata: {encode(messages_now)}\n\n"
-                await asyncio.sleep(1)
-        return StreamingResponse(generate(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
-
     from .tags import install as install_tags
     install_tags(app, store, auth, mutate, task_views)
+    # One stream of live events for people's pages (backend/events.py).
+    from .events import install as install_events, install_runner as install_runner_events
+    install_events(app, store, auth, task_views, task_view)
+    # And one for each computer, in place of its polls (runner/runner_events.py).
+    install_runner_events(app, store, execution)
 
     from .views import install_views
     from .task_types import install_task_types
@@ -3828,12 +3967,18 @@ def create_app(settings=None):
     install_sql(app, store, auth)
     from .judge import install_judge
     install_judge(app, store, auth)
+    from .live_meetings import install_live_meetings
+    install_live_meetings(app, store, auth, mutate)
     from .mail import install_mail
     install_mail(app, store, auth)
     from .messaging import install_messaging
     install_messaging(app, store, auth)
     from .integrations import install_integrations
     install_integrations(app, store, auth, mutate)
+    from .memory_history import install_memory_history
+    install_memory_history(app, store, auth, mutate)
+    from .learnings import install as install_learnings
+    install_learnings(app, store, auth, mutate)
     from .mcp import install_mcp
     install_mcp(app, settings)
     from .github import install_github
@@ -3856,6 +4001,7 @@ def create_app(settings=None):
     install_getting_started(app, store, auth, mutate, settings)
     from .health import install as install_health
     install_health(app, store, auth, settings)
+    flight.install(app, store, auth)
     from .assistant import install as install_assistant
     install_assistant(app, store, auth, mutate, onboarding)
     from .librarian import install as install_librarian
@@ -3877,6 +4023,8 @@ def create_app(settings=None):
     install_bot_tools(app, store, auth, mutate, settings_admin, as_requester)
     from .shared_bots import install as install_branches
     install_branches(app, store, auth, mutate, settings_admin, execution)
+    from .assignment_branches import install as install_assignment_branches
+    install_assignment_branches(app, store, auth, mutate, settings_admin, execution)
     from .bot_copy import install as install_bot_copy
     install_bot_copy(app, store, auth, mutate, settings_admin, place_now)
     from .subscriptions import install as install_subscriptions
@@ -3904,7 +4052,8 @@ def create_app(settings=None):
                 headers["Cache-Control"] = cache_control
             if gz is not None:
                 headers["Vary"] = "Accept-Encoding"
-                if "gzip" in request.headers.get("accept-encoding", ""):
+                from .json_response import accepts_gzip
+                if accepts_gzip(request.headers):
                     body, etag, headers["ETag"], headers["Content-Encoding"] = gz, gz_etag, gz_etag, "gzip"
             # A weak form of the tag (Cloudflare sends one) matches too: a 304 needs only the same content.
             if etag in [t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")]:

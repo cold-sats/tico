@@ -6,6 +6,36 @@ or by running the target release's installer again (below). Pulling the same pin
 which release it runs and moves to that release. GitHub is not consulted by a computer, so a server you have not
 updated never drags its computers ahead of it.
 
+## What changed since your last look
+
+**What's new** in the sidebar and **Changelog** in the account menu show product changes you
+have not acknowledged. **Since last look** includes every unread release and team announcement;
+choose **All product updates** to browse history or **All activity** to include accessible bot outcomes.
+Search changes, expand a release's remaining bullets, or open its full release notes. **Mark shown
+as read** acknowledges just the product entries in the current view, including any search filter.
+Read status belongs to each person and follows them across sign-ins and devices.
+
+Release entries come directly from the installed `CHANGELOG.md`. They work offline and require
+neither a Git checkout nor manual announcement posting. Unreleased notes and releases newer than
+the running server are excluded. The owner can still publish team product announcements.
+
+The same history is available to signed-in users through the stable API and MCP:
+
+- `GET /api/v2/changelog`: `kind=product|activity|all` (default `all`), `unread=true`, `q` search,
+  `since_version=0.3.0` for releases newer than that version, and `limit` (1–250) / `offset` paging.
+  Each entry includes its `id`, `title`, `bullets`, `shipped_at` and `kind`; product entries include
+  `unread`, and releases add `version` and a full-notes `url`. The response also gives
+  `current_version`, `unread_count` and `next_offset` (`null` at the end). The unread count covers
+  all product entries, independently of the current filter.
+- `POST /api/v2/changelog/read` with `{"ids":["release-0.3.0"]}` and an `Idempotency-Key`
+  acknowledges only those known product entries for the caller. Unknown or future ids are ignored.
+- MCP `hub_changelog_list` accepts the same filters and defaults to product changes;
+  `hub_changelog_mark_read` accepts `ids` from that result. Listing does not mark anything read.
+  For a catch-up request, list unread changes, show the user the summary, and acknowledge the
+  entries shown when they ask to mark them read.
+- CLI: `hub changelog list --unread`, `hub changelog list --since-version 0.3.0`, and
+  `hub changelog mark-read release-0.3.0`.
+
 ## Manual server update
 
 From the install directory, run the installer for the release you want:
@@ -147,6 +177,14 @@ sidecar. The last update's outcome is kept in `.updater-status.json` so the new 
 
 Settings still reach the server through the explicit `environment:` list in `compose.yaml`, not `env_file: .env`, which
 would also pass credentials that belong to other services (such as `CLOUDFLARE_TUNNEL_TOKEN`) into the server.
+
+### Updating from another install
+
+Besides the owner's **Update now**, an [update key](service-keys.md#update-keys) made by the owner can check for, start and
+follow an update through the same routes and the same updater, and do nothing else. A Release Manager on one install uses
+one key per install to roll a release out to all of them, canary first ([Releasing](releasing.md#the-release-managers-rollout)).
+`GET /api/v2/system/update` answers with `computers`, the online computers counted by state, so the caller can see them
+follow the server.
 
 ## Moving a hand-managed install onto the updater
 

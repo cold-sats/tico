@@ -16,10 +16,14 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   navigator.serviceWorker.register('/sw.js?v=40', {updateViaCache: 'none'}).then(reg => reg.update()).catch(() => {});
 });
 (async () => {
+  // Health and sidebar counts enrich the page; a slow diagnostic must not hold up opening a chat or task.
+  const status = get('/status').catch(() => null).then(st => { S.status = st; S.statusPending = false; });
+  const issues = get('/issues').catch(() => []).then(rows => { S.issues = rows; });
+  const counts = v2Refresh();
   try {
-    const [st, emps, issues, me, people] = await Promise.all([get('/status').catch(() => null), get('/employees'), get('/issues').catch(() => []), get('/me').catch(() => null), get('/humans').catch(() => ({people: []}))]);
+    const [emps, me, people] = await Promise.all([get('/employees'), get('/me'), get('/humans').catch(() => ({people: []}))]);
     applyConfig(me?.config);           // team-facing names before the first render
-    S.status = st; S.emps = namedRoster(emps); S.issues = issues; S.me = me; setPeople(people);
+    S.emps = namedRoster(emps); S.me = me; setPeople(people);
   } catch (e) {
     $('#main').innerHTML = `<section class="card"><h2>Tico server not running</h2><p>Start it with <code>scripts/tico server start</code> in the Tico repo, or install it with <code>scripts/tico server install</code> so it runs at login.</p><p class="err">${esc(e.message)}</p></section>`;
     return;
@@ -28,7 +32,6 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
     window.TicoObservability?.start();
     setInterval(() => window.TicoObservability?.start(), 30000);
   }
-  await v2Refresh();
   void orgHistorySync();
   void railsSync();
   void tasksPinsSync();
@@ -37,12 +40,21 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   // A team that has never been set up opens on its first run, not on an empty Chat.
   if (BOOT_DEFAULT_ROUTE && S.config.onboarding_needed) history.replaceState(null, '', WELCOME);
   route(); renderHeartbeat(); renderAccount();
+  void Promise.all([status, issues, counts]).then(() => {
+    renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync();
+    if (BOT && $('#bot-alert')) $('#bot-alert').innerHTML = botAlertHTML(BOT.slug);
+    if (TASKS_ST && isTasksRoute(S.route)) tasksRender(TASKS_ST);
+  });
   if (S.me?.cloud) void updUnreadRefresh();
   nativeHandler('windowMode')?.postMessage('state');
-  // A tab in the background does not poll (each poll is the status, the issues, Needs you and
-  // the open bot's tasks); coming back to a stale tab refreshes it at once.
+  // Tasks, bot status and Needs you arrive as they change (ui/app/live.js). The issues, the roster, computers and
+  // Updates are not on that stream: they still refresh, every 30 s while the stream is down and every 2 minutes
+  // while it is up. A tab in the background does not poll; coming back to a stale tab refreshes it at once.
+  // Subscribe after the initial count snapshots: an older snapshot must not overwrite a live change.
+  void counts.then(liveWire);
   let refreshedAt = Date.now();
+  const every = () => liveConnected() ? 120000 : 30000;
   const poll = () => { refreshedAt = Date.now(); return refresh(false); };
-  setInterval(() => { if (!document.hidden) void poll(); }, 30000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - refreshedAt > 30000) void poll(); });
+  setInterval(() => { if (!document.hidden && Date.now() - refreshedAt >= every() - 1000) void poll(); }, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - refreshedAt > every()) void poll(); });
 })();

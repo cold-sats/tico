@@ -63,6 +63,10 @@ button.nav-librarian{border:0;background:none;cursor:pointer;padding:0}
 #heartbeat{display:flex;align-items:center;flex:none}
 #heartbeat-alert{font-size:11.5px;padding:0 10px 5px}
 .new-version{position:relative;padding:0 10px}
+#changelog-notice{display:flex;align-items:center;gap:8px;margin:0 10px;padding:6px 8px;border-radius:6px;color:var(--muted);font-size:12.5px;text-decoration:none}
+#changelog-notice:hover{background:var(--surface2);color:var(--ink)}
+.changelog-notice-dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--accent)}
+#changelog-badge{margin-left:auto;font-size:10px}
 #new-version{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:6px;background:none;color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
 #new-version:hover,#new-version[aria-expanded="true"]{background:var(--surface2);color:var(--ink)}
 #new-version .nv-dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--accent)}
@@ -118,6 +122,15 @@ body.native #rail{display:block}
 .person-mail-link{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;margin-left:2px;border-radius:6px;color:var(--muted);font-family:"Material Symbols Outlined";font-size:19px;text-decoration:none}
 .person-mail-link:hover,.person-mail-link.cur{background:var(--surface2);color:var(--accent);text-decoration:none}
 .tree .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.org-agents{display:inline-flex;align-items:center;gap:3px;flex:1 1 auto;min-width:0;overflow:hidden;margin-left:2px}
+.tree .noderow:has(>.org-agents)>a.node{flex:0 0 auto;max-width:45%}  /* the name keeps its width; the chips take the rest */
+.org-agent{display:inline-flex;align-items:center;gap:4px;flex:0 1 auto;min-width:0;max-width:96px;height:20px;padding:0 7px;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:11.5px;white-space:nowrap;text-decoration:none}
+.org-agent span{overflow:hidden;text-overflow:ellipsis}
+.org-agent svg{width:11px;height:11px;flex:none}
+.org-agent.more{flex:none;padding:0 6px}
+.org-agent:hover,.org-agent.cur{background:var(--surface2);color:var(--ink);text-decoration:none}
+.org-connect{flex:none;height:22px;margin-left:2px;padding:0 9px;border:1px solid var(--line);border-radius:11px;background:none;color:var(--accent);font:inherit;font-size:11.5px;font-weight:600;cursor:pointer}
+.org-connect:hover{background:var(--surface2)}
 
 /* Keep the personal branch label visible even when a long bot name is clipped. */
 .org-branch{flex:none;color:var(--muted);font-size:10px;font-weight:500;white-space:nowrap}

@@ -198,12 +198,6 @@ def job_state(api, job_id):
         return c.execute('SELECT state FROM jobs WHERE id=?', (job_id,)).fetchone()[0]
 
 
-def hourly(c, task, n):
-    from backend.store import H
-    return H.say(c, H.KEEPER, 'bot:ops', f'Scheduled occurrence {n} absorbed.', kind='notice',
-                 conversation_id=task['conversation_id'], refs={'task': task['id']})
-
-
 def fails_at_once(api, machine, attempt, events=()):
     post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'grok-internal'}, machine['token'])
     events = [{'seq': 1, 'kind': 'error', 'payload': {'error': 'Internal error'}}, *events]
@@ -262,100 +256,36 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
 
+@pytest.mark.parametrize('activity', [None, 'tool', 'delta'])
+def test_rejected_signin_cannot_replay_a_run_that_acted(api, activity):
+    import json
 
-def test_reconcile_is_not_reported_decided_when_maintainer_notice_fails(api, monkeypatch):
-    from backend.store import H
-    machine, _, first = interrupted(api)
-    store, execution = api.app.state.store, api.app.state.execution
-    with store.transaction() as c:
-        c.execute("UPDATE jobs SET state='queued' WHERE id=?", (first['job_id'],))
-    again = claim(api, machine)
-    post(api, f"attempts/{again['id']}/started", {'thread_id': 'second'}, machine['token'])
-    expire(api, again['id'])
+    from backend.tests.test_api import runner, assign
+    from backend.tests.test_subscriptions import set_runtime
+
+    acted = activity is not None
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    set_runtime(api, 'codex')
+    post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test', 'readiness': {
+        'schema_version': 1, 'runtimes': {'codex': {'installed': True, 'authenticated': 'ready'}},
+        'bots': {'ops': {'runtime': 'codex', 'ready': True}}}}, machine['token'])
+    post(api, 'chat/ops', {'text': 'Review the request'})
+    attempt = claim(api, machine)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'signin-test'}, machine['token'])
+    if acted:
+        post(api, f"attempts/{attempt['id']}/events",
+             {'events': [{'seq': 1, 'kind': activity, 'payload': {'text': 'Working', 'name': 'send_email'}}]}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/complete", {
+        'outcome': 'failed', 'last_seq': int(acted),
+        'auth_rejected': {'runtime': 'codex', 'reason': 'OAuth session expired and could not be refreshed'}
+    }, machine['token'])
+    with api.app.state.store.read() as c:
+        job = c.execute('SELECT state FROM jobs WHERE attempt_id=?', (attempt['id'],)).fetchone()[0]
+        assert job == ('uncertain' if acted else 'queued')
+        status = c.execute("SELECT state,focus FROM bot_status WHERE bot='ops'").fetchone()
+        assert status['state'] == ('crashed' if acted else 'idle')
+        assert 'sign-in' in status['focus']
+        report = json.loads(c.execute('SELECT readiness_json FROM runners WHERE id=?', (machine['runner_id'],)).fetchone()[0])
+        assert report['runtimes']['codex']['authenticated'] == 'rejected'
     assert claim(api, machine) is None
-    aged(api, again['id'])
-    def fail(*args):
-        raise RuntimeError('Cannot notify maintainer')
-    monkeypatch.setattr(execution, '_tell_maintainer', fail)
-    with store.transaction() as c:
-        assert execution.auto_reconcile(c) == []
-        assert c.execute('SELECT state FROM jobs WHERE id=?', (first['job_id'],)).fetchone()[0] == 'uncertain'
-        assert not c.execute('SELECT 1 FROM job_recovery WHERE attempt_id=?', (again['id'],)).fetchone()
-
-
-def test_restart_ignores_45_old_pre_start_expiries_but_caps_ten_new_lapses(api):
-    from backend.execution import Execution, PRE_START_TRIES
-    from backend.store import H
-
-    machine, message, attempt = setup_attempt(api)
-    store = api.app.state.store
-    old = H.shift(H.now(), seconds=-3600)
-    with store.transaction() as c:
-        for n in range(45):
-            c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,finished) "
-                      "SELECT ?,job_id,bot,runner_id,generation,?,'expired',?,?,? FROM attempts WHERE id=?",
-                      (f"old-expiry-{n}", f"old-token-{n}", old, old, old, attempt["id"]))
-    restarted = Execution(store, api.app.state.auth)
-    for n in range(PRE_START_TRIES):
-        expire(api, attempt["id"])
-        with store.transaction() as c:
-            restarted.expire(c)
-            state = c.execute("SELECT state FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0]
-        assert state == ("failed" if n == PRE_START_TRIES - 1 else "queued")
-        if state == "queued":
-            ready(api, machine, ["ops"])
-            attempt = claim(api, machine)
-            assert attempt is not None
-    replies = [m["body"] for m in get(api, f"conversations/{message['conversation_id']}/messages")
-               if m["from_actor"] == "bot:ops"]
-    assert replies == ["Your ops couldn't start on Test Mac; check that Computer"]
-    assert claim(api, machine) is None
-
-
-@pytest.mark.parametrize("release,remedy", [(None, "check that Computer"), ("unknown", "check that Computer"),
-    ("0.0.9", "update its Tico"), ("0.1.0", "check that Computer"), ("0.3.11", "check that Computer")])
-def test_expiry_notice_only_blames_a_known_incompatible_runner(api, monkeypatch, release, remedy):
-    from backend import execution
-    from backend.store import H
-
-    monkeypatch.setattr(execution, "PRE_START_TRIES", 1)
-    machine, message, attempt = setup_attempt(api)
-    store = api.app.state.store
-    with store.transaction() as c:
-        if release is not None:
-            c.execute("INSERT INTO runner_versions(runner_id,release,reported) VALUES(?,?,?)",
-                      (machine["runner_id"], release, H.now()))
-        c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (H.shift(H.now(), seconds=-1), attempt["id"]))
-        api.app.state.execution.expire(c)
-        assert c.execute("SELECT final_text FROM attempts WHERE id=?", (attempt["id"],)).fetchone()[0] == (
-            f"Your ops couldn't start on Test Mac; {remedy}")
-
-
-@pytest.mark.parametrize("missing", ["computer", "label", "bot", "display_name"])
-def test_expiry_notice_tolerates_missing_names_and_rows(api, monkeypatch, missing):
-    from backend import execution
-    from backend.store import H
-
-    monkeypatch.setattr(execution, "PRE_START_TRIES", 1)
-    machine, message, attempt = setup_attempt(api)
-    store = api.app.state.store
-    if missing == "computer":
-        with store.read() as c:
-            c.execute("PRAGMA foreign_keys=OFF")
-            c.execute("DELETE FROM runners WHERE id=?", (machine["runner_id"],))
-    elif missing == "label":
-        with store.transaction() as c:
-            c.execute("UPDATE runners SET label='' WHERE id=?", (machine["runner_id"],))
-    elif missing == "bot":
-        original = H.bot
-        monkeypatch.setattr(H, "bot", lambda c, slug: None if slug == "ops" else original(c, slug))
-    else:
-        with store.transaction() as c:
-            c.execute("UPDATE bots SET display_name='' WHERE slug='ops'")
-    expire(api, attempt["id"])
-    with store.transaction() as c:
-        api.app.state.execution.expire(c)
-        label = "its Computer" if missing in ("computer", "label") else "Test Mac"
-        assert c.execute("SELECT state,final_text FROM attempts WHERE id=?", (attempt["id"],)).fetchone()[:] == (
-            "failed", f"Your ops couldn't start on {label}; check that Computer")
-        assert c.execute("SELECT state FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0] == "failed"

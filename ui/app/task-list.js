@@ -25,6 +25,7 @@ const TL_ICON = {
   team: '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="5" cy="5" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="9.6" cy="5.6" r="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.8 11.2c.5-2 1.7-3 3.2-3s2.7 1 3.2 3M8.4 8.6c1.6-.4 3 .5 3.6 2.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
   note: '<svg viewBox="0 0 14 14" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3 2.5h8v6.5l-2.5 2.5H3z M8.5 11.5V9h2.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
   group: '<svg viewBox="0 0 14 14" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 3.5h9M4.5 7h7M4.5 10.5h7M2.5 7h.01M2.5 10.5h.01" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  chart: '<svg viewBox="0 0 14 14" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2 12h10M4 10V7M7 10V3.5M10 10V5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   caret: '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" focusable="false"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 function tasksFiltersFromURL(state) {
@@ -256,7 +257,7 @@ function tasksGroupsFor(items, by, state) {
       const team = taskTeam(t);
       add('m:' + (team || 'none'), () => ({label: taskTeamLabel(team), icon: `<span class="tl-gglyph">${TL_ICON.team}</span>`, last: !team}), it);
     } else if (by === 'parent') {
-      const pid = t.parent_id ? String(t.parent_id) : '';
+      const pid = taskParentId(t);
       const parent = pid && (byId.get(pid) || (t.parent && String(t.parent.id) === pid ? t.parent : null));
       add('p:' + (pid || 'none'), () => pid ? {label: parent?.title || 'Parent task', icon: '',
         create: parent ? {parent: {id: pid, title: parent.title, owner: parent.owner}} : null}
@@ -283,7 +284,7 @@ function tasksNest(items, nest) {
   const here = new Map(items.map(it => [String(it.id), it]));
   const tops = [];
   for (const it of items) {
-    const pid = it.task?.parent_id ? String(it.task.parent_id) : '';
+    const pid = taskParentId(it.task);
     if (pid && pid !== String(it.id) && here.has(pid)) {
       if (!kids.has('t' + pid)) kids.set('t' + pid, []);
       kids.get('t' + pid).push(it);
@@ -319,7 +320,7 @@ function taskListRowHTML(it, ctx, depth = 0) {
   // who asked: a tiny face beside the owner's when it is not you (and not already the group's heading)
   const showAsker = ctx.by !== 'requester' && asker && asker !== me && asker !== t.owner && (t.owner === me || !!actorPerson(asker));
   // a subtask shown away from its parent says whose it is
-  const pid = t.parent_id ? String(t.parent_id) : '';
+  const pid = taskParentId(t);
   const parent = pid && depth === 0 ? (tasksById(state).get(pid) || t.parent) : null;
   const when = ctx.done ? (it.closed || it.updated) : it.updated;
   // What a row shows is drawn here; its selection, cursor and peek are painted on afterwards (tasksSelectionPaint,
@@ -890,7 +891,7 @@ function tasksKeys(state, ev) {
     const open = key === 'ArrowRight';
     if (tasksFold(state, state.cursor, open)) { ev.preventDefault(); tasksFocusCursor(state); return; }
     if (!open) {   // on a subtask, ← goes to its parent
-      const pid = tasksById(state).get(state.cursor.slice(1))?.parent_id;
+      const pid = taskParentId(tasksById(state).get(state.cursor.slice(1)));
       if (pid && document.querySelector(`#task-body [data-task-key="t${CSS.escape(String(pid))}"]`)) { ev.preventDefault(); state.cursor = 't' + pid; tasksFocusCursor(state); }
     }
     return;

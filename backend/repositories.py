@@ -65,39 +65,99 @@ def reachable(c, names):
     save_metadata(c, 'repositories-confirmed-missing', marks)
 
 
+def _botops():
+    from .github_app import BOTOPS
+    return BOTOPS
+
+
 def can_create_repositories(c, bot):
     # Keep this grant outside editable bot definitions; bots cannot grant it to themselves.
-    from .github_app import BOTOPS
-    return bot == BOTOPS or metadata(c, 'repository-creation-grants').get(bot) is True
+    return bot == _botops() or metadata(c, 'repository-creation-grants').get(bot) is True
 
 
-def access(c, bot, org):
+_NOCASE = str.maketrans('ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')
+
+
+def nocase(name):
+    """A repository name as the `COLLATE NOCASE` columns compare it: ASCII letters folded only."""
+    return str(name).translate(_NOCASE)
+
+
+class Reads:
+    """What `access` reads for `bots`, read once for all of them: one query per kind, so a computer
+    hosting many bots costs about what one bot does. Rows the answer may not need are read when asked."""
+
+    def __init__(self, c, bots):
+        from .shared_bots import _json, source_of
+        self.c = c
+        bots = list(dict.fromkeys(bots))
+        self.configs = self._rows('SELECT bot,config_json,repo FROM bot_config WHERE bot IN ({})', bots)
+        sources = {source_of(_json(row['config_json'])) for row in self.configs.values()} - {''} - set(self.configs)
+        self.configs.update(self._rows('SELECT bot,config_json,repo FROM bot_config WHERE bot IN ({})', sorted(sources)))
+        self.chosen = {bot: [] for bot in bots}
+        for part in H.chunks(bots):
+            for r in c.execute('SELECT bot,full_name,access FROM bot_repo_access WHERE bot IN (%s) ORDER BY bot,full_name'
+                               % ','.join('?' * len(part)), part):
+                self.chosen[r['bot']].append({'full_name': r['full_name'], 'access': r['access']})
+        self.missing = unreachable(c)
+        self.creation = metadata(c, 'repository-creation-grants')
+        self._enabled = self._bot_repos = self._all = None
+
+    def _rows(self, sql, keys):
+        out = {}
+        for part in H.chunks(keys):
+            out.update((r[0], r) for r in self.c.execute(sql.format(','.join('?' * len(part))), part))
+        return out
+
+    def enabled(self, name):
+        """The enabled repository row (full_name, default_branch, setup_command) by this name, or None."""
+        if self._enabled is None:
+            self._enabled = {nocase(r['full_name']): r for r in self.c.execute(
+                'SELECT full_name,default_branch,setup_command FROM repositories WHERE enabled=1')}
+        return self._enabled.get(nocase(name))
+
+    def all_mode(self):
+        """Every bot's own repository, and the enabled shared ones, for a bot granted all of them."""
+        if self._all is None:
+            self._all = ([r[0] for r in self.c.execute('SELECT repo FROM bot_config')],
+                         [r[0] for r in self.c.execute('SELECT full_name FROM repositories WHERE enabled=1 AND bot_repo=0')])
+        return self._all
+
+
+def access(c, bot, org, reads=None):
+    """`reads` (a `Reads` covering `bot`) when the caller answers for many bots."""
     from .github_app import repo_of
-    from .shared_bots import declared, source_of
-    row = c.execute('SELECT config_json FROM bot_config WHERE bot=?', (bot,)).fetchone()
+    from .shared_bots import _json, source_of
+    reads = reads or Reads(c, [bot])
+    row = reads.configs.get(bot)
     if not row:
         raise Problem('not_found', 'No such bot', 404)
-    config = json.loads(row[0] or '{}')
+    config = json.loads(row['config_json'] or '{}')
+    if config.get('assignment_branch'):
+        # Assignment code is a private local checkout. Its runner already has the
+        # source role's same-machine clone access; never mint or advertise a source
+        # role GitHub grant for the temporary actor.
+        return {'mode': 'chosen', 'all_access': 'read', 'chosen': [], 'effective': [],
+                'create_repositories': False}
     mode, all_access = config.get('repo_access_mode', 'own'), config.get('repo_all_access', 'write')
-    source = source_of(declared(c, bot)) or bot
-    own_row = c.execute('SELECT repo FROM bot_config WHERE bot=?', (source,)).fetchone()
-    own = repo_of(own_row[0] if own_row else '', org)
-    chosen = [dict(r) for r in c.execute('SELECT full_name,access FROM bot_repo_access WHERE bot=? ORDER BY full_name', (bot,))]
+    source = source_of(_json(row['config_json'])) or bot
+    own_row = reads.configs.get(source)
+    own = repo_of(own_row['repo'] if own_row else '', org)
+    chosen = [dict(r) for r in reads.chosen[bot]]
     grants = {}
     if mode == 'all':
-        bot_repos = {str(repo_of(r[0], org) or '').lower() for r in c.execute('SELECT repo FROM bot_config')}
-        grants = {r[0].lower(): {'full_name': r[0], 'access': all_access}
-                  for r in c.execute('SELECT full_name FROM repositories WHERE enabled=1 AND bot_repo=0')
-                  if r[0].lower() not in bot_repos and not r[0].split('/')[1].lower().startswith('bot-')}
+        repos, shared = reads.all_mode()
+        bot_repos = {str(repo_of(repo, org) or '').lower() for repo in repos}
+        grants = {name.lower(): {'full_name': name, 'access': all_access} for name in shared
+                  if name.lower() not in bot_repos and not name.split('/')[1].lower().startswith('bot-')}
     elif mode == 'chosen':
-        grants = {r['full_name'].lower(): r for r in chosen if c.execute(
-            'SELECT 1 FROM repositories WHERE full_name=? AND enabled=1', (r['full_name'],)).fetchone()}
+        grants = {r['full_name'].lower(): r for r in chosen if reads.enabled(r['full_name'])}
     if own:
         grants[own.lower()] = {'full_name': own, 'access': 'write'}
-    missing = unreachable(c)
+    missing = reads.missing
     effective = [r for _, r in sorted(grants.items()) if (r['full_name'].lower() not in missing or r['full_name'].lower() == str(own).lower()) and org and r['full_name'].split('/')[0].lower() == org.lower()]
     return {'mode': mode, 'all_access': all_access, 'chosen': chosen, 'effective': effective,
-            'create_repositories': can_create_repositories(c, bot)}
+            'create_repositories': bot == _botops() or reads.creation.get(bot) is True}
 
 
 def set_access(c, bot, body, org, actor, legacy=False, team_list=False):
@@ -309,10 +369,12 @@ def daily(service):
 def runner_repos(c, runner_id, org):
     result = {}
     sizes = metadata(c, 'repositories-sizes')
-    for row in c.execute("SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot WHERE a.runner_id=? AND b.state='active'", (runner_id,)).fetchall():
-        for grant in access(c, row[0], org)['effective']:
-            repo = c.execute('SELECT full_name,default_branch,setup_command FROM repositories WHERE full_name=? AND enabled=1',
-                             (grant['full_name'],)).fetchone()
+    hosted = c.execute("SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot WHERE a.runner_id=? AND b.state='active'",
+                       (runner_id,)).fetchall()
+    reads = Reads(c, [row[0] for row in hosted])
+    for row in hosted:
+        for grant in access(c, row[0], org, reads)['effective']:
+            repo = reads.enabled(grant['full_name'])
             if not repo:
                 continue
             key = repo['full_name'].lower()

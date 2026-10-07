@@ -57,7 +57,6 @@ INSTRUCTIONS = ("Tico: tasks, messages, Decisions, status. "
 TOOLS = []
 CLI_TOOL_ALIASES = {
     "hub_task_child": ("hub_task_child_create",),
-    "hub_task_parent": ("hub_task_reparent",),
     "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
     "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
 }
@@ -416,7 +415,7 @@ def tag_update(api, args):
        "body": _s("The details", default=""),
        "due": _s("ISO-8601 date-time with timezone"),
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
-       "parent_id": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
+       "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
        "request_id": _s("BotOps continuation: originating human chat message id"),
        "type": _s("Task type id or name; defaults to General"),
        "step": _s("Step id or name within the type; sets its status"),
@@ -431,25 +430,32 @@ def tag_update(api, args):
        "goal_id": _s("The goal this task serves (hub_goal_list); optional"),
        "next_run": {"type": "boolean", "default": False,
                     "description": "For a bot owner: do not wake it; its next run carries this task"},
+       "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                 "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
+                                "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
        "dry_run": {"type": "boolean", "default": False}},
       required=("owner", "title"), writes=True)
 def task_create(api, args):
     body = {"owner": _target(api, args["owner"]), "title": args["title"], "body": args.get("body") or "",
-            "due": args.get("due"), "parent_id": args.get("parent_id"),
-            "goal_id": args.get("goal_id") or None}
+            "due": args.get("due"), "goal_id": args.get("goal_id") or None}
+    if args.get("parent"):
+        body["relations"] = [{"task": args["parent"], "kind": "parent"}]
     for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
     if args.get("private") is not None:
         body["private"] = args["private"]
+    roles = _roles(api, args)
+    if roles:
+        body["roles"] = roles
     if args.get("dry_run"):
         return api.post("tasks/dry-run", body)
     return api.post("tasks", body, key=_key(args))
 
 
 @tool("hub_task_child_create", "Create a subtask carrying its parent's requester rights.",
-      {"parent_id": TASK_ID, "owner": _s("Bot slug or human id"), "title": _s("What to do"),
-       "body": _s("Details", default="")}, required=("parent_id", "owner", "title"), writes=True)
+      {"parent": TASK_ID, "owner": _s("Bot slug or human id"), "title": _s("What to do"),
+       "body": _s("Details", default="")}, required=("parent", "owner", "title"), writes=True)
 def task_child_create(api, args):
     return task_create(api, {**args, "body": args.get("body") or args["title"]})
 
@@ -460,12 +466,6 @@ def task_tree(api, args):
     return api.get(f"tasks/{args['id']}/tree")
 
 
-@tool("hub_task_reparent", "Move a task and its subtree under another parent; empty parent_id clears it.",
-      {"id": TASK_ID, "parent_id": _s("New parent id; an explicit empty string clears it", minLength=0)},
-      required=("id", "parent_id"), writes=True)
-def task_reparent(api, args):
-    current = api.get(f"tasks/{args['id']}")["task"]
-    return api.post(f"tasks/{args['id']}", {"version": current["version"], "parent_id": args["parent_id"]}, key=_key(args))
 @tool("hub_task_worktree_add", "Create a task worktree from a repository this bot may write.",
       {"repo": _s("Repository owner/name"), "task": TASK_ID}, required=("repo",), writes=True, local=True)
 def task_worktree_add(api, args):
@@ -507,6 +507,8 @@ def task_run(api, args):
                 "description": "queue (default), finished (most recently done first) or step (a board's columns in order)"},
        "number": {"type": "integer", "minimum": 1, "maximum": 999999999, "description": "Only this task number"},
        "updated_since": _s("Only tasks changed after this ISO-8601 time with a timezone"),
+       "member": _s("Only tasks this person or bot is on in some role (`me`, a human id or a bot slug)"),
+       "role": _s("With member: only tasks they are on in this role"),
        "brief": {"type": "boolean", "description": "Leave out each task's body and acceptance criteria"},
        "all": {"type": "boolean", "default": False,
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
@@ -517,6 +519,10 @@ def task_list(api, args):
     if args.get("stuck"):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
     more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since") if args.get(name)}
+    if args.get("member"):
+        more["member"] = _target(api, args["member"])
+        if args.get("role"):
+            more["role"] = args["role"]
     if args.get("brief"):
         more["brief"] = "true"
     rows = api.get("tasks", owner=_target(api, args.get("owner")) if args.get("owner") else None,
@@ -533,7 +539,7 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, or what blocks it. "
+@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, who is on it by role, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes. "
       "Done stays Done, including tasks you requested for yourself; closing is a separate decision.",
       {"id": TASK_ID,
@@ -549,9 +555,11 @@ def task_ask(api, args):
        "owner": _s("Hand the task to this bot or person"),
        "due": _s("ISO-8601 date-time with timezone"),
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
-       "blocked_by": _s("The id (or 8-character short id) of the task this one waits on; an empty string clears it"),
        "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you; "
                         "put exactly what they must do in the note. An empty string clears it"),
+       "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                 "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
+                                "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
        "goal_id": _s("The goal this task serves; an empty string takes it off")},
       required=("id",), writes=True)
 def task_update(api, args):
@@ -567,11 +575,26 @@ def task_update(api, args):
             body[field] = args[field]
     if args.get("private") is not None:
         body["private"] = args["private"]
-    if args.get("blocked_by") is not None:
-        body["blocked_by"] = args["blocked_by"]
     if args.get("waiting_on") is not None:
         body["waiting_on"] = args["waiting_on"]
+    roles = _roles(api, args)
+    if roles:
+        body["roles"] = roles
     return api.post("tasks/" + args["id"], body, key=_key(args))
+
+
+def _roles(api, args):
+    """{role: [actors]} from `roles` (the tool's object) and `role` (the CLI's `--role name=a,b`, repeatable;
+    `name=` clears the role), each person or bot resolved as an owner would be."""
+    out = {}
+    for role, people in (args.get("roles") or {}).items():
+        if isinstance(people, str):
+            people = people.split(",")
+        out[str(role).strip().lower()] = [_target(api, str(p).strip()) for p in (people or []) if str(p).strip()]
+    for item in args.get("role") or []:
+        name, _, people = str(item).partition("=")
+        out[name.strip().lower()] = [_target(api, p.strip()) for p in people.split(",") if p.strip()]
+    return out
 
 
 # Task types sit above the stable status contract; old bots can keep setting status.
@@ -693,6 +716,19 @@ def task_label(api, args):
       required=("id", "url"), writes=True)
 def task_link(api, args):
     return api.post(f"tasks/{args['id']}/links", {"url": args["url"], "title": args.get("title")}, key=_key(args))
+
+
+@tool("hub_task_relate", "Relate another task to this one, read as `id kind task`: parent (task is its "
+      "parent; moves it and its subtree), blocks, blocked_by (it waits on task; several are allowed), "
+      "related (they belong together, the default), duplicate_of, follow_up (it was split off or followed "
+      "up from task). `remove` takes the relation off.",
+      {"id": TASK_ID, "task": {**TASK_ID, "description": "The other task: its id or first 8 or more characters"},
+       "kind": {"type": "string", "enum": ["parent", "blocks", "blocked_by", "related", "duplicate_of", "follow_up"], "default": "related"},
+       "remove": {"type": "boolean", "default": False}},
+      required=("id", "task"), writes=True)
+def task_relate(api, args):
+    return api.post(f"tasks/{args['id']}/relations", {"task": args["task"], "kind": args.get("kind") or "related",
+                                                      "remove": bool(args.get("remove"))}, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- goals
@@ -1846,6 +1882,86 @@ def bot_branch(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/copies", body, key=_key(args))
 
 
+@tool("hub_bot_assignment_list", "List temporary task-scoped branches for a source role, including their lifecycle and checkpoint history. "
+      "The source role's normal read permissions apply.",
+      {"source": _s("The persistent source bot role")}, required=("source",))
+def bot_assignment_list(api, args):
+    return api.get(f"bots/{quote(str(args['source']), safe='')}/assignment-branches")
+
+
+@tool("hub_bot_assignment_policy", "Enable or disable the source role's direct-parent bot as an assignment allocator. "
+      "Only a human manager may change this policy; normal source-role and revision checks still apply.",
+      {"source": _s("The persistent source bot role"),
+       "enabled": {"type": "boolean", "description": "Whether its direct-parent bot may allocate eligible tasks"},
+       "revision": {"type": "integer", "minimum": 1}},
+      required=("source", "enabled", "revision"), writes=True)
+def bot_assignment_policy(api, args):
+    source = quote(str(args["source"]), safe="")
+    return api.call("PUT", f"bots/{source}/assignment-branches/policy",
+                    {"enabled": args["enabled"], "expected_revision": args["revision"]},
+                    key=_key(args))
+
+
+@tool("hub_bot_assignment_create", "Allocate one eligible delivery task to an isolated temporary actor for a persistent source role. "
+      "The stable assignment key and generation identify the branch; the display name is editable metadata. "
+      "Server-side task, source-role, repository, runner-capability, allocator and capacity rules remain authoritative.",
+      {"source": _s("The persistent source bot role"),
+       "task": TASK_ID,
+       "name": _s("The assignment's visible name", minLength=1, maxLength=100),
+       "key": _s("Stable identity key; never reuse it for a different task", minLength=8, maxLength=80,
+                  pattern="^[A-Za-z0-9._-]+$"),
+       "generation": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1}},
+      required=("source", "task", "name", "key"), writes=True)
+def bot_assignment_create(api, args):
+    source = quote(str(args["source"]), safe="")
+    return api.post(f"bots/{source}/assignment-branches",
+                    {"task_id": args["task"], "display_name": args["name"],
+                     "assignment_key": args["key"], "generation": args.get("generation", 1)},
+                    key=_key(args))
+
+
+@tool("hub_bot_assignment_update", "Record a temporary assignment checkpoint or lifecycle transition. "
+      "The server enforces safe transitions, delivery-task state, leases, acceptance and reviewed-learning receipts.",
+      {"assignment": _s("The assignment ID"),
+       "revision": {"type": "integer", "minimum": 1},
+       "phase": _s("The lifecycle phase", enum=["working", "waiting_review", "waiting_release", "paused",
+                                                   "interrupted", "verifying", "archived", "cancelled"]),
+       "name": _s("Updated visible name", minLength=1, maxLength=100),
+       "note": _s("Checkpoint or lifecycle note", maxLength=4000),
+       "checkpoint": {"type": "object", "description": "Safe commit and next-step checkpoint"},
+       "deployed_version": _s("Deployed version receipt", maxLength=200),
+       "acceptance_receipt": _s("Acceptance receipt", maxLength=2000),
+       "learning_receipt": _s("Reviewed learning receipt", maxLength=2000),
+       "evidence_receipt": _s("Preserved evidence receipt", maxLength=2000),
+       "handoff_task": _s("Existing source-role task to record as cancellation handoff", maxLength=200),
+       "reviewed_learning_note": _s("Generalized lesson submitted for human review and source-role learning", maxLength=6000),
+       "confirm_learning_review": {"type": "boolean", "default": False,
+                                   "description": "Confirm the lesson contains no task/customer details, private conversation content or credentials"}},
+      required=("assignment", "revision"), writes=True)
+def bot_assignment_update(api, args):
+    body = {"expected_revision": args["revision"]}
+    fields = ("phase", "note", "checkpoint", "deployed_version", "acceptance_receipt",
+              "learning_receipt", "evidence_receipt", "reviewed_learning_note",
+              "confirm_learning_review")
+    body.update({name: args[name] for name in fields if name in args})
+    if "name" in args:
+        body["display_name"] = args["name"]
+    if "handoff_task" in args:
+        body["handoff_task_id"] = args["handoff_task"]
+    assignment = quote(str(args["assignment"]), safe="")
+    return api.patch(f"assignment-branches/{assignment}", body, key=_key(args))
+
+
+@tool("hub_bot_assignment_cleanup", "Request separate guarded cleanup of an archived or cancelled assignment's local trees. "
+      "Cleanup is refused while a lease, pending reply, uncertain dirty work or unsupported runner remains.",
+      {"assignment": _s("The assignment ID"), "revision": {"type": "integer", "minimum": 1}},
+      required=("assignment", "revision"), writes=True)
+def bot_assignment_cleanup(api, args):
+    assignment = quote(str(args["assignment"]), safe="")
+    return api.post(f"assignment-branches/{assignment}/cleanup",
+                    {"expected_revision": args["revision"]}, key=_key(args))
+
+
 # Copying a bot or a skill moves files in the workspace on this computer, so these run here, never on the server
 # (docs/creating-bots.md, "Copy a bot"); the server checks the requester's rights on each bot they name.
 @tool("hub_bot_copy", "Copy a bot into a new one, as the person who asked you (they need read on the original and room in their limit of bots): an "
@@ -1975,6 +2091,16 @@ def computers(api, args):
       "The Assistant also gets the live snapshot of the team's bots.", {})
 def health_check(api, args):
     return _as_person(api).get("health/issues")
+
+
+@tool("hub_health_metrics", "The server's flight recorder, for owners and admins: per route request counts, errors, p50/p95 and "
+      "bytes by caller kind; slow requests; CPU, memory, event-loop lag and stalls with thread stacks; top SQL by total "
+      "time; write-lock waits; database size and growth by table; and each start's release and image check.",
+      {"minutes": {"type": "integer", "description": "Look back this many minutes (default 60, at most 20160)"},
+       "section": _s("all (default) or a comma list of requests, slow, process, sql, db, events")})
+def health_metrics(api, args):
+    query = {k: args[k] for k in ("minutes", "section") if args.get(k)}
+    return _as_person(api).get("system/metrics", **query)
 
 
 @tool("hub_slack_channel_list", "The Slack channels bots may read and post in: each one's name and id, which bots read it, "
@@ -2265,16 +2391,77 @@ def grokbot_sync(api, args):
 
 
 # ----------------------------------------------------------------------------- updates
+@tool("hub_changelog_list", "Shipped Tico releases and team product announcements, with your own read state and full change bullets. "
+      "Use unread=true to catch up since your last look; reading does not mark anything read. "
+      "Only releases installed on this server or earlier appear. since_version selects releases newer than that version. "
+      "next_offset reads the next page; unread_count counts all unread product entries, independently of filters.",
+      {"kind": _s("product (default), activity, or all", enum=["product", "activity", "all"]),
+       "unread": {"type": "boolean", "description": "Only product changes you have not acknowledged"},
+       "q": _s("Search titles and change bullets"),
+       "since_version": _s("Only releases newer than this version, e.g. 0.3.0"),
+       "offset": {"type": "integer", "minimum": 0, "description": "next_offset from the preceding page"},
+       "limit": {"type": "integer", "minimum": 1, "maximum": 250}})
+def changelog_list(api, args):
+    return api.get("changelog", kind=args.get("kind") or "product", unread="true" if args.get("unread") else None,
+                   q=args.get("q"), since_version=args.get("since_version"), offset=args.get("offset"), limit=args.get("limit"))
+
+
+@tool("hub_changelog_mark_read", "Acknowledge only the product entry ids you have shown the user. "
+      "Read status belongs to the signed-in person and is shared with the web app; other people are unaffected. "
+      "Newer or unseen entries stay unread.",
+      {"ids": {"type": "array", "maxItems": 250, "items": {"type": "string", "maxLength": 100},
+               "description": "Product entry ids returned by hub_changelog_list"}}, required=("ids",), writes=True)
+def changelog_read(api, args):
+    return api.post("changelog/read", {"ids": args["ids"]}, key=_key(args))
+
+
+_SLIDE_LINES = lambda what, most: {"type": "array", "maxItems": most, "items": {"type": "string"}, "description": what}
+_SLIDES = {
+    "type": "object", "additionalProperties": False,
+    "description": "Your week in review as five slides, swiped left to right. Tico adds your goal KPIs to the KPI slide.",
+    "properties": {
+        "goal": _s("One sentence, at most 30 words: the goal you work toward and where it stands"),
+        "kpis": {"type": "array", "maxItems": 4, "description": "Up to four numbers that show the week",
+                 "items": {"type": "object", "additionalProperties": False, "required": ["name", "value"], "properties": {
+                     "name": _s("What it counts"), "value": _s("This week's value, as it should read"),
+                     "unit": _s("Unit, like $, % or signups"),
+                     "series": {"type": "array", "maxItems": 30, "items": {"type": "number"},
+                                "description": "Recent values, oldest first, drawn as a chart"},
+                     "note": _s("One short line on what moved it")}}},
+        "done": _SLIDE_LINES("What got done last week: 1-5 plain lines, at most 25 words each", 5),
+        "focus": _SLIDE_LINES("Your focus next week: 1-3 lines", 3),
+        "blockers": _SLIDE_LINES("Your biggest blockers and who can clear them: 0-3 lines (empty when nothing blocks you)", 3)},
+    "required": ["goal", "done", "focus"]}
+
+
 @tool("hub_update_create", "Post your daily update (or, on Friday, your week in review) when Tico asks "
-      "for it: one to five markdown bullets in plain English and nothing else. No title, no headings or "
-      "sections, no task ids. At most 25 words a bullet and 90 in all (Friday: 40 and 180); an update that "
-      "breaks this is refused with how to fix it. One a day; posting again replaces it.",
-      {"body": _s("One to five lines, each starting with '- '"),
-       "kind": _s("daily or weekly; Tico picks from the day when omitted", enum=["daily", "weekly"])},
-      required=("body",), writes=True)
+      "for it. A daily is `body`: one to five markdown bullets in plain English and nothing else, no title, "
+      "headings or task ids, at most 25 words a bullet and 90 in all. A week in review is `slides`: goal, "
+      "kpis, done, focus, blockers. One of each a day; posting again replaces it, and one that breaks the "
+      "rules is refused with how to fix it.",
+      {"body": _s("A daily: one to five lines, each starting with '- '"),
+       "slides": _SLIDES,
+       "kind": _s("daily or weekly; Tico picks from the day when omitted", enum=["daily", "weekly"]),
+       "day": _s("YYYY-MM-DD, only when Tico asks you to redo a past day")},
+      writes=True)
 def update_post(api, args):
-    return api.post("updates", {k: v for k, v in (("body", args["body"]), ("kind", args.get("kind"))) if v is not None},
-                    key=_key(args))["update"]
+    slides = args.get("slides")
+    if args.get("slides_file"):
+        slides = json.loads(Path(args["slides_file"]).read_text())
+    if isinstance(slides, str):
+        slides = json.loads(slides)
+    fields = (("body", args.get("body")), ("slides", slides), ("kind", args.get("kind")), ("day", args.get("day")))
+    return api.post("updates", {k: v for k, v in fields if v is not None}, key=_key(args))["update"]
+
+
+@tool("hub_update_redo", "Ask the bots again for a past day's update in the current shape, such as last "
+      "Friday's week in review as slides (the owner). Every active bot with that update on, or only `bots`.",
+      {"day": _s("YYYY-MM-DD"), "kind": _s("daily or weekly (default weekly)", enum=["daily", "weekly"]),
+       "bots": {"type": "array", "items": {"type": "string"}, "description": "Only these bots"}},
+      required=("day",), writes=True)
+def update_redo(api, args):
+    fields = (("day", args["day"]), ("kind", args.get("kind")), ("bots", args.get("bots") or None))
+    return api.post("updates/redo", {k: v for k, v in fields if v is not None}, key=_key(args))
 
 
 @tool("hub_update_list", "The bots' updates, newest first, with your read state: what each bot did, does "
@@ -2788,11 +2975,16 @@ REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
 ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
-                    "hub_update_mark_read", "hub_assistant_propose"}
+                    "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,
+    # Assignment tools go straight through the existing assignment routes. The API still decides which
+    # humans or direct-parent actors may manage a source role; only the allocator policy is human-only.
+    **{name: NOT_ASSISTANT for name in ("hub_bot_assignment_list", "hub_bot_assignment_create",
+                                        "hub_bot_assignment_update", "hub_bot_assignment_cleanup")},
+    "hub_bot_assignment_policy": PEOPLE,
     "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
@@ -2803,6 +2995,7 @@ AUDIENCE = {
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
+    "hub_health_metrics": REQUESTER,
     **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync",
                                    "hub_meeting_pending", "hub_meeting_approve", "hub_meeting_dismiss", "hub_meeting_restore")},
     # The Assistant only.
@@ -2812,6 +3005,7 @@ AUDIENCE = {
     "hub_brief": HUMANS_AND_ASSISTANT, "hub_bot_recent": HUMANS_AND_ASSISTANT,
     "hub_mcp_stats": HUMANS_AND_ASSISTANT + BOTOPS,
     "hub_update_mark_read": HUMANS_AND_ASSISTANT, "hub_update_reply": PEOPLE, "hub_grokbot_sync": ("owner", "admin"),
+    "hub_changelog_list": HUMANS_AND_ASSISTANT, "hub_changelog_mark_read": HUMANS_AND_ASSISTANT,
     "hub_proposal_decide": PEOPLE,
     **{f"hub_needs_you_{step}": PEOPLE for step in ("start", "next", "respond", "commit", "abandon")},
     "hub_tool_report": ("agent",),

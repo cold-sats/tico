@@ -37,7 +37,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task close <id> [--note "..."]
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
-    hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done]
+    hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done] [--member me|X [--role R]]
                   [--all]                  the board: every task and every bot you may see, {tasks, bots}
                   [--stuck [--hours N]]    BotOps's sweep: open work untouched for a day that waits on nobody
     hub task show <id>                     <id> is the full id or its first 8+ characters (short_id in the list)
@@ -155,14 +155,19 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            humans and bots: who they are, Slack, what they own; each bot
                                            with its reports_to, group and template (the bots you may see)
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
+    hub health metrics [--minutes N]       the server's flight recorder (owners and admins)
                                            (the Assistant gets the live snapshot)
     hub update list [--kind daily|weekly] [--bot X] [--unread] [--limit N]
                                            the bots' updates, newest first
     hub update show <id>                   one update with its thread
     hub update create "<- bullets>" [--kind daily|weekly]   post your own update when Tico asks
+    hub update create --slides-file week.json [--day D]   a week in review: {goal, kpis, done, focus, blockers}
+    hub update redo --day D [--kind weekly|daily] [--bot B ...]   ask the bots to redo a past day (owner)
     hub update mark-read [ids...] [--all] [--unread]
     hub update reply <id> "<text>"
     hub update settings <bot> [--daily on|off] [--weekly on|off]
+    hub changelog list [--unread] [--since-version V] [--q TEXT] [--kind product|activity|all]
+    hub changelog mark-read <entry-id> [entry-id ...]   acknowledge changes shown to you
     hub brief [--since ISO]                alerts, who needs the person, what bots said since --since
     hub mcp stats [--days N] [--via LABEL] per-tool timing and answer size of assistants' calls
     hub needs-you start|next|respond|commit|abandon   a person's walk through what needs them (backend/batch.py)
@@ -252,6 +257,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub service-key create --label "Billing backend"
                                            the owner or an admin: a key another system uses to file, update and close
                                            tasks (POST /api/v2/inbound/tasks, docs/service-keys.md); shown once
+    hub service-key create --label "Release Manager" --scope update
+                                           the owner: a key a release bot on another install uses to check for,
+                                           start and follow an update of this one (/api/v2/system/update), and nothing else
     hub service-key list | revoke <id>     every service key, never its secret; stop one at once
     hub grokbot sync --file f.json         sync your Grok Bots into Tico
 
@@ -609,7 +617,7 @@ def parser():
 
     task = sub.add_parser("task").add_subparsers(dest="sub")
     s = task.add_parser("child", help="create a subtask")
-    s.add_argument("parent_id")
+    s.add_argument("parent")
     s.add_argument("--owner", required=True)
     s.add_argument("--title", required=True)
     s.add_argument("--body", default="")
@@ -617,10 +625,6 @@ def parser():
     s = task.add_parser("tree", help="show nested subtasks")
     s.add_argument("id")
     s.set_defaults(fn="task tree")
-    s = task.add_parser("parent", help="move a subtree; empty parent clears it")
-    s.add_argument("id")
-    s.add_argument("parent_id")
-    s.set_defaults(fn="task reparent")
     worktree = task.add_parser("worktree", help="create or attach this task's worktree").add_subparsers(dest="worktree_sub")
     for operation, argument in (("add", "repo"), ("attach", "path"), ("setup", "repo")):
         s = worktree.add_parser(operation)
@@ -634,7 +638,7 @@ def parser():
     s.add_argument("--body", default="")
     s.add_argument("--body-file", dest="body_file")
     s.add_argument("--due")
-    s.add_argument("--parent")
+    s.add_argument("--parent", help="file it as a subtask of this task")
     s.add_argument("--label", action="append", help="a label (repeat, or comma-separate); a project is a label")
     s.add_argument("--top", action="store_true", help="put it at the top of the owner's queue")
     s.add_argument("--link", action="append", help="a URL to attach (a pull request, an issue, a document)")
@@ -688,7 +692,6 @@ def parser():
     s.add_argument("--note")
     s.add_argument("--owner")
     s.add_argument("--due")
-    s.add_argument("--blocked-by", dest="blocked_by", help="the task this one waits on; '' clears it")
     s.add_argument("--on", dest="waiting_on",
                    help="with --status waiting: the person it waits on, so it is in their Needs you; '' clears it")
     s.add_argument("--goal", help='the goal this task serves; "" takes it off')
@@ -697,6 +700,7 @@ def parser():
     s.add_argument("--step", help="step id or name; sets status; an empty string clears it")
     s.add_argument("--step-rank", dest="step_rank", type=float, help="its place within its step, lower first")
     s.add_argument("--number", type=int, help="movers: the number of a task that has none")
+    s.add_argument("--role", action="append", help="who is on it by role, NAME=person,person (repeat for more roles; NAME= clears one)")
     s.set_defaults(fn="task update")
     s = task.add_parser("comment", help="leave a comment on a task, on the record with your name")
     s.add_argument("id")
@@ -728,6 +732,14 @@ def parser():
     s.add_argument("url")
     s.add_argument("--title")
     s.set_defaults(fn="task link")
+    s = task.add_parser("relate", help="relate another task to this one: <id> <kind> <task>")
+    s.add_argument("id")
+    s.add_argument("task")
+    s.add_argument("--kind", default="related", choices=["parent", "blocks", "blocked_by", "related", "duplicate_of", "follow_up"],
+                   help="parent: task is its parent; blocks / blocked_by; related (default); duplicate_of; "
+                        "follow_up: it was split off or followed up from task")
+    s.add_argument("--remove", action="store_true", help="take it off instead")
+    s.set_defaults(fn="task relate")
     s = task.add_parser("label", help="add or remove labels on a task")
     s.add_argument("id")
     s.add_argument("--add", action="append")
@@ -761,6 +773,8 @@ def parser():
     s.add_argument("--sort", choices=["queue", "finished", "step"], help="step: in step order, then each one's place in it")
     s.add_argument("--number", type=int, help="only this task number")
     s.add_argument("--updated-since", help="only tasks changed after this ISO-8601 time with a timezone")
+    s.add_argument("--member", help="only tasks this person or bot is on in some role (me, a human id, a bot slug)")
+    s.add_argument("--role", help="with --member: only tasks they are on in this role")
     s.add_argument("--brief", action="store_true", help="leave out bodies and acceptance criteria")
     s.add_argument("--all", action="store_true", help="the board: every task and every bot you may see, as {tasks, bots}")
     s.add_argument("--stuck", action="store_true",
@@ -1154,14 +1168,39 @@ def parser():
     s.add_argument("--person", help="that human and everyone under them")
     s.add_argument("--team", help="a group id, like engineering or sales: that group and the groups in it")
     s.set_defaults(fn="team show")
-    s = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub").add_parser(
-        "check", help="what is wrong with the bots, most urgent first, each with its fix")
+    health = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub")
+    s = health.add_parser("check", help="what is wrong with the bots, most urgent first, each with its fix")
     s.set_defaults(fn="health check")
+    s = health.add_parser("metrics", help="the server's flight recorder: requests, CPU, loop lag, SQL, database size")
+    s.add_argument("--minutes", type=int)
+    s.add_argument("--section", help="requests, slow, process, sql, db or events; comma-separated")
+    s.set_defaults(fn="health metrics")
+    changelog = sub.add_parser("changelog", help="shipped product changes and your own read state").add_subparsers(dest="sub")
+    s = changelog.add_parser("list", help="what changed; --unread catches up since your last look")
+    s.add_argument("--kind", choices=["product", "activity", "all"], default="product")
+    s.add_argument("--unread", action="store_true")
+    s.add_argument("--since-version", dest="since_version")
+    s.add_argument("--q", help="search change titles and bullets")
+    s.add_argument("--offset", type=int)
+    s.add_argument("--limit", type=int)
+    s.set_defaults(fn="changelog list")
+    s = changelog.add_parser("mark-read", help="acknowledge only the changes you have reviewed")
+    s.add_argument("ids", nargs="+")
+    s.set_defaults(fn="changelog mark-read")
+
     upd = sub.add_parser("update", help="create, read and reply to the bots' daily and weekly updates").add_subparsers(dest="sub")
-    s = upd.add_parser("create", help="post your update when Tico asks for it: 1-5 plain-English bullets")
-    s.add_argument("body", help="one to five lines, each starting with '- '")
+    s = upd.add_parser("create", help="post your update when Tico asks for it: 1-5 plain-English bullets, "
+                                       "or a week in review's slides")
+    s.add_argument("body", nargs="?", help="a daily: one to five lines, each starting with '- '")
+    s.add_argument("--slides-file", help="a week in review: JSON {goal, kpis, done, focus, blockers}")
     s.add_argument("--kind", choices=("daily", "weekly"))
+    s.add_argument("--day", help="YYYY-MM-DD, only when Tico asks you to redo a past day")
     s.set_defaults(fn="update create")
+    s = upd.add_parser("redo", help="ask the bots again for a past day's update in the current shape (owner)")
+    s.add_argument("--day", required=True)
+    s.add_argument("--kind", choices=("daily", "weekly"))
+    s.add_argument("--bot", dest="bots", action="append", help="only this bot (repeatable)")
+    s.set_defaults(fn="update redo")
     s = upd.add_parser("list", help="the bots' updates, newest first")
     s.add_argument("--kind", choices=("daily", "weekly"))
     s.add_argument("--bot")
@@ -1333,6 +1372,45 @@ def parser():
     s.add_argument("bot")
     s.add_argument("--computer", help="your computer's label or id")
     s.set_defaults(fn="bot branch")
+    assignment = bot.add_parser("assignment", help="temporary task-scoped instances of a persistent role").add_subparsers(
+        dest="assignment_action", required=True)
+    s = assignment.add_parser("list", help="list assignment branches and lifecycle history")
+    s.add_argument("source")
+    s.set_defaults(fn="bot assignment")
+    s = assignment.add_parser("policy", help="enable the source role's direct-parent bot as allocator")
+    s.add_argument("source")
+    policy = s.add_mutually_exclusive_group(required=True)
+    policy.add_argument("--enable", dest="enabled", action="store_true")
+    policy.add_argument("--disable", dest="enabled", action="store_false")
+    s.add_argument("--revision", type=int, required=True)
+    s.set_defaults(fn="bot assignment")
+    s = assignment.add_parser("create", help="allocate one existing delivery task to an isolated actor")
+    s.add_argument("source")
+    s.add_argument("--task", required=True)
+    s.add_argument("--name", required=True, dest="display_name")
+    s.add_argument("--key", required=True, dest="assignment_key", help="stable identity key; do not reuse for another task")
+    s.add_argument("--generation", type=int, default=1)
+    s.set_defaults(fn="bot assignment")
+    s = assignment.add_parser("update", help="record a checkpoint or lifecycle transition")
+    s.add_argument("assignment")
+    s.add_argument("--revision", type=int, required=True)
+    s.add_argument("--phase", choices=("working", "waiting_review", "waiting_release", "paused", "interrupted", "verifying", "archived", "cancelled"))
+    s.add_argument("--name", dest="display_name")
+    s.add_argument("--note", default="")
+    s.add_argument("--checkpoint-json", default="{}")
+    s.add_argument("--deployed-version", default="")
+    s.add_argument("--acceptance-receipt", default="")
+    s.add_argument("--learning-receipt", default="")
+    s.add_argument("--evidence-receipt", default="")
+    s.add_argument("--handoff-task", default="", help="existing source-role task to record as the follow-up on cancellation")
+    s.add_argument("--reviewed-learning-file", help="read a generalized lesson reviewed for publication to the source role's shared trunk")
+    s.add_argument("--confirm-learning-review", action="store_true",
+                   help="confirm the lesson excludes task/customer details, private conversation content and credentials")
+    s.set_defaults(fn="bot assignment")
+    s = assignment.add_parser("cleanup", help="request guarded local cleanup after archive or cancellation")
+    s.add_argument("assignment")
+    s.add_argument("--revision", type=int, required=True)
+    s.set_defaults(fn="bot assignment")
     s = bot.add_parser("copy", help="copy a bot into a new one the requester owns (BotOps)")
     s.add_argument("bot", help="the bot to copy")
     s.add_argument("--slug", help="the copy's slug; <bot>-copy by default")
@@ -1492,9 +1570,11 @@ def parser():
     s = support.add_parser("file", help="a Confirm card shows the message; nothing is sent until the person confirms")
     s.add_argument("message")
     s.set_defaults(fn="support file")
-    keys = sub.add_parser("service-key", help="keys another system uses to file, update and close tasks (owner and admins)").add_subparsers(dest="sub")
+    keys = sub.add_parser("service-key", help="keys another system uses to file tasks, or to update this install (owner and admins)").add_subparsers(dest="sub")
     s = keys.add_parser("create", help="make a key; it is shown this once")
     s.add_argument("--label", required=True, help="the system that holds it; every task it files says so")
+    s.add_argument("--scope", choices=["tasks", "update"], default="tasks",
+                   help="tasks (default): files tasks; update (owner only): checks for, starts and follows an update of this install")
     s.set_defaults(fn="service-key create")
     keys.add_parser("list", help="every service key, never its secret").set_defaults(fn="service-key list")
     s = keys.add_parser("revoke", help="stop a key at once")

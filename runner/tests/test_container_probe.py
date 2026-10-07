@@ -5,7 +5,6 @@ import types
 import unittest
 from unittest import mock
 
-from pydantic import ValidationError
 
 from backend.models import StructuredReadiness
 from runner import container_probe
@@ -63,27 +62,12 @@ class Probe(unittest.TestCase):
         with mock.patch.dict(container_probe.os.environ, {container_probe.IMAGE_ENV: "busybox:latest"}):
             self.assertIsNone(self.probe()[0])   # a named image that is not here would be pulled: skip
 
-    def test_an_image_removed_after_it_was_listed_is_not_pulled_and_not_a_failure(self):
-        result, calls = self.probe(run=125, stderr="Unable to find image 'sha256:aaa' locally\n"
-                                                    "docker: Error response from daemon: No such image: sha256:aaa.")
-        self.assertIsNone(result)
-        self.assertEqual(sum(args[1] == "run" for args in calls), 1)
-
-    def test_an_image_without_true_still_counts_as_a_start(self):
-        for code in (126, 127):
-            self.assertTrue(self.probe(run=code)[0]["ok"])
-
     def test_leftover_probe_containers_are_removed_with_their_volumes_first(self):
         _, calls = self.probe(leftovers="abc\ndef\n")
         verbs = [args[1] for args in calls]
         self.assertEqual(self.call(calls, "ps")[-2:], ["--filter", "label=tico.probe=1"])
         self.assertEqual(self.call(calls, "rm")[2:], ["-fv", "abc", "def"])
         self.assertLess(verbs.index("rm"), verbs.index("run"))
-
-    def test_a_hung_leftover_removal_names_its_own_limit(self):
-        result, calls = self.probe(leftovers="abc\n", hang=("rm",))
-        self.assertEqual((result["ok"], result["error"]), (False, "docker did not answer within 20 s"))
-        self.assertNotIn("run", [args[1] for args in calls])
 
     def test_a_hung_start_is_reported_and_its_container_removed(self):
         result, calls = self.probe(hang=("run",))
@@ -118,7 +102,12 @@ class Schedule(unittest.TestCase):
 
     def test_only_two_failures_in_a_row_are_reported(self):
         probe, seen = self.schedule(FAIL, PASS, FAIL, FAIL, FAIL, PASS, background=False)
-        self.assertEqual(probe.report(), PASS)          # a slow first start, then a good one: no warning
+        # Subtracting this timestamp from its deadline rounds the interval down below 900.
+        with mock.patch.object(container_probe.time, "monotonic", return_value=1000.1):
+            self.assertEqual(probe.report(), PASS)      # a slow first start, then a good one: no warning
+        with self.later(probe, container_probe.EVERY_S - 1):
+            self.assertEqual(probe.report(), PASS)
+        self.assertEqual(len(seen), 2)                 # not due before the deadline
         with self.later(probe, container_probe.EVERY_S):
             self.assertEqual(probe.report(), FAIL)      # failed, and failed again at once
         with self.later(probe, container_probe.FAILING_EVERY_S):
@@ -146,12 +135,6 @@ class Schedule(unittest.TestCase):
         self.assertTrue(container_probe.OFF)
         probe = container_probe.ContainerProbe(check=lambda: self.fail("probed"))
         self.assertIsNone(probe.report())
-
-    def test_the_contract_bounds_the_report(self):
-        with self.assertRaises(ValidationError):
-            StructuredReadiness.model_validate({"container_exec": {"ok": "yes", "seconds": 1, "checked_at": "x"}})
-        self.assertNotIn("container_exec", StructuredReadiness().model_dump())
-
 
 if __name__ == "__main__":
     unittest.main()

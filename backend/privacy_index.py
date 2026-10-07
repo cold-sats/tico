@@ -15,9 +15,11 @@ class ReadIndex:
         privacy.snapshot(c)
         self.c, self.who = c, who
         self.principals = privacy.actor(who)
-        tasks = [dict(r) for r in c.execute("SELECT id,requester,owner,private FROM tasks")]
-        self.known_tasks = {r["id"] for r in tasks}
-        self.private = {r["id"]: r for r in tasks if r["private"] is None or r["private"]}
+        # Ids from the primary key and the private rows by their partial index (tasks_private): reading every task's
+        # whole row for this was a busy server's slowest query.
+        self.known_tasks = {r[0] for r in c.execute("SELECT id FROM tasks")}
+        self.private = {r["id"]: dict(r) for r in c.execute(
+            "SELECT id,requester,owner,private FROM tasks WHERE private IS NOT 0")}
         self.denied = {tid for tid, row in self.private.items() if not privacy.task_readable(c, who, row)}
         self._attempts = self._attachments = self._tags = self._intervals = None
         # Each instance belongs to one consistent read transaction.
@@ -52,7 +54,7 @@ class ReadIndex:
             for tid, aid in self.c.execute("SELECT id,carried_by FROM tasks WHERE carried_by IS NOT NULL"):
                 if aid in rows and tid in self.private:
                     rows[aid]["tasks"].add(tid)
-            for aid, detail in self.c.execute("SELECT target,detail_json FROM events WHERE action='task.next-run.carried'"):
+            for aid, detail in self.c.execute("SELECT target,detail_json FROM events WHERE action IN (" + privacy.RUN_TASK_EVENTS_SQL + ")"):
                 if aid in rows:
                     rows[aid]["tasks"].update(self.references(H._json(detail, {}) or {}))
             self._attempts = rows

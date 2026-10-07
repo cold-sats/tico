@@ -79,6 +79,10 @@ Other controls: **Reset install ID** in Settings > Privacy (or `... usage-count 
 random ID, so the old one no longer connects to your install; do it when you clone a server. `TICO_UPDATE_CHECK=off`
 stops the update check altogether, and with it the count. `TICO_HQ_URL` points the check at your own HQ.
 
+At each start of a release image, the server also asks GitHub which commit that release's tag names
+(`GET api.github.com/repos/ticoteam/tico/commits/v<version>`, nothing else in the request) to check its image was built from it
+([flight recorder](docs/observability.md#the-flight-recorder)). `TICO_UPDATE_CHECK=off` stops this too.
+
 ### Check it yourself
 
 - `TICO_TELEMETRY_DEBUG=1` prints the exact request Tico would send to the server log and sends nothing.

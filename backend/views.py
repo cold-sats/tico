@@ -1,17 +1,19 @@
 """Existing frontend read models over cloud records. Never import the local hub server."""
 
-import asyncio
 import json
+import os
 import re
 from datetime import timezone
+from typing import Literal
 
 import yaml
-from fastapi import Request
-from fastapi.responses import PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import Query, Request
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from . import access as Access
 from . import bot_access as A
 from . import models as M
+from . import changelog as CL
 from . import providers, runner_versions
 from . import rooms, team_rules, turns
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
@@ -329,6 +331,14 @@ def operation_issues(c, who, auth):
             add("agent", bot["display_name"] + " has no agent credential",
                 "Create one in Settings → Bots and install it in the " + agent["harness"] + " profile.",
                 bot=slug, needs_person=False)
+        elif agent and bot["state"] == "active" and not location["online"] and agent.get("synced"):
+            detail = ("Last sync " + agent["last_seen"] + "." if agent["last_seen"] else "No history has synced yet.")
+            if queued:
+                detail += (f" {queued} unread message{'s' if queued != 1 else ''} stored in Tico; "
+                           "messages are not relayed back to Grok.")
+            add("agent", bot["display_name"] + "'s history has not synced lately", detail,
+                bot=slug, since=agent["last_seen"], severity="warning", needs_person=False,
+                action="Run the existing history sync in Grok Bot to refresh this copy.")
         elif agent and bot["state"] == "active" and not location["online"]:
             detail = ("Last heartbeat " + agent["last_seen"] + "." if agent["last_seen"]
                       else "No heartbeat yet: install the credential and the heartbeat timer on its box.")
@@ -367,6 +377,8 @@ def operation_issues(c, who, auth):
             machine=runner_id, since=entry["since"], severity="warning", needs_person=False)
         issues[-1]["bots"] = entry["slugs"]     # the bot pages find their machine's issue by this
     if who.role == "owner":
+        # Container backups report through replication; imported VM timer history stays historical.
+        managed_backups = bool(os.environ.get("TICO_BACKUP_MODE"))
         for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,version,checkout_json,restart_requested "
                              "FROM runners WHERE revoked_at IS NULL"):
             online = row["last_seen"] and row["last_seen"] > H.shift(H.now(), seconds=-60)
@@ -377,6 +389,8 @@ def operation_issues(c, who, auth):
             if online:
                 checkout_issue(add, row, runner_busy(c, row["id"]))
         for row in c.execute("SELECT service,last_error,detail_json FROM service_health WHERE last_error IS NOT NULL"):
+            if managed_backups and row["service"] in ("backup", "restore-check"):
+                continue
             detail = json.loads(row["detail_json"] or "{}")
             if row["service"] == "github:token":
                 # Only the App itself failing is a system problem, and only while it is recent and unrecovered.
@@ -405,7 +419,15 @@ def operation_issues(c, who, auth):
         # the same limits as the CloudWatch alarms; the hub is the notification channel.
         # Both run daily after 03:00 UTC and the restore check retries hourly, so 36 hours
         # means the retries are failing too.
-        for service, label, limit in (("backup", "verified backup", 36), ("restore-check", "isolated restore check", 36)):
+        if managed_backups:
+            from . import health, replication
+            check = health._backups({"backup": replication.status()}, auth.settings)
+            if check["status"] in ("warn", "bad"):
+                add("service", "Backups need attention", check["summary"],
+                    severity="error" if check["status"] == "bad" else "warning",
+                    action="Review Backups in Settings → Health.")
+        for service, label, limit in (() if managed_backups else
+                (("backup", "verified backup", 36), ("restore-check", "isolated restore check", 36))):
             row = c.execute("SELECT last_success FROM service_health WHERE service=?", (service,)).fetchone()
             last = H.parse_ts(row["last_success"]) if row and row["last_success"] else None
             if last and last < H.parse_ts(H.shift(H.now(), hours=-limit)):
@@ -420,18 +442,6 @@ def operation_issues(c, who, auth):
             add("settings", "A prepared settings change failed", row["error"] or "Review or cancel the change.",
                 bot=row["bot"], action="Review or cancel the failed change in Settings → Bots.")
     return issues
-
-
-def snapshot_mark(c, cid):
-    """What changes when a conversation's snapshot does, in one cheap read: its newest message and
-    count, and its latest job with that job's attempt (state, lease, steps written)."""
-    return tuple(c.execute(
-        "SELECT (SELECT coalesce(updated_at,'')||status FROM chat_goals WHERE conversation_id=?),"
-        " (SELECT max(rowid) FROM messages WHERE conversation_id=?),"
-        " (SELECT count(*) FROM messages WHERE conversation_id=?),"
-        " (SELECT j.id||'|'||j.state||'|'||coalesce(a.state,'')||'|'||coalesce(a.last_seq,0)||'|'||coalesce(a.lease_until,'')"
-        "  FROM jobs j JOIN messages m ON m.id=j.message_id LEFT JOIN attempts a ON a.id=j.attempt_id"
-        "  WHERE m.conversation_id=? ORDER BY m.rowid DESC LIMIT 1)", (cid, cid, cid, cid)).fetchone())
 
 
 def conversation_snapshot(c, cid, who=None):
@@ -739,34 +749,6 @@ def fleet_snapshot(c, auth, identity, task_view):
             "approvals": [row for row in items if row.get("kind") == "approval"]}
 
 
-def _stored_product_updates(c):
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key='product_updates'").fetchone()
-    return json.loads(row[0]) if row else []
-
-
-def _packaged_product_updates(settings):
-    path = Path(settings.registry_dir) / "product-updates.yaml"
-    if not path.exists():
-        return []
-    rows = yaml.safe_load(path.read_text()) or []
-    out = []
-    for i, row in enumerate(rows if isinstance(rows, list) else []):
-        if not isinstance(row, dict) or not str(row.get("title") or "").strip():
-            continue
-        bullets = [str(item).strip() for item in (row.get("bullets") or []) if str(item).strip()]
-        if not bullets:
-            continue
-        out.append({"id": "packaged-" + str(i), "title": str(row["title"]).strip(),
-                    "bullets": bullets, "shipped_at": str(row.get("shipped_at") or "")})
-    return out
-
-
-def _product_updates(c, settings):
-    extra = _stored_product_updates(c)
-    seen = {row.get("title") for row in extra}
-    return extra + [row for row in _packaged_product_updates(settings) if row["title"] not in seen]
-
-
 def install_views(app, store, auth, mutate, task_view):
     def visible_turns(c, who, bot=None, limit=200):
         auth.domain(who)
@@ -862,7 +844,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                              "icon": icon_of(configs.get(slug, {}) or {}),
                              "helper": helper(configs.get(slug, {}) or {}),
-                             "can_chat": may_chat(c, auth, who, slug)})
+                             "can_chat": level["write"] and slug != auth.settings.assistant_bot})
                 continue
             config = configs.get(slug, {})
             # Configuration contains connector requirements, never connector credentials.
@@ -890,7 +872,8 @@ def install_views(app, store, auth, mutate, task_view):
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                          "icon": icon_of(config), "helper": helper(config),
-                         "my_access": level, **policy, "can_chat": may_chat(c, auth, who, slug)})
+                         "my_access": level, **policy,
+                         "can_chat": level["write"] and slug != auth.settings.assistant_bot})
         return rows
 
     @app.get("/api/me")
@@ -900,7 +883,12 @@ def install_views(app, store, auth, mutate, task_view):
         with store.read() as c:
             r = roster(c)
             person = P.person(H.actor_id(who.actor), r) or {}
-            bots = [row["name"] for row in employee_rows(c, who) if row["can_chat"]]
+            # Sign-in needs chat choices, not every bot's routines, machine and setup state.
+            access = auth.bot_accesses(c, who)
+            bots = [row["slug"] for row in H.bots(c)
+                    if row["state"] != "archived" and row["slug"] != store.settings.assistant_bot
+                    and access.get(row["slug"], auth.FULL)["see"]
+                    and access.get(row["slug"], auth.FULL)["write"]]
             from .credentials import administrator, can_open
             from .onboarding import config_view
             from .mail import can_access
@@ -1092,14 +1080,20 @@ def install_views(app, store, auth, mutate, task_view):
             return "\n".join(lines) + "\n"
 
     @app.get("/api/changelog")
-    def changelog(request: Request):
+    @app.get("/api/v2/changelog")
+    def changelog(request: Request, kind: Literal["product", "activity", "all"] = "all", unread: bool = False,
+                  q: str = "", since_version: str | None = None,
+                  limit: int = Query(250, ge=1, le=250), offset: int = Query(0, ge=0)):
         who = request.state.identity
         human_only(who)
+        if since_version is not None and CL.releases.parse(since_version) is None:
+            raise Problem("version", "since_version must be a version such as 0.3.0", 422)
         with store.read() as c:
+            read = CL.read_ids(c, who.actor)
+            products = [{**row, "unread": row["id"] not in read} for row in CL.products(c, store.settings)]
             entries = []
-            for row in _product_updates(c, store.settings):
-                entries.append({**row, "area": "Product", "kind": "product"})
-            for task in H.tasks(c, status="done"):
+            activity = H.tasks(c, status="done") if kind != "product" and not unread and since_version is None else []
+            for task in activity:
                 if not str(task.get("owner", "")).startswith("bot:") or len((task.get("note") or "").strip()) < 20:
                     continue
                 try:
@@ -1111,8 +1105,31 @@ def install_views(app, store, auth, mutate, task_view):
                                 "bullets": [note[:280]], "area": "Agent activity", "kind": "activity",
                                 "shipped_at": task.get("done_at") or task["updated"], "task_id": task["id"]})
             entries.sort(key=lambda row: row["shipped_at"] or "", reverse=True)
-            return {"entries": entries[:120], "drafts": [], "can_review": False,
+            # Busy bot activity cannot push shipped releases out of the product view.
+            entries = products + entries[:120]
+            entries.sort(key=lambda row: row["shipped_at"] or "", reverse=True)
+            if kind != "all":
+                entries = [row for row in entries if row["kind"] == kind]
+            if unread:
+                entries = [row for row in entries if row.get("unread")]
+            if since_version is not None:
+                entries = [row for row in entries if CL.releases.newer(row.get("version"), since_version)]
+            if q.strip():
+                words = q.lower().split()
+                entries = [row for row in entries if all(word in (row["title"] + " " + " ".join(row["bullets"])).lower()
+                                                         for word in words)]
+            next_offset = offset + limit if offset + limit < len(entries) else None
+            return {"entries": entries[offset:offset + limit], "next_offset": next_offset,
+                    "unread_count": sum(row["unread"] for row in products),
+                    "current_version": CL.releases.version(), "drafts": [], "can_review": False,
                     "can_add": who.role == "owner"}
+
+    @app.post("/api/changelog/read")
+    @app.post("/api/v2/changelog/read")
+    def read_changelog(request: Request, body: M.ChangelogRead):
+        who = request.state.identity
+        human_only(who)
+        return mutate(request, body, lambda c: CL.mark_read(c, store.settings, who.actor, body.ids))
 
     @app.post("/api/changelog")
     def add_product_update(request: Request, body: M.ChangelogPost):
@@ -1124,7 +1141,7 @@ def install_views(app, store, auth, mutate, task_view):
         if not bullets:
             raise Problem("changelog", "A product update needs at least one bullet", 422)
         def work(c):
-            extra = _stored_product_updates(c)
+            extra = CL.stored_products(c)
             extra.insert(0, {"id": "product-" + H.now().replace(":", "").replace("-", ""),
                              "title": body.title.strip(), "bullets": bullets, "shipped_at": H.now()})
             c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('product_updates',?)",
@@ -1167,8 +1184,11 @@ def install_views(app, store, auth, mutate, task_view):
                 state += "\n\nFocus: " + status["focus"]
             if status.get("last_result"):
                 state += "\n\nLast result: " + status["last_result"]
+            from .memory_history import documents
+            memory = documents(c, bot)
             return {"AGENT.md": instructions,
-                    "state.md": state + "\n", "memory/learnings.md": "", "memory/decisions.md": "",
+                    "state.md": state + "\n", "memory/learnings.md": memory.get("memory/learnings.md", ""),
+                    "memory/decisions.md": memory.get("memory/decisions.md", ""),
                     "bot.yaml": yaml.safe_dump(safe, sort_keys=False, allow_unicode=True),
                     "employee.yaml": yaml.safe_dump(safe, sort_keys=False, allow_unicode=True),
                     "playbooks": {}, "source": "cloud registry and status snapshot"}
@@ -1328,52 +1348,3 @@ def install_views(app, store, auth, mutate, task_view):
             snap = conversation_snapshot(c, cid, request.state.identity)
             turns.annotate(c, auth, request.state.identity, snap["messages"])
             return snap
-
-    @app.get("/api/v2/conversations/{cid}/watch")
-    async def watch(request: Request, cid: str):
-        who = request.state.identity
-        def read_snapshot():
-            auth.authenticate(request.headers)
-            with store.read() as c:
-                auth.conversation(c, who, cid)
-                snap = conversation_snapshot(c, cid, who)
-                turns.annotate(c, auth, who, snap["messages"])
-                return encode(snap)
-        def read_mark():
-            with store.read() as c:
-                return snapshot_mark(c, cid)
-        initial = await asyncio.to_thread(read_snapshot)
-        async def generate():
-            previous, mark = initial, await asyncio.to_thread(read_mark)
-            previous_goal = json.loads(initial).get("goal")
-            yield f"event: snapshot\ndata: {initial}\n\n"
-            yield f"event: goal\ndata: {encode({'type': 'goal', 'goal': previous_goal})}\n\n"
-            for tick in range(55):
-                await asyncio.sleep(1)
-                if await request.is_disconnected():
-                    return
-                # The full snapshot (the newest 200 messages, the run and its steps) is rebuilt
-                # only when the conversation's mark moves, and every fifth second in any case for
-                # what the mark does not see (a computer going offline, a card's refs changing).
-                try:
-                    now_mark = await asyncio.to_thread(read_mark)
-                    if now_mark == mark and tick % 5 != 4:
-                        yield ': keepalive\n\n'
-                        continue
-                    mark = now_mark
-                    current = await asyncio.to_thread(read_snapshot)
-                except Problem:
-                    yield 'event: expired\ndata: {}\n\n'
-                    return
-                if current != previous:
-                    yield f"event: snapshot\ndata: {current}\n\n"
-                    goal = json.loads(current).get("goal")
-                    if goal != previous_goal:
-                        yield f"event: goal\ndata: {encode({'type': 'goal', 'goal': goal})}\n\n"
-                        previous_goal = goal
-                    previous = current
-                else:
-                    yield ': keepalive\n\n'
-            # EventSource reconnects and receives a complete snapshot, not duplicate deltas.
-        return StreamingResponse(generate(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})

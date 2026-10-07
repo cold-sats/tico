@@ -24,6 +24,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const page = await browser.newPage({viewport: {width: 1200, height: 900}, serviceWorkers: 'block'});
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
+    const flowAsked = [];
     const bots = [['coo', 'COO', 'leadership'], ['cpo', 'AI CPO', 'product'], ['cmo', 'AI CMO', 'marketing'],
       ['cto', 'CTO', 'engineering']].map(([name, display_name, team]) =>
       ({name, display_name, host: 'keeper', status: 'active', can_chat: true, team,
@@ -44,7 +45,9 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       task('Draft the newsletter', {rank: 2, labels: ['newsletter'], tags: [tags[0]], body: 'Review [packet](http://tico-ui.test/api/v2/files/doc).',
         attachments: [{id: 'doc', name: 'review-packet.md'}, {id: 'clip', name: 'first-cut.mp4'}, {id: 'archive', name: 'source.zip'}]}),
       task('Approve the budget', {owner: 'human:reviewer', requester: 'bot:coo', rank: 1, labels: ['finance'], note: 'Waiting on finance approval'}),
-      task('Write the copy', {rank: 1, labels: ['newsletter', 'copy']}),
+      task('Write the copy', {rank: 1, labels: ['newsletter', 'copy'], relations: {
+        related: [{id: 'Draft the newsletter', title: 'Draft the newsletter', status: 'open', owner: 'bot:cmo', direction: 'both'}],
+        duplicate_of: [{id: 'Fix the checkout bug', title: 'Fix the checkout bug', status: 'open', owner: 'bot:cpo', direction: 'in'}]}}),
       task('Ship the pricing page', {owner: 'bot:cpo', lane: 'product', status: 'review', rank: 1,
         links: [{id: 'l1', kind: 'pr', url: 'https://github.com/ticoteam/tico/pull/412', title: 'tico#412', state: 'open'}], parts: {total: 2, done: 1}}),
       task('Fix the checkout bug', {owner: 'bot:cpo', lane: 'product', status: 'open', rank: 2, labels: ['bug']}),
@@ -77,6 +80,15 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         {id: 'release-review', title: 'Review release readiness', employee: 'cpo', cron: '0 9 * * 1', active: true, enabled: true, next: now},
         {id: 'build-review', title: 'Review build health', employee: 'cto', cron: '0 9 * * 1', active: true, enabled: true, next: now}]});
       if (p === '/api/humans') return json({people});
+      if (p === '/api/v2/tasks/flow') {
+        flowAsked.push(Object.fromEntries(url.searchParams));
+        const day = back => { const d = new Date(); d.setDate(d.getDate() - back);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+        const days = Array.from({length: 20}, (_, i) => ({day: day(i), created: 3 + (i % 5), doing: 2 + (i % 3), done: 1 + (i * 7 % 6), closed: i % 4}));
+        const totals = {}; for (const d of days) for (const [k, v] of Object.entries(d)) if (k !== 'day') totals[k] = (totals[k] || 0) + v;
+        return json({since: now, days, totals, steps: [], stages: {open: {n: 40, median_hours: 0.4, p90_hours: 9}, doing: {n: 38, median_hours: 2.5, p90_hours: 30},
+          done: {n: 20, median_hours: 52, p90_hours: 80}}, people: [{actor: 'bot:cmo', created: 30, done: 22, closed: 10}, {actor: 'human:reviewer', created: 8, done: 3}]});
+      }
       if (p === '/api/v2/tasks/labels') return json({labels: ['newsletter', 'copy', 'bug', 'finance'], tags: [tags[0]]});
       if (p === '/api/v2/tags' && req.method() === 'GET') return json({tags});
       if (p === '/api/v2/tags' && req.method() === 'POST') {
@@ -204,6 +216,23 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-view [data-view="board"]').click();
     await page.waitForFunction(() => document.querySelectorAll('#task-body .bcol').length === 4 && document.querySelectorAll('#task-body .bcard').length === 3);
     if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-board-kanban.png')});
+    // Stats: status changes over time. A tile picks the charted stage; an owner row narrows to that owner.
+    await page.locator('#task-stats').click();
+    await page.locator('#task-stats-dialog .flow-chart .flow-bar').first().waitFor();
+    assert.equal(await page.locator('#task-stats-dialog .flow-col').count(), 30, 'one column per day in the range');
+    assert.match(await page.locator('#task-stats-dialog .flow-tile.cur').innerText(), /Done/);
+    await page.locator('#task-stats-dialog [data-stage="created"]').click();
+    assert.match(await page.locator('#task-stats-dialog .flow-chart-head').innerText(), /New per day/);
+    await page.locator('#task-stats-dialog [data-days="7"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#task-stats-dialog .flow-col').length === 7);
+    await page.locator('#task-stats-dialog .flow-people tr[data-owner="cmo"]').click();
+    await page.waitForFunction(() => document.querySelector('#task-stats-dialog select[data-flow="owner"]').value === 'cmo');
+    assert.deepEqual([flowAsked.at(-1).owner, flowAsked.at(-1).days], ['cmo', '7']);
+    if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-stats.png')});
+    await page.locator('#task-stats-dialog [data-close]').click();
+    // A card with related tasks shows how many, like an attachment count; one without shows nothing.
+    const relCounts = await page.locator('#task-body .bcard').evaluateAll(cs => cs.map(c => c.querySelector('.bcard-rel')?.getAttribute('aria-label') || ''));
+    assert.deepEqual(relCounts.filter(Boolean), ['2 related tasks']);
     await page.locator('#task-body .bcard').first().click();
     await page.locator('#task-peek[open]').waitFor();
     assert.equal(await page.locator('#task-modal[open]').count(), 0, 'a card opens beside the board, not over it');
@@ -366,14 +395,14 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const resultPost = posted.find(x => x.path === '/api/v2/tasks/Approve%20the%20budget' && x.body.status === 'done');
     assert.equal(resultPost.body.note, 'Keep the budget on hold.');
 
-    // Someone who may not move tasks (here the one who asked): no tag +, no Part of or Blocked by pickers, but the comment box
+    // Someone who may not move tasks (here the one who asked): no tag + and no Part of picker, but the comment box
     me = {...me, role: 'viewer', mover: false};
     await page.evaluate(() => { S.me = {...S.me, mover: false}; taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Draft the newsletter')); });
     await page.waitForTimeout(50);
     await page.locator('#task-modal .task-comments').waitFor();
     await page.locator('#task-modal [data-task-props]').waitFor();
-    assert.equal(await page.locator('#task-modal [data-prop="tags"], #task-modal [data-prop="parent"], #task-modal [data-prop="blocked"]').count(), 0);
-    assert.equal(await page.locator('#task-modal [data-prop-row="blocked"] .prop-v.ro').count(), 1, 'shown, read-only');
+    assert.equal(await page.locator('#task-modal [data-prop="tags"], #task-modal [data-prop="parent"]').count(), 0);
+    assert.equal(await page.locator('#task-modal [data-prop-row="parent"] .prop-v.ro').count(), 1, 'shown, read-only');
     assert.equal(await page.getByRole('textbox', {name: 'Add a comment'}).count(), 1);
     await page.locator('#task-modal [data-modal-close]').click();
     tasks.find(t => t.id === 'Approve the budget').status = 'open';

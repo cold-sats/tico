@@ -30,8 +30,8 @@ function tipHTML(slug) {
   }
   if (S.me?.cloud && e && e.agent) {
     rows.push(['Run by', esc(`${agentKind(e.agent)}${e.agent.profile ? ` · ${e.agent.profile}` : ''}`)]);
-    rows.push(['Status', !e.agent.credential ? 'No credential yet' : e.online ? 'Reporting in' : 'Not reporting']);
-    if (e.agent.last_seen) rows.push(['Last seen', esc(ago(e.agent.last_seen))]);
+    rows.push(['Status', agentPresenceLabel(e.agent, e.online)]);
+    if (e.agent.last_seen) rows.push([e.agent.synced ? 'Last sync' : 'Last seen', esc(ago(e.agent.last_seen))]);
   } else if (S.me?.cloud && e) {
     rows.push(['Computer', esc(e.machine?.label || 'Not registered')]);
     rows.push(['Status', e.online ? (e.ready ? 'Online · ready' : 'Online · setup needed') : 'Offline']);

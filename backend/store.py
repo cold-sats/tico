@@ -2,7 +2,10 @@
 
 import hashlib
 import json
+import os
 import sqlite3
+import threading
+import time
 from contextlib import contextmanager
 
 import yaml
@@ -96,7 +99,8 @@ CREATE TABLE IF NOT EXISTS runners(
  id TEXT PRIMARY KEY, label TEXT NOT NULL, operator TEXT NOT NULL REFERENCES humans(id),
  token_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL, last_seen TEXT,
  revoked_at TEXT, platform TEXT, version TEXT, capacity INTEGER NOT NULL DEFAULT 4,
- readiness_json TEXT NOT NULL DEFAULT '{}', awake_since TEXT, checkout_json TEXT,
+ readiness_json TEXT NOT NULL DEFAULT '{}', capabilities_json TEXT NOT NULL DEFAULT '[]',
+ awake_since TEXT, checkout_json TEXT,
  restart_requested TEXT);
 CREATE TABLE IF NOT EXISTS model_logins(
  id TEXT PRIMARY KEY, runner_id TEXT NOT NULL REFERENCES runners(id), runtime TEXT NOT NULL,
@@ -117,11 +121,11 @@ CREATE TABLE IF NOT EXISTS human_tokens(
  id TEXT PRIMARY KEY, human TEXT NOT NULL REFERENCES humans(id), label TEXT NOT NULL,
  token_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL, created_by TEXT NOT NULL,
  last_used TEXT, expires_at TEXT, revoked_at TEXT);
--- Service keys (backend/service_keys.py): another system's credential for one route, as a hash, and
--- the task each (key, that system's own key for the work) pair names.
+-- Service keys (backend/service_keys.py): another system's credential for a few routes (its scope), as a
+-- hash, and the task each (key, that system's own key for the work) pair names.
 CREATE TABLE IF NOT EXISTS service_keys(
  id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL,
- created_by TEXT NOT NULL, last_used TEXT, revoked_at TEXT, revoked_by TEXT);
+ created_by TEXT NOT NULL, last_used TEXT, revoked_at TEXT, revoked_by TEXT, scope TEXT NOT NULL DEFAULT 'tasks');
 CREATE TABLE IF NOT EXISTS service_key_tasks(
  key_id TEXT NOT NULL REFERENCES service_keys(id), external_key TEXT NOT NULL,
  task_id TEXT NOT NULL REFERENCES tasks(id), created TEXT NOT NULL, PRIMARY KEY(key_id, external_key));
@@ -135,6 +139,27 @@ CREATE TABLE IF NOT EXISTS oidc_codes(
 CREATE TABLE IF NOT EXISTS assignments(
  bot TEXT PRIMARY KEY REFERENCES bots(slug), runner_id TEXT NOT NULL REFERENCES runners(id),
  generation INTEGER NOT NULL, updated TEXT NOT NULL, updated_by TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS assignment_branches(
+ id TEXT PRIMARY KEY, source_bot TEXT NOT NULL REFERENCES bots(slug), assignment_key TEXT NOT NULL,
+ generation INTEGER NOT NULL CHECK(generation>=1), bot TEXT NOT NULL UNIQUE REFERENCES bots(slug),
+ task_id TEXT NOT NULL REFERENCES tasks(id), allocator TEXT NOT NULL, runner_id TEXT NOT NULL REFERENCES runners(id),
+ display_name TEXT NOT NULL, phase TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+ request_hash TEXT NOT NULL, checkpoint_json TEXT NOT NULL DEFAULT '{}', receipts_json TEXT NOT NULL DEFAULT '{}',
+ created TEXT NOT NULL, updated TEXT NOT NULL, archived_at TEXT,
+ UNIQUE(source_bot,assignment_key,generation));
+CREATE UNIQUE INDEX IF NOT EXISTS assignment_branch_live_task ON assignment_branches(source_bot,task_id)
+ WHERE phase NOT IN ('archived','cancelled');
+CREATE INDEX IF NOT EXISTS assignment_branch_source_phase ON assignment_branches(source_bot,phase,created);
+CREATE TABLE IF NOT EXISTS assignment_branch_events(
+ id TEXT PRIMARY KEY, assignment_id TEXT NOT NULL REFERENCES assignment_branches(id),
+ actor TEXT NOT NULL, action TEXT NOT NULL, detail_json TEXT NOT NULL DEFAULT '{}', created TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS assignment_branch_events_by_assignment ON assignment_branch_events(assignment_id,created);
+CREATE TABLE IF NOT EXISTS assignment_branch_cleanup(
+ assignment_id TEXT PRIMARY KEY REFERENCES assignment_branches(id), runner_id TEXT NOT NULL REFERENCES runners(id),
+ state TEXT NOT NULL CHECK(state IN ('requested','blocked','complete')), requested_by TEXT NOT NULL,
+ requested TEXT NOT NULL, updated TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', completed TEXT,
+ attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt>=1));
+CREATE INDEX IF NOT EXISTS assignment_branch_cleanup_pending ON assignment_branch_cleanup(runner_id,state,updated);
 CREATE TABLE IF NOT EXISTS jobs(
  id TEXT PRIMARY KEY, message_id TEXT NOT NULL UNIQUE REFERENCES messages(id),
  bot TEXT NOT NULL REFERENCES bots(slug), state TEXT NOT NULL DEFAULT 'queued',
@@ -161,6 +186,8 @@ CREATE TABLE IF NOT EXISTS attempt_conversations(
 CREATE TABLE IF NOT EXISTS attempt_inputs(
  attempt_id TEXT NOT NULL REFERENCES attempts(id), message_id TEXT PRIMARY KEY REFERENCES messages(id),
  acked_at TEXT);
+-- A run's inputs by run (backend/task_privacy.py attempt_tasks): without it each lookup scanned every message.
+CREATE INDEX IF NOT EXISTS attempt_inputs_attempt ON attempt_inputs(attempt_id);
 CREATE TABLE IF NOT EXISTS idempotency(
  actor TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
  request_hash TEXT NOT NULL, response_json TEXT NOT NULL, created TEXT NOT NULL,
@@ -512,12 +539,46 @@ class Problem(Exception):
         self.extra = extra or {}
 
 
-class Store:
-    def __init__(self, settings):
-        self.settings = settings
+POOL_IDLE = 16     # read connections kept open between reads
 
-    def connect(self):
-        c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None)
+
+def _pooled(base):
+    """`base` for pooled reads: one a caller changed (a function, an authorizer, a progress handler, a pragma that
+    lasts) is closed after its read instead of reused, so no state reaches another caller's read."""
+    def taint(name):
+        method = getattr(base, name)
+
+        def changed(self, *args, **kwargs):
+            self.tainted = True
+            return method(self, *args, **kwargs)
+        return changed
+
+    names = ("create_function", "create_aggregate", "create_window_function", "create_collation", "set_authorizer",
+             "set_progress_handler", "set_trace_callback", "enable_load_extension", "setlimit", "executescript")
+    body = {name: taint(name) for name in names if hasattr(base, name)}
+    body["tainted"] = False
+    body["pool_file"] = None
+    body["tables_seen"] = {}    # {pool_file: tables seen to exist}, shared by this store's connections (hubdb._has_table)
+    return type("Pooled" + base.__name__, (base,), body)
+
+
+class Store:
+    def __init__(self, settings, recorder=None):
+        self.settings = settings
+        # The flight recorder (backend/flight.py) times every statement and write transaction when one is given.
+        self.recorder = recorder
+        self.factory = sqlite3.Connection
+        if recorder is not None:
+            from .flight import connection_class
+            self.factory = connection_class(recorder)
+        # Reads reuse their connections (`read`): a new one parses the whole schema before its first statement,
+        # which on a large install cost more than most reads themselves.
+        self.pooled = _pooled(self.factory)
+        self.pool, self.pool_file, self.pool_lock = [], None, threading.Lock()
+
+    def connect(self, factory=None, check_same_thread=True):
+        c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None,
+                            factory=factory or self.factory, check_same_thread=check_same_thread)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA foreign_keys=ON")
         # As hubdb.connect: a writer waits out a backup checkpoint or a long scheduler pass
@@ -537,6 +598,10 @@ class Store:
             c.executescript(_runner_versions.SCHEMA)
             from . import files as _files
             c.executescript(_files.SCHEMA)
+            from . import memory_history as _memory_history
+            c.executescript(_memory_history.SCHEMA)
+            from . import learnings as _learnings
+            c.executescript(_learnings.SCHEMA)
             from . import docs as _docs
             _docs.ensure_schema(c, self.settings)
             from . import bot_tools as _bot_tools
@@ -549,6 +614,8 @@ class Store:
             c.executescript(_watchers.SCHEMA)
             from . import slack_channels as _slack_channels
             c.executescript(_slack_channels.SCHEMA)
+            from . import flight as _flight
+            c.executescript(_flight.SCHEMA)
             _updates.purge_rejected(c)
             c.execute("BEGIN IMMEDIATE")
             try:
@@ -812,7 +879,7 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=29").fetchone():
                     # The tasks board: a lane picks the
                     # pipeline, a rank is the place in the owner's queue, labels stand in for
-                    # projects, blocked_by points at the task in the way. task_links and
+                    # projects (blockers are task_relations rows now, migration 60). task_links and
                     # preferences are created above. A comment tagged `quiet` never queues a
                     # turn (same explicit trigger replacement as migration 11).
                     columns = {row[1] for row in c.execute("PRAGMA table_info(tasks)")}
@@ -822,8 +889,6 @@ class Store:
                         c.execute("ALTER TABLE tasks ADD COLUMN rank REAL")
                     if "labels_json" not in columns:
                         c.execute("ALTER TABLE tasks ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]'")
-                    if "blocked_by" not in columns:
-                        c.execute("ALTER TABLE tasks ADD COLUMN blocked_by TEXT")
                     c.execute("CREATE INDEX IF NOT EXISTS tasks_owner_rank ON tasks(owner, rank)")
                     # day one looks like yesterday: every open task keeps its creation order
                     marks = ",".join("?" * len(H.ACTIVE_STATUSES))
@@ -866,8 +931,6 @@ class Store:
                     c.execute("CREATE INDEX IF NOT EXISTS tasks_finished_lane_time ON tasks("
                               "lane,COALESCE(closed_at,done_at,updated,created) DESC,id DESC) "
                               "WHERE status IN ('done','closed')")
-                    c.execute("CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id)")
-                    c.execute("CREATE INDEX IF NOT EXISTS tasks_blocked_by ON tasks(blocked_by)")
                     c.execute("CREATE INDEX IF NOT EXISTS schedule_occurrences_task ON schedule_occurrences(task_id)")
                     c.execute("CREATE INDEX IF NOT EXISTS events_task_origin ON events(actor,action,target,ts DESC)")
                     c.execute("INSERT INTO cloud_migrations VALUES(33,?)", (H.now(),))
@@ -987,13 +1050,28 @@ class Store:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=57").fetchone():
                     H.migrate_task_privacy(c)
                     c.execute("INSERT INTO cloud_migrations VALUES(57,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=58").fetchone():
+                    H.add_column(c, "runners", "capabilities_json", "TEXT NOT NULL DEFAULT '[]'")
+                    c.execute("INSERT INTO cloud_migrations VALUES(58,?)", (H.now(),))
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=59").fetchone():
                     H._apply(c, H.WAITING_ON_SCHEMA)
                     c.execute("INSERT INTO cloud_migrations VALUES(59,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=60").fetchone():
+                    # Every task-to-task relationship in task_relations; tasks.parent_id and
+                    # tasks.blocked_by move into it and are dropped (hubdb migration 30 does the same).
+                    from . import task_relations as _task_relations
+                    _task_relations.migrate(c)
+                    c.execute("INSERT INTO cloud_migrations VALUES(60,?)", (H.now(),))
                 # Deleted tasks wait here until restored or purged; created unversioned, like the
                 # trigger below, so it never takes a migration number another change needs.
                 from .task_delete import ensure as ensure_task_trash
                 ensure_task_trash(c)
+                # A service key's scope (backend/service_keys.py); every older key files tasks. Unversioned like
+                # the trash: an older release reads the table as before and never sees the column.
+                H.add_column(c, "service_keys", "scope", "TEXT NOT NULL DEFAULT 'tasks'")
+                # The change log live events are read from (backend/events.py); idempotent.
+                from .events import ensure as ensure_changes
+                ensure_changes(c)
                 c.execute("""CREATE TRIGGER IF NOT EXISTS repository_new_bot_default
                     AFTER INSERT ON bot_config
                     WHEN json_extract(NEW.config_json,'$.repo_access_mode') IS NULL
@@ -1074,22 +1152,78 @@ class Store:
 
     @contextmanager
     def read(self):
-        c = self.connect()
+        c = self._take()
         try:
             yield c
         finally:
-            c.close()
+            self._give(c)
+
+    def _file(self):
+        try:
+            stat = os.stat(self.settings.db_path)
+        except OSError:
+            return None
+        return stat.st_dev, stat.st_ino
+
+    def _take(self):
+        identity = self._file()
+        with self.pool_lock:
+            if identity != self.pool_file:
+                # A restored or replaced database file: connections to the old one are not reused.
+                stale, self.pool, self.pool_file = self.pool, [], identity
+            else:
+                stale = []
+            c = self.pool.pop() if self.pool else None
+        for old in stale:
+            old.close()
+        if c is None:
+            c = self.connect(factory=self.pooled, check_same_thread=False)
+            c.pool_file = identity
+        return c
+
+    def _give(self, c):
+        # Only a connection left as it was handed out goes back: no open transaction, nothing per-caller installed.
+        try:
+            if c.in_transaction:
+                c.rollback()
+            if c.row_factory is not sqlite3.Row:
+                c.row_factory = sqlite3.Row
+        except sqlite3.Error:
+            c.tainted = True
+        with self.pool_lock:
+            if not c.tainted and c.pool_file == self.pool_file and len(self.pool) < POOL_IDLE:
+                self.pool.append(c)
+                return
+        c.close()
 
     @contextmanager
     def transaction(self):
         with self.read() as c:
-            c.execute("BEGIN IMMEDIATE")
+            if self.recorder is None:
+                c.execute("BEGIN IMMEDIATE")
+                try:
+                    yield c
+                    c.commit()
+                except Exception:
+                    c.rollback()
+                    raise
+                return
+            # The flight recorder: how long the write lock took to get, and how long it was held.
+            started = time.perf_counter()
+            try:
+                c.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                self.recorder.transaction((time.perf_counter() - started) * 1000, 0.0, "locked" in str(exc))
+                raise
+            held = time.perf_counter()
             try:
                 yield c
                 c.commit()
             except Exception:
                 c.rollback()
                 raise
+            finally:
+                self.recorder.transaction((held - started) * 1000, (time.perf_counter() - held) * 1000)
 
     def seed_goals(self, c):
         """`registry/goals.yaml`, once per goal (backend/goals.py `seed`): the first draft of the
@@ -1150,7 +1284,7 @@ class Store:
             raise Problem("idempotency_key", "Provide an Idempotency-Key of 1–200 characters", 422)
         hashed = digest(encode(body))
         principal = identity.actor + (":" + identity.attempt_id if identity.role == "bot" else "")
-        refusal = None
+        refusal = logged = None
         with self.transaction() as c:
             # Authenticate leases again under the same write lock as the mutation.
             from .auth import validate_identity
@@ -1205,17 +1339,23 @@ class Store:
                     replay_auth.task(c, replay_principal, task_id)
                 privacy.require_payload(c, replay_principal, result)
                 return result
+            # Who made the changes this write logs (backend/events.py).
+            from . import events as changes
             c.execute("SAVEPOINT domain_write")
+            since = changes.mark(c)
             try:
                 result = fn(c)
+                logged = changes.claim(c, since, identity.actor)
                 c.execute("RELEASE domain_write")
             except H.Refused as exc:
+                logged = None                   # rolled back with the write
                 refusal = refused(c, identity, exc)
                 result = {"_refusal": {"code": refusal.code, "detail": ("Private task write refused" if getattr(exc, "private", False) else refusal.detail),
                                        "status": refusal.status}}
             if not is_poll(operation, result):
                 c.execute("INSERT INTO idempotency VALUES(?,?,?,?,?,?)",
                           (principal, operation, key, hashed, encode(result), H.now()))
+        self.ring(logged)
         if refusal:
             raise refusal
         return result
@@ -1223,19 +1363,30 @@ class Store:
     def write(self, identity, fn):
         """`mutate` without an idempotency record, for a route whose request is its own: the same
         identity check under the write lock, and the same all-or-nothing refusal."""
-        refusal = None
+        refusal = logged = None
         with self.transaction() as c:
             from .auth import validate_identity
             validate_identity(c, identity)
+            # Who made the changes this write logs (backend/events.py).
+            from . import events as changes
             c.execute("SAVEPOINT domain_write")
+            since = changes.mark(c)
             try:
                 result = fn(c)
+                logged = changes.claim(c, since, identity.actor)
                 c.execute("RELEASE domain_write")
             except H.Refused as exc:
+                logged = None                   # rolled back with the write
                 refusal = refused(c, identity, exc)
+        self.ring(logged)
         if refusal:
             raise refusal
         return result
+
+    def ring(self, seq):
+        """After a commit that logged changes: wake the open event streams (backend/events.py)."""
+        from .events import ring
+        ring(self, seq)
 
     def enqueue_existing(self):
         with self.transaction() as c:

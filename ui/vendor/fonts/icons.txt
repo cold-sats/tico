@@ -24,6 +24,7 @@ chair
 chat_bubble
 check
 check_circle
+chevron_left
 chevron_right
 co_present
 code
@@ -70,7 +71,6 @@ help
 history
 history_edu
 inbox
-insights
 integration_instructions
 inventory_2
 key_vertical

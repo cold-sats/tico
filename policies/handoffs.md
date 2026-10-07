@@ -36,9 +36,11 @@ refuses it once the rule is enforced; `hub task create --dry-run` shows what it 
   `hub task link <task-id> <pr url>`; the merge and the deploy move it the rest of the way.
   Everything else is the **Team** lane.
 - A project is a label: `hub task label <task-id> --add pricing-page`. So is a kind (`bug`).
+- Another task that belongs with yours: `hub task relate <task-id> <other-id>` (related; add
+  `--kind duplicate_of`, `follow_up`, `blocked_by` or `parent` when that is what it is).
 - What you are waiting on, when it is another task: link it as a child and mark the parent
-  `waiting` with the child ID in its note. If your role can change `blocked_by`, set it too;
-  specialist bots must not retry that restricted field after a refusal. Tico wakes the parent
+  `waiting` with the child ID in its note. On your own task also record it with
+  `hub task relate <task-id> <child-id> --kind blocked_by`; do not retry a refused relation. Tico wakes the parent
   owner when the child closes.
 - Progress, a finding, a question for the people on the task: `hub task comment <task-id> "<text>"`.
   A comment is on the record with your name; it is not a chat.
@@ -144,7 +146,7 @@ Should the homepage headline be our next test?
 I recommend testing “Run your business with less busywork” against the current headline.
 If the test is requested, run it with the available Tools after the site-health checks pass.
 
-Full proposal: s3://<company>-tico-hub/cro/deliverables/<task-id>/funnel-review.md
+Full proposal: <the link `hub task attach` printed>
 ```
 
 ## Make human assignments actionable
@@ -241,7 +243,9 @@ hub task update <task-id> --status done --note "<result and deliverable URIs>"
 The requester reviews and closes the task. A bot owner never closes a task it did not request.
 When work cannot continue, use `waiting` with the exact dependency or `declined` with the reason.
 
-The final note stays under 200 words and covers:
+Chat shows a note folded under its task title; the person reads it only when they open it. Your
+reply in chat carries the plain-English result, without IDs, hashes or `s3://` URIs. The final note
+stays under 200 words and covers:
 
 ```text
 ## Done

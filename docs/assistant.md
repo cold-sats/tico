@@ -33,6 +33,8 @@ and as you (what you may see, nothing more), with no run and no model:
 
 | You ask | It answers from |
 |---|---|
+| A simple greeting (`hi`, `hello`, `hey`, or a time-of-day greeting) | A short greeting; no provider or runner turn |
+| What task types this workspace uses | The authenticated `GET /api/v2/task-types` response; if it cannot be read, it says so rather than showing an empty or guessed list |
 | What needs me | Needs you |
 | Search / find / look up *x* (add *tasks, docs, meetings, files, humans, bots* to narrow) | tasks, docs, meetings, bots' files, humans, bots |
 | Open / go to / where is *x* | the same search, with the best link first (or a page: Settings, Tasks…) |

@@ -18,7 +18,6 @@ function taskPropRights(t) {
   const live = !taskFinished(t);
   return {mover, party, live, edit: (mover || party) && live, links: mover && live, reopen: mover || party};
 }
-const taskPropTask = id => id && ((TASKS_ST?.tasks || []).find(x => String(x.id) === String(id)) || null);
 function taskPropsHTML(t, opts = {}) {
   const r = taskPropRights(t);
   const type = pipelineType(t), typed = !!type && pipelineTypeId(t) !== 'general';
@@ -39,6 +38,7 @@ function taskPropsHTML(t, opts = {}) {
     extra: t.private ? '<small>Reassigning grants the new assignee access and removes the previous assignee’s access unless they requested the task.</small>' : ''}));
   const asker = taskRequester(t);
   rows.push(row('asker', 'Asked by', asker ? actorFace(asker, 16) + txt(actorLabel(asker)) : txt('Unknown'), {words: actorLabel(asker) || 'Unknown', empty: !asker}));
+  if (t.roles && (typed || Object.keys(t.roles).length)) rows.push(taskPeopleRowHTML(t, r));
   rows.push(`<div class="prop" data-prop-row="private"><span class="prop-k">Private</span><span class="prop-vwrap"><label><input type="checkbox" data-task-private ${t.private ? 'checked' : ''} ${r.party && (!t.private || myActor() === t.requester) ? '' : 'disabled'}> ${t.private ? '<span class="nav-icon" aria-hidden="true">lock</span> Private' : 'Company'}</label><small>Only the requester and assignee can see a private task.</small></span></div>`);
   // Due: a person's deadline (red once passed), or when a bot's parked task wakes (muted "Wakes Oct 2")
   const dueAt = parseServerTime(t.due);
@@ -57,16 +57,14 @@ function taskPropsHTML(t, opts = {}) {
     || (r.links ? '' : '<span class="prop-v ro empty"><span class="prop-txt">None</span></span>')}${r.links
     ? (chips ? `<button type="button" class="prop-add" data-prop="tags" aria-haspopup="menu" aria-label="Add a tag" title="Add a tag">${TL_ICON.plus}</button>`
       : `<button type="button" class="prop-v empty" data-prop="tags" aria-haspopup="menu" aria-label="Tags: none, add a tag"><span class="prop-txt">Add tags</span></button>`) : ''}</span></span></div>`);
-  // Part of and Blocked by: the other task's title is a link to it, × clears it; empty, a picker finds one.
-  for (const [key, label, id, known, verb] of [['parent', 'Part of', t.parent_id, t.parent, 'parent'], ['blocked', 'Blocked by', t.blocked_by, t.blocker, 'blocker']]) {
-    const other = id ? (known && String(known.id) === String(id) ? known : null) || taskPropTask(id) : null;
-    const title = other?.title || 'A task';
-    if (id) {
-      rows.push(`<div class="prop" data-prop-row="${key}"><span class="prop-k" aria-hidden="true">${esc(label)}</span><span class="prop-vwrap">`
-        + `<button type="button" class="prop-v prop-link" data-open-task="t${esc(id)}" aria-label="${esc(label)}: ${esc(title)}. Open it"><span class="prop-txt">${esc(title)}</span></button>`
-        + (r.links ? `<button type="button" class="prop-x" data-prop-clear="${key}" aria-label="Clear ${esc(label)}" title="Clear">${TL_ICON.x}</button>` : '') + '</span></div>');
-    } else rows.push(row(key, label, txt(r.links ? `Add ${verb}` : 'None'), {edit: r.links, empty: true, words: 'none'}));
-  }
+  // Part of: the parent's title is a link to it, × takes the task out; empty, a picker finds one. Blockers and
+  // other relations are in the Related section.
+  const parent = taskParent(t);
+  if (parent) {
+    rows.push(`<div class="prop" data-prop-row="parent"><span class="prop-k" aria-hidden="true">Part of</span><span class="prop-vwrap">`
+      + `<button type="button" class="prop-v prop-link" data-open-task="t${esc(parent.id)}" aria-label="Part of: ${esc(parent.title)}. Open it"><span class="prop-txt">${esc(parent.title)}</span></button>`
+      + (r.links ? `<button type="button" class="prop-x" data-prop-clear="parent" aria-label="Clear Part of" title="Clear">${TL_ICON.x}</button>` : '') + '</span></div>');
+  } else rows.push(row('parent', 'Part of', txt(r.links ? 'Add parent' : 'None'), {edit: r.links, empty: true, words: 'none'}));
   // Type and Step: only for a task that has a type
   if (typed) {
     rows.push(row('type', 'Type', `<span class="prop-ic">${PROP_ICON.type}</span>` + txt(type.name), {edit: r.edit && TASK_TYPES.length > 1, words: type.name}));
@@ -76,7 +74,19 @@ function taskPropsHTML(t, opts = {}) {
   return `<div class="props">${rows.join('')}</div><div class="props-msg" data-props-msg role="status" aria-live="polite"></div>`;
 }
 // A refused save's reason stays under the properties until that property saves (several: one line each, named).
-const PROP_WORDS = {status: 'Status', owner: 'Owner', due: 'Due', tags: 'Tags', parent: 'Part of', blocked: 'Blocked by', type: 'Type', step: 'Step'};
+const PROP_WORDS = {status: 'Status', owner: 'Owner', due: 'Due', tags: 'Tags', parent: 'Part of', type: 'Type', step: 'Step', people: 'People'};
+
+// Who is on a task by role (the server's `roles`): one chip per person and role, × takes one off, + adds one.
+// Roles are names the team chooses; what they mean downstream is the client's.
+const roleWord = role => role === 'qa' ? 'QA' : String(role || '').replace(/[-_]/g, ' ').replace(/^\w/, c => c.toUpperCase());
+function taskPeopleRowHTML(t, r) {
+  const chips = Object.entries(t.roles).flatMap(([role, people]) => people.map(a => `<span class="prop-chip">${actorFace(a, 16)}<span class="prop-txt">${esc(actorLabel(a))} · ${esc(roleWord(role))}</span>${r.edit
+    ? `<button type="button" class="prop-x" data-prop-clear-role="${esc(role)}" data-actor="${esc(a)}" aria-label="Take ${esc(actorLabel(a))} off as ${esc(roleWord(role))}" title="Take off">${TL_ICON.x}</button>` : ''}</span>`)).join('');
+  const add = !r.edit ? (chips ? '' : '<span class="prop-v ro empty"><span class="prop-txt">None</span></span>')
+    : chips ? `<button type="button" class="prop-add" data-prop="people" aria-haspopup="menu" aria-label="Add a person" title="Add">${TL_ICON.plus}</button>`
+    : `<button type="button" class="prop-v empty" data-prop="people" aria-haspopup="menu" aria-label="People: none, add someone"><span class="prop-txt">Add</span></button>`;
+  return `<div class="prop" data-prop-row="people"><span class="prop-k" aria-hidden="true">People</span><span class="prop-vwrap"><span class="prop-tags" aria-label="People">${chips}${add}</span></span></div>`;
+}
 function taskPropsMsgPaint(d) {
   const box = $('[data-props-msg]', d); if (!box) return;
   const errs = d.propsErrs?.id === String(d.dataset.task) ? [...d.propsErrs.map] : [];
@@ -169,11 +179,14 @@ async function taskPropCandidates(t, key) {
   return rows.filter(x => !bar.has(String(x.id))).sort((a, b) => String(a.title).localeCompare(String(b.title)));
 }
 // What a picker must not offer, because it would make a loop: the task itself, and for Part of everything under it
-// (children, grandchildren…), for Blocked by every task that already waits on it, however far down the chain.
+// (children, grandchildren…), for Blocked by every task that already waits on it, for Blocks every task it already
+// waits on, however far along the chain; for the other kinds only the task itself.
 function taskPropLoops(t, key, rows) {
-  const here = String(t.id), field = key === 'parent' ? 'parent_id' : 'blocked_by';
-  const under = new Map();
-  for (const x of rows) { const up = String(x[field] || ''); if (up) { if (!under.has(up)) under.set(up, []); under.get(up).push(String(x.id)); } }
+  const here = String(t.id), under = new Map();
+  const ups = key === 'parent' ? x => [taskParentId(x)] : key === 'blocked_by' ? x => taskBlockers(x).map(b => String(b.id))
+    : key === 'blocks' ? x => taskRels(x, 'blocks', 'out').map(b => String(b.id)) : null;
+  if (!ups) return new Set([here]);
+  for (const x of rows) for (const up of ups(x)) if (up) { if (!under.has(up)) under.set(up, []); under.get(up).push(String(x.id)); }
   const out = new Set([here]), todo = [here];
   while (todo.length) for (const k of under.get(todo.pop()) || []) if (!out.has(k)) { out.add(k); todo.push(k); }
   return out;
@@ -186,10 +199,17 @@ function taskPropsBind(d, task, change) {
   const type = pipelineType(task), typed = !!type && pipelineTypeId(task) !== 'general';
   box.onclick = async ev => {
     if (ev.target.closest('[data-tag-key],[data-drop-label],[data-open-task]')) return;   // a tag opens its page; × and ↗ are bound in taskModalBind
+    const off = ev.target.closest('[data-prop-clear-role]');
+    if (off) {
+      const role = off.dataset.propClearRole, gone = off.dataset.actor;
+      void save('people', cur => ({roles: {[role]: ((cur.roles || {})[role] || []).filter(a => a !== gone)}}));
+      return;
+    }
     const clear = ev.target.closest('[data-prop-clear]');
     if (clear) {
       const key = clear.dataset.propClear;
-      void save(key, key === 'due' ? {due: ''} : key === 'parent' ? {parent_id: ''} : {blocked_by: ''});
+      if (key === 'parent') { d.focusProp = key; void taskRelate(d, task, {task: taskParentId(task), kind: 'parent', remove: true}); }
+      else void save(key, {due: ''});
       return;
     }
     const b = ev.target.closest('[data-prop]'); if (!b) return;
@@ -212,6 +232,24 @@ function taskPropsBind(d, task, change) {
       }});
     } else if (key === 'type') {
       taskTypeMenu(d, b, task, save);
+    } else if (key === 'people') {
+      // First the role (one already on the task, or a new name), then the person or bot.
+      const pick = role => {
+        const have = new Set((task.roles || {})[role] || []);
+        const opts = new DOMParser().parseFromString(`<select>${taskOwnerOptions('')}</select>`, 'text/html').querySelectorAll('option[value]:not([value=""])');
+        const items = [...opts].map(o => ({value: o.value, text: o.textContent, actor: o.value.includes(':') ? o.value : 'bot:' + o.value,
+          html: `<span class="tl-opt-face">${actorFace(o.value.includes(':') ? o.value : 'bot:' + o.value, 16)}</span><span>${esc(o.textContent)}</span>`}))
+          .filter(it => !have.has(it.actor));
+        propMenu(d, b, {label: 'Add as ' + roleWord(role), find: 'Find a person or bot', items, none: 'Everyone is on it',
+          onPick: it => void save('people', cur => ({roles: {[role]: [...((cur.roles || {})[role] || []), it.value]}}))});
+      };
+      propMenu(d, b, {label: 'Role', entry: 'Role, like reviewer', none: 'Type a role, then Enter',
+        items: Object.keys(task.roles || {}).map(k => ({value: k, text: k, html: `<span>${esc(roleWord(k))}</span>`})),
+        onPick: it => setTimeout(() => pick(it.value)), onEntry: v => {
+          const role = v.trim().toLowerCase().replace(/\s+/g, '-');
+          if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(role)) { d.propsErrs = {id: String(task.id), map: new Map([['people', 'A role is a short name: letters, digits, - or _.']])}; taskPropsMsgPaint(d); return; }
+          setTimeout(() => pick(role));
+        }});
     } else if (key === 'owner') {
       const opts = new DOMParser().parseFromString(`<select>${taskOwnerOptions('')}</select>`, 'text/html').querySelectorAll('option[value]:not([value=""])');
       propMenu(d, b, {label: 'Owner', find: 'Find a person or bot', items: [...opts].map(o => {
@@ -229,15 +267,14 @@ function taskPropsBind(d, task, change) {
       const add = tag => { tag = String(tag).trim().toLowerCase(); if (tag && !have.has(tag)) void save('tags', cur => (cur.labels || []).includes(tag) ? null : {labels: [...(cur.labels || []), tag]}); };
       propMenu(d, b, {label: 'Add a tag', entry: 'Tag', none: 'Type a tag, then Enter', items: keys.map(k => ({value: k, text: k,
         html: `<span class="tl-dot" style="--hue:${tagHue(k)}"></span><span>${esc(k)}</span>`})), onPick: it => add(it.value), onEntry: add});
-    } else if (key === 'parent' || key === 'blocked') {
-      const field = key === 'parent' ? 'parent_id' : 'blocked_by';
+    } else if (key === 'parent') {
       const rows = await taskPropCandidates(task, key);
       if (!b.isConnected) return;
-      propMenu(d, b, {label: key === 'parent' ? 'Part of' : 'Blocked by', find: 'Find a task', none: 'No open tasks', items: rows.map(x => ({value: x.id, text: `${x.title} ${actorLabel(x.owner)}`,
+      propMenu(d, b, {label: 'Part of', find: 'Find a task', none: 'No open tasks', items: rows.map(x => ({value: x.id, text: `${x.title} ${actorLabel(x.owner)}`,
         html: `${taskStatusText(x)}<span class="tl-mi-t">${esc(clipLine(x.title, 70))}</span><span class="tl-mi-sub">${esc(actorLabel(x.owner))}</span>`,
-        checked: String(task[field] || '') === String(x.id)})), onPick: it => {
+        checked: taskParentId(task) === String(x.id)})), onPick: it => {
           if (taskPropLoops(task, key, TASKS_ST?.tasks || PROP_TASKS?.rows || []).has(String(it.value))) { d.propsErrs = {id: String(task.id), map: new Map([[key, 'That would make a loop.']])}; taskPropsMsgPaint(d); return; }
-          if (String(it.value) !== String(task[field] || '')) void save(key, {[field]: it.value});
+          if (String(it.value) !== taskParentId(task)) { d.focusProp = key; void taskRelate(d, task, {task: it.value, kind: 'parent'}); }
         }});
     }
   };

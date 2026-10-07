@@ -74,6 +74,10 @@ class ChangelogPost(Contract):
     bullets: list[str] = Field(min_length=1, max_length=12)
 
 
+class ChangelogRead(Contract):
+    ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(max_length=250)
+
+
 class TaskChat(Contract):
     text: Text
     expected_recipient: ID | None = None
@@ -95,13 +99,22 @@ Lane = Literal["company", "product"]
 TaskNumber = Annotated[int, Field(ge=1, le=999_999_999)]
 
 
+RelationKind = Literal["parent", "blocks", "blocked_by", "related", "duplicate_of", "follow_up"]
+
+
+class TaskRelationRef(Contract):
+    """The new task `kind` the other: `parent` files it under `task`, `blocked_by` makes it wait on it."""
+    task: ID
+    kind: RelationKind = "related"
+
+
 class TaskCreate(Contract):
     private: StrictBool | None = None
     title: str = Field(min_length=1, max_length=300)
     body: Text
     owner: ID
     due: str | None = None
-    parent_id: ID | None = None
+    relations: list[TaskRelationRef] = Field(default_factory=list, max_length=20)
     goal_id: ID | None = None
     acceptance_criteria: list[str] = Field(default_factory=list, max_length=50)
     lane: Lane | None = None
@@ -115,6 +128,8 @@ class TaskCreate(Contract):
     step: str | None = Field(default=None, max_length=200)
     # An imported ticket's own number (a mover's); a numbered type gives the next one otherwise.
     number: TaskNumber | None = None
+    # Who else is on the task, by role: {role: [actors]} (backend/task_roles.py).
+    roles: dict[str, list[str]] | None = None
 
 
 class NoteCreate(Contract):
@@ -137,14 +152,14 @@ class TaskUpdate(Contract):
     close: bool = False
     lane: Lane | None = None
     labels: list[str] | None = Field(default=None, max_length=20)
-    blocked_by: str | None = Field(default=None, max_length=64)     # "" clears
     waiting_on: str | None = Field(default=None, max_length=200)    # the person it waits on; "" clears
-    parent_id: str | None = Field(default=None, max_length=64)      # "" clears
     rank: float | None = None
     type: ID | None = None
     step: str | None = Field(default=None, max_length=200)   # "" clears the step
     step_rank: float | None = Field(default=None, allow_inf_nan=False)   # its place within its step
     number: TaskNumber | None = None      # a mover's, for a task that has none
+    # Replace the people in the roles named: {role: [actors]}; [] clears one.
+    roles: dict[str, list[str]] | None = None
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
     # delegated_identity): checked as that person, never as BotOps.
     on_behalf_of: ID | None = None
@@ -245,6 +260,14 @@ class TaskLink(Contract):
     url: str | None = Field(default=None, max_length=2000)
     title: str | None = Field(default=None, max_length=200)
     remove: ID | None = None
+
+
+class TaskRelation(Contract):
+    """`{id} kind {task}`: parent (task is its parent), blocks, blocked_by, related, duplicate_of,
+    follow_up (it was split off or followed up from task)."""
+    task: ID
+    kind: RelationKind = "related"
+    remove: bool = False
 
 
 class Preference(Contract):
@@ -787,6 +810,7 @@ class Heartbeat(Contract):
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=32)
+    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1"]] = Field(default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1003,6 +1027,44 @@ class BotBranch(Contract):
     runner_id: ID | None = None
 
 
+class AssignmentBranchCreate(Contract):
+    assignment_key: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9._-]+$")
+    generation: int = Field(ge=1, le=1000)
+    task_id: ID
+    display_name: str = Field(min_length=1, max_length=100)
+
+
+class AssignmentBranchPolicy(Contract):
+    enabled: StrictBool
+    expected_revision: int = Field(ge=1)
+
+
+class AssignmentBranchUpdate(Contract):
+    expected_revision: int = Field(ge=1)
+    display_name: str | None = Field(default=None, min_length=1, max_length=100)
+    phase: Literal["working", "waiting_review", "waiting_release", "paused", "interrupted",
+                   "verifying", "archived", "cancelled"] | None = None
+    note: str = Field(default="", max_length=4000)
+    checkpoint: dict = Field(default_factory=dict)
+    deployed_version: str = Field(default="", max_length=200)
+    acceptance_receipt: str = Field(default="", max_length=2000)
+    learning_receipt: str = Field(default="", max_length=2000)
+    evidence_receipt: str = Field(default="", max_length=2000)
+    handoff_task_id: str = Field(default="", max_length=200)
+    reviewed_learning_note: str = Field(default="", max_length=6000)
+    confirm_learning_review: StrictBool = False
+
+
+class AssignmentBranchCleanupRequest(Contract):
+    expected_revision: int = Field(ge=1)
+
+
+class AssignmentBranchCleanupResult(Contract):
+    attempt: int = Field(ge=1)
+    result: Literal["complete", "blocked"]
+    detail: str = Field(default="", max_length=2000)
+
+
 class BotArchive(Contract):
     successor: ID | None = None          # a bot that takes its open tasks and any team it roots
     expected_revision: int = Field(ge=1)
@@ -1075,6 +1137,11 @@ class PersonUpdate(Contract):
     goals: str | None = Field(default=None, max_length=8000)
     notes: str | None = Field(default=None, max_length=20_000)
     notify_slack_task_done: bool | None = None
+    # Their GitHub login ("" clears it): a review request naming it puts them on the linked task.
+    github: str | None = Field(default=None, pattern=r"^@?[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})?$|^$")
+    notify_slack_bot_messages: bool | None = None
+    # Bots whose messages to this person stay in Tico even while bot messages in Slack are on.
+    slack_muted_bots: list[Slug] | None = Field(default=None, max_length=200)
     # Where this person sits on the org chart: another person's id, or "" for the top.
     reports_to: str | None = Field(default=None, max_length=80)
     # Someone who no longer works here is removed from the org chart. The
@@ -1086,7 +1153,7 @@ class PersonUpdate(Contract):
     @model_validator(mode="after")
     def has_change(self):
         if not (self.model_fields_set - {"on_behalf_of"}):
-            raise ValueError("Provide title, about, goals, notes, notify_slack_task_done, reports_to or left")
+            raise ValueError("Provide title, about, goals, notes, notify_slack_task_done, notify_slack_bot_messages, slack_muted_bots, github, reports_to or left")
         return self
 
 
@@ -1456,10 +1523,35 @@ class HarnessActionReport(Contract):
     message: str = Field(default="", max_length=500)
 
 
+class UpdateKpi(Contract):
+    name: Annotated[str, Field(min_length=1, max_length=80)]
+    value: Annotated[str, Field(min_length=1, max_length=40)] | float
+    unit: Annotated[str, Field(max_length=20)] | None = None
+    series: list[float] | None = Field(default=None, max_length=60)
+    note: Annotated[str, Field(max_length=300)] | None = None
+
+
+class UpdateSlides(Contract):
+    """A week in review's slides; the word limits are the linter's, so a long one is refused with how to fix it."""
+    goal: Annotated[str, Field(max_length=1000)] = ""
+    kpis: list[UpdateKpi] = Field(default_factory=list, max_length=20)
+    done: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=20)
+    focus: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=20)
+    blockers: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=20)
+
+
 class UpdatePost(Contract):
-    body: Annotated[str, Field(min_length=1, max_length=20_000)]
+    body: Annotated[str, Field(max_length=20_000)] = ""                # a daily's bullets
     headline: Annotated[str, Field(max_length=300)] | None = None     # ignored: an update is its bullets
     kind: Literal["daily", "weekly"] | None = None
+    slides: UpdateSlides | None = None                                 # a week in review
+    day: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")] | None = None   # only a day Tico asked to redo
+
+
+class UpdateRedo(Contract):
+    kind: Literal["daily", "weekly"] = "weekly"
+    day: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    bots: list[Annotated[str, Field(max_length=80)]] | None = Field(default=None, max_length=200)
 
 
 class UpdateRead(Contract):
@@ -1486,8 +1578,9 @@ class PersonalTokenCreate(Contract):
 
 class ServiceKeyCreate(Contract):
     """A service key (backend/service_keys.py): the label names the system that holds it, on every
-    task it files."""
+    task it files. `tasks` files tasks; `update` checks for, starts and follows an update of this install."""
     label: str = Field(min_length=1, max_length=80)
+    scope: Literal["tasks", "update"] = "tasks"
 
 
 class InboundTask(Contract):

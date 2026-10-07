@@ -84,6 +84,8 @@ class Identity:
     confirmed: bool = False
     # Acting for a human does not grant a bot membership in that human's private tasks.
     task_actor: str = ""
+    # A service key's scope (backend/service_keys.py ROUTES): "tasks" or "update"; empty for everyone else.
+    scope: str = ""
 
 
 def standing(c, pid):
@@ -329,23 +331,23 @@ class Auth:
                         token_label=str(row["label"] or ""))
 
     def identity_from_service_key(self, c, token, path, method):
-        """Another system's service key (backend/service_keys.py), on the one route it may use.
+        """Another system's service key (backend/service_keys.py), on the routes of its scope.
 
         It is no person and no bot: anywhere else it is refused here, before any route could take
         its unfamiliar role for one with more reach. A revoked key is refused like an unknown one."""
-        row = c.execute("SELECT id,label,last_used,revoked_at FROM service_keys WHERE key_hash=?",
+        row = c.execute("SELECT id,label,last_used,revoked_at,scope FROM service_keys WHERE key_hash=?",
                         (digest(token),)).fetchone()
         if not row or row["revoked_at"]:
             raise Problem("identity", "Invalid credential", 401)
-        if (method, path) != ("POST", service_keys.INBOUND_PATH):
-            raise Problem("forbidden", "A service key only files tasks, with POST " + service_keys.INBOUND_PATH, 403)
+        if not service_keys.allowed(row["scope"], method, path):
+            raise Problem("forbidden", service_keys.refusal(row["scope"]), 403)
         now = H.now()
         if not row["last_used"] or row["last_used"] < H.shift(now, seconds=-60):
             try:
                 c.execute("UPDATE service_keys SET last_used=? WHERE id=?", (now, row["id"]))
             except sqlite3.Error:
                 pass
-        return Identity("service:" + row["id"], "service", token_label=str(row["label"]))
+        return Identity("service:" + row["id"], "service", token_label=str(row["label"]), scope=row["scope"] or "tasks")
 
     def assistant_principal(self, c, attempt):
         """The person an assistant chat turn acts for, as that person and nobody more, or None.
@@ -511,17 +513,23 @@ class Auth:
         owner_row = access._load_json(c, access.OWNER) or {}
         return email not in admins and email != str(owner_row.get("email") or "").lower()
 
-    def member_bot(self, c, slug):
+    def member_bot(self, c, slug, row=None, creators=None):
         """Whether a member (not an owner or an Admin) created this bot: those go only on computers that
-        accept members' bots. A bot with no recorded creator is the company's."""
-        row = c.execute("SELECT created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        accept members' bots. A bot with no recorded creator is the company's. `row` is the bot's
+        bot_config row when read already; `creators` ({created_by: answer}) keeps the answer per creator
+        across many bots in one request."""
+        row = row or c.execute("SELECT created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
         if not row or not row["created_by"] or not str(row["created_by"]).startswith("human:"):
             return False
+        if creators is not None and row["created_by"] in creators:
+            return creators[row["created_by"]]
         try:
-            creator = self.identity_for_actor(c, row["created_by"])
+            member = self.company_role(self.identity_for_actor(c, row["created_by"])) == "member"
         except Problem:
-            return True
-        return self.company_role(creator) == "member"
+            member = True
+        if creators is not None:
+            creators[row["created_by"]] = member
+        return member
 
     def company_role(self, who):
         """`owner`, `admin` or `member`: what the person is to the company."""
@@ -661,7 +669,26 @@ class Auth:
         audience = f"({me} IN (owner,requester) OR (coalesce(private,1)=0 AND ({clear})))"
         if who.task_actor:
             audience += f" AND (coalesce(private,1)=0 OR {A.q(who.task_actor)} IN (owner,requester))"
+        assignment_task = self.assignment_task_id(c, who)
+        if assignment_task:
+            # A temporary actor is scoped to its linked delivery task at the query layer too;
+            # ordinary read grants on the persistent role must not expose other task rows.
+            audience += f" AND id={A.q(assignment_task)}"
         return audience
+
+    @staticmethod
+    def assignment_task_id(c, who):
+        if who.role != "bot":
+            return ""
+        row = Auth.assignment_task_for_bot(c, who.actor)
+        return str(row["task_id"] or "") if row else ""
+
+    @staticmethod
+    def assignment_task_for_bot(c, actor):
+        if not H._has_table(c, "assignment_branches"):
+            return None
+        return c.execute("SELECT task_id FROM assignment_branches WHERE bot=?",
+                         (H.actor_id(actor),)).fetchone()
 
     def operator(self, c, who, bot):
         row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
@@ -724,12 +751,16 @@ class Auth:
         all (`hubdb.answer` checks only that the ask was addressed to you), so refusing contact
         cannot strand a bot that is blocking on a reply.
         """
+        row = c.execute("SELECT config_json,reports_to FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        assignment = self.assignment_task_for_bot(c, slug) if row else None
+        if assignment:
+            return (kind in ("task", "comment", "message")
+                    and str(task_id or "") == str(assignment["task_id"]))
         if who.role != "bot":
             return True
         sender = who.actor
         if sender == "bot:" + slug or sender == H.KEEPER:
             return True
-        row = c.execute("SELECT config_json,reports_to FROM bot_config WHERE bot=?", (slug,)).fetchone()
         if not row:
             return True
         declared = json.loads(row["config_json"]) if row["config_json"] else {}
@@ -760,6 +791,13 @@ class Auth:
         if not str(actor).startswith("bot:"):
             return
         slug = H.actor_id(actor)
+        if H._has_table(c, "assignment_branches"):
+            assignment = c.execute("SELECT task_id,phase FROM assignment_branches WHERE bot=?", (slug,)).fetchone()
+            if assignment and assignment["phase"] in ("archived", "cancelled"):
+                raise Problem("assignment_retired", "This temporary assignment is retired; resume from its checkpoint or create a new generation", 409)
+            if assignment and (kind not in ("task", "comment", "message")
+                               or str(task_id or "") != str(assignment["task_id"])):
+                raise Problem("assignment_scope", "Temporary assignments accept work only on their linked delivery task", 403)
         if self.bot_contact(c, who, slug, conversation_id, task_id, kind):
             return
         row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
@@ -858,6 +896,9 @@ class Auth:
             raise Problem("not_found", "Task not found", 404)
         if who.role not in ("owner", "human", "bot") or not H.task_private_readable(c, who.actor, row):
             raise Problem("not_found", "Task not found", 404)
+        assignment_task = self.assignment_task_id(c, who)
+        if assignment_task and row["id"] != assignment_task:
+            raise Problem("not_found", "Task not found", 404)
         if who.task_actor and not H.task_private_readable(c, who.task_actor, row):
             raise Problem("not_found", "Task not found", 404)
         participants = (row["owner"], row["requester"])
@@ -903,7 +944,7 @@ class Auth:
 
         number = re.fullmatch(r"#(\d{1,18})", ident)
         if number:
-            rows = readable(H._rows(c.execute("SELECT id,title,owner,requester,parent_id FROM tasks WHERE number=? AND ("
+            rows = readable(H._rows(c.execute("SELECT id,title,owner,requester FROM tasks WHERE number=? AND ("
                                               + visible + ")", (int(number.group(1)),))))
             if rows:
                 return rows[0]["id"]
@@ -911,7 +952,7 @@ class Auth:
 
         if TASK_PREFIX_MIN <= len(ident) < 36:
             rows = readable(H._rows(c.execute(
-                "SELECT id,title,owner,requester,parent_id FROM tasks WHERE substr(id,1,?)=? AND (" + visible + ") "
+                "SELECT id,title,owner,requester FROM tasks WHERE substr(id,1,?)=? AND (" + visible + ") "
                 "ORDER BY created LIMIT 50", (len(ident), ident.lower()))))
             if len(rows) == 1:
                 return rows[0]["id"]
@@ -921,7 +962,7 @@ class Auth:
                                                              for r in rows[:10])), 409)
         if len(ident) >= 34:
             near = []
-            for row in H._rows(c.execute("SELECT id,title,owner,requester,parent_id FROM tasks WHERE length(id) BETWEEN ? AND ? "
+            for row in H._rows(c.execute("SELECT id,title,owner,requester FROM tasks WHERE length(id) BETWEEN ? AND ? "
                                          "AND (" + visible + ")", (len(ident) - 2, len(ident) + 2))):
                 distance = _edit_distance(ident.lower(), row["id"], 2)
                 if distance is not None:

@@ -496,6 +496,11 @@ class Worktrees:
                 self.pending = self.pool.submit(self.sync, queued)
             return list(self.reports)
 
+    def latest(self):
+        """The last reports, without asking the server for anything."""
+        with self.lock:
+            return list(self.reports)
+
     def sync(self, actions):
         try:
             rows = self.client.get('runners/me/worktrees')['worktrees']

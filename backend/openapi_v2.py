@@ -28,6 +28,7 @@ TAGS = {
     "Conversations": "Chats with bots: send, list, and stream replies.",
     "Tasks": "Work assigned to people and bots.",
     "Updates": "Daily and weekly updates bots post to people.",
+    "Changelog": "Shipped Tico releases, product announcements and the signed-in person's read state (docs/updates.md).",
     "Needs you": "What is waiting on the signed-in person: questions, tasks, approvals.",
     "Meetings": "Recorded meetings.",
     "Files": "What a bot creates, revises or delivers, listed on its page (docs/files.md).",
@@ -39,7 +40,26 @@ TAGS = {
             "evidence and a quality, never edited; a correction supersedes the old one.",
     "Usage": "Estimated model spend per bot (docs/usage.md): tokens counted by each run's computer, priced at list price.",
     "Health": "Whether the installation is working.",
+    "Live events": "One server-sent event stream for a person's pages (docs/custom-frontend.md, Live events): tasks, "
+                   "messages, runs, bots and Needs you as they change, resumable from a change number.",
 }
+
+EVENTS_DESCRIPTION = (
+    "text/event-stream. Each change is `id: <change number>`, `event: <topic>` and JSON `data` with `seq`, `actor` "
+    "(who made it, when the viewer may know) and `at`:\n"
+    "- `tasks`: `id` and `task` (as `GET /api/v2/tasks` shows it to the viewer), or `gone: true` for a deleted task.\n"
+    "- `messages`: `id`, `conversation_id` and `message` (as a conversation page shows it), or `deleted: true`; "
+    "a chat goal set, paused, met or stopped is `goal_id` and `goal`.\n"
+    "- `runs`: `attempt_id`, `conversation_id`, `bot`, and either `output` (one step of the run: `kind`, `payload`) or "
+    "`state` (`job_id`, and the job's or attempt's state).\n"
+    "- `bots`: `bot` and `status` (as `GET /api/v2/status` lists it).\n"
+    "- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved.\n"
+    "Also `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes "
+    "the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), "
+    "`event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. "
+    "Only what the viewer may read is sent. A stream ends after about five minutes; reconnect with `after` (or the "
+    "browser's own `Last-Event-ID`). People only: a bot is refused with 403."
+)
 
 # Path, method, tag, operationId, summary, name of the 200 answer in ANSWERS.
 STABLE = [
@@ -70,7 +90,8 @@ STABLE = [
     ("/api/v2/me/tokens/{token_id}/revoke", "post", "Session", "revokeMyToken", "Revoke a personal API token", None),
     ("/api/v2/service-keys", "get", "Session", "listServiceKeys", "Service keys, never the secret (owner and admins)", None),
     ("/api/v2/service-keys", "post", "Session", "createServiceKey",
-     "Make a key another system uses to file, update and close tasks, and nothing else; shown once (owner and admins)", None),
+     "Make a key another system uses to file, update and close tasks (scope tasks), or to update this install (scope update, "
+     "owner only), and nothing else; shown once (owner and admins)", None),
     ("/api/v2/service-keys/{key_id}/revoke", "post", "Session", "revokeServiceKey", "Revoke a service key", None),
     ("/api/v2/openapi.json", "get", "Session", "getOpenApi", "This document", None),
     ("/api/v2/config", "get", "Team", "getConfig", "Team and app names, version, setup state", "Config"),
@@ -97,6 +118,12 @@ STABLE = [
      "Who may see, read and write to a bot (its managers only; docs/permissions.md)", "BotAccessView"),
     ("/api/v2/bots/{bot}/access", "put", "Bots", "setBotAccess",
      "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccessView"),
+    ("/api/v2/bots/{source}/assignment-branches", "get", "Bots", "listAssignmentBranches", "Temporary task assignments for a persistent role", "AssignmentBranchList"),
+    ("/api/v2/bots/{source}/assignment-branches", "post", "Bots", "createAssignmentBranch", "Allocate one eligible delivery task to an isolated temporary actor", "AssignmentBranch"),
+    ("/api/v2/bots/{source}/assignment-branches/policy", "put", "Bots", "setAssignmentBranchPolicy", "Enable or disable the source role's direct-parent allocator", "AssignmentBranchPolicyResult"),
+    ("/api/v2/assignment-branches/{ident}", "patch", "Bots", "updateAssignmentBranch", "Checkpoint or advance a temporary assignment lifecycle", "AssignmentBranch"),
+    ("/api/v2/assignment-branches/{ident}/cleanup", "post", "Bots", "requestAssignmentBranchCleanup", "Request separate cleanup of a terminal assignment after its runner proves local trees are safe to remove", "AssignmentBranchCleanup"),
+    ("/api/v2/assignment-branches/{ident}/events", "get", "Bots", "listAssignmentBranchEvents", "Assignment history", "AssignmentBranchEvents"),
     ("/api/v2/bots/{bot}/instructions", "get", "Bots", "getBotInstructions",
      "Latest Instructions snapshot published by the Computer; requires Read, published is false until content arrives",
      "BotInstructions"),
@@ -129,10 +156,6 @@ STABLE = [
      "Send a message in a conversation", "MessageResult"),
     ("/api/v2/conversations/{cid}/snapshot", "get", "Conversations", "getConversationSnapshot",
      "The newest messages and the bot's current run, in one read", "Snapshot"),
-    ("/api/v2/conversations/{cid}/watch", "get", "Conversations", "watchConversation",
-     "Server-sent events: whole-conversation snapshots while a bot works (reconnect for a fresh one)", None),
-    ("/api/v2/conversations/{cid}/stream", "get", "Conversations", "streamConversation",
-     "Server-sent events: bot output deltas with a resumable cursor (after=<id>) and message lists", None),
     ("/api/v2/chat/{bot}", "post", "Conversations", "chatWithBot", "Send a message to a bot (opens the chat if needed)", "ChatResult"),
     ("/api/v2/chat/{bot}/new", "post", "Conversations", "startNewChat", "Archive the current personal chat and start fresh", None),
     ("/api/v2/conversations/{cid}/goal", "get", "Conversations", "getChatGoal", "Read the pinned goal and commands", "ChatGoalResult"),
@@ -146,11 +169,14 @@ STABLE = [
     ("/api/v2/task-types/{type_id}", "delete", "Tasks", "deleteTaskType", "Delete an unused task type (movers only)", "TaskTypeResult"),
     ("/api/v2/task-types/{type_id}/delete", "post", "Tasks", "deleteTaskTypePost", "Delete an unused type for clients using POST", "TaskTypeResult"),
     ("/api/v2/tasks", "get", "Tasks", "listTasks",
-     "Tasks the caller can see; type, step, number and updated_since filter, sort=step orders a board's columns, "
-     "brief=true leaves out bodies", "TaskList"),
+     "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that "
+     "person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, "
+     "brief=true leaves out bodies. Each answer carries a `cursor`; changed_after=<cursor> with the same filters "
+     "answers only the tasks changed since (`tasks`) and the ids that left (`gone`), or `reset: true` to read in "
+     "full. A full read has an ETag: If-None-Match answers 304 when nothing changed", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
     ("/api/v2/tasks/dry-run", "post", "Tasks", "checkTask", "The checks a create would fail; writes nothing", None),
-    ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use", None),
+    ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use (ETag: If-None-Match answers 304 when unchanged)", None),
     ("/api/v2/tasks/{tid}", "get", "Tasks", "getTask", "A task with its history, comments and messages", "TaskDetail"),
     ("/api/v2/tasks/{tid}", "post", "Tasks", "updateTask",
      "Change a task; send the version you read (409 version_conflict otherwise)", "TaskResult"),
@@ -168,6 +194,9 @@ STABLE = [
      "Change the text of a comment you wrote; it wakes nobody and is marked edited_at", "CommentResult"),
     ("/api/v2/tasks/{tid}/comments/{mid}/delete", "post", "Tasks", "deleteTaskComment",
      "Delete a comment you wrote from future comment reads and bot context; existing delivered copies remain", "CommentResult"),
+    ("/api/v2/tasks/{tid}/relations", "post", "Tasks", "relateTask",
+     "Relate another task to this one ({task, kind}: parent, blocks, blocked_by, related, duplicate_of, "
+     "follow_up), or take the relation off with remove", "TaskResult"),
     ("/api/v2/tasks/{tid}/delete", "post", "Tasks", "deleteTask",
      "Delete a task made by mistake, with its conversation, to the trash: its human requester or a mover, signed in "
      "as themselves; a task carrying work is refused (409 has_work)", None),
@@ -177,10 +206,22 @@ STABLE = [
     ("/api/v2/deleted-tasks", "get", "Tasks", "listDeletedTasks",
      "Deleted tasks this person may restore, newest first", None),
     ("/api/v2/updates", "get", "Updates", "listUpdates", "Daily and weekly updates", "UpdateList"),
+    ("/api/v2/changelog", "get", "Changelog", "listChangelog",
+     "Shipped changes with your read state; kind=product|activity|all (default all), unread=true, q search, "
+     "since_version for releases newer than a version, and limit/offset paging. Only installed releases or earlier appear. "
+     "unread_count counts all unread product entries, independently of filters; reading does not acknowledge them.", "ChangelogList"),
+    ("/api/v2/changelog/read", "post", "Changelog", "markChangelogRead",
+     "Acknowledge only supplied product entry ids for the signed-in person. Other people's read state and unseen entries stay unchanged.",
+     "ChangelogReadResult"),
     ("/api/v2/updates/unread", "get", "Updates", "countUnreadUpdates", "How many updates are unread", "Unread"),
     ("/api/v2/updates/read", "post", "Updates", "markUpdatesRead", "Mark updates read or unread", None),
     ("/api/v2/updates/{uid}", "get", "Updates", "getUpdate", "One update and the replies to it", None),
     ("/api/v2/updates/{uid}/reply", "post", "Updates", "replyToUpdate", "Reply to an update (goes to the bot)", None),
+    ("/api/v2/updates/redo", "post", "Updates", "redoUpdates",
+     "Ask the bots again for a past day's update in the current shape: the owner", None),
+    ("/api/v2/events", "get", "Live events", "streamEvents",
+     "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), "
+     "after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots", None),
     ("/api/v2/needs-you", "get", "Needs you", "getNeedsYou",
      "What waits on the caller; count=true for the number alone", "NeedsYou"),
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
@@ -246,7 +287,7 @@ STABLE = [
     ("/api/v2/docs/ask", "post", "Docs", "askDocs",
      "Ask the Librarian a question about the team's docs. It goes to the caller's own private docs conversation; "
      "`results` is the instant search (same shape as docs/search) and the answer streams on "
-     "GET /api/v2/conversations/{cid}/watch", "DocsAsked"),
+     "GET /api/v2/events?topics=messages,runs&conversation={cid}", "DocsAsked"),
     ("/api/v2/librarian", "get", "Docs", "getLibrarian", "Whether the Librarian is on, and whether the caller can turn it on",
      "Librarian"),
     ("/api/v2/librarian/conversations", "get", "Docs", "listDocsConversations",
@@ -375,6 +416,18 @@ ACTORS = {"type": "object", "additionalProperties": {"type": "string"},
           "description": "On reads: display names for every actor id in the answer, {\"human:ana\": \"Ana Alvarez\"}"}
 
 SCHEMAS = {
+    "AssignmentBranch": obj({"id": "s", "source_bot": "s", "assignment_key": "s", "generation": "i", "bot": "s",
+                              "task_id": "s", "allocator": "s", "runner_id": "s", "display_name": "s", "phase": "s",
+                              "revision": "i", "request_hash": "s", "checkpoint": "o", "receipts": "o", "created": "s",
+                              "updated": "s", "archived_at": "n", "task": {"type": ["object", "null"]},
+                              "cleanup": {"type": ["object", "null"]}}),
+    "AssignmentBranchCleanup": obj({"assignment_id": "s", "state": {"enum": ["requested", "blocked", "complete"]},
+                                     "runner_id": "s", "requested_by": "s", "requested": "s", "updated": "s",
+                                     "detail": "s", "completed": "n", "attempt": "i"}),
+    "AssignmentBranchList": obj({"source": "s", "enabled": "b", "allocator_enabled": "b", "capacity": "i", "active": "i",
+                                  "assignments": items(ref("AssignmentBranch"))}),
+    "AssignmentBranchPolicyResult": obj({"source": "s", "enabled": "b", "allocator": "s", "revision": "i"}),
+    "AssignmentBranchEvents": obj({"events": items(obj({"actor": "s", "action": "s", "detail_json": "s", "created": "s"}))}),
     "SubscriptionList": obj({"profiles_by_computer": items(obj({"runner_id": "s", "label": "s", "profiles": items(
         obj({"name": "s", "id": "s", "display_name": "s", "runtimes": "o"}))})), "assignments": items(obj({"scope": "s", "target": "s", "profile": "s", "updated": "s", "updated_by": "s"}))}),
     "SubscriptionIdentity": obj({"id": "s", "display_name": "s"}),
@@ -435,6 +488,12 @@ SCHEMAS = {
                                       "height": {"type": ["integer", "null"]}}), {"type": "null"}]},
                 open_asks={"type": "integer", "description": "Questions on this task with no answer or dismissal"},
                 type_id={"type": ["string", "null"]}, step_id={"type": ["string", "null"]},
+                relations={"type": "object", "description": "Related tasks the reader may open, by kind (parent, "
+                           "blocks, related, duplicate_of, follow_up): each {id, title, status, owner, direction}; "
+                           "direction is out when this task is the subtask, blocker, duplicate or follow-up, in for "
+                           "the other end, both for related. Subtasks are in the task's children.",
+                           "additionalProperties": items(obj({"id": "s", "title": "s", "status": "s", "owner": "s",
+                                                              "direction": "s"}))},
                 type={"oneOf": [obj({"id": "s", "name": "s"}), {"type": "null"}]},
                 step={"oneOf": [ref("TaskStep"), {"type": "null"}]},
                 body={"type": "string", "description": "Left out of a list asked for with brief=true, "
@@ -443,7 +502,12 @@ SCHEMAS = {
                         "(#18945); given once on a numbered type and never changed"},
                 step_rank={"type": ["number", "null"], "description": "Its place within its step, lower first"},
                 waiting_on={"type": ["string", "null"], "description": "The person a waiting task waits on; "
-                            "the task is in their Needs you"}),
+                            "the task is in their Needs you"},
+                roles={"type": "object", "description": "Who is on the task, by role: each role a short name the team "
+                       "chooses (developer, reviewer, qa ...) with its actors in the order they were added; a role nobody "
+                       "holds is absent, and one actor may hold several roles. Tico gives roles no meaning or rights. Task "
+                       "update and create take the same shape to replace a role's people ([] clears one)",
+                       "additionalProperties": items({"type": "string"})}),
     "Person": obj({"id": "s", "name": "s", "email": "s", "title": "s", "team": "s", "reports_to": "n", "org_parent": "s"},
                   required=["id", "name", "org_parent"]),
     "Access": obj({"see": "b", "read": "b", "write": "b"},
@@ -515,8 +579,13 @@ SCHEMAS = {
                                    "text (the reply so far; separate messages are joined by a blank line), parts, bot"}}),
     "MessageResult": obj({"message": ref("Message")}),
     "ChatResult": obj({"conversation": ref("Conversation"), "message": ref("Message")}),
-    "TaskList": obj({"tasks": items(ref("Task")), "next_offset": {"type": ["integer", "null"]}},
-                     required=["tasks", "next_offset"], actors=ACTORS),
+    "TaskList": obj({"tasks": items(ref("Task")), "next_offset": {"type": ["integer", "null"]},
+                     "cursor": {"type": "string", "description": "Opaque: pass as changed_after to read only what changed since"},
+                     "gone": {"type": "array", "items": {"type": "string"}, "description": "With changed_after: ids that "
+                              "changed and no longer match (deleted, no longer readable, or out of the filters)"},
+                     "reset": {"type": "boolean", "description": "With changed_after: the cursor is too old or no longer "
+                               "applies; read in full"}},
+                    required=["tasks", "next_offset", "cursor"], actors=ACTORS),
     "TaskResult": obj({"task": ref("Task")}),
     "TaskDetail": obj({"task": ref("Task"), "events": "a", "children": "a", "comments": items(ref("Message")),
                        "messages": items(ref("Message")), "has_more": "b", "can_comment": "b", "mover": "b"},
@@ -543,6 +612,13 @@ SCHEMAS = {
     "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b"}),
     "InboundTaskResult": obj({"task": {"oneOf": [obj({"id": "s"}), {"type": "null"}]}, "created": "b", "changed": "b"}),
     "UpdateList": obj({"updates": "a", "unread": "i", "next_before": "n"}, required=["updates", "unread"]),
+    "ChangelogEntry": obj({"id": "s", "title": "s", "bullets": items({"type": "string"}), "area": "s",
+                           "kind": {"type": "string", "enum": ["product", "activity"]}, "shipped_at": "s",
+                           "unread": "b", "version": "s", "source": "s", "url": "s", "task_id": "s"},
+                          required=["id", "title", "bullets", "area", "kind", "shipped_at"]),
+    "ChangelogList": obj({"entries": items(ref("ChangelogEntry")), "unread_count": "i", "current_version": "s",
+                          "next_offset": {"type": ["integer", "null"]}, "drafts": "a", "can_review": "b", "can_add": "b"}),
+    "ChangelogReadResult": obj({"unread_count": "i"}),
     "Unread": obj({"unread": "i"}, meetings_pending={"type": "integer", "description": "Pending meetings filed for the caller; never part of Needs you"}),
     "NeedsYou": {"oneOf": [obj({"actor": "s", "items": items({
         "type": "object", "required": ["id", "kind", "title"], "additionalProperties": True,
@@ -842,10 +918,8 @@ def spec(app):
         responses = {code: r for code, r in op.get("responses", {}).items() if code != "422"}
         if answer:
             responses["200"] = {"description": "OK", "content": {"application/json": {"schema": ref(answer)}}}
-        if path.endswith(("/stream", "/watch")):
-            events = ("`event: output` (id = cursor) and `event: messages`" if path.endswith("/stream")
-                      else "`event: snapshot`, `event: expired`, and `: keepalive` comments")
-            responses["200"] = {"description": "text/event-stream: " + events + ". Ends after about a minute; reconnect.",
+        if path == "/api/v2/events":
+            responses["200"] = {"description": EVENTS_DESCRIPTION,
                                 "content": {"text/event-stream": {"schema": {"type": "string"}}}}
         if method == "get" and path.startswith("/api/v2/files/") and path.endswith("/versions/{number}"):
             responses["200"] = {"description": "The file's bytes (application/octet-stream, sent as an attachment)",
@@ -905,7 +979,8 @@ def spec(app):
                 "bearer": {"type": "http", "scheme": "bearer",
                            "description": "A bearer session from POST /auth/token (browser apps) or a personal API token (servers)."},
                 "serviceKey": {"type": "http", "scheme": "bearer",
-                               "description": "A service key, tico_sk_..., which reaches POST /api/v2/inbound/tasks and nothing else."},
+                               "description": "A service key, tico_sk_...: a tasks key reaches POST /api/v2/inbound/tasks and nothing else "
+                                              "(an update key reaches only /api/v2/system/update, docs/service-keys.md)."},
                 "cookie": {"type": "apiKey", "in": "cookie", "name": "tico_session",
                            "description": "The browser session of Tico's own page (`__Host-tico_session` over https)."}}},
         "security": [{"bearer": []}, {"cookie": []}],

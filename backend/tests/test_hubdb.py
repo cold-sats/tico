@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from backend import hubdb as H
+from backend import task_relations as TR
 
 EMPLOYEES = {
     "coo": {"display_name": "COO", "status": "active", "host": "keeper", "runtime": "codex",
@@ -60,8 +61,41 @@ class Schema(HubCase):
         indexes = {r["name"] for r in self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'")}
         self.assertLessEqual({"messages_to_delivered", "messages_conversation",
+                              "messages_reply_kind", "messages_from_kind", "tasks_carried_by",
+                              "messages_pending_conversation", "bot_file_versions_blob_media",
                               "tasks_owner_status", "tasks_requester_status", "events_ts"},
                              indexes)
+
+    def test_existing_database_gains_reply_and_carried_task_indexes(self):
+        row = H.task_create(self.conn, ANA, "Prepare packet", "Gather the source files.", CMO, lint=False)
+        self.conn.execute("UPDATE tasks SET carried_by='existing-run' WHERE id=?", (row["id"],))
+        self.conn.execute("DROP INDEX messages_reply_kind")
+        self.conn.execute("DROP INDEX tasks_carried_by")
+        self.conn.execute("DROP INDEX messages_from_kind")
+        self.conn.execute("DROP INDEX messages_pending_conversation")
+        self.conn.commit()
+        self.conn.close()
+        migrated = H.connect(Path(self.dir.name) / "hub.db")
+        self.addCleanup(migrated.close)
+        self.assertEqual(migrated.execute("SELECT id FROM tasks WHERE carried_by='existing-run'").fetchone()[0], row["id"])
+        for query, index in (
+                ("SELECT id FROM tasks WHERE carried_by='existing-run'", "tasks_carried_by"),
+                ("SELECT 1 FROM messages WHERE in_reply_to='question' AND kind='answer'", "messages_reply_kind"),
+                ("SELECT id FROM messages WHERE from_actor='bot:cmo' AND kind='ask'", "messages_from_kind"),
+                ("SELECT id FROM messages WHERE conversation_id='task-thread' AND kind='ask' "
+                 "AND answered_by IS NULL AND deleted_at IS NULL", "messages_pending_conversation")):
+            plan = " ".join(r[3] for r in migrated.execute("EXPLAIN QUERY PLAN " + query))
+            self.assertIn(index, plan)
+
+    def test_existing_database_gains_the_media_version_lookup_index(self):
+        self.conn.execute("DROP INDEX bot_file_versions_blob_media")
+        self.conn.close()
+        migrated = H.connect(Path(self.dir.name) / "hub.db")
+        self.addCleanup(migrated.close)
+        plan = " ".join(r[3] for r in migrated.execute(
+            "EXPLAIN QUERY PLAN SELECT 1 FROM bot_file_versions "
+            "WHERE blob_id='existing-blob' AND media_state='pending'"))
+        self.assertIn("COVERING INDEX bot_file_versions_blob_media", plan)
 
 class RegistrySync(HubCase):
     def test_sync_is_idempotent_and_keeps_tokens_threads_and_quarantine(self):
@@ -379,44 +413,44 @@ class WaitingWithDependency(HubCase):
         # Server tasks carry the optimistic version used when completing a blocker.
         self.conn.execute("ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
 
-    def test_self_requested_task_can_wait_on_blocker_in_same_update(self):
+    def test_self_requested_task_can_wait_once_its_blocker_is_related(self):
         blocker = H.task_create(self.conn, CMO, 'Prepare the build environment', '', CMO)
         task = H.task_create(self.conn, CMO, 'Validate the release candidate', '', CMO)
-        after = H.task_update(self.conn, CMO, task['id'], status='waiting',
-                              blocked_by=blocker['id'], note='Needs the build environment')
-        self.assertEqual((after['status'], after['blocked_by']), ('waiting', blocker['id']))
+        TR.relate(self.conn, CMO, task['id'], blocker['id'], 'blocked_by')
+        after = H.task_update(self.conn, CMO, task['id'], status='waiting', note='Needs the build environment')
+        self.assertEqual((after['status'], TR.blocker_ids(self.conn, task['id'])), ('waiting', [blocker['id']]))
         self.assertEqual(H.waiting_for(self.conn, after), 'an open blocker')
         future = H.shift(H.now(), hours=48)
         self.assertNotIn(task['id'], [r['id'] for r in H.stalled_tasks(self.conn, at=future)])
         self.assertEqual(H.sweep_stranded(self.conn, at=future), [])
         H.task_update(self.conn, CMO, blocker['id'], status='done')
-        self.assertIsNone(H.task(self.conn, task['id'])['blocked_by'])
+        self.assertEqual(TR.blocker_ids(self.conn, task['id']), [])
         self.assertTrue(any('Unblocked:' in m['body'] for m in H._rows(
             self.conn.execute("SELECT body FROM messages WHERE to_actor=?", (CMO,)))))
 
     def test_removed_or_finished_blocker_does_not_justify_waiting(self):
         blocker = H.task_create(self.conn, CMO, 'Prepare the build environment', '', CMO)
         task = H.task_create(self.conn, CMO, 'Validate the release candidate', '', CMO)
-        H.task_update(self.conn, CMO, task['id'], blocked_by=blocker['id'])
-        self.refused('lint', H.task_update, self.conn, CMO, task['id'], status='waiting', blocked_by='')
+        TR.relate(self.conn, CMO, task['id'], blocker['id'], 'blocked_by')
+        TR.relate(self.conn, CMO, task['id'], blocker['id'], 'blocked_by', remove=True)
+        self.refused('lint', H.task_update, self.conn, CMO, task['id'], status='waiting')
         self.assertEqual(H.task(self.conn, task['id'])['status'], 'open')
+        TR.relate(self.conn, CMO, task['id'], blocker['id'], 'blocked_by')
         H.task_update(self.conn, CMO, blocker['id'], status='done')
-        self.refused('lint', H.task_update, self.conn, CMO, task['id'], status='waiting', blocked_by=blocker['id'])
+        self.refused('lint', H.task_update, self.conn, CMO, task['id'], status='waiting')
 
-    def test_invalid_dependency_cannot_enable_waiting(self):
+    def test_invalid_dependency_is_refused(self):
         task = H.task_create(self.conn, CMO, 'Validate the release candidate', '', CMO)
         for blocker in ('missing-task', task['id']):
             with self.assertRaises(H.Refused):
-                H.task_update(self.conn, CMO, task['id'], status='waiting', blocked_by=blocker)
-            self.assertEqual(H.task(self.conn, task['id'])['status'], 'open')
+                TR.relate(self.conn, CMO, task['id'], blocker, 'blocked_by')
+        self.assertEqual(TR.blocker_ids(self.conn, task['id']), [])
 
     def test_private_blocker_still_requires_access(self):
         blocker = H.task_create(self.conn, SEO, 'Prepare a private report', '', SEO, private=True)
         task = H.task_create(self.conn, CMO, 'Validate the release candidate', '', CMO)
-        self.refused('not-found', H.task_update, self.conn, CMO, task['id'],
-                     status='waiting', blocked_by=blocker['id'])
-        self.assertEqual(H.task(self.conn, task['id'])['status'], 'open')
-        self.assertIsNone(H.task(self.conn, task['id'])['blocked_by'])
+        self.refused('not-found', TR.relate, self.conn, CMO, task['id'], blocker['id'], 'blocked_by')
+        self.assertEqual(TR.blocker_ids(self.conn, task['id']), [])
 
     def test_a_task_waiting_on_a_person_stays_waiting_and_counts_until_they_answer(self):
         H.status_set(self.conn, H.KEEPER, "cmo", state="idle")
