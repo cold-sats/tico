@@ -144,8 +144,13 @@ def _review_role(c, task, payload, role):
     else:
         return False
     from .views import roster
-    by_login = {p["github"]: p["id"] for p in roster(c)["people"] if p.get("github") and not p.get("hidden")}
-    people = [by_login.get(str(login or "").lower()) for login in logins]
+    by_login = {}
+    for p in roster(c)["people"]:
+        if p.get("github") and not p.get("hidden"):
+            by_login.setdefault(p["github"], []).append(p["id"])
+    # A login two people share (a roster from before the profile refused duplicates) names nobody.
+    matches = [by_login.get(str(login or "").lower()) or [] for login in logins]
+    people = [ids[0] for ids in matches if len(ids) == 1]
     people = [H.human_actor(pid) for pid in people if pid and H.human(c, pid)]
     people = [who for who in people if not H.task_private(c, task) or H.task_private_readable(c, who, task)]
     if not people:

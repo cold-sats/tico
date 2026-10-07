@@ -86,6 +86,13 @@ def test_only_owners_and_admins_read_the_metrics(tmp_path):
         rec.drain()
         with app.state.store.transaction() as c:
             flight.write(c, rec.take(int(time.time() // 60 * 60) - 120))
+        # The start event comes from the recorder's thread; on a busy machine it lands after the first requests.
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            with app.state.store.transaction() as c:
+                if flight.last_start(c):
+                    break
+            time.sleep(0.05)
         assert get("cara-test").status_code == 403
         assert get("ben-test").status_code == 200
         body = get("ana-test").json()
