@@ -62,7 +62,7 @@ function settingsRuntimeBlock(e, harness) {
     && row.readiness?.schema_version === 1 && settingsRunnable(row, runtime)
     && (S.me?.role === 'owner' || row.operator === S.me?.id)) || null;
   const signIn = installed && ['codex', 'claude'].includes(runtime) && (settingsIsAdmin() || machine.operator === S.me?.id);
-  return {runtime, machine, move, signIn, short: installed ? 'not signed in' : 'not installed',
+  return {runtime, machine, move, signIn, short: installed ? 'sign in' : 'not installed',
     reason: `${installed ? 'Not signed in' : 'Not installed'} on ${machine.label}`};
 }
 // One line per harness this computer cannot run that has a way out: sign in here, or move the bot.
@@ -108,9 +108,13 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
     harness.innerHTML = option('', fields.hasAttribute('data-allow-none') ? 'None' : 'Choose harness', !picked.harness)
       + (picked.harness && !harnesses.includes(picked.harness) ? option(picked.harness, settingsHarnessName(picked.harness) || picked.harness, true, true) : '')
       + harnesses.map(id => { const why = block(id);
-        return option(id, (settingsHarnessName(id) || id) + (why ? ' · ' + why.short : ''), id === picked.harness, !!why && id !== picked.harness); }).join('');
+        // Short, so a narrow select does not cut it off: "Claude Code (sign in)".
+        return option(id, why ? `${harnessWords(why.runtime)} (${why.short})` : settingsHarnessName(id) || id, id === picked.harness, !!why && id !== picked.harness); }).join('');
+    harness.title = block(picked.harness)?.reason || '';
+    // The reason and its Sign in / Move line only in the open bot editor: the table already marks the bot's row,
+    // and every bot on that computer would repeat it.
     const notes = fields.querySelector('[data-choice-blocks]');
-    if (notes) notes.innerHTML = bot && !readonly ? settingsBlockedNote(bot, harnesses) : '';
+    if (notes) notes.innerHTML = bot && !readonly && fields.closest('#bot-editor') ? settingsBlockedNote(bot, harnesses) : '';
     const models = [...new Set(choices.filter(row => row.harness === picked.harness).map(row => row.model))];
     model.innerHTML = option('', 'Choose model', !picked.model, true)
       + (picked.model && !models.includes(picked.model) ? option(picked.model, `${settingsModelName(picked.model)} (current)`, true, true) : '')
@@ -302,7 +306,7 @@ function settingsBulkModelDialog() {
         ? `Destination: ${settingsChoiceLabel(choice.harness, choice.model, choice.effort)}` : '';
       // Before Apply: say which bots' computers cannot run this choice.
       bots.forEach(e => { const why = choice && settingsRuntimeBlock(e, choice.harness);
-        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run: ${why.short} on ${why.machine.label}` : settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e))); });
+        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run: ${why.reason.replace(/^N/, 'n')}` : settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e))); });
     });
     dialog.querySelector('[data-bulk-apply]').onclick = () => void run(bots);
   };
@@ -320,7 +324,7 @@ function settingsBulkModelDialog() {
     for (const e of targets) {
       // A bot whose computer cannot run the choice is reported, not sent: the server would refuse it anyway.
       const why = settingsRuntimeBlock(e, choice.harness);
-      if (why) { mark(e.name, 'blocked', `Can't run: ${why.short} on ${why.machine.label}${why.move ? ` · move to ${why.move.label}` : ''}`); results.blocked++; continue; }
+      if (why) { mark(e.name, 'blocked', `Can't run: ${why.reason.replace(/^N/, 'n')}${why.move ? ` · move to ${why.move.label}` : ''}`); results.blocked++; continue; }
       mark(e.name, 'working', 'Changing…');
       const result = await settingsBulkApplyOne(e.name, choice);
       mark(e.name, result.state, result.note);

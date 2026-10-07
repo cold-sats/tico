@@ -220,7 +220,13 @@ def _waiting(c, online_ids):
     # A starter bot still waiting for its first setup holds its work on purpose: not slow.
     parked = {r["bot"] for r in c.execute("SELECT bot FROM bot_config WHERE onboarding_state IN ('needs_setup','needs_onboarding')")}
     # A bot in the middle of a turn has its next message waiting behind it: busy, not stuck (partial index).
-    busy = {r["bot"] for r in c.execute("SELECT bot FROM attempts WHERE state IN ('leased','running')")}
+    busy, running = set(), {}
+    for r in c.execute("SELECT bot,runner_id FROM attempts WHERE state IN ('leased','running')"):
+        busy.add(r["bot"])
+        running[r["runner_id"]] = running.get(r["runner_id"], 0) + 1
+    # A computer running as many turns as it takes holds the rest back on purpose: queued, not stuck.
+    full = {r["id"] for r in c.execute("SELECT id,capacity FROM runners WHERE revoked_at IS NULL")
+            if running.get(r["id"], 0) >= (r["capacity"] or 1)}
     documents = {}      # one parse per computer, and only for bots with queued work: Health is polled by every tab
 
     def report_for(slug, where):
@@ -253,8 +259,8 @@ def _waiting(c, online_ids):
             if oldest and oldest < cutoff:
                 slow.append({**row, "reason": "slow"})
         elif where and count and oldest and oldest < cutoff and slug not in parked:
-            slow.append({**row, "reason": "slow"})
-            if slug not in busy:
+            slow.append({**row, "reason": "busy" if slug in busy or where[0] in full else "slow"})
+            if slug not in busy and where[0] not in full:
                 stuck.append({**row, "reason": "slow", "runner_id": where[0], "runtime": report.get("runtime") or ""})
     return waiting, slow, stuck
 
@@ -323,7 +329,8 @@ _TOKEN_CACHE = {}   # (database, threshold) -> (monotonic time, answer)
 
 
 def _token_heavy(c, threshold):
-    """(bot, tokens) for bots whose input tokens, cached included, passed `threshold` in the last day.
+    """(bot, tokens) for bots whose uncached input tokens passed `threshold` in the last day. A run records
+    `input_tokens` without its cache reads (runner/usage.py), so cache reads, which are cheap, do not count.
     Both halves filter on `turns.started` (indexed) before summing; the sum still visits every turn of the day
     (about 90 ms at 30,000 turns), so one answer serves every tab's Health poll for five minutes."""
     if not threshold or threshold <= 0:
@@ -336,9 +343,9 @@ def _token_heavy(c, threshold):
     since = H.shift(H.now(), hours=-RECENT_HOURS)
     answer = [(r["bot"], r["n"]) for r in c.execute(
         "SELECT bot, sum(n) AS n FROM ("
-        "SELECT t.bot, coalesce(s.input_tokens,0)+coalesce(s.cached_tokens,0) AS n FROM turns t "
+        "SELECT t.bot, coalesce(s.input_tokens,0) AS n FROM turns t "
         "JOIN turn_usage_segments s ON s.turn_id=t.id WHERE t.started>=? "
-        "UNION ALL SELECT t.bot, coalesce(t.input_tokens,0)+coalesce(t.cached_tokens,0) FROM turns t "
+        "UNION ALL SELECT t.bot, coalesce(t.input_tokens,0) FROM turns t "
         "WHERE t.started>=? AND NOT EXISTS (SELECT 1 FROM turn_usage_segments s WHERE s.turn_id=t.id)) "
         "GROUP BY bot HAVING sum(n)>? ORDER BY sum(n) DESC", (since, since, threshold))]
     _TOKEN_CACHE.clear()
@@ -691,13 +698,16 @@ def view(c, who, settings, auth, github, config):
                              [_fix("Open Computers", "#/settings", "devices")] if full else []))
     else:
         checks.append(_check("waiting", "Bots waiting", "ok", "Every active bot has a computer that is up."))
-    if blocked:
-        # One line per bot with the computer's own reason, so "waiting" never hides "cannot start".
-        checks.append(_check("queue", "Stuck bots", "bad" if any(s["reason"] != "slow" for s in blocked) else "warn",
-                             ("; ".join(f"{s['name']}: {s['why']}" for s in blocked[:5])
-                              + ("." if len(blocked) <= 5 else f"; and {len(blocked) - 5} more.")) if full
-                             else f"{_plural(len(blocked), 'bot')} with work that is not starting.",
-                             [s["fix"] for s in blocked[:1] if s["fix"]]))
+    # An offline computer (or none) is "Bots waiting"; this check is everything else, so one cause is one item.
+    held = {w["bot"] for w in waiting}
+    blocking = [s for s in blocked if s["bot"] not in held]
+    if blocking:
+        # A count: each bot, its reason and its fix are listed once, under `stuck` (Health's Stuck list, Overview).
+        checks.append(_check("queue", "Stuck bots", "bad" if any(s["reason"] != "slow" for s in blocking) else "warn",
+                             f"{_plural(len(blocking), 'bot')} with work that is not starting.", []))
+    elif slow and all(s["reason"] == "busy" for s in slow):
+        checks.append(_check("queue", "Work queueing", "info", "Queued behind other work"
+                             + (": " + ", ".join(s["name"] for s in slow[:5]) + "." if full else ".")))
     elif slow:
         checks.append(_check("queue", "Work queueing", "warn",
                              f"{_plural(len(slow), 'bot')} with work waiting more than {QUEUE_MINUTES} minutes"
@@ -707,7 +717,7 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("queue", "Work queueing", "ok", "No work is waiting long."))
     if full and (heavy := _token_heavy(c, settings.token_alert_input)):
         checks.append(_check("tokens", "Token use", "warn",
-                             "; ".join(f"{name}: {_tokens_words(n)} input tokens in 24 h"
+                             "; ".join(f"{name}: {_tokens_words(n)} uncached input tokens in 24 h"
                                        for name, n in ((_bot_name(c, bot), n) for bot, n in heavy[:5]))
                              + ("." if len(heavy) <= 5 else f"; and {len(heavy) - 5} more."),
                              [_fix("Open Usage", "#/usage")]))

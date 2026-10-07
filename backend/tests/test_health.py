@@ -155,7 +155,7 @@ def test_a_bot_its_computer_cannot_start_is_stuck_with_the_reason_and_one_fix(en
         conversation = H.open_conversation(c, owner, [owner, "bot:release"], kind="chat")
         H._write_message(c, owner, "bot:release", "ship it", conversation, "say", {}, None, None)
     body, checks = health_of(api)
-    assert checks["queue"]["status"] == "bad" and "Claude login required on Team box" in checks["queue"]["summary"]
+    assert checks["queue"]["status"] == "bad" and checks["queue"]["summary"] == "1 bot with work that is not starting."
     [row] = body["stuck"]
     assert row["bot"] == "release" and row["why"] == "Claude login required on Team box"
     assert row["fix"]["login"] == {"runner_id": runner, "runtime": "claude", "computer": "Team box"}
@@ -170,12 +170,13 @@ def test_a_bot_its_computer_cannot_start_is_stuck_with_the_reason_and_one_fix(en
 
 
 def test_a_bot_over_the_daily_token_threshold_is_flagged(environment):
+    """Uncached input only: cache reads are cheap and would dominate the count."""
     api = environment()
     add_bot(api, "loop")
     api.app.state.store.settings.token_alert_input = 1000
     with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO turns(id,bot,started,input_tokens,cached_tokens) VALUES('t1','loop',?,600,500)", (H.now(),))
+        c.execute("INSERT INTO turns(id,bot,started,input_tokens,cached_tokens) VALUES('t1','loop',?,1100,90000)", (H.now(),))
         c.execute("INSERT INTO turns(id,bot,started,input_tokens,cached_tokens) VALUES('t0','loop',?,9000,0)",
                   (H.shift(H.now(), hours=-30),))
     checks = health_of(api)[1]
-    assert checks["tokens"]["status"] == "warn" and "1,100 input tokens in 24 h" in checks["tokens"]["summary"]
+    assert checks["tokens"]["status"] == "warn" and "1,100 uncached input tokens in 24 h" in checks["tokens"]["summary"]
