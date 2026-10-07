@@ -192,3 +192,26 @@ def test_app_token_failure_blocks_machine_helpers_and_askpass(tmp_path):
     assert not G.apply(env, Hub({'configured': False}), 'alpha')
     assert 'password=machine' in fill(env, tmp_path)
     assert marker.exists()
+
+
+def test_app_token_wins_in_the_org_and_a_stored_gh_token_serves_only_other_owners(tmp_path):
+    """A stale GH_TOKEN credential granted to the bot never shadows the App inside the connected organization."""
+    import os
+    import shutil
+    from runner import redact
+    gh = tmp_path / "gh"
+    gh.write_text("#!/bin/sh\nprintf '%s' \"$GH_TOKEN\"\n")
+    gh.chmod(0o755)
+    env = {"PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "HOME": str(tmp_path), "GH_TOKEN": "ghp_stale"}
+    grants = {"configured": True, "token": "write-token", "repository": "Acme/bot-alpha", "tokens": [
+        {"token": "write-token", "repositories": ["Acme/bot-alpha", "Acme/product"]}]}
+    assert G.apply(env, Hub(grants), "alpha")
+    assert env["GH_TOKEN"] == env["GITHUB_TOKEN"] == "write-token"
+    assert env[G.TURN_PATH_KEY] == env["PATH"]           # what a login shell puts back (docker/profile-turn.sh)
+    run = lambda *args: subprocess.run([shutil.which("gh", path=env["PATH"]), *args], env=env, cwd=tmp_path,
+                                       capture_output=True, text=True, timeout=10)
+    assert run("pr", "view", "-R", "Acme/product").stdout == "write-token"
+    assert run("pr", "view", "-R", "Other/tool").stdout == "ghp_stale"
+    refused = run("pr", "view", "-R", "Acme/elsewhere")  # in the org but not granted: never the stored token
+    assert refused.returncode == 1 and "ghp_stale" not in refused.stdout + refused.stderr
+    assert redact.for_turn(env).scrub_text("ghp_stale write-token") == redact.MASK + " " + redact.MASK

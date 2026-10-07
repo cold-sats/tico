@@ -10,6 +10,8 @@ All notable changes to Tico are recorded here. The format follows
 ### Added
 - A published release moves the Waiting tasks it contains to Review with "Shipped in vX.Y.Z": a pushed `vX.Y.Z` tag, a published GitHub release, or the release the server runs, when the task's merged pull requests or linked commits are on main at or before it. Apps created earlier: tick the **Release** event in the GitHub App; pushed tags work without it ([GitHub App](docs/github-app.md#task-pr-events)).
 - Health flags a task whose status changes 20 times in 24 hours as a likely loop, naming who moves it, and tells its owner and requester once a day. Nothing is blocked.
+- Health shows "<computer>: GitHub sign-in failed" when a bot's GitHub App token gets 401 there, and "<computer>: browser does not start" when the Chromium a bot installed cannot launch. Each computer checks every 15 minutes and reports two failures in a row ([GitHub App](docs/github-app.md#how-bots-sign-in-to-github), [harnesses](docs/harnesses.md)).
+- `hub human list` shows each person's GitHub login, and a bot that opens a pull request for a person requests their review by it.
 
 ### Changed
 - A task worktree whose pull requests are all merged or closed frees itself once its bot is idle, even while the task stays open; one with unsaved or unpushed work is kept, with the reason. The worktree limit error says which pull requests to merge and which worktrees free themselves.
@@ -21,6 +23,9 @@ All notable changes to Tico are recorded here. The format follows
 - A bot set up from a catalog template that lands on a new computer clones its GitHub history instead of starting from a fresh template copy. A copy that shares no history with GitHub never gets a turn, and a computer the bot returns to brings its clean old clone up to GitHub's history before the first turn.
 - Credentials can no longer be saved or given to a bot under a name Tico reserves (`TICO_`, `DYLD_`, `LD_`, the runner's own `HUB_` names); the release-notes template now uses `UPDATE_KEY_*`. One stored before is left out of the bot's turns instead of stopping every turn, and Health names it under **Credential names** until its variable is renamed.
 - A turn that fails before it starts logs why (secrets scrubbed), not only the server's refusal of its result.
+- `gh pr create` in a bot's turn could fail with HTTP 401 Bad credentials while `git push` worked: a login shell (Codex runs `bash -lc`) dropped the turn's `gh` wrapper from PATH, and `gh` fell back to a token minted at turn start that could expire minutes later. The runner image now keeps the turn's PATH in login shells, and turn tokens are minted with at least 45 minutes left.
+- A `GH_TOKEN` credential granted to a bot no longer competes with the GitHub App: the App's token wins in the connected organization, and the stored token serves only repositories outside it.
+- The Docker runner image has the system libraries Chromium needs, so a Playwright browser a bot installs starts (it failed on missing `libglib-2.0.so.0`).
 
 ## [0.3.30] - 2026-10-07
 

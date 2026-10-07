@@ -7,6 +7,12 @@ request: from the hub with the runner's own registration, or, where bot code can
 environment variables (no file, no askpass script on disk) and the token is only ever printed to
 git. `gh` selects a token for its repository through a turn-local command wrapper. With no App
 connected, the turn keeps the machine’s git access. App token failures disable that fallback.
+
+Precedence: the App's token wins for every repository in the connected organization. A `GH_TOKEN` credential
+granted to the bot is kept aside (`OTHER_TOKEN_KEY`) and used only for repositories outside that organization,
+so a stale personal token can never shadow the App. A login shell resets PATH (Debian's /etc/profile, macOS's
+path_helper), which hides the wrapper; the runner image restores the turn's PATH from `TURN_PATH_KEY`, and the
+`GH_TOKEN` a bare `gh` falls back to is minted with most of its hour left (backend/github_app.py REFRESH_MARGIN).
 """
 import json
 import os
@@ -25,6 +31,10 @@ ROOT = Path(__file__).resolve().parents[1]
 # so a stale keychain entry cannot win over the scoped token.
 KEY = "credential.https://github.com.helper"
 TOKENS_KEY = "TICO_GITHUB_TOKENS"
+# A GitHub token the bot was granted as a credential, for repositories outside the App's organization only.
+OTHER_TOKEN_KEY = "TICO_GITHUB_OTHER_TOKEN"
+# The turn's PATH, which docker/profile.d/tico-turn.sh puts back after a login shell resets it.
+TURN_PATH_KEY = "TICO_TURN_PATH"
 # A fixed token, for when the runner's registration file is not known (tests, embedding).
 # The bot's repository (`owner/name`) as the hub resolved it, for the turn's publish step.
 REPOSITORY_KEY = "TICO_GITHUB_REPOSITORY"
@@ -62,8 +72,11 @@ def apply(env, client, bot, config_path=None, socket_path=None):
     if not granted.get("configured"):
         return False
     applied = bool(granted.get('token'))
+    stored = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or ""
     if not applied:
         granted = {**granted, 'token': '', 'tokens': []}
+    elif stored and stored != granted["token"] and granted.get("repository"):
+        env[OTHER_TOKEN_KEY] = stored
     helper = fresh_helper(config_path, bot, socket_path) if (config_path or socket_path or "tokens" in granted) else STATIC_HELPER
     env.update(environment(granted["token"], helper if applied else FAILED_HELPER))
     if "tokens" in granted:
@@ -76,6 +89,7 @@ def apply(env, client, bot, config_path=None, socket_path=None):
             if config_path and not socket_path:
                 env["TICO_GITHUB_CONFIG"] = str(config_path)
             env["PATH"] = str(ROOT / "runner" / "credential_bin") + os.pathsep + env.get("PATH", os.environ.get("PATH", os.defpath))
+            env[TURN_PATH_KEY] = env["PATH"]
     if socket_path:
         env[credential_socket.SOCKET_ENV] = str(socket_path)
     if granted.get("repository"):
@@ -277,8 +291,20 @@ def select_token(granted, repository=None):
     return granted.get("token", "")
 
 
+def outside_token(repository, env=None):
+    """The bot's own GitHub credential, for a repository outside the App's organization; '' otherwise."""
+    env = os.environ if env is None else env
+    org = str(env.get(REPOSITORY_KEY) or "").partition("/")[0].lower()
+    owner = str(repository or "").partition("/")[0].lower()
+    return env.get(OTHER_TOKEN_KEY, "") if org and owner and owner != org else ""
+
+
 def credential(config_path, bot, socket_path=None, repository=None):
-    """Fresh repository credentials, falling back to the turn's matching token in memory."""
+    """Fresh repository credentials, falling back to the turn's matching token in memory. A repository
+    outside the App's organization gets the bot's own GitHub credential, if it was granted one."""
+    other = outside_token(repository)
+    if other:
+        return other
     from clients.tico import Client
     try:
         if socket_path:

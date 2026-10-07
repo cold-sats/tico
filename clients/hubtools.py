@@ -1762,9 +1762,10 @@ def people_add(api, args):
     return api.post("access/humans", body, key=_key(args))
 
 
-@tool("hub_human_list", "The people on the roster: id, name, email, title, group (`team`) and who they report to.", {})
+@tool("hub_human_list", "The people on the roster: id, name, email, title, group (`team`), who they report to, and "
+      "their GitHub login (`github`, from their profile; empty when unset).", {})
 def people_list(api, args):
-    return [{k: p.get(k) for k in ("id", "name", "email", "title", "team", "reports_to")}
+    return [{k: p.get(k) for k in ("id", "name", "email", "title", "team", "reports_to", "github")}
             for p in api.get("org")["people"]]
 
 
