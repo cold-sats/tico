@@ -18963,6 +18963,14 @@
                     }
                   }
                 }
+              },
+              "older": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "description": "Tasks there only for a question older than three days, out of the queue and its count"
               }
             },
             "required": [

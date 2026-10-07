@@ -623,7 +623,10 @@ SCHEMAS = {
     "NeedsYou": {"oneOf": [obj({"actor": "s", "items": items({
         "type": "object", "required": ["id", "kind", "title"], "additionalProperties": True,
         "properties": {"id": {"type": "string"}, "kind": {"enum": ["task", "question", "declined", "approval"]},
-                       "title": {"type": "string"}}})}), obj({"actor": "s", "count": "i"})]},
+                       "title": {"type": "string"}}})}, required=["actor", "items"],
+        older={"type": "array", "items": {"type": "object", "additionalProperties": True},
+               "description": "Tasks there only for a question older than three days, out of the queue and its count"}),
+        obj({"actor": "s", "count": "i"})]},
     "GranolaStatus": obj({"mode": {"type": "string", "enum": ["account", "api_key", "off"]},
                           "connected": "b", "email": "n", "plan_hint": {"type": ["string", "null"], "enum": ["free", "paid", None]},
                           "last_sync": "n", "last_error": "n", "imported_count": "i", "needs_signin": "b", "syncing": "b", "skipped": "i"}),

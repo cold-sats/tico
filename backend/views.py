@@ -648,7 +648,9 @@ def recent_bots(c, auth, who, since, limit, needs):
     return out
 
 
-def needs_items(c, auth, who, task_view):
+def needs_items(c, auth, who, task_view, older=None):
+    """The person's queue. A task there only for a question older than H.ASK_OLDER_DAYS goes to `older` instead
+    (a list the caller passes), out of the queue and its count."""
     raw = H.needs_you(c, who.actor)
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
     items = []
@@ -660,10 +662,17 @@ def needs_items(c, auth, who, task_view):
                 continue
             open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
-            items.append({**task_view(row),
-                          "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
-                          "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
-                          "first_line": (row.get("body") or "").split("\n")[0]})
+            item = {**task_view(row),
+                    "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
+                    "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
+                    "first_line": (row.get("body") or "").split("\n")[0]}
+            if (item["kind"] == "question" and row["owner"] != who.actor and H.ask_older(ask)
+                    and not any(a["to_actor"] == who.actor and not H.ask_older(a) for a in open_asks)):
+                ask["older"] = True
+                if older is not None:
+                    older.append(item)
+                continue
+            items.append(item)
     for row in raw["approvals"]:
         msg = H.message(c, row["message_id"])
         if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
@@ -1249,8 +1258,10 @@ def install_views(app, store, auth, mutate, task_view):
         who = request.state.identity
         human_only(who)
         with store.read() as c:
-            items = needs_items(c, auth, who, task_view)
-            return {"actor": who.actor, "count": len(items)} if count else {"actor": who.actor, "items": items}
+            older = []
+            items = needs_items(c, auth, who, task_view, older)
+            return ({"actor": who.actor, "count": len(items)} if count
+                    else {"actor": who.actor, "items": items, "older": older})
 
     @app.get("/api/v2/tico/fleet")
     def tico_fleet(request: Request):

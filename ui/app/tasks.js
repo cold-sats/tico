@@ -125,10 +125,15 @@ function taskMatches(it, query) {
 }
 
 // A task’s state is written in words; its owner and dependencies remain separate properties.
+// A question over three days old (the server marks it `older`) no longer counts: it waits under Older questions.
 function taskNeedsViewer(t) {
   const me = myActor();
-  return !!me && !!t && !taskFinished(t) && (t.owner === me || t.ask?.to_actor === me || taskWaitingOn(t) === me
+  return !!me && !!t && !taskFinished(t) && (t.owner === me || (t.ask?.to_actor === me && !t.ask?.older) || taskWaitingOn(t) === me
     || (t.status === 'declined' && taskRequester(t) === me && !actorPerson(t.owner)));
+}
+function taskOlderAsk(t) {
+  const me = myActor();
+  return !!me && !!t && !taskFinished(t) && t.ask?.to_actor === me && !!t.ask?.older && !taskNeedsViewer(t);
 }
 // The person a bot's waiting task names (`hub task update --status waiting --on <person>`), or ''.
 function taskWaitingOn(t) {

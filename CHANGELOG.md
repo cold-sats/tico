@@ -9,8 +9,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Added
 - **Stuck bots** on Overview and in Health: a bot with queued work that its computer cannot start (no model sign-in, no repository, computer offline) shows at once with the computer's reason, for example "Claude login required on Team box", and one fix: Sign in, Move to a computer that can run it, or the settings page. Work not started after 15 minutes shows too, unless the bot or its computer is busy with other turns.
-- The bot Model control greys out harnesses its computer cannot run ("not signed in", "not installed") and offers Sign in or Move to a computer that can. Bulk "Change model" lists those bots as "Can't run" instead of sending the change.
+- The bot Model control greys out harnesses its computer cannot run ("sign in", "not installed", "no key"), judged by the same rule as a model change and a move, and its editor offers Sign in or Move to a computer that can. Bulk "Change model" lists those bots as "Can't run" instead of sending the change.
 - Health warns about a bot over 500M uncached input tokens in a day, with the number (cache reads do not count). `TICO_TOKEN_ALERT_INPUT` sets the threshold; 0 turns it off.
+- A published release moves the Waiting tasks it contains to Review with "Shipped in vX.Y.Z": a pushed `vX.Y.Z` tag, a published GitHub release, or the release the server runs, when the task's merged pull requests or linked commits are on main at or before it. Apps created earlier: tick the **Release** event in the GitHub App; pushed tags work without it ([GitHub App](docs/github-app.md#task-pr-events)).
+- Health flags a task whose status changes 20 times in 24 hours as a likely loop, naming who moves it, and tells its owner and requester once a day. Nothing is blocked.
+
+### Changed
+- A task worktree whose pull requests are all merged or closed frees itself once its bot is idle, even while the task stays open; one with unsaved or unpushed work is kept, with the reason. The worktree limit error says which pull requests to merge and which worktrees free themselves.
+- A bot's new question to a person on a task replaces its earlier unanswered one to that person, and a finished task's open questions close (done keeps review questions). Questions older than three days move to a folded **Older questions** group at the end of Needs you and leave its count. `hub_question_ask` returns each ask's `message_id`, timeouts included.
+- Engineering bot templates and `policies/writing.md`: plain notes, asks to someone on the roster, and only the Release Manager publishes releases ([Releasing](docs/releasing.md)).
 
 ### Fixed
 - Moving a bot to another computer works again: the destination is judged by whether it can run the bot (its runtime installed and signed in, for the bot's own subscription or key), instead of always answering "Update the destination runner".

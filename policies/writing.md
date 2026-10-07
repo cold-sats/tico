@@ -4,6 +4,12 @@
 - Short sentences. No filler, no restating the request.
 - Task titles: verb first, under 70 characters. "Investigate organic traffic drop", not "SEO stuff".
 - Comments: only when they change what someone should do next.
+- Task notes and asks are plain sentences a teammate reads once: what happened, what is next, what you
+  need. No raw IDs, hashes, operation IDs or counters ("split519475db", "count10 op…"); name the thing
+  in words and give at most one link to it.
+- Address an ask to a real person or role on the roster (`hub team show`). Never to a name that is not
+  there, such as an outside operator or "Root"; when nobody on the roster can act, say so to the requester.
+- One ask per need. When the question changes, ask the new one: it replaces the old, unanswered one.
 - Reports go in your repo under `reports/YYYY-MM-DD-<slug>.md`. When a person is to read one,
   attach it to the task (`hub task attach <task-id> reports/<file>.md`) and put the link it prints
   in your note. A path on your Mac or an `s3://` URI is not a link anyone can open.

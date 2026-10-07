@@ -155,7 +155,7 @@ TRIGGERS = [
     ("changes_task_asks_insert", "INSERT", "messages", "NEW.kind IN ('ask','answer')",
      _fan("ask", "SELECT " + _ASK_TASK.format(mid="NEW.id") + " AS id")),
     ("changes_task_asks_update", "UPDATE", "messages",
-     f"NEW.kind='ask' AND ({_changed('answered_by', 'deleted_at', 'kind')})",
+     f"NEW.kind='ask' AND ({_changed('answered_by', 'deleted_at', 'kind', 'superseded_at')})",
      _fan("ask", "SELECT " + _ASK_TASK.format(mid="NEW.id") + " AS id")),
     ("changes_task_types_update", "UPDATE", "task_types", None,
      _fan("type", "SELECT id FROM tasks WHERE type_id=NEW.id")),
@@ -169,7 +169,7 @@ TRIGGERS = [
      + _needs("ask", "NEW.to_actor", "NEW.from_actor", where="NEW.kind IN ('ask','answer')")),
     # Delivery and read receipts move on every message a bot takes; they are not a change to show.
     ("changes_messages_update", "UPDATE", "messages",
-     _changed("body", "refs_json", "kind", "answered_by", "edited_at", "deleted_at", "conversation_id"),
+     _changed("body", "refs_json", "kind", "answered_by", "edited_at", "deleted_at", "conversation_id", "superseded_at"),
      _row("messages", "update", "NEW.id", conversation="NEW.conversation_id")
      + _needs("ask", "NEW.to_actor", where="NEW.kind='ask'")),
     ("changes_messages_delete", "DELETE", "messages", None,
@@ -318,7 +318,8 @@ NEEDS = {
     "changes_blob_media_insert": ("task_assets", "bot_files", "bot_file_versions"),
     "changes_blob_media_update": ("task_assets", "bot_files", "bot_file_versions"),
     "changes_task_asks_insert": ("conversations",),
-    "changes_task_asks_update": ("conversations",),
+    "changes_task_asks_update": ("conversations", "messages.superseded_at"),
+    "changes_messages_update": ("messages.superseded_at",),
     "changes_task_types_update": ("tasks.type_id",),
     "changes_task_steps_insert": ("tasks.step_id",),
     "changes_task_steps_update": ("tasks.step_id",),
