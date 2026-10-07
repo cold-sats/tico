@@ -48,7 +48,7 @@ from .bot_rows import BotRows
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
-from .settings_admin import SettingsAdmin, repository_present
+from .settings_admin import SettingsAdmin, repository_present, runtime_readiness
 from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
 from .credential_cards import install_credential_cards, scrub_attempt
@@ -243,6 +243,20 @@ def create_app(settings=None):
         if exc.status >= 500:
             telemetry.capture("request", exc, exc.status)
             request.state.telemetry_captured = True
+        caller = getattr(request.state, "privacy_source", None)
+        if (caller is not None and caller.actor == "bot:" + BOTOPS and exc.status in (403, 409)
+                and "fix" not in getattr(exc, "extra", {})):
+            # BotOps relays a refusal to a person: what to click, and where (botops_act.fix).
+            acting = getattr(request.state, "identity", None) or caller
+            def hint():
+                parts = request.url.path.split("/")
+                with store.read() as c:
+                    names = actor_names.lookup(c, [acting.actor] + (["bot:" + parts[4]] if parts[3:4] == ["bots"]
+                                                                     and len(parts) > 4 else []))
+                return botops_act.fix(request.url.path, exc.code, exc.status, acting, names, settings.public_url)
+            found = await asyncio.get_running_loop().run_in_executor(None, hint)
+            if found:
+                exc.extra = {**getattr(exc, "extra", {}), **found}
         return JSONResponse({"error": {"code": exc.code, "detail": exc.detail,
                                        "retryable": exc.retryable, **getattr(exc, "extra", {})}},
                             status_code=exc.status)
@@ -2864,6 +2878,10 @@ def create_app(settings=None):
                          (who.attempt_id,)).fetchone() if who.attempt_id else None
         if explicit and not turn:
             raise Problem("on_behalf_of", "Cite the request that started this run", 403)
+        if explicit:
+            cited = followed_task(c, ref)
+            if cited:
+                return acting_as(follow_through(c, who, cited))
         if not explicit:
             if not turn:
                 return who
@@ -2956,6 +2974,39 @@ def create_app(settings=None):
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
         return acting_as(person)
+
+    def followed_task(c, ref):
+        """The task `ref` names (its id, or an unambiguous prefix of eight or more), or None when it names none."""
+        ref = str(ref or "")
+        rows = c.execute("SELECT id FROM tasks WHERE id=? OR (length(?)>=8 AND id LIKE ? || '%') LIMIT 2",
+                         (ref, ref, ref)).fetchall()
+        exact = [r for r in rows if r["id"] == ref]
+        return H.task(c, (exact or rows)[0]["id"]) if len(exact or rows) == 1 else None
+
+    def follow_through(c, who, task):
+        """The person whose open request BotOps is following through on, in a later run: a daily-update wake, a retry
+        once a busy bot finished, a notice. The run that started it is gone, so BotOps cites the task the person asked
+        for. Only a task BotOps owns, that the person filed themselves (not through the Assistant), still open and at
+        most a week old; and never from a run a bot or another person started, which keeps its own requester's rights."""
+        requester = task["requester"]
+        if task["owner"] != who.actor or not H.is_human(requester):
+            raise Problem("on_behalf_of", "Cite a task a person asked BotOps for", 403)
+        if task["status"] in ("done", "closed", "declined"):
+            raise Problem("on_behalf_of", "That task is closed; ask the person again", 403)
+        made = c.execute("SELECT actor,detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
+                         (task["id"],)).fetchone()
+        if not made or made["actor"] != requester or H._json(made["detail_json"], {}).get("via") == "assistant":
+            raise Problem("on_behalf_of", "That task was not filed by the person who asked for it", 403)
+        origin = H.message(c, task["request_id"]) if task.get("request_id") else None
+        if task.get("request_id") and (not origin or origin["from_actor"] != requester):
+            raise Problem("on_behalf_of", "That task's request is not the person's own", 403)
+        if (origin or task)["created"] < H.shift(H.now(), days=-DELEGATION_DAYS):
+            raise Problem("on_behalf_of", "That request is more than a week old; ask the person again", 403)
+        current = delegated_identity(c, who, "turn")
+        if current.actor not in (who.actor, requester):
+            raise Problem("on_behalf_of", "This run is for " + current.actor + "; it keeps that requester's rights", 403)
+        H.VIA.set("botops")
+        return auth.identity_for_actor(c, requester)
 
     def botops_owns_task(path, body=None):
         """A note, comment or status on a task BotOps owns is BotOps' own work: it needs no one's rights and is BotOps'
@@ -3756,13 +3807,20 @@ def create_app(settings=None):
             runtime = runtime_of(harness) or choice["runtime"]
             if (old_model == choice["id"] and old_runtime == runtime
                     and old_effort == effort and old_harness == harness):
+                # Asking again for what is set is how a caller re-checks that the bot's computer runs it.
                 return {"bot": bot, "model": choice["id"], "runtime": runtime, "harness": harness,
-                        "effort": effort, "revision": row["revision"], "sessions_reset": 0}
+                        "effort": effort, "revision": row["revision"], "sessions_reset": 0,
+                        "readiness": runtime_readiness(c, bot, runtime, choice["id"], harness)}
             before = settings_admin.snapshot(c, bot, "model")
             execution.expire(c)
             active = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (bot,)).fetchone()
             if active:
                 raise Problem("busy", "Wait for the current run to finish before changing models", 409)
+            # The same check a prepared change makes (settings_admin._target): a model the bot's computer reports it
+            # cannot run is refused with the fix, not saved for a bot that then never runs.
+            can = runtime_readiness(c, bot, runtime, choice["id"], harness)
+            if can["can_run"] is False:
+                raise Problem("runner_not_ready", can["problem"], 409, extra={"fix": can["fix"], "link": can["link"]})
             config.update({"model": choice["id"], "runtime": runtime, "harness": harness,
                            "reasoning_effort": effort,
                            "model_managed_by": "cloud"})
@@ -3778,7 +3836,7 @@ def create_app(settings=None):
                      "harness": harness, "effort": effort,
                      "sessions_reset": reset})
             return {"bot": bot, "model": choice["id"], "runtime": runtime, "harness": harness,
-                    "effort": effort, "revision": row["revision"] + 1, "sessions_reset": reset}
+                    "effort": effort, "revision": row["revision"] + 1, "sessions_reset": reset, "readiness": can}
         return mutate(request, body, work)
 
     @app.post("/api/v2/bots/{bot}/fallback")

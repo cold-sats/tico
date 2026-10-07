@@ -164,6 +164,26 @@ A message cited by id (`on_behalf_of`) must be the requester's own, in their own
 spoke in, and under a day old, and it must be the same human whose message started the run. Someone who has left lends nothing.
 If a friendly tool refuses for permissions, BotOps retries the same action with `hub_api` before handing work back. Both use the same rights.
 
+**Following through later.** A request often finishes in a later run that something else started: the daily-update
+request, a retry once a busy bot is idle, a notice. Nobody's request is attached to that run, so by default BotOps has
+only its own rights. To act for the person, BotOps cites the open task they asked it for: `hub api ... --on-behalf-of
+<task id>` or `hub bot model ... --on-behalf-of <task id>` (MCP: `on_behalf_of`). The server accepts a task BotOps owns
+that the person filed themselves (not through the Assistant), still open, at most a week old, and only in a run that no
+bot and no other person started: a run a bot started keeps that bot's rights whatever task it cites. It is recorded as
+the person's, via BotOps, like any other delegated change, and Credentials stay as above (never a value).
+
+**Refusals say what to click.** A refused BotOps call (403, or a computer that cannot run the bot) answers with `fix`,
+one sentence on what the person does, and `link`, the place in the app (`#/bot/<slug>/more`, `#/repositories`,
+`#/task/<id>`, `#/settings`). The sentence depends on whose rights were used: BotOps' own (say go ahead in the BotOps
+chat), a requesting bot's (the same, or change it yourself), or the person's own (ask an owner or admin). BotOps relays
+it as one sentence and the link.
+
+**Checking the result.** A model change answers with `readiness`: whether the bot's computer can run the new runtime
+(`can_run` true, false, or null when the computer has not said), the problem, and the fix. `POST bots/<slug>/model`
+refuses a runtime the computer reports as not installed or not signed in, as a prepared change already does, and an
+applied change read back (`GET settings/transitions/<id>`) carries the same `readiness`. `reported` turns true once
+the bot's own readiness row reflects the new runtime, after the computer's next heartbeat.
+
 The same goes for routines and quarantine: human-requested BotOps work uses that human’s management rights,
 including work requested through a task. Task comments do not lend human authority. The run must be able to read
 the request’s conversation, and stale requests lend nothing. Bot-requested work keeps that bot’s narrower rights.
@@ -183,14 +203,14 @@ The commands (with MCP tools of the same names):
 
 | `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |
 | `hub bot go-live <bot>` | places it if it has no computer, turns it on, and for a starter bot starts its setup chat as the requester |
-| `hub bot model <bot> [<model>] [--effort E]`, `hub bot pause\|resume <bot>` | the model (none: list the choices), stop and restart |
+| `hub bot model <bot> [<model>] [--effort E] [--on-behalf-of <task>]`, `hub bot pause\|resume <bot>` | the model (none: list the choices; a change answers with the computer's `readiness`), stop and restart |
 | `hub routine on\|off <key> --bot <bot>` | a routine on or off |
 | `hub computer list`, `hub health check` | the computers a bot may go on and what runs on each; what is wrong with the bots, most urgent first, each with its fix |
 | `hub credential request\|set\|list` | a card for a credential in the chat, storing one a human pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
 | `hub credential grant <name> --to <bot>`, `hub credential revoke <name> --from <bot>` | give a bot a stored credential, or take it away; at once for a credential administrator or a holder delegating to a bot they own or run; revoke the delegation to take it away |
 | `hub credential import <VAR> --from-bot <bot>` | move one variable from that bot's own secrets file into Credentials, granted to that bot; the computer sends the value itself and nobody sees it |
 | `hub support file "<message>"` | sends a requested support message to the Tico team with the requester's rights |
-| `hub api <METHOD> <path> ['{json}']` | any other v2 route, as the requester |
+| `hub api <METHOD> <path> ['{json}'] [--on-behalf-of <task>]` | any other v2 route, as the requester |
 
 The server applies the requester's rights to every BotOps v2 call, including friendly tools and `hub api`.
 Older Computers receive the same behavior without adding a delegation header. `X-Tico-On-Behalf-Of: turn` and

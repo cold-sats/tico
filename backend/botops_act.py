@@ -62,6 +62,9 @@ DO = _routes(
     # Tasks, docs and what the people asked of BotOps.
     ("POST", r"tasks"), ("POST", r"tasks/dry-run"), ("POST", rf"tasks/{_S}"),
     ("POST", rf"tasks/{_S}/(comments|links|ask|run-now)"),
+    # Another bot's task worktrees: a person who moves tasks may add one or ask for one to be cleaned up (the route
+    # checks); the computer removes it once the bot is idle.
+    ("POST", rf"tasks/{_S}/worktrees(/attach)?"), ("DELETE", rf"tasks/{_S}/links/{_S}"),
     ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", rf"docs/{_S}/restore"),
     ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
     ("POST", rf"meetings/{_S}/delete"), ("POST", "meetings/granola/sync"),
@@ -205,3 +208,47 @@ def default_delegable(method, path, body=None):
     if not path or OWN.fullmatch(path):
         return False
     return classify(method, path, body) in ("do", "confirm")
+
+
+# What a person clicks when BotOps is refused: one plain sentence and a link to the exact place in the app. Whose
+# rights were used decides the sentence: BotOps' own (no person asked in this run), a requesting bot's, or the person's.
+def _place(path):
+    rest = (normalize(path) or "")[len(API):]
+    parts = rest.split("/")
+    if parts[0] == "bots" and len(parts) > 1 and parts[1] not in ("register", ""):
+        slug = parts[1]
+        what = "its repository access" if parts[2:3] == ["repositories"] else "its settings"
+        return "#/bot/" + slug + "/more", slug, what
+    if parts[0] == "repositories":
+        return "#/repositories", "", "Settings > Repositories"
+    if parts[0] == "tasks" and len(parts) > 1 and parts[1]:
+        return "#/task/" + parts[1], "", "the task"
+    if parts[0] == "credentials":
+        return "#/credentials", "", "Credentials"
+    if parts[0] in ("runners", "computers"):
+        return "#/settings", "", "Settings > Computers"
+    return "#/settings", "", "Settings"
+
+
+def fix(path, code, status, acting, names, base=""):
+    """`{"fix", "link"}` for a refusal of a BotOps call, or None. `acting` is the identity the route checked;
+    `names` maps actor ids to display names."""
+    link, slug, what = _place(path)
+    bot = names.get("bot:" + slug) or slug.replace("-", " ").title()
+    where = (bot + "'s " + what[4:]) if slug and what.startswith("its ") else what
+    if code == "runner_not_ready":
+        text = ("Sign in the bot's AI tool on its computer in Settings > Computers, or choose a model that computer "
+                "already runs")
+        link = "#/settings"
+    elif status != 403:
+        return None
+    elif acting.actor == "bot:botops" or code == "on_behalf_of":
+        text = ("No one's request was attached to this run, so BotOps used its own rights: say go ahead in your "
+                "BotOps chat, or change " + where + " yourself")
+    elif acting.role == "bot":
+        asker = names.get(acting.actor) or acting.actor.split(":", 1)[-1]
+        text = (asker + " asked for this, so BotOps had only " + asker + "'s rights: say go ahead in your BotOps "
+                "chat, or change " + where + " yourself")
+    else:
+        text = "Your role can't change this: ask an owner or admin to change " + where
+    return {"fix": text, "link": (base.rstrip("/") + "/" + link) if base else link}

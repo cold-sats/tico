@@ -540,3 +540,76 @@ def test_bot_filed_subtask_never_borrows_its_parents_human_rights(api, botops, l
     assert get(api, 'qa-child-requester', attempt['token']) == {'actor': 'bot:ops', 'role': 'bot'}
     assert api.get('/api/v2/credentials', headers=headers(attempt['token'])).status_code == 403
     assert act(api, attempt, 'GET', 'credentials', ref=origin).status_code == 403
+
+
+# ------------------------------------------------------------------ following through on a person's request later
+def _wake(api, machine):
+    """A run the keeper starts with no task (a daily-update request): nobody's request is attached."""
+    with api.app.state.store.transaction() as c:
+        H.say(c, H.KEEPER, "bot:botops", "Time for your daily update.", kind="notice", refs={"wake": "update"})
+    return claim(api, machine, "botops")
+
+
+def test_a_later_run_acts_for_the_person_whose_open_task_it_cites_and_a_bot_run_may_not(api, botops):
+    ana = turn(api, botops, person="ana-test", text="Put ops on GPT-6.1 Sol")
+    task = act(api, ana, "POST", "tasks", {"owner": "botops", "title": "Put ops on GPT-6.1 Sol", "body": "Change the model.",
+                                          "request_id": ana["message"]["id"]})
+    assert task.status_code == 200, task.text
+    task_id = (task.json().get("task") or task.json())["id"]
+    finish(api, botops, ana)
+    finish(api, botops, claim(api, botops, "botops"))           # the task's own "new task" notice
+
+    later = _wake(api, botops)
+    revision = act(api, later, "GET", "bots/ops/access", ref=task_id).json()["revision"]
+    # Its own rights: refused, with what the person clicks and where.
+    own = act(api, later, "POST", "bots/ops/model", {"model": "gpt-6.1-sol", "expected_revision": revision})
+    assert own.status_code == 403
+    assert own.json()["error"]["link"].endswith("#/bot/ops/more") and "go ahead" in own.json()["error"]["fix"]
+    # Citing her open task: her rights, recorded as hers via BotOps.
+    changed = act(api, later, "POST", "bots/ops/model", {"model": "gpt-6.1-sol", "expected_revision": revision}, ref=task_id)
+    assert changed.status_code == 200, changed.text
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT actor,detail_json FROM events WHERE action='bot.model_changed' AND target='ops'").fetchone()
+        assert row["actor"] == "human:ana" and '"via": "botops"' in row["detail_json"]
+    # Still never a secret.
+    leaked = act(api, later, "POST", "bots/ops/definition", {"expected_revision": revision + 1,
+                                                            "config": {"api_key": "sk-live-not-for-you"}}, ref=task_id)
+    assert leaked.status_code == 422 and "sk-live" not in leaked.text
+    finish(api, botops, later)
+
+    # A run a bot started keeps that bot's rights, whatever task it cites.
+    with api.app.state.store.transaction() as c:
+        H.task_create(c, "bot:ops", "Change your own model", "Use Ana's task.", "bot:botops", lint=False)
+    bot_run = claim(api, botops, "botops")
+    refused = act(api, bot_run, "POST", "bots/ops/model", {"model": "gpt-6-luna", "expected_revision": revision + 1}, ref=task_id)
+    assert refused.status_code == 403 and "bot:ops" in refused.json()["error"]["detail"]
+    finish(api, botops, bot_run)
+
+    # A closed task lends nothing.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (task_id,))
+    closed = _wake(api, botops)
+    assert act(api, closed, "POST", "bots/ops/model", {"model": "gpt-6-luna", "expected_revision": revision + 1},
+               ref=task_id).status_code == 403
+
+
+def test_a_model_change_reports_and_checks_whether_the_bots_computer_can_run_it(api, botops):
+    assign(api, botops, "ops")
+    def report(signed):
+        post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {
+            "schema_version": 1, "runtimes": {"codex": {"installed": True, "authenticated": "ready"},
+                                              "claude": {"installed": True, "authenticated": signed}},
+            "bots": {name: {"ready": True, "repository_present": True, "runtime": "codex", "model": "gpt-6-luna",
+                            "problems": []} for name in ("ops", "botops")}}}, botops["token"])
+    report("missing")
+    ana = turn(api, botops, person="ana-test", text="Put ops on Opus 5.5")
+    revision = act(api, ana, "GET", "bots/ops/access").json()["revision"]
+    refused = act(api, ana, "POST", "bots/ops/model", {"model": "claude-opus-5-5", "expected_revision": revision})
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "runner_not_ready"
+    assert refused.json()["error"]["link"] == "#/settings" and "Sign in" in refused.json()["error"]["fix"]
+    report("ready")
+    changed = act(api, ana, "POST", "bots/ops/model", {"model": "claude-opus-5-5", "expected_revision": revision})
+    assert changed.status_code == 200, changed.text
+    readiness = changed.json()["readiness"]
+    # The computer runs Claude; the bot's own row still describes its previous runtime until the next heartbeat.
+    assert readiness["can_run"] is True and readiness["reported"] is False

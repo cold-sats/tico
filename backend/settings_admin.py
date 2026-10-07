@@ -36,6 +36,46 @@ def repository_present(c, bot):
     return bool(report.get("repository_present"))
 
 
+def runtime_readiness(c, bot, runtime, model="", harness=""):
+    """Whether the bot's computer can run `runtime` now, from its last heartbeat, for the answer to a model change or a
+    move: a saved setting is not a running bot. `can_run` is True, False (with the problem and the fix) or None when the
+    computer has not said (offline, or too old to report its AI tools). `reported` says whether the bot's own readiness
+    row already reflects this runtime and model; until the next heartbeat it describes the previous ones."""
+    row = c.execute("SELECT r.id,r.label,r.last_seen,r.revoked_at,r.readiness_json FROM assignments a "
+                    "JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
+    if not row or row["revoked_at"]:
+        return {"can_run": None, "computer": None, "runtime": runtime,
+                "problem": "The bot is not on a computer", "fix": "Put it on a computer from its More tab",
+                "link": "#/bot/" + bot + "/more"}
+    label = row["label"] or "its computer"
+    online = bool(row["last_seen"] and row["last_seen"] > H.shift(H.now(), seconds=-60))
+    readiness = readiness_document(row["readiness_json"])
+    detail = readiness.get("bots", {}).get(bot)
+    detail = detail if isinstance(detail, dict) else {}
+    out = {"computer": {"id": row["id"], "label": row["label"]}, "online": online, "runtime": runtime,
+           "bot_ready": detail.get("ready") is True, "bot_problems": list(detail.get("problems") or [])[:5],
+           "reported": (str(detail.get("runtime") or "") == str(runtime or "")
+                        and (not model or str(detail.get("model") or "") == str(model)))}
+    state = (readiness.get("runtimes") or {}).get(runtime) or {}
+    signed = str(state.get("authenticated") or "unknown")
+    if not online:
+        out.update(can_run=None, problem=label + " is offline, so it has not checked " + str(runtime))
+    elif readiness.get("schema_version") != 1 or harness == "antigravity":
+        out.update(can_run=None, problem=label + " does not report its AI tools; update it to check")
+    elif not state.get("installed"):
+        out.update(can_run=False, problem=str(runtime) + " is not installed on " + label)
+    elif signed in ("missing", "failed", "rejected"):
+        out.update(can_run=False, problem=state.get("detail") or (str(runtime) + " is not signed in on " + label))
+    elif signed == "ready":
+        out.update(can_run=True)
+    else:
+        out.update(can_run=None, problem=label + " has not checked the " + str(runtime) + " sign-in yet")
+    if out["can_run"] is False:
+        out.update(fix="Sign in " + str(runtime) + " on " + label + " in Settings > Computers, or choose a model it "
+                   "already runs", link="#/settings")
+    return out
+
+
 class SettingsAdmin:
     def __init__(self, store, auth, execution, models, reset_sessions):
         self.store, self.auth, self.execution = store, auth, execution
@@ -730,6 +770,12 @@ class SettingsAdmin:
         value["checkpoints"] = checkpoints
         value["progress"] = {"prepared": sum(row["state"] == "prepared" for row in checkpoints),
                              "total": len(checkpoints)}
+        if value["state"] == "applied":
+            # What the bot runs on now, checked on the computer it is on now (a model change or a move).
+            effective = providers.fill(providers.load(c, self.settings),
+                                       _json(self._config(c, transition["bot"])["config_json"], {}) or {})
+            value["readiness"] = runtime_readiness(c, transition["bot"], effective.get("runtime") or "",
+                                                   effective.get("model") or "", effective.get("harness") or "")
         return value
 
     def force(self, c, who, transition_id):
