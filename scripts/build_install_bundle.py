@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Builds what a release publishes for scripts/install.sh: the script with its version baked in, the compose
-bundle for that exact tag, and SHA256SUMS over both. Used by .github/workflows/release.yml.
+"""Builds what a release publishes for scripts/install.sh: the script with its version baked in, the Windows (WSL 2)
+installer infra/windows/install-wsl.ps1 likewise, the compose bundle for that exact tag, and SHA256SUMS over all three.
+Used by .github/workflows/release.yml.
 
     python3 scripts/build_install_bundle.py --version v0.2.0 --output dist
 """
@@ -54,9 +55,9 @@ def build_bundle(source: Path, version: str) -> bytes:
     return out.getvalue()
 
 
-def bake(script: str, version: str) -> str:
+def bake(script: str, version: str, name: str = "install.sh") -> str:
     if script.count(PLACEHOLDER) != 1:
-        raise SystemExit(f"install.sh must contain {PLACEHOLDER} exactly once")
+        raise SystemExit(f"{name} must contain {PLACEHOLDER} exactly once")
     return script.replace(PLACEHOLDER, version)
 
 
@@ -74,9 +75,11 @@ def main(argv: list[str] | None = None) -> int:
     installer = out / "install.sh"
     installer.write_text(bake((args.source / "scripts/install.sh").read_text(), args.version))
     installer.chmod(0o755)
+    windows = out / "install-wsl.ps1"
+    windows.write_text(bake((args.source / "infra/windows/install-wsl.ps1").read_text(), args.version, windows.name))
     bundle = out / f"tico-bundle-{args.version}.tar.gz"
     bundle.write_bytes(build_bundle(args.source, args.version))
-    sums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in (installer, bundle))
+    sums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in (installer, windows, bundle))
     (out / "SHA256SUMS").write_text(sums)
     print(sums, end="")
     return 0
