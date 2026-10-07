@@ -34,6 +34,10 @@ def product_repo_create(client, name, *, stdin=None, stderr=None):
     """Preview the exact target and require an interactive exact-name confirmation before writing."""
     stdin = stdin or sys.stdin
     stderr = stderr or sys.stderr
+    request_id = os.environ.get("HUB_OPERATION_ID") or uuid.uuid4().hex
+    key = request_id + ":product-repository"
+    if len(key) > 200:
+        raise APIError("operation_id", "HUB_OPERATION_ID is too long for a product-repository idempotency key; no repository was created", 422)
     preview = client.get("github/product-repos/preview", name=name)
     print(f"Product repository preview: {preview['repository']} · private · empty (no initial commit)", file=stderr)
     print(f"GitHub App capability: {preview['capability']}. {preview['capability_detail']}", file=stderr)
@@ -44,8 +48,6 @@ def product_repo_create(client, name, *, stdin=None, stderr=None):
     print(f"Type {preview['repository']} to create it: ", end="", file=stderr, flush=True)
     if stdin.readline().strip() != preview["repository"]:
         raise APIError("cancelled", "Confirmation did not match; no repository was created")
-    request_id = os.environ.get("HUB_OPERATION_ID") or uuid.uuid4().hex
-    key = (request_id + ":product-repository")[:200]
     return client.post("github/product-repos", {
         "org": preview["org"], "name": preview["name"], "visibility": preview["visibility"],
         "auto_init": preview["auto_init"], "confirmed": True,
