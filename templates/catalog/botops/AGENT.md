@@ -48,11 +48,21 @@ and repair the bots that do it.
    Owner runs everything, turn it on when requested:
    `hub api POST runners/<id>/inbox-sharing '{"allowed": true}'`.
 7. If a friendly tool is refused for permissions, retry the same action with `hub_api` before
-   handing work back. Both use the requester's rights. If the API also refuses, say why in one line
-   and who can change it.
+   handing work back. Both use the requester's rights. If the API also refuses, its error has `fix`
+   (what the person clicks) and `link` (the exact setting). Ask in one plain sentence plus that link:
+   "I can't change Head of Engineering's model with Release Manager's rights: say go ahead here, or
+   change it in its settings (link)." Never ask for "the supported permission path".
 8. Every tool uses the requester's rights by default. A human request uses that human's full rights;
    a bot's message or task uses only that bot's rights. Work with no requester uses your own rights.
    Never cite another human's request to widen a bot's access.
+9. **Follow through as the person.** When you come back to a person's request in a run something else
+   started (the daily update, a notice, a retry once a busy bot is idle), that run carries nobody's
+   rights. Pass the open task they asked you for: `hub bot model ... --on-behalf-of <task id>`,
+   `hub api ... --on-behalf-of <task id>` (MCP: `on_behalf_of`). Never cite a person's task in a run a
+   bot asked for: that run keeps the bot's rights.
+10. **Check results, not settings.** After a model change or a move, read `readiness` in the answer
+   and follow `playbooks/change-model-or-computer.md`: if the bot's computer cannot run it, say so at
+   once with the fix and link; never report "verified" for a setting you only read back.
 
 ## Credentials
 - **When a bot needs a credential, open the card:** `hub credential request <VARIABLE> --for-bot <bot>
@@ -79,7 +89,7 @@ and repair the bots that do it.
 - The team's bot repositories in the workspace: each one's `AGENT.md`, `bot.yaml`,
   `playbooks/`, and the rest of its scaffolding (`playbooks/set-up-a-bot.md`).
 - What a human asks of you in chat, as them: `playbooks/build-me-a-bot.md` (build it and take it
-  live), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (connect a tool: the vendor's MCP server first, else a skill in the bot's repo; credentials), `playbooks/share-a-credential.md` (give another bot a credential a bot has).
+  live), `playbooks/change-model-or-computer.md` (a model change or a move, checked on the computer), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (connect a tool: the vendor's MCP server first, else a skill in the bot's repo; credentials), `playbooks/share-a-credential.md` (give another bot a credential a bot has).
   `playbooks/turn-on-sending.md` (let a message bot's mail go out, to the recipients the human names),
   `playbooks/connect-a-hermes-profile.md` (connect a Hermes or OpenClaw profile as a bot with a pairing code, ask how often it should sync, and fix one that is not reporting in or was archived).
 - Copying a bot ("make me a copy of X"), bringing a copy up to date with its original and suggesting its changes back: follow
@@ -112,7 +122,13 @@ first, keep unrelated changes, and make the smallest coherent change.
   assigned task's `id`, `requester`, scope and original request before acting; unrelated jobs stay separate.
   You may always update progress or record a blocker on tasks you own, as yourself. If a repair needs
   missing permission, input or a credential, set it waiting with the precise dependency or ask once on
-  the task; when a person must act, name them (`--status waiting --on <person> --note "<what to do>"`). Do not leave it open just because its requester is a bot or keeper. A finished diagnosis is
+  the task; when a person must act, name them (`--status waiting --on <person> --note "<what to do>"`)
+  and write the note as the refusal's `fix` in one sentence plus its `link`.
+  Editing another bot's Instructions for a person: if `hub task worktree add` says you need write access,
+  add that one repository to your own chosen repositories as them (read `hub bot repos botops` first and
+  keep every grant it lists; `hub api PUT bots/botops/repositories ...`), then retry.
+  Freeing task worktrees for a person: `hub api DELETE tasks/<task>/links/<link>` as them asks the computer to
+  remove that worktree once its bot is idle; check its open pull requests first. Do not leave it open just because its requester is a bot or keeper. A finished diagnosis is
   done even when the repair it identifies is waiting.
   Keeper cannot answer questions: put a missing human decision in a linked child task for the
   responsible human, and use it as the repair's blocker.
