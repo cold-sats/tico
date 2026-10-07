@@ -236,7 +236,7 @@ def test_finished_pr_releases_an_open_tasks_worktree_and_the_limit_names_it(prep
     refused = post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/eleven', 'repo': 'Acme/product'}, 'bot-test')
     assert refused.status_code == 409
     error = refused.json()['error']
-    assert error['code'] == 'worktree_limit' and 'Clear these first' in error['detail']
+    assert error['code'] == 'worktree_limit' and 'free themselves once you are idle' in error['detail']
     assert len(error['worktrees']) == 10 and {w['clear'] for w in error['worktrees']} == {'merged'}
     # A new open pull request on the task means its worktree is in use again: no release.
     with api.app_state.store.transaction() as c:

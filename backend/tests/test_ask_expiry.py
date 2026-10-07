@@ -9,9 +9,9 @@ def needs(api, who="ana-test"):
     return response.json()
 
 
-def bot_ask(c, tid, text, refs=None):
+def bot_ask(c, tid, text, refs=None, to="human:ana"):
     task = H.task(c, tid)
-    return H.say(c, "bot:ops", "human:ana", text, kind="ask", conversation_id=task["conversation_id"],
+    return H.say(c, "bot:ops", to, text, kind="ask", conversation_id=task["conversation_id"],
                  refs={"task": tid, **(refs or {})})
 
 
@@ -20,8 +20,11 @@ def test_a_newer_ask_or_the_tasks_end_supersedes_and_old_asks_fold_out(api):
     other = post(api, "tasks", {"owner": "ops", "title": "Pick a venue", "body": "x"})["id"]
     with api.app.state.store.transaction() as c:
         first = bot_ask(c, tid, "Which vendor, A or B?")
+        budget = bot_ask(c, tid, "What is the budget?", to="human:ben")
         second = bot_ask(c, tid, "Vendor B is out of stock; is A fine?")
-        assert [a["id"] for a in H.open_task_asks(c, H.task(c, tid))] == [second["id"]]
+        # only the same recipient's earlier question is replaced: Ben's stays open
+        assert [a["id"] for a in H.open_task_asks(c, H.task(c, tid))] == [second["id"], budget["id"]]
+        H.supersede_asks(c, tid, from_actor="bot:ops", to_actor="human:ben")
         assert H.message(c, first["id"])["superseded_at"] and not H.message(c, second["id"])["superseded_at"]
         assert H.waiting_for(c, H.task(c, tid)) == "an unanswered question"
         review = bot_ask(c, tid, "Approve the order?", {"questions": [{"id": "ok", "question": "Approve?"}]})

@@ -276,10 +276,20 @@ def install(app, store, auth, mutate):
         count = c.execute("SELECT count(*) FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? AND coalesce(l.state,'unknown')<>'removed'", (task['owner'],)).fetchone()[0]
         if count >= LIMIT:
             held = holdings(c, task['owner'])
-            ready = [w for w in held if w['clear'] != 'in_progress']
-            detail = f'Finish or close older tasks before adding more than {LIMIT} worktrees'
-            if ready:
-                detail += '. Clear these first: ' + '; '.join(f"{w['path']} ({w['why']})" for w in ready[:LIMIT])
+            # Worded so a bot never removes a worktree by hand: finished ones free themselves.
+            detail = f'This bot already has {LIMIT} worktrees.'
+            merge = [w['path'] for w in held if w['clear'] == 'merge_ready']
+            freeing = [w['path'] for w in held if w['clear'] in ('merged', 'closed', 'task_finished') and not w.get('kept')]
+            kept = [f"{w['path']} ({w['kept']})" for w in held if w.get('kept')]
+            if merge:
+                detail += ' Merge these approved pull requests: ' + '; '.join(merge) + '.'
+            if freeing:
+                detail += (' These are finished and free themselves once you are idle; do not remove them: '
+                           + '; '.join(freeing) + '.')
+            if kept:
+                detail += ' Kept for the reason given; save or discard that work: ' + '; '.join(kept) + '.'
+            if not (merge or freeing or kept):
+                detail += ' Finish or close older tasks first.'
             raise Problem('worktree_limit', detail, 409, extra={'worktrees': held})
         if existing:
             detail = json.loads(existing['detail_json'] or '{}')

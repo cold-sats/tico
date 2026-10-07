@@ -1658,7 +1658,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
     _close_open_asks(conn, actor, target, kind, msg)
     if kind == "ask" and is_bot(actor) and is_human(target):
         about = message_task_id({"refs": refs}, conv)
-        if about and supersede_asks(conn, about, from_actor=actor, keep=msg["id"]):
+        if about and supersede_asks(conn, about, from_actor=actor, to_actor=target, keep=msg["id"]):
             _recount(conn, actor)
     return msg
 
@@ -2205,9 +2205,10 @@ def ask_older(message, at=None):
     return created < (at or datetime.now(timezone.utc)) - timedelta(days=ASK_OLDER_DAYS)
 
 
-def supersede_asks(conn, task_id, *, from_actor=None, keep=None, plain_only=False):
-    """Mark the task's unanswered asks to people superseded: those `from_actor` sent before the ask `keep`, or all of
-    them (plain ones only with `plain_only`). They stay in the thread and leave every queue and count."""
+def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, plain_only=False):
+    """Mark the task's unanswered asks to people superseded: those `from_actor` sent `to_actor` before the ask `keep`,
+    or all of them (plain ones only with `plain_only`). They stay in the thread and leave every queue and count. A
+    question to one person never replaces a different person's question."""
     # Only the task's own thread, where its queue and counts look (open_task_asks): a lookup by conversation, not a
     # scan of every pending ask on the server each time a task finishes.
     sql = ("SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
@@ -2218,6 +2219,9 @@ def supersede_asks(conn, task_id, *, from_actor=None, keep=None, plain_only=Fals
     if from_actor:
         sql += " AND m.from_actor=?"
         args.append(from_actor)
+    if to_actor:
+        sql += " AND m.to_actor=?"
+        args.append(to_actor)
     if keep:
         sql += " AND m.id<>?"
         args.append(keep)
