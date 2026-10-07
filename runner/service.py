@@ -2781,6 +2781,8 @@ class Runner:
                                 if metered and metered[-1][2] and metered[-1][3] == "subscription":
                                     self.weekly_usage.remember(metered[-1][2], metered[-1][1].get("runtime"), event)
                             if kind == "goal" and goal:
+                                if runtime == "codex" and goal["status"] == "active":
+                                    event = goals.reconcile_codex_clear(host, thread, event, goal["objective"])
                                 self.state.append(aid, "goal", {**redact(event), "goal_id": goal["id"], "revision": revision})
                                 goal_running = event.get("status") == "active"
                             if kind in ("message", "tool"):
