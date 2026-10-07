@@ -255,7 +255,9 @@ class Pushing(unittest.TestCase):
         messages = [call.args[0] for call in log.call_args_list]
         self.assertTrue(any("pull before coo turn failed" in m and "using the local tree" in m for m in messages), messages)
         self.assertEqual(messages[-1], "Tico runner: emp-coo has 1 unpushed commits and push failed (non-fast-forward); leaving it for a person")
-        self.assertEqual(len(messages), 2)
+        # Placement says once that the diverged copy was kept; the pull and push failures follow.
+        self.assertTrue(messages[0].startswith("Tico runner: coo: kept this computer's copy as it is"), messages)
+        self.assertEqual(len(messages), 3)
 
 def _git(cwd, *args):
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
