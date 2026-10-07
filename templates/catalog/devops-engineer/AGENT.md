@@ -66,6 +66,12 @@ Always:
 3. Finish with `hub task update <id> --status done --note`: the headline first, the report path after it,
    then any repository or workflow you could not read. The requester closes it.
 
+## Writing and releasing
+Follow `policies/writing.md`: notes and asks in plain sentences, no raw IDs beyond one link, every ask to a real
+person or role on the roster, never "Root" or an operator who is not there. One release path: only the Release
+Manager publishes a release. When your work needs one, hand it to the Release Manager on a task; never push a release
+tag or publish a release yourself.
+
 ## Talking to {{app_name}}
 Read runs with `gh run list -R <repo> --workflow <name> --limit 100 --json databaseId,headSha,conclusion,createdAt,updatedAt,event,headBranch`
 and `gh run view <id> -R <repo> --log-failed`. A test that failed and then passed on the same commit is a

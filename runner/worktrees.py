@@ -337,7 +337,14 @@ def _act(workspace, row, action, env, vault_values=(), before_remove=lambda: Tru
         if wip in defaults:
             raise ValueError('Snapshot branch matches the default branch; kept worktree')
         current = git(path, 'symbolic-ref', '--short', 'HEAD', env=env, check=False).stdout.strip()
-        if dirty:
+        if row.get('release'):
+            # Released while its task is still open (every pull request finished): the bot may still be using it, so
+            # nothing is snapshotted or pushed on its behalf. Unsaved or unpushed work keeps the worktree, and says so.
+            if dirty:
+                raise ValueError('kept: unsaved changes; commit and push them, or discard them, to free this worktree')
+            if int(git(path, 'rev-list', '--count', 'HEAD', '--not', '--remotes=origin', env=env).stdout):
+                raise ValueError('kept: unpushed commits; push them to free this worktree')
+        elif dirty:
             names = (git(path, 'diff', 'HEAD', '--name-only', '-z', env=env).stdout
                      + git(path, 'ls-files', '--others', '--exclude-standard', '-z', env=env).stdout).split('\0')
             skipped = [name for name in names if name and (any(fnmatch.fnmatch(Path(name).name.lower(), pat) for pat in _SECRET)
@@ -513,8 +520,10 @@ class Worktrees:
             row = next((r for r in rows if r['id'] == action['link_id']), None)
             if not row or time.monotonic() < self.retry.get(row['id'], (0, 0))[0]:
                 continue
-            closed = row['task_status'] in ('done', 'closed', 'declined') or row['bot_state'] == 'archived' or json.loads(row.get('detail_json') or '{}').get('delete_requested')
-            if action['action'] == 'remove' and not closed or action['action'] == 'restore' and closed:
+            detail = json.loads(row.get('detail_json') or '{}')
+            closed = row['task_status'] in ('done', 'closed', 'declined') or row['bot_state'] == 'archived' or detail.get('delete_requested')
+            released = bool(action.get('release') and detail.get('release_requested'))
+            if action['action'] == 'remove' and not (closed or released) or action['action'] == 'restore' and closed:
                 continue
             bot_lock = self.bot_lock(row['owner'])
             if not bot_lock.acquire(blocking=False):
@@ -547,7 +556,9 @@ class Worktrees:
                         pass  # worktree_base reports the cached mirror's age if refresh is unavailable
                 def still_closed():
                     fresh = next((r for r in self.client.get('runners/me/worktrees')['worktrees'] if r['id'] == row['id']), None)
-                    return fresh is not None and self.bot_idle(row['owner']) and (fresh['task_status'] in ('done', 'closed', 'declined') or fresh['bot_state'] == 'archived' or json.loads(fresh.get('detail_json') or '{}').get('delete_requested'))
+                    fresh_detail = json.loads(fresh.get('detail_json') or '{}') if fresh else {}
+                    return fresh is not None and self.bot_idle(row['owner']) and (fresh['task_status'] in ('done', 'closed', 'declined') or fresh['bot_state'] == 'archived' or fresh_detail.get('delete_requested')
+                                                                               or released and fresh_detail.get('release_requested'))
                 state = act(self.workspace, action_row, action['action'], env, self.vault_values(row['owner']), still_closed)
                 self.client.patch(f'tasks/{row["task_id"]}/links/{row["id"]}', {'state': state, 'cleanup': action['action'] == 'remove', 'setup_pending': action['action'] == 'restore', **{k: action_row[k] for k in ('snapshot_skipped', 'restore_source') if k in action_row}})
                 row['state'] = state

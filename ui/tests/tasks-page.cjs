@@ -826,7 +826,13 @@ async function waitingOnYou(browser) {
   const host = {...fixtures().find(x => x.id === 't-inbox'), id: 't-host', title: 'Restart the build host', owner: 'bot:engineer',
     requester: 'bot:botops', waiting_on: 'human:ana', note: 'It refuses SSH since the update.', updated: at(5)};
   const sams = {...host, id: 't-sams', title: 'Rotate the deploy key', waiting_on: 'human:sam'};
-  const {page, errors} = await open(browser, {hash: '#/tasks', extraTasks: [host, sams]});
+  // A question nobody answered in three days (the server marks it `older`) folds into Older questions, uncounted.
+  const stale = {...host, id: 't-stale', title: 'Pick the build host region', waiting_on: null,
+    ask: {id: 'q-stale', body: 'East or west?', from_actor: 'bot:engineer', to_actor: 'human:ana', older: true}};
+  const {page, errors} = await open(browser, {hash: '#/tasks', extraTasks: [host, sams, stale]});
+  assert.equal((await groupNames(page)).at(-1).toLowerCase(), 'older questions');
+  assert.equal(await page.locator('.tl-group[data-group="older"] .tl-rows').isHidden(), true, 'folded until opened');
+  assert.equal(await page.locator('#task-view [data-view="foryou"] .cnt').innerText(), String(NEEDS_YOU + 1), 'not counted');
   const row = page.locator('.tl-group[data-group="a:bot:engineer"] [data-task-key="tt-host"]');
   assert.equal(await row.count(), 1);
   assert.equal(await row.locator('.tl-waiting').innerText(), 'Waiting');

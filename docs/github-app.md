@@ -173,7 +173,9 @@ app from its settings page.
 New GitHub Apps include the task events and read permissions automatically. For an existing
 App, enable webhook events for Pull requests, Pull request reviews,
 Pull request review comments, Check runs, Check suites and Commit statuses, plus Push for
-release tracking. The webhook remains `POST /api/v2/github/webhook` with signature verification.
+release tracking. **Existing installs: also tick Release** (Permissions & events → Subscribe to events), so a
+release published on GitHub moves the Waiting tasks it contains to Review. Without it, a pushed `vX.Y.Z` tag
+still does the same through the Push event. The webhook remains `POST /api/v2/github/webhook` with signature verification.
 Checks need read access to Checks and commit statuses need read access to Commit statuses in
 the GitHub App. Existing installations without these events keep their last known PR states;
 opening a task refreshes reachable PRs, cached for three minutes.

@@ -485,6 +485,14 @@ def view(c, who, settings, auth, github, config):
                 checks.append(_check('worktrees', 'Task worktrees', 'warn' if errors else 'ok',
                                      '; '.join(errors[:3]) if errors else '; '.join(f'{bot}: {size:g} MB' for bot, size in sorted(usage.items())),
                                      [_fix('Open tasks', '#/tasks')]))
+    if full:
+        from . import task_loops
+        if loops := task_loops.looping(c):
+            # A private task is named only to someone who may read it.
+            checks.append(_check("task_loops", "Task loops", "warn", "; ".join(
+                f"{item['title'] if not item['private'] or H.task_private_readable(c, who.actor, H.task(c, item['task_id'])) else 'A private task'}"
+                f" {task_loops.describe(item)}" for item in loops[:3]) + ". Likely a bug; nothing is blocked.",
+                [_fix("Open tasks", "#/tasks")]))
     if full and (missing_tools := _missing_tool_credentials(c, online_ids)):
         checks.append(_check("tool_credentials", "Tool credentials", "warn",
                              "Missing Credential: " + "; ".join(f"{tool} on {label}" for tool, label in missing_tools[:5])

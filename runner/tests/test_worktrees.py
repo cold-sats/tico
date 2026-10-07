@@ -379,6 +379,26 @@ def test_unpushed_means_task_branch_and_clean_finished_cleanup_does_not_push(tre
     assert git(remote, 'show-ref', '--heads') == git(remote, 'show-ref', '--heads', 'main')
 
 
+@pytest.mark.slow
+def test_release_of_an_open_task_never_moves_unsaved_or_unpushed_work(trees):
+    """A finished pull request releases its worktree while the task stays open: nothing is snapshotted for the bot."""
+    workspace, base, remote, row, client = trees
+    client.get.return_value['repositories'][0]['setup_command'] = None
+    path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
+    released = {**row, 'release': True, 'prs_finished': True}
+    (path / 'file').write_text('unsaved')
+    with pytest.raises(ValueError, match='kept: unsaved changes'):
+        W.act(workspace, released, 'remove', os.environ.copy())
+    git(path, '-c', 'user.name=Tico', '-c', 'user.email=bot@example.com', 'commit', '-am', 'Work')
+    with pytest.raises(ValueError, match='kept: unpushed commits'):
+        W.act(workspace, released, 'remove', os.environ.copy())
+    assert (path / 'file').read_text() == 'unsaved'
+    assert git(remote, 'show-ref', '--heads') == git(remote, 'show-ref', '--heads', 'main')
+    git(path, 'push', 'origin', row['branch'])
+    assert W.act(workspace, released, 'remove', os.environ.copy()) == 'removed'
+    assert not path.exists()
+
+
 @pytest.mark.parametrize('name', ['.env.local'])
 def test_cleanup_keeps_unsafe_large_and_ignored_files(trees, name):
     workspace, base, remote, row, client = trees
