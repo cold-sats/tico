@@ -338,6 +338,8 @@ function animate(now) {
     $('#speech').style.left=THREE.MathUtils.clamp(p.x,125,innerWidth-125)+'px';$('#speech').style.top=THREE.MathUtils.clamp(p.y,270,innerHeight-50)+'px';
   }
   renderer.render(scene,camera);frames++;
+  // Expose actual render progress only to the synthetic browser check; production has no per-frame DOM writes.
+  if(window.__TICO_OVERVIEW_TEST_PROBE__){window.__TICO_OVERVIEW_TEST_PROBE__.frame=frames;window.__TICO_OVERVIEW_TEST_PROBE__.time=t;}
   if(frames===3){$('#loading').classList.add('gone');loadingTimer=setTimeout(()=>$('#loading').hidden=true,200);document.body.dataset.sceneReady='true';}
   frameId=requestAnimationFrame(animate);
 }

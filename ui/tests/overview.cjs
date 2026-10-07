@@ -30,8 +30,12 @@ bots.push({name:'restricted',machine:{runner_id:'secret',label:'SECRET MACHINE'}
   const artifacts=process.env.TICO_OVERVIEW_ARTIFACTS;
   if(artifacts)fs.mkdirSync(artifacts,{recursive:true});
   const shot=async(page,name)=>{if(artifacts)await page.screenshot({path:path.join(artifacts,name+'.png')});};
+  // Software WebGL can monopolize requestAnimationFrame polling under the parallel release load.
+  // Keep waits tied to their real predicate, but poll independently of rendering frames.
+  const waitForCondition=(context,predicate,arg)=>context.waitForFunction(predicate,arg,{polling:100});
   const open=async(viewport,noWebGL=false)=>{
     const page=await browser.newPage({viewport,serviceWorkers:'block',reducedMotion:'reduce'});
+    await page.addInitScript(()=>{window.__TICO_OVERVIEW_TEST_PROBE__={};});
     page.on('pageerror',e=>errors.push(e.message));
     if(noWebGL)await page.addInitScript(()=>{
       const original=HTMLCanvasElement.prototype.getContext;
@@ -55,7 +59,7 @@ bots.push({name:'restricted',machine:{runner_id:'secret',label:'SECRET MACHINE'}
       if(p==='/api/v2/status')return json({bots:bots.map(b=>({bot:b.name,state:running?'running':'waiting_human',focus:'SECRET WORK CONTENT'}))},offline?503:200);
       return json({});
     });
-    await page.goto('http://tico-ui.test/');await page.waitForFunction(()=>location.hash==='#/updates');return page;
+    await page.goto('http://tico-ui.test/');await waitForCondition(page,()=>location.hash==='#/updates');return page;
   };
   const modelOf=page=>page.evaluate(()=>overviewModel());
   const enter=async(page,key)=>{
@@ -76,6 +80,7 @@ bots.push({name:'restricted',machine:{runner_id:'secret',label:'SECRET MACHINE'}
     assert(members.some(m=>m.id==='bot:my-branch'));
     assert(!JSON.stringify(model).includes('SECRET'),'machine and free-text work content stay private');
     const inBuilding=(key,id)=>model.groups.find(g=>g.id===key).members.some(m=>m.id===id);
+    assert.equal(members.find(m=>m.id==='bot:bot-0').href,'#/bot/bot-0');
     assert(inBuilding('computer:alpha','human:ana')&&inBuilding('computer:beta','human:ana'),'person with bots on two machines appears in both');
     assert(inBuilding('computer:alpha','human:jo')&&!inBuilding('computer:beta','human:jo'),'person with bots on one machine appears once');
     assert(inBuilding('computer:beta','human:pat')&&!inBuilding('computer:alpha','human:pat'),'visible reporting chains place the human manager');
@@ -84,15 +89,22 @@ bots.push({name:'restricted',machine:{runner_id:'secret',label:'SECRET MACHINE'}
     assert.equal(members.find(m=>m.id==='bot:restricted').href,'');
     assert.equal(model.groups.find(g=>g.id==='computer:empty').members.length,0);
     await frame.locator('#loading').waitFor({state:'hidden'});await shot(page,'campus-desktop');
-    // An iframe's media query can update without dispatching its change event. Observe the rendered result.
+    // Wait for the renderer's real simulation clock, rather than sampling screenshots after a wall-clock delay.
     const sceneFrame=page.frames().find(f=>f.url().includes('/overview/index.html'));
-    const drawn=()=>sceneFrame.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-    await page.emulateMedia({reducedMotion:'no-preference'});await drawn();
-    const movingA=await frame.locator('canvas').screenshot();await page.waitForTimeout(700);const movingB=await frame.locator('canvas').screenshot();
-    assert(!movingA.equals(movingB),'decorative motion advances');
-    await page.emulateMedia({reducedMotion:'reduce'});await drawn();
-    const stillA=await frame.locator('canvas').screenshot();await page.waitForTimeout(700);const stillB=await frame.locator('canvas').screenshot();
-    assert(stillA.equals(stillB),'changing reduced-motion preference freezes the canvas');
+    const motionState=()=>sceneFrame.evaluate(()=>({
+      frame:window.__TICO_OVERVIEW_TEST_PROBE__.frame,time:window.__TICO_OVERVIEW_TEST_PROBE__.time
+    }));
+    const beforeMotion=await motionState();
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await waitForCondition(sceneFrame,()=>!matchMedia('(prefers-reduced-motion: reduce)').matches);
+    await waitForCondition(sceneFrame,({frame,time})=>window.__TICO_OVERVIEW_TEST_PROBE__.frame>frame
+      &&window.__TICO_OVERVIEW_TEST_PROBE__.time>time,beforeMotion);
+    const beforePause=await motionState();
+    await page.emulateMedia({reducedMotion:'reduce'});
+    await waitForCondition(sceneFrame,({frame})=>matchMedia('(prefers-reduced-motion: reduce)').matches
+      &&window.__TICO_OVERVIEW_TEST_PROBE__.frame>=frame+2,beforePause);
+    const paused=await motionState();
+    assert.equal(paused.time,beforePause.time,'reduced motion freezes the scene clock across rendered frames');
     await enter(page,'computer:alpha');
     assert.equal(await frame.locator('[data-person]').count(),6,'all occupants have an accessible character, without sampling');
     assert.equal(await frame.locator('[data-person="bot:bot-0"] img').count(),0);
@@ -108,19 +120,22 @@ bots.push({name:'restricted',machine:{runner_id:'secret',label:'SECRET MACHINE'}
     assert.equal((await modelOf(page)).groups[0].members.find(m=>m.type==='bot').state,'unknown');
     offline=false;await page.evaluate(()=>refresh());
     await frame.locator('#speech-message').filter({hasText:'Waiting on a human'}).waitFor();
-    // Observe navigation directly because software WebGL can suspend animation-frame polling on exit.
-    await Promise.all([page.waitForURL(url=>url.hash==='#/bot/bot-0'),frame.locator('#speech-open').click()]);
+    // The speech bubble follows the WebGL camera; activate its button without waiting on its moving pointer target.
+    assert(await frame.locator('#speech-open').isVisible());
+    await Promise.all([page.waitForURL(url=>url.hash==='#/bot/bot-0'),frame.locator('#speech-open').evaluate(button=>button.click())]);
     assert.equal(await page.locator('#overview-frame').count(),0);
     await page.evaluate(()=>location.hash='#/overview');await frame.locator('body[data-scene-ready]').waitFor();
     await enter(page,'computer:beta');await frame.locator('[data-person="human:ana"]').focus();await page.keyboard.press('Enter');
     assert.match(await frame.locator('#speech-message').innerText(),/Presence is not tracked/);
-    await Promise.all([page.waitForURL(url=>url.hash==='#/person/ana'),frame.locator('#speech-open').click()]);
+    assert(await frame.locator('#speech-open').isVisible());
+    await Promise.all([page.waitForURL(url=>url.hash==='#/person/ana'),frame.locator('#speech-open').evaluate(button=>button.click())]);
     await page.evaluate(()=>location.hash='#/overview');await frame.locator('body[data-scene-ready]').waitFor();
     await enter(page,'computer:alpha');
     bots[0].machine={runner_id:'beta',label:'Solar Linux'};await page.evaluate(()=>refresh());
-    await frame.locator('[data-person]').first().waitFor({state:'attached'});
-    await page.waitForFunction(()=>overviewModel().groups.find(g=>g.id==='computer:beta').members.some(m=>m.id==='bot:bot-0'));
-    assert(!(await modelOf(page)).groups.find(g=>g.id==='computer:alpha').members.some(m=>m.id==='bot:bot-0'),'reassignment moves a bot between buildings');
+    const reassigned=await modelOf(page);
+    assert(reassigned.groups.find(g=>g.id==='computer:beta').members.some(m=>m.id==='bot:bot-0'),'refresh publishes the updated assignment');
+    assert(!reassigned.groups.find(g=>g.id==='computer:alpha').members.some(m=>m.id==='bot:bot-0'),'reassignment moves a bot between buildings');
+    await frame.locator('[data-person="bot:bot-0"]').waitFor({state:'detached'});
     await frame.locator('body[data-scene-ready]').waitFor();
     assert.equal(await frame.locator('#floor-title').innerText(),'Garden Mac','topology rebuild remembers building');
     bots[0].machine={runner_id:'alpha',label:'Garden Mac'};
