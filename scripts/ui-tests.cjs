@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const dir = path.join(__dirname, '..', 'ui', 'tests');
-const CORE = ['bot-permissions', 'chat', 'docs', 'goals', 'meetings', 'page-layouts', 'people-access',
+const CORE = ['bot-permissions', 'chat', 'chat-activity', 'docs', 'goals', 'meetings', 'page-layouts', 'people-access',
               'settings-forms', 'sign-in-redirect', 'task-privacy', 'tasks-page'];
 const args = process.argv.slice(2);
 let jobs = Number(process.env.TICO_UI_JOBS) || 3;

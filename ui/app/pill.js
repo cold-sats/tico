@@ -298,6 +298,9 @@ async function pillSend(P) {
   if (!P.el) return;
   const box = pq(P, '.p-text'), text = box.value.trim();
   if (!text && !(P.action === 'chat' && P.files.length)) { box.focus(); return; }
+  // Goal mode keeps the familiar Send button and Enter shortcut; only the destination changes.
+  // The Assistant's custom sender and explicit task/reply actions retain their own contracts.
+  if (P.goalMode && P.action === 'chat' && !P.send) return chatGoalSend(P, text);
   if (P.send) return P.send(P, text);
   const slash = slashRun(P, text);
   if (slash === true) return;

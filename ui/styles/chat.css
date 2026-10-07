@@ -34,6 +34,14 @@
 /* conversation card: one group per run, newest at the bottom */
 .conv-top{display:flex;justify-content:flex-end;color:var(--muted);font-size:12.5px;min-height:18px;margin-bottom:var(--s2)}
 .conv-older{margin-bottom:6px}
+.conv-older[hidden]{display:none}
+.chat-activity{margin:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--muted);font-size:12.5px}
+.chat-activity>summary{display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer;list-style-position:inside}
+.chat-activity>summary b{color:var(--ink);font-weight:600}
+.chat-activity>summary .chat-time:last-child{margin-left:auto}
+.chat-activity-items{padding:0 0 6px 18px;border-left:2px solid var(--line)}
+.chat-activity-items>.chat-system{margin:7px 0}
+.chat-activity-items>.chat-fold{margin:7px 0}
 .conv-bots{margin-top:10px}
 .conv-bots-box>summary{cursor:pointer;font-size:12.5px;color:var(--muted);display:flex;gap:8px;align-items:center}
 .conv-bots-one{margin:8px 0 12px;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
