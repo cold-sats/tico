@@ -340,13 +340,12 @@ function v2ActivityMessage(m) {
   if (refs.note === true) return String(m.from_actor || '').startsWith('bot:');
   return m.kind === 'notice' && m.from_actor === 'keeper';
 }
+// A run of two or more folds into one row: how many, and when the latest landed.
 function v2ActivityHTML(messages) {
-  const first = messages[0], last = messages.at(-1), count = messages.length;
-  const range = first?.created && last?.created
-    ? `<time class="chat-time" title="${esc(fmt(first.created))}">${esc(ago(first.created))}</time>${last.id !== first.id ? ` <span class="muted">–</span> <time class="chat-time" title="${esc(fmt(last.created))}">${esc(ago(last.created))}</time>` : ''}` : '';
-  const label = `${count} task and status update${count === 1 ? '' : 's'}`;
+  const first = messages[0], last = messages.at(-1);
+  const when = last?.created ? `<time class="chat-time" title="${esc(fmt(last.created))}">${esc(ago(last.created))}</time>` : '';
   return `<details class="chat-activity chat-fold" data-fold="activity:${esc(first.id || '')}"${v2FoldOpen({id: `activity:${first.id || ''}`}) ? ' open' : ''}>
-    <summary><b>${esc(label)}</b>${range}</summary><div class="chat-activity-items">${messages.map(v2MessageHTML).join('')}</div></details>`;
+    <summary><b>${messages.length} updates</b>${when}</summary><div class="chat-activity-items">${messages.map(v2MessageHTML).join('')}</div></details>`;
 }
 function v2MessagesHTML(messages, goalLine) {
   const feed = [];
@@ -361,7 +360,7 @@ function v2MessagesHTML(messages, goalLine) {
     if (!item.message || !v2ActivityMessage(item.message)) { rows.push(item.html || v2MessageHTML(item.message)); i++; continue; }
     const group = [];
     while (i < feed.length && feed[i].message && v2ActivityMessage(feed[i].message)) group.push(feed[i++].message);
-    rows.push(v2ActivityHTML(group));
+    rows.push(group.length > 1 ? v2ActivityHTML(group) : v2MessageHTML(group[0]));
   }
   return rows.join('');
 }

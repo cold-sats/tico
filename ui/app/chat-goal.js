@@ -172,6 +172,7 @@ function chatGoalRender(state, force = false) {
     btn.setAttribute('aria-pressed', String(!!P.goalMode));
     btn.setAttribute('aria-label', P.goalMode ? 'Goal mode on' : 'Goal mode');
     btn.title = P.goalMode ? 'Goal mode on · Send text as the goal' : 'Goal';
+    pillLabel(P);
   }
 }
 function chatGoalWireBar(state, host) {

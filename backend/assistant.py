@@ -361,7 +361,7 @@ GREETING = re.compile(r"^(?:hi|hello|hey|good morning|good afternoon|good evenin
 TASK_TYPE_INVENTORY = re.compile(
     r"^(?:for\s+[a-z][a-z0-9&'-]{0,40},\s*)?(?:what|which)\s+(?:kind\s+of\s+)?"
     r"(?:task\s+types?|types?\s+of\s+tasks?)\s+"
-    r"(?:do\s+we\s+use(?:\s+here)?|does\s+(?:this\s+)?(?:team|workspace)\s+use|are\s+available|exist)\b"
+    r"(?:do\s+we\s+use(?:\s+here)?|does\s+(?:this\s+)?(?:team|workspace)\s+use|are\s+available|exist)"
 )
 TASK_TYPE_INVENTORY_ARE = re.compile(
     r"^(?:what|which)\s+are\s+(?:the\s+)?(?:task\s+types?|types?\s+of\s+tasks?)"
@@ -389,6 +389,7 @@ def route(text, bots=()):
         return None, None
     if GREETING.fullmatch(t):
         return "greeting", None
+    # "for <team>," can be any word, a verb too ("for create, ..."), so the action check still applies.
     if (TASK_TYPE_INVENTORY.fullmatch(t) or TASK_TYPE_INVENTORY_ARE.fullmatch(t)) and not ACTION_WORDS.search(t):
         return "task_types", None
     if WAITING.search(t):
