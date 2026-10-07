@@ -8,10 +8,21 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-- **Windows PCs run bots through WSL 2.** Settings > Computers > Add computer > Windows PC shows one PowerShell line: `install-wsl.ps1`, now published with each release, sets up WSL 2 and Ubuntu if needed and runs the Linux runner inside it ([Install](docs/install.md#windows-pc-wsl-2)). Not yet tested on a real Windows PC.
+- **Windows PCs run bots through WSL 2.** Settings > Computers > Add computer > Windows PC (WSL 2, beta) shows one PowerShell line: `install-wsl.ps1`, now published with each release, sets up WSL 2 and Ubuntu if needed and runs the Linux runner inside it ([Install](docs/install.md#windows-pc-wsl-2)). Not yet tested on a real Windows PC.
 - **Add computer shows one command** for a Mac (the Docker installer; a Tico checkout is still an option), a Linux server or a Windows PC, each with Copy.
 - **Settings > Computers lists each computer's AI tools** with version and sign-in state. Owners, admins and the computer's operator can sign Codex and Claude Code in from there; Grok Build and Cursor show the command to run on the computer.
-- When GitHub asks someone to review a pull request linked to a task, Tico can put them on the task in a role, and take them off if the request is withdrawn. Off unless `TICO_GITHUB_REVIEW_ROLE` names the role (for example `reviewer`); people are matched by a new `github` login on the roster (`POST /api/v2/people/{id}` with `{"github": "login"}`).
+
+### Fixed
+- The Docker sign-in command for Claude Code was `claude setup-token`, which prints a token and leaves the CLI signed out; it is now `claude auth login`, run as `bot`.
+- Moving a bot to another computer works again: the destination is judged by whether it can run the bot (its runtime installed and signed in, for the bot's own subscription or key), instead of always answering "Update the destination runner".
+- A bot set up from a catalog template that lands on a new computer clones its GitHub history instead of starting from a fresh template copy. A copy that shares no history with GitHub never gets a turn, and a computer the bot returns to brings its clean old clone up to GitHub's history before the first turn.
+- Credentials can no longer be saved or given to a bot under a name Tico reserves (`TICO_`, `DYLD_`, `LD_`, the runner's own `HUB_` names); the release-notes template now uses `UPDATE_KEY_*`. One stored before is left out of the bot's turns instead of stopping every turn, and Health names it under **Credential names** until its variable is renamed.
+- A turn that fails before it starts logs why (secrets scrubbed), not only the server's refusal of its result.
+
+## [0.3.30] - 2026-10-07
+
+### Added
+- When GitHub asks someone to review a pull request linked to a task, Tico can put them on the task in a role, and take them off if the request is withdrawn. Off unless `TICO_GITHUB_REVIEW_ROLE` names the role (for example `reviewer`); people are matched by a new **GitHub** login in the Contact card of their profile (or `POST /api/v2/people/{id}` with `{"github": "login"}`). Two people cannot share a login (409 `github_taken`), and a login a roster already shares names nobody ([GitHub App](docs/github-app.md#task-pr-events)).
 - An Owner's agent can create an empty private product repository through the MCP tool `hub_repo_product_create`: the first call previews, the second must repeat the exact `org/name`. Only Owners see the tool ([GitHub App](docs/github-app.md#creating-a-product-repository)).
 - **Bot messages in Slack**, under Profile → Notifications: turn it off to keep every bot's messages to you in Tico instead of your Tico DM in Slack, end-of-run reports included, or mute only some bots. A bot you are talking to in Slack still answers there. Also `notify_slack_bot_messages` and `slack_muted_bots` on `POST /api/v2/humans/<id>` ([Slack](docs/slack.md#bot-messages)).
 - The Assistant answers "hi" and "what task types do we use?" at once, from the workspace's own task types, without waiting on a model or starting a job.
@@ -25,7 +36,6 @@ All notable changes to Tico are recorded here. The format follows
 - A human's synced Grok Bots show as chips beside their name on the Team chart (one by name, then "+N") instead of rows under them.
 
 ### Fixed
-- The Docker sign-in command for Claude Code was `claude setup-token`, which prints a token and leaves the CLI signed out; it is now `claude auth login`, run as `bot`.
 - A Codex goal whose resumed thread reported "no goal" is checked with the harness before it is stopped, so a new goal is no longer cancelled at once; once a goal is met, a later clear is left alone.
 
 ## [0.3.29] - 2026-10-06

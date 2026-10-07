@@ -141,10 +141,18 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
                   for line in listed.stdout.splitlines() if "\t" in line}
         if remote:
             # Anything already there must be an ancestor of what is pushed, or this would rewrite it.
-            if branch not in remote:
+            names = [branch] if branch in remote else sorted(remote)[:20]
+            fetched = git("fetch", "--quiet", "--no-tags", "origin", *names, timeout=timeout).returncode == 0
+            if fetched and branch in remote and git("merge-base", "--is-ancestor", remote[branch], "HEAD").returncode == 0:
+                pass
+            elif fetched and _unrelated(git, [remote[name] for name in names]):
+                # No commit in common (a template copy beside the bot's real history): the readiness check keys
+                # on "unrelated history" and holds turns, unlike a checkout that merely diverged from GitHub.
+                return "failed", (f"{repository} holds unrelated history on {', '.join(names)}"
+                                  + ("" if branch in remote else f", not {branch}") + "; nothing pushed")
+            elif branch not in remote:
                 return "failed", f"{repository} already has history on {', '.join(sorted(remote))}, not {branch}; nothing pushed"
-            if git("fetch", "--quiet", "--no-tags", "origin", branch, timeout=timeout).returncode != 0 \
-                    or git("merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD").returncode != 0:
+            else:
                 return "failed", f"{repository} already has different history on {branch}; nothing pushed"
         pushed = git("push", "-q", "-u", "origin", branch, timeout=timeout)
         if pushed.returncode != 0:
@@ -154,6 +162,66 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
         return "failed", "timed out"
     except (OSError, subprocess.SubprocessError) as exc:
         return "failed", type(exc).__name__
+
+
+def fast_forward(path, env=None, timeout=60):
+    """Bring a checkout that tracks GitHub up to it, only when that loses nothing: (state, detail), state `updated`,
+    `current` (already there, or ahead), `skipped` (no upstream to follow) or `kept` (local changes, diverged, or
+    GitHub unreachable; the copy is left exactly as it was)."""
+    path = Path(path)
+    env = safe_git.environment(env)
+
+    def git(*args, timeout=15):
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+
+    try:
+        if git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode != 0:
+            return "skipped", "no upstream"
+        if git("fetch", "--quiet", "--no-tags", timeout=timeout).returncode != 0:
+            return "kept", "could not reach GitHub"
+        if git("merge-base", "--is-ancestor", "@{u}", "HEAD").returncode == 0:
+            return "current", ""
+        if git("merge-base", "--is-ancestor", "HEAD", "@{u}").returncode != 0:
+            return "kept", "it has commits GitHub does not, and GitHub has commits it does not"
+        if git("status", "--porcelain", "--untracked-files=no").stdout.strip():
+            return "kept", "it has uncommitted changes"
+        merged = git("merge", "--ff-only", "--quiet", "@{u}", timeout=timeout)
+        return ("updated", "") if merged.returncode == 0 else ("kept", "fast-forward failed")
+    except subprocess.TimeoutExpired:
+        return "kept", "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "kept", type(exc).__name__
+
+
+def _unrelated(git, commits):
+    """Whether HEAD shares no commit with any of `commits` (already fetched). Only a definite answer counts:
+    a shallow checkout or a git error is not proof, so it is never called unrelated."""
+    if git("rev-parse", "--is-shallow-repository").stdout.strip() != "false":
+        return False
+    codes = [git("merge-base", commit, "HEAD").returncode for commit in commits]
+    return bool(codes) and all(code == 1 for code in codes)
+
+
+def remote_history(repository, env=None, url=None, timeout=30):
+    """Whether GitHub already holds history for a bot's repository: (`present` | `empty` | `unknown`, detail).
+
+    A bot set up from a catalog template is materialized only when its repository has nothing in it yet; one that
+    does is cloned instead, so a moved bot never runs on a fresh template copy. `unknown` (unreachable, no access)
+    says why in `detail`."""
+    env = safe_git.environment(env)
+    wanted = url or f"https://github.com/{repository}.git"
+    try:
+        done = isolation.run([*safe_git.PREFIX, "ls-remote", "--heads", wanted], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return "unknown", "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "unknown", type(exc).__name__
+    if done.returncode != 0:
+        lines = (done.stderr or done.stdout or "").strip().splitlines()
+        return "unknown", (lines[-1] if lines else f"exit {done.returncode}")[:200]
+    return ("present" if done.stdout.strip() else "empty"), ""
 
 
 def clone_repository(path, repository, env=None, url=None, timeout=180):

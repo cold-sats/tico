@@ -129,3 +129,23 @@ def test_upgrade_migration_is_assigned_once_and_never_resurrects_revoked_grants(
     post(api,'runner-credential-migration',{'bot':'ops','credentials':[]},machine['token'])
     assert get(api,'runner-credential-migration',machine['token'])['bots']==[]
 
+
+
+def test_a_reserved_variable_name_is_refused_and_an_old_one_is_named_in_health(api):
+    setup(api)
+    refused=post(api,'credentials',{'name':'Acme update key','secret':'k-synthetic-123456','env':'TICO_UPDATE_KEY_ACME'},expected=422)
+    assert refused['error']['code']=='env' and 'TICO_UPDATE_KEY_ACME' in refused['error']['detail']
+    row=create(api,name='Acme update key',env='UPDATE_KEY_ACME')
+    # A credential stored before the rule keeps its name, cannot be given to another bot, and Health names it.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE credentials SET env='TICO_UPDATE_KEY_ACME' WHERE id=?",(row['id'],))
+        c.execute("INSERT INTO credential_grants(id,credential_id,subject,granted_by,created) VALUES('g-old',?,'bot:ops','human:ana','2026-01-01')",
+                  (row['id'],))
+    assert post(api,f"credentials/{row['id']}/grants",{'subject':'bot:cpo'},expected=422)['error']['code']=='env'
+    rotate={'name':'Acme update key','secret':'k-synthetic-rotated','expected_revision':row['revision']}
+    kept=post(api,f"credentials/{row['id']}",{**rotate,'env':'TICO_UPDATE_KEY_ACME'},expected=422)
+    assert 'Rename the variable in the same save' in kept['error']['detail']
+    check={x['id']:x for x in get(api,'health')['checks']}['reserved_credentials']
+    assert 'Acme update key (TICO_UPDATE_KEY_ACME) for ops' in check['summary']
+    assert post(api,f"credentials/{row['id']}",{**rotate,'env':'UPDATE_KEY_ACME'})['env']=='UPDATE_KEY_ACME'
+    assert 'reserved_credentials' not in {x['id'] for x in get(api,'health')['checks']}

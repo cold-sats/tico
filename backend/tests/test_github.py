@@ -492,3 +492,15 @@ def test_a_review_request_puts_the_person_in_the_configured_role(api):
     assert roles() == {"reviewer": ["human:ana"]}
     hook(api, "pull_request", pr_event("synchronize", requested_reviewers=[]))
     assert roles() == {"reviewer": ["human:ana"]}
+    # Two people never share a login; one a roster already shares (written before the check) names nobody.
+    with api.app.state.store.transaction() as c:
+        people = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()[0])
+        people["people"].append({"id": "bo", "email": "bo@acme.example"})
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(people),))
+        H.sync_registry(c, {}, people)
+    post(api, "people/bo", {"github": "ANA-dev"}, expected=409)
+    with api.app.state.store.transaction() as c:
+        people["people"][-1]["github"] = "ana-dev"
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(people),))
+    hook(api, "pull_request", asked)
+    assert roles() == {"reviewer": ["human:ana"]}
