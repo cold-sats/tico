@@ -386,6 +386,52 @@ def test_owner_product_creation_uses_exact_name_private_empty_and_idempotent_rec
     assert len([call for call in gh.calls if call[0] == "POST" and call[1] == "/orgs/Acme/repos"]) == calls_before_durable_replay
 
 
+def test_owner_mcp_product_repository_tool_previews_confirms_and_replays(api, gh):
+    connect(api, administration="true")
+    gh.permissions = {"administration": "write", "metadata": "read"}
+
+    def call(arguments):
+        response = api.post("/api/v2/mcp", json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "hub_repo_product_create", "arguments": arguments},
+        }, headers=auth())
+        assert response.status_code == 200, response.text
+        result = response.json()["result"]
+        return result["isError"], result["structuredContent"]
+
+    operation_id = "mcp-product-create-stable"
+    error, preview = call({"name": "tico-recorder", "operation_id": operation_id})
+    assert not error and preview["confirmation_required"] is True and preview["created"] is False
+    assert preview["preview"]["repository"] == "Acme/tico-recorder"
+    assert not gh.of("/orgs/Acme/repos"), "the preview call does not create a repository"
+
+    error, refused = call({"name": "tico-recorder", "operation_id": operation_id,
+                           "confirm_repository": "Acme/other-product"})
+    assert error and refused["error"] == "confirmation_required"
+    assert not gh.of("/orgs/Acme/repos"), "a mismatched confirmation does not create a repository"
+
+    arguments = {"name": "tico-recorder", "operation_id": operation_id,
+                 "confirm_repository": "Acme/tico-recorder"}
+    error, created = call(arguments)
+    assert not error and created["repository"] == "Acme/tico-recorder"
+    creates = gh.of("/orgs/Acme/repos")
+    assert len(creates) == 1
+    assert creates[0][2] == {"name": "tico-recorder", "private": True, "auto_init": False,
+                             "description": "Tico product repository"}
+
+    error, replay = call(arguments)
+    assert not error and replay == created
+    assert len(gh.of("/orgs/Acme/repos")) == 1, "the same MCP operation id replays its saved receipt"
+
+    gh.permissions = {"contents": "write", "metadata": "read"}
+    before = len(gh.of("/orgs/Acme/repos"))
+    error, unavailable = call({"name": "tico-recorder", "operation_id": "mcp-product-create-no-admin"})
+    assert not error and unavailable["preview"]["capability"] == "missing"
+    assert "Administration: write" in unavailable["preview"]["capability_detail"]
+    assert unavailable["created"] is False and unavailable["confirmation_required"] is False
+    assert len(gh.of("/orgs/Acme/repos")) == before, "missing Administration does not create a repository"
+
+
 def test_lost_github_create_response_keeps_durable_key_binding_and_never_retries_create(api, gh):
     connect(api, administration="true")
     gh.permissions = {"administration": "write", "metadata": "read"}
