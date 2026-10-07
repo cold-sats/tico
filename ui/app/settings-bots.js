@@ -41,36 +41,22 @@ function settingsAllChoices() {
         return {harness, model: model.id, effort, label, search, value: settingsChoiceValue(harness, model.id, effort)};
       })));
 }
-// What the bot's computer can run, from the readiness its runner reports (/v2/operations). It mirrors
-// backend/settings_admin.py `_target`: an online computer whose runtime is missing or signed out refuses the change.
-const settingsOnline = machine => !machine.revoked_at && machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
-const settingsRuntimeOf = harness => settingsHarness(harness)?.runtime || harness;
-function settingsRunnable(machine, runtime) {
-  const readiness = machine?.readiness || {};
-  if (!machine || !settingsOnline(machine) || readiness.schema_version !== 1) return true;   // nothing reported: the server decides
-  const row = readiness.runtimes?.[runtime] || {};
-  return !!row.installed && !['missing', 'failed'].includes(row.authenticated);
-}
+// What the bot's computer cannot run, as the server judges it (backend/readiness.py `can_run`, sent with
+// /v2/operations as `runnable`): {can_run: false, problem, short, computer, sign_in, move}. Not listed: not refused.
 function settingsRuntimeBlock(e, harness) {
-  if (!e || e.agent || !harness || harness === 'antigravity' || settingsHarness(harness)?.external) return null;   // external agents run off-computer
-  const machine = (SETTINGS_DATA.machines || []).find(row => row.id === e.machine?.runner_id);
-  const runtime = settingsRuntimeOf(harness);
-  if (settingsRunnable(machine, runtime)) return null;
-  const installed = !!machine.readiness?.runtimes?.[runtime]?.installed;
-  // Only online computers that report this runtime ready, and that this person may move bots to.
-  const move = (SETTINGS_DATA.machines || []).find(row => row.id !== machine.id && settingsOnline(row)
-    && row.readiness?.schema_version === 1 && settingsRunnable(row, runtime)
-    && (S.me?.role === 'owner' || row.operator === S.me?.id)) || null;
-  const signIn = installed && ['codex', 'claude'].includes(runtime) && (settingsIsAdmin() || machine.operator === S.me?.id);
-  return {runtime, machine, move, signIn, short: installed ? 'sign in' : 'not installed',
-    reason: `${installed ? 'Not signed in' : 'Not installed'} on ${machine.label}`};
+  const answer = e && !e.agent && harness ? SETTINGS_DATA.runnable?.[e.name]?.[harness] : null;
+  if (!answer || answer.can_run !== false) return null;
+  return {runtime: settingsHarness(harness)?.runtime || harness, short: answer.short || "can't run", reason: answer.problem || "Can't run here",
+    computer: answer.computer, move: answer.move,
+    signIn: answer.sign_in && (settingsIsAdmin() || settingsMachineOperator(answer.computer?.id) === S.me?.id) ? answer.sign_in : null};
 }
+const settingsMachineOperator = id => (SETTINGS_DATA.machines || []).find(row => row.id === id)?.operator;
 // One line per harness this computer cannot run that has a way out: sign in here, or move the bot.
 function settingsBlockedNote(e, harnesses) {
   return harnesses.map(id => [id, settingsRuntimeBlock(e, id)]).filter(([, block]) => block && (block.move || block.signIn))
-    .filter(([id], i, rows) => rows.findIndex(([other]) => settingsRuntimeOf(other) === settingsRuntimeOf(id)) === i)
+    .filter(([, block], i, rows) => rows.findIndex(([, other]) => other.runtime === block.runtime) === i)
     .map(([id, block]) => `<p class="settings-choice-block" data-choice-block="${esc(block.runtime)}"><span>${esc(harnessWords(block.runtime) || settingsHarnessName(id))}: ${esc(block.reason)}</span>
-      ${block.signIn ? `<button class="ghost" type="button" data-model-login data-runner="${esc(block.machine.id)}" data-runtime="${esc(block.runtime)}" data-machine="${esc(block.machine.label)}">Sign in</button>` : ''}
+      ${block.signIn ? `<button class="ghost" type="button" data-model-login data-runner="${esc(block.signIn.runner_id)}" data-runtime="${esc(block.runtime)}" data-machine="${esc(block.signIn.computer)}">Sign in</button>` : ''}
       ${block.move ? `<button class="ghost" type="button" data-choice-move="${esc(block.move.id)}" data-machine="${esc(block.move.label)}">Move to ${esc(block.move.label)}</button>` : ''}</p>`).join('');
 }
 async function settingsMoveForModel(button) {
@@ -306,7 +292,7 @@ function settingsBulkModelDialog() {
         ? `Destination: ${settingsChoiceLabel(choice.harness, choice.model, choice.effort)}` : '';
       // Before Apply: say which bots' computers cannot run this choice.
       bots.forEach(e => { const why = choice && settingsRuntimeBlock(e, choice.harness);
-        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run: ${why.reason.replace(/^N/, 'n')}` : settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e))); });
+        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run: ${why.reason}` : settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e))); });
     });
     dialog.querySelector('[data-bulk-apply]').onclick = () => void run(bots);
   };
@@ -324,7 +310,7 @@ function settingsBulkModelDialog() {
     for (const e of targets) {
       // A bot whose computer cannot run the choice is reported, not sent: the server would refuse it anyway.
       const why = settingsRuntimeBlock(e, choice.harness);
-      if (why) { mark(e.name, 'blocked', `Can't run: ${why.reason.replace(/^N/, 'n')}${why.move ? ` · move to ${why.move.label}` : ''}`); results.blocked++; continue; }
+      if (why) { mark(e.name, 'blocked', `Can't run: ${why.reason}${why.move ? ` · move to ${why.move.label}` : ''}`); results.blocked++; continue; }
       mark(e.name, 'working', 'Changing…');
       const result = await settingsBulkApplyOne(e.name, choice);
       mark(e.name, result.state, result.note);

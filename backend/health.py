@@ -280,10 +280,34 @@ def _waiting(c, online_ids):
     return waiting, slow, stuck
 
 
-def _runtime_problem(readiness, runtime):
-    """True when the computer's report says `runtime` cannot run there: not installed or not signed in."""
-    row = (readiness.get("runtimes") or {}).get(runtime) or {}
-    return bool(runtime) and (not row.get("installed") or row.get("authenticated") in ("missing", "failed", "rejected"))
+def _movable(c, who, online_ids):
+    """(id, label) of the online computers `who` may move a bot to: any for the owner, their own for a Bot administrator."""
+    me = H.actor_id(who.actor)
+    return [(r["id"], r["label"]) for r in c.execute("SELECT id,label,operator FROM runners WHERE revoked_at IS NULL ORDER BY label")
+            if r["id"] in online_ids and (who.role == "owner" or r["operator"] == me)]
+
+
+def runtime_choice(c, bot, runtime, who, computers, harness=""):
+    """What Settings and Health show for running `runtime` on this bot's computer, from the one rule
+    (backend/readiness.py `can_run`): the answer, a short label, and at most one way out: sign in there (a computer's
+    shared sign-in for a runtime that signs in from the browser) or a computer `who` may move it to that can run it."""
+    from .readiness import can_run
+    answer = can_run(c, bot, runtime, harness=harness)
+    view = {key: answer.get(key) for key in ("can_run", "problem", "fix", "link")}
+    view["computer"] = answer.get("computer")
+    if answer.get("can_run") is not False:
+        return view
+    problem = str(answer.get("problem") or "")
+    here = (answer.get("computer") or {})
+    if here.get("label") and here["label"] not in problem and answer.get("link") != "#/credentials":
+        view["problem"] = f"{problem} on {here['label']}"      # the runner's own words name no computer
+    view["short"] = ("not installed" if "not installed" in problem else "no key" if answer.get("link") == "#/credentials"
+                     else "sign in")
+    if (runtime in model_login.RUNTIMES and str(answer.get("fix") or "").startswith(f"Sign in {runtime} ")):
+        view["sign_in"] = {"runner_id": here.get("id"), "runtime": runtime, "computer": here.get("label")}
+    view["move"] = next(({"id": rid, "label": label} for rid, label in computers
+                         if rid != here.get("id") and can_run(c, bot, runtime, runner=rid, harness=harness)["can_run"] is True), None)
+    return view
 
 
 def _stuck(c, rows, online_ids, who, full):
@@ -291,52 +315,50 @@ def _stuck(c, rows, online_ids, who, full):
     or the settings page that can. Only administrators get fixes; a Bot administrator moves only to their own computers."""
     if not rows:
         return []
-    runners = {r["id"]: (r["label"], readiness_document(r["readiness_json"]), r["operator"]) for r in c.execute(
-        "SELECT id,label,operator,readiness_json FROM runners WHERE revoked_at IS NULL")}
-    me = H.actor_id(who.actor)
-
-    def elsewhere(runtime, current):
-        for rid, (label, readiness, operator) in sorted(runners.items(), key=lambda item: item[1][0]):
-            if rid != current and rid in online_ids and (who.role == "owner" or operator == me) \
-                    and runtime and not _runtime_problem(readiness, runtime):
-                return rid, label
-        return None
-
+    computers = _movable(c, who, online_ids) if full else []
+    configured = {r["slug"]: r["runtime"] or "" for r in c.execute("SELECT slug,runtime FROM bots")}
     out = []
     for row in rows:
-        label, readiness, _ = runners.get(row["runner_id"], (row["computer"], {}, ""))
-        runtime, reason = row["runtime"], row["reason"]
-        harness = providers.RUNTIME_LABELS.get(runtime, runtime)
+        label, reason = row["computer"], row["reason"]
+        runtime = row["runtime"] or configured.get(row["bot"], "")
         fix, move = None, None
         if reason == "no_computer":
             text = "No computer"
             fix = _fix("Choose a computer", "#/settings", "bots")
         elif reason == "computer_offline":
             text = f"{label} is offline"
-            move = elsewhere(runtime, row["runner_id"])
             fix = _fix("Open Computers", "#/settings", "devices")
+            if full and runtime:
+                move = next(({"id": rid, "label": name} for rid, name in computers if rid != row["runner_id"] and
+                                     _can(c, row["bot"], runtime, rid)), None)
         elif reason == "not_ready":
-            problem = row["problem"]
-            if problem == "Runtime executable is not on PATH":
-                problem = f"{harness} is not installed"
+            choice = runtime_choice(c, row["bot"], runtime, who, computers) if runtime else {}
+            problem = str(choice.get("problem") or row["problem"]) if choice.get("can_run") is False else row["problem"]
             text = problem if label and label in problem else f"{problem} on {label}"
-            if _runtime_problem(readiness, runtime):
-                # Signing in where it is beats moving it; a computer that lacks the CLI altogether can only be left.
-                if ((readiness.get("runtimes") or {}).get(runtime) or {}).get("installed") and runtime in model_login.RUNTIMES:
-                    fix = {**_fix("Sign in"), "login": {"runner_id": row["runner_id"], "runtime": runtime, "computer": label}}
+            if choice.get("can_run") is False:
+                # Signing in where it is beats moving it; otherwise a computer that can run it, else where the fix is.
+                if choice.get("sign_in"):
+                    login = choice["sign_in"]
+                    fix = {**_fix("Sign in"), "login": {"runner_id": login["runner_id"], "runtime": runtime, "computer": label}}
                 else:
-                    move = elsewhere(runtime, row["runner_id"])
-                    fix = _fix("Open Computers", "#/settings", "devices")
+                    move = choice.get("move")
+                    fix = _fix("Open Credentials", "#/credentials") if choice.get("link") == "#/credentials" \
+                        else _fix("Open Computers", "#/settings", "devices")
             else:
                 fix = _fix("Open bot settings", "#/settings", "bots")
         else:
             text = f"Not started after {QUEUE_MINUTES} min"
             fix = _fix("Open Runs", "#/runs")
         if move:
-            fix = {**_fix(f"Move to {move[1]}"), "move": {"bot": row["bot"], "runner_id": move[0], "computer": move[1]}}
+            fix = {**_fix(f"Move to {move['label']}"), "move": {"bot": row["bot"], "runner_id": move["id"], "computer": move["label"]}}
         out.append({key: row[key] for key in ("bot", "name", "queued", "oldest", "computer", "reason")}
                    | {"why": text[:240], "fix": fix if full else None})
     return out
+
+
+def _can(c, bot, runtime, runner):
+    from .readiness import can_run
+    return can_run(c, bot, runtime, runner=runner)["can_run"] is True
 
 
 TOKEN_CACHE_SECONDS = 300

@@ -151,6 +151,7 @@ def test_a_bot_its_computer_cannot_start_is_stuck_with_the_reason_and_one_fix(en
                       "bots": {"release": {"ready": False, "runtime": "claude", "problems": ["Claude login required"]}}}), runner))
         c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('release',?,1,?,'t')",
                   (runner, H.now()))
+        c.execute("UPDATE bots SET runtime='claude' WHERE slug='release'")
         owner = "human:" + c.execute("SELECT id FROM humans ORDER BY id LIMIT 1").fetchone()[0]
         conversation = H.open_conversation(c, owner, [owner, "bot:release"], kind="chat")
         H._write_message(c, owner, "bot:release", "ship it", conversation, "say", {}, None, None)
@@ -159,6 +160,9 @@ def test_a_bot_its_computer_cannot_start_is_stuck_with_the_reason_and_one_fix(en
     [row] = body["stuck"]
     assert row["bot"] == "release" and row["why"] == "Claude login required on Team box"
     assert row["fix"]["login"] == {"runner_id": runner, "runtime": "claude", "computer": "Team box"}
+    # The model picker gets the same answer from the same rule (backend/readiness.py can_run).
+    picker = api.get("/api/v2/operations", headers=signed_in()).json()["runnable"]["release"]["claude"]
+    assert picker["can_run"] is False and picker["short"] == "sign in" and picker["sign_in"]["runner_id"] == runner
     assert health_of(api, as_person(api, "quinn"))[0]["stuck"][0]["fix"] is None   # readable: the reason, no fix
     from backend import bot_access as A
     only_ana = A.audience({"people": ["ana"]})
