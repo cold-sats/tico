@@ -51,6 +51,8 @@ def rel(tmp_path_factory):
     src = tmp_path_factory.mktemp("src")
     (src / "scripts").mkdir()
     shutil.copy(SCRIPTS / "install.sh", src / "scripts" / "install.sh")
+    (src / "infra" / "windows").mkdir(parents=True)
+    shutil.copy(SCRIPTS.parent / "infra" / "windows" / "install-wsl.ps1", src / "infra" / "windows" / "install-wsl.ps1")
     (src / "docker").mkdir()
     (src / "docker" / "runner.compose.yaml").write_text("name: tico-runner\n")
     (src / "setup").mkdir()
@@ -109,6 +111,7 @@ def test_bundle_from_the_real_repo_has_what_a_server_needs_and_is_reproducible(t
         assert hashlib.sha256((a / f.strip()).read_bytes()).hexdigest() == digest
     script = (a / "install.sh").read_text()
     assert "TICO_VERSION_BAKED='v1.2.3'" in script and "@TICO_VERSION@" not in script
+    assert "$Baked = 'v1.2.3'" in (a / "install-wsl.ps1").read_text() and "install-wsl.ps1" in sums
 
 
 def test_build_refuses_a_non_release_version_and_a_script_without_the_placeholder(tmp_path):

@@ -26,7 +26,7 @@ def test_release_publishes_the_installer_its_bundle_and_checksums():
     text = (ROOT / ".github/workflows/release.yml").read_text()
     doc = yaml.safe_load(text)
     assert doc[True]["push"]["tags"]  # YAML reads the key `on` as a boolean
-    for asset in ("dist/install/install.sh", "tico-bundle-$GITHUB_REF_NAME.tar.gz", "dist/install/SHA256SUMS"):
+    for asset in ("dist/install/install.sh", "dist/install/install-wsl.ps1", "tico-bundle-$GITHUB_REF_NAME.tar.gz", "dist/install/SHA256SUMS"):
         assert asset in text
     assert "build_install_bundle.py --version \"$GITHUB_REF_NAME\"" in text
     assert text.index("Wait for the images") < text.index("gh release create")  # never a release whose images are missing

@@ -21,7 +21,7 @@ def _harness_name(runtime):
 from .store import H, Problem, readiness_document
 from .views import roster
 
-QUEUE_MINUTES = 10          # work that has waited this long on a computer that is up is stuck
+QUEUE_MINUTES = 15          # work that has waited this long on a computer that is up is stuck
 BACKUP_STALE_HOURS = 6      # the replica normally trails by seconds
 RECENT_HOURS = 24
 GITHUB_HEALTH = "github:token"
@@ -224,29 +224,180 @@ def _rejected_summary(rows):
 
 def _waiting(c, online_ids):
     """Active bots whose computer is offline (or that have none while work is queued), with the
-    work stuck behind them, and bots whose queued work is old even though their computer is up."""
+    work stuck behind them, and bots whose queued work is old even though their computer is up.
+    The third list is every bot with queued work that is not starting, with the computer's own
+    reason (`_stuck`)."""
     cutoff = H.shift(H.now(), minutes=-QUEUE_MINUTES)
     queued = {r["bot"]: (r["n"], r["oldest"]) for r in c.execute(
         "SELECT bot, count(*) n, min(created) oldest FROM jobs WHERE state='queued' GROUP BY bot")}
-    assigned = {r["bot"]: (r["runner_id"], r["label"]) for r in c.execute(
-        "SELECT a.bot, a.runner_id, r.label FROM assignments a JOIN runners r ON r.id=a.runner_id "
+    assigned = {r["bot"]: (r["runner_id"], r["label"], r["readiness_json"]) for r in c.execute(
+        "SELECT a.bot, a.runner_id, r.label, r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
         "WHERE r.revoked_at IS NULL")}
     # A starter bot still waiting for its first setup holds its work on purpose: not slow.
     parked = {r["bot"] for r in c.execute("SELECT bot FROM bot_config WHERE onboarding_state IN ('needs_setup','needs_onboarding')")}
-    waiting, slow = [], []
+    # A bot in the middle of a turn has its next message waiting behind it: busy, not stuck (partial index).
+    busy, running = set(), {}
+    for r in c.execute("SELECT bot,runner_id FROM attempts WHERE state IN ('leased','running')"):
+        busy.add(r["bot"])
+        running[r["runner_id"]] = running.get(r["runner_id"], 0) + 1
+    # A computer running as many turns as it takes holds the rest back on purpose: queued, not stuck.
+    full = {r["id"] for r in c.execute("SELECT id,capacity FROM runners WHERE revoked_at IS NULL")
+            if running.get(r["id"], 0) >= (r["capacity"] or 1)}
+    documents = {}      # one parse per computer, and only for bots with queued work: Health is polled by every tab
+
+    def report_for(slug, where):
+        if not where:
+            return {}
+        if where[0] not in documents:
+            documents[where[0]] = readiness_document(where[2]).get("bots") or {}
+        report = documents[where[0]].get(slug)
+        return report if isinstance(report, dict) else {}
+    waiting, slow, stuck = [], [], []
     for bot in c.execute("SELECT slug,display_name FROM bots WHERE state='active' ORDER BY slug"):
         slug = bot["slug"]
         count, oldest = queued.get(slug, (0, None))
         where = assigned.get(slug)
         row = {"bot": slug, "name": bot["display_name"] or slug, "queued": count, "oldest": oldest,
                "computer": where[1] if where else ""}
+        report = report_for(slug, where) if count else {}
         if where and where[0] not in online_ids:
             waiting.append({**row, "reason": "computer_offline"})
-        elif not where and count and not online_ids:
-            waiting.append({**row, "reason": "no_computer"})
+            if count:
+                stuck.append({**row, "reason": "computer_offline", "runner_id": where[0], "runtime": report.get("runtime") or ""})
+        elif not where and count and (not online_ids or (oldest and oldest < cutoff and slug not in parked)):
+            if not online_ids:
+                waiting.append({**row, "reason": "no_computer"})
+            stuck.append({**row, "reason": "no_computer", "runner_id": "", "runtime": ""})
+        elif where and count and report.get("ready") is False and slug not in parked:
+            # The computer says this bot cannot start (no sign-in, no repository, ...): stuck now, not in 15 minutes.
+            stuck.append({**row, "reason": "not_ready", "runner_id": where[0], "runtime": report.get("runtime") or "",
+                          "problem": str((report.get("problems") or ["Not ready"])[0])[:200]})
+            if oldest and oldest < cutoff:
+                slow.append({**row, "reason": "slow"})
         elif where and count and oldest and oldest < cutoff and slug not in parked:
-            slow.append({**row, "reason": "slow"})
-    return waiting, slow
+            slow.append({**row, "reason": "busy" if slug in busy or where[0] in full else "slow"})
+            if slug not in busy and where[0] not in full:
+                stuck.append({**row, "reason": "slow", "runner_id": where[0], "runtime": report.get("runtime") or ""})
+    return waiting, slow, stuck
+
+
+def _movable(c, who, online_ids):
+    """(id, label) of the online computers `who` may move a bot to: any for the owner, their own for a Bot administrator."""
+    me = H.actor_id(who.actor)
+    return [(r["id"], r["label"]) for r in c.execute("SELECT id,label,operator FROM runners WHERE revoked_at IS NULL ORDER BY label")
+            if r["id"] in online_ids and (who.role == "owner" or r["operator"] == me)]
+
+
+def runtime_choice(c, bot, runtime, who, computers, harness=""):
+    """What Settings and Health show for running `runtime` on this bot's computer, from the one rule
+    (backend/readiness.py `can_run`): the answer, a short label, and at most one way out: sign in there (a computer's
+    shared sign-in for a runtime that signs in from the browser) or a computer `who` may move it to that can run it."""
+    from .readiness import can_run
+    answer = can_run(c, bot, runtime, harness=harness)
+    view = {key: answer.get(key) for key in ("can_run", "problem", "fix", "link")}
+    view["computer"] = answer.get("computer")
+    if answer.get("can_run") is not False:
+        return view
+    problem = str(answer.get("problem") or "")
+    here = (answer.get("computer") or {})
+    if here.get("label") and here["label"] not in problem and answer.get("link") != "#/credentials":
+        view["problem"] = f"{problem} on {here['label']}"      # the runner's own words name no computer
+    view["short"] = ("not installed" if "not installed" in problem else "no key" if answer.get("link") == "#/credentials"
+                     else "sign in")
+    if (runtime in model_login.RUNTIMES and str(answer.get("fix") or "").startswith(f"Sign in {runtime} ")):
+        view["sign_in"] = {"runner_id": here.get("id"), "runtime": runtime, "computer": here.get("label")}
+    view["move"] = next(({"id": rid, "label": label} for rid, label in computers
+                         if rid != here.get("id") and can_run(c, bot, runtime, runner=rid, harness=harness)["can_run"] is True), None)
+    return view
+
+
+def _stuck(c, rows, online_ids, who, full):
+    """Each stuck bot with a reason in plain words and one fix: sign in, move to a computer that can run it,
+    or the settings page that can. Only administrators get fixes; a Bot administrator moves only to their own computers."""
+    if not rows:
+        return []
+    computers = _movable(c, who, online_ids) if full else []
+    configured = {r["slug"]: r["runtime"] or "" for r in c.execute("SELECT slug,runtime FROM bots")}
+    out = []
+    for row in rows:
+        label, reason = row["computer"], row["reason"]
+        runtime = row["runtime"] or configured.get(row["bot"], "")
+        fix, move = None, None
+        if reason == "no_computer":
+            text = "No computer"
+            fix = _fix("Choose a computer", "#/settings", "bots")
+        elif reason == "computer_offline":
+            text = f"{label} is offline"
+            fix = _fix("Open Computers", "#/settings", "devices")
+            if full and runtime:
+                move = next(({"id": rid, "label": name} for rid, name in computers if rid != row["runner_id"] and
+                                     _can(c, row["bot"], runtime, rid)), None)
+        elif reason == "not_ready":
+            choice = runtime_choice(c, row["bot"], runtime, who, computers) if runtime else {}
+            problem = str(choice.get("problem") or row["problem"]) if choice.get("can_run") is False else row["problem"]
+            text = problem if label and label in problem else f"{problem} on {label}"
+            if choice.get("can_run") is False:
+                # Signing in where it is beats moving it; otherwise a computer that can run it, else where the fix is.
+                if choice.get("sign_in"):
+                    login = choice["sign_in"]
+                    fix = {**_fix("Sign in"), "login": {"runner_id": login["runner_id"], "runtime": runtime, "computer": label}}
+                else:
+                    move = choice.get("move")
+                    fix = _fix("Open Credentials", "#/credentials") if choice.get("link") == "#/credentials" \
+                        else _fix("Open Computers", "#/settings", "devices")
+            else:
+                fix = _fix("Open bot settings", "#/settings", "bots")
+        else:
+            text = f"Not started after {QUEUE_MINUTES} min"
+            fix = _fix("Open Runs", "#/runs")
+        if move:
+            fix = {**_fix(f"Move to {move['label']}"), "move": {"bot": row["bot"], "runner_id": move["id"], "computer": move["label"]}}
+        out.append({key: row[key] for key in ("bot", "name", "queued", "oldest", "computer", "reason")}
+                   | {"why": text[:240], "fix": fix if full else None})
+    return out
+
+
+def _can(c, bot, runtime, runner):
+    from .readiness import can_run
+    return can_run(c, bot, runtime, runner=runner)["can_run"] is True
+
+
+TOKEN_CACHE_SECONDS = 300
+_TOKEN_CACHE = {}   # (database, threshold) -> (monotonic time, answer)
+
+
+def _token_heavy(c, threshold):
+    """(bot, tokens) for bots whose uncached input tokens passed `threshold` in the last day. A run records
+    `input_tokens` without its cache reads (runner/usage.py), so cache reads, which are cheap, do not count.
+    Both halves filter on `turns.started` (indexed) before summing; the sum still visits every turn of the day
+    (about 90 ms at 30,000 turns), so one answer serves every tab's Health poll for five minutes."""
+    if not threshold or threshold <= 0:
+        return []
+    import time
+    key = (next((r[2] for r in c.execute("PRAGMA database_list") if r[1] == "main"), ""), threshold)
+    hit = _TOKEN_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < TOKEN_CACHE_SECONDS:
+        return hit[1]
+    since = H.shift(H.now(), hours=-RECENT_HOURS)
+    answer = [(r["bot"], r["n"]) for r in c.execute(
+        "SELECT bot, sum(n) AS n FROM ("
+        "SELECT t.bot, coalesce(s.input_tokens,0) AS n FROM turns t "
+        "JOIN turn_usage_segments s ON s.turn_id=t.id WHERE t.started>=? "
+        "UNION ALL SELECT t.bot, coalesce(t.input_tokens,0) FROM turns t "
+        "WHERE t.started>=? AND NOT EXISTS (SELECT 1 FROM turn_usage_segments s WHERE s.turn_id=t.id)) "
+        "GROUP BY bot HAVING sum(n)>? ORDER BY sum(n) DESC", (since, since, threshold))]
+    _TOKEN_CACHE.clear()
+    _TOKEN_CACHE[key] = (time.monotonic(), answer)
+    return answer
+
+
+def _bot_name(c, bot):
+    row = c.execute("SELECT display_name FROM bots WHERE slug=?", (bot,)).fetchone()
+    return (row["display_name"] if row else "") or bot
+
+
+def _tokens_words(n):
+    return f"{n / 1e9:.1f}B" if n >= 1e9 else f"{n / 1e6:.0f}M" if n >= 1e6 else f"{n:,}"
 
 
 def token_failure(c):
@@ -410,7 +561,11 @@ def view(c, who, settings, auth, github, config):
     online = _online_runners(c)
     online_ids = {r["id"] for r in online}
     computers = _computers(c, online, settings)
-    waiting, slow = _waiting(c, online_ids)
+    waiting, slow, stuck_rows = _waiting(c, online_ids)
+    if not full and stuck_rows:      # someone who is not an administrator hears only about the bots they may read
+        readable = auth.bot_accesses(c, who, [row["bot"] for row in stuck_rows])
+        stuck_rows = [row for row in stuck_rows if readable.get(row["bot"], auth.FULL)["read"]]
+    blocked = _stuck(c, stuck_rows, online_ids, who, full)
     failed, failures = _failed(c)
     checks = []
     if full and (listening := _listening(settings)):
@@ -605,13 +760,29 @@ def view(c, who, settings, auth, github, config):
                              [_fix("Open Computers", "#/settings", "devices")] if full else []))
     else:
         checks.append(_check("waiting", "Bots waiting", "ok", "Every active bot has a computer that is up."))
-    if slow:
+    # An offline computer (or none) is "Bots waiting"; this check is everything else, so one cause is one item.
+    held = {w["bot"] for w in waiting}
+    blocking = [s for s in blocked if s["bot"] not in held]
+    if blocking:
+        # A count: each bot, its reason and its fix are listed once, under `stuck` (Health's Stuck list, Overview).
+        checks.append(_check("queue", "Stuck bots", "bad" if any(s["reason"] != "slow" for s in blocking) else "warn",
+                             f"{_plural(len(blocking), 'bot')} with work that is not starting.", []))
+    elif slow and all(s["reason"] == "busy" for s in slow):
+        checks.append(_check("queue", "Work queueing", "info", "Queued behind other work"
+                             + (": " + ", ".join(s["name"] for s in slow[:5]) + "." if full else ".")))
+    elif slow:
         checks.append(_check("queue", "Work queueing", "warn",
                              f"{_plural(len(slow), 'bot')} with work waiting more than {QUEUE_MINUTES} minutes"
                              + (": " + ", ".join(s["name"] for s in slow[:5]) + "." if full else "."),
                              [_fix("Open Runs", "#/runs")] if full else []))
     else:
         checks.append(_check("queue", "Work queueing", "ok", "No work is waiting long."))
+    if full and (heavy := _token_heavy(c, settings.token_alert_input)):
+        checks.append(_check("tokens", "Token use", "warn",
+                             "; ".join(f"{name}: {_tokens_words(n)} uncached input tokens in 24 h"
+                                       for name, n in ((_bot_name(c, bot), n) for bot, n in heavy[:5]))
+                             + ("." if len(heavy) <= 5 else f"; and {len(heavy) - 5} more."),
+                             [_fix("Open Usage", "#/usage")]))
 
     # Successful model turns can still make no task progress. Infrastructure and failed-run
     # checks alone miss that loop. Use the same task visibility as the rest of Tico.
@@ -671,6 +842,7 @@ def view(c, who, settings, auth, github, config):
                          [_fix("Open Runs", "#/runs")] if failed and full else []))
     return {**({"storage": storage_view(c, settings)} if kind == "owner" else {}), "audience": kind, "checks": checks, "attention": sum(1 for x in checks if x["status"] in ("warn", "bad")),
             "computers": computers if full else [], "waiting": waiting if full else [], "slow": slow if full else [],
+            "stuck": blocked,
             "failures": failures if full else [], "checked": H.now(),
             # The sidebar's notice reads the same fresh answer, so the two never disagree.
             "update": config.get("update") or {}}

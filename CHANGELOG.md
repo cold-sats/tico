@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Stuck bots** on Overview and in Health: a bot with queued work that its computer cannot start (no model sign-in, no repository, computer offline) shows at once with the computer's reason, for example "Claude login required on Team box", and one fix: Sign in, Move to a computer that can run it, or the settings page. Work not started after 15 minutes shows too, unless the bot or its computer is busy with other turns.
+- The bot Model control greys out harnesses its computer cannot run ("sign in", "not installed", "no key"), judged by the same rule as a model change and a move, and its editor offers Sign in or Move to a computer that can. Bulk "Change model" lists those bots as "Can't run" instead of sending the change.
+- Health warns about a bot over 100M uncached input tokens in a day, with the number (cache reads do not count). `TICO_TOKEN_ALERT_INPUT` sets the threshold; 0 turns it off.
+- **Windows PCs run bots through WSL 2.** Settings > Computers > Add computer > Windows PC (WSL 2, beta) shows one PowerShell line: `install-wsl.ps1`, now published with each release, sets up WSL 2 and Ubuntu if needed and runs the Linux runner inside it ([Install](docs/install.md#windows-pc-wsl-2)). Not yet tested on a real Windows PC.
+- **Add computer shows one command** for a Mac (the Docker installer; a Tico checkout is still an option), a Linux server or a Windows PC, each with Copy.
+- **Settings > Computers lists each computer's AI tools** with version and sign-in state. Owners, admins and the computer's operator can sign Codex and Claude Code in from there; Grok Build and Cursor show the command to run on the computer.
 - A published release moves the Waiting tasks it contains to Review with "Shipped in vX.Y.Z": a pushed `vX.Y.Z` tag, a published GitHub release, or the release the server runs, when the task's merged pull requests or linked commits are on main at or before it. Apps created earlier: tick the **Release** event in the GitHub App; pushed tags work without it ([GitHub App](docs/github-app.md#task-pr-events)).
 - Health flags a task whose status changes 20 times in 24 hours as a likely loop, naming who moves it, and tells its owner and requester once a day. Nothing is blocked.
 - Health shows "<computer>: GitHub sign-in failed" when a bot's GitHub App token gets 401 there, and "<computer>: browser does not start" when the Chromium a bot installed cannot launch. Each computer checks every 15 minutes and reports two failures in a row ([GitHub App](docs/github-app.md#how-bots-sign-in-to-github), [harnesses](docs/harnesses.md)).
@@ -19,6 +25,7 @@ All notable changes to Tico are recorded here. The format follows
 - Engineering bot templates and `policies/writing.md`: plain notes, asks to someone on the roster, and only the Release Manager publishes releases ([Releasing](docs/releasing.md)).
 
 ### Fixed
+- The Docker sign-in command for Claude Code was `claude setup-token`, which prints a token and leaves the CLI signed out; it is now `claude auth login`, run as `bot`.
 - Moving a bot to another computer works again: the destination is judged by whether it can run the bot (its runtime installed and signed in, for the bot's own subscription or key), instead of always answering "Update the destination runner".
 - A bot set up from a catalog template that lands on a new computer clones its GitHub history instead of starting from a fresh template copy. A copy that shares no history with GitHub never gets a turn, and a computer the bot returns to brings its clean old clone up to GitHub's history before the first turn.
 - Credentials can no longer be saved or given to a bot under a name Tico reserves (`TICO_`, `DYLD_`, `LD_`, the runner's own `HUB_` names); the release-notes template now uses `UPDATE_KEY_*`. One stored before is left out of the bot's turns instead of stopping every turn, and Health names it under **Credential names** until its variable is renamed.
