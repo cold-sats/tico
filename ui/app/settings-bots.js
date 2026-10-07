@@ -41,12 +41,55 @@ function settingsAllChoices() {
         return {harness, model: model.id, effort, label, search, value: settingsChoiceValue(harness, model.id, effort)};
       })));
 }
+// What the bot's computer can run, from the readiness its runner reports (/v2/operations). It mirrors
+// backend/settings_admin.py `_target`: an online computer whose runtime is missing or signed out refuses the change.
+const settingsOnline = machine => !machine.revoked_at && machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
+const settingsRuntimeOf = harness => settingsHarness(harness)?.runtime || harness;
+function settingsRunnable(machine, runtime) {
+  const readiness = machine?.readiness || {};
+  if (!machine || !settingsOnline(machine) || readiness.schema_version !== 1) return true;   // nothing reported: the server decides
+  const row = readiness.runtimes?.[runtime] || {};
+  return !!row.installed && !['missing', 'failed'].includes(row.authenticated);
+}
+function settingsRuntimeBlock(e, harness) {
+  if (!e || e.agent || !harness || harness === 'antigravity' || settingsHarness(harness)?.external) return null;   // external agents run off-computer
+  const machine = (SETTINGS_DATA.machines || []).find(row => row.id === e.machine?.runner_id);
+  const runtime = settingsRuntimeOf(harness);
+  if (settingsRunnable(machine, runtime)) return null;
+  const installed = !!machine.readiness?.runtimes?.[runtime]?.installed;
+  // Only online computers that report this runtime ready, and that this person may move bots to.
+  const move = (SETTINGS_DATA.machines || []).find(row => row.id !== machine.id && settingsOnline(row)
+    && row.readiness?.schema_version === 1 && settingsRunnable(row, runtime)
+    && (S.me?.role === 'owner' || row.operator === S.me?.id)) || null;
+  const signIn = installed && ['codex', 'claude'].includes(runtime) && (settingsIsAdmin() || machine.operator === S.me?.id);
+  return {runtime, machine, move, signIn, short: installed ? 'not signed in' : 'not installed',
+    reason: `${installed ? 'Not signed in' : 'Not installed'} on ${machine.label}`};
+}
+// One line per harness this computer cannot run that has a way out: sign in here, or move the bot.
+function settingsBlockedNote(e, harnesses) {
+  return harnesses.map(id => [id, settingsRuntimeBlock(e, id)]).filter(([, block]) => block && (block.move || block.signIn))
+    .filter(([id], i, rows) => rows.findIndex(([other]) => settingsRuntimeOf(other) === settingsRuntimeOf(id)) === i)
+    .map(([id, block]) => `<p class="settings-choice-block" data-choice-block="${esc(block.runtime)}"><span>${esc(harnessWords(block.runtime) || settingsHarnessName(id))}: ${esc(block.reason)}</span>
+      ${block.signIn ? `<button class="ghost" type="button" data-model-login data-runner="${esc(block.machine.id)}" data-runtime="${esc(block.runtime)}" data-machine="${esc(block.machine.label)}">Sign in</button>` : ''}
+      ${block.move ? `<button class="ghost" type="button" data-choice-move="${esc(block.move.id)}" data-machine="${esc(block.move.label)}">Move to ${esc(block.move.label)}</button>` : ''}</p>`).join('');
+}
+async function settingsMoveForModel(button) {
+  const box = button.closest('[data-bot-choice]'), e = S.emps.find(row => row.name === box?.dataset.botChoice);
+  if (!e || !await settingsConfirmTransition(e, 'machine', button.dataset.machine)) return;
+  await settingsBeginTransition(button, e, {kind: 'machine', runner_id: button.dataset.choiceMove,
+    expected_generation: e.machine?.generation || 0, expected_revision: e.revision});
+}
+document.addEventListener('click', event => {
+  const move = event.target.closest('[data-choice-move]');
+  if (move) void settingsMoveForModel(move);
+});
 // Keep the three choices local until Apply, so selecting a harness cannot start a transition.
 function settingsChoiceFields(current = '', disabled = false, none = false, label = 'Model settings') {
   return `<div class="settings-model-choice" role="group" aria-label="${esc(label)}" data-choice-fields data-current="${esc(current)}" ${disabled ? 'data-readonly' : ''} ${none ? 'data-allow-none' : ''}>
     <label>Harness / provider<select data-choice-harness aria-label="Harness / provider" ${disabled ? 'disabled' : ''}></select></label>
     <label>Model<select data-choice-model aria-label="Model" ${disabled ? 'disabled' : ''}></select></label>
     <label>Effort<select data-choice-effort aria-label="Effort" ${disabled ? 'disabled' : ''}></select></label>
+    <div class="settings-choice-blocks" data-choice-blocks></div>
   </div>`;
 }
 function settingsWireChoiceFields(fields, onChange = () => {}) {
@@ -54,13 +97,20 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
   const model = fields.querySelector('[data-choice-model]');
   const effort = fields.querySelector('[data-choice-effort]');
   const choices = settingsAllChoices(), readonly = fields.hasAttribute('data-readonly');
+  // A bot's own Model control greys out what its computer cannot run; bulk change checks each bot on Apply.
+  const box = fields.closest('[data-bot-choice]');
+  const bot = box?.dataset.kind === 'model' ? S.emps.find(row => row.name === box.dataset.botChoice) : null;
+  const block = id => bot ? settingsRuntimeBlock(bot, id) : null;
   const option = (value, label, selected, disabled = false) => `<option value="${esc(value)}" ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${esc(label)}</option>`;
   let picked = settingsChoiceFromValue(fields.dataset.current);
   const paint = () => {
     const harnesses = [...new Set(choices.map(row => row.harness))];
     harness.innerHTML = option('', fields.hasAttribute('data-allow-none') ? 'None' : 'Choose harness', !picked.harness)
       + (picked.harness && !harnesses.includes(picked.harness) ? option(picked.harness, settingsHarnessName(picked.harness) || picked.harness, true, true) : '')
-      + harnesses.map(id => option(id, settingsHarnessName(id) || id, id === picked.harness)).join('');
+      + harnesses.map(id => { const why = block(id);
+        return option(id, (settingsHarnessName(id) || id) + (why ? ' · ' + why.short : ''), id === picked.harness, !!why && id !== picked.harness); }).join('');
+    const notes = fields.querySelector('[data-choice-blocks]');
+    if (notes) notes.innerHTML = bot && !readonly ? settingsBlockedNote(bot, harnesses) : '';
     const models = [...new Set(choices.filter(row => row.harness === picked.harness).map(row => row.model))];
     model.innerHTML = option('', 'Choose model', !picked.model, true)
       + (picked.model && !models.includes(picked.model) ? option(picked.model, `${settingsModelName(picked.model)} (current)`, true, true) : '')
@@ -75,7 +125,7 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
     effort.disabled = readonly || efforts.length <= 1;
   };
   const value = () => picked.model ? settingsChoiceValue(picked.harness, picked.model, picked.effort) : '';
-  const valid = () => choices.some(row => row.value === value()) || (!picked.harness && fields.hasAttribute('data-allow-none'));
+  const valid = () => (choices.some(row => row.value === value()) && !block(picked.harness)) || (!picked.harness && fields.hasAttribute('data-allow-none'));
   harness.onchange = () => {
     picked = {harness: harness.value, model: '', effort: ''};
     paint(); onChange(value(), valid());
@@ -250,6 +300,9 @@ function settingsBulkModelDialog() {
       dialog.querySelector('[data-bulk-apply]').disabled = !choice;
       dialog.querySelector('[data-bulk-destination]').textContent = choice
         ? `Destination: ${settingsChoiceLabel(choice.harness, choice.model, choice.effort)}` : '';
+      // Before Apply: say which bots' computers cannot run this choice.
+      bots.forEach(e => { const why = choice && settingsRuntimeBlock(e, choice.harness);
+        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run: ${why.short} on ${why.machine.label}` : settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e))); });
     });
     dialog.querySelector('[data-bulk-apply]').onclick = () => void run(bots);
   };
@@ -263,8 +316,11 @@ function settingsBulkModelDialog() {
     const apply = dialog.querySelector('[data-bulk-apply]');
     apply.disabled = true;
     dialog.querySelectorAll('[data-bot-choice] select,[data-choice-apply]').forEach(control => control.disabled = true);
-    const results = {changed: 0, skipped: 0, failed: []};
+    const results = {changed: 0, skipped: 0, blocked: 0, failed: []};
     for (const e of targets) {
+      // A bot whose computer cannot run the choice is reported, not sent: the server would refuse it anyway.
+      const why = settingsRuntimeBlock(e, choice.harness);
+      if (why) { mark(e.name, 'blocked', `Can't run: ${why.short} on ${why.machine.label}${why.move ? ` · move to ${why.move.label}` : ''}`); results.blocked++; continue; }
       mark(e.name, 'working', 'Changing…');
       const result = await settingsBulkApplyOne(e.name, choice);
       mark(e.name, result.state, result.note);
@@ -272,6 +328,7 @@ function settingsBulkModelDialog() {
     }
     running = false;
     const summary = [`${results.changed} changed`, results.skipped ? `${results.skipped} already on it` : '',
+      results.blocked ? `${results.blocked} can't run it` : '',
       results.failed.length ? `${results.failed.length} failed` : ''].filter(Boolean).join(' · ');
     dialog.querySelector('[data-bulk-summary]').textContent = summary;
     const actions = dialog.querySelector('.transition-actions');

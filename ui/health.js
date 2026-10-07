@@ -20,6 +20,7 @@ async function hlRefresh() {
   if (HL?.update && S.config) { S.config = {...S.config, update: HL.update}; window.renderNewVersion?.(); }
   hlNav();
   hlPageDraw();
+  window.overviewStuckDraw?.();
   return HL;
 }
 
@@ -39,6 +40,8 @@ let HL_CHECKING = false;
 let HL_CHECK_MSG = null;   // {text, error}: what the last "Check for updates" said, kept across redraws
 
 function hlFixHtml(fix) {
+  if (fix.login) return `<button class="ghost" type="button" data-model-login data-runner="${esc(fix.login.runner_id)}" data-runtime="${esc(fix.login.runtime)}" data-machine="${esc(fix.login.computer)}">${esc(fix.label)}</button>`;
+  if (fix.move) return `<button class="ghost" type="button" data-stuck-move="${esc(fix.move.bot)}" data-runner="${esc(fix.move.runner_id)}" data-machine="${esc(fix.move.computer)}">${esc(fix.label)}</button>`;
   if (fix.click) return `<button class="ghost" type="button" data-hl-click="${esc(fix.click)}">${esc(fix.label)}</button>`;
   return `<a class="ghost gs-link" href="${esc(fix.href)}"${fix.tab ? ` data-gs-tab="${esc(fix.tab)}"` : ''}>${esc(fix.label)}</a>`;
 }
@@ -94,11 +97,29 @@ function hlStorageHtml(st) {
     ${s3 ? '' : `<a class="hl-s3" href="${GH}/blob/main/docs/files.md#storage" target="_blank" rel="noopener noreferrer">Set up S3</a>`}</div></div>`;
 }
 
+// Bots with queued work that is not starting (backend/health.py `_stuck`): who, why, and one fix. Overview shows the same rows.
+window.hlStuckHtml = function hlStuckHtml(rows) {
+  return (rows || []).map(row => `<li class="hl-stuck" data-stuck="${esc(row.bot)}" data-reason="${esc(row.reason)}">
+    <a href="#/bot/${esc(row.bot)}">${esc(row.name)}</a> <span class="muted">${esc(row.why)}${row.reason === 'slow' && row.oldest ? ' · ' + esc(ago(row.oldest)) : ''}${row.queued ? ` · ${row.queued} queued` : ''}</span>
+    ${row.fix ? hlFixHtml(row.fix) : ''}</li>`).join('');
+};
+
+async function hlStuckMove(button) {
+  const e = (S.emps || []).find(row => row.name === button.dataset.stuckMove);
+  if (!e) { toast('Open Settings > Bots to move this bot', true); return; }
+  if (!await settingsConfirmTransition(e, 'machine', button.dataset.machine)) return;
+  await settingsBeginTransition(button, e, {kind: 'machine', runner_id: button.dataset.runner,
+    expected_generation: e.machine?.generation || 0, expected_revision: e.revision});
+  void hlRefresh();
+}
+
 function hlPageDraw() {
   const host = $('#hl-page');
   if (!host) return;
   if (!HL) { host.innerHTML = '<div class="empty">Nothing to show yet.</div>'; return; }
   const bots = list => list.map(row => `<li><a href="#/bot/${esc(row.bot)}">${esc(row.name)}</a> <span class="muted">${row.reason === 'no_computer' ? 'no computer is online' : row.reason === 'computer_offline' ? esc(row.computer) + ' is offline' : 'waiting since ' + esc(ago(row.oldest))}${row.queued ? ', ' + row.queued + ' waiting' : ''}</span></li>`).join('');
+  // A stuck bot is listed once, with its reason; "waiting" keeps only the offline ones with nothing queued.
+  const stuck = HL.stuck || [], idle = (HL.waiting || []).filter(row => !stuck.some(s => s.bot === row.bot));
   // Settings' own checks that need nobody (ui/app/settings.js shows only the ones that do).
   const notes = (typeof SETTINGS_DATA !== 'undefined' && SETTINGS_DATA.issues || []).filter(issue => !needsPerson(issue));
   host.innerHTML = `<p class="muted" id="hl-summary">${HL.attention ? `${HL.attention} issue${HL.attention === 1 ? '' : 's'} to look at`
@@ -107,7 +128,8 @@ function hlPageDraw() {
     ${notes.length ? `<h2>Not urgent</h2><ul class="hl-notes">${notes.map(issue => `<li><strong>${esc(issue.title)}</strong> <span class="muted">${esc(issue.detail || '')}</span></li>`).join('')}</ul>` : ''}
     ${hlMetricsHtml(HL_METRICS)}
     ${HL.computers.length ? `<h2>Computers</h2><ul class="hl-computers">${HL.computers.map(hlComputerHtml).join('')}</ul>` : ''}
-    ${HL.waiting.length || HL.slow.length ? `<h2>Bots waiting</h2><ul class="hl-bots">${bots(HL.waiting)}${bots(HL.slow)}</ul>` : ''}
+    ${stuck.length ? `<h2>Stuck</h2><ul class="hl-bots">${hlStuckHtml(stuck)}</ul>` : ''}
+    ${idle.length ? `<h2>Bots waiting</h2><ul class="hl-bots">${bots(idle)}</ul>` : ''}
     ${HL.failures.length ? `<h2>Failed in the last day</h2><ul class="hl-bots">${HL.failures.map(row => `<li>${esc(botDisplayName(row.bot))} <span class="muted">${esc(ago(row.at))}</span></li>`).join('')}</ul>` : ''}`;
 }
 
@@ -186,6 +208,8 @@ window.hlBoot = function () {
 
 document.addEventListener('click', event => {
   if (event.target.closest('[data-hl-check-updates]')) { void hlCheckUpdates(); return; }
+  const move = event.target.closest('[data-stuck-move]');
+  if (move) { void hlStuckMove(move); return; }
   const open = event.target.closest('[data-hl-click]');
   // After this click finishes: the page's outside-click handler would otherwise close the popup it opens.
   if (open) setTimeout(() => document.querySelector(open.dataset.hlClick)?.click(), 0);

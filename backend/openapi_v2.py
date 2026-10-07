@@ -666,7 +666,11 @@ SCHEMAS = {
                     "files": "i", "bytes": "i", "copy": obj({"done": "i", "total": "i", "failed": "i"})}),
     "Health": obj({"audience": "s", "checks": "a", "attention": "i", "checked": "s"},
                   required=["audience", "checks", "attention", "checked"],
-                  storage={**ref("Storage"), "description": "Read-only file storage usage and copy progress; Team owners only"}),
+                  storage={**ref("Storage"), "description": "Read-only file storage usage and copy progress; Team owners only"},
+                  stuck={"type": "array", "items": {"type": "object"}, "description":
+                         "Bots with queued work that is not starting (the caller may read them): bot, name, queued, oldest, "
+                         "computer, reason (not_ready, computer_offline, no_computer, slow), why, and fix (label plus "
+                         "href/tab, login or move; null unless the caller administers bots)"}),
     "BotFile": obj({"id": "s", "bot": "s", "title": "s", "kind": "s", "mime": "s", "locator": "s", "scope": "s",
                     "version": "i", "state": "s", "synced": "b", "size": {"type": ["integer", "null"]},
                     "name": "n", "open": {"type": ["object", "null"], "description": "{type: tico|external, url}: "

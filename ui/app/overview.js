@@ -28,7 +28,9 @@ function overviewModel() {
     const readable = e.my_access?.read !== false;
     const live = readable && fresh ? S.v2.status[e.name] : null;
     const state = !readable ? 'restricted' : !fresh ? 'unknown' : ['paused', 'planned'].includes(e.status) ? e.status : live?.state || 'unknown';
-    const word = state === 'restricted' ? 'Activity requires Read access.' : state === 'unknown' ? 'No current status available.' : V2_WORD[state] || statusWord(state);
+    const stuck = readable ? overviewStuck().find(row => row.bot === e.name) : null;
+    const word = state === 'restricted' ? 'Activity requires Read access.' : stuck ? 'Stuck: ' + stuck.why
+      : state === 'unknown' ? 'No current status available.' : V2_WORD[state] || statusWord(state);
     // Never infer a restricted bot's machine from inventory, even if the response happens to name it.
     const location = readable ? e.machine : null;
     const group = location?.runner_id ? computer(String(location.runner_id), location.label) : commons;
@@ -66,6 +68,7 @@ async function overviewLoadComputers() {
 function pageOverview() {
   const main = $('#main'); main.classList.add('overview-layout');
   main.innerHTML = `<section class="overview-page" aria-label="Company overview">
+    <div class="overview-stuck" id="overview-stuck" role="status" hidden></div>
     <iframe id="overview-frame" class="overview-frame" title="Interactive campus of your computers, bots and human teammates" src="/tico/ui/overview/index.html" allow="fullscreen"></iframe>
   </section>`;
   const frame = $('#overview-frame');
@@ -78,7 +81,7 @@ function pageOverview() {
       if (person?.href) location.hash = person.href;
     }
   }, {signal: state.abort.signal});
-  overviewRefresh();
+  overviewStuckDraw();
   void overviewLoadComputers().then(() => { if (OVERVIEW_PAGE === state) overviewRefresh(); });
 }
 function overviewRefresh() {
@@ -90,4 +93,13 @@ function overviewStop() {
   const state = OVERVIEW_PAGE; if (!state) return;
   state.frame.contentWindow?.postMessage({type: 'tico-overview-dispose'}, location.origin);
   state.abort.abort(); state.frame.remove(); OVERVIEW_PAGE = null;
+}
+// Bots with queued work that is not starting, from the Health answer the app already polls (ui/health.js).
+const overviewStuck = () => (typeof HL !== 'undefined' && HL?.stuck) || [];
+function overviewStuckDraw() {
+  const el = OVERVIEW_PAGE && $('#overview-stuck'); if (!el) return;
+  const rows = overviewStuck();
+  el.hidden = !rows.length;
+  el.innerHTML = rows.length ? `<strong>Stuck · ${rows.length}</strong><ul class="hl-bots">${hlStuckHtml(rows.slice(0, 5))}</ul>${rows.length > 5 ? `<a href="#/health">${rows.length - 5} more</a>` : ''}` : '';
+  overviewRefresh();
 }

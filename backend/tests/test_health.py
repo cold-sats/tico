@@ -135,3 +135,47 @@ destinations:
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO humans(id,name,email) VALUES('sam','Sam','sam@example.com')")
     assert "listening" not in health_of(api, as_person(api, "sam"))[1]
+
+
+def test_a_bot_its_computer_cannot_start_is_stuck_with_the_reason_and_one_fix(environment):
+    """Queued work behind "Claude login required" is named at once (not after 15 minutes), with a sign-in fix
+    for administrators; someone without Read access on the bot hears nothing about it."""
+    import json
+    api = environment()
+    runner = enrolled(api)
+    add_bot(api, "release")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET label='Team box', last_seen=?, readiness_json=? WHERE id=?",
+                  (H.now(), json.dumps({"schema_version": 1, "runtimes": {
+                      "claude": {"installed": True, "authenticated": "missing", "detail": "Claude login required"}},
+                      "bots": {"release": {"ready": False, "runtime": "claude", "problems": ["Claude login required"]}}}), runner))
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('release',?,1,?,'t')",
+                  (runner, H.now()))
+        owner = "human:" + c.execute("SELECT id FROM humans ORDER BY id LIMIT 1").fetchone()[0]
+        conversation = H.open_conversation(c, owner, [owner, "bot:release"], kind="chat")
+        H._write_message(c, owner, "bot:release", "ship it", conversation, "say", {}, None, None)
+    body, checks = health_of(api)
+    assert checks["queue"]["status"] == "bad" and "Claude login required on Team box" in checks["queue"]["summary"]
+    [row] = body["stuck"]
+    assert row["bot"] == "release" and row["why"] == "Claude login required on Team box"
+    assert row["fix"]["login"] == {"runner_id": runner, "runtime": "claude", "computer": "Team box"}
+    assert health_of(api, as_person(api, "quinn"))[0]["stuck"][0]["fix"] is None   # readable: the reason, no fix
+    from backend import bot_access as A
+    only_ana = A.audience({"people": ["ana"]})
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bot_config(bot,config_json,operator,access_json) VALUES('release','{}','ana',?)",
+                  (A.stored({"see": only_ana, "read": only_ana, "write": only_ana}),))
+    body, checks = health_of(api, as_person(api, "quinn"))
+    assert body["stuck"] == [] and "release" not in json.dumps(body)
+
+
+def test_a_bot_over_the_daily_token_threshold_is_flagged(environment):
+    api = environment()
+    add_bot(api, "loop")
+    api.app.state.store.settings.token_alert_input = 1000
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO turns(id,bot,started,input_tokens,cached_tokens) VALUES('t1','loop',?,600,500)", (H.now(),))
+        c.execute("INSERT INTO turns(id,bot,started,input_tokens,cached_tokens) VALUES('t0','loop',?,9000,0)",
+                  (H.shift(H.now(), hours=-30),))
+    checks = health_of(api)[1]
+    assert checks["tokens"]["status"] == "warn" and "1,100 input tokens in 24 h" in checks["tokens"]["summary"]

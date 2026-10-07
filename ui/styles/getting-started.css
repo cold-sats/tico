@@ -34,6 +34,8 @@
 .hl-code{font-family:var(--mono);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hl-stack{font-size:11.5px;max-height:220px;overflow:auto;margin:var(--s1) 0 0}
 .hl-models{margin-top:2px;color:var(--muted);font-size:12.5px}.hl-bots li{padding:3px 0;font-size:13.5px}
+.hl-stuck{display:flex;align-items:baseline;flex-wrap:wrap;column-gap:var(--s2);row-gap:2px}.hl-stuck>.muted{flex:1;min-width:12ch}
+.hl-stuck .ghost{padding:2px 8px;font-size:12.5px}
 .hl-alert{display:inline-block;vertical-align:middle;width:8px;height:8px;margin-left:6px;flex:none;border-radius:50%;background:var(--fail)}.hl-alert[hidden]{display:none}.nav-link .hl-alert{margin-left:auto}
 .gs-form{width:min(520px,calc(100vw - 32px))}
 .gs-form form{padding:var(--s4);display:grid;gap:var(--s3)}

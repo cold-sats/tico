@@ -140,6 +140,8 @@ class Settings:
     session_secret: str = field(default="", repr=False)
     # Off: a bot may invite anyone to a calendar event. On: only people on the roster (403 external_attendee).
     block_external_invites: bool = False
+    # Health warns about a bot whose input tokens, cached included, pass this in a day (TICO_TOKEN_ALERT_INPUT); 0 is off.
+    token_alert_input: int = 500_000_000
     session_idle_seconds: int = 30 * 86400
     session_absolute_seconds: int = 90 * 86400
     # Origins of browser apps allowed to call the API from another address (TICO_CORS_ORIGINS,
@@ -335,6 +337,7 @@ class Settings:
             oidc_allowed_domains=_emails(os.environ.get("TICO_OIDC_ALLOWED_DOMAINS", "")),
             session_secret=os.environ.get("TICO_SESSION_SECRET", "").strip(),
             block_external_invites=os.environ.get("TICO_BLOCK_EXTERNAL_INVITES", "0") == "1",
+            token_alert_input=int(os.environ.get("TICO_TOKEN_ALERT_INPUT", "").strip() or 500_000_000),
             session_idle_seconds=max(60, int(os.environ.get("TICO_SESSION_IDLE_SECONDS", "") or 30 * 86400)),
             session_absolute_seconds=max(60, int(os.environ.get("TICO_SESSION_ABSOLUTE_SECONDS", "") or 90 * 86400)),
             cors_origins=os.environ.get("TICO_CORS_ORIGINS", ""),

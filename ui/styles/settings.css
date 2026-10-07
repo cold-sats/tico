@@ -167,6 +167,10 @@ p:empty{display:none}
 .settings-model-choice label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:12px;color:var(--muted)}
 .settings-model-choice select{width:100%;min-width:0;max-width:100%;padding:7px 8px;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px}
 .settings-choice>[data-choice-apply]{margin-top:6px}
+.settings-choice-blocks:empty{display:none}
+.settings-choice-block{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0;font-size:12px;color:var(--muted)}
+.settings-choice-block .ghost{padding:2px 8px;font-size:12px}
+.settings-bulk-list [data-state=blocked] .settings-cell-note{color:var(--warn, #b7791f)}
 .settings-bot-name{display:flex;align-items:center;gap:7px;min-width:0}
 .settings-bot-name a{color:var(--ink);font-weight:600}
 .settings-bot-name small,.settings-cell-note{display:block;color:var(--muted);font-size:11px;margin-top:2px}
