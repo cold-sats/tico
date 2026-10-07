@@ -16,6 +16,7 @@ from . import shared_bots
 from .auth import Identity
 from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
+from .readiness import absolute, can_run
 from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
 
@@ -602,18 +603,11 @@ class SettingsAdmin:
             current = self.snapshot(c, bot, "model")
             effort = self._effort(choice, getattr(body, "effort", None), current.get("effort"))
             harness = self._harness(choice, getattr(body, "harness", None), current.get("harness"))
-            assignment = c.execute(
-                "SELECT r.last_seen,r.revoked_at,r.readiness_json FROM assignments a "
-                "JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
-            online = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
-                          and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
-            readiness = readiness_document(assignment["readiness_json"]) if online else {}
             runtime_name = runtime_of(harness) or choice["runtime"]
-            runtime = readiness.get("runtimes", {}).get(runtime_name, {})
-            if readiness.get("schema_version") == 1 and harness != "antigravity":
-                if not runtime.get("installed") or runtime.get("authenticated") in ("missing", "failed"):
-                    raise Problem("runner_not_ready", runtime.get("detail") or
-                                  "The current computer is not ready for that runtime", 409)
+            # This bot's own sign-in on its computer (backend/readiness.py), never another bot's.
+            can = can_run(c, bot, runtime_name, harness=harness, model=choice["id"])
+            if can["can_run"] is False:
+                raise Problem("runner_not_ready", can["problem"], 409, extra={"fix": can["fix"], "link": can["link"]})
             return {"model": choice["id"], "runtime": runtime_name, "harness": harness,
                     "effort": effort}
         runner = c.execute("SELECT id,label,operator,revoked_at,last_seen,readiness_json FROM runners WHERE id=?",
@@ -770,6 +764,13 @@ class SettingsAdmin:
         value["checkpoints"] = checkpoints
         value["progress"] = {"prepared": sum(row["state"] == "prepared" for row in checkpoints),
                              "total": len(checkpoints)}
+        if value["state"] == "applied":
+            # What the bot runs on now, checked on the computer it is on now (a model change or a move).
+            effective = providers.fill(providers.load(c, self.settings),
+                                       _json(self._config(c, transition["bot"])["config_json"], {}) or {})
+            value["readiness"] = absolute(can_run(c, transition["bot"], effective.get("runtime") or "",
+                                                  harness=effective.get("harness") or "",
+                                                  model=effective.get("model") or ""), self.settings.public_url)
         return value
 
     def force(self, c, who, transition_id):

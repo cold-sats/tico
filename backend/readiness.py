@@ -1,0 +1,130 @@
+"""Can this bot run this runtime on this computer: the one check behind a model change, a move and Health.
+
+    can_run(c, bot, runtime, runner=None, harness="", model="") -> dict
+
+`runner` is a computer id (default: the computer the bot is on). The answer is judged from that computer's last
+heartbeat **for this bot**: its own subscription profile's sign-in when it has one, its own API-key Credential for the
+runtimes that take a key per bot (Gemini CLI, Pi), and otherwise the computer's shared sign-in for that runtime. Another
+bot's missing key or another profile's sign-in never decides it.
+
+    can_run      True, False, or None when nothing says (offline, an older computer, not checked yet, not applicable)
+    applicable   False for a bot an external agent runs (Hermes, OpenClaw, Grok Bot): no computer check applies
+    problem      one plain sentence when can_run is not True
+    fix, link    what the person does and where (a relative `#/...` link), only when can_run is False or the bot has no
+                 computer
+    computer     {"id", "label"} or None; online
+    reported     whether the bot's own readiness row already reflects this runtime (and model): after the next heartbeat
+    bot_ready, bot_problems   that row's verdict, which describes the previous runtime until `reported` is true
+
+Callers refuse only on can_run False; None never blocks.
+"""
+import json
+
+from .harnesses import EXTERNAL_HARNESSES, resolve_harness
+from .store import H, readiness_document
+
+ONLINE_SECONDS = 60
+# The runtimes whose sign-in is a key each bot holds as a Credential grant (runner/service.py runtime_readiness).
+BOT_KEYS = {"gemini": "GEMINI_API_KEY", "pi": "OPENROUTER_API_KEY"}
+SIGNED_OUT = ("missing", "failed", "rejected")
+
+
+def _config(c, bot):
+    row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    return H._json(row["config_json"], {}) or {} if row else {}
+
+
+def _held(c, bot):
+    """The variable names of the stored Credentials granted to `bot` (what its computer is handed)."""
+    from .credentials import granted
+    held = granted(c, "bot:" + bot)
+    return {r["env"] for r in c.execute("SELECT id,env FROM credentials WHERE ciphertext IS NOT NULL AND env!=''")
+            if r["id"] in held}
+
+
+def _uses_key(runtime, harness, config):
+    if runtime == "pi":
+        return True
+    if runtime != "gemini":
+        return False
+    fallback = config.get("fallback")
+    return (harness or "gemini") == "gemini" or isinstance(fallback, dict) and fallback.get("harness") == "gemini"
+
+
+def can_run(c, bot, runtime, runner=None, harness="", model=""):
+    config = _config(c, bot)
+    if resolve_harness({**config, **({"harness": harness} if harness else {})}, runtime or None) in EXTERNAL_HARNESSES:
+        return {"can_run": None, "applicable": False, "computer": None, "runtime": runtime,
+                "problem": "An external agent runs this bot outside Tico, so no computer check applies"}
+    if runner:
+        row = c.execute("SELECT id,label,last_seen,revoked_at,readiness_json FROM runners WHERE id=?", (runner,)).fetchone()
+    else:
+        row = c.execute("SELECT r.id,r.label,r.last_seen,r.revoked_at,r.readiness_json FROM assignments a "
+                        "JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
+    if not row or row["revoked_at"]:
+        return {"can_run": None, "applicable": True, "computer": None, "runtime": runtime,
+                "problem": "The bot is not on a computer", "fix": "Put it on a computer from its More tab",
+                "link": "#/bot/" + bot + "/more"}
+    label = row["label"] or "its computer"
+    online = bool(row["last_seen"] and row["last_seen"] > H.shift(H.now(), seconds=-ONLINE_SECONDS))
+    readiness = readiness_document(row["readiness_json"])
+    detail = readiness.get("bots", {}).get(bot)
+    detail = detail if isinstance(detail, dict) else {}
+    out = {"applicable": True, "computer": {"id": row["id"], "label": row["label"]}, "online": online, "runtime": runtime,
+           "bot_ready": detail.get("ready") is True, "bot_problems": list(detail.get("problems") or [])[:5],
+           "reported": (str(detail.get("runtime") or "") == str(runtime or "")
+                        and (not model or str(detail.get("model") or "") == str(model)))}
+    state = (readiness.get("runtimes") or {}).get(runtime) or {}
+
+    def verdict(can, problem="", fix="", link="#/settings"):
+        out.update(can_run=can)
+        if can is not True:
+            out["problem"] = problem
+        if can is False:
+            out.update(fix=fix, link=link)
+        return out
+
+    if not online:
+        return verdict(None, label + " is offline, so it has not checked " + str(runtime))
+    if readiness.get("schema_version") != 1 or harness == "antigravity":
+        return verdict(None, label + " does not report its AI tools; update it to check")
+    if not state.get("installed"):
+        return verdict(False, str(runtime) + " is not installed on " + label,
+                       "Install " + str(runtime) + " on " + label + ", or choose a model it already runs")
+    if _uses_key(runtime, harness or config.get("harness") or "", config):
+        name = BOT_KEYS[runtime]
+        if name not in _held(c, bot):
+            return verdict(False, "This bot has no " + name + " Credential", "Give the bot the " + name +
+                           " Credential in Credentials", "#/credentials")
+        return verdict(True)
+    from .subscriptions import covers, effective
+    profile = effective(c, bot)[0]
+    if profile and covers({"runtime": runtime, "harness": harness}):
+        stored = c.execute("SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?",
+                           (row["id"], profile)).fetchone()
+        signed = (json.loads(stored[0] or "{}") if stored else {}).get(runtime, {}).get("signed_in")
+        if signed is None:
+            signed = {"ready": True, **{k: False for k in SIGNED_OUT}}.get(
+                ((state.get("profiles") or {}).get(profile) or {}).get("authenticated"))
+        if signed is None:
+            return verdict(None, "The " + profile + " subscription has not reported " + str(runtime) + " on " + label)
+        return verdict(True) if signed else verdict(
+            False, "The " + profile + " subscription is not signed in to " + str(runtime) + " on " + label,
+            "Sign in the " + profile + " subscription to " + str(runtime) + " on " + label + " in Settings > Computers")
+    shared = (state.get("profiles") or {}).get("") or state
+    signed = str(shared.get("authenticated") or "unknown")
+    if signed == "ready":
+        return verdict(True)
+    if signed in SIGNED_OUT:
+        return verdict(False, shared.get("detail") or (str(runtime) + " is not signed in on " + label),
+                       "Sign in " + str(runtime) + " on " + label + " in Settings > Computers, or choose a model it "
+                       "already runs")
+    return verdict(None, label + " has not checked the " + str(runtime) + " sign-in yet")
+
+
+def absolute(answer, base=""):
+    """`answer` with a relative `#/...` link made absolute under the team's address, when it has one."""
+    link = (answer or {}).get("link") or ""
+    if base and link.startswith("#/"):
+        return {**answer, "link": base.rstrip("/") + "/" + link}
+    return answer

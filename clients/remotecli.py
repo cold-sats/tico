@@ -533,7 +533,8 @@ def botops_tools(client, args):
             body = json.loads(text) if text else None
         except ValueError:
             raise APIError("body", "The body must be JSON") from None
-        return hubtools.BY_NAME["hub_api"]["fn"](client, {"method": args.method, "path": args.path, "body": body, "operation_id": key})
+        return hubtools.BY_NAME["hub_api"]["fn"](client, {"method": args.method, "path": args.path, "body": body, "operation_id": key,
+                                                         **({"on_behalf_of": args.on_behalf_of} if getattr(args, "on_behalf_of", None) else {})})
     name = tool_name(args.fn)
     fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "subsub", "fn", "what", "no_redact") and v is not None}
     if args.fn in ("credential set", "message redact"):
