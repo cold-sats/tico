@@ -262,3 +262,29 @@ def test_real_native_clear_still_stops_active_goal(api, live, tmp_path):
         assert actual['status'] == 'stopped' and actual['note'] == 'The harness cleared the goal'
     finally:
         service.pool.shutdown()
+
+
+def test_a_clear_after_met_is_not_checked_again(api, live, tmp_path):
+    """Once the goal is met the run stops asking the harness, so a later clear is not read back as a second "met"."""
+    machine, cid = setup(api)
+    action(api, cid, objective='Acme summary')
+    asked = []
+    class MetThenClearHost(FakeHost):
+        def request(self, method, params):
+            asked.append(method)
+            return {'goal': {'objective': 'Acme summary', 'status': 'complete'}}
+        def start_goal(self, thread, action, objective, effort=None):
+            turn = super().start_goal(thread, action, objective, effort)
+            self.goal_met(thread)
+            self.emit('goal', thread, None, status='cleared', note='')
+            return turn
+    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
+                     tmp_path / 'runner', host_factory=lambda *args: MetThenClearHost(replies=['Done.']),
+                     push=lambda *a, **k: None)
+    try:
+        service.execute(claim(api, machine))
+        assert asked == []
+        notices = get(api, f'conversations/{cid}/messages')
+        assert len([m for m in notices if m['refs'].get('goal_status') == 'met']) == 1
+    finally:
+        service.pool.shutdown()
