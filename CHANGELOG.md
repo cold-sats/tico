@@ -7,7 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.32] - 2026-10-07
+
 ### Fixed
+- A Claude Code turn whose saved session is missing on its computer (after a move, a new HOME or cleaned sessions) restarts once as a fresh session with the same conversation's messages, instead of failing with "No conversation found with session ID" on every new job.
+- A bot's Files tab lists quickly on large teams: a file's provenance is read by index, and a run's tasks are read once per page instead of once per file version (2,000 files: 1.7 s to 44 ms).
+- The media worker reads only pending rows instead of scanning every stored file every few seconds.
+- Updates remove the untagged images older releases leave behind, keeping the one to roll back to. Without this a server's disk filled up over many releases.
+- Health's Computer sign-in names only a model the computer's bots run on, not the team's default model on every computer where it is installed.
 - A turn's GitHub token no longer takes 15-20 seconds for a bot whose own repository does not exist: Tico finds missing
   repositories with one listing of what the GitHub App can see instead of asking about each granted repository, and stops
   retrying a known-missing own repository beside the others until its five-minute mark expires.
