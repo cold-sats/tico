@@ -592,13 +592,28 @@ class SettingsAdmin:
         # nothing to be ready yet: assigning it is what makes the runner set its repository up.
         if c.execute("SELECT 1 FROM assignments WHERE bot=?", (bot,)).fetchone():
             readiness = readiness_document(runner["readiness_json"])
-            detail = readiness.get("bots", {}).get(bot) if readiness.get("schema_version") == 1 else None
-            if not isinstance(detail, dict):
+            if readiness.get("schema_version") != 1:
                 raise Problem("runner_not_ready", "Update the destination runner before moving this bot", 409)
             # The runner reports what the bot runs on, not what is stored: a bot on the company
             # default stores neither.
             desired = providers.fill(providers.load(c, self.settings),
                                      _json(self._config(c, bot)["config_json"], {}) or {})
+            detail = readiness.get("bots", {}).get(bot)
+            if not isinstance(detail, dict):
+                # A computer that does not host the bot has no report on it, so it is judged by whether it can
+                # run the bot's runtime. The move is what makes its runner clone the repository from GitHub,
+                # which is refused when GitHub does not hold that history.
+                if not readiness.get("runtimes"):
+                    raise Problem("runner_not_ready", "Update the destination runner before moving this bot", 409)
+                can = can_run(c, bot, str(desired.get("runtime") or ""), runner=runner["id"],
+                              harness=str(desired.get("harness") or ""), model=str(desired.get("model") or ""))
+                if can["can_run"] is False:
+                    raise Problem("runner_not_ready", can["problem"], 409, extra={"fix": can["fix"], "link": can["link"]})
+                source = self.execution_assignment(c, bot)
+                blocked = stranded(c, self.store.settings, bot, source, runner["id"]) if source else ""
+                if blocked:
+                    raise Problem("repository_unpublished", blocked, 409)
+                return {"runner_id": runner["id"], "label": runner["label"], "operator": runner["operator"]}
             if (str(detail.get("runtime") or "") != str(desired.get("runtime") or "")
                     or str(detail.get("model") or "") != str(desired.get("model") or "")):
                 raise Problem("runner_not_ready",

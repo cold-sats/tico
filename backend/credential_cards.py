@@ -48,9 +48,10 @@ CREATE TABLE IF NOT EXISTS credential_imports(
 CREATE INDEX IF NOT EXISTS credential_imports_state ON credential_imports(state, bot);
 """
 # A variable the run never takes from the vault, or takes from the computer itself (runner/service.py `environment`).
-from clients.access_entry import RESERVED_PREFIXES as RESERVED_ENV_PREFIXES, RUNNER_HUB_ENV  # noqa: E402
-RESERVED_ENV = {"HOME", "PATH", "SHELL", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "CODEX_HOME",
-                "OPENROUTER_API_KEY", "OP_SERVICE_ACCOUNT_TOKEN"} | RUNNER_HUB_ENV
+# The one reserved list (clients/access_entry.py), plus two an import never moves: the computer's OpenRouter sign-in
+# and its 1Password token, which a bot's secrets file may echo but which belong to the computer.
+from clients.access_entry import RESERVED_PREFIXES as RESERVED_ENV_PREFIXES, RESERVED_ENV as _RESERVED  # noqa: E402
+RESERVED_ENV = _RESERVED | {"OPENROUTER_API_KEY", "OP_SERVICE_ACCOUNT_TOKEN"}
 IMPORT_EXPIRES_S = 600
 ONLINE_S = 120
 

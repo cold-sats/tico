@@ -31,6 +31,19 @@ def model_env(name, kind, env=''):
     return env or (name if name in providers.MODEL_KEY_NAMES and kind in ('api_key', 'token') else '')
 
 
+def refuse_reserved(env, stored=''):
+    """A credential arrives in a bot's turn under its variable; Tico's own and the computer's names are refused, since a
+    run given one would lose it (runner/service.py `environment`). One stored under such a name before the rule is
+    saved, secret and all, once the same save renames its variable."""
+    from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
+    if env and (env in RESERVED_ENV or env.startswith(RESERVED_PREFIXES)):
+        if env == stored:
+            raise Problem('env', f"This credential's variable {env} is a name Tico keeps for itself. Rename the variable "
+                          f"in the same save (for example {env.removeprefix('TICO_')}) and the change is saved", 422)
+        raise Problem('env', f"{env} is a name Tico or the computer uses itself; choose another variable name "
+                      "(names starting TICO_, DYLD_ or LD_ are reserved)", 422)
+
+
 def administrator(c, who, admins):
     """`admins` is the credential administrators: TICO_CREDENTIAL_ADMINS, which defaults to the owner and the Admins
     (`Auth.sync_access`, unless the owner's rule says the owner alone)."""
@@ -294,6 +307,7 @@ class Vault:
         name = body.name.strip()
         if not name:
             raise Problem('credential', 'Enter a credential name', 422)
+        refuse_reserved(model_env(name, body.kind, body.env), old['env'] if old else '')
         c.execute('INSERT INTO credentials(id,name,username,kind,env,preview,ciphertext,nonce,source,created,updated,updated_by) '
                   'VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,username=excluded.username,'
                   'kind=excluded.kind,env=excluded.env,preview=excluded.preview,ciphertext=excluded.ciphertext,nonce=excluded.nonce,'
@@ -342,6 +356,8 @@ class Vault:
         old=effective_grant(c,cid,subject)
         if old and (parent is not None or old['parent_id'] is None):
             return {'id':old['id'],'subject':subject,'credential':row['name'],'env':row['env']}
+        if subject.startswith('bot:'):
+            refuse_reserved(row['env'])
         if subject.startswith('bot:') and row['env']:
             # A run gets one value per variable: a bot with another credential under the same name must give it up first.
             for other in c.execute('SELECT id,name FROM credentials WHERE env=? AND id!=? AND ciphertext IS NOT NULL',(row['env'],cid)):
