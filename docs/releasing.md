@@ -8,6 +8,12 @@ release's versioned notes automatically reach its users. No separate product ann
 Keep those versioned sections on `main` after publishing a tag; move only new work into Unreleased,
 so later builds retain the complete history and do not announce already shipped work again.
 
+**One release path.** On a team that runs Tico with a Release Manager bot, only the Release Manager publishes
+releases. A Claude Code session or any other outside session that finishes work hands it to the Release Manager on a
+task ("Release vX.Y.Z: <what>") instead of pushing the tag itself; the Release Manager tags, rolls out and records it,
+so the tasks waiting on the release learn it shipped. When a tag is pushed anyway, Tico still moves the Waiting tasks
+whose merged work it contains to Review with "Shipped in vX.Y.Z" (backend/github.py).
+
 ## The fast path
 
 1. **Every PR** runs only the tests for what it changed (below).

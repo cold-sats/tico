@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A published release moves the Waiting tasks it contains to Review with "Shipped in vX.Y.Z": a pushed `vX.Y.Z` tag, a published GitHub release, or the release the server runs, when the task's merged pull requests or linked commits are on main at or before it. Apps created earlier: tick the **Release** event in the GitHub App; pushed tags work without it ([GitHub App](docs/github-app.md#task-pr-events)).
+- Health flags a task whose status changes 20 times in 24 hours as a likely loop, naming who moves it, and tells its owner and requester once a day. Nothing is blocked.
+
+### Changed
+- A task worktree whose pull requests are all merged or closed frees itself once its bot is idle, even while the task stays open; one with unsaved or unpushed work is kept, with the reason. The worktree limit error says which pull requests to merge and which worktrees free themselves.
+- A bot's new question to a person on a task replaces its earlier unanswered one to that person, and a finished task's open questions close (done keeps review questions). Questions older than three days move to a folded **Older questions** group at the end of Needs you and leave its count. `hub_question_ask` returns each ask's `message_id`, timeouts included.
+- Engineering bot templates and `policies/writing.md`: plain notes, asks to someone on the roster, and only the Release Manager publishes releases ([Releasing](docs/releasing.md)).
+
 ### Fixed
 - Moving a bot to another computer works again: the destination is judged by whether it can run the bot (its runtime installed and signed in, for the bot's own subscription or key), instead of always answering "Update the destination runner".
 - A bot set up from a catalog template that lands on a new computer clones its GitHub history instead of starting from a fresh template copy. A copy that shares no history with GitHub never gets a turn, and a computer the bot returns to brings its clean old clone up to GitHub's history before the first turn.
