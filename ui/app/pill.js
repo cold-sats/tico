@@ -175,7 +175,7 @@ function pillChips(P) {
     const thumb = src ? `<button class="p-thumb" type="button" data-name="${esc(f.name)}" title="Open ${esc(f.name)}" aria-label="Open ${esc(f.name)}"><img src="${esc(src)}" alt=""></button>` : '';
     return `<span${src ? ' class="has-thumb"' : ''}>${thumb}${esc(f.name)} <a href="#" data-rm="${i}" aria-label="remove ${esc(f.name)}">×</a></span>`;
   }).join('');
-  pillButtons(P);
+  pillLabel(P); pillButtons(P);
 }
 // The chat composer's send is an arrow: a busy word goes to its label, never over the icon.
 const pillBtnSay = (btn, text) => {
@@ -183,11 +183,20 @@ const pillBtnSay = (btn, text) => {
   if (btn.classList.contains('p-send-icon')) { btn.setAttribute('aria-label', text || 'Send'); btn.title = text || 'Send'; }
   else btn.textContent = text;
 };
-// The label always says what Send will do
+// Goal mode (ui/app/chat-goal.js) turns Send into Set goal. Attached files always go as a message, so they are never lost.
+const pillGoalMode = P => !!P.goalMode && P.action === 'chat' && !P.send && !P.files.length;
+// The label always says what Send will do; in goal mode it says so in words, and so does the empty box.
 function pillLabel(P) {
   const btn = pq(P, '.p-send'); if (!btn) return;
-  const word = P.action === 'task' ? 'Send as a task' : P.action === 'reply' ? `Reply on #${P.needsIssue}` : 'Send';
-  btn.innerHTML = ICON_SEND; btn.setAttribute('aria-label', word); btn.title = word;
+  const goal = pillGoalMode(P);
+  const word = goal ? 'Set goal' : P.action === 'task' ? 'Send as a task' : P.action === 'reply' ? `Reply on #${P.needsIssue}` : 'Send';
+  btn.innerHTML = goal ? word : ICON_SEND; btn.setAttribute('aria-label', word); btn.title = word;
+  btn.classList.toggle('p-send-goal', goal);
+  const box = pq(P, '.p-text');
+  if (box) {
+    box.dataset.placeholder ??= box.placeholder;
+    box.placeholder = goal ? `Goal for ${botDisplayName(P.slug)}…` : box.dataset.placeholder;
+  }
   const hint = pq(P, '.p-hint');
   const waiting = P.needsIssue && P.action === 'reply';
   hint.hidden = !waiting;
@@ -298,6 +307,9 @@ async function pillSend(P) {
   if (!P.el) return;
   const box = pq(P, '.p-text'), text = box.value.trim();
   if (!text && !(P.action === 'chat' && P.files.length)) { box.focus(); return; }
+  // Goal mode keeps the familiar Send button and Enter shortcut; only the destination changes.
+  // The Assistant's custom sender and explicit task/reply actions retain their own contracts.
+  if (pillGoalMode(P)) return chatGoalSend(P, text);
   if (P.send) return P.send(P, text);
   const slash = slashRun(P, text);
   if (slash === true) return;

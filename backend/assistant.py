@@ -357,6 +357,16 @@ PAGES = {"tasks": "#/tasks", "board": "#/board", "meetings": "#/meetings", "upda
 
 WAITING = re.compile(r"\b(waiting (on|for) me|needs? (my|me)\b|need(s)? you|my (inbox|queue|to-?do)|"
                      r"what should i (do|work on)|what do i need to|anything (for me|waiting)|pending (for|on) me)")
+GREETING = re.compile(r"^(?:hi|hello|hey|good morning|good afternoon|good evening)$")
+TASK_TYPE_INVENTORY = re.compile(
+    r"^(?:for\s+[a-z][a-z0-9&'-]{0,40},\s*)?(?:what|which)\s+(?:kind\s+of\s+)?"
+    r"(?:task\s+types?|types?\s+of\s+tasks?)\s+"
+    r"(?:do\s+we\s+use(?:\s+here)?|does\s+(?:this\s+)?(?:team|workspace)\s+use|are\s+available|exist)"
+)
+TASK_TYPE_INVENTORY_ARE = re.compile(
+    r"^(?:what|which)\s+are\s+(?:the\s+)?(?:task\s+types?|types?\s+of\s+tasks?)"
+    r"(?:\s+(?:here|in\s+this\s+workspace))?$"
+)
 NAVIGATE = re.compile(r"^(open|go to|goto|take me to|show me|where is|where's|wheres|navigate to|pull up|bring up)\b\s*(.*)$")
 SEARCH = re.compile(r"^(search( for)?|find|look ?up|look for)\b\s*(.*)$")
 HELP = re.compile(r"^(help\b[:,\s]*|how (do|can|should|would|does|to)\b|how'?s? (it|tico)\b|explain\b|what is a\b|what are\b|"
@@ -377,6 +387,11 @@ def route(text, bots=()):
     t = re.sub(r"\s+", " ", text.strip().casefold()).strip(" ?!.")
     if not t or len(t) > 400:
         return None, None
+    if GREETING.fullmatch(t):
+        return "greeting", None
+    # "for <team>," can be any word, a verb too ("for create, ..."), so the action check still applies.
+    if (TASK_TYPE_INVENTORY.fullmatch(t) or TASK_TYPE_INVENTORY_ARE.fullmatch(t)) and not ACTION_WORDS.search(t):
+        return "task_types", None
     if WAITING.search(t):
         return "waiting", None
     named = next((b for b in bots if b["slug"] in t.split() or b["slug"].replace("-", " ") in t
@@ -598,6 +613,18 @@ async def fast_bot_today(api, who, bots, slug):
     return f"{link(bot['name'], href)} in the last 24 hours:\n" + "\n".join(lines), links
 
 
+async def fast_task_types(api):
+    """List only the task types the authenticated Tico API returned for this workspace."""
+    data = await api.get("task-types")
+    rows = data.get("types") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or any(not isinstance(row, dict) or not isinstance(row.get("name"), str)
+                                         or not row["name"].strip() for row in rows):
+        return "I couldn't read the task types for this Tico workspace. Please try again later.", []
+    if not rows:
+        return "No task types are configured in this Tico workspace.", []
+    return "Task types in this Tico workspace:\n" + "\n".join(f"- {row['name']}" for row in rows), []
+
+
 _SECTIONS = None
 
 
@@ -693,7 +720,11 @@ async def fast_answer(api, who, bots, text):
         arg = text if intent else None
     if intent is None:
         return None, None, []
-    if intent == "waiting":
+    if intent == "greeting":
+        reply, links = "Hi! How can I help?", []
+    elif intent == "task_types":
+        reply, links = await fast_task_types(api)
+    elif intent == "waiting":
         reply, links = await fast_waiting(api, who, bots)
     elif intent == "bot_today":
         reply, links = await fast_bot_today(api, who, bots, arg)

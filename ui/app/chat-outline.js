@@ -66,17 +66,25 @@ async function chatOutlineOpen(state, btn) {
 
 // Load older pages until the message is on the page, then bring it into view and mark it for a moment.
 async function chatJumpTo(state, id) {
+  let paged = false;
   for (let pages = 0; !state.messages.some(m => m.id === id); pages++) {
     if (!state.nextBefore || pages >= JUMP_PAGES) { toast('That message is not in this chat', true); return false; }
-    try { if (!await v2ChatOlder(state)) return false; }
+    try { if (!await v2ChatOlder(state)) return false; paged = true; }
     catch (error) { toast(error.message, true); return false; }
   }
+  state.followLatest = false;
   v2ChatRender(state);
+  // Paging and the top-only control can resize the scroller. Let that layout settle
+  // before the jump, so a queued scroll-to-end event cannot reclaim following.
+  if (paged) {
+    await new Promise(done => requestAnimationFrame(done));
+    if (V2C !== state) return false;
+  }
   const thread = $('#conv-thread'), el = thread?.querySelector(`[data-message="${CSS.escape(id)}"]`);
   if (!el) { toast('That message is hidden here', true); return false; }
   state.followLatest = false;
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  el.scrollIntoView({block: 'center', behavior: still ? 'auto' : 'smooth'});
+  el.scrollIntoView({block: 'center', behavior: still || paged ? 'auto' : 'smooth'});
   el.classList.remove('jump-mark'); void el.offsetWidth; el.classList.add('jump-mark');
   setTimeout(() => el.classList.remove('jump-mark'), 2000);
   v2Jump(state);

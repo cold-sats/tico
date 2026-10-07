@@ -4,6 +4,7 @@ person's own click."""
 
 import pytest
 
+from backend import assistant
 from backend.tests.test_api import api, as_member, assign, claim, get, headers, post, ready, runner  # noqa: F401
 from backend.store import H
 
@@ -245,3 +246,84 @@ def test_real_assistant_lease_keeps_actual_bot_private_boundaries_and_revocation
     with pytest.raises(Problem) as revoked:
         api.app.state.store.write(who, lambda c: {})
     assert revoked.value.status == 409
+
+
+def no_decisions(monkeypatch):
+    calls = []
+    async def unavailable(*args, **kwargs):
+        calls.append(args)
+        return None
+    monkeypatch.setattr(assistant, "decide", unavailable)
+    return calls
+
+
+@pytest.mark.parametrize("text", [
+    "what kind of task types do we use here?",
+    "for tidy, what types of tasks do we use?",
+])
+def test_task_types_question_is_answered_from_the_api_with_no_model_or_job(api, monkeypatch, text):
+    post(api, "task-types", {"name": "Fixture repairs", "steps": [{"name": "Triage", "status": "open"}]})
+    decisions = no_decisions(monkeypatch)
+    before = jobs(api)
+    result = post(api, "assistant/messages", {"text": text}, key="task-types")
+    assert result["fast"] is True
+    assert not decisions, "A simple inventory must not wait for an intent provider"
+    answer = result["reply"]["body"]
+    assert "General" in answer and "Fixture repairs" in answer
+    assert "From [Task types and steps]" not in answer
+    # Dev tickets is an example in the documentation, not in this company's inventory.
+    assert "Dev tickets" not in answer
+    retry = post(api, "assistant/messages", {"text": text}, key="task-types")
+    assert retry["reply"]["id"] == result["reply"]["id"]
+    messages = room(api)["messages"]
+    assert len(messages) == 2
+    assert jobs(api) == before
+
+
+def test_a_greeting_is_answered_at_once_with_no_model_or_job(api, monkeypatch):
+    decisions = no_decisions(monkeypatch)
+    before = jobs(api)
+    result = post(api, "assistant/messages", {"text": "hi"}, key="greeting")
+    assert result["fast"] is True and result["reply"]["body"]
+    assert not decisions, "A simple greeting must not wait for an intent provider"
+    retry = post(api, "assistant/messages", {"text": "hi"}, key="greeting")
+    assert retry["reply"]["id"] == result["reply"]["id"]
+    assert len(room(api)["messages"]) == 2 and jobs(api) == before
+
+
+@pytest.mark.parametrize("status_code", [403, 503])
+def test_task_types_the_api_refuses_are_not_shown_as_none(api, monkeypatch, status_code):
+    decisions = no_decisions(monkeypatch)
+    calls = []
+
+    async def rejected(_self, method, path, **kwargs):
+        calls.append((method, path))
+        return type("Response", (), {"status_code": status_code})()
+
+    monkeypatch.setattr(assistant.Internal, "call", rejected)
+    before = jobs(api)
+    result = post(api, "assistant/messages", {"text": "what task types do we use?"}, key="task-types-refused")
+    assert result["fast"] is True
+    assert result["reply"]["body"] == "I couldn't read the task types for this Tico workspace. Please try again later."
+    assert calls == [("GET", "task-types")]
+    assert not decisions
+    assert jobs(api) == before
+
+
+def test_how_to_questions_get_the_docs_and_a_greeting_with_work_goes_to_the_model(api, monkeypatch):
+    result = post(api, "assistant/messages", {"text": "How do I create a task type?"})
+    assert result["fast"] is True and result["intent"] == "help"
+    assert "From [" in result["reply"]["body"]
+    async def no_decision(*args, **kwargs):
+        return None
+    monkeypatch.setattr(assistant, "decide", no_decision)
+    result = post(api, "assistant/messages", {"text": "Hi, please plan tomorrow's launch"})
+    assert result["fast"] is False
+
+
+@pytest.mark.parametrize("text", [
+    "what task types do we use and create one?",
+    "for create, what types of tasks do we use?",
+])
+def test_task_types_question_that_also_asks_for_a_change_goes_to_the_model(text):
+    assert assistant.route(text) == (None, None)

@@ -332,6 +332,38 @@ function v2MessageHTML(m) {
     ${S.me?.cloud ? chatAttachmentsHTML(m.refs?.attachments || []) : ''}
     ${v2RunHTML(m)}${v2MessageCards(m)}</div>`;
 }
+// The Hub writes task and mirrored-note cards with typed refs. Fold only those known automated
+// records; a human quote that happens to start with "New task" or "Note" remains ordinary chat.
+function v2ActivityMessage(m) {
+  const refs = m?.refs || {}, task = refs.task || refs.task_id;
+  if (!task || actorPerson(m.from_actor)) return false;
+  if (refs.note === true) return String(m.from_actor || '').startsWith('bot:');
+  return m.kind === 'notice' && m.from_actor === 'keeper';
+}
+// A run of two or more folds into one row: how many, and when the latest landed.
+function v2ActivityHTML(messages) {
+  const first = messages[0], last = messages.at(-1);
+  const when = last?.created ? `<time class="chat-time" title="${esc(fmt(last.created))}">${esc(ago(last.created))}</time>` : '';
+  return `<details class="chat-activity chat-fold" data-fold="activity:${esc(first.id || '')}"${v2FoldOpen({id: `activity:${first.id || ''}`}) ? ' open' : ''}>
+    <summary><b>${messages.length} updates</b>${when}</summary><div class="chat-activity-items">${messages.map(v2MessageHTML).join('')}</div></details>`;
+}
+function v2MessagesHTML(messages, goalLine) {
+  const feed = [];
+  messages.forEach((message, i) => {
+    if (goalLine?.at === i) feed.push({html: goalLine.html});
+    feed.push({message});
+  });
+  if (goalLine?.at === messages.length) feed.push({html: goalLine.html});
+  const rows = [];
+  for (let i = 0; i < feed.length;) {
+    const item = feed[i];
+    if (!item.message || !v2ActivityMessage(item.message)) { rows.push(item.html || v2MessageHTML(item.message)); i++; continue; }
+    const group = [];
+    while (i < feed.length && feed[i].message && v2ActivityMessage(feed[i].message)) group.push(feed[i++].message);
+    rows.push(group.length > 1 ? v2ActivityHTML(group) : v2MessageHTML(group[0]));
+  }
+  return rows.join('');
+}
 // What is happening to the message just sent, on the line where its reply will appear (#524): from
 // the job's state and the bot's own status, both already on the page. The server's reason stays
 // when it has one (a Mac offline, the bot draining). Twenty minutes with no reply says so.
@@ -392,6 +424,7 @@ function v2ChatRender(state) {
         state.followLatest = thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 40;
         if (state.followLatest) v2Jump(state);
       }
+      v2OlderUpdate(state);
     }, {passive: true});
     thread.addEventListener('toggle', ev => {
       if (V2C !== state) return;
@@ -413,10 +446,9 @@ function v2ChatRender(state) {
   const atEnd = !state.rendered || state.followLatest;
   const wasTop = thread.scrollTop, wasHeight = thread.scrollHeight;
   // A goal's controls (the /goal messages the server sends for Set, Pause, Clear) are the bar above, not bubbles.
-  const shown = state.messages.filter(m => m.refs?.maintenance !== 'checkpoint' && !chatGoalControl(m)), rows = shown.map(v2MessageHTML);
+  const shown = state.messages.filter(m => m.refs?.maintenance !== 'checkpoint' && !chatGoalControl(m));
   const goalLine = chatGoalLine(state, shown);
-  if (goalLine) rows.splice(goalLine.at, 0, goalLine.html);
-  const groups = rows.join('');
+  const groups = v2MessagesHTML(shown, goalLine);
   const pending = state.live && !state.live.text ? v2PendingHTML(state) : '';
   if (!pending) clearTimeout(state.waitTimer);
   const live = state.live?.text
@@ -439,10 +471,14 @@ function v2ChatRender(state) {
   if (older) {
     older.innerHTML = state.nextBefore ? '<button class="ghost" type="button" data-cloud-older>Load older messages</button>' : '';
     older.querySelector('[data-cloud-older]')?.addEventListener('click', async ev => {
-      ev.target.disabled = true;
+      const button = ev.target.closest('[data-cloud-older]');
+      if (state.loadingOlder || !button) return;
+      state.loadingOlder = true; button.disabled = true;
       try { if (await v2ChatOlder(state)) v2ChatRender(state); }
-      catch (error) {toast(error.message, true); ev.target.disabled = false;}
+      catch (error) { toast(error.message, true); }
+      finally { state.loadingOlder = false; v2OlderUpdate(state); }
     });
+    v2OlderUpdate(state);
   }
   const st = $('#conv-state');
   if (st) st.innerHTML = state.live ? (t => `<span class="pill in-progress" title="${esc(t.tip)}">${esc(t.word || 'Working')}</span>`)(v2PendingText(state)) : v2StatePill(state.slug);
@@ -460,6 +496,14 @@ function v2ChatRender(state) {
   }
   // Header updates above can resize the thread after its content renders.
   requestAnimationFrame(() => { if (V2C === state && state.followLatest) thread.scrollTop = thread.scrollHeight; });
+}
+// Keep paging discoverable at the history boundary without taking space beside new messages.
+function v2OlderUpdate(state) {
+  const older = $('#conv-older'), thread = $('#conv-thread');
+  if (V2C !== state || !older || !thread) return;
+  older.hidden = !state.nextBefore || thread.scrollTop > 40;
+  const button = older.querySelector('[data-cloud-older]');
+  if (button) button.disabled = !!state.loadingOlder;
 }
 // One page further back; the outline's jump reuses it. False when the chat changed meanwhile.
 async function v2ChatOlder(state) {

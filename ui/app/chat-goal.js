@@ -7,6 +7,17 @@
 const goalPath = conv => `/v2/conversations/${encodeURIComponent(conv)}/goal`;
 const GOAL_CHIPS = {active: ['Working', 'in-progress'], paused: ['Paused', 'waiting'], met: ['Met', 'ok'], stopped: ['Stopped', 'fail']};
 const GOAL_MAX = 4000;
+const CHAT_GOAL_MODE_KEY = 'hub.chat.goal-mode';
+function chatGoalModeSaved(slug) {
+  try { return JSON.parse(localStorage.getItem(CHAT_GOAL_MODE_KEY) || '{}')?.[slug] === true; } catch { return false; }
+}
+function chatGoalModeStore(slug, on) {
+  try {
+    const modes = JSON.parse(localStorage.getItem(CHAT_GOAL_MODE_KEY) || '{}') || {};
+    if (on) modes[slug] = true; else delete modes[slug];
+    localStorage.setItem(CHAT_GOAL_MODE_KEY, JSON.stringify(modes));
+  } catch {}
+}
 // A goal that is still pinned to the chat: working toward it, or paused.
 const goalPinned = g => !!g && (g.status === 'active' || g.status === 'paused');
 const goalEnded = g => !!g && (g.status === 'met' || g.status === 'stopped');
@@ -155,9 +166,13 @@ function chatGoalRender(state, force = false) {
   }
   const P = BOT_PILL?.slug === state.slug ? BOT_PILL : null, btn = P && pq(P, '.p-goal');
   if (btn) {
-    btn.hidden = !state.goalSupported;
-    btn.classList.toggle('on', goalPinned(state.goal));
-    btn.setAttribute('aria-pressed', String(goalPinned(state.goal)));
+    if (P.goalMode == null) P.goalMode = chatGoalModeSaved(state.slug);
+    btn.hidden = !state.goalSupported && !P.goalMode;
+    btn.classList.toggle('on', !!P.goalMode);
+    btn.setAttribute('aria-pressed', String(!!P.goalMode));
+    btn.setAttribute('aria-label', P.goalMode ? 'Goal mode on' : 'Goal mode');
+    btn.title = P.goalMode ? 'Goal mode on · Send text as the goal' : 'Goal';
+    pillLabel(P);
   }
 }
 function chatGoalWireBar(state, host) {
@@ -198,13 +213,52 @@ function chatGoalWireForm(host) {
   };
   form.querySelector('[data-goal="cancel"]').onclick = () => chatGoalEdit(false);
 }
-// The composer's target: no goal opens the form; a pinned goal opens the bar.
+// The composer's target toggles the highlighted mode; ordinary Send and keyboard submission
+// then save the text as the conversation goal, without an intermediate form.
 function chatGoalButton() {
-  const state = V2C; if (!state) return;
-  if (state.goalEditing) return chatGoalEdit(false);
-  if (!goalPinned(state.goal)) return chatGoalEdit(true);
-  state.goalOpen = !state.goalOpen; chatGoalRender(state);
-  $('#chat-goal')?.scrollIntoView({block: 'nearest'});
+  const state = V2C, P = BOT_PILL?.slug === state?.slug ? BOT_PILL : null;
+  if (!state || !P) return;
+  if (P.goalMode) {
+    P.goalMode = false; chatGoalModeStore(state.slug, false); chatGoalRender(state); return;
+  }
+  if (!state.goalSupported) { toast("This bot's harness doesn't support goals.", true); return; }
+  P.goalMode = true; chatGoalModeStore(state.slug, true); chatGoalRender(state);
+}
+async function chatGoalSend(P, text) {
+  const state = V2C, box = pq(P, '.p-text');
+  if (!text) { box?.focus(); return false; }
+  if (!state || state.slug !== P.slug) return false;
+  if (!state.goalSupported) { toast("Goal mode isn't available for this chat. Turn Goal mode off to send a regular message.", true); return false; }
+  while (P.sending) {
+    if (!P.sent) return false;
+    await P.sent;
+    if ((pq(P, '.p-text')?.value || '').trim() !== text) return false;
+  }
+  P.sending = true;
+  let sent; P.sent = new Promise(done => sent = done);
+  const button = pq(P, '.p-send'), label = button?.getAttribute('aria-label') || 'Send';
+  if (button) { button.disabled = true; pillBtnSay(button, 'Saving goal…'); }
+  try {
+    // Keep the same operation shape through an uncertain retry, even if a live refresh arrives
+    // before the person presses Send again.
+    let intent = P.goalPending;
+    if (!intent || intent.slug !== state.slug || intent.text !== text) {
+      intent = P.goalPending = {slug: state.slug, text, action: goalPinned(state.goal) ? 'edit' : 'set'};
+    }
+    if (!await chatGoalAct(intent.action, text)) return false;
+    if (P.goalPending === intent) P.goalPending = null;
+    // Do not erase edits made while the server was saving. Goal writes use the shared API's
+    // stable Idempotency-Key retries, and failed/uncertain writes leave the draft untouched.
+    if ((pq(P, '.p-text')?.value || '').trim() === text) {
+      const current = pq(P, '.p-text'); current.value = ''; current.style.height = 'auto';
+      chatDraftSave(P); pillButtons(P);
+    }
+    return true;
+  } finally {
+    P.sending = false; P.sent = null; sent();
+    if (button) { button.disabled = false; pillBtnSay(button, label); }
+    pillLabel(P); pillButtons(P);
+  }
 }
 // The /goal messages Set, Edit, Pause, Resume and Clear send (refs.goal_action): the bar shows their effect.
 const chatGoalControl = m => !!m?.refs?.goal_action;

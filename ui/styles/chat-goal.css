@@ -39,6 +39,8 @@
 .p-goal .nav-icon{width:20px;height:20px;font-size:20px;color:inherit}
 .p-goal.on{background:var(--accent);color:var(--accent-ink)}
 .p-goal.on:hover{background:var(--accent);color:var(--accent-ink);filter:brightness(1.08)}
+/* Goal mode: Send says "Set goal" in words, so the mode is never a surprise. */
+.p-send-icon.p-send-goal{width:auto;padding:0 12px;border-radius:17px;font:inherit;font-size:13px;font-weight:600;white-space:nowrap}
 
 /* The sidebar's mark on a bot with a pinned goal. */
 .tree a.node .tree-goal{width:14px;height:14px;font-size:14px;color:var(--accent);flex:none}

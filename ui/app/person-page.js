@@ -186,7 +186,7 @@ function pagePerson(id, tab) {
     };
   };
   githubPaint(false);
-  const cards =$('#pane-profile').querySelectorAll('section.card');
+  const cards = $('#pane-profile').querySelectorAll('section.card');
   const goalsCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Goals');
   const notesCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Notes');
   if (goalsCard) bindFieldEditor(goalsCard, async text => {
