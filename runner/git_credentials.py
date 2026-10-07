@@ -141,10 +141,18 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
                   for line in listed.stdout.splitlines() if "\t" in line}
         if remote:
             # Anything already there must be an ancestor of what is pushed, or this would rewrite it.
-            if branch not in remote:
+            names = [branch] if branch in remote else sorted(remote)[:20]
+            fetched = git("fetch", "--quiet", "--no-tags", "origin", *names, timeout=timeout).returncode == 0
+            if fetched and branch in remote and git("merge-base", "--is-ancestor", remote[branch], "HEAD").returncode == 0:
+                pass
+            elif fetched and _unrelated(git, [remote[name] for name in names]):
+                # No commit in common (a template copy beside the bot's real history): the readiness check keys
+                # on "unrelated history" and holds turns, unlike a checkout that merely diverged from GitHub.
+                return "failed", (f"{repository} holds unrelated history on {', '.join(names)}"
+                                  + ("" if branch in remote else f", not {branch}") + "; nothing pushed")
+            elif branch not in remote:
                 return "failed", f"{repository} already has history on {', '.join(sorted(remote))}, not {branch}; nothing pushed"
-            if git("fetch", "--quiet", "--no-tags", "origin", branch, timeout=timeout).returncode != 0 \
-                    or git("merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD").returncode != 0:
+            else:
                 return "failed", f"{repository} already has different history on {branch}; nothing pushed"
         pushed = git("push", "-q", "-u", "origin", branch, timeout=timeout)
         if pushed.returncode != 0:
@@ -154,6 +162,15 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
         return "failed", "timed out"
     except (OSError, subprocess.SubprocessError) as exc:
         return "failed", type(exc).__name__
+
+
+def _unrelated(git, commits):
+    """Whether HEAD shares no commit with any of `commits` (already fetched). Only a definite answer counts:
+    a shallow checkout or a git error is not proof, so it is never called unrelated."""
+    if git("rev-parse", "--is-shallow-repository").stdout.strip() != "false":
+        return False
+    codes = [git("merge-base", commit, "HEAD").returncode for commit in commits]
+    return bool(codes) and all(code == 1 for code in codes)
 
 
 def remote_history(repository, env=None, url=None, timeout=30):

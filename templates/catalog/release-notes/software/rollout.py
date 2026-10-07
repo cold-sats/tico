@@ -6,7 +6,7 @@ knowledge/rollout.json:
 
     {"repository": "acme/product",
      "installs": [{"name": "Acme", "url": "https://tico.acme.example", "key_env": "UPDATE_KEY_ACME", "canary": true},
-                  {"name": "Acme EU", "url": "https://eu.tico.acme.example", "key_env": "UPDATE_KEY_EU"}]}
+                  {"name": "Acme EU", "url": "https://eu.tico.acme.example", "key_env": "UPDATE_KEY_ACME_EU"}]}
 
 Each `key_env` is a Credential granted to this bot holding that install's update key (`hub service-key create
 --scope update`, docs/service-keys.md). GitHub goes through `gh`, with this bot's write grant on the repository.

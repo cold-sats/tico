@@ -2085,13 +2085,16 @@ class Runner:
                     self.publish_unpublished(bot, entry, path)
                 if is_assignment(entry.get("config")):
                     published = None     # local task branches are deliberately not published
-            diverged = getattr(self, "publish_notes", {}).get(bot, "")
-            if "already has different history" in diverged or "already has history on" in diverged:
-                # GitHub holds the bot's history and this checkout is not it (a template copy, say): a turn here
-                # would work without the bot's memory, so none runs until a person moves the folder aside and the
-                # runner clones GitHub's copy.
-                problems.append(f"This computer's copy of {bot} is not its history on GitHub ({diverged}). "
-                                f"Move {path} aside; the runner then clones the bot from GitHub")
+            unrelated = getattr(self, "publish_notes", {}).get(bot, "")
+            if published is False and "unrelated history" in unrelated:
+                # GitHub holds the bot's history and this checkout shares none of it (a template copy, say): a turn
+                # here would work without the bot's memory, so none runs until a person moves the folder aside and
+                # the runner clones GitHub's copy. A checkout that merely diverged (unpushed commits on the same
+                # history) keeps running; its publish note stays a warning.
+                problems.append(f"This computer's copy of {bot} shares no history with GitHub ({unrelated}). "
+                                f"Rename or move {path} out of the workspace (nothing in it is deleted); the runner "
+                                "then clones the bot from GitHub, and anything wanted from the old copy can be copied "
+                                "back by hand")
             rows.append({"bot": bot, "repository": str(path), "runtime": runtime,
                          "profile": profile.name if profile else "", "sign_in": status.get("authenticated", "unknown"),
                          "model": model, "state": entry.get("state"), "ready": not problems,
@@ -2959,8 +2962,10 @@ class Runner:
                     unavailable = False
                 else:
                     # The cause, not just its type: a turn that dies before it starts otherwise shows only the
-                    # server's refusal of its result. Granted values are scrubbed from it (and `log` scrubs again).
-                    cause = (redactor or redact_mod.Redactor(self.vault_values.get(aid, []))).scrub_text(str(exc))[:300]
+                    # server's refusal of its result. Granted values and the turn's token are scrubbed from it (a
+                    # failure before the turn's redactor exists has only those), and so is any user:token in a URL.
+                    scrub = redactor or redact_mod.Redactor([*self.vault_values.get(aid, []), attempt.get("token") or ""])
+                    cause = re.sub(r"(\w+://)[^/@\s]+@", r"\1***@", scrub.scrub_text(str(exc)))[:300]
                     self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted"
                                                           + (f" ({cause})" if cause else "") + "; inspect local runner"})
                     if not own_interrupt(exc):

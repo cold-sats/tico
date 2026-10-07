@@ -70,6 +70,6 @@ def test_a_remote_with_different_history_is_left_alone_and_reported(tmp_path):
     git(theirs, "push", "-q", str(remote), "main", env=env)
     before = git(remote, "rev-parse", "main")
     state, detail = G.publish_history(path, REPO, env)
-    assert state == "failed" and "different history" in detail
+    assert state == "failed" and "unrelated history" in detail
     assert git(remote, "rev-parse", "main") == before, "never force-pushed"
 
