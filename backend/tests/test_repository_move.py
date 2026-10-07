@@ -67,3 +67,25 @@ def test_a_published_bot_moves_and_the_old_computer_stops_claiming_it(api):
     machines = {m["id"]: m for m in get(api, "operations")["machines"]}
     assert "ops" not in machines[old["runner_id"]]["readiness"]["bots"]
     assert "ops" not in machines[old["runner_id"]]["bots"]
+
+
+def test_a_bot_moves_to_a_computer_that_can_run_it_but_not_to_one_signed_out(api):
+    old, new = two_computers(api)
+    report(api, old, present=True, published=True)
+
+    def runtimes(authenticated):
+        # A computer reports only the bots it hosts: the destination says nothing of `ops`, only its runtimes.
+        post(api, "runners/heartbeat", {"version": "0.5.4", "platform": "linux", "capacity": 4, "readiness": {
+            "schema_version": 1, "runtimes": {"codex": {"installed": True, "authenticated": authenticated, "models": [],
+                                                         "controls": ["interrupt", "new-session"], "detail": ""}},
+            "bots": {}}}, new["token"])
+
+    runtimes("missing")
+    refused = post(api, "bots/ops/transitions", {"kind": "machine", "runner_id": new["runner_id"],
+                                                  "expected_revision": 1, "expected_generation": 1}, expected=409)
+    assert refused["error"]["code"] == "runner_not_ready" and "not signed in" in refused["error"]["detail"]
+    runtimes("ready")
+    post(api, "bots/ops/transitions", {"kind": "machine", "runner_id": new["runner_id"],
+                                        "expected_revision": 1, "expected_generation": 1})
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT runner_id FROM assignments WHERE bot='ops'").fetchone()[0] == new["runner_id"]

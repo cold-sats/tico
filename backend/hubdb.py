@@ -933,6 +933,9 @@ def _one(conn, sql, args=()):
 # the length of one request (backend/app.py request_guard), so every event and task-history row the
 # request writes says "via assistant" without each write knowing about it.
 VIA = contextvars.ContextVar("hub_via", default="")
+# When BotOps acts with a person's rights: whose, which request lent them (a message or task id), and whether the person
+# asked in this run (`live`) or BotOps cites their open task in a later one (`follow_through`). Every event then says so.
+DELEGATION = contextvars.ContextVar("hub_delegation", default=None)
 
 PRIVATE_WRITE = contextvars.ContextVar("hub_private_write", default=False)
 
@@ -971,6 +974,8 @@ def event(conn, actor, action, target="", detail=None):
     """Append the audit row every write leaves behind."""
     if VIA.get() and (detail is None or isinstance(detail, dict)):
         detail = {**(detail or {}), "via": VIA.get()}
+        if VIA.get() == "botops" and DELEGATION.get():
+            detail["delegation"] = DELEGATION.get()
     row = {"id": new_id(), "ts": now(), "actor": str(actor), "action": action,
            "target": str(target or ""), "detail_json": _dump(detail)}
     conn.execute("INSERT INTO events (id, ts, actor, action, target, detail_json) "

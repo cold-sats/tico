@@ -1802,11 +1802,11 @@ def group_update(api, args):
 class _Requester:
     """The same `api`, using the requester's rights, recorded via BotOps."""
 
-    def __init__(self, api):
-        self.api = api
+    def __init__(self, api, ref=None):
+        self.api, self.ref = api, ref
 
     def call(self, method, path, body=None, key=None, query=None):
-        return self.api.call(method, path, body, key, query, delegate=True)
+        return self.api.call(method, path, body, key, query, delegate=self.ref or True)
 
     def get(self, path, **query):
         return self.call("GET", path, query=query)
@@ -1818,13 +1818,18 @@ class _Requester:
         return self.call("PATCH", path, body if body is not None else {}, key)
 
 
-def _as_person(api):
-    """BotOps uses the requester; other callers keep their own rights."""
+def _as_person(api, ref=None):
+    """BotOps uses the requester; other callers keep their own rights. `ref` names the request BotOps follows
+    through on when something else started this run: the open task the person asked for, or their message id."""
     if isinstance(api, _Requester):
-        return api
+        return _Requester(api.api, ref) if ref else api
     if "_tico_is_botops" not in api.__dict__:
         api.__dict__["_tico_is_botops"] = kind_of(api.get("me")) == "botops"
-    return _Requester(api) if api.__dict__["_tico_is_botops"] else api
+    return _Requester(api, ref) if api.__dict__["_tico_is_botops"] else api
+
+
+ON_BEHALF_OF = _s("BotOps, following through on a person's request in a run something else started (a daily update, "
+                  "a notice): the id of the open task they asked you for. Default: the request that started this run")
 
 
 def _api_path(path):
@@ -1838,10 +1843,10 @@ def _api_path(path):
       {"method": _s("GET, POST, PUT, PATCH or DELETE", enum=["GET", "POST", "PUT", "PATCH", "DELETE"]),
        "path": _s("A v2 route: /api/v2/bots/jira-manager/model or bots/jira-manager/model"),
        "body": {"type": "object", "description": "The JSON body for a write"},
-       "query": {"type": "object", "description": "Query parameters for a read"}},
+       "query": {"type": "object", "description": "Query parameters for a read"}, "on_behalf_of": ON_BEHALF_OF},
       required=("method", "path"), writes=True)
 def api_call(api, args):
-    return _as_person(api).call(str(args["method"]).upper(), _api_path(args["path"]), args.get("body"), _key(args), args.get("query"))
+    return _as_person(api, args.get("on_behalf_of")).call(str(args["method"]).upper(), _api_path(args["path"]), args.get("body"), _key(args), args.get("query"))
 
 
 @tool("hub_bot_place", "Put a bot on a computer, as the person who asked you: the one named (label or id), or the best one that "
@@ -2041,10 +2046,11 @@ def agent_pair_decline(api, args):
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
-       "effort": _s("Reasoning effort that model supports"), "harness": _s("A harness from that model's harnesses list")},
+       "effort": _s("Reasoning effort that model supports"), "harness": _s("A harness from that model's harnesses list"),
+       "on_behalf_of": ON_BEHALF_OF},
       required=("bot",), writes=True)
 def bot_model(api, args):
-    who = _as_person(api)
+    who = _as_person(api, args.get("on_behalf_of"))
     catalog = who.get("models")
     current = who.get(f"bots/{args['bot']}")
     if not any(args.get(k) for k in ("model", "harness", "effort")):
