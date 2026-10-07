@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Release checks.
 
-    python scripts/release_checks.py            # the default Python and core browser suites (the per-PR gate), under 300 s
-    python scripts/release_checks.py --release  # the release gate: the opt-in tests and the whole product, under 300 s
+    python scripts/release_checks.py            # the default Python and core browser suites, under 300 s
+    python scripts/release_checks.py --release  # the release gate: every test and the whole product, under 300 s
 
-Every PR runs the default suites against main before it merges, so a release does not run them again. `--release`
-runs what the default leaves out (`pytest -m slow` and `node scripts/ui-tests.cjs --all`) while it builds the candidate
+A PR runs only the tests for what it changed, so the full suite runs here, once, right before a release. `--release`
+runs every test (`pytest -m "slow or not slow"` and `node scripts/ui-tests.cjs --all`) while it builds the candidate
 images once, then runs the whole-product checks against them at the same time: docker/smoke.sh,
 docker/side-jobs-smoke.sh and `scripts/journey-test.sh --release` (install the previous release, upgrade to the
 candidate, roll back a migrating update). The journey starts installing the previous release while the images build. Each check gets its own Docker names and smoke a free host port, so they run
@@ -99,7 +99,7 @@ def release(args):
     journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready)}
     journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
     checks = [Check('journey', journey_cmd, logs, journey_env),   # installs the previous release while the images build
-              Check('slow-python', [sys.executable, '-m', 'pytest', '-q', '-m', 'slow'], logs,
+              Check('all-python', [sys.executable, '-m', 'pytest', '-q', '-m', 'slow or not slow'], logs,
                     {**base_env, 'TICO_PYTHON': sys.executable}),
               Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, {**base_env, 'TICO_PYTHON': sys.executable})]
 
@@ -128,7 +128,7 @@ def release(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument('--release', action='store_true', help='whole-product checks only (the release gate)')
+    parser.add_argument('--release', action='store_true', help='every test and the whole-product checks (the release gate)')
     parser.add_argument('--previous', help='with --release: the release the journey upgrades from (default: newest tag)')
     args = parser.parse_args()
     return release(args) if args.release else full()
