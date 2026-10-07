@@ -820,15 +820,16 @@ def create_app(settings=None):
                 "ROW_NUMBER() OVER (PARTITION BY t.id ORDER BY m.rowid DESC) AS ask_rank "
                 "FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
                 f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
-                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL AND m.answered_by IS NULL "
+                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
                 "AND task_ask_readable(m.id,m.conversation_id,m.refs_json,m.in_reply_to) "
-                "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')) "
+                f"AND {H.OPEN_ASK_SQL}) "
                 "WHERE ask_rank=1", ids):
             message = dict(message)
             tid = message.pop("ask_task_id")
             open_counts[tid] = message.pop("open_count")
             message.pop("ask_rank")
             message["refs"] = H._json(message.get("refs_json"), {}) or {}
+            message["older"] = H.ask_older(message)
             asks[tid] = message
 
         origins = {}

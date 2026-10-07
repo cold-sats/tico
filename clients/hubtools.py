@@ -234,7 +234,8 @@ def unnote(api, args):
 
 
 @tool("hub_question_ask", "Ask one or more bots a question and wait for their answers. Returns one entry "
-      "per bot: `answer`, `unknown`, or `timeout`. Asks nest at most three deep.",
+      "per bot: `answer`, `unknown`, or `timeout`, each with the ask's `message_id`. A timed-out ask stays open "
+      "and its answer reaches you later under that id. Asks nest at most three deep.",
       {"bots": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                 "description": "Bot slugs to ask"},
        "text": _s("The question"),
@@ -253,12 +254,14 @@ def ask(api, args):
         answers = api.get("answers", ids=",".join(pending))
         for mid, answer in answers.items():
             bot = pending.pop(mid)
-            result[bot] = {"unknown" if (answer.get("refs") or {}).get("unknown") else "answer": answer["body"]}
+            result[bot] = {"unknown" if (answer.get("refs") or {}).get("unknown") else "answer": answer["body"],
+                           "message_id": mid}
             api.post(f"messages/{answer['id']}/ack", {}, key=_key(args, ":ack:" + answer["id"]))
         if not pending or time.monotonic() >= deadline:
             break
         time.sleep(1)
-    result.update({bot: {"timeout": True} for bot in pending.values()})
+    # The ask was delivered and stays open: its id is how the caller finds the answer later.
+    result.update({bot: {"timeout": True, "message_id": mid} for mid, bot in pending.items()})
     return result
 
 

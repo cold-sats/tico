@@ -346,8 +346,7 @@ def require_destination(c, who, to, conversation_id, refs, reply=None):
 ASKS_SQL = (f"SELECT m.*, {H.MESSAGE_TASK_SQL} AS about FROM messages m "
             "JOIN conversations cv ON cv.id=m.conversation_id "
             "WHERE m.kind='ask' AND m.from_actor{} AND m.to_actor LIKE 'human:%' "
-            "AND m.answered_by IS NULL AND m.deleted_at IS NULL AND NOT EXISTS "
-            "(SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')")
+            f"AND m.deleted_at IS NULL AND {H.OPEN_ASK_SQL}")
 APPROVALS_SQL = ("SELECT m.*, a.task_id AS approval_task{by} FROM approvals a JOIN messages m ON m.id=a.message_id "
                  "WHERE a.requested_by{match} AND a.decision IS NULL")
 
