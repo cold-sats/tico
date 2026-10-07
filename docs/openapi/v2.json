@@ -19168,6 +19168,23 @@
             ],
             "title": "Notify Slack Bot Messages"
           },
+          "slack_muted_bots": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                },
+                "type": "array",
+                "maxItems": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slack Muted Bots"
+          },
           "reports_to": {
             "anyOf": [
               {

@@ -82,7 +82,11 @@ no linked Slack account or a disabled gateway means no Slack delivery. In-app no
 ## Bot messages
 
 A bot's message to you is also copied into your Tico DM in Slack, including the report a bot writes
-at the end of a run. To keep these in Tico only, turn off **Bot messages in Slack** under
-**Profile → Notifications**, or send `{"notify_slack_bot_messages": false}` to `POST /api/v2/humans/<id>`.
-A bot's reply to something you sent from Slack still goes back to Slack, since you started that
-conversation there. Turning it off does not change task results, which have their own switch above.
+at the end of a run. Under **Profile → Notifications**, turn off **Bot messages in Slack** to keep every
+bot's messages in Tico, or mute only some bots in the **Muted** row under it. Through the API, send
+`{"notify_slack_bot_messages": false}` or `{"slack_muted_bots": ["<bot>", ...]}` (the whole list) to
+`POST /api/v2/humans/<id>`.
+
+While you are talking to a bot in Slack, it still answers there: when your latest message in that
+chat came from Slack within the last day, the bot's messages in it go to Slack. Task results have
+their own switch above.

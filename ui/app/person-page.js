@@ -88,9 +88,10 @@ function pagePerson(id, tab) {
       <label class="person-notify" title="A Slack DM when a task they asked for is finished or declined">
         <input type="checkbox" role="switch" class="people-switch" id="person-notify-slack" ${p.notify_slack_task_done !== false ? 'checked' : ''}>
         <span>Task results in Slack</span></label>
-      <label class="person-notify" title="A bot's messages to them are copied to their Tico DM in Slack. Off: they stay in Tico, except replies to something sent from Slack">
+      <label class="person-notify" title="Bot messages to them are copied to their Tico DM in Slack. Conversations they start in Slack always answer there">
         <input type="checkbox" role="switch" class="people-switch" id="person-notify-bots" ${p.notify_slack_bot_messages !== false ? 'checked' : ''}>
         <span>Bot messages in Slack</span></label>
+      <div class="person-muted" id="person-muted" ${p.notify_slack_bot_messages === false ? 'hidden' : ''}></div>
       <div class="err" role="status" id="person-notify-status"></div></section>` : ''}
   </div>
   <div id="pane-pslack" ${tab === 'slack' ? '' : 'hidden'}>
@@ -124,6 +125,31 @@ function pagePerson(id, tab) {
   };
   notifySwitch('#person-notify-slack', 'notify_slack_task_done');
   notifySwitch('#person-notify-bots', 'notify_slack_bot_messages');
+  const botsSwitch = $('#person-notify-bots');
+  if (botsSwitch) botsSwitch.addEventListener('change', () => { $('#person-muted').hidden = !botsSwitch.checked; });
+  // Muted bots: their messages stay in Tico while the other bots still reach Slack.
+  const mutedPaint = () => {
+    const box = $('#person-muted');
+    if (!box) return;
+    const muted = p.slack_muted_bots || [];
+    const rest = shownEmps().filter(e => !muted.includes(e.name));
+    box.innerHTML = `<span class="muted">Muted</span>
+      ${muted.map(slug => { const e = S.emps.find(x => x.name === slug);
+        return `<span class="chip">${avatar(slug, 18)}<span>${e ? shownName(e) : esc(slug)}</span><button type="button" class="people-chip-x" data-unmute="${esc(slug)}" aria-label="Unmute ${esc(slug)}">×</button></span>`; }).join('')}
+      ${rest.length ? `<select id="person-mute-add" aria-label="Mute a bot in Slack"><option value="">${muted.length ? '+ Bot' : 'None · mute a bot'}</option>
+        ${rest.map(e => `<option value="${esc(e.name)}">${shownName(e)}</option>`).join('')}</select>` : ''}`;
+    const save = async next => {
+      const status = $('#person-notify-status');
+      box.querySelectorAll('button,select').forEach(el => el.disabled = true); status.textContent = '';
+      try { p.slack_muted_bots = (await post(`/v2/humans/${encodeURIComponent(p.id)}`, {slack_muted_bots: next})).slack_muted_bots; }
+      catch (e) { status.textContent = e.message || 'Could not save.'; }
+      mutedPaint();
+    };
+    box.querySelectorAll('[data-unmute]').forEach(b => b.onclick = () => save(muted.filter(x => x !== b.dataset.unmute)));
+    const add = $('#person-mute-add');
+    if (add) add.onchange = () => add.value && save([...muted, add.value]);
+  };
+  mutedPaint();
   const cards = $('#pane-profile').querySelectorAll('section.card');
   const goalsCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Goals');
   const notesCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Notes');
