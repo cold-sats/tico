@@ -2208,10 +2208,13 @@ def ask_older(message, at=None):
 def supersede_asks(conn, task_id, *, from_actor=None, keep=None, plain_only=False):
     """Mark the task's unanswered asks to people superseded: those `from_actor` sent before the ask `keep`, or all of
     them (plain ones only with `plain_only`). They stay in the thread and leave every queue and count."""
+    # Only the task's own thread, where its queue and counts look (open_task_asks): a lookup by conversation, not a
+    # scan of every pending ask on the server each time a task finishes.
     sql = ("SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
-           f"WHERE m.kind='ask' AND m.deleted_at IS NULL AND m.to_actor LIKE 'human:%' AND {OPEN_ASK_SQL} "
+           "WHERE m.conversation_id=(SELECT conversation_id FROM tasks WHERE id=?) "
+           f"AND m.kind='ask' AND m.deleted_at IS NULL AND m.to_actor LIKE 'human:%' AND {OPEN_ASK_SQL} "
            f"AND {MESSAGE_TASK_SQL}=?")
-    args = [task_id]
+    args = [task_id, task_id]
     if from_actor:
         sql += " AND m.from_actor=?"
         args.append(from_actor)

@@ -484,22 +484,30 @@ def ship_release(c, repo, tag, commit):
     parsed = releases.parse(version)
     if not parsed or parsed[3] != (1,) or not repo or not commit:
         return []
-    here = c.execute("SELECT seq FROM main_pushes WHERE sha=?", (commit,)).fetchone()
+    repo = repo.lower()
+    here = c.execute("SELECT seq FROM main_pushes WHERE sha=? AND lower(repo)=?", (commit, repo)).fetchone()
     if not here:
         return []
-    repo = repo.lower()
+    # The scheduler runs this every tick: both halves are prefix ranges on task_links_repo_url, and a link that already
+    # shipped (its task went done) is not a candidate, so the scan does not grow with every pull request ever merged.
+    like = "https://github.com/" + repo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     candidates = [r[0] for r in c.execute(
-        "SELECT DISTINCT t.id FROM tasks t JOIN task_links l ON l.task_id=t.id WHERE t.status='waiting' "
-        "AND ((l.kind='pr' AND lower(l.repo)=? AND l.state IN ('merged','shipped')) OR (l.kind='url' AND lower(l.url) LIKE ?))",
-        (repo, f"https://github.com/{repo}/commit/%"))]
+        "SELECT l.task_id FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE t.status='waiting' "
+        "AND l.kind='pr' AND l.state='merged' AND l.url LIKE ? ESCAPE '\\' UNION "
+        "SELECT l.task_id FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE t.status='waiting' "
+        "AND l.kind='url' AND l.state IS NULL AND l.url LIKE ? ESCAPE '\\'",
+        (like + "/pull/%", like + "/commit/%"))]
 
     def contained(sha):
         if not sha:
             return False
         if sha == commit:
             return True
-        row = c.execute("SELECT seq FROM main_pushes WHERE (sha=? OR (length(?)<40 AND sha LIKE ?||'%')) AND lower(repo)=? "
-                        "ORDER BY seq LIMIT 1", (sha, sha, sha, repo)).fetchone()
+        # A short sha is a hex prefix: a range on the unique sha index, never a scan of every push to main.
+        exact = len(sha) >= 40
+        row = c.execute("SELECT seq FROM main_pushes WHERE " + ("sha=?" if exact else "sha>=? AND sha<?")
+                        + " AND lower(repo)=? ORDER BY seq LIMIT 1",
+                        (sha, repo) if exact else (sha, sha + "g", repo)).fetchone()
         return bool(row) and row[0] <= here[0]
 
     moved = []
@@ -517,6 +525,13 @@ def ship_release(c, repo, tag, commit):
             merged = [l for l in prs if l["state"] in ("merged", "shipped")]
             if not merged and not commits:
                 continue
+            # The same work moves a task once: a task put back in Waiting after "Shipped in" stays there through this
+            # and every later release (the scheduler checks the running release every tick), until new work is linked.
+            work = sorted({str(l.get("pr_sha") or "") for l in merged} | set(commits))
+            last = c.execute("SELECT detail_json FROM events WHERE actor=? AND action='github.released' AND target=? "
+                             "ORDER BY ts DESC LIMIT 1", (H.KEEPER, tid)).fetchone()
+            if last and (H._json(last[0], {}) or {}).get("work") == work:
+                continue
             if any(str(l.get("repo") or "").lower() != repo or not contained(l.get("pr_sha")) for l in merged):
                 continue
             if not all(contained(sha) for sha in commits):
@@ -524,7 +539,8 @@ def ship_release(c, repo, tag, commit):
             after = _move(c, task, "review", f"Shipped in v{version}.")
             if after["status"] != "review":
                 continue
-            H.event(c, H.KEEPER, "github.released", tid, {"release": "v" + version, "commit": commit, "repository": repo})
+            H.event(c, H.KEEPER, "github.released", tid,
+                    {"release": "v" + version, "commit": commit, "repository": repo, "work": work})
             moved.append(tid)
     return moved
 

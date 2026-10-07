@@ -511,9 +511,13 @@ def test_a_release_tag_moves_the_waiting_tasks_it_contains_to_review(api):
     assert moved["status"] == "review" and "Shipped in v1.2.3" in moved["note"]
     # merged after the tagged commit: not in this release, still waiting
     assert get(api, "tasks/" + later["id"])["task"]["status"] == "waiting"
-    # a published release that names only its tag is placed by the tag push recorded before it
+    # put back in Waiting, the same work stays there; a published release that names only its tag is placed by the
+    # tag push recorded before it
+    cited = post(api, "tasks", {"owner": "cpo", "title": "Fix the parser", "body": "x",
+                                "links": ["https://github.com/ticoteam/tico/commit/" + "b" * 40]})
     with api.app.state.store.transaction() as c:
-        c.execute("UPDATE tasks SET status='waiting' WHERE id=?", (shipped["id"],))
+        c.execute("UPDATE tasks SET status='waiting' WHERE id IN (?,?)", (shipped["id"], cited["id"]))
     published = hook(api, "release", {"action": "published", "repository": {"full_name": "ticoteam/tico"},
                                       "release": {"tag_name": "v1.2.3", "target_commitish": "main"}})
-    assert published["released"] == [shipped["id"]]
+    assert published["released"] == [cited["id"]]
+    assert get(api, "tasks/" + shipped["id"])["task"]["status"] == "waiting"
