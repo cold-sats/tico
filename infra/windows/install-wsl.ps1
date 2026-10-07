@@ -106,12 +106,29 @@ if (-not $ready) {
   }
   Invoke-WslQuiet @('--set-default-version', '2') | Out-Null
 }
-# A store install registers the distribution on its first start; `install --root` does that without asking for a
-# Linux user name, which the runner does not need (it runs as root in the distribution and as its own users in Docker).
+# The runner needs no Linux user of its own: it runs as root in the distribution and as its own users in Docker. So the
+# first start must not stop at Ubuntu's "create a default Unix user" prompt, which waits for typing and would hang here.
+# - An older store install registers the distribution on its first start; its launcher's `install --root` registers it
+#   with root as the default user and asks nothing.
+# - A current `wsl --install` registers a tar-based distribution at once, and runs its first-start setup (the user
+#   prompt) the first time a shell opens. WSL marks that pending with RunOOBE on the distribution's Lxss key; clearing
+#   it before the first start skips the prompt, and every start below is `-u root --exec`, never a login shell.
+function Skip-FirstStartPrompt {
+  $lxss = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+  if (-not (Test-Path $lxss)) { return }
+  Get-ChildItem $lxss -ErrorAction SilentlyContinue | ForEach-Object {
+    $key = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+    if ($key -and $key.DistributionName -eq $Distro -and $null -ne $key.RunOOBE -and $key.RunOOBE -ne 0) {
+      Set-ItemProperty $_.PSPath -Name RunOOBE -Value 0
+      Say "ok: skipped $Distro's first-start user prompt (the runner runs as root)"
+    }
+  }
+}
 if (-not (Test-Distro)) {
   $launcher = Get-Command (($Distro -replace '[^A-Za-z0-9]', '').ToLower() + '.exe') -ErrorAction SilentlyContinue
   if ($launcher) { & $launcher.Source install --root }
 }
+Skip-FirstStartPrompt
 if ((Invoke-WslQuiet @('-d', $Distro, '-u', 'root', '--exec', 'true')) -ne 0) {
   Die "$Distro does not start yet. Restart Windows, then get a new command from Settings > Computers > Add computer and run it again."
 }

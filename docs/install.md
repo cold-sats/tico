@@ -574,7 +574,7 @@ PowerShell opened **as administrator**:
   -Url https://tico.example.com -Code <code> -Label 'Build PC'
 ```
 
-`install-wsl.ps1` (in `infra/windows/`, published with each release) installs WSL and Ubuntu when they are missing,
+`install-wsl.ps1` (in `infra/windows/`, published with each release) installs WSL and Ubuntu when they are missing (as root, skipping the "create a Linux user" prompt),
 turns on systemd in Ubuntu, then runs `install.sh --runner` inside it, so Docker, the runner and its updater are the same
 as on a Linux server. If WSL was just enabled, Windows asks for a restart first: restart, take a new code from Add
 computer (codes last 15 minutes) and run the line again. WSL stops an idle distribution, so the script adds a logon task,

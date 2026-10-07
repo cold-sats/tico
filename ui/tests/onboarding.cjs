@@ -571,19 +571,19 @@ function recruitFor({department, briefing, share}) {
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> enroll --code-file "\$HOME\/Downloads\/tico-enrollment-ana-[a-z0-9]+\.json" --label "Ana's Mac"/);
     // A Linux or cloud server gets the installer line (compose, with the updater) with the real URL and code, and no setup file.
     await page.locator('[data-onb-kind][value=linux]').check();
-    const installLine = /curl -fsSL https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install\.sh \| sh -s -- --runner --name tico-code --url https:\/\/initech\.test --code <code> --label "Ana's server"/;
+    const installLine = /curl -fsSL https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install\.sh \| sh -s -- --runner --name tico-code --url https:\/\/initech\.test --code '<code>' --label "Ana's server"/;
     assert.match(await page.locator('#onb-step').textContent(), installLine);
     // A server that answers on this computer only is not 127.0.0.1 to a container: the runner joins its Docker network.
     assert.equal(await page.evaluate(() => { const was = S.config; S.config = {...was, local: true, runner_url: 'http://127.0.0.1:8877', compose_project: 'acme', server_network: 'acme_default'};
       const [run, , plain] = dockerRunnerCommands('c0de', onbMachineLabel({kind: 'linux'}), 'codex'); S.config = was;
       return [run[1], plain[1]].join('\n'); }),
-      'curl -fsSL https://github.com/ticoteam/tico/releases/download/v0.2.0/install.sh | sh -s -- --runner --name acme-c0de --url http://server:8765 --server-network acme_default --code c0de --label "This computer"\n'
-      + 'docker run -d --name tico-runner-acme-c0de --restart unless-stopped --network acme_default -v tico-runner-acme-c0de_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:v0.2.0 join --url http://server:8765 --code c0de --label "This computer"');
+      'curl -fsSL https://github.com/ticoteam/tico/releases/download/v0.2.0/install.sh | sh -s -- --runner --name acme-c0de --url http://server:8765 --server-network acme_default --code \'c0de\' --label "This computer"\n'
+      + 'docker run -d --name tico-runner-acme-c0de --restart unless-stopped --network acme_default -v tico-runner-acme-c0de_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:v0.2.0 join --url http://server:8765 --code \'c0de\' --label "This computer"');
     // The bare docker run stays as an alternative, pinned to the server's release and said not to update itself.
     assert.match(await page.locator('#onb-step').textContent(), /no updater, so it will not follow the server's releases/);
-    assert.match(await page.locator('#onb-step').textContent(), /docker run -d --name tico-runner-tico-code --restart unless-stopped -v tico-runner-tico-code_runner-home:\/home\/runner ghcr\.io\/ticoteam\/tico-runner:v0\.2\.0 join --url https:\/\/initech\.test --code <code>/);
+    assert.match(await page.locator('#onb-step').textContent(), /docker run -d --name tico-runner-tico-code --restart unless-stopped -v tico-runner-tico-code_runner-home:\/home\/runner ghcr\.io\/ticoteam\/tico-runner:v0\.2\.0 join --url https:\/\/initech\.test --code '<code>'/);
     await page.locator('#onb-enroll').click();
-    await page.waitForFunction(() => /--code enroll-code --label "Ana's server"/.test(document.querySelector('#onb-step').textContent));
+    await page.waitForFunction(() => /--code 'enroll-code' --label "Ana's server"/.test(document.querySelector('#onb-step').textContent));
     assert.doesNotMatch(await page.locator('#onb-step').textContent(), /docker exec -it tico-runner/);
     await page.locator('[data-onb-kind][value=mac]').check();
     // The Mac comes online; the next save carries the live machine through to the review.
@@ -737,7 +737,7 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#machine-kind').selectOption('linux');
     assert.equal(await page.locator('#machine-label').inputValue(), "Ana Rivera's server");
     await page.locator('#register-machine').click();
-    await page.waitForFunction(() => /--code enroll-code --label "Ana Rivera's server"/.test(document.querySelector('#machine-enroll-status').textContent));
+    await page.waitForFunction(() => /--code 'enroll-code' --label "Ana Rivera's server"/.test(document.querySelector('#machine-enroll-status').textContent));
     assert.match(await page.locator('#machine-enroll-status').textContent(), /join --url https:\/\/initech\.test/);
     // A Windows PC gets one PowerShell line: the release's WSL installer with the same code, URL and name.
     await page.locator('#machine-kind').selectOption('windows');

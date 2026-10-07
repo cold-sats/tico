@@ -165,7 +165,8 @@ const serverReleaseTag = () => {
 // The installer sets the runner up with its updater sidecar, so it follows the server's releases;
 // a bare `docker run` has no sidecar and stays where it is.
 // The container name follows from the code, so the commands of one Add computer agree with each other.
-const runnerName = code => `${String(S.config?.compose_project || 'tico').toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20)}-${String(code).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'computer'}`;
+// It starts with a letter or digit: install.sh and install-wsl.ps1 accept no other first character for --name.
+const runnerName = code => `${String(S.config?.compose_project || 'tico').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+/, '').slice(0, 20) || 'tico'}-${String(code).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'computer'}`;
 function dockerRunnerCommands(code, label, runtime, kind = 'linux') {
   const tag = serverReleaseTag(), quoted = `"${shellSafe(label)}"`;
   const installer = tag ? `https://github.com/ticoteam/tico/releases/download/${tag}/install.sh`
@@ -181,13 +182,13 @@ function dockerRunnerCommands(code, label, runtime, kind = 'linux') {
     [local ? 'Set up the runner on this computer (installs Docker if it is missing; keeps itself on this server\'s release)'
            : kind === 'mac' ? 'Set up the runner on that Mac (Docker Desktop must be running; keeps itself on this server\'s release)'
            : 'Set up the runner on the server (installs Docker if it is missing; keeps itself on this server\'s release)',
-     `curl -fsSL ${installer} | sh -s -- --runner --name ${name} ${join}${local ? ` --server-network ${network}` : ''} --code ${code} --label ${quoted}`],
+     `curl -fsSL ${installer} | sh -s -- --runner --name ${name} ${join}${local ? ` --server-network ${network}` : ''} --code '${code}' --label ${quoted}`],
     // Signing in to a model comes only once a provider is chosen; before that there is no model to name.
     // `claude auth login` signs the CLI in; `claude setup-token` would only print a token. As `bot`, the user turns run as.
     runtime ? ['Sign the bots in to a model, once: Sign in on Settings > Computers, or run this (the runner installs the model CLI first; give it a minute)',
      `docker exec -it -u bot ${container} ${runtime === 'claude' ? 'claude auth login' : 'codex login --device-auth'}`] : null,
     ['Or with plain Docker instead of the line above. It has no updater, so it will not follow the server\'s releases',
-     `docker run -d --name ${container} --restart unless-stopped${local ? ` --network ${network}` : ''} -v ${container}_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code ${code} --label ${quoted}`],
+     `docker run -d --name ${container} --restart unless-stopped${local ? ` --network ${network}` : ''} -v ${container}_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code '${code}' --label ${quoted}`],
   ];
 }
 // A Windows PC runs the Linux runner in WSL 2 (infra/windows/install-wsl.ps1, published with each release).
@@ -197,7 +198,7 @@ function windowsRunnerCommands(code, label) {
   const script = tag ? `https://github.com/ticoteam/tico/releases/download/${tag}/install-wsl.ps1`
                      : 'https://github.com/ticoteam/tico/releases/latest/download/install-wsl.ps1';
   const quoted = `'${shellSafe(label).replace(/'/g, "''")}'`;
-  return [['In PowerShell as administrator on that PC (sets up WSL 2 and Ubuntu if needed; may ask for a restart)',
+  return [['In PowerShell as administrator on that PC. Sets up WSL 2 and Ubuntu if needed (may ask for a restart), keeps Ubuntu running while you are signed in, and turns off sleep on mains power (add -AllowSleep to skip)',
     `& ([scriptblock]::Create((irm ${script}))) -Url ${runnerUrl()} -Code '${code}' -Label ${quoted} -Name ${runnerName(code)}`]];
 }
 async function enrollmentDownload(operator, label) {
@@ -336,7 +337,7 @@ function renderSettingsMachines() {
   if (!el.querySelector('.machine-enroll')) el.innerHTML = `<div data-machines-list></div>
     <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Computer owner">
       ${people.map(person => `<option value="${esc(person.id)}" ${person.id === S.me?.id ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select>
-      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option><option value="windows">Windows PC</option></select>
+      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option><option value="windows">Windows PC (WSL 2, beta)</option></select>
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
       <div class="machine-enroll-status" id="machine-enroll-status"></div></div>`;
