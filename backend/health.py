@@ -110,6 +110,21 @@ def _missing_tool_credentials(c, online_ids):
     return sorted(out)
 
 
+def reserved_credentials(c):
+    """(credential name, variable, bot) for each credential a bot holds under a name Tico reserves. The runner leaves
+    such a credential out of the bot's turns, so the bot runs without it until someone renames the variable."""
+    from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
+    from .credentials import effective_grant
+    out = []
+    for row in c.execute("SELECT DISTINCT v.id,v.name,v.env,g.subject FROM credentials v JOIN credential_grants g "
+                         "ON g.credential_id=v.id WHERE g.subject LIKE 'bot:%' AND g.revoked IS NULL "
+                         "AND v.ciphertext IS NOT NULL AND v.env<>'' ORDER BY v.name"):
+        if (row["env"] in RESERVED_ENV or row["env"].startswith(RESERVED_PREFIXES)) \
+                and effective_grant(c, row["id"], row["subject"]):
+            out.append((row["name"], row["env"], H.actor_id(row["subject"])))
+    return out
+
+
 def missing_repositories(c, online_ids):
     """(bot, computer, why) for the active bots whose online computer says it has no repository for them.
     `why` is the runner's own sentence naming the cause (not on GitHub, GitHub refused, a clone failed)."""
@@ -608,6 +623,12 @@ def view(c, who, settings, auth, github, config):
                              "Missing Credential: " + "; ".join(f"{tool} on {label}" for tool, label in missing_tools[:5])
                              + ("." if len(missing_tools) <= 5 else f"; and {len(missing_tools) - 5} more."),
                              [_fix("Open Credentials", "#/credentials"), _fix("Open Computers", "#/settings", "devices")]))
+    if full and (reserved := reserved_credentials(c)):
+        checks.append(_check("reserved_credentials", "Credential names", "warn",
+                             "Bots run without these credentials, because Tico keeps their variable names for itself: " + "; ".join(f"{name} ({env}) for {bot}" for name, env, bot in reserved[:5])
+                             + ("." if len(reserved) <= 5 else f"; and {len(reserved) - 5} more.")
+                             + " Give each a variable name that does not start with TICO_, DYLD_ or LD_.",
+                             [_fix("Open Credentials", "#/credentials")]))
     lacking = missing_repositories(c, online_ids) if full else []
     if lacking:
         checks.append(_check("repositories", "Bot repositories", "bad",

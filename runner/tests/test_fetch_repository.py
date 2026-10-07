@@ -1,7 +1,9 @@
 """A bot placed on a computer that has never held it gets its repository from GitHub, or a readiness problem
 that names why not (never just "Missing bot repository"). No network: GitHub is a local bare repository."""
+import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -90,6 +92,63 @@ class FetchRepository(unittest.TestCase):
         self.assertEqual(cloud.asked, 1)
         runner.preflight([entry(generation=3)], RUNTIMES)
         self.assertEqual(cloud.asked, 2)
+
+    def test_a_template_bot_with_history_on_github_is_cloned_not_set_up_afresh(self):
+        real = git_credentials.remote_history
+        with mock.patch.object(git_credentials, "remote_history",
+                               lambda repository, env=None, **kw: real(repository, env, url=str(self.remote))), \
+                mock.patch.object(Runner, "bootstrap_template", lambda *a: "release-notes"), \
+                mock.patch("clients.catalog.materialize") as materialize:
+            row = self.runner(Cloud()).preflight([entry()], RUNTIMES)[0]
+        materialize.assert_not_called()
+        self.assertTrue(row["ready"])
+        self.assertEqual((self.projects / "bot-helper" / "AGENT.md").read_text(), "# Helper\n")
+
+    def test_only_a_copy_with_unrelated_history_holds_turns_not_one_that_diverged(self):
+        real = git_credentials.publish_history
+        path = self.projects / "bot-helper"
+
+        def local_copy(base):
+            # A checkout with no upstream: `base` is a clone of GitHub's history (diverged) or None (a template copy).
+            if base:
+                git("clone", "-q", str(self.remote), str(path))
+                git("-C", str(path), "remote", "remove", "origin")
+            else:
+                git("init", "-q", "-b", "main", str(path))
+                (path / "AGENT.md").write_text("# Helper from the template\n")
+            (path / "notes.md").write_text("unpushed work\n")
+            git("-C", str(path), "add", "-A")
+            git("-C", str(path), "commit", "-q", "-m", "local")
+
+        for base, ready in ((self.remote, True), (None, False)):
+            with self.subTest(diverged=bool(base)):
+                local_copy(base)
+                if base:     # GitHub moved on too, so the copy cannot fast-forward it
+                    other = self.root / "other"
+                    git("clone", "-q", str(self.remote), str(other))
+                    (other / "x.md").write_text("x\n")
+                    git("-C", str(other), "add", "-A")
+                    git("-C", str(other), "commit", "-q", "-m", "remote")
+                    git("-C", str(other), "push", "-q", "origin", "main")
+                runner = self.runner(Cloud())
+                runner.push_lock, runner.publish_notes = threading.Lock(), {}
+                with mock.patch.object(git_credentials, "publish_history",
+                                       lambda p, repository, env=None, **kw: real(p, repository, {**(env or {}), **GIT},
+                                                                                   url=str(self.remote))):
+                    row = runner.preflight([entry()], RUNTIMES)[0]
+                self.assertEqual(row["ready"], ready, row["problems"])
+                self.assertEqual(any("shares no history" in p for p in row["problems"]), not ready)
+                self.assertEqual((path / "notes.md").read_text(), "unpushed work\n")     # never touched
+                if not ready:
+                    # A turn checks for itself, without waiting for the publish pass: a fresh runner refuses it.
+                    fresh = self.runner(Cloud())
+                    fresh.push_lock, fresh.publish_notes = threading.Lock(), {}
+                    with mock.patch.object(git_credentials, "publish_history",
+                                           lambda p, repository, env=None, **kw: real(p, repository, {**(env or {}), **GIT},
+                                                                                       url=str(self.remote))):
+                        with self.assertRaisesRegex(RuntimeError, "shares no history"):
+                            fresh.prepare_history("helper", 2, path, {git_credentials.REPOSITORY_KEY: REPO})
+                shutil.rmtree(path)
 
     def test_a_computer_only_fetches_what_is_assigned_to_it(self):
         cloud = Cloud()
