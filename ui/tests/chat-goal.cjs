@@ -25,7 +25,7 @@ async function open(browser, viewport, touch = false, {empty = false, messages =
   const page = await browser.newPage({viewport, serviceWorkers: 'block', ...(touch ? {hasTouch: true, isMobile: true} : {})});
   if (theme) await page.addInitScript(t => { try { localStorage.setItem('tico.theme', t); } catch {} }, theme);
   const api = {errors: [], goalPosts: [], goalKeys: [], goalResults: new Map(), dropGoalOnce: false,
-    sends: [], created: [], goal, streamGoal: null, page, room: !empty, held: []};
+    sends: [], uploads: [], created: [], goal, streamGoal: null, page, room: !empty, held: []};
   const tick = setInterval(() => {
     const g = api.streamGoal, route = api.held.at(-1);
     if (!g || !route) return;
@@ -73,6 +73,10 @@ async function open(browser, viewport, touch = false, {empty = false, messages =
       if (api.dropGoalOnce) { api.dropGoalOnce = false; return json({error:{detail:'temporary response interruption'}}, 503); }
       return json(out);
     }
+    if (p === '/api/v2/uploads/chat/ops') {
+      api.uploads.push(req.postDataBuffer().toString());
+      return json({conversation: {id: 'c1'}, message: {id: 'u' + api.uploads.length, from_actor: 'human:ana', body: 'With a file', created: now()}});
+    }
     if (p === '/api/v2/chat/ops') {
       const body = req.postDataJSON(); api.sends.push(body);
       return json({conversation: {id: 'c1'}, message: {id: 'm' + api.sends.length, from_actor: 'human:ana', body: body.text, created: now()}});
@@ -95,11 +99,13 @@ async function desktop(browser) {
   assert.equal(await target.getAttribute('title'), 'Goal');
   assert.equal(await page.locator('#chat-goal').isHidden(), true, 'no goal, no bar');
 
-  // Goal is a highlighted mode, not a popup; ordinary Send saves its text as the goal.
+  // Goal is a highlighted mode, not a popup; Send says Set goal and saves its text as the goal.
+  const send = page.locator('#chat-composer .p-send'), composer = page.locator('#chat-composer textarea');
   await target.click();
   assert.equal(await target.getAttribute('aria-pressed'), 'true');
   assert.equal(await page.locator('#chat-goal').isHidden(), true, 'the toggle does not open a form');
-  const composer = page.locator('#chat-composer textarea');
+  assert.equal(await send.innerText(), 'Set goal');
+  assert.equal(await composer.getAttribute('placeholder'), 'Goal for Ops…');
   await composer.fill(LONG); api.dropGoalOnce = true;
   await page.locator('#chat-composer .p-send').click();
   await page.locator('#chat-goal .cg-bar').waitFor();
@@ -127,8 +133,20 @@ async function desktop(browser) {
   await page.getByRole('button', {name: 'Clear'}).click();
   await page.locator('#chat-goal').waitFor({state: 'hidden'});
   assert.equal(api.goalPosts.at(-1).action, 'clear');
+  // Files are never dropped: with one attached, Send is Send again and it all goes as a message.
+  const goalPosts = api.goalPosts.length;
+  await composer.fill('With a file');
+  await page.locator('#chat-composer .p-file').setInputFiles({name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('fixture')});
+  assert.equal(await send.getAttribute('aria-label'), 'Send');
+  await send.click();
+  await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
+  assert.equal(api.uploads.length, 1); assert.match(api.uploads[0], /With a file/);
+  assert.equal(api.goalPosts.length, goalPosts, 'not saved as the goal');
+  assert.equal(await send.innerText(), 'Set goal', 'the mode stays on for the next goal');
   await target.click();
   assert.equal(await target.getAttribute('aria-pressed'), 'false', 'the same Goal button exits the mode');
+  assert.equal(await send.getAttribute('aria-label'), 'Send');
+  assert.equal(await composer.getAttribute('placeholder'), 'Type a message…');
   assert.equal(await page.locator('#side .tree-goal').count(), 0);
 
   // The "/" menu: filter, arrows, Return picks; a harness command goes out flagged.
