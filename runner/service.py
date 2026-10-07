@@ -95,6 +95,13 @@ CURSOR_MODELS = sorted(CURSOR_HOST_MODELS)
 # a runner sees when neither exists.
 # Prefix of the readiness warning that says a bot's history did not reach GitHub; backend/health.py reads it.
 PUBLISH_WARNING = "GitHub history not published: "
+
+
+def reserved_credential(key):
+    """Whether a granted credential's variable is one the turn sets itself or the computer runs on."""
+    from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
+    return bool(key) and (not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or key in RESERVED_ENV
+                          or key.startswith(RESERVED_PREFIXES))
 FETCH_RETRY_S = 120         # how long a repository that could not be cloned is left before the next try
 PUBLISH_RETRY_S = 3600      # the same for a checkout whose history GitHub has not taken yet
 NO_RUNTIME = ("No AI provider is chosen: the owner picks providers and a default model in "
@@ -856,7 +863,28 @@ class Runner:
         template = BOOTSTRAP_TEMPLATES.get(bot, "")
         return template if template in cards else ""
 
-    def bootstrap(self, bot, config, path):
+    def history_on_github(self, bot, entry):
+        """`present`, `empty` or `unknown` for the bot's GitHub repository (`git_credentials.remote_history`), or
+        `none` when the server names no repository. An unknown answer is remembered for FETCH_RETRY_S."""
+        repository = str((entry or {}).get("repository") or "")
+        if not repository:
+            return "none"
+        notes = self.__dict__.setdefault("history_notes", {})
+        key = (repository, (entry or {}).get("generation"))
+        last = notes.get(bot)
+        if last and last[0] == key and time.monotonic() - last[1] < FETCH_RETRY_S:
+            return last[2]
+        env, problem = self.github_access(bot)
+        state, detail = git_credentials.remote_history(repository, env) if env is not None else ("unknown", problem)
+        if state == "unknown":
+            notes[bot] = (key, time.monotonic(), state)
+            if not last or last[2] != state:
+                log(f"Tico runner: {bot}: could not tell whether {repository} holds its history ({detail})")
+        else:
+            notes.pop(bot, None)
+        return state
+
+    def bootstrap(self, bot, config, path, entry=None):
         """Set a bootstrap bot, or a starter bot first run created, up from the catalog. Returns (note, problem).
 
         Called from readiness, so a fresh installation is a working assistant and a working
@@ -871,6 +899,13 @@ class Runner:
         except Exception as exc:
             return "", f"Could not read the bot catalog: {type(exc).__name__}: {exc}"[:500]
         if not template:
+            return "", ""
+        # A template is only a bot's first copy. When GitHub already holds the bot's history (it ran on another
+        # computer, or is being moved here), that history is cloned instead (`fetch_repository`): a fresh template
+        # copy would run without the bot's memory and could never be published over it. A bot placed before
+        # (generation above 1) whose repository cannot be checked waits for the clone rather than starting afresh.
+        history = self.history_on_github(bot, entry)
+        if history == "present" or (history == "unknown" and int((entry or {}).get("generation") or 0) > 1):
             return "", ""
         try:
             record = self.onboarding()
@@ -1708,15 +1743,18 @@ class Runner:
             if granted is None:
                 granted = Client(self.config["url"], attempt["token"], timeout=15, retries=1).get("credential-runtime")
             self.vault_values[attempt["id"]] = [item["value"] for item in granted["credentials"]]
-            self.vault_names[attempt["id"]] = {item.get("env", "") for item in granted["credentials"] if item.get("env")}
-            from clients.access_entry import RESERVED_ENV as reserved, RESERVED_PREFIXES as reserved_prefixes
+            usable = [item for item in granted["credentials"] if not reserved_credential(item.get("env", ""))]
             for item in granted["credentials"]:
+                if item not in usable and item.get("env"):
+                    # A credential under one of Tico's own names would replace what the turn runs on. The turn runs
+                    # without it, and the bot's readiness and Health name it so a person renames the variable.
+                    log(f"Tico runner: {attempt['bot']}: left the credential {item.get('name') or item['env']} out of "
+                        f"this turn: {item['env']} is a reserved variable name", diagnostic=True)
+            self.vault_names[attempt["id"]] = {item.get("env", "") for item in usable if item.get("env")}
+            for item in usable:
                 key = item.get("env", "")
                 if not key:
                     continue
-                if (not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or key in reserved
-                        or key.startswith(reserved_prefixes)):
-                    raise RuntimeError("A granted credential has a reserved environment name")
                 if any(other.get("env") == key for other in granted["credentials"] if other["id"] != item["id"]):
                     raise RuntimeError("Multiple granted credentials use the same environment name")
                 if item.get("kind") == "file":
@@ -1922,6 +1960,10 @@ class Runner:
             status = (runtimes[runtime].get("profiles", {}).get(profile.name if profile else "") if runtime in runtimes
                       else None) or runtimes.get(runtime, {})
             problems, warnings = [], []
+            for key in getattr(self, "bot_credential_names", {}).get(bot, ()):
+                if reserved_credential(key):
+                    warnings.append(f"Credential {key} is left out of every turn: the name is reserved. "
+                                    "Give it another variable name in Credentials")
             missing_profile = profiles.missing(self.config, entry.get("profile"))
             if entry.get("profile") and not profiles.covers(entry["config"]):
                 problems.append(f"Subscription {entry['profile']} doesn't cover {runtime}")
@@ -1936,7 +1978,7 @@ class Runner:
                 # The assistant, BotOps and the starters first run created are the runner's to set up
                 # from the catalog; every other bot is BotOps's, and stays missing until BotOps has.
                 if not failure and self.assigned_here(entry) and not is_assignment(entry.get("config")):
-                    materialized, failure = self.bootstrap(bot, entry.get("config"), path)
+                    materialized, failure = self.bootstrap(bot, entry.get("config"), path, entry)
                     if not failure and not (path / "AGENT.md").is_file():
                         failure = self.fetch_repository(bot, entry, path)
                 elif not failure and self.assigned_here(entry) and is_assignment(entry.get("config")):
@@ -2043,6 +2085,13 @@ class Runner:
                     self.publish_unpublished(bot, entry, path)
                 if is_assignment(entry.get("config")):
                     published = None     # local task branches are deliberately not published
+            diverged = getattr(self, "publish_notes", {}).get(bot, "")
+            if "already has different history" in diverged or "already has history on" in diverged:
+                # GitHub holds the bot's history and this checkout is not it (a template copy, say): a turn here
+                # would work without the bot's memory, so none runs until a person moves the folder aside and the
+                # runner clones GitHub's copy.
+                problems.append(f"This computer's copy of {bot} is not its history on GitHub ({diverged}). "
+                                f"Move {path} aside; the runner then clones the bot from GitHub")
             rows.append({"bot": bot, "repository": str(path), "runtime": runtime,
                          "profile": profile.name if profile else "", "sign_in": status.get("authenticated", "unknown"),
                          "model": model, "state": entry.get("state"), "ready": not problems,
@@ -2909,7 +2958,14 @@ class Runner:
                     self.last_heartbeat = float("-inf")
                     unavailable = False
                 else:
-                    self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted; inspect local runner"})
+                    # The cause, not just its type: a turn that dies before it starts otherwise shows only the
+                    # server's refusal of its result. Granted values are scrubbed from it (and `log` scrubs again).
+                    cause = (redactor or redact_mod.Redactor(self.vault_values.get(aid, []))).scrub_text(str(exc))[:300]
+                    self.state.append(aid, "diagnostic", {"text": type(exc).__name__ + ": execution interrupted"
+                                                          + (f" ({cause})" if cause else "") + "; inspect local runner"})
+                    if not own_interrupt(exc):
+                        log(f"Tico runner: {bot}: turn {aid} stopped: {type(exc).__name__}" + (f": {cause}" if cause else ""),
+                            diagnostic=True)
                     unavailable = not own_interrupt(exc)
             native_control = bool(((attempt.get("message") or {}).get("refs") or {}).get("command") or
                                   (attempt.get("chat_goal") or {}).get("status") == "active")

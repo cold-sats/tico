@@ -91,6 +91,17 @@ class FetchRepository(unittest.TestCase):
         runner.preflight([entry(generation=3)], RUNTIMES)
         self.assertEqual(cloud.asked, 2)
 
+    def test_a_template_bot_with_history_on_github_is_cloned_not_set_up_afresh(self):
+        real = git_credentials.remote_history
+        with mock.patch.object(git_credentials, "remote_history",
+                               lambda repository, env=None, **kw: real(repository, env, url=str(self.remote))), \
+                mock.patch.object(Runner, "bootstrap_template", lambda *a: "release-notes"), \
+                mock.patch("clients.catalog.materialize") as materialize:
+            row = self.runner(Cloud()).preflight([entry()], RUNTIMES)[0]
+        materialize.assert_not_called()
+        self.assertTrue(row["ready"])
+        self.assertEqual((self.projects / "bot-helper" / "AGENT.md").read_text(), "# Helper\n")
+
     def test_a_computer_only_fetches_what_is_assigned_to_it(self):
         cloud = Cloud()
         row = self.runner(cloud).preflight([entry(runner_id="another-mac")], RUNTIMES)[0]

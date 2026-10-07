@@ -36,6 +36,20 @@ def repository_present(c, bot):
     return bool(report.get("repository_present"))
 
 
+def refuse_runtime(readiness, config, label):
+    """Refuse a move to a computer whose runtime for this bot is not installed or not signed in."""
+    runtime = str(config.get("runtime") or "")
+    if not runtime or config.get("harness") == "antigravity":
+        return                    # Antigravity's sign-in is checked by its first real turn
+    row = (readiness.get("runtimes") or {}).get(runtime) or {}
+    name = (HARNESS_BY_ID.get(runtime) or {}).get("label") or runtime
+    if not row.get("installed"):
+        raise Problem("runner_not_ready", f"{name} is not installed on {label}; install it there before moving this bot", 409)
+    if row.get("authenticated") in ("missing", "failed", "rejected"):
+        raise Problem("runner_not_ready", f"{label} is not signed in to {name}"
+                      + (f" ({row['detail']})" if row.get("detail") else "") + "; sign it in before moving this bot", 409)
+
+
 class SettingsAdmin:
     def __init__(self, store, auth, execution, models, reset_sessions):
         self.store, self.auth, self.execution = store, auth, execution
@@ -598,13 +612,23 @@ class SettingsAdmin:
         # nothing to be ready yet: assigning it is what makes the runner set its repository up.
         if c.execute("SELECT 1 FROM assignments WHERE bot=?", (bot,)).fetchone():
             readiness = readiness_document(runner["readiness_json"])
-            detail = readiness.get("bots", {}).get(bot) if readiness.get("schema_version") == 1 else None
-            if not isinstance(detail, dict):
+            if readiness.get("schema_version") != 1:
                 raise Problem("runner_not_ready", "Update the destination runner before moving this bot", 409)
             # The runner reports what the bot runs on, not what is stored: a bot on the company
             # default stores neither.
             desired = providers.fill(providers.load(c, self.settings),
                                      _json(self._config(c, bot)["config_json"], {}) or {})
+            detail = readiness.get("bots", {}).get(bot)
+            if not isinstance(detail, dict):
+                # A computer that does not host the bot has no report on it, so it is judged by whether it can
+                # run the bot's runtime. The move is what makes its runner clone the repository from GitHub,
+                # which is refused when GitHub does not hold that history.
+                refuse_runtime(readiness, desired, runner["label"])
+                source = self.execution_assignment(c, bot)
+                blocked = stranded(c, self.store.settings, bot, source, runner["id"]) if source else ""
+                if blocked:
+                    raise Problem("repository_unpublished", blocked, 409)
+                return {"runner_id": runner["id"], "label": runner["label"], "operator": runner["operator"]}
             if (str(detail.get("runtime") or "") != str(desired.get("runtime") or "")
                     or str(detail.get("model") or "") != str(desired.get("model") or "")):
                 raise Problem("runner_not_ready",

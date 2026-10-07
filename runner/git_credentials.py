@@ -156,6 +156,27 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
         return "failed", type(exc).__name__
 
 
+def remote_history(repository, env=None, url=None, timeout=30):
+    """Whether GitHub already holds history for a bot's repository: (`present` | `empty` | `unknown`, detail).
+
+    A bot set up from a catalog template is materialized only when its repository has nothing in it yet; one that
+    does is cloned instead, so a moved bot never runs on a fresh template copy. `unknown` (unreachable, no access)
+    says why in `detail`."""
+    env = safe_git.environment(env)
+    wanted = url or f"https://github.com/{repository}.git"
+    try:
+        done = isolation.run([*safe_git.PREFIX, "ls-remote", "--heads", wanted], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return "unknown", "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "unknown", type(exc).__name__
+    if done.returncode != 0:
+        lines = (done.stderr or done.stdout or "").strip().splitlines()
+        return "unknown", (lines[-1] if lines else f"exit {done.returncode}")[:200]
+    return ("present" if done.stdout.strip() else "empty"), ""
+
+
 def clone_repository(path, repository, env=None, url=None, timeout=180):
     """Bring a bot's GitHub repository onto this computer: the other half of `publish_history`.
 
