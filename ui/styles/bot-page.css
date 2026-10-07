@@ -155,6 +155,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
    grouped (setup and tools, what it does, what it did, its docs), each a compact block; long lists show three
    rows and "Show all" (moreClamp in ui/app/bot-page.js); tables become one line a row. */
 .bot-more-top:empty,.more-cut{display:none!important}
+.bot-more-top>:empty,.bot-more-top:not(:has(>:not(:empty):not([hidden]))){display:none!important}   /* nothing to show yet: no gap, no margin */
 @media (max-width:760px){
   #pane-more:not([hidden]){display:flex;flex-direction:column}
   #pane-more>#bot-goals-card{order:1}
@@ -175,7 +176,6 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   :is(#pane-more,#pane-docs) section.card>header h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
   :is(#pane-more,#pane-docs) section.card>header :is(.ghost,.linkish){margin-left:auto;font-size:12.5px;padding:3px 8px}
   .more-all{display:block;margin:8px 0 0;font-size:12.5px;text-decoration:none}
-  #bot-setup-card .bot-setup dd[style]{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
   #bot-goals-card .bot-goal-row{padding:6px 0}
   #sess-turns{max-height:none}
   /* tables as one line a row, no column heads */

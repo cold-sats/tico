@@ -427,7 +427,7 @@ function placeBotHead() {
 }
 // The lists in More that a phone cuts to three: [host, rows, keep the newest last]. Each fills in its own time,
 // so one observer cuts whatever has arrived; "Show all" undoes it for that list until the page is redrawn.
-const MORE_LISTS = [['#bot-tools', '.bt-item'], ['#bot-routines-list', '.rlist>*'], ['#bot-access-card', 'tr:not(:first-child)'],
+const MORE_LISTS = [['#bot-tools', '.bt-item'], ['#bot-routines-list', '.rlist>*'], ['#bot-access-card .scroll', 'tr:not(:first-child)'],
   ['#v2-history', 'tr:not(:first-child)'], ['#bot-recent-runs', 'tr:not(:first-child)'], ['#sess-turns', ':scope>*', true]];
 const MORE_KEEP = 3;
 function moreClamp() {

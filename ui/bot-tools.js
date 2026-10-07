@@ -38,7 +38,9 @@
   .bt-list .bt-item{grid-template-columns:22px minmax(0,1fr) auto;align-items:center;padding:7px 0}
   .bt-list .bt-icon-static{grid-row:auto}
   .bt-list .bt-state{display:block;font-size:12px;text-align:right}
-  .bt-list .bt-item dl{display:none}
+  .bt-list .bt-item{cursor:pointer}
+  .bt-list .bt-item dl{display:none;grid-column:2/-1}
+  .bt-list .bt-item.open dl{display:grid}
 }
 .bt-list .bt-problem{color:var(--fail)}
 .bts-tip{max-width:300px}
@@ -202,7 +204,7 @@
       rows.push(['Status', status]);
       return `<dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>`;
     }
-    // A phone shows one line per tool, its name and only what is wrong; the details are for a wider screen.
+    // A phone shows one line per tool, its name and only what is wrong; a tap opens its details.
     const state = tool => tool.status === 'problem'
       ? `<span class="bt-state">${tool.problem ? `<span class="bt-problem">${esc(tool.problem)}</span>` : statusPill(tool)}</span>` : '';
     async function refresh() {
@@ -216,6 +218,10 @@
             <span class="bt-icon-static${tint(tool)}">${icons().markup(tool)}</span>
             <span class="bt-name">${esc(tool.name)}</span>${state(tool)}${detail(tool)}</div>`).join('') : '<div class="empty">None.</div>');
     }
+    host.addEventListener('click', ev => {
+      const item = ev.target.closest('.bt-item');
+      if (item && !ev.target.closest('a') && matchMedia('(max-width: 760px)').matches) item.classList.toggle('open');
+    });
     refresh();
   }
 
