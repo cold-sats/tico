@@ -3,6 +3,7 @@ schedule, it catches a stalled event loop in the act, and the start record holds
 import json
 import threading
 import time
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -64,6 +65,58 @@ def test_a_full_buffer_counts_what_it_drops(monkeypatch):
         rec.query("SELECT 1", 0.1)
     rec.drain(MINUTE)
     assert rec.take(MINUTE)["process"][-1] == 2 and rec.take(MINUTE)["process"][-1] == 0
+
+
+def test_table_sizes_are_reused_for_a_day_even_after_a_restart(store, monkeypatch):
+    with store.transaction() as c:
+        c.execute("CREATE TABLE size_fixture(created INTEGER, payload BLOB)")
+        # Large enough to appear in the top 40 alongside the initialized schema's tables/indexes.
+        c.execute("INSERT INTO size_fixture VALUES(?, zeroblob(?))", (MINUTE, 128 * 1024))
+    monkeypatch.setattr(flight, "BIG", {**flight.BIG, "size_fixture": "created"})
+    scans = []
+    read = store.read
+
+    @contextmanager
+    def traced_read():
+        with read() as c:
+            def trace(sql):
+                if "FROM dbstat" in sql:
+                    scans.append((sql, c.in_transaction))
+            c.set_trace_callback(trace)
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
+    monkeypatch.setattr(store, "read", traced_read)
+
+    sampler = flight.Flight(store.recorder, store, store.settings)
+    sampler.size_db(MINUTE)
+    with store.read() as c:
+        first = flight._db(c, MINUTE)
+    assert first["objects"]["size_fixture"] > 0
+    assert len(scans) == 1
+    with store.transaction() as c:
+        c.execute("INSERT INTO size_fixture VALUES(?, zeroblob(?))", (MINUTE + 1, 256 * 1024))
+    sampler.size_db(MINUTE + 3600)
+    # A new recorder must use the persisted sample rather than repeat the scan on each restart.
+    sampler = flight.Flight(store.recorder, store, store.settings)
+    sampler.size_db(MINUTE + 7200)
+    with store.read() as c:
+        reused = flight._db(c, MINUTE + 7200)
+    assert len(scans) == 1
+    assert reused["objects"] == first["objects"] and reused["objects_at"] == MINUTE
+    assert reused["at"] == (MINUTE + 7200) // 3600 * 3600
+    assert reused["rows"]["size_fixture"] == 2 and reused["oldest"]["size_fixture"] == MINUTE
+
+    sampler.size_db(MINUTE + 86400)
+    with store.read() as c:
+        refreshed = flight._db(c, MINUTE + 86400)
+        assert [r[1] for r in c.execute("PRAGMA table_info(flight_db)")] == [
+            "ts", "bytes", "wal_bytes", "free_bytes", "detail_json"]
+    assert len(scans) == 2
+    assert refreshed["objects_at"] == MINUTE + 86400
+    assert refreshed["objects"]["size_fixture"] > first["objects"]["size_fixture"]
+    assert all("aggregate=TRUE" in sql and not in_transaction for sql, in_transaction in scans)
 
 
 def test_only_owners_and_admins_read_the_metrics(tmp_path):
