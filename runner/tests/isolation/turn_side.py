@@ -21,7 +21,7 @@ BOT_TOKEN = "ghs_fake_alpha_token"
 
 class Hub:
     def post(self, path, body):
-        assert path == "github/token" and body == {"bot": "alpha"}
+        assert path == "github/token" and body == {"bot": "alpha", "purpose": "git"}
         return {"configured": True, "token": BOT_TOKEN, "repository": "acme/alpha"}
 
 

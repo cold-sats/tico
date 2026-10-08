@@ -1,9 +1,9 @@
 """GitHub credentials from the team's GitHub App (backend/github_app.py), scoped to the bot's repository.
 
 The hub mints an installation token that lasts an hour, and a turn can run longer, so git does not
-keep one: its credential helper is this module, which gets a fresh token on every credential
-request: from the hub with the runner's own registration, or, where bot code cannot read that file
-(runner/isolation.py), from the supervisor's socket with the turn's attempt token. The helper is configured through
+keep one: its credential helper is this module, which asks the hub on every credential request and
+can reuse a still-valid cached token: from the hub with the runner's own registration, or, where bot code
+cannot read that file (runner/isolation.py), from the supervisor's socket with the turn's attempt token. The helper is configured through
 environment variables (no file, no askpass script on disk) and the token is only ever printed to
 git. `gh` selects a token for its repository through a turn-local command wrapper. With no App
 connected, the turn keeps the machine’s git access. App token failures disable that fallback.
@@ -11,8 +11,9 @@ connected, the turn keeps the machine’s git access. App token failures disable
 Precedence: the App's token wins for every repository in the connected organization. A `GH_TOKEN` credential
 granted to the bot is kept aside (`OTHER_TOKEN_KEY`) and used only for repositories outside that organization,
 so a stale personal token can never shadow the App. A login shell resets PATH (Debian's /etc/profile, macOS's
-path_helper), which hides the wrapper; the runner image restores the turn's PATH from `TURN_PATH_KEY`, and the
-`GH_TOKEN` a bare `gh` falls back to is minted with most of its hour left (backend/github_app.py REFRESH_MARGIN).
+path_helper), which hides the wrapper; the runner image restores the turn's PATH from `TURN_PATH_KEY`. PR236
+restores that wrapper path on Macs. The start-of-turn `GH_TOKEN` keeps at least 45 minutes remaining, while
+the credential helper's explicit git-purpose request can reuse a token with at least 10 minutes remaining.
 """
 import json
 import os
@@ -309,10 +310,11 @@ def credential(config_path, bot, socket_path=None, repository=None):
     try:
         if socket_path:
             return credential_socket.request(socket_path, os.environ.get("HUB_TOKEN", ""), timeout=15,
-                                             repository=repository)
+                                             repository=repository, purpose="git")
         if config_path:
             config = json.loads(Path(config_path).read_text())
-            granted = Client(config["url"], config["token"], timeout=10, retries=1).post("github/token", {"bot": bot})
+            granted = Client(config["url"], config["token"], timeout=10, retries=1).post(
+                "github/token", {"bot": bot, "purpose": "git"})
             return select_token(granted, repository)
     except Exception as exc:
         print(f"Tico runner: no fresh GitHub App token ({type(exc).__name__})", file=sys.stderr)

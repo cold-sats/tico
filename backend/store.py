@@ -1167,6 +1167,18 @@ class Store:
         finally:
             self._give(c)
 
+    @contextmanager
+    def read_transaction(self):
+        """A consistent SQLite snapshot for multi-query authorization without taking a write lock."""
+        with self.read() as c:
+            c.execute("BEGIN")
+            try:
+                yield c
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
+
     def _file(self):
         try:
             stat = os.stat(self.settings.db_path)

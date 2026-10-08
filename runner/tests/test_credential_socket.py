@@ -87,7 +87,7 @@ def test_socket_preserves_repository_selection_and_attempt_identity(monkeypatch,
         monkeypatch.setattr("sys.stdin", io.StringIO("protocol=https\nhost=github.com\npath=Acme/docs.git\n\n"))
         G.main(["--socket", server.path, "--bot", "another-bot"])
         assert capsys.readouterr().out == "username=x-access-token\npassword=read-token\n"
-        assert calls[-1] == ("github/token", {"bot": "alpha"})
+        assert calls[-1] == ("github/token", {"bot": "alpha", "purpose": "git"})
         with pytest.raises(ValueError):
             C.request(server.path, "attempt-a", repository="Acme/unknown")
         grants.pop("tokens")

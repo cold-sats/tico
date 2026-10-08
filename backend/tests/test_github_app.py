@@ -1,6 +1,7 @@
 """The GitHub App: manifest, state nonce, secret storage, installation tokens, runner scope."""
 import json
 import sqlite3
+import statistics
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,7 @@ class FakeGitHub:
         self.repositories = []
         self.setup_files = {}
         self.ttl = 3600
+        self.clock = time.time
         self.generate_status = 201
         self.delete_status = 204
         self.refuse = None                       # (status, message) for every token request
@@ -80,7 +82,7 @@ class FakeGitHub:
             if body and self.selection == "selected" and any(
                     name not in self.selected_repositories for name in body.get("repositories", [])):
                 return httpx.Response(422, json={"message": "Repository is not in this selected installation"})
-            exp = datetime.now(timezone.utc) + timedelta(seconds=self.ttl)
+            exp = datetime.fromtimestamp(self.clock(), timezone.utc) + timedelta(seconds=self.ttl)
             return httpx.Response(201, json={"token": "ghs_" + uuid.uuid4().hex, "expires_at": exp.strftime("%Y-%m-%dT%H:%M:%SZ")})
         if path.startswith("/orgs/") and path.endswith("/repos"):
             repository = path.split("/")[2] + "/" + body["name"]
@@ -274,8 +276,76 @@ def put_extras(api, bot, repos, who="owner-test"):
     return api.put(f"/api/v2/bots/{bot}/github-repos", json={"repositories": repos}, headers=auth(who))
 
 
-def turn_token(api, bot="cpo"):
-    return api.post("/api/v2/github/token", json={"bot": bot}, headers=auth("runner-test"))
+def turn_token(api, bot="cpo", purpose="turn"):
+    body = {"bot": bot}
+    if purpose != "turn":
+        body["purpose"] = purpose
+    return api.post("/api/v2/github/token", json=body, headers=auth("runner-test"))
+
+
+def test_per_call_token_reuses_cache_without_writes_but_turn_start_keeps_45_minutes(api, gh, monkeypatch):
+    connect(api)
+    runner_token(api, "cpo")
+    clock = [time.time()]
+    gh.clock = lambda: clock[0]
+    monkeypatch.setattr(G.time, "time", lambda: clock[0])
+
+    started = turn_token(api)
+    assert started.status_code == 200, started.text
+    first = started.json()
+    remaining = G._iso(first["expires_at"]) - clock[0]
+    assert remaining >= G.TURN_START_REFRESH_MARGIN
+    github_mints = len(gh.of("/access_tokens"))
+    with api.app_state.store.read() as c:
+        events_before = c.execute("SELECT COUNT(*) FROM events WHERE action='github.token'").fetchone()[0]
+    clock[0] += 49 * 60  # the first 49 minutes of the old 45-minute-margin policy are the slow path
+
+    store = api.app_state.store
+    original_transaction = store.transaction
+    writes = []
+    def counted_transaction():
+        writes.append(True)
+        return original_transaction()
+    monkeypatch.setattr(store, "transaction", counted_transaction)
+
+    timings = []
+    for _ in range(40):
+        started_at = time.perf_counter()
+        refreshed = turn_token(api, purpose="git")
+        timings.append((time.perf_counter() - started_at) * 1000)
+        assert refreshed.status_code == 200, refreshed.text
+        assert refreshed.json()["token"] == first["token"]
+    assert len(gh.of("/access_tokens")) == github_mints
+    assert not writes, "a valid per-call cache hit must not open a write transaction"
+    with store.read() as c:
+        assert c.execute("SELECT COUNT(*) FROM events WHERE action='github.token'").fetchone()[0] == events_before
+    print(f"CACHED_GITHUB_TOKEN_P50_MS={statistics.median(timings):.2f}")
+
+    # Below ten minutes remaining, a per-call refresh mints again.
+    clock[0] += 2 * 60
+    next_git = turn_token(api, purpose="git")
+    assert next_git.status_code == 200, next_git.text
+    assert len(gh.of("/access_tokens")) == github_mints + 1
+    assert G._iso(next_git.json()["expires_at"]) - clock[0] >= G.GIT_CALL_REFRESH_MARGIN
+
+    # A token with only 44 minutes left is fine for a one-off git request but not a new turn seed.
+    clock[0] += 16 * 60
+    next_turn = turn_token(api)
+    assert next_turn.status_code == 200, next_turn.text
+    next_body = next_turn.json()
+    assert len(gh.of("/access_tokens")) == github_mints + 2
+    assert G._iso(next_body["expires_at"]) - clock[0] >= G.TURN_START_REFRESH_MARGIN
+    assert next_body["token"] != first["token"]
+
+    # An expired cached token still goes to GitHub, and mint errors keep their existing diagnosis.
+    clock[0] += 61 * 60
+    gh.refuse = (500, "ghs_SYNTHETIC_DO_NOT_EXPOSE")
+    mints_before_error = len(gh.of("/access_tokens"))
+    failed = turn_token(api, purpose="git")
+    assert failed.status_code == 502 and failed.json()["error"]["code"] == "github_token"
+    assert "HTTP 500" in failed.json()["error"]["detail"]
+    assert len(gh.of("/access_tokens")) == mints_before_error + 1
+    assert token_health(api)
 
 
 def test_extra_repositories_join_the_turn_token_with_the_same_permissions(api, gh):
