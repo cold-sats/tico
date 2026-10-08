@@ -1507,6 +1507,7 @@ def create_app(settings=None):
         with_archived = (include_archived or "").lower() in ("1", "true", "yes")
         from .chat_goals import readable_active
         with store.read() as c:
+            privacy.snapshot(c)
             registry_roster, registry_entries = views.roster(c), views.entries(c, settings.github_owner)
             access = auth.bot_accesses(c, who)
             shown = []
@@ -2880,12 +2881,14 @@ def create_app(settings=None):
             if bot:
                 auth.target(c, who, bot, need="read")
                 from .views import since_time
-                return {"bot": bot, "status": status_line(c, who, bot, default),
-                        "history": [privacy.status(c, who, r) for r in H.status_history(c, bot, since=since_time(since))]}
+                inputs = privacy.status_inputs(c, [bot])[bot]
+                return {"bot": bot, "status": status_line(c, who, bot, default, inputs),
+                        "history": [privacy.status(c, who, r, **inputs) for r in H.status_history(c, bot, since=since_time(since))]}
             from .views import updating
             readable = auth.bot_accesses(c, who)
-            return {"bots": [status_line(c, who, s["bot"], default) for s in H.status_all(c)
-                             if readable.get(s["bot"], auth.FULL)["read"]],
+            statuses = [s for s in H.status_all(c) if readable.get(s["bot"], auth.FULL)["read"]]
+            inputs = privacy.status_inputs(c, [s["bot"] for s in statuses])
+            return {"bots": [status_line(c, who, s["bot"], default, inputs[s["bot"]]) for s in statuses],
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
 
@@ -3290,7 +3293,8 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             auth.require_read(c, who, bot)
-            return [privacy.status(c, who, row) for row in H.status_history(c, bot, since=views.since_time(since))]
+            inputs = privacy.status_inputs(c, [bot])[bot]
+            return [privacy.status(c, who, row, **inputs) for row in H.status_history(c, bot, since=views.since_time(since))]
 
     @app.get("/api/v2/bots/{bot}/turns")
     def turns(request: Request, bot: str, since: str | None = None):

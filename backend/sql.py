@@ -10,10 +10,14 @@ denied outright. Nothing here depends on prompt text.
 """
 
 import base64
+from collections import OrderedDict
+from contextvars import copy_context
 import hashlib
+from pathlib import Path
 import re
 import secrets
 import sqlite3
+import threading
 import time
 
 from fastapi import Request
@@ -45,6 +49,74 @@ DENIED_FUNCTIONS = {"load_extension"}
 FTS_SHADOWS = ("_data", "_idx", "_content", "_docsize", "_config")
 STATEMENT = re.compile(r"^\s*(?:(?:--[^\n]*\n?|/\*.*?\*/)\s*)*(select|with|explain\s+query\s+plan)\b", re.I | re.S)
 
+_SCHEMAS = OrderedDict()
+_SCHEMA_LOCK = threading.Lock()
+
+
+def schema_columns(conn, path):
+    """Only schema metadata is shared. DDL and a restored/replaced file invalidate it."""
+    path = Path(path).resolve()
+    info = path.stat()
+    version = conn.execute("PRAGMA main.schema_version").fetchone()[0]
+    key = (str(path), info.st_dev, info.st_ino, version)
+    with _SCHEMA_LOCK:
+        columns = _SCHEMAS.setdefault(key, {})
+        _SCHEMAS.move_to_end(key)
+        if len(_SCHEMAS) > 16:
+            _SCHEMAS.popitem(last=False)
+
+    class Columns:
+        def get(self, table, default=()):
+            # Load only exposed tables; hidden/internal tables need no view metadata.
+            with _SCHEMA_LOCK:
+                if table not in columns:
+                    columns[table] = tuple(row[1] for row in conn.execute(
+                        'PRAGMA main.table_info("' + table.replace('"', '""') + '")'))
+                return columns[table] or default
+    return Columns()
+
+
+class Audit:
+    """Share a commit among callers queued behind the current audit writer.
+
+    Each request waits for its own durable event. There is no background worker,
+    fire-and-forget audit or lock held during query evaluation.
+    """
+    def __init__(self, store):
+        self.store, self.pending = store, []
+        self.condition, self.writing = threading.Condition(), False
+
+    def record(self, actor, detail):
+        entry = {"actor": actor, "detail": detail, "context": copy_context(), "done": False, "error": None}
+        with self.condition:
+            self.pending.append(entry)
+            self.condition.notify_all()
+            while not entry["done"]:
+                if self.writing:
+                    self.condition.wait()
+                    continue
+                batch, self.pending, self.writing = self.pending, [], True
+                self.condition.release()
+                error = None
+                try:
+                    with self.store.transaction() as c:
+                        for item in batch:
+                            item["context"].run(H.event, c, item["actor"], "sql.query", "", item["detail"])
+                except BaseException as exc:
+                    error = exc
+                finally:
+                    self.condition.acquire()
+                    for item in batch:
+                        item.update(done=True, error=error)
+                    self.writing = False
+                    self.condition.notify_all()
+            if entry["error"] is not None:
+                raise entry["error"]
+
+
+class ReadConnection(sqlite3.Connection):
+    pass
+
 
 class Query(Contract):
     sql: str = Field(min_length=1, max_length=20_000)
@@ -52,7 +124,7 @@ class Query(Contract):
     max_rows: int | None = Field(default=None, ge=1, le=5000)
 
 
-def guarded(c, auth, who, inner, function):
+def guarded(c, auth, who, inner, function, columns=None):
     """Every table a caller may read through a view: name -> (row predicate, hidden columns).
 
     The predicates say in SQL what `auth.bot_access`, `auth.conversation`, `auth.task` and
@@ -81,10 +153,10 @@ def guarded(c, auth, who, inner, function):
         participant = "1" if owner else f"EXISTS (SELECT 1 FROM json_each(participants_json) WHERE value={me})"
         conversations = (f"CASE COALESCE(scope,'direct') WHEN 'personal' THEN COALESCE(owner_actor,{first_human})={me} "
                          f"WHEN 'shared' THEN {room_bot} IN {qlist(shared)} ELSE {participant} END")
-    tasks = auth.task_sql(c, who, delegations=inner("task_delegations"))
+    tasks = auth.task_sql(c, who, delegations=inner("task_delegations"), unreadable=hidden)
     # Evaluate provenance only for candidate rows, never scan unrelated content first.
     msg_gate = function("message") + "(id,conversation_id,refs_json,in_reply_to)"
-    message_columns = {r[1] for r in c.execute("PRAGMA table_info(messages)")}
+    message_columns = set(columns.get("messages", ())) if columns is not None else {r[1] for r in c.execute("PRAGMA table_info(messages)")}
     for deleted in ("deleted_at", "deleted"):
         if deleted in message_columns:
             msg_gate += f" AND coalesce({deleted},0)=0"
@@ -223,7 +295,7 @@ def guarded(c, auth, who, inner, function):
                          "AND (t.private IS NULL OR t.private<>0) AND NOT " +
                          function("task") + "(t.id))")
     for table in ("docs", "doc_versions", "linked_docs", "documents", "document_versions"):
-        cols = [r[1] for r in c.execute(f'PRAGMA table_info("{table}")')]
+        cols = columns.get(table, ()) if columns is not None else [r[1] for r in c.execute(f'PRAGMA table_info("{table}")')]
         rules[table] = "(" + rules[table] + ") AND " + content_gate(cols)
     rules["task_file_reviews"] = "file_id IN (SELECT id FROM bot_files) OR file_id IN (SELECT id FROM blobs)"
     rules["bot_file_activity"] += " AND (task_id IS NULL OR " + by_task + ") AND (attempt_id IS NULL OR " + by_attempt + ")"
@@ -240,15 +312,23 @@ def connect(path, c, auth, who, trace=None):
     inner = lambda table: f'"{prefix}{table}"'  # noqa: E731
     function = lambda name: f'"{prefix}privacy_{name}"'  # noqa: E731
     # Internal provenance SELECTs cannot leave authorized prepared statements for callers.
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5, isolation_level=None, cached_statements=0)
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5, isolation_level=None, cached_statements=0, factory=ReadConnection)
     conn.row_factory = sqlite3.Row
+    conn.read_cache, conn.private_prefix = {}, prefix
     if trace:
         conn.set_trace_callback(trace)
     trusted = [False]
     try:
         # Predicates, provenance and result rows use one read snapshot.
         conn.execute("BEGIN")
-        tables = guarded(conn, auth, who, inner, function)
+        columns = schema_columns(conn, path)
+        tables = guarded(conn, auth, who, inner, function, columns)
+        # Subqueries through tasks (messages, events, files, etc.) reuse this exact
+        # request's visibility result. An indexed temp set cannot survive revocation.
+        visible = prefix + "visible_tasks"
+        conn.execute(f'CREATE TEMP TABLE "{visible}"(id TEXT PRIMARY KEY) WITHOUT ROWID')
+        conn.execute(f'INSERT INTO "{visible}" SELECT id FROM main.tasks WHERE ' + tables["tasks"][0])
+        tables["tasks"] = (f'id IN (SELECT id FROM "{visible}")', tables["tasks"][1])
         source_tables = set(tables) | {"blob_media"}
         class Source:
             def execute(self, statement, args=()):
@@ -271,11 +351,11 @@ def connect(path, c, auth, who, trace=None):
         conn.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 0)
         conn.execute("PRAGMA busy_timeout=5000")
         for table, (_, hidden) in tables.items():
-            columns = [row[1] for row in conn.execute(f'PRAGMA table_info("{table}")') if row[1] not in hidden
-                       and (table not in SAFE_COLUMNS or row[1] in SAFE_COLUMNS[table])]
-            if not columns:
+            exposed = [name for name in columns.get(table, ()) if name not in hidden
+                       and (table not in SAFE_COLUMNS or name in SAFE_COLUMNS[table])]
+            if not exposed:
                 raise Problem("schema", f"Table {table} is missing from this database", 500)
-            names = ",".join(f'"{column}"' for column in columns)
+            names = ",".join(f'"{column}"' for column in exposed)
             conn.execute(f'CREATE TEMP VIEW {inner(table)} AS SELECT {names} FROM main."{table}"')
         for table, (predicate, _) in tables.items():
             projection = "*"
@@ -337,6 +417,8 @@ def connect(path, c, auth, who, trace=None):
                 return sqlite3.SQLITE_OK
             return sqlite3.SQLITE_DENY
         if schema == "temp":
+            if table == visible:
+                return sqlite3.SQLITE_OK if context == "tasks" else sqlite3.SQLITE_DENY
             if table in tables:
                 return sqlite3.SQLITE_OK
             return sqlite3.SQLITE_OK if table in inner_names and context in tables else sqlite3.SQLITE_DENY
@@ -368,8 +450,12 @@ def run(conn, sql, params, cap, seconds):
         raise Problem("sql", str(exc), 422) from exc
     ms = round((time.monotonic() - started) * 1000)
     blobs = any(isinstance(value, bytes) for row in rows for value in row)
+    kind = STATEMENT.match(sql)
+    explain = bool(kind and kind[1].lower().startswith("explain"))
     result = {"columns": [d[0] for d in cursor.description or ()],
-              "rows": [[json_value(value) for value in row] for row in rows[:cap]],
+              "rows": [[json_value(value).replace(conn.private_prefix, "") if isinstance(value, str) and
+                        explain else json_value(value)
+                        for value in row] for row in rows[:cap]],
               "row_count": min(len(rows), cap), "truncated": len(rows) > cap, "ms": ms}
     if blobs:
         result["note"] = "BLOB values are base64"
@@ -377,6 +463,7 @@ def run(conn, sql, params, cap, seconds):
 
 
 def install_sql(app, store, auth):
+    audit = Audit(store)
     @app.post("/api/v2/sql")
     def query(request: Request, body: Query):
         who = request.state.identity
@@ -410,5 +497,4 @@ def install_sql(app, store, auth):
             detail["error"] = exc.code
             raise
         finally:
-            with store.transaction() as c:
-                H.event(c, who.actor, "sql.query", "", detail)
+            audit.record(who.actor, detail)

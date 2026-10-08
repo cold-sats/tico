@@ -17,6 +17,7 @@ from . import people as P
 from . import rooms
 from . import service_keys
 from . import team_rules
+from . import read_cache
 from .store import H, Problem, digest
 
 # Loopback sign-in for an environment with no identity proxy in front of it.
@@ -93,7 +94,7 @@ class Identity:
 def standing(c, pid):
     """"left" when marked as left on the roster (backend/app.py person_update, which also ended their tokens),
     "off" when an owner or admin turned their sign-in off (Settings > Humans), else ""."""
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+    row = read_cache.metadata(c, "people")
     if not row:
         return ""
     try:
@@ -542,10 +543,7 @@ class Auth:
         """{slug: {see, read, write}} for this caller, for `slugs` (default every bot with a
         configuration). One pass, so a list answers with the same rules as a single check."""
         wanted = list(dict.fromkeys(slugs)) if slugs is not None else None
-        sql = "SELECT bot,access_json,operator,reports_to,bot_owners_json FROM bot_config"
-        if wanted is not None:
-            sql += " WHERE bot IN (" + ",".join("?" * len(wanted)) + ")"
-        rows = {r["bot"]: r for r in c.execute(sql, tuple(wanted or ()) if wanted is not None else ())}
+        rows = {r["bot"]: r for r in read_cache.configs(c, wanted)}
         out = {}
         if who.role not in ("human", "owner", "bot") or who.role == "owner":
             return {slug: dict(self.FULL) for slug in (wanted if wanted is not None else rows)}
@@ -558,7 +556,7 @@ class Auth:
                 shared.update(
                     roster=roster, entries=views.entries(c),
                     archived={r["slug"] for r in H.bots(c) if r.get("state") == "archived"},
-                    parents={r["bot"]: r["reports_to"] or "" for r in c.execute("SELECT bot,reports_to FROM bot_config")})
+                    parents={r["bot"]: r["reports_to"] or "" for r in read_cache.configs(c)})
                 pid = H.actor_id(who.actor)
                 shared["person"] = pid
                 own = (P.person(pid, roster) or {}).get("team") or ""
@@ -657,7 +655,7 @@ class Auth:
             return True
         return False
 
-    def task_sql(self, c, who, delegations="task_delegations"):
+    def task_sql(self, c, who, delegations="task_delegations", unreadable=None):
         """Company tasks are readable subject to bot activity controls; private tasks have two parties.
 
         Ownership, type-wide work, ancestry and delegation never widen private visibility.
@@ -666,7 +664,7 @@ class Auth:
         self.task_snapshot(c)
         if who.role not in ("owner", "human", "bot"):
             return "0"
-        hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who))]
+        hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who) if unreadable is None else unreadable)]
         clear = ("NOT (owner IN %s OR requester IN %s)" % ((A.qlist(hidden),) * 2)) if hidden else "1"
         me = A.q(who.actor)
         audience = f"({me} IN (owner,requester) OR (coalesce(private,1)=0 AND ({clear})))"

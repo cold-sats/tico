@@ -3,6 +3,7 @@ of them, then lookups, so a request costs about the same for 7 bots as for 90. P
 are per task, job or message stay per row (backend/task_privacy.py); only the reading is shared."""
 
 from . import task_privacy as privacy
+from . import read_cache
 from .harnesses import is_external, resolve_harness
 from .shared_bots import _json, source_of
 from .store import H
@@ -23,10 +24,10 @@ class BotRows:
         privacy.snapshot(c)
         slugs = list(dict.fromkeys(slugs))
         read = [slug for slug in slugs if slug in readable]
-        self.configs = _by(c, "SELECT * FROM bot_config WHERE bot IN ({})", slugs)
+        self.configs = {r["bot"]: r for r in read_cache.configs(c, slugs)}
         # The originals of shared bots, which a branch follows.
         sources = {source_of(_json(row["config_json"])) for row in self.configs.values()} - {""} - set(self.configs)
-        self.configs.update(_by(c, "SELECT * FROM bot_config WHERE bot IN ({})", sorted(sources)))
+        self.configs.update({r["bot"]: r for r in read_cache.configs(c, sources)})
         self.humans = {row["id"]: row for row in H.humans(c)}
         self.assignments = _by(c, "SELECT a.bot,a.runner_id,a.generation,r.label,r.operator,r.last_seen,"
                                   "r.revoked_at FROM assignments a JOIN runners r ON r.id=a.runner_id "

@@ -101,6 +101,8 @@ def test_the_base_tables_cannot_be_reached_around_the_views(api, world):
     # Nothing in a response names the connection's inner views.
     plan = json.dumps(query(api, "EXPLAIN QUERY PLAN SELECT * FROM messages m JOIN tasks t ON t.conversation_id=m.conversation_id"))
     assert not re.search(r"v[0-9a-f]{24}_", plan), plan
+    commented = json.dumps(query(api, "-- comment\n/* comment */ EXPLAIN QUERY PLAN SELECT * FROM tasks"))
+    assert not re.search(r"v[0-9a-f]{24}_", commented), commented
 
 
 def test_owner_sees_everything_but_other_peoples_rooms(api, world):
@@ -201,3 +203,119 @@ def test_json_table_functions_are_read_only_and_keep_source_visibility(api, worl
         assert "not authorized" in error(api, "SELECT load_extension('missing')", token)
     assert query(api, "SELECT count(*) FROM messages m, json_tree(m.refs_json) j",
                  world["attempt"]["token"])["rows"][0][0] >= 1
+
+
+def test_materialized_visibility_matches_the_predicate_and_never_survives_a_request(api, world):
+    """A private subtree, delegation or cycle must not widen a caller's task set."""
+    from dataclasses import replace
+    from backend import sql as S
+    from backend.auth import Identity
+    auth, store = api.app.state.auth, api.app.state.store
+    with store.transaction() as c:
+        for i, (owner, requester, private) in enumerate([
+            ('bot:ops', 'human:ana', 0), ('bot:ops', 'human:ana', 1),
+            ('bot:finance', 'human:cara', 1), ('bot:inbox', 'human:ana', 0),
+            ('human:ben', 'human:ana', 1), ('bot:ops', 'human:cara', 0),
+        ]):
+            c.execute('INSERT INTO tasks(id,title,owner,requester,private,status,created,updated) VALUES(?,?,?,?,?,?,?,?)',
+                      (f'tree-{i}', 'Synthetic tree', owner, requester, private, 'open', H.now(), H.now()))
+        for child, parent in [(1, 0), (2, 1), (3, 0), (4, 2), (0, 4)]:
+            c.execute("INSERT INTO task_relations(from_task,to_task,kind,created,created_by) VALUES(?,?,'parent',?,?)",
+                      (f'tree-{child}', f'tree-{parent}', H.now(), 'human:ana'))
+        c.execute("INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)",
+                  ('tree-1', 'human:cara', 'human:ana', c.execute('SELECT id FROM messages LIMIT 1').fetchone()[0],
+                   H.shift(H.now(), seconds=3600)))
+        c.execute("INSERT INTO assignment_branches(id,source_bot,assignment_key,generation,bot,task_id,allocator,runner_id,"
+                  "display_name,phase,request_hash,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  ('synthetic-assignment', 'ops', 'fixture', 1, 'doc-updater', 'tree-0', 'human:ana',
+                   world['machine']['runner_id'], 'Synthetic branch', 'working', 'fixture', H.now(), H.now()))
+    callers = [Identity('human:ana', 'owner'), Identity('human:ben', 'human'),
+               Identity('human:cara', 'human'), Identity('bot:ops', 'bot'), Identity('bot:doc-updater', 'bot'),
+               replace(Identity('human:ana', 'owner'), task_actor='bot:ops')]
+    # Use the pre-materialization predicate as the independent reference, including full rows.
+    def compare(who):
+        with store.read() as c:
+            predicate = auth.task_sql(c, who)
+            expected = json.dumps([dict(r) for r in c.execute('SELECT * FROM tasks WHERE ' + predicate + ' ORDER BY id')], sort_keys=True)
+            conn = S.connect(store.settings.db_path, c, auth, who)
+            try:
+                found = S.run(conn, 'SELECT * FROM tasks ORDER BY id', [], 5000, 20)
+                actual = json.dumps([dict(zip(found['columns'], row)) for row in found['rows']], sort_keys=True)
+                assert actual == expected
+                with pytest.raises(__import__("sqlite3").DatabaseError):
+                    conn.execute('SELECT * FROM "' + conn.private_prefix + 'visible_tasks"').fetchall()
+            finally:
+                conn.close()
+    for who in callers:
+        compare(who)
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET owner='bot:finance',requester='human:ben',private=1 WHERE id='tree-5'")
+        c.execute("UPDATE bot_config SET access_json=? WHERE bot='ops'", (json.dumps({
+            level: {'everyone': False, 'people': [], 'teams': [], 'bots': []} for level in ('see','read','write')}),))
+    for who in callers:
+        compare(who)
+    # Cached columns are metadata only: schema changes cannot leave a newly added column hidden/stale.
+    query(api, 'SELECT * FROM task_types')
+    with store.transaction() as c:
+        c.execute('ALTER TABLE task_types ADD COLUMN synthetic_fixture TEXT')
+    assert 'synthetic_fixture' in query(api, 'SELECT * FROM task_types')['columns']
+
+
+def test_parallel_audits_share_a_commit_without_early_ack_or_lost_context(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    import threading
+    from backend.config import Settings
+    from backend.store import Store
+    from backend.sql import Audit
+    store = Store(Settings(db_path=tmp_path / 'synthetic.sqlite'))
+    # Keep this fixture independent of a full API boot.
+    with store.transaction() as c:
+        c.execute('CREATE TABLE receipts(actor TEXT, detail TEXT)')
+    started, release = threading.Event(), threading.Event()
+    original = store.transaction
+    commits = []
+    @contextmanager
+    def held():
+        with original() as c:
+            commits.append(1)
+            if len(commits) == 1:
+                started.set()
+                assert release.wait(30)
+            yield c
+    store.transaction = held
+    audit = Audit(store)
+    from unittest.mock import patch
+    def event(c, actor, action, target, detail):
+        c.execute('INSERT INTO receipts VALUES(?,?)', (actor, json.dumps({**detail, 'via': H.VIA.get()})))
+    def record(i):
+        token = H.VIA.set(f'assistant-{i}')
+        try:
+            audit.record(f'human:fixture-{i}', {'i': i})
+        finally:
+            H.VIA.reset(token)
+    with patch('backend.sql.H.event', event), ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(record, 0)]
+        assert started.wait(30)
+        futures.extend(pool.submit(record, i) for i in range(1, 8))
+        # A condition, not a sleep: wait until all seven callers are actually queued.
+        with audit.condition:
+            assert audit.condition.wait_for(lambda: len(audit.pending) == 7, timeout=30)
+        assert not any(f.done() for f in futures)
+        release.set()
+        for f in futures:
+            f.result(timeout=30)
+    assert len(commits) == 2
+    with store.read() as c:
+        receipts = {r[0]: json.loads(r[1]) for r in c.execute('SELECT * FROM receipts')}
+    assert receipts == {f'human:fixture-{i}': {'i': i, 'via': f'assistant-{i}'} for i in range(8)}
+    @contextmanager
+    def failed():
+        with original() as c:
+            yield c
+            raise RuntimeError('synthetic commit failure')
+    store.transaction = failed
+    with patch('backend.sql.H.event', event), pytest.raises(RuntimeError, match='synthetic commit failure'):
+        record(9)
+    with store.read() as c:
+        assert c.execute('SELECT count(*) FROM receipts').fetchone()[0] == 8
