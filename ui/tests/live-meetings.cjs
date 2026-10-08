@@ -22,6 +22,14 @@ async function main() {
     await context.addInitScript(() => localStorage.setItem('tico.theme', 'dark'));
     const page = await context.newPage(), errors = [], calls = [];
     page.on('pageerror', error => errors.push(error.message));
+    const sendChat = async () => {
+      await page.waitForFunction(() => {
+        const input = document.querySelector('#live-chat-form input[name="text"]');
+        const button = input?.form?.querySelector('button[type="submit"]');
+        return Boolean(input?.value.trim()) && Boolean(button && !button.disabled);
+      });
+      await page.locator('#live-chat-form button[type="submit"]').click();
+    };
     const signal = () => { let resolve; const promise = new Promise(done => resolve = done); return {promise, resolve}; };
     const world = {meetings: [], detail: null, detailReads: 0, detailHoldCount: 0, detailWaiters: [], detailHeld: null,
       holdChat: false, chatWaiters: [], chatHeld: null, failChat: false};
@@ -136,7 +144,7 @@ async function main() {
     assert.deepEqual(afterEvent, {value: draft, start: 8, end: 14, focused: true});
     assert.deepEqual(await page.locator('#live-bot-picker select').evaluate(select =>
       [...select.selectedOptions].map(option => option.value)), ['finance']);
-    await page.locator('#live-chat-form button').click();
+    await sendChat();
     const chatCalls = calls.filter(([op]) => op === 'chat');
     assert.equal(chatCalls.length, 1);
     assert.equal(chatCalls[0][1].text, draft);
@@ -145,7 +153,7 @@ async function main() {
 
     const padded = '  Please check the totals  ';
     await page.locator('#live-chat-form input').fill(padded);
-    await page.locator('#live-chat-form button').click();
+    await sendChat();
     await page.locator('.live-status').getByText('Message sent.').waitFor();
     await page.waitForFunction(() => document.querySelector('#live-chat-form input')?.value === '');
     assert.equal(calls.filter(([op, body]) => op === 'chat' && body.text === 'Please check the totals').length, 1,
@@ -165,7 +173,7 @@ async function main() {
     await chatInput.fill(submitted);
     world.holdChat = true;
     world.chatHeld = signal();
-    await page.locator('#live-chat-form button').click();
+    await sendChat();
     await world.chatHeld.promise;
     assert.equal(world.chatWaiters.length, 1, 'chat request is held before acknowledgement');
     const newerDraft = 'Keep this newer unsent draft';
@@ -193,7 +201,7 @@ async function main() {
     await page.waitForFunction(value => document.querySelector('#live-chat-form input')?.value === value, newerDraft);
     world.failChat = true;
     await chatInput.fill('Retain this rejected message');
-    await page.locator('#live-chat-form button').click();
+    await sendChat();
     await page.locator('.live-status').getByText('Chat rejected').waitFor();
     assert.equal(await chatInput.inputValue(), 'Retain this rejected message', 'failed send keeps the draft');
 

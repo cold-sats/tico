@@ -55,6 +55,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const posted = [];
     const people = [];
     let preferencePending = true, tasksStartedBeforePreference = false;
+    let releaseInitialTasks, signalInitialTasksRequest;
+    const initialTasksRequest = new Promise(resolve => { signalInitialTasksRequest = resolve; });
+    const initialTasksGate = new Promise(resolve => { releaseInitialTasks = resolve; });
+    let holdInitialTasks = !process.env.TICO_TAG_TEST_ONLY;
     await page.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -127,6 +131,11 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       }
       if (p === '/api/v2/tasks' && req.method() === 'GET') {
         if (preferencePending) tasksStartedBeforePreference = true;
+        if (holdInitialTasks) {
+          holdInitialTasks = false;
+          signalInitialTasksRequest();
+          await initialTasksGate;
+        }
         await new Promise(resolve => setTimeout(resolve, 50));
         let rows = tasks.slice();
         const statuses = url.searchParams.get('status');
@@ -165,7 +174,12 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     });
     if (!process.env.TICO_TAG_TEST_ONLY) {
     await page.goto('http://tico-ui.test/#/tasks');
-    await page.getByText('Loading tasks…', {exact: true}).waitFor();
+    await initialTasksRequest;
+    try {
+      await page.getByText('Loading tasks…', {exact: true}).waitFor();
+    } finally {
+      releaseInitialTasks();
+    }
     await page.waitForFunction(() => S.me?.id === 'reviewer' && TASKS_ST && TASKS_ST.tasks.length === 3);
     assert.equal(tasksStartedBeforePreference, true, 'task loading starts before the saved preference returns');
     assert.equal(await page.evaluate(() => TASKS_ST.tasks.some(t => t.lane === 'product')), false, 'product tasks are never loaded');

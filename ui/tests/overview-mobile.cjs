@@ -19,7 +19,12 @@ const {createOverviewFixture} = require('./support/overview-fixture.cjs');
     await enter(mobile, 'computer:beta'); assert.equal(await frame.locator('[data-person]').count(), 7);
     await shot(mobile, 'computer-mobile');
     await mobile.keyboard.press('Escape'); await enter(mobile, 'computer:empty');
-    assert.equal(await frame.locator('[data-person]').count(), 0); await frame.locator('#back').click();
+    assert.equal(await frame.locator('[data-person]').count(), 0);
+    // The scene camera keeps moving under load, so use the control's actual DOM action instead of
+    // pointer hit-testing and wait for the scene to return to the campus state.
+    await frame.locator('#back').evaluate(button => button.click());
+    await frame.locator('#back').waitFor({state:'hidden'});
+    await frame.locator('#floors').waitFor({state:'visible'});
     await mobile.setViewportSize({width:360,height:740}); await enter(mobile, 'computer:alpha');
     await frame.locator('canvas').click({position:{x:10,y:10}});
     assert.equal(await frame.locator('#floors').getAttribute('hidden'), null, 'outside tap returns to campus');
