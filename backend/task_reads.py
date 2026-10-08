@@ -74,6 +74,25 @@ def fresh(request, tag):
     return any(item.strip() == "*" or item.strip().removeprefix("W/") == bare for item in wanted.split(","))
 
 
+def digest(*parts):
+    return hashlib.sha256(json.dumps(parts, default=str, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def list_tag(whole, rows):
+    """A task list's ETag: `whole` moves with any task change anywhere, `rows` only with the rows it answered."""
+    return f'W/"{whole}.{rows}"'
+
+
+def held(request):
+    """The (whole, rows) pairs the request's If-None-Match holds."""
+    out = []
+    for item in (request.headers.get("if-none-match") or "").split(","):
+        whole, _, rows = item.strip().removeprefix("W/").strip('"').partition(".")
+        if whole and rows:
+            out.append((whole, rows))
+    return out
+
+
 def not_modified(tag):
     return Response(status_code=304, headers={"ETag": tag})
 

@@ -60,6 +60,7 @@ CLI_TOOL_ALIASES = {
     "hub_task_child": ("hub_task_child_create",),
     "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
     "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
+    "hub_task_show": ("hub_task_show", "hub_task_show_many"),      # `hub task show a b c` is one read
 }
 
 
@@ -529,9 +530,19 @@ def task_worktree_attach(api, args):
     return command(api, 'attach', args['path'], args.get('task'))
 
 
-@tool("hub_task_show", "One task with its history and conversation.", {"id": TASK_ID}, required=("id",))
+@tool("hub_task_show", "One task with its history and conversation. For several tasks, hub_task_show_many reads "
+      "them in one call.", {"id": TASK_ID}, required=("id",))
 def task_show(api, args):
     return api.get("tasks/" + args["id"])
+
+
+@tool("hub_task_show_many", "Several tasks in one call (up to 100): each task's fields, without history or "
+      "conversation; `missing` lists the ids that are unknown or not yours to read. Use this instead of one "
+      "hub_task_show per task.",
+      {"ids": {"type": "array", "items": TASK_ID, "minItems": 1, "maxItems": 100}}, required=("ids",))
+def task_show_many(api, args):
+    ids = [str(i).strip() for i in args["ids"] if str(i).strip()]
+    return api.get("tasks", ids=",".join(ids))
 
 
 @tool("hub_task_run", "Start a bot's task now, as the task (its text in the prompt, not a chat). "

@@ -182,13 +182,22 @@ def page(c, who, cid, *, before=None, since=None, limit=200, task_id=None):
     if since:
         clauses.append("created>?")
         args.append(since)
-    visible = []
+    visible, reader = [], actor(who)
     for row in c.execute("SELECT * FROM messages WHERE " + " AND ".join(clauses) + " ORDER BY rowid DESC", args):
-        if not message_readable(c, actor(who), row):
+        # message_readable's own steps, with the row's tasks worked out once: a task's page skips another
+        # task's message before its privacy check, so a read costs the room once, not twice.
+        stored = dict(row)
+        if stored.get("deleted_at") or stored.get("deleted"):
             continue
-        if task_id and task_id not in message_tasks(c, row):
+        try:
+            tasks = message_tasks(c, stored, current=True)
+            if task_id and task_id not in tasks:
+                continue
+            if not readable(c, reader, tasks):
+                continue
+        except Problem:
             continue
-        visible.append({**dict(row), "refs": H._json(row["refs_json"], {}) or {}})
+        visible.append({**stored, "refs": H._json(row["refs_json"], {}) or {}})
         if len(visible) > limit:
             break
     more = len(visible) > limit

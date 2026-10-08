@@ -324,7 +324,8 @@ GET /api/v2/tasks?lane=company&changed_after=<cursor>
 - A task's open `ask` can lag: a change to who may read its conversation alone does not move the cursor or the ETag,
   so it shows on the task's next change or full read.
 - A full read of `/api/v2/tasks` or `/api/v2/tasks/labels` (and `/api/v2/routines`) has an `ETag`. Send it back as
-  `If-None-Match` and an unchanged answer is `304` with no body.
+  `If-None-Match` and an unchanged answer is `304` with no body. For `/api/v2/tasks` "unchanged" means the rows it
+  would return: a change to a task outside them still answers `304`.
 
 ### Which run took a message
 

@@ -146,6 +146,8 @@ order. A client that polls asks `updated_since=<ISO 8601 with a timezone>` for o
 changed after that instant (closing, reopening, comments, questions, links and attachments count;
 what only shows in `children_summary` or `pr_state`, such as a subtask moving or a pull request's
 checks and reviews, does not), and `brief=true` to leave out bodies and acceptance criteria.
+`ids=<id>,<id>,...` (up to 100 ids, short ids or numbers) reads several tasks in one call instead of one
+`GET /api/v2/tasks/{id}` each; the answer adds `missing`, the ids that are unknown or not yours to read.
 
 ## Task comments
 

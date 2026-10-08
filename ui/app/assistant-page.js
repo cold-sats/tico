@@ -111,7 +111,7 @@ async function assistantRail(slug, load) {
     rec.hidden = !rec.innerHTML;
   }
   window.botFiles?.mount($('#asst-files'), {slug, get, esc, openFile: openFileLink});
-  const [owned, latest] = await Promise.all([v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all`),
+  const [owned, latest] = await Promise.all([v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=${V2_ACTIVE.join(',')}&brief=true`),
     v2Get(`/v2/updates?bot=${encodeURIComponent(slug)}&limit=1`)]);
   if (load !== ASSISTANT_LOAD || S.route !== ASSISTANT || !rail.isConnected) return;
   const active = (owned?.tasks || []).filter(t => V2_ACTIVE.includes(String(t.status)))
