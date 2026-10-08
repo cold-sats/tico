@@ -17,6 +17,7 @@
 .upd-card.unread{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
 .upd-card.unread::before{content:"";position:absolute;left:-1px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--accent)}
 .upd-card.sel{box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 40%,transparent)}
+.upd-card.swipeable{touch-action:pan-y}
 .upd-av .av{width:36px!important;height:36px!important}
 .upd-meta{display:flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap}
 .upd-name{color:var(--ink);font-weight:600}

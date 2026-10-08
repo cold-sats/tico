@@ -11980,6 +11980,26 @@
               "default": false,
               "title": "Mine"
             }
+          },
+          {
+            "name": "archive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Archive"
+            }
+          },
+          {
+            "name": "include_archive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Archive"
+            }
           }
         ],
         "responses": {
@@ -12016,6 +12036,68 @@
         },
         "tags": [
           "Updates"
+        ]
+      }
+    },
+    "/api/v2/updates/archive": {
+      "post": {
+        "summary": "Archive or restore updates for the signed-in person",
+        "operationId": "archiveUpdates",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateArchive"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateArchiveResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Updates"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
         ]
       }
     },
@@ -22488,6 +22570,52 @@
         "required": [
           "meetings_pending",
           "unread"
+        ],
+        "additionalProperties": true
+      },
+      "UpdateArchive": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Ids"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "UpdateArchive"
+      },
+      "UpdateArchiveResult": {
+        "type": "object",
+        "properties": {
+          "updated": {
+            "type": "integer"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "unread": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "archived",
+          "unread",
+          "updated"
         ],
         "additionalProperties": true
       },
