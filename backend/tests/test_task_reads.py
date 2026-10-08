@@ -185,18 +185,18 @@ def test_hot_read_helpers_do_not_write_to_their_snapshot(api, monkeypatch):
     computer = runner(api)
     assign(api, computer, "ops")
     original = store.read_transaction
+    loans = []
     reads = []
 
     @contextmanager
     def read_only():
         with original() as c:
+            loans.append(c)
             before = c.total_changes
-            try:
-                yield c
-            finally:
-                # A pooled connection can already have changes from an earlier writer.
-                assert c.total_changes == before, "a hot read helper wrote to its snapshot"
-                reads.append(c.total_changes - before)
+            yield c
+            # A pooled connection can already have changes from an earlier writer.
+            assert c.total_changes == before, "a hot read helper wrote to its snapshot"
+            reads.append(c.total_changes - before)
 
     monkeypatch.setattr(store, "read_transaction", read_only)
     for token in ("ana-test", "ben-test", "cara-test"):
@@ -207,5 +207,7 @@ def test_hot_read_helpers_do_not_write_to_their_snapshot(api, monkeypatch):
     unchanged = api.get("/api/v2/tasks", headers={**headers(), "If-None-Match": first.headers["etag"]})
     assert unchanged.status_code == 304
     get(api, "tasks?limit=0", expected=422)
-    assert reads == [0] * 16
+    assert len(loans) == 16
+    assert reads == [0] * 15, "the rejected request exits through the exception path"
+    assert all(not c.in_transaction for c in loans)
     assert all(not c.in_transaction for c in store.pool)
