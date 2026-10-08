@@ -63,7 +63,7 @@ def test_each_verdict_routes_and_the_watcher_files_only_what_it_should(hq, verdi
     assert set(listed(hq)) == {ids["legit"], ids["unchecked"], ids["injection_risk"]}       # spam is in no queue
     assert set(listed(hq, "held")) == {ids["spam"]} and listed(hq, "held")[ids["spam"]]["verdict_reason"] == "because"
     lines, events = [], []
-    env = {"HQ_STAFF_KEY": STAFF, "TICO_HQ_URL": URL, "TICO_WATCHER_STATE": str(tmp_path / "state")}
+    env = {"HQ_STAFF_KEY": STAFF, "HQ_URL": URL, "TICO_WATCHER_STATE": str(tmp_path / "state")}
     tickets_cli.main(["watch"], env, out=lines.append, opener=Opener(hq), emit=events.append)
     assert {e["key"] for e in events} == {"hq:" + ids[v] for v in ("legit", "unchecked", "injection_risk")}
     risky = next(e for e in events if e["key"] == "hq:" + ids["injection_risk"])
@@ -85,7 +85,7 @@ def test_a_person_corrects_a_verdict_and_a_held_ticket_is_released(hq, verdicts,
     assert tuple(row) == ("spam", "legit", "a real customer")
     # The released ticket is new work again for the watcher.
     events = []
-    tickets_cli.main(["watch"], {"HQ_STAFF_KEY": STAFF, "TICO_HQ_URL": URL, "TICO_WATCHER_STATE": str(tmp_path / "s2")},
+    tickets_cli.main(["watch"], {"HQ_STAFF_KEY": STAFF, "HQ_URL": URL, "TICO_WATCHER_STATE": str(tmp_path / "s2")},
                      out=lambda line: None, opener=Opener(hq), emit=events.append)
     assert [e["key"] for e in events] == ["hq:" + held]
 
@@ -122,7 +122,7 @@ def test_the_staff_judge_route_and_the_github_watcher_use_the_same_verdicts(hq, 
     verdicts["next"] = ("spam", "judged spam (0.95)")
     assert hq.post("/v1/staff/judge", json={"text": TEXT}, headers=staff()).json() == {"verdict": "spam", "reason": "judged spam (0.95)"}
     assert hq.post("/v1/staff/judge", json={"text": TEXT}).status_code == 401
-    judge = gh_support.hq_judge({"HQ_STAFF_KEY": STAFF, "TICO_HQ_URL": URL}, Opener(hq))
+    judge = gh_support.hq_judge({"HQ_STAFF_KEY": STAFF, "HQ_URL": URL}, Opener(hq))
     assert judge("hello")[0] == "spam"
     assert gh_support.hq_judge({}, Opener(hq))("hello")[0] == "unchecked"                                 # no key: fails open
 

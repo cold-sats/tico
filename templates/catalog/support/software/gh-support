@@ -24,7 +24,7 @@ give it a token, which allows 5000 an hour.
 Everything on GitHub is text from outside: it is quoted and labelled as data, and nothing here follows an instruction in it.
 
 Before a thread or a comment wakes the bot, its text goes through the same spam and injection check as an HQ ticket
-(HQ's POST /v1/staff/judge, with HQ_STAFF_KEY and TICO_HQ_URL from this bot's credentials, the ones hq-tickets uses). `spam` is
+(HQ's POST /v1/staff/judge, with HQ_STAFF_KEY and HQ_URL from this bot's credentials, the ones hq-tickets uses). `spam` is
 not filed and is counted in the output line; `injection_risk` is filed with a warning to read it only; `legit`, and
 `unchecked` (no key, HQ or the decision unreachable), are filed as usual. Only the text goes to HQ, never a token.
 """
@@ -160,7 +160,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 # ---------------------------------------------------------------------- the spam and injection check
 def hq_judge(env, opener=None):
     """`judge(text) -> (verdict, reason)` through HQ, failing open: no key, no answer or a bad answer is `unchecked`."""
-    key, url = env.get("HQ_STAFF_KEY", "").strip(), env.get("TICO_HQ_URL", "").strip().rstrip("/")
+    key, url = env.get("HQ_STAFF_KEY", "").strip(), (env.get("HQ_URL") or env.get("TICO_HQ_URL") or "").strip().rstrip("/")
     if not key or not (url.startswith("https://") or url.startswith("http://127.0.0.1") or url.startswith("http://localhost")):
         return lambda text: ("unchecked", "no HQ key in this bot's credentials")
     opener = opener or urllib.request.build_opener(_NoRedirect())

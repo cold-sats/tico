@@ -105,7 +105,7 @@ is checked, not a follow-up; a follow-up is quoted as untrusted data as before.
 
 On the HQ host: add `HQ_STAFF_KEY=$(openssl rand -hex 24)` to `hq/.env` and `docker compose -f hq/compose.yaml --env-file hq/.env
 up -d`. In **Tools → Credentials**, store the same `HQ_STAFF_KEY` and the HQ address as
-`TICO_HQ_URL`, with those exact Bot variable names, and grant both to the Support Agent. For
+`HQ_URL` (not `TICO_HQ_URL`: the runner keeps `TICO_` names out of bots' environments), with those exact Bot variable names, and grant both to the Support Agent. For
 GitHub, store and grant `GITHUB_TOKEN` (read access; required for Discussions) and optionally
 `GH_SUPPORT_REPOS` (`ticoteam/tico`). A Credential card is the other way to store and grant them.
 Legacy files can be imported for migration; a new watcher does not load `secrets/support.env`.
