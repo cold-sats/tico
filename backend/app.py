@@ -1015,7 +1015,7 @@ def create_app(settings=None):
     def environment(request: Request):
         """Everything a client needs to name this environment and reach its runner."""
         from .onboarding import config_view
-        with store.read() as c:
+        with store.read_transaction() as c:
             return {**config_view(c, settings, request.state.identity), "features": {"task_files_multipart": True}}
 
     def updater_only(who, what):
@@ -2167,7 +2167,7 @@ def create_app(settings=None):
         from . import task_reads as reads
         who = request.state.identity
         auth.domain(who)
-        with store.read() as c:
+        with store.read_transaction() as c:
             owner = H.resolve_actor(c, owner) if owner else None
             if member:
                 member = H.resolve_actor(c, member)
@@ -2873,7 +2873,7 @@ def create_app(settings=None):
     def statuses(request: Request, bot: str | None = None, since: str | None = None):
         who = request.state.identity
         auth.domain(who)
-        with store.read() as c:
+        with store.read_transaction() as c:
             from . import usage_limits
             default = usage_limits.company(c)
 
@@ -3338,7 +3338,7 @@ def create_app(settings=None):
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):
-        with store.read() as c:
+        with store.read_transaction() as c:
             return execution.assigned(c, request.state.identity)
 
     @app.get("/api/v2/runners/eligible")

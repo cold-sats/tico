@@ -144,3 +144,29 @@ def test_a_batch_read_returns_only_readable_tasks_and_names_the_rest_missing(api
     assert got["missing"] == [hidden["id"], "nope"], "a task the reader cannot see is missing, as unknown ids are"
     both = tasks(api, f"ids={seen['id']},{hidden['id']}")
     assert {t["id"] for t in both["tasks"]} == {seen["id"], hidden["id"]} and both["missing"] == []
+
+
+def test_task_list_keeps_one_snapshot_and_next_read_sees_revocation(api, monkeypatch):
+    store = api.app.state.store
+    with store.transaction() as c:
+        private = H.task_create(c, "human:cara", "Private agenda", "Sensitive details", "human:ben",
+                                private=True, lint=False)
+    original = H.resolve_actor
+    changed = False
+
+    def revoke_after_owner_read(c, actor):
+        nonlocal changed
+        resolved = original(c, actor)
+        if actor == "ben" and not changed:
+            changed = True
+            with store.transaction() as write:
+                write.execute("UPDATE tasks SET owner='human:ana' WHERE id=?", (private["id"],))
+        return resolved
+
+    monkeypatch.setattr(H, "resolve_actor", revoke_after_owner_read)
+    first = tasks(api, ACTIVE + "&owner=ben", token="ben-test")
+    assert changed
+    rows = [t for t in first["tasks"] if t["id"] == private["id"]]
+    assert len(rows) == 1 and rows[0]["owner"] == "human:ben"
+    assert private["id"] not in str(tasks(api, ACTIVE, token="ben-test"))
+    assert private["id"] in {t["id"] for t in tasks(api, ACTIVE, token="ana-test")["tasks"]}
