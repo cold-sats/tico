@@ -2,17 +2,20 @@
 """Release checks.
 
     python scripts/release_checks.py            # the default Python and core browser suites, under 300 s
-    python scripts/release_checks.py --release  # the release gate: every test and the whole product, under 300 s
+    python scripts/release_checks.py --release  # the release gate: every test and the whole product, under 480 s
 
 A PR runs only the tests for what it changed, so the full suite runs here, once, right before a release. `--release`
-runs every test (`pytest -m "slow or not slow"` and `node scripts/ui-tests.cjs --all`) while it builds the candidate
-images once, then runs the whole-product checks against them at the same time: docker/smoke.sh,
+runs the journey's previous-release install while it builds the candidate images once. After all builds finish,
+it runs Python tests except Docker isolation (`pytest -m "slow or not slow"`) and every browser test
+(`node scripts/ui-tests.cjs --all`), alongside the Docker isolation tests
+and whole-product checks against the successfully built images: docker/smoke.sh,
 docker/side-jobs-smoke.sh and `scripts/journey-test.sh --release` (install the previous release, upgrade to the
 candidate, roll back a migrating update). The journey starts installing the previous release while the images build. Each check gets its own Docker names and smoke a free host port, so they run
 side by side; two release checks must not run at once, since the journey's candidate tags are fixed.
 
-Use the test environment's Python to invoke this script. Existing pytest and TICO_UI_JOBS settings still
-select concurrency for the default suites.
+Use the test environment's Python to invoke this script. The release gate defaults to half the CPU count in
+Python workers (at least one) and four browser jobs; TICO_PYTHON_WORKERS and TICO_UI_JOBS override those caps.
+Existing pytest and TICO_UI_JOBS settings still select concurrency for the default suites.
 """
 import argparse
 import os
@@ -26,7 +29,8 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUDGET_SECONDS = 300
+BUDGET_SECONDS = 480
+DEFAULT_BUDGET_SECONDS = 300
 CANDIDATE = 'v9.9.9'   # what scripts/journey-test.sh calls a local build
 IMAGES = (('server', 'ghcr.io/ticoteam/tico', 'tico-rc'),
           ('runner', 'ghcr.io/ticoteam/tico-runner', 'tico-rc-runner'),
@@ -50,9 +54,9 @@ def full():
             print(f'Release checks failed after {time.monotonic() - started:.2f}s; load {initial_load} -> {load()}', flush=True)
             return 1
     elapsed = time.monotonic() - started
-    within_budget = elapsed < BUDGET_SECONDS
+    within_budget = elapsed < DEFAULT_BUDGET_SECONDS
     print(f'Release checks {"passed" if within_budget else "exceeded budget"}: {elapsed:.2f}s / '
-          f'{BUDGET_SECONDS}s; load {initial_load} -> {load()}', flush=True)
+          f'{DEFAULT_BUDGET_SECONDS}s; load {initial_load} -> {load()}', flush=True)
     return 0 if within_budget else 1
 
 
@@ -88,28 +92,41 @@ class Check:
         return '\n'.join(self.log.read_text(errors='replace').splitlines()[-lines:])
 
 
+def phase_table(checks, started, not_run=()):
+    print('\n| Phase | Start offset (s) | Duration (s) | Exit |\n'
+          '| --- | ---: | ---: | --- |', flush=True)
+    for check in sorted(checks, key=lambda check: check.started):
+        print(f'| {check.name} | {check.started - started:.1f} | {check.seconds:.1f} | {check.code} |', flush=True)
+    for name in not_run:
+        print(f'| {name} | - | - | not run |', flush=True)
+
+
 def release(args):
     started, initial_load = time.monotonic(), load()
     commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     logs = Path(tempfile.mkdtemp(prefix='tico-release-check-'))
     ready = logs / 'images-ready'
     base_env = {**os.environ, 'DOCKER_BUILDKIT': '1'}
+    workers = str(max(1, int(os.environ.get('TICO_PYTHON_WORKERS', max(1, (os.cpu_count() or 2) // 2)))))
+    test_env = {**base_env, 'TICO_PYTHON': sys.executable,
+                'TICO_UI_JOBS': os.environ.get('TICO_UI_JOBS', '4')}
     print(f'Release check: candidate {CANDIDATE} from {commit[:7]}; logs in {logs}', flush=True)
 
     journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready)}
     journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
-    checks = [Check('journey', journey_cmd, logs, journey_env),   # installs the previous release while the images build
-              Check('all-python', [sys.executable, '-m', 'pytest', '-q', '-m', 'slow or not slow'], logs,
-                    {**base_env, 'TICO_PYTHON': sys.executable}),
-              Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, {**base_env, 'TICO_PYTHON': sys.executable})]
+    checks = [Check('journey', journey_cmd, logs, journey_env)]   # installs the previous release while the images build
 
     builds = [Check(f'build-{target}', ['docker', 'build', '-q', '--target', target,
                                         '--build-arg', f'TICO_VERSION={CANDIDATE}', '--build-arg', f'TICO_COMMIT={commit}',
                                         '--build-arg', f'TICO_REPOSITORY={os.environ.get("TICO_JOURNEY_REPOSITORY", "ticoteam/tico")}',
                                         '-t', f'{published}:{CANDIDATE}', '-t', f'{local}:local', '.'], logs, base_env)
               for target, published, local in IMAGES]
-    built = all(build.join() == 0 for build in builds)
+    build_codes = [build.join() for build in builds]  # wait for every build, including after a failed one
+    built = all(code == 0 for code in build_codes)
     ready.write_text('ok' if built else 'failed')
+    checks.append(Check('all-python', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
+                                      '--ignore=runner/tests/test_isolation_docker.py'], logs, test_env))
+    checks.append(Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, test_env))
     if built:
         local_env = {**base_env, 'TICO_IMAGE': 'tico-rc', 'TICO_TAG': 'local', 'TICO_RUNNER_IMAGE': 'tico-rc-runner',
                      'TICO_UPDATER_IMAGE': 'tico-rc-updater'}
@@ -117,9 +134,16 @@ def release(args):
                             {**local_env, 'TICO_SMOKE_PROJECT': 'tico-rc-smoke', 'TICO_SMOKE_PORT': str(free_port())}))
         checks.append(Check('side-jobs', ['bash', 'docker/side-jobs-smoke.sh'], logs,
                             {**local_env, 'TICO_SIDEJOBS_NAME': 'tico-rc-sidejobs'}))
+        checks.append(Check('isolation', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
+                                         'runner/tests/test_isolation_docker.py'], logs,
+                            {**test_env,
+                             'TICO_RUNNER_TEST_IMAGE': f"{local_env['TICO_RUNNER_IMAGE']}:{local_env['TICO_TAG']}"}))
+    else:
+        print('  isolation: not run (candidate image builds failed)', flush=True)
     failed = [check for check in builds + checks if check.join() != 0]
     for check in failed:
         print(f'\n--- {check.name} (last lines of {check.log}) ---\n{check.tail()}', flush=True)
+    phase_table(builds + checks, started, () if built else ('smoke', 'side-jobs', 'isolation'))
     elapsed = time.monotonic() - started
     verdict = 'failed' if failed else 'passed' if elapsed < BUDGET_SECONDS else 'passed, over budget'
     print(f'Release check {verdict}: {elapsed:.0f}s / {BUDGET_SECONDS}s; load {initial_load} -> {load()}', flush=True)

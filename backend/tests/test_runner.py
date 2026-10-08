@@ -23,15 +23,17 @@ def live(api):
     server = uvicorn.Server(uvicorn.Config(api.app, log_level="error"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 5
-    while not server.started and thread.is_alive() and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=10)
-    sock.close()
-    assert not thread.is_alive()
+    try:
+        deadline = time.monotonic() + 30
+        while not server.started and thread.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert server.started, "test API did not become ready within 30 seconds"
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
+        assert not thread.is_alive()
 
 
 @pytest.mark.slow

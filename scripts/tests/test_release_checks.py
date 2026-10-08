@@ -1,0 +1,67 @@
+"""Release isolation checks must use the runner image built from the candidate."""
+from types import SimpleNamespace
+
+from scripts import release_checks
+
+
+def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(release_checks, 'os', SimpleNamespace(
+        environ={}, getloadavg=lambda: (0, 0, 0), cpu_count=lambda: 12))
+    monkeypatch.setattr(release_checks, 'subprocess', SimpleNamespace(
+        run=lambda *args, **kwargs: SimpleNamespace(stdout='a' * 40)))
+    monkeypatch.setattr(release_checks, 'tempfile', SimpleNamespace(mkdtemp=lambda **kwargs: str(tmp_path)))
+    monkeypatch.setattr(release_checks, 'free_port', lambda: 12345)
+
+    for builds_ok, overrides, workers, browser_jobs in (
+            (True, {}, '6', '4'), (False, {}, '6', '4'),
+            (True, {'TICO_PYTHON_WORKERS': '2', 'TICO_UI_JOBS': '1'}, '2', '1')):
+        release_checks.os.environ = {'TICO_RUNNER_TEST_IMAGE': 'stale-runner:local', **overrides}
+        monkeypatch.setattr(release_checks, 'time', SimpleNamespace(monotonic=iter(range(100, 200)).__next__))
+        calls, completed = {}, set()
+
+        class Check:
+            def __init__(self, name, command, log_dir, env):
+                calls[name] = (command, env, completed.copy())
+                self.name, self.log = name, tmp_path / f'{name}.log'
+                self.started = release_checks.time.monotonic()
+
+            def join(self):
+                completed.add(self.name)
+                self.code = int(self.name == 'build-runner' and not builds_ok)
+                self.seconds = 1.0
+                return self.code
+
+            def tail(self):
+                return 'synthetic build failure'
+
+        monkeypatch.setattr(release_checks, 'Check', Check)
+        assert release_checks.release(SimpleNamespace(previous=None)) == (0 if builds_ok else 1)
+        output = capsys.readouterr().out
+        python_command = calls['all-python'][0]
+        isolation_file = 'runner/tests/test_isolation_docker.py'
+        assert f'--ignore={isolation_file}' in python_command
+        assert python_command[python_command.index('-n') + 1] == workers
+        assert calls['all-browser'][1]['TICO_UI_JOBS'] == browser_jobs
+        builds = {'build-server', 'build-runner', 'build-updater'}
+        assert builds <= calls['all-python'][2] and builds <= calls['all-browser'][2]
+        assert not calls['journey'][2]
+        for offset, name in enumerate(calls, 1):
+            code = 1 if name == 'build-runner' and not builds_ok else 0
+            assert f'| {name} | {offset:.1f} | 1.0 | {code} |' in output
+        if builds_ok:
+            command, env, finished = calls['isolation']
+            assert command[:4] == [release_checks.sys.executable, '-m', 'pytest', '-q']
+            assert isolation_file in command and command[command.index('-m', 2) + 1] == 'slow or not slow'
+            assert builds <= finished
+            assert command[command.index('-n') + 1] == workers
+            runner_build = calls['build-runner'][0]
+            assert env['TICO_RUNNER_TEST_IMAGE'] == 'tico-rc-runner:local'
+            assert env['TICO_RUNNER_TEST_IMAGE'] in runner_build
+            assert {'smoke', 'side-jobs'} <= calls.keys()
+            assert (tmp_path / 'images-ready').read_text() == 'ok'
+        else:
+            assert 'isolation' not in calls
+            assert 'isolation: not run' in output
+            assert '| isolation | - | - | not run |' in output
+            assert (tmp_path / 'images-ready').read_text() == 'failed'
+    assert release_checks.BUDGET_SECONDS == 480 and release_checks.DEFAULT_BUDGET_SECONDS == 300
