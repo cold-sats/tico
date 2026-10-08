@@ -13,7 +13,7 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
     monkeypatch.setattr(release_checks, 'free_port', lambda: 12345)
 
     for builds_ok, overrides, workers, browser_jobs in (
-            (True, {}, '6', '4'), (False, {}, '6', '4'),
+            (True, {}, '6', None), (False, {}, '6', None),
             (True, {'TICO_PYTHON_WORKERS': '2', 'TICO_UI_JOBS': '1'}, '2', '1')):
         release_checks.os.environ = {'TICO_RUNNER_TEST_IMAGE': 'stale-runner:local', **overrides}
         monkeypatch.setattr(release_checks, 'time', SimpleNamespace(monotonic=iter(range(100, 200)).__next__))
@@ -41,7 +41,7 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
         isolation_file = 'runner/tests/test_isolation_docker.py'
         assert f'--ignore={isolation_file}' in python_command
         assert python_command[python_command.index('-n') + 1] == workers
-        assert calls['all-browser'][1]['TICO_UI_JOBS'] == browser_jobs
+        assert calls['all-browser'][1].get('TICO_UI_JOBS') == browser_jobs
         builds = {'build-server', 'build-runner', 'build-updater'}
         assert builds <= calls['all-python'][2] and builds <= calls['all-browser'][2]
         assert not calls['journey'][2]
