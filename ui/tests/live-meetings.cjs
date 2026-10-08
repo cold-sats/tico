@@ -22,8 +22,9 @@ async function main() {
     await context.addInitScript(() => localStorage.setItem('tico.theme', 'dark'));
     const page = await context.newPage(), errors = [], calls = [];
     page.on('pageerror', error => errors.push(error.message));
-    const world = {meetings: [], detail: null, holdDetail: false, detailWaiters: [],
-      holdChat: false, chatWaiters: [], failChat: false};
+    const signal = () => { let resolve; const promise = new Promise(done => resolve = done); return {promise, resolve}; };
+    const world = {meetings: [], detail: null, detailReads: 0, detailHoldCount: 0, detailWaiters: [], detailHeld: null,
+      holdChat: false, chatWaiters: [], chatHeld: null, failChat: false};
     await page.route('**/*', async route => {
       const url = new URL(route.request().url()), p = url.pathname, method = route.request().method();
       const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
@@ -52,8 +53,13 @@ async function main() {
       }
       if (p === '/api/v2/live-meetings/live-1/events') return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       if (p === '/api/v2/live-meetings/live-1' && method === 'GET') {
-        if (world.holdDetail) await new Promise(resolve => world.detailWaiters.push(resolve));
-        return json(world.detail);
+        if (world.detailHoldCount > 0) {
+          world.detailHoldCount--;
+          await new Promise(resolve => { world.detailWaiters.push(resolve); world.detailHeld?.resolve(); });
+        }
+        world.detailReads++;
+        return route.fulfill({contentType: 'application/json', headers: {'x-fixture-detail-read': String(world.detailReads)},
+          body: JSON.stringify(world.detail)});
       }
       if (p.startsWith('/api/v2/live-meetings/live-1/')) {
         const operation = p.split('/').pop(), body = JSON.parse(route.request().postData() || '{}'); calls.push([operation, body]);
@@ -61,7 +67,9 @@ async function main() {
           world.detail.bots = world.detail.bots.filter(bot => bot.bot !== operation);
           return json({id: 'live-1', bot: operation, removed: true, cancelled_turns: [], event_id: 10});
         }
-        if (operation === 'chat' && world.holdChat) await new Promise(resolve => world.chatWaiters.push(resolve));
+        if (operation === 'chat' && world.holdChat) {
+          await new Promise(resolve => { world.chatWaiters.push(resolve); world.chatHeld?.resolve(); });
+        }
         if (operation === 'chat' && world.failChat) {
           world.failChat = false;
           return route.fulfill({status: 400, contentType: 'application/json', body: JSON.stringify({error: {detail: 'Chat rejected'}})});
@@ -107,16 +115,22 @@ async function main() {
     const draft = 'Please review this plan';
     await page.locator('#live-chat-form input').fill(draft);
     await page.locator('#live-chat-form input').evaluate(input => input.setSelectionRange(8, 14));
-    // Exercise the real five-second poll and an incoming meeting event while both controls hold drafts.
-    await page.waitForTimeout(5200);
+    // Wait for the scheduled detail poll's response, then an event-triggered refresh; neither wait assumes a duration.
+    const priorReads = world.detailReads;
+    const poll = page.waitForResponse(response => response.url().endsWith('/api/v2/live-meetings/live-1')
+      && response.request().method() === 'GET' && Number(response.headers()['x-fixture-detail-read']) > priorReads);
+    await poll;
     const afterPoll = await page.locator('#live-chat-form input').evaluate(input => ({value: input.value,
       start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input}));
     assert.deepEqual(afterPoll, {value: draft, start: 8, end: 14, focused: true});
     assert.deepEqual(await page.locator('#live-bot-picker select').evaluate(select =>
       [...select.selectedOptions].map(option => option.value)), ['finance']);
+    const readsBeforeEvent = world.detailReads;
+    const eventRefresh = page.waitForResponse(response => response.url().endsWith('/api/v2/live-meetings/live-1')
+      && response.request().method() === 'GET' && Number(response.headers()['x-fixture-detail-read']) > readsBeforeEvent);
     await page.evaluate(() => LIVE_MEETINGS.sources.get('live-1').dispatchEvent(
       new MessageEvent('meeting.chat', {data: '{}', lastEventId: '8'})));
-    await page.waitForTimeout(400);
+    await eventRefresh;
     const afterEvent = await page.locator('#live-chat-form input').evaluate(input => ({value: input.value,
       start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input}));
     assert.deepEqual(afterEvent, {value: draft, start: 8, end: 14, focused: true});
@@ -140,23 +154,28 @@ async function main() {
       'successful whitespace-padded send clears its saved draft');
 
     // A detail response already in flight must not replace a draft while chat is submitted.
-    world.holdDetail = true;
+    world.detailHoldCount = 1;
+    world.detailHeld = signal();
     await page.evaluate(() => { window.liveDetailRefresh = liveLoad(LIVE_MEETINGS); });
-    await page.waitForFunction(() => true); // yield once so the mocked route can hold its detail response
-    for (let tries = 0; !world.detailWaiters.length && tries < 30; tries++) await page.waitForTimeout(10);
+    await world.detailHeld.promise;
     assert.equal(world.detailWaiters.length, 1, 'a detail request is held in flight');
     const chatInput = page.locator('#live-chat-form input');
     const sent = 'First message while refresh is waiting';
     const submitted = `  ${sent}  `;
     await chatInput.fill(submitted);
     world.holdChat = true;
+    world.chatHeld = signal();
     await page.locator('#live-chat-form button').click();
-    for (let tries = 0; !world.chatWaiters.length && tries < 30; tries++) await page.waitForTimeout(10);
+    await world.chatHeld.promise;
     assert.equal(world.chatWaiters.length, 1, 'chat request is held before acknowledgement');
     const newerDraft = 'Keep this newer unsent draft';
     await chatInput.fill(newerDraft);
+    const readsBeforeHeldEvent = world.detailReads;
+    const heldEventRefresh = page.waitForResponse(response => response.url().endsWith('/api/v2/live-meetings/live-1')
+      && response.request().method() === 'GET' && Number(response.headers()['x-fixture-detail-read']) > readsBeforeHeldEvent);
     await page.evaluate(() => LIVE_MEETINGS.sources.get('live-1').dispatchEvent(
       new MessageEvent('meeting.chat', {data: '{}', lastEventId: '9'})));
+    await heldEventRefresh;
     world.detailWaiters.shift()();
     await page.evaluate(() => window.liveDetailRefresh);
     assert.equal(await chatInput.inputValue(), newerDraft, 'stale detail response cannot replace text while sending');
@@ -164,10 +183,11 @@ async function main() {
     assert.equal(calls.filter(([op, body]) => op === 'chat' && body.text === sent).length, 1,
       'duplicate submit is suppressed and whitespace is trimmed');
     world.holdChat = false;
+    world.detailHeld = signal();
     world.chatWaiters.shift()();
     await page.locator('.live-status').getByText('Message sent.').waitFor();
     await page.waitForFunction(value => document.querySelector('#live-chat-form input')?.value === value, newerDraft);
-    for (let tries = 0; !world.detailWaiters.length && tries < 30; tries++) await page.waitForTimeout(10);
+    await world.detailHeld.promise;
     assert.equal(world.detailWaiters.length, 1, 'post-send refresh is held until the newer draft is saved');
     world.detailWaiters.shift()();
     await page.waitForFunction(value => document.querySelector('#live-chat-form input')?.value === value, newerDraft);
@@ -176,7 +196,6 @@ async function main() {
     await page.locator('#live-chat-form button').click();
     await page.locator('.live-status').getByText('Chat rejected').waitFor();
     assert.equal(await chatInput.inputValue(), 'Retain this rejected message', 'failed send keeps the draft');
-    world.holdDetail = false;
 
     await page.locator('#live-bot-picker button').click();
     assert(calls.some(([op, body]) => op === 'bots' && body.bots.includes('finance')));

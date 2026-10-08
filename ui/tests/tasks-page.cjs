@@ -9,8 +9,8 @@
 //    the server's value; the full task shows Properties, then Code, then Subtasks;
 //  - bulk changes touch only visible selected rows, retry once on a stale version, ask each bot request for its own
 //    note, and Close can be undone; the peek follows; no bulk for someone who cannot move tasks;
-//  - the board: per-person "Needs" columns, empty columns fold to a strip, cards can be selected;
 //  - a phone: full-screen modal peek that Back closes, Select mode, stacked properties.
+// Board columns, selection and card behavior live in task-board.cjs.
 // TASKS_SHOTS=<dir> also saves the screenshots for the owner (dark and light).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -688,37 +688,6 @@ async function properties(browser) {
   await page.close();
 }
 
-async function board(browser) {
-  const {page, errors} = await open(browser, {hash: '#/board'});
-  await page.locator('#task-body .bcard').first().waitFor();
-  const cols = await page.locator('#task-body .bcol').evaluateAll(cs => cs.map(c => [c.dataset.col, c.classList.contains('is-empty'), Math.round(c.getBoundingClientRect().width)]));
-  // The board names its columns the way the list names its groups: Needs you, Needs <Name>, Needs someone.
-  assert.deepEqual(cols.map(c => c[0]), ['needsme', 'needs:human:sam', 'needs-someone', 'waiting', 'doing', 'scheduled']);
-  assert.deepEqual(await page.locator('#task-body .bcol h2').allInnerTexts(), ['NEEDS YOU', 'NEEDS SAM', 'NEEDS SOMEONE', 'WAITING', 'DOING', 'SCHEDULED']);
-  const [empty] = cols.filter(c => c[1]);
-  assert.equal(empty[0], 'scheduled');
-  assert.ok(empty[2] <= 40, 'an empty column is a thin strip: ' + empty[2]);
-  const widths = cols.filter(c => !c[1]).map(c => c[2]);
-  assert.ok(Math.max(...widths) - Math.min(...widths) <= 2, 'columns with work share the width: ' + widths);
-  assert.equal(await page.locator('[data-col="scheduled"] h2').evaluate(h => getComputedStyle(h).writingMode), 'vertical-rl');
-  const card = page.locator('.bcard[data-task-key="tt-checkout"]');
-  assert.deepEqual(await card.locator('.bcard-chips > *').evaluateAll(cs => cs.map(c => c.className.split(' ')[0])), ['tlabel', 'pr-badge', 'tl-sub']);
-  assert.doesNotMatch(await page.locator('#task-body').innerText(), /Added by|Waiting on Sam/);
-  // Cards can be selected (x, ⌘-click) and show it.
-  await card.locator('.bcard-open').focus();
-  await page.keyboard.press('x');
-  await page.locator('.bcard[data-task-key="tt-flaky"] .bcard-title').click({modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control']});
-  assert.deepEqual(await page.locator('.bcard.sel').evaluateAll(cs => cs.map(c => c.dataset.taskKey)).then(k => k.sort()), ['tt-checkout', 'tt-flaky']);
-  assert.equal(await page.locator('.tl-bulk-n').innerText(), '2 selected');
-  await shot(page, 'board-dark');
-  await page.keyboard.press('Escape');
-  await card.click();
-  await peekTitle(page, 'Ship the checkout redesign');
-  assert.deepEqual(errors, []);
-  console.log('board: ok');
-  await page.close();
-}
-
 async function bulk(browser) {
   const {page, errors, posts, tasks} = await open(browser, {failIds: ['t-news']});
   const box = key => page.locator(`[data-task-key="${key}"] .tl-check`);
@@ -1142,7 +1111,7 @@ if (require.main === module) (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const only = process.env.TASKS_ONLY ? process.env.TASKS_ONLY.split(',') : null;
-    for (const [name, run] of Object.entries({listAndTabs, typeSelection, filters, carriedOver, peekAndKeys, properties, board, bulk, views, waitingOnYou, donePagination, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
+    for (const [name, run] of Object.entries({listAndTabs, typeSelection, filters, carriedOver, peekAndKeys, properties, bulk, views, waitingOnYou, donePagination, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
       if (!only || only.includes(name)) await run(browser);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });
