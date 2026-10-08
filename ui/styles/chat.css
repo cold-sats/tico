@@ -310,3 +310,4 @@ body:has(#app-nudge:not([hidden])) #main.bot-split-layout>#bot-top{margin-top:8p
 /* The Assistant's page has no right rail: its column centres on the whole main area. */
 #main.bot-chat-layout:has(.asst-top){max-width:none}
 #main.bot-chat-layout:not(.bot-split-layout) .asst-top{margin:6px 0 var(--s3)}
+@media (pointer:coarse){.bubble.bot,.bubble.bot.reply,#pane-chat .conv-run.chat .bubble.bot.reply{padding-bottom:40px}}   /* the 40px copy target sits below the last line, not over a link in it */
