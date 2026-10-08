@@ -138,7 +138,7 @@ def forget_report(c, runner_id, bot):
 # The runner appends these after the bot's own words when it holds back a commit (runner/service.py).
 # They are the runner's, not the bot's, so chat shows them as a warning beside the reply.
 RUNNER_NOTICE = re.compile(r"(not pushed: a commit made this turn contains a secret"
-                           r"|left out of the commit: .+ \(contains a secret\))")
+                           r"|left out of the commit: .+ \((?:contains a secret|too large to commit)\))")
 
 
 def split_runner_notices(text):
@@ -982,10 +982,28 @@ class Execution:
         return {"attempt_id": row["id"], "outcome": body.outcome, "message": None, "filed": True}
 
     def renew(self, c, who, aid):
-        self.attempt(c, who, aid)
+        row = self.attempt(c, who, aid)
         until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)
         c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, aid))
-        return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds}
+        # The runner renews every few seconds, so a person's Stop rides on the answer it already reads.
+        return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds,
+                **({"stop": True} if row["stop_requested"] else {})}
+
+    def stop(self, c, who, bot, attempt_id=None):
+        """A person who manages the bot asks its running turn to stop. The runner interrupts the turn
+        when it next renews the lease, and `complete` settles it as stopped rather than held for review."""
+        if not H.bot(c, bot):
+            raise Problem("not_found", "Unknown bot", 404)
+        if not (self.auth.operator(c, who, bot) or self.auth.bot_manager(c, who, bot)):
+            raise Problem("forbidden", "Only a person who manages this bot can stop it", 403)
+        row = c.execute("SELECT id,stop_requested FROM attempts WHERE bot=? AND state IN ('leased','running')",
+                        (bot,)).fetchone()
+        if not row or attempt_id and row["id"] != attempt_id:
+            raise Problem("not_running", "This bot is not running that turn", 409)
+        if not row["stop_requested"]:
+            c.execute("UPDATE attempts SET stop_requested=? WHERE id=?", (who.actor, row["id"]))
+            H.event(c, who.actor, "attempt.stop", row["id"], {"bot": bot})
+        return {"attempt_id": row["id"], "stopping": True}
 
     def started(self, c, who, aid, body):
         row = self.attempt(c, who, aid)
@@ -1187,12 +1205,14 @@ class Execution:
         # queue however often it happens; the bot cools off (claim() honours the window) and
         # a third limit in a row waits longer and tells a person in Needs attention. Only
         # interrupted or failed work, which may have acted, is held for review.
-        limited = body.outcome != "completed" and body.limited
+        # A turn a person stopped is over by their choice: nothing to retry and nothing to review.
+        stopped = bool(row["stop_requested"]) and body.outcome != "completed"
+        limited = body.outcome != "completed" and body.limited and not stopped
         # Same reasoning, different cause: the runner reports `retryable` when the runtime was
         # refused before the turn began because it could not renew its own sign-in, and only
         # when that turn produced no message and used no tool. Nothing happened, so requeue it
         # rather than blocking the bot behind an uncertain job until a person clears it.
-        retryable = body.outcome != "completed" and body.retryable and not limited
+        retryable = body.outcome != "completed" and body.retryable and not limited and not stopped
         # The general case of the same thing: a turn that failed having streamed nothing at all,
         # no text, no tool, no token count, only the runtime's own error. When a runtime
         # answered every turn of several bots with "Internal error" at the first event, the
@@ -1202,14 +1222,14 @@ class Execution:
         # Codex and Claude never report their tool calls, so for them silence is only evidence
         # together with speed: the Grok failures came back within a second or two of starting.
         silent = False
-        if body.outcome == "failed" and not limited and not retryable:
+        if body.outcome == "failed" and not limited and not retryable and not stopped:
             kinds = {r[0] for r in c.execute("SELECT DISTINCT kind FROM attempt_events WHERE attempt_id=?", (aid,))}
             tries = c.execute("SELECT count(*) FROM attempts WHERE job_id=?", (row["job_id"],)).fetchone()[0]
             quick = (row["started"] or row["created"]) >= H.shift(H.now(), seconds=-NO_EFFECT_WITHIN)
             silent = kinds <= SILENT_KINDS and quick and tries < NO_EFFECT_TRIES
         # A refused key or sign-in blocks this profile until its credential changes.
         # Only runs with no evidence of actions may wait queued rather than held for review.
-        rejected = body.outcome == "failed" and body.auth_rejected is not None
+        rejected = body.outcome == "failed" and body.auth_rejected is not None and not stopped
         if retryable and body.subscription_unavailable:
             from .repositories import save_metadata
             config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row['bot'],)).fetchone()
@@ -1227,7 +1247,8 @@ class Execution:
             silent = False
         requeue = not rejected_acted if rejected else limited or retryable or silent
         c.execute("UPDATE jobs SET state=? WHERE id=?",
-                  ("completed" if body.outcome == "completed" else "queued" if requeue else "uncertain", row["job_id"]))
+                  ("completed" if body.outcome == "completed" else "cancelled" if stopped
+                   else "queued" if requeue else "uncertain", row["job_id"]))
         live_ref = (msg.get("refs") or {}).get("live_meeting")
         if (isinstance(live_ref, dict) and msg.get("from_actor") == H.KEEPER
                 and msg.get("to_actor") == "bot:" + row["bot"]):
@@ -1249,7 +1270,7 @@ class Execution:
                                     (task_id, actor, row["started"] or row["created"])).fetchone()
                 deferred = bool(task and task["status"] in H.ACTIVE_STATUSES and not outcome)
             state = ("queued" if deferred else "completed" if body.outcome == "completed" and answered else
-                     "queued" if requeue else "uncertain")
+                     "cancelled" if stopped else "queued" if requeue else "uncertain")
             c.execute("UPDATE jobs SET state=?,attempt_id=CASE WHEN ? THEN NULL ELSE attempt_id END WHERE message_id=?",
                       (state, deferred, incoming["message_id"]))
         if body.outcome == "completed":
@@ -1269,8 +1290,10 @@ class Execution:
                 c.execute("UPDATE jobs SET state='completed',attempt_id=? WHERE id=?", (aid, extra["id"]))
                 H.mark_delivered(c, H.KEEPER, extra["message_id"])
                 H.event(c, H.KEEPER, "job.coalesce", extra["id"], {"attempt_id": aid, "job_id": row["job_id"]})
+        # The runner's notices (a file left out of the commit) are shown beside the reply, not as the turn's summary.
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, tokens_in=body.tokens_in,
-                      tokens_out=body.tokens_out, summary=body.text[:2000], usage=self.run_usage(c, row, body))
+                      tokens_out=body.tokens_out, summary=split_runner_notices(body.text)[0][:2000],
+                      usage=self.run_usage(c, row, body))
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
@@ -1287,7 +1310,15 @@ class Execution:
             H.event(c, H.KEEPER, "attempt.fallback", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime, "fallback": body.fallback,
                      "outcome": body.outcome})
-        if limited:
+        if stopped:
+            person = row["stop_requested"]
+            name = (H.human(c, H.actor_id(person)) or {}).get("name") or H.actor_id(person)
+            H.status_set(c, H.KEEPER, row["bot"], state="idle", focus="")
+            # Quiet: the bot reads it with the room next time; it does not start a run of its own.
+            H.say(c, H.KEEPER, actor, f"Stopped by {name}", conversation_id=conv["id"], kind="notice",
+                  refs={"quiet": True, "stopped_by": person, "turn_id": aid})
+            H.event(c, H.KEEPER, "attempt.stopped", aid, {"bot": row["bot"], "job_id": row["job_id"], "by": person})
+        elif limited:
             streak = limit_streak(c, row["bot"])
             hit = H.now()
             retry = H.shift(hit, seconds=LIMIT_COOLDOWN_LONG if streak >= LIMIT_STRIKES else LIMIT_COOLDOWN)

@@ -2778,7 +2778,7 @@ class Runner:
                 if exc.status != 404:
                     raise
 
-    def renew_loop(self, aid, lost, done, deadline):
+    def renew_loop(self, aid, lost, done, deadline, stopped=None):
         # A cloud deploy takes the API away for longer than a lease. The server extends every
         # running lease when it comes back, so an unreachable cloud is not loss of ownership:
         # keep the turn running and let `attempts/{aid}/complete` (409 when the server did expire
@@ -2791,6 +2791,9 @@ class Runner:
                 reply = self.client.post(f"attempts/{aid}/renew", {})
                 deadline[0] = before + reply["lease_seconds"] - 10
                 renewal.recovered()
+                if reply.get("stop") and stopped is not None:
+                    # A person pressed Stop: the turn is interrupted and reported as interrupted, not lost.
+                    stopped.set()
             except APIError as exc:
                 if not exc.retryable:
                     lost.set()
@@ -2819,9 +2822,9 @@ class Runner:
         # Keep the binding out of the persisted request and the caller's shared dictionary.
         attempt = dict(attempt)
         attempt.pop("_subscription_profile", None)
-        lost, done = threading.Event(), threading.Event()
+        lost, done, stopped = threading.Event(), threading.Event(), threading.Event()
         deadline = [time.monotonic() + attempt["lease_seconds"] - 15]
-        renewer = threading.Thread(target=self.renew_loop, args=(aid, lost, done, deadline), daemon=True)
+        renewer = threading.Thread(target=self.renew_loop, args=(aid, lost, done, deadline, stopped), daemon=True)
         renewer.start()
         host, thread, turn, env = None, None, None, None
         config = attempt["config"]
@@ -2895,6 +2898,10 @@ class Runner:
                     goal_running = bool(goal and goal["status"] == "active")
                     revision = goal["updated_at"] if goal else None
                     while not complete:
+                        if stopped.is_set():
+                            goal_failure[0] = "Stopped by a person"
+                            host.interrupt(thread, turn)
+                            return "interrupted", reply, tokens, False, False
                         if self.stop.is_set() or lost.is_set() or time.monotonic() >= limit:
                             goal_failure[0] = ("Run time limit reached" if time.monotonic() >= limit else
                                                "The computer stopped" if self.stop.is_set() else "The execution lease expired")
@@ -3131,8 +3138,20 @@ class Runner:
                 if execution_path:
                     # What the turn left in the checkout is scrubbed before anything is pushed or published.
                     tree = redactor.scrub_tree(execution_path, started_at)
-                    for path in tree["left_out"]:
-                        reply = (reply + "\n\n" if reply else "") + f"left out of the commit: {Path(path).relative_to(execution_path)} (contains a secret)"
+                    # Each file is reported once, not after every turn it is still there: a bot that keeps the
+                    # same large files in its checkout would otherwise bury every reply under the same lines.
+                    reasons, stamps = {}, {}
+                    for why, paths in (("too large to commit", tree["too_large"]), ("contains a secret", tree["left_out"])):
+                        for path in map(Path, paths):
+                            name = str(path.relative_to(execution_path))
+                            try:
+                                info = path.lstat()
+                                stamps[name] = f"{info.st_size}:{info.st_mtime_ns}"
+                            except OSError:
+                                stamps[name] = ""
+                            reasons[name] = why
+                    for name in self.state.unreported(bot, stamps):
+                        reply = (reply + "\n\n" if reply else "") + f"left out of the commit: {name} ({reasons[name]})"
                     if tree["committed"]:
                         reply = (reply + "\n\n" if reply else "") + "not pushed: a commit made this turn contains a secret"
                         log(f"Tico runner: {bot}: a commit made this turn contains a granted secret; it was not pushed")
@@ -3182,7 +3201,8 @@ class Runner:
                         self.publish(bot, self.local_path(bot), env)
                     pushed = False if held or is_assignment(config) else self.push(self.local_path(bot), env, shared=is_shared(config))
                     files_publish.after_turn(self, attempt, self.local_path(bot), pushed,
-                                             skip=[str(Path(p).relative_to(execution_path)) for p in (tree or {}).get("left_out", [])])
+                                             skip=[str(Path(p).relative_to(execution_path))
+                                                   for p in (tree or {}).get("left_out", []) + (tree or {}).get("too_large", [])])
                     memory_history.report(self, bot, self.local_path(bot), aid, memory_before, own_turn=not is_shared(config))
             except APIError as exc:
                 if not exc.retryable:

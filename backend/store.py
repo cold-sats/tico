@@ -1069,6 +1069,9 @@ class Store:
                 # A service key's scope (backend/service_keys.py); every older key files tasks. Unversioned like
                 # the trash: an older release reads the table as before and never sees the column.
                 H.add_column(c, "service_keys", "scope", "TEXT NOT NULL DEFAULT 'tasks'")
+                # Who asked a running turn to stop (backend/execution.py stop); the runner reads it on its next
+                # lease renewal. Unversioned like the key scope: an older release never reads the column.
+                H.add_column(c, "attempts", "stop_requested", "TEXT")
                 # The change log live events are read from (backend/events.py); idempotent.
                 from .events import ensure as ensure_changes
                 ensure_changes(c)

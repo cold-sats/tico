@@ -174,8 +174,9 @@ class Redactor:
 
     def scrub_tree(self, root, since=None):
         """Scrub what a turn changed in the checkout at `root`. Returns {"rewritten": [...], "left_out": [...],
-        "committed": bool}: `committed` is true when a commit made since `since` (a commit id) holds a secret."""
-        result = {"rewritten": [], "left_out": [], "committed": False}
+        "too_large": [...], "committed": bool}: `too_large` files are past what can be scanned or rewritten, so they
+        are left out unread; `committed` is true when a commit made since `since` (a commit id) holds a secret."""
+        result = {"rewritten": [], "left_out": [], "too_large": [], "committed": False}
         if self.pattern is None:
             return result
         root = Path(root)
@@ -187,7 +188,17 @@ class Redactor:
             if len(entry) > 3 and entry[:2] != " D" and entry[:2] != "D ":
                 name = entry[3:]
                 paths.append(root / name.split(" -> ")[-1])
-        result["rewritten"], result["left_out"] = self.scrub_files(paths, root)
+        # A large file a bot keeps in its checkout (a video, an archive) is not read every turn only to be left out
+        # again; it is left out by its size.
+        small = []
+        for path in paths:
+            try:
+                info = path.lstat()
+                large = stat.S_ISREG(info.st_mode) and info.st_size > _TEXT_LIMIT
+            except OSError:
+                large = False
+            (result["too_large"] if large else small).append(path)
+        result["rewritten"], result["left_out"] = self.scrub_files(small, root)
         if since:
             patch = _git(root, "log", "-p", "--no-ext-diff", "--no-textconv", "--format=", since + "..HEAD", raw=True)
             result["committed"] = bool(patch) and self.holds(patch)

@@ -105,6 +105,15 @@ class Turn(unittest.TestCase):
         self.assertEqual(published, [(True, ["blob.bin"])])
         self.assertEqual(len(pushes), 1)
 
+    def test_a_file_left_out_of_the_commit_is_reported_once(self):
+        def act():
+            (self.repo / "blob.bin").write_bytes(b"\0\1" + SECRET.encode())
+        first, _, _ = self.run_turn(act, "first")
+        second, _, published = self.run_turn(lambda: None, "second")
+        self.assertIn("left out of the commit: blob.bin (contains a secret)", first.completion()["text"])
+        self.assertEqual(second.completion()["text"], "second")
+        self.assertEqual(published, [(True, ["blob.bin"])], "still kept out of what is published")
+
     @pytest.mark.slow
     def test_a_commit_that_holds_the_secret_is_not_pushed(self):
         def act():

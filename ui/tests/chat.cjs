@@ -74,7 +74,7 @@ async function offlineRetry(browser) {
 
 async function liveReply(browser) {
   const page = await browser.newPage({viewport:{width:1200,height:800},serviceWorkers:'block'});
-  const errors=[];
+  const errors=[],stops=[];
   page.on('pageerror',e=>errors.push(e.message));
   const now=new Date().toISOString();
   const snapshot={messages:[{id:'m1',from_actor:'human:ana',body:'Plan the build',created:now,
@@ -98,10 +98,21 @@ async function liveReply(browser) {
     if(p==='/api/v2/conversations'){const b=url.searchParams.get('chat_with');
       return json({conversations:b?[{id:'c-ops',kind:'chat',scope:'personal',participants:['human:ana','bot:ops']}]:[]});}
     if(p.startsWith('/api/v2/conversations/c-')&&p.endsWith('/snapshot'))return json(snapshot);
+    if(p==='/api/v2/bots/ops/stop'){stops.push(route.request().postDataJSON());return json({attempt_id:'a1',stopping:true});}
     return json({});
   });
   await page.goto('https://tico-ui.test/#/bot/ops/chat');
   await page.locator('#v2-live').waitFor();
+  // While the bot runs, Stop sits where Send is; typing brings Send back so a follow-up can still queue.
+  const composer=page.locator('#chat-composer'),stop=composer.getByRole('button',{name:'Stop',exact:true});
+  await stop.waitFor();
+  assert.equal(await composer.getByRole('button',{name:'Send',exact:true}).isVisible(),false);
+  await composer.locator('textarea').fill('One more thing');
+  assert.equal(await stop.isVisible(),false,'typing brings Send back');
+  await composer.locator('textarea').fill('');
+  await stop.click();
+  await page.waitForFunction(()=>BOT_PILL.stopping);
+  assert.deepEqual(stops,[{attempt_id:'a1'}],'stops the run this chat shows');
   const paragraphs=await page.locator('#v2-live p').allInnerTexts();
   assert.deepEqual(paragraphs,['Keep the bot planned.','I filed the build.'],'each message is its own paragraph');
   // Avatars: a bot is an SVG blob that morphs while it answers; a person stays a circle; motion stops under reduced motion.

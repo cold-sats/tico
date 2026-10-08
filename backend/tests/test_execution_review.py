@@ -289,3 +289,23 @@ def test_rejected_signin_cannot_replay_a_run_that_acted(api, activity):
         report = json.loads(c.execute('SELECT readiness_json FROM runners WHERE id=?', (machine['runner_id'],)).fetchone()[0])
         assert report['runtimes']['codex']['authenticated'] == 'rejected'
     assert claim(api, machine) is None
+
+
+def test_a_person_who_manages_the_bot_stops_its_turn_and_the_next_message_runs(api):
+    from backend.store import H
+    machine, message, attempt = setup_attempt(api)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'held'}, machine['token'])
+    assert 'stop' not in post(api, f"attempts/{attempt['id']}/renew", {}, machine['token'])
+    post(api, 'bots/ops/stop', {'attempt_id': attempt['id']}, token='cara-test', expected=403)
+    post(api, 'bots/ops/stop', {'attempt_id': attempt['id']})
+    assert post(api, f"attempts/{attempt['id']}/renew", {}, machine['token'])['stop'] is True
+    post(api, f"attempts/{attempt['id']}/complete", {'outcome': 'interrupted', 'last_seq': 0}, machine['token'])
+    with api.app.state.store.read() as c:
+        assert c.execute('SELECT state FROM jobs WHERE id=?', (attempt['job_id'],)).fetchone()[0] == 'cancelled'
+        assert H.status(c, 'ops')['state'] == 'idle'
+    assert get(api, 'bots/ops/execution-review')['jobs'] == []
+    notice = get(api, f"conversations/{message['conversation_id']}/messages")[-1]
+    assert notice['body'].startswith('Stopped by ') and notice['kind'] == 'notice'
+    # The stopped job is not retried, and the notice starts no run: the person's next message is what runs.
+    follow_up = post(api, 'chat/ops', {'text': 'Do this instead.'})
+    assert claim(api, machine)['job_id'] == follow_up['id']

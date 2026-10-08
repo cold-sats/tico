@@ -37,6 +37,8 @@ function v2ChatRoom(conversations, slug, mode = v2ChatMode(slug)) {
     && String(c.scope || 'direct') === mode
     && (!me || (c.participants || []).includes(me))) || null;
 }
+// A run still to show as live: not one that finished, nor one a person stopped or dismissed.
+const v2RunLive = x => !!x && !['completed', 'cancelled'].includes(x.state);
 // `room` is a chat the caller already holds (the Assistant page: GET /v2/assistant gives its room and messages), so
 // nothing is looked up; `empty` is what an empty thread shows instead of the default line.
 async function v2ChatLoad(slug, room = null) {
@@ -48,7 +50,7 @@ async function v2ChatLoad(slug, room = null) {
   if (room) {
     const x = room.execution;
     Object.assign(state, {conv: room.conv, messages: room.messages || [], nextBefore: room.nextBefore, execution: x,
-                          live: S.me?.cloud && x && x.state !== 'completed' ? {text: x.text || ''} : null, listed: true, loaded: true});
+                          live: S.me?.cloud && v2RunLive(x) ? {text: x.text || ''} : null, listed: true, loaded: true});
     v2ChatRender(state);
   } else if (seen && seen.mode === mode) {
     Object.assign(state, {conv: seen.conv, messages: seen.messages, nextBefore: seen.nextBefore, execution: seen.execution,
@@ -146,7 +148,7 @@ async function v2ChatMessages(state) {
   state.nextBefore = d.next_before;
   if (S.me?.cloud && !late.length) {
     state.execution = d.execution;
-    state.live = d.execution && d.execution.state !== 'completed' ? {text: d.execution.text} : null;
+    state.live = v2RunLive(d.execution) ? {text: d.execution.text} : null;
   }
   CHAT_CACHE.set(state.slug, {mode: state.mode, conv: state.conv, messages: state.messages, nextBefore: state.nextBefore,
                               execution: state.execution, live: state.live});
@@ -485,6 +487,7 @@ function v2ChatRender(state) {
   pausedRender();
   chatGoalRender(state);
   chatOutlineSync(state);
+  chatStopSync(state);
   const access = $('#conv-access');
   if (access) {
     if (state.mode === 'shared') {
@@ -496,6 +499,17 @@ function v2ChatRender(state) {
   }
   // Header updates above can resize the thread after its content renders.
   requestAnimationFrame(() => { if (V2C === state && state.followLatest) thread.scrollTop = thread.scrollHeight; });
+}
+// Stop shows while this chat's message runs, or waits behind a run the bot is still in, for a person who manages the bot.
+function chatStopSync(state) {
+  const P = BOT_PILL;
+  if (!P || P.slug !== state.slug) return;
+  const x = state.execution, own = ['leased', 'running'].includes(x?.state);
+  const busy = own || x?.state === 'queued' && v2StatusOf(state.slug)?.state === 'running';
+  const running = busy && settingsCanManageBot(S.emps.find(e => e.name === state.slug)) ? {attempt_id: own ? x.attempt_id : null} : null;
+  if (!running === !P.running && running?.attempt_id === P.running?.attempt_id) return;
+  P.running = running; P.stopping = false;
+  pillButtons(P);
 }
 // Keep paging discoverable at the history boundary without taking space beside new messages.
 function v2OlderUpdate(state) {
@@ -590,7 +604,7 @@ function v2ChatApply(state, d) {
   const wasRunning = !!state.live;
   if (!late.length) {
     state.execution = d.execution;
-    state.live = d.execution && d.execution.state !== 'completed' ? {text: d.execution.text} : null;
+    state.live = v2RunLive(d.execution) ? {text: d.execution.text} : null;
   }
   if (d.goal !== undefined) chatGoalApply(state, d.goal, {quiet: true});
   CHAT_CACHE.set(state.slug, {mode: state.mode, conv: state.conv, messages: state.messages, nextBefore: state.nextBefore,

@@ -200,6 +200,26 @@ class Execution(unittest.TestCase):
         self.assertEqual(client.completion()["outcome"], "interrupted")
         self.assertTrue(self.host.interrupts)
 
+    def test_a_stop_on_the_lease_renewal_interrupts_the_turn_within_seconds(self):
+        client = FakeClient()
+        runner = self.runner(client)
+        self.host.hold_next_turn()
+        post = client.post
+
+        def stop_once_running(path, body=None, key=None):
+            if path.endswith("/renew") and self.host.turn_of:
+                return {"lease_seconds": 90, "stop": True}
+            return post(path, body, key)
+
+        started = time.monotonic()
+        with mock.patch.object(client, "post", side_effect=stop_once_running):
+            runner.execute(attempt())
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertTrue(self.host.interrupts)
+        completion = client.completion()
+        self.assertEqual(completion["outcome"], "interrupted")
+        self.assertNotIn("retryable", completion)
+
 
 def git(path, *args, env=None):
     return subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True, text=True, env=env)
@@ -394,7 +414,7 @@ def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
     # Advance one renewal only after execute reaches the held maintenance lock.
     tick, timer_waiting, lock_waiting = threading.Event(), threading.Event(), threading.Event()
     renew_loop = runner.renew_loop
-    def renew(aid, lost, done, deadline):
+    def renew(aid, lost, done, deadline, stopped=None):
         real_wait = done.wait
         first = True
         def wait(interval):
@@ -407,7 +427,7 @@ def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
             assert tick.wait(10)
             return done.is_set()
         with mock.patch.object(done, 'wait', side_effect=wait):
-            renew_loop(aid, lost, done, deadline)
+            renew_loop(aid, lost, done, deadline, stopped)
     runner.renew_loop = renew
     lock = runner.worktrees.bot_lock('coo')
     class WaitingLock:
