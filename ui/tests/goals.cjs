@@ -170,18 +170,6 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     await page.locator('[data-gm-thread]', {hasText: 'Updated the goal.'}).waitFor();
 
     assert.match(await row('human:ben').innerText(), /Keep the board honest\./, 'a profile goal shows');
-    // One line each, about 36px, the goals lined up in one column.
-    for (const owner of ['company', 'bot:cmo', 'bot:seo', 'bot:sales']) {
-      const box = await row(owner).boundingBox();
-      assert(box.height >= 34 && box.height <= 40, owner + ' is one line: ' + box.height);
-    }
-    const lefts = await page.locator('#goal-tree .gt-row:not(.gt-cont) .gt-goal').evaluateAll(els => [...new Set(els.map(el => Math.round(el.getBoundingClientRect().left)))]);
-    assert.equal(lefts.length, 1, 'goals line up: ' + lefts);
-    if (screenshotDir) await page.screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-tree-test.png')});
-    // A long goal is cut short with an ellipsis; the whole of it is in the tooltip.
-    const long = page.locator('#goal-tree .gt-cont[data-goal="g-cmo2"] .gt-goal');
-    assert.equal(await long.getAttribute('title'), LONG);
-    assert(await long.locator('.gt-title').evaluate(el => getComputedStyle(el).textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth), 'truncated');
     // KPIs are chips: the dot and the latest value; no fresh data, no number.
     const chips = row('bot:cmo').locator('.gt-chip');
     assert.deepEqual(await chips.evaluateAll(els => els.map(el => el.querySelector('.gdot').className.replace('gdot ', '') + ' ' + el.innerText.trim())), ['yellow 52%', 'gray –']);

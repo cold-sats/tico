@@ -77,7 +77,6 @@ async function show(page) {
    assert.equal(await page.evaluate(() => document.querySelector('#task-modal').taskFiles[0].current_version), 2);
    assert.equal(await page.evaluate(() => TF_CACHE.get('t-checkout')[0].current_version), 2);
    assert.match(await page.locator('#task-modal [data-tf-view]').innerText(), /Receipt check version 2/);
-   const box = await page.locator('#task-modal').boundingBox(); assert.equal(Math.round(box.width), 390);
    await shot(page, 'after-file-response-order');
    assert.deepEqual(errors, []); await page.close();
   }

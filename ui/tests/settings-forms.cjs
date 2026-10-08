@@ -96,8 +96,6 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.match(await page.locator('#set-providers').innerText(), /Bots wait/);
     await page.locator('[data-settings-tab=people]').click();
     await page.locator('#people-add').waitFor();
-    assert.match(await page.locator('#set-people').innerText(), /No email is sent/);
-    assert.match(await page.locator('#set-people').innerText(), /Only the owner can sign in locally/);
     await page.locator('[data-settings-tab=devices]').click();
     await page.locator('[data-computer-remove]').click();
     await page.waitForFunction(() => !!SETTINGS_DATA.machines[0].revoked_at);

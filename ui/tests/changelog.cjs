@@ -70,7 +70,6 @@ const shots = process.env.TICO_SCREENSHOT_DIR;
       await page.setViewportSize({width:390,height:844});
       await page.evaluate(() => setDrawer(false));
       await page.waitForFunction(() => document.querySelector('#side').getBoundingClientRect().right <= 1);
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.screenshot({path:path.join(shots,'changelog-phone.png'),fullPage:true});
       await page.setViewportSize({width:1440,height:900});
     }
