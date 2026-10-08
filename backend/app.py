@@ -2161,7 +2161,8 @@ def create_app(settings=None):
               status: str | None = None, lane: str | None = None, label: str | None = None, limit: int = 500,
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
               number: int | None = None, updated_since: str | None = None, brief: bool = False,
-              member: str | None = None, role: str | None = None, changed_after: str | None = None):
+              member: str | None = None, role: str | None = None, changed_after: str | None = None,
+              ids: str | None = None):
         from . import task_reads as reads
         who = request.state.identity
         auth.domain(who)
@@ -2201,10 +2202,26 @@ def create_app(settings=None):
                 raise Problem("date", "updated_since must be an ISO-8601 date/time with a timezone", 422)
             # One read: the visibility, the rows, the cursor and the ETag agree (backend/task_reads.py).
             visible_sql = auth.task_sql(c, who)
+            # Several tasks by id in one read (an agent's "show these"), instead of one GET each.
+            typed = None
+            if ids is not None:
+                typed = list(dict.fromkeys(i.strip() for i in ids.split(",") if i.strip()))
+                if not typed or len(typed) > 100:
+                    raise Problem("ids", "ids is 1 to 100 task ids or numbers, comma-separated", 422)
+                if changed_after is not None:
+                    raise Problem("ids", "ids and changed_after are separate reads", 422)
+                found = {}
+                for ident in typed:
+                    try:
+                        found[ident] = auth.resolve_task(c, who, ident, visible=visible_sql)
+                    except Problem:
+                        found[ident] = None
             filters = dict(status=status.split(",") if status and status != "all" else None, lane=lane, label=label,
                            order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids, number=number,
                            updated_since=views.since_time(updated_since) if since else None, visible_sql=visible_sql,
                            member=member, role=TRo.role_name(role) if role else None)
+            if typed is not None:
+                filters["ids"] = [tid for tid in found.values() if tid]
             def brief_rows(rows):
                 # A board or a bot's task list polling many tasks needs neither their text nor their criteria.
                 if brief:
@@ -2237,6 +2254,10 @@ def create_app(settings=None):
                     return reads.not_modified(tag)
                 response.headers["ETag"] = tag
                 result = {"tasks": rows, "next_offset": next_offset, "cursor": reads.cursor(c, visible_sql)}
+                if typed is not None:
+                    # What was asked for and is not here: unknown, ambiguous, outside the filters or not readable.
+                    returned = {row["id"] for row in rows}
+                    result["missing"] = [ident for ident in typed if found[ident] not in returned]
             brief_rows(rows)
             return result
 

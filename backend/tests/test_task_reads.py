@@ -132,3 +132,15 @@ def test_a_bot_list_stays_304_when_only_other_tasks_change(api):
     post(api, "tasks/" + mine["id"], {"version": mine["version"], "title": "Check the backups twice"})
     changed = read(tag)
     assert changed.status_code == 200 and "Check the backups twice" in changed.text
+
+
+def test_a_batch_read_returns_only_readable_tasks_and_names_the_rest_missing(api):
+    seen = post(api, "tasks", {"owner": "coo", "title": "Plan the offsite", "body": "Soon."})
+    hidden = post(api, "tasks", {"owner": "ops", "title": "Check the backups", "body": "Please."})
+    with api.app.state.store.transaction() as c:
+        restrict(c, "ops", people=["ana"])
+    got = tasks(api, f"ids={seen['id']},{hidden['id']},nope&brief=true", token="cara-test")
+    assert [t["id"] for t in got["tasks"]] == [seen["id"]] and "body" not in got["tasks"][0]
+    assert got["missing"] == [hidden["id"], "nope"], "a task the reader cannot see is missing, as unknown ids are"
+    both = tasks(api, f"ids={seen['id']},{hidden['id']}")
+    assert {t["id"] for t in both["tasks"]} == {seen["id"], hidden["id"]} and both["missing"] == []

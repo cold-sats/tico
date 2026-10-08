@@ -305,7 +305,11 @@ def run(args, who=None):
                 payload["request_id"] = args.request_id
             return post("tasks", payload)
         if sub == "show":
-            return client.get("tasks/" + args.id)
+            ids = args.id if isinstance(args.id, list) else [args.id]
+            if len(ids) > 1:                       # one read for several (hub_task_show_many), not one GET each
+                from clients import hubtools
+                return hubtools.BY_NAME["hub_task_show_many"]["fn"](client, {"ids": ids})
+            return client.get("tasks/" + ids[0])
         if sub == "run":
             return post(f"tasks/{args.id}/run-now", {})
         if sub == "list":

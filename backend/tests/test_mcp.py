@@ -97,6 +97,8 @@ def test_tools_write_through_the_same_rules_as_http(api):
 
     err, shown = call(api, "hub_task_show", {"id": task["task"]["id"]}, token=token)
     assert not err and shown["task"]["title"] == "Review the runtime"
+    err, many = call(api, "hub_task_show_many", {"ids": [task["task"]["id"], "no-such-task"]}, token=token)
+    assert not err and [t["title"] for t in many["tasks"]] == ["Review the runtime"] and many["missing"] == ["no-such-task"]
 
     # A bot reads its conversation back itself: the hub rebuilds nothing into a session.
     err, page = call(api, "hub_conversation_show", {"conversation": msg["conversation_id"]}, token=token)
