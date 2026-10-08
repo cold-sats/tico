@@ -861,6 +861,8 @@ def main(args, who=None):
             print(query_text(result) if args.query_id else queries_text(result))
         else:
             print(json.dumps(result, indent=2))
+        if isinstance(result, dict) and result.get("warning"):     # saved, but a person should know why it waits
+            print("hub: " + str(result["warning"]), file=sys.stderr)
         return 0
     except APIError as exc:
         print(json.dumps({"error": exc.code, "detail": exc.detail, "retryable": exc.retryable,

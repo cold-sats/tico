@@ -240,7 +240,7 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 body:has(#main.bot-split-layout) #topbar:not(:has(#app-nudge:not([hidden]))){display:none}
 #main.bot-split-layout>#bot-top{grid-column:1;grid-row:1;margin:18px var(--s4) var(--s3) 28px}   /* 18px: the empty top strip (10px) and #main's 8px it replaces, so the header does not jump between tabs */
 body:has(#app-nudge:not([hidden])) #main.bot-split-layout>#bot-top{margin-top:8px}
-#main.bot-split-layout>#bot-onboard-host{grid-column:1;grid-row:2;margin:0 var(--s4) 0 28px}
+#main.bot-split-layout>#bot-banners{grid-column:1;grid-row:2;margin:0 var(--s4) 0 28px}
 #main.bot-split-layout #pane-chat:not([hidden]){grid-column:1;grid-row:3;margin:0 var(--s4) max(var(--s3),env(safe-area-inset-bottom)) 28px}
 #main.bot-split-layout #pane-tasks:not([hidden]){grid-column:2;grid-row:1/-1;min-height:0;overflow-y:auto;overscroll-behavior:contain;border-left:1px solid var(--line);background:transparent;padding:6px 0 var(--s4)}
 #main.bot-split-layout .rail-sec{padding-left:14px;padding-right:12px}

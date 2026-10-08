@@ -155,12 +155,24 @@ function botAlertHTML(slug) {
   const e = S.emps.find(x => x.name === slug) || {}, s = v2StatusOf(slug);
   let word = '', why = '';
   if (s && ['crashed', 'quarantined', 'limited', 'blocked'].includes(s.state)) { word = V2_WORD[s.state]; why = s.focus || ''; }
-  else if (s?.state === 'paused' && /^Paused: over /.test(s.focus || '')) { word = s.focus; why = 'No new work until it resets or the limit is raised. A run in progress finishes.'; }
   else if (!s && stateOf(slug) === 'failed') word = 'Last run failed';
   else if (e.agent?.synced && !e.online) { word = agentPresenceLabel(e.agent, false); why = 'Imported history needs a sync.'; }
   else if (e.agent?.credential && !e.online && ((S.status?.queued || []).some(q => (q.bot || q.employee) === slug) || s?.open_tasks))
     word = 'Offline with work waiting';
   return word ? `<span class="bot-alert" role="status"${why ? ` title="${esc(why)}"` : ''}><span aria-hidden="true">⚠</span> ${esc(word)}</span>` : '';
+}
+// The banner at the top of a bot's page while it is over its spend limit; Usage is where a limit is raised.
+function botLimitHTML(slug) {
+  const limit = overLimit(slug); if (!limit) return '';
+  const usd = n => '$' + Number(n || 0).toFixed(2);
+  return `<section class="bot-limit" role="status"><span aria-hidden="true">⚠</span> ${esc(overLimitWord(limit))} (${usd(limit.spent)} of ${usd(limit.limit)}). <a href="#/usage">Raise limit</a></section>`;
+}
+// The alert beside the name and the limit banner come and go with the status poll and live events.
+function botAlertDraw() {
+  if (!BOT) return;
+  const alert = $('#bot-alert'), limit = $('#bot-limit-host');
+  if (alert) alert.innerHTML = botAlertHTML(BOT.slug);
+  if (limit) limit.innerHTML = botLimitHTML(BOT.slug);
 }
 // Files dragged over any part of a bot's chat attach to its composer, which lights up to say so
 // (#524, after bot-desk). A file dropped anywhere else on the page is swallowed: the browser's own
@@ -230,7 +242,8 @@ async function pageBot(slug, tab) {
     ${limited ? '' : '<section class="bot-goal" id="bot-goal" aria-label="Goal"><span class="muted">Loading the goal…</span></section>'}
     <a class="ghost bot-more-btn" id="bot-more-btn" href="${base}/more" aria-label="More" title="More"><span class="nav-icon" aria-hidden="true">more_vert</span></a>
   </div>
-  <div id="bot-onboard-host">${frBotBannerHTML(e)}</div>
+  <div id="bot-banners"><div id="bot-limit-host">${limited ? '' : botLimitHTML(slug)}</div>
+  <div id="bot-onboard-host">${frBotBannerHTML(e)}</div></div>
   <a class="bot-back" id="bot-back" href="${base}" hidden>‹ ${work.includes('chat') ? 'Chat and tasks' : 'Tasks'}</a>
 
   <div class="bot-work" id="bot-work">

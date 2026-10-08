@@ -93,3 +93,20 @@ def test_a_computer_cannot_set_or_read_limits(api):
     r = runner(api)
     assert api.get("/api/v2/usage/limits", headers=headers(r["token"])).status_code in (401, 403)
     assert api.put("/api/v2/usage/limits/ops", json={"daily_usd": 1}, headers=headers(r["token"])).status_code in (401, 403)
+
+
+def test_a_message_or_task_for_a_bot_over_its_limit_is_saved_and_the_sender_is_told_why_it_waits(api):
+    from backend.tests.test_mcp import call
+    r = fleet(api)
+    put(api, "usage/limits/ops", {"daily_usd": 1})
+    finish(api, r, start(api, r), 500_000)                                        # $5 against a $1 limit
+    err, sent = call(api, "hub_message_send", {"to": "ops", "text": "Check the Acme invoice."})
+    assert not err and sent["id"]                                                 # saved: it runs once the limit allows
+    assert sent["warning"] == ("ops is over its daily limit ($5.00 of $1.00); it starts again at 00:00 UTC "
+                               "or when a person raises the limit.")
+    err, made = call(api, "hub_task_create", {"owner": "ops", "title": "Review the Acme invoice", "body": "Please."})
+    assert not err and made["task"]["id"] and "over its daily limit" in made["warning"]
+    assert paused(api)["limit"] == {**paused(api)["limit"], "period": "daily", "spent": 5, "limit": 1}
+    put(api, "usage/limits/ops", {"daily_usd": 50})
+    err, sent = call(api, "hub_message_send", {"to": "ops", "text": "And this."})
+    assert not err and "warning" not in sent

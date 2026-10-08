@@ -235,7 +235,8 @@ def unnote(api, args):
 
 
 @tool("hub_question_ask", "Ask one or more bots a question and wait for their answers. Returns one entry "
-      "per bot: `answer`, `unknown`, `timeout` or `error`, each with the ask's `message_id` once it was delivered. "
+      "per bot: `answer`, `unknown`, `timeout`, `warning` (delivered to a bot over its spend limit; not waited for) or `error`, "
+      "each with the ask's `message_id` once it was delivered. "
       "A timed-out ask stays open and its answer reaches you later under that id; an `error` entry was not "
       "delivered and says why. Calling again with the same question does not send it twice. Asks nest at most "
       "three deep. To ask a person about a task, use hub_task_ask: that question reaches their Needs you.",
@@ -260,7 +261,7 @@ def ask_key(args, bot, text, wait, i):
 
 
 def ask_create(api, bots, text, wait, args):
-    """Send the ask to each bot: `({message_id: bot}, {bot: {"error": why}})`. Each send is one short request;
+    """Send the ask to each bot: `({message_id: bot}, {bot: {"error": why} or {"warning": why, "message_id": id}})`. Each send is one short request;
     the wait is separate (`ask_wait`), so a wait that ends early never loses an id that was handed out."""
     pending, failed = {}, {}
     for i, bot in enumerate(bots):
@@ -275,8 +276,11 @@ def ask_create(api, bots, text, wait, args):
             else:
                 failed[bot] = {"error": f"The question was not delivered: {exc.detail}. Retry, or put it in the task note."}
             continue
+        if msg.get("warning"):          # over its spend limit: delivered, but no answer comes before it resets
+            failed[bot] = {"warning": msg["warning"], "message_id": msg["id"]}
+            continue
         pending[msg["id"]] = bot
-    if failed and not pending:
+    if failed and not pending and not any("warning" in v for v in failed.values()):
         raise APIError("not_delivered", " ".join(v["error"] for v in failed.values()),
                        retryable=any(v.get("retryable") for v in failed.values()))
     return pending, failed

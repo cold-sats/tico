@@ -11,7 +11,7 @@ import json
 import os
 import shlex
 
-from . import access, blob_s3, inbox_isolation, model_login, providers, releases, runner_versions, watchers
+from . import access, blob_s3, inbox_isolation, model_login, providers, releases, runner_versions, usage_limits, watchers
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 
 
@@ -288,9 +288,12 @@ def _waiting(c, online_ids):
             if oldest and oldest < cutoff:
                 slow.append({**row, "reason": "slow"})
         elif where and count and oldest and oldest < cutoff and slug not in parked:
-            slow.append({**row, "reason": "busy" if slug in busy or where[0] in full else "slow"})
-            if slug not in busy and where[0] not in full:
-                stuck.append({**row, "reason": "slow", "runner_id": where[0], "runtime": report.get("runtime") or ""})
+            # A bot over its spend limit takes no new job on purpose (backend/usage_limits.py): say so, not "slow".
+            idle = slug not in busy and where[0] not in full
+            reason = "limit" if idle and usage_limits.blocked(c, slug) else "slow"
+            slow.append({**row, "reason": reason if idle else "busy"})
+            if idle:
+                stuck.append({**row, "reason": reason, "runner_id": where[0], "runtime": report.get("runtime") or ""})
     return waiting, slow, stuck
 
 
@@ -381,6 +384,9 @@ def _stuck(c, rows, online_ids, who, full):
                         else _fix("Open Computers", "#/settings", "devices")
             else:
                 fix = _fix("Open bot settings", "#/settings", "bots")
+        elif reason == "limit":
+            text = "Over its spending limit"
+            fix = _fix("Raise limit", "#/usage")
         else:
             text = f"Not started after {QUEUE_MINUTES} min"
             fix = _fix("Open Runs", "#/runs")

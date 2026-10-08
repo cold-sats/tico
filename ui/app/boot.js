@@ -42,7 +42,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   route(); renderHeartbeat(); renderAccount();
   void Promise.all([status, issues, counts]).then(() => {
     renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync();
-    if (BOT && $('#bot-alert')) $('#bot-alert').innerHTML = botAlertHTML(BOT.slug);
+    botAlertDraw();
     if (TASKS_ST && isTasksRoute(S.route)) tasksRender(TASKS_ST);
   });
   if (S.me?.cloud) void updUnreadRefresh();

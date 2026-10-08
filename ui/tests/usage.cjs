@@ -1,6 +1,7 @@
 // Offline browser regression: the Usage page (account menu > Usage). The range switch asks for the right days, the rows
 // are sorted by spend whatever order they arrive in, a subscription's figure stays apart from spend, a bot opens to its
-// daily chart and routines and a CSV, and an empty range says so.
+// daily chart and routines and a CSV, and an empty range says so. A bot over its limit is marked in the org tree and its
+// page leads with a banner whose link opens Usage.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -56,16 +57,30 @@ const total = rows => rows.reduce((t, r) => ({runs: t.runs + r.runs, est_cost_us
         const rows = empty ? [] : ROWS.filter(r => !q.department || r.department === q.department);
         return json({from: q.from, to: q.to, prices_as_of: '2026-09-29', group: 'bot', department: q.department || null, totals: total(rows), rows, departments: ['Ops', 'Revenue']});
       }
-      if (p === '/api/employees' || p === '/api/issues') return json([]);
+      if (p === '/api/employees') return json([{name: 'support', display_name: 'Support', host: 'keeper', status: 'active', can_chat: true, schedules: []}]);
+      if (p === '/api/issues') return json([]);
       if (p === '/api/humans') return json({people: [], teams: {}});
       if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
-      if (p === '/api/v2/status') return json({bots: []});
+      if (p === '/api/v2/status') return json({bots: [{bot: 'support', state: 'paused', focus: 'Paused: over its daily limit',
+                                                      limit: {period: 'daily', spent: 6.1, limit: 5, until: day(-1) + 'T00:00:00Z'}}]});
       if (p === '/api/v2/needs-you') return json({items: []});
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       return json({});
     });
-    await page.goto('https://tico-ui.test/#/updates');
+    await page.goto('https://tico-ui.test/#/bot/support');
     await page.waitForFunction(() => !document.querySelector('#account .account-email')?.textContent.includes('Signing in'));
+
+    // Over its limit: a marker beside the bot in the org tree, and a banner on its page that links to Usage.
+    const mark = page.locator('#tree a.node[href="#/bot/support"] .tree-limit');
+    await mark.waitFor();
+    assert.equal(await mark.getAttribute('aria-label'), 'Over its daily limit');
+    const banner = page.locator('#bot-limit-host .bot-limit');
+    await banner.waitFor();
+    assert.equal((await banner.innerText()).replace(/\s+/g, ' ').trim(), '⚠ Over its daily limit ($6.10 of $5.00). Raise limit');
+    await banner.locator('a', {hasText: 'Raise limit'}).click();
+    await page.locator('.use-row').first().waitFor();
+    asked.length = 0;
+    await page.goto('https://tico-ui.test/#/updates');
 
     // The account menu lists Usage after Runs (Learnings may sit between them).
     await page.locator('#account').click();

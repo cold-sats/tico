@@ -131,6 +131,9 @@ function pausedRender() {
   el.innerHTML = text || agent; el.hidden = !(text || agent);
   el.classList.toggle('agent', !text && !!agent && agentQuiet(V2C.slug));
 }
+// A bot over its spend limit (backend/usage_limits.py `over`): its status carries the limit while it holds new work.
+const overLimit = slug => v2StatusOf(slug)?.limit || null;
+const overLimitWord = limit => `Over its ${limit.period} limit`;
 function v2StatePill(slug) {
   const s = v2StatusOf(slug);
   if (!s) return botStatePill(slug);

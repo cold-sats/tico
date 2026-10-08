@@ -337,6 +337,12 @@ function orgGroupFieldWire() {
 // The org list has no hover card on bots. What a bot's row says is its badge:
 // a subtle ring spins around it while the bot works, and it looks like a quiet alert when the bot
 // needs you — the count of tasks waiting on you, or a small ! when the need is not a task.
+// A bot over its spend limit takes no new work until a person raises the limit or the period turns over.
+function treeLimitMark(slug) {
+  const limit = overLimit(slug); if (!limit) return '';
+  const word = esc(overLimitWord(limit));
+  return `<span class="tree-limit" role="img" aria-label="${word}" title="${word}">!</span>`;
+}
 function treeBadge(n, st) {
   const working = st === 'running';
   if (n) return `<span class="cnt needs${working ? ' working' : ''}" role="img" aria-label="${n} need${n === 1 ? 's' : ''} you${working ? ', working' : ''}">${n}</span>`;
@@ -555,7 +561,7 @@ function renderTree() {
         ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${orgBranchMark(e)}${runtimeTag(e)}${frTreeMark(e)}
         ${e.goal_active ? '<span class="nav-icon tree-goal" role="img" aria-label="Goal" title="Goal">target</span>' : ''}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
-        ${treeBadge(n, st)}</a></div>
+        ${treeLimitMark(e.name)}${treeBadge(n, st)}</a></div>
       ${own ? `<ul class="inbox-list node-sources" aria-label="${esc(e.display_name || e.name)}: mailboxes and channels">${own.map(inboxNavLink).join('')}</ul>` : ''}
       ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
   };

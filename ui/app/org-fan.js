@@ -43,7 +43,7 @@ function orgFanOpen(opts = {}) {
   const bots = chat ? orgFanChatBots(opts.chat) : orgFanBots();
   if (!bots.length && !chat) { searchOpen(); return; }  // nothing recent and nothing waiting: pick one
   const item = (b, i) => `<li><button class="org-fan-item" type="button" role="menuitem" data-org-bot="${esc(b.slug)}" style="--i:${i}">
-      ${avatar(b.slug, 34)}<span>${empName(b.slug)}</span>${orgBranchMark(S.emps.find(e => e.name === b.slug))}${b.n ? `<span class="org-fan-badge" aria-label="${b.n} need you">${b.n}</span>` : ''}</button></li>`;
+      ${avatar(b.slug, 34)}<span>${empName(b.slug)}</span>${orgBranchMark(S.emps.find(e => e.name === b.slug))}${treeLimitMark(b.slug)}${b.n ? `<span class="org-fan-badge" aria-label="${b.n} need you">${b.n}</span>` : ''}</button></li>`;
   const search = i => `<li><button class="org-fan-item org-fan-search" type="button" role="menuitem" data-org-search style="--i:${i}">
       <span class="nav-icon org-fan-search-icon" aria-hidden="true">search</span><span>Search</span></button></li>`;
   fan.querySelector('.org-fan-list').innerHTML = bots.map(item).join('') + (chat ? search(bots.length) : '');
