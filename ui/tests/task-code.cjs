@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const SHOTS = process.env.TASK_CODE_SHOTS || '';
 
 const now = new Date().toISOString();
@@ -245,7 +246,8 @@ async function desktop(browser) {
   // A task with nothing in the rail has no rail and no empty headings.
   await page.evaluate(() => { location.hash = '#/task/t-plain'; });
   await modal.locator('.tmodal-title', {hasText: 'Book the team offsite'}).waitFor();
-  await page.waitForTimeout(200);
+  // the full detail is drawn (its rail painted from it)
+  await page.waitForFunction(() => document.querySelector('#task-modal')?.taskRail?.full?.id === 't-plain');
   assert.equal(await modal.locator('[data-task-rail]').isHidden(), true);
   assert.equal(await modal.evaluate(d => d.classList.contains('has-rail')), false);
   assert.equal(await modal.locator('text=Subtasks').count(), 0);
@@ -429,15 +431,25 @@ async function botDetail(browser) {
     await manager.page.waitForFunction(() => !history.state?.taskModal && !document.querySelector('#task-modal[open]') && !document.body.classList.contains('task-modal-open'));
     assert.equal(new URL(manager.page.url()).hash, '#/bot/eng/tasks');
     // Only the latest selection can open; a late detail response cannot resurrect a task on another page.
-    await manager.page.route('**/api/v2/tasks/t-checkout', async route => { await new Promise(resolve => setTimeout(resolve, 250)); await route.fallback(); });
+    // The earlier detail is held until the test lets it go; v2Done notes each answer the app has taken in.
+    const held = [];
+    const releaseHeld = async () => {
+      for (const end = Date.now() + t(10000); !held.length && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+      assert.ok(held.length, 'the detail request is held');
+      held.splice(0).forEach(release => release());
+    };
+    await manager.page.route('**/api/v2/tasks/t-checkout', route => new Promise(release => held.push(release)).then(() => route.fallback()));
+    await manager.page.evaluate(() => { const get = v2Get; window.v2Done = []; window.v2Get = async path => { try { return await get(path); } finally { v2Done.push(path); } }; });
+    const lateDone = n => manager.page.waitForFunction(n => v2Done.filter(p => p === '/v2/tasks/t-checkout').length === n, n);
     await manager.page.evaluate(() => { void taskModalOpen('tt-checkout'); void taskModalOpen('tt-none'); });
     await modal.locator('.tmodal-title', {hasText: 'Write the release notes'}).waitFor();
-    await manager.page.waitForTimeout(350);
+    await releaseHeld(); await lateDone(1);
     assert.equal(await modal.locator('.tmodal-title').innerText(), 'Write the release notes', 'a slower earlier tap cannot replace the latest task');
     await modal.locator('[data-modal-close]').click();
     await manager.page.waitForFunction(() => !history.state?.taskModal);
     await manager.page.evaluate(() => { void taskModalOpen('tt-checkout'); location.hash = '#/goals'; });
-    await manager.page.waitForTimeout(350);
+    await manager.page.waitForFunction(() => S.route === '#/goals');
+    await releaseHeld(); await lateDone(2);
     assert.equal(await modal.isVisible(), false, 'navigating away cancels a pending open');
     assert.equal(await manager.page.evaluate(() => !!history.state?.taskModal || document.body.classList.contains('task-modal-open')), false, 'no stale history or scroll lock');
     const historyNotes = await manager.page.evaluate(() => {

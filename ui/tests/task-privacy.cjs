@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
 // The icon font is subset (ui/vendor/fonts/icons.txt); a ligature missing from that list renders as a stray glyph.
 {
@@ -117,13 +118,13 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         return route.fulfill({contentType: 'application/octet-stream', headers: {'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`}, body: file.body});
       }
       if (p.startsWith('/api/v2/preferences/') && req.method() === 'GET') {
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await new Promise(resolve => setTimeout(resolve, t(150)));
         preferencePending = false;
         return json({key: 'tasks.view', value: null});
       }
       if (p === '/api/v2/tasks' && req.method() === 'GET') {
         if (preferencePending) tasksStartedBeforePreference = true;
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, t(50)));
         let rows = tasks.slice();
         const statuses = url.searchParams.get('status');
         if (statuses && statuses !== 'all') {

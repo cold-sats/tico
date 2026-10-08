@@ -56,8 +56,8 @@ const {html, uiFile} = require('./support/page.cjs');
     const org = page.locator('[data-gh-form] input[name=org]'), name = page.locator('[data-gh-form] input[name=name]');
     await org.fill('acme-inc'); await name.fill('Acme Tico'); await name.focus();
     // The app's polls, and a redraw of the same route (the Tools page rebuilt itself and wiped the form).
+    // route() decides to keep or redraw the busy page before it returns, so the values can be read at once.
     await page.evaluate(async () => { await refresh(false); await refresh(true); applyConfig(await get('/v2/config')); route(); });
-    await page.waitForTimeout(300);
     assert.equal(await org.inputValue(), 'acme-inc', 'Organization survives the refresh');
     assert.equal(await name.inputValue(), 'Acme Tico', 'App name survives the refresh');
 
@@ -66,8 +66,14 @@ const {html, uiFile} = require('./support/page.cjs');
     const machine = page.locator('#machine-label'), token = page.locator('#settings-token-form input[name=label]');
     await machine.waitFor(); await token.waitFor();
     await machine.fill('Build server'); await token.fill('CI script');
-    await page.evaluate(async () => { await loadSettings(); route(); });
-    await page.waitForTimeout(300);
+    // The same-route redraw starts its own loadSettings; wait for that one to finish too.
+    await page.evaluate(async () => {
+      await loadSettings();
+      const real = loadSettings; let again = null;
+      loadSettings = () => (again = real());
+      try { route(); } finally { loadSettings = real; }
+      await again;
+    });
     assert.equal(await machine.inputValue(), 'Build server', 'Computer name survives loadSettings');
     assert.equal(await token.inputValue(), 'CI script', 'Token label survives loadSettings');
     await page.locator('[data-settings-tab=bots]').click();

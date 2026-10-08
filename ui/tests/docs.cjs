@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ui = path.join(__dirname, '..');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const shot = async (page, name) => {
   if (!shots) return;
@@ -412,7 +413,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.deepEqual(requests.findLast(r => r.api === 'linked-docs').body, {url: 'www.notion.so/Acme-Handbook', title: '', description: 'The company handbook'});
     assert.equal(await page.locator('.docs-link', {hasText: 'Acme-Handbook'}).locator('.docs-kind').getAttribute('data-kind'), 'notion');
     const [popup] = await Promise.all([page.waitForEvent('popup'), page.locator('.docs-link-main', {hasText: 'Help centre'}).click()]);
-    await popup.waitForURL('https://help.acme.example/refunds', {timeout: 5000, waitUntil: 'commit'});
+    await popup.waitForURL('https://help.acme.example/refunds', {timeout: t(5000), waitUntil: 'commit'});
     assert.equal(popup.url(), 'https://help.acme.example/refunds');
     await popup.close();
     await page.locator('.docs-link', {hasText: 'Help centre'}).hover();

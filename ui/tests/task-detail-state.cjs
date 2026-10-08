@@ -3,14 +3,25 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {open} = require('./task-code.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const gate = () => { let resolve; const promise = new Promise(r => resolve = r); return {promise, resolve}; };
 const shots = process.env.TICO_DETAIL_SHOTS;
 const shot = (page, name) => shots ? page.screenshot({path: path.join(shots, name + '.png')}) : Promise.resolve();
 async function visit(browser) {
   const v = await open(browser, {viewport: {width: 390, height: 844}, rich: true, at: '#/bot/eng/tasks'});
-  v.page.setDefaultTimeout(5000);
+  v.page.setDefaultTimeout(t(5000));
+  // readDone: the path of every answer the app has read in full (its handler runs in the same turn)
+  await v.page.evaluate(() => {
+    const send = fetch; window.readDone = [];
+    window.fetch = async (...args) => {
+      const r = await send(...args), text = r.text.bind(r);
+      r.text = async () => { try { return await text(); } finally { readDone.push(new URL(r.url).pathname); } };
+      return r;
+    };
+  });
   return v;
 }
+const reads = (page, p) => page.evaluate(p => readDone.filter(x => x === p).length, p);
 async function show(page) {
   await page.locator('[data-task-detail="t-checkout"] [data-task-detail-open]').click();
   await page.locator('#task-modal .task-comments .ask').waitFor();
@@ -58,11 +69,11 @@ async function show(page) {
    await show(page); await reached.promise;
    // A change to the task arrives on the live stream while the first read is still out: the files are read again.
    await page.evaluate(() => taskChatLive(TASK_CHAT));
-   await page.locator('#task-modal [data-tf-file="f-notes"] .tf-meta', {hasText: 'v2'}).waitFor({timeout: 12000});
+   await page.locator('#task-modal [data-tf-file="f-notes"] .tf-meta', {hasText: 'v2'}).waitFor({timeout: t(12000)});
    await page.locator('#task-modal [data-tf-file="f-notes"]').click();
    await page.locator('#task-modal [data-tf-view]', {hasText: 'Receipt check version 2.'}).waitFor();
    const delivered = page.waitForResponse(r => r.url().endsWith('/tasks/t-checkout/files')); held.resolve(); await delivered;
-   await page.waitForTimeout(100);
+   await page.waitForFunction(n => readDone.filter(x => x === '/api/v2/tasks/t-checkout/files').length >= n, requests);   // the stale answer was read
    assert.equal(await page.evaluate(() => document.querySelector('#task-modal').taskFiles[0].current_version), 2);
    assert.equal(await page.evaluate(() => TF_CACHE.get('t-checkout')[0].current_version), 2);
    assert.match(await page.locator('#task-modal [data-tf-view]').innerText(), /Receipt check version 2/);
@@ -85,7 +96,9 @@ async function show(page) {
    if (remove) await show(page); // Same task, different opening: the old save must not redraw it.
    const seq = await page.evaluate(() => document.querySelector('#task-modal').drawSeq);
    const fetched = page.waitForResponse(r => r.url().endsWith('/tasks/t-checkout') && r.request().method() === 'GET');
-   held.resolve(); await fetched; await page.waitForTimeout(100);
+   const before = await reads(page, '/api/v2/tasks/t-checkout');
+   held.resolve(); await fetched;
+   await page.waitForFunction(n => readDone.filter(x => x === '/api/v2/tasks/t-checkout').length > n, before);   // the old save's read-back was handled
    assert.equal(await page.evaluate(() => document.querySelector('#task-modal').open), remove);
    assert.equal(await page.evaluate(() => document.querySelector('#task-modal').drawSeq), seq);
    if (!remove) await shot(page, 'after-link-dismissal');

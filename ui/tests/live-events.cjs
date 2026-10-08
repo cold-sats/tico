@@ -10,6 +10,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 const now = new Date().toISOString();
 const task = over => ({id: 't1', title: 'Draft the release notes', body: 'Details.', owner: 'bot:ops', requester: 'human:ana',
@@ -58,11 +59,11 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   });
   // The newest stream the page holds that `match` accepts, answered with `blocks` (it then ends, and the page reconnects).
   const send = async (match, ...blocks) => {
-    const deadline = Date.now() + 8000;
+    const deadline = Date.now() + t(8000);
     let stream;
     while (!(stream = streams.filter(s => match(s.url)).at(-1))) {
       if (Date.now() > deadline) throw new Error('no stream: ' + streams.map(s => s.url.search).join(' | '));
-      await page.waitForTimeout(50);
+      await new Promise(r => setTimeout(r, 50));
     }
     streams.splice(streams.indexOf(stream), 1);
     for (const old of streams.splice(0)) await old.route.abort().catch(() => {});   // superseded ones the page closed
@@ -80,7 +81,8 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   const first = await send(following, block(10, 'ready', {}), block(11, 'messages', {id: 'm2', conversation_id: 'c-ops', message: snapshot.messages[1]}));
   assert.deepEqual(first.searchParams.get('topics').split(',').sort(), ['bots', 'messages', 'needs', 'runs', 'tasks']);
   await page.getByText('The notes are in the doc.').waitFor();
-  await page.waitForTimeout(600);
+  // Settled: no snapshot read queued, running or asked for again.
+  await page.waitForFunction(() => !LIVE_SOON.has('chat:c-ops') && !V2C.reading && !V2C.readAgain, null, {timeout: t(5000)});
   assert.equal(reads.snapshot, opened + 1, 'one read for one change, and none on a timer');
 
   // Needs you: the count beside the bot follows the topic, and the reconnect resumes after change 11.
@@ -91,9 +93,10 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
 
   // The task board: a task changed elsewhere is redrawn from the event; the list is not read again.
   await page.evaluate(() => { location.hash = '#/board'; });
-  await page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && document.querySelector('#task-body .tl-row, #task-body .bcard'), null, {timeout: 8000})
+  // Done's page lands after the list: wait for both.
+  await page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && TASKS_ST.doneLoaded && !TASKS_ST.doneLoading
+    && document.querySelector('#task-body .tl-row, #task-body .bcard'), null, {timeout: t(8000)})
     .catch(async e => { throw new Error(e.message + ' ' + JSON.stringify(errors) + (await page.evaluate(() => document.querySelector('#main')?.innerText.slice(0, 400)))); });
-  for (let seen = -1; seen !== reads.tasks;) { seen = reads.tasks; await page.waitForTimeout(400); }   // Done's page lands after the list
   const listed = reads.tasks;
   const third = await send(() => true, block(13, 'tasks', {id: 't1', actor: 'human:ben', task: task({title: 'Draft the final release notes', version: 4})}));
   assert.equal(third.searchParams.get('after'), '12');
@@ -103,7 +106,7 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   const fourth = await send(() => true, block(14, 'tasks', {id: 't2', actor: 'bot:ops', task: task({id: 't2', title: 'Check the release links', status: 'open'})}));
   assert.equal(fourth.searchParams.get('after'), '13');
   await page.locator('#task-body', {hasText: 'Check the release links'}).waitFor();
-  await page.waitForTimeout(600);
+  await page.waitForFunction(() => !LIVE_SOON.has('tasks') && !LIVE_THROTTLE.get('tasks-bulk')?.timer, null, {timeout: t(5000)});   // the batch is applied
   assert.equal(reads.tasks, listed, 'a new task does not read the list again');
 
   // The 2-minute refresh: only what changed since the list's cursor, applied in place; the labels come back as a 304.

@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'Initech Hub',
   assistant_name: 'Ace', assistant_bot: 'coo', public_url: 'https://initech.test',
@@ -94,7 +95,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
-    const next = async () => { for (let i = 0; i < 200 && !calls.length; i += 1) await new Promise(r => setTimeout(r, 50)); return calls.shift(); };
+    const next = async () => { for (const end = Date.now() + t(10000); !calls.length && Date.now() < end;) await new Promise(r => setTimeout(r, 50)); return calls.shift(); };
     const row = id => page.locator(`.people-row[data-person=${id}]`);
     // A save re-reads /v2/access and repaints the list. Mark the current paint first, then wait for a fresh
     // one, so the next click never lands on a row that is being replaced.

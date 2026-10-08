@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const MCP_URL = 'https://runner.acme.example/api/v2/mcp';
 const SECRET = 'tico_pt_' + 'Fx7'.repeat(13) + 'Q';
@@ -146,7 +147,7 @@ const shot = (page, name) => shots ? page.screenshot({path: path.join(shots, `co
         await page.clock.fastForward(2999);
         assert.equal(state.urls.filter(u => u.endsWith('/api/v2/me/tokens')).length, beforePoll, 'no poll before three seconds');
         await page.clock.fastForward(1);
-        await page.waitForFunction(() => document.querySelector('[data-status]')?.dataset.state === 'connected', null, {timeout: 8000});
+        await page.waitForFunction(() => document.querySelector('[data-status]')?.dataset.state === 'connected', null, {timeout: t(8000)});
         assert.equal(await dialog.locator('[data-status-text]').innerText(), 'Connected');
         await shot(page, `connected-${tag}`);
 

@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const now = Date.now(), iso = ms => new Date(now + ms).toISOString(), hour = 3600e3;
 const day = ms => new Date(now + ms).toLocaleDateString('en-CA', {timeZone: 'America/Los_Angeles'});
@@ -19,6 +20,9 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   const posted = [];
+  // Held answers the test releases: the feed (while the cache paint is checked) and the reply (while it is pending).
+  let feedHeld = null, releaseReply;
+  const replyHeld = new Promise(r => { releaseReply = r; });
   let updates = [
     {id: 'u-seo', bot: 'seo', kind: 'daily', day: day(0), headline: 'Published the vacation rental checklist page',
      body: '- Published the vacation rental checklist page, 1,240 words\n- Linked it from six older posts\n- Pitching it to three host newsletters next',
@@ -64,7 +68,8 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}]});
       if (p === '/api/v2/updates/unread') return json({unread: updates.filter(u => !u.read).length});
       if (p === '/api/v2/updates' && req.method() === 'GET') {
-        await new Promise(r => setTimeout(r, 120));        // a real round trip, so the cache paint shows first
+        await feedHeld;                                    // the cache paint shows first
+        await new Promise(r => setTimeout(r, t(120)));     // a real round trip
         return json(feed(url.searchParams.get('kind')));
       }
       if (p === '/api/v2/updates/read') {
@@ -75,7 +80,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       const reply = p.match(/^\/api\/v2\/updates\/([^/]+)\/reply$/);
       if (reply) {
         const body = req.postDataJSON(); posted.push({path: p, body});
-        await new Promise(r => setTimeout(r, 250));
+        await replyHeld;
         const msg = {id: 'm-new', from_actor: 'human:ana', body: `Re your update "x": ${body.text}`, created: new Date().toISOString(), conversation_id: 'c-seo'};
         threads[reply[1]] = [...(threads[reply[1]] || []), msg];
         return json({message: msg, thread: threads[reply[1]]});
@@ -106,9 +111,9 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     assert.equal(await page.locator('#upd-feed .upd-headline, #upd-feed .upd-day, #upd-today, .upd-missed, [data-upd-open], .upd-body.clamp').count(), 0);
     assert.match(await page.locator('[data-upd="u-seo"] .upd-body').innerText(), /Published the vacation rental checklist page/);
     // Seen is read: the visible unread cards are marked in one small request.
-    await page.waitForFunction(() => !document.querySelector('#upd-feed .upd-card.unread'), null, {timeout: 5000});
+    await page.waitForFunction(() => !document.querySelector('#upd-feed .upd-card.unread'), null, {timeout: t(5000)});
     await page.waitForFunction(() => document.querySelector('.side-scroll [data-upd-badge]')?.hidden === true);
-    for (const end = Date.now() + 3000; !posted.some(x => x.path === '/api/v2/updates/read') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+    for (const end = Date.now() + t(10000); !posted.some(x => x.path === '/api/v2/updates/read') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
     const reads = posted.filter(x => x.path === '/api/v2/updates/read');
     assert.equal(reads.length, 1, 'batched: ' + JSON.stringify(reads));
     assert.deepEqual(reads[0].body.ids.sort(), ['u-fin', 'u-seo']);
@@ -123,10 +128,9 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await page.locator('[data-upd="u-seo"] [data-upd-reply]').click();
     const box = page.locator('[data-upd="u-seo"] textarea');
     await box.fill('Pitch it to Northwind Homes first');
-    const t0 = Date.now();
     await box.press('Enter');
-    await page.locator('[data-upd="u-seo"] .upd-msg.pending').waitFor();
-    assert(Date.now() - t0 < 200, 'the reply shows before the round trip');
+    await page.locator('[data-upd="u-seo"] .upd-msg.pending').waitFor();   // the reply shows before the round trip (held)
+    releaseReply();
     await page.locator('[data-upd="u-seo"] .upd-msg:not(.pending)').waitFor();
     assert.deepEqual(posted.at(-1), {path: '/api/v2/updates/u-seo/reply', body: {text: 'Pitch it to Northwind Homes first'}});
     assert.match(await page.locator('[data-upd="u-seo"] .upd-msg').last().innerText(), /Pitch it to Northwind Homes first/);
@@ -166,9 +170,11 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     assert.match(await page.locator('[data-upd="w-cmo"] .upd-body').innerText(), /posted as bullets/);
     // Snappy: coming back to Daily paints from this tab's cache before the network answers, and the
     // unread one (AI CMO, marked unread above) now comes first.
+    let releaseFeed; feedHeld = new Promise(r => { releaseFeed = r; });
     await page.evaluate(() => { location.hash = '#/updates'; });
-    await page.waitForFunction(() => document.querySelector('[data-upd="u-seo"]'), null, {timeout: 60});
-    await page.waitForFunction(() => document.querySelector('#upd-feed .upd-card')?.dataset.upd === 'u-cmo', null, {timeout: 3000});
+    await page.waitForFunction(() => document.querySelector('[data-upd="u-seo"]'), null, {timeout: t(5000)});   // while the feed is held
+    releaseFeed(); feedHeld = null;
+    await page.waitForFunction(() => document.querySelector('#upd-feed .upd-card')?.dataset.upd === 'u-cmo', null, {timeout: t(3000)});
     assert.deepEqual(errors, []);
     await page.close();
 
@@ -190,7 +196,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     assert.equal(await p.locator('#mobile-nav [data-nav="updates"]').evaluate(el => el.classList.contains('cur')), true);
     const card = await p.locator('#upd-feed .upd-card').first().boundingBox();
     assert(card.x >= 8 && card.x + card.width <= 390 - 8, 'cards fit the phone with a gutter');
-    if (shots) { await p.waitForTimeout(200); await p.screenshot({path: path.join(shots, 'updates-phone.png')}); }
+    if (shots) { await p.waitForFunction(() => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, {timeout: t(5000)}); await p.screenshot({path: path.join(shots, 'updates-phone.png')}); }
     // A week's slides fit the phone and swipe sideways inside the card.
     await p.evaluate(() => { location.hash = '#/updates?kind=weekly'; });
     const track = p.locator('[data-upd="w-seo"] .upd-track');

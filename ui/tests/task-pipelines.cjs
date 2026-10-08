@@ -3,6 +3,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
@@ -48,7 +49,7 @@ const {html, uiFile} = require('./support/page.cjs');
       if (p === '/api/v2/tasks/labels') return json({labels: [tag.key], tags: [tag]});
       if (p === '/api/v2/tags' && req.method() === 'GET') return json({tags: [tag]});
       if (p.startsWith('/api/v2/preferences/') && req.method() === 'GET') {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, t(100)));
         return json({value: {type: 'marketing', view: 'board', views: 2}});
       }
       if (p === '/api/v2/task-types' && req.method() === 'GET') return json({types});
