@@ -217,6 +217,14 @@ class Rule5Tasks(HubCase):
         self.assertEqual(len(told), 1)
         self.assertIn("Keep the draft on hold", told[0]["body"])
 
+    def test_moving_a_task_to_review_wakes_the_bot_that_asked_for_it(self):
+        row = H.task_create(self.conn, CMO, "Speed up the overview checks", "Make them pass alone.", SEO)
+        H.task_update(self.conn, SEO, row["id"], status="review", note="Pushed; all changed scripts pass.")
+        told = [m for m in H.messages(self.conn, row["conversation_id"])
+                if m["to_actor"] == CMO and m["body"].startswith("Ready for review:")]
+        self.assertEqual(len(told), 1)
+        self.assertIn("all changed scripts pass", told[0]["body"])
+
 # ----------------------------------------------------------------------------- rule 6
 class Rule6Approvals(HubCase):
     SEND = {"to": "ops@acme.com", "cc": "", "subject": "Your September invoice",

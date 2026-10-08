@@ -3336,6 +3336,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _wake(conn, after, after["requester"],
               f"{'Finished' if status == 'done' else 'Declined'}: {after['title']}"
               + (f"\n{note}" if note and not quiet else ""), refs=refs, quiet_bots=True)
+    if status == "review" and row["status"] != "review" and actor != after["requester"]:
+        # Review is the requester's turn. Nothing else tells a bot that asked for the work, so
+        # without this a handoff between bots waits until someone notices.
+        _wake(conn, after, after["requester"], f"Ready for review: {after['title']}"
+              + (f"\n{note}" if note and not quiet else ""))
     if (status == "open" or owner is not None and owner != row["owner"]) and actor != after["owner"]:
         _wake(conn, after, after["owner"], f"Open: {after['title']}")
     recount(conn, [after["owner"], after["requester"], row["owner"]])   # the old owner too, on a handoff
