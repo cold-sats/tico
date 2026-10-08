@@ -84,8 +84,17 @@ def _mail_key_exposed(c):
             if readiness_document(r["readiness_json"]).get("mail_key") == "exposed"]
 
 
+PUBLISH_WARNING = "GitHub history not published: "                     # runner/service.py PUBLISH_WARNING
+DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "          # runner/service.py DENIED_WARNING
+
+
 def _unpublished(c):
     """Bots whose local history the runner could not give a GitHub repository (runner/service.py `publish`)."""
+    return _reported(c, PUBLISH_WARNING)
+
+
+def _reported(c, prefix):
+    """(bot, the rest of the line) for each readiness warning starting with `prefix` from the computer hosting the bot."""
     out = []
     hosting = {(a["bot"], a["runner_id"]) for a in c.execute(
         "SELECT a.bot,a.runner_id FROM assignments a JOIN bots b ON b.slug=a.bot WHERE b.state<>'archived'")}
@@ -94,8 +103,8 @@ def _unpublished(c):
             if (bot, r["id"]) not in hosting:
                 continue                  # a computer that no longer hosts the bot has nothing to publish for it
             for warning in (row or {}).get("warnings") or []:
-                if str(warning).startswith("GitHub history not published: "):
-                    out.append((bot, str(warning).split(": ", 1)[1][:160]))
+                if str(warning).startswith(prefix):
+                    out.append((bot, str(warning)[len(prefix):][:200]))
     return sorted(set(out))
 
 
@@ -236,7 +245,8 @@ def _waiting(c, online_ids):
     assigned = {r["bot"]: (r["runner_id"], r["label"], r["readiness_json"]) for r in c.execute(
         "SELECT a.bot, a.runner_id, r.label, r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
         "WHERE r.revoked_at IS NULL")}
-    # A starter bot still waiting for its first setup holds its work on purpose: not slow.
+    # A starter bot still waiting for its first setup holds its work on purpose: not slow (`unfinished_setup` warns
+    # once the hold is old).
     parked = {r["bot"] for r in c.execute("SELECT bot FROM bot_config WHERE onboarding_state IN ('needs_setup','needs_onboarding')")}
     # A bot in the middle of a turn has its next message waiting behind it: busy, not stuck (partial index).
     busy, running = set(), {}
@@ -282,6 +292,27 @@ def _waiting(c, online_ids):
             if slug not in busy and where[0] not in full:
                 stuck.append({**row, "reason": "slow", "runner_id": where[0], "runtime": report.get("runtime") or ""})
     return waiting, slow, stuck
+
+
+SETUP_HOLD_MINUTES = 60     # a bot still in setup holds its work; this long and nobody is finishing it
+
+
+def unfinished_setup(c):
+    """Active bots still in setup whose held work is older than SETUP_HOLD_MINUTES: [(slug, name, count, what, oldest)].
+    A parked bot takes no task and no notice until its setup is done, so its watchers' tasks pile up out of sight."""
+    from .statuses import PARKED_SQL
+    parked = c.execute("SELECT b.slug,b.display_name FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
+                       f"WHERE bc.onboarding_state IN {PARKED_SQL} AND b.state='active' ORDER BY b.slug").fetchall()
+    cutoff, out = H.shift(H.now(), minutes=-SETUP_HOLD_MINUTES), []
+    for row in parked:      # few bots are ever parked; each is two indexed reads
+        tasks = c.execute("SELECT count(*) n, min(created) oldest FROM tasks WHERE owner=? AND status IN ('open','doing','ready')",
+                          ("bot:" + row["slug"],)).fetchone()
+        notices = c.execute("SELECT count(*) n, min(created) oldest FROM jobs WHERE bot=? AND state='queued'",
+                            (row["slug"],)).fetchone()
+        count, what, oldest = (tasks["n"], "task", tasks["oldest"]) if tasks["n"] else (notices["n"], "notice", notices["oldest"])
+        if count and oldest < cutoff:
+            out.append((row["slug"], row["display_name"] or row["slug"], count, what, oldest))
+    return out
 
 
 def _movable(c, who, online_ids):
@@ -639,6 +670,12 @@ def view(c, who, settings, auth, github, config):
                              "Some bots' history is not on GitHub yet: " + "; ".join(f"{bot} ({why})" for bot, why in unpublished[:3])
                              + ("." if len(unpublished) <= 3 else f"; and {len(unpublished) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
+    denied = _reported(c, DENIED_WARNING) if full else []
+    if denied:
+        checks.append(_check("claude_denies", "Claude Code permissions", "warn",
+                             "; ".join(f"{bot}: {DENIED_WARNING}{rest}" for bot, rest in denied[:3])
+                             + ("." if len(denied) <= 3 else f"; and {len(denied) - 3} more."),
+                             [_fix("Open bots", "#/settings", "bots")]))
     if full:
         from .worktrees import supported
         if supported(c):
@@ -789,6 +826,10 @@ def view(c, who, settings, auth, github, config):
                              [_fix("Open Runs", "#/runs")] if full else []))
     else:
         checks.append(_check("queue", "Work queueing", "ok", "No work is waiting long."))
+    for slug, name, count, what, oldest in unfinished_setup(c) if full else ():
+        checks.append(_check("setup:" + slug, "Setup not finished", "warn",
+                             f"{name} hasn't finished setup; {_plural(count, what)} waiting since {oldest[:10]}.",
+                             [_fix("Finish setup", "#/bot/" + slug)]))
     if full and (heavy := _token_heavy(c, settings.token_alert_input)):
         checks.append(_check("tokens", "Token use", "warn",
                              "; ".join(f"{name}: {_tokens_words(n)} uncached input tokens in 24 h"

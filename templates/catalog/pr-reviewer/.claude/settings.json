@@ -9,11 +9,11 @@
       "Bash(gh pr view *)",
       "Bash(gh pr diff *)",
       "Bash(gh pr checks *)",
-      "Bash(gh search prs *)"
+      "Bash(gh search prs *)",
+      "Bash(gh pr review *)",
+      "Bash(gh pr comment *)"
     ],
     "deny": [
-      "Bash(gh pr review *)",
-      "Bash(gh pr comment *)",
       "Bash(gh pr merge *)",
       "Bash(gh pr close *)",
       "Bash(gh pr reopen *)",

@@ -1,6 +1,6 @@
 # Tico HQ tickets
 
-For the Tico project team's own Support Agent, when `HQ_STAFF_KEY` and `TICO_HQ_URL` are in this bot's credentials. Without
+For the Tico project team's own Support Agent, when `HQ_STAFF_KEY` and `HQ_URL` are in this bot's credentials. Without
 them the `hq-tickets` watcher does nothing and this playbook does not apply. People file these from Contact support in
 their Tico app (docs/support.md). Budget ten minutes per ticket. The outcome is a draft reply on the task and, when `outbound_send` is on, the requested reply posted.
 

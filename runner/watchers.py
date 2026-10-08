@@ -39,6 +39,8 @@ REPORT_CAP = 2000            # characters of log sent to the hub
 STATE_CAP = 1024 * 1024      # bytes of state saved for the rollback
 SECRET_NAMES = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 SHEBANG_PYTHON = "python"
+# A parked starter bot's status: `needs_setup`, or `needs_onboarding` from a hub that has not moved to the new word.
+PARKED_STATES = ("needs_setup", "needs_onboarding")
 
 
 def now():
@@ -121,12 +123,15 @@ class Watchers:
 
     # ------------------------------------------------------------------ what is declared
     def scan(self):
-        """{(bot, name): (entry, path, spec)} for the active bots hosted here. A bad declaration is logged once."""
+        """{(bot, name): (entry, path, spec)} for the active bots hosted here that have finished setup. A bad declaration
+        is logged once."""
         found = {}
         for entry in getattr(self.runner, "assignments_seen", None) or []:
             bot = entry.get("bot")
             if entry.get("state") != "active" or not self.runner.assigned_here(entry):
                 continue
+            if entry.get("onboarding_state") in PARKED_STATES:
+                continue        # a bot still in setup takes no work, so what its watchers file would only pile up
             path = self.runner.local_path(bot)
             manifest = manifest_path(path)
             if not (path / "AGENT.md").is_file() or not manifest.is_file():
