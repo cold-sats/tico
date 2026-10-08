@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- A pull request opening, merging or closing no longer moves a task on a custom type. GitHub chose the type's first Review or Ready step, which skipped a team's QA steps on merge; a person now moves the task to the step that comes next. Legacy product-lane tasks still move.
+
 ## [0.3.33] - 2026-10-08
 
 ### Added

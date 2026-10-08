@@ -252,8 +252,9 @@ merged or closed. A repository in the connected org is tracked when it is reacha
 or has received a PR webhook on any task. Its PRs block automatic Ready even before their
 first event. Unreachable, unticked repositories with no webhook history do not block it. Removing a PR link
 recomputes the automatic status. Abandoning every PR returns a task in Review or Ready
-to Doing. Adding a PR keeps a Ready task in Ready. Automatic PR moves retain the existing custom-type and legacy
-product-lane behavior and preserve a human's status choice for one hour.
+to Doing. Adding a PR keeps a Ready task in Ready. Automatic PR moves apply only to legacy
+product-lane tasks and preserve a human's status choice for one hour. A task on a custom type never
+moves by its PRs: a person moves it to the step that comes next.
 
 Opening a task returns its last known PR state immediately and schedules a background
 refresh for repositories the App can reach. Refreshes are grouped, capped at 20 links and

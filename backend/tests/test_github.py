@@ -106,6 +106,19 @@ def test_the_pull_request_moves_the_task_through_review_ready_and_shipped(api):
     assert after["task"]["links"][0]["state"] == "shipped"
 
 
+def test_a_custom_type_task_stays_on_its_step_when_its_pr_opens_and_merges(api):
+    typ = post(api, "task-types", {"name": "Dev ticket", "steps": [
+        {"name": "On Deck", "status": "open"}, {"name": "PR Review", "status": "review"},
+        {"name": "Waiting on QA", "status": "review"}, {"name": "QA Approved", "status": "ready"}]})["type"]
+    task = post(api, "tasks", {"owner": "cpo", "title": "Fix the guest message times", "body": "x",
+                               "type": typ["id"], "step": "On Deck", "links": [PR]})
+    assert hook(api, "pull_request", pr_event("opened"))["moved"] == []
+    merged = hook(api, "pull_request", pr_event("closed", merged=True, merge_commit_sha="abc123"))
+    assert merged["moved"] == []
+    detail = get(api, "tasks/" + task["id"])["task"]
+    assert detail["status"] == "open" and detail["step"]["name"] == "On Deck" and detail["links"][0]["state"] == "merged"
+
+
 def test_many_prs_wait_for_every_link_and_roll_up_worst_state(api):
     second = PR.replace('/412', '/413')
     task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ship both pieces', 'body': 'x', 'links': [PR, second]})

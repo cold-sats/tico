@@ -1,4 +1,4 @@
-"""GitHub moves a product-lane task through the pull request linked to it.
+"""GitHub moves a legacy product-lane task through the pull request linked to it; a custom type never moves.
 
 A task carries its pull request as a link (`hub task link`). The repository's webhook posts here
 signed with `TICO_GITHUB_WEBHOOK_SECRET`; nothing else on this path is trusted:
@@ -95,9 +95,9 @@ def flush_wakes(c):
 
 
 def _pr_status(c, task, note):
-    # Retain the legacy product/custom pipeline opt-in.
-    product = (task.get("lane") or "company") == "product" or task.get("type_id") not in (None, H.GENERAL_TYPE)
-    if not product or task["status"] not in H.ACTIVE_STATUSES:
+    # Only legacy product-lane rows move. A custom type's steps are the team's own pipeline, and where a
+    # merged ticket goes next (its QA, a deploy, a native build) is theirs to choose, so PRs never move it.
+    if (task.get("lane") or "company") != "product" or task["status"] not in H.ACTIVE_STATUSES:
         return None
     links = [l for l in H.task_links(c, task["id"]) if l["kind"] == "pr"]
     app = c.execute("SELECT org FROM github_app LIMIT 1").fetchone()
