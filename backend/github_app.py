@@ -380,7 +380,7 @@ class GitHubApp:
             if diagnose_empty:
                 raise Problem('github_repo_not_accessible', 'Repository is not reachable; check the GitHub App installation (retry in five minutes)', 409)
             result = (None, None, [])
-            return (*result, False) if include_cache_status else result
+            return (*result, False, False) if include_cache_status else result
         try:
             minted = self.mint(names, permissions, diagnose=False, refresh_margin=refresh_margin,
                                include_cache_status=include_cache_status)
@@ -410,16 +410,15 @@ class GitHubApp:
                 if diagnose_empty:
                     raise self._unreachable(self.installation(), repos, 404, known_absent=absent)
                 result = (None, None, [])
-                return (*result, False) if include_cache_status else result
+                return (*result, False, False) if include_cache_status else result
             recursive = self.mint_reachable(names, permissions, diagnose_empty=diagnose_empty,
                                              refresh_margin=refresh_margin,
                                              include_cache_status=include_cache_status)
             return recursive
-        if not cached:
-            from .repositories import mark_reachable
-            mark_reachable(self.store, names)
+        from .repositories import mark_reachable
+        reachability_changed = mark_reachable(self.store, names)
         result = (token, expires, names)
-        return (*result, cached) if include_cache_status else result
+        return (*result, cached, reachability_changed) if include_cache_status else result
 
     def _absent(self, repos, wide):
         """Which of `repos` the installation cannot see: one paged listing instead of a GET per repository
@@ -817,19 +816,21 @@ def install_github_app(app, settings, store):
         try:
             # GitHub permissions are token-wide. Never put read grants in a write token.
             if write_repos:
-                value, expires, write_repos, cached = service.mint_reachable(
+                value, expires, write_repos, cached, reachability_changed = service.mint_reachable(
                     write_repos, TURN_PERMISSIONS, diagnose_empty=write_repos == [repo], own=repo,
                     refresh_margin=refresh_margin, include_cache_status=True)
                 if value:
                     tokens.append({'token': value, 'expires_at': expires, 'repositories': write_repos,
-                                   'access': 'write', 'cached': cached})
+                                   'access': 'write', 'cached': cached,
+                                   'reachability_changed': reachability_changed})
             if read_repos:
-                read_value, read_expires, read_repos, cached = service.mint_reachable(
+                read_value, read_expires, read_repos, cached, reachability_changed = service.mint_reachable(
                     read_repos, {'contents': 'read', 'metadata': 'read'}, refresh_margin=refresh_margin,
                     include_cache_status=True)
                 if read_value:
                     tokens.append({'token': read_value, 'expires_at': read_expires, 'repositories': read_repos,
-                                   'access': 'read', 'cached': cached})
+                                   'access': 'read', 'cached': cached,
+                                   'reachability_changed': reachability_changed})
             if not tokens:
                 raise Problem('github_repo_not_accessible', f'{repo} is not reachable; check the GitHub App installation', 409)
             repos = write_repos + read_repos
@@ -839,8 +840,9 @@ def install_github_app(app, settings, store):
                 note_github_token(store, problem.detail, "Open Settings > Tools and check the GitHub connection.")
             raise
         newly_minted = [item for item in tokens if not item["cached"]]
-        if newly_minted:
+        if newly_minted or any(item["reachability_changed"] for item in tokens):
             R.repository_health(service)
+        if newly_minted:
             for item in newly_minted:
                 if service.should_audit_token(body.bot, item["token"]):
                     with store.transaction() as c:
