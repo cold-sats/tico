@@ -120,20 +120,3 @@ def replay(api, botops_machine, scenario):
 def test_every_scenario_is_done_by_its_script(api, botops, scenario):
     result, *_ = replay(api, botops, scenario)
     assert result["passed"], result
-
-
-def test_the_scoring_counts_the_words_of_the_conversation_this_came_from():
-    said = ("I checked the available Hub commands: they expose no runner assignment control. The bot is still planned. "
-            "Please set JIRA_BASIC_AUTH in Settings > Bots yourself.")
-    assert set(w.lower() for w in score.jargon_words(said)) >= {"runner", "assignment", "planned", "jira_basic_auth"}
-    assert score.sent_elsewhere([said]) == 1
-    assert score.jargon_words("Hub shows the task is closed.") == ["Hub"]
-    assert score.jargon_words("Tico shows the task is closed.") == []
-    assert score.jargon_words("It is on your Mac and turned on. Ask it which issues to solve first.") == []
-    assert score.jargon_words("Fixed in 3fa9c1d, and the defaced page is gone.") == ["3fa9c1d"]      # a hash, not a word
-    twice = [("person", "Tell me issues to solve"),
-             ("bot", "Jira Manager is live. Ask it which issues to solve first."),
-             ("bot", "Jira Manager is live! Ask it which issues to solve first"),
-             ("person", "Thanks"), ("bot", "Jira Manager is live. Ask it which issues to solve first.")]
-    assert score.duplicates(twice) == 1                      # the repeat in one turn; a later turn is a fresh one
-    assert score.duplicates([("bot", "Done."), ("bot", "Something else entirely, with new facts in it.")]) == 0

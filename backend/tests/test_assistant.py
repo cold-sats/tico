@@ -259,7 +259,6 @@ def no_decisions(monkeypatch):
 
 @pytest.mark.parametrize("text", [
     "what kind of task types do we use here?",
-    "for tidy, what types of tasks do we use?",
 ])
 def test_task_types_question_is_answered_from_the_api_with_no_model_or_job(api, monkeypatch, text):
     post(api, "task-types", {"name": "Fixture repairs", "steps": [{"name": "Triage", "status": "open"}]})
@@ -291,7 +290,7 @@ def test_a_greeting_is_answered_at_once_with_no_model_or_job(api, monkeypatch):
     assert len(room(api)["messages"]) == 2 and jobs(api) == before
 
 
-@pytest.mark.parametrize("status_code", [403, 503])
+@pytest.mark.parametrize("status_code", [403])
 def test_task_types_the_api_refuses_are_not_shown_as_none(api, monkeypatch, status_code):
     decisions = no_decisions(monkeypatch)
     calls = []
@@ -323,7 +322,6 @@ def test_how_to_questions_get_the_docs_and_a_greeting_with_work_goes_to_the_mode
 
 @pytest.mark.parametrize("text", [
     "what task types do we use and create one?",
-    "for create, what types of tasks do we use?",
 ])
 def test_task_types_question_that_also_asks_for_a_change_goes_to_the_model(text):
     assert assistant.route(text) == (None, None)

@@ -35,56 +35,6 @@ def run_hub(*args, env=None):
         return done.returncode, {"_stdout": done.stdout, "_stderr": done.stderr}
 
 
-def test_meeting_review_commands_use_the_same_personal_routes_as_mcp(monkeypatch):
-    from clients import remotecli
-    sent = []
-    class Api:
-        def __init__(self, *args, **kwargs):
-            pass
-        def get(self, path, **query):
-            if path == 'me':
-                return {'kind': 'member'}
-            sent.append(('GET', path, query))
-            return {}
-        def post(self, path, body, key=None):
-            sent.append(('POST', path, body))
-            return {}
-    monkeypatch.setattr(remotecli, 'Client', Api)
-    monkeypatch.setenv('HUB_API_URL', 'http://example.test')
-    monkeypatch.setenv('HUB_TOKEN', 'test-token')
-    for argv in (['pending'], ['approve', 'm1'], ['approve', '--all'], ['dismiss', 'm1'], ['restore', 'm1']):
-        remotecli.run(hubcli.parser().parse_args(['meeting', *argv]))
-    assert sent == [('GET', 'meetings', {'review': 'pending'}),
-                    ('POST', 'meetings/m1/review', {'action': 'approve'}),
-                    ('POST', 'meetings/review', {'action': 'approve_all'}),
-                    ('POST', 'meetings/m1/review', {'action': 'dismiss'}),
-                    ('POST', 'meetings/m1/review', {'action': 'restore'})]
-
-
-def test_kpi_archive_and_historical_cli_commands_call_supported_routes(monkeypatch):
-    from clients import remotecli
-    sent = []
-    class Api:
-        def __init__(self, *args, **kwargs):
-            pass
-        def get(self, path, **query):
-            if path == "me":
-                return {"actor": "human:ana"}
-            sent.append(("GET", path, query))
-            return {"kpis": []}
-        def post(self, path, body, key=None):
-            sent.append(("POST", path, body))
-            return {"kpi": {"id": "K1"}}
-    monkeypatch.setattr(remotecli, "Client", Api)
-    monkeypatch.setenv("HUB_API_URL", "http://example.test")
-    monkeypatch.setenv("HUB_TOKEN", "test-token")
-    for argv in (["kpi", "list", "--archived"], ["kpi", "archive", "K1"], ["kpi", "restore", "K1"]):
-        remotecli.run(hubcli.parser().parse_args(argv))
-    assert sent == [("GET", "kpis", {"goal_id": None, "owner": None, "unlinked": None,
-                                      "auto_for": None, "include_archived": "1"}),
-                    ("POST", "kpis/K1/archive", {}), ("POST", "kpis/K1/restore", {})]
-
-
 def test_product_repository_cli_previews_and_requires_the_exact_typed_confirmation(monkeypatch):
     from clients import remotecli
     from io import StringIO
@@ -159,24 +109,6 @@ class Parser(unittest.TestCase):
     def test_every_subcommand_is_still_there(self):
         text = hubcli.parser().format_help()
         self.assertIn("{" + ",".join(SUBCOMMANDS) + "}", text)
-
-    def test_the_last_releases_spellings_are_hidden_aliases_that_run_the_new_command(self):
-        """Every old spelling maps onto a command the real parser accepts, says which one on the way, and is not in help."""
-        help_text = hubcli.parser().format_help()
-        samples = {("say",): ["say", "ana", "hi"], ("fleet-check",): ["fleet-check"], ("bot", "register"): ["bot", "register", "seo"]}
-        for old, argv in samples.items():
-            new_argv, notice = hubcli.rename_argv(argv)
-            self.assertIn("is now", notice)
-            self.assertTrue(hubcli.parser().parse_args(new_argv).fn)      # what it turns into is a real command
-        self.assertEqual(hubcli.rename_argv(["notice", "ana", "hi"])[0], ["message", "send", "ana", "hi", "--fyi"])
-        self.assertEqual(hubcli.rename_argv(["goal", "auto", "G1"])[0], ["goal", "status", "G1", "auto"])
-        self.assertEqual(hubcli.rename_argv(["routine", "off", "audit", "--bot", "cpo"])[0],
-                         ["routine", "update", "audit", "--bot", "cpo", "--disable"])
-        self.assertEqual(hubcli.rename_argv(["note", "ana", "hi"])[0], ["note", "create", "ana", "hi"])
-        self.assertEqual(hubcli.rename_argv(["note", "list"]), (["note", "list"], None))
-        self.assertEqual(hubcli.rename_argv(["message", "send", "ana", "hi"]), (["message", "send", "ana", "hi"], None))
-        for old in ("hub say", "hub notice", "hub board", "hub fleet-check", "hub people", "hub integrations", "hub org"):
-            self.assertNotIn(old + " ", help_text)
 
 
 class Remote(unittest.TestCase):

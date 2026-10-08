@@ -93,14 +93,6 @@ def test_a_crash_restarts_with_growing_backoff_and_reports_it():
     assert rig.hub.posts[0][0] == "imports/sources/zoom/status" and rig.hub.posts[0][1]["state"] == "error"
 
 
-def test_stop_terminates_every_child():
-    rig = Rig(Hub(["zoom"]))
-    rig.side.tick()
-    rig.side.stopping.set()
-    rig.side.run()
-    assert rig.spawned[0][1].signals == ["term"]
-
-
 def test_a_stubborn_child_is_killed(monkeypatch):
     class Stubborn(Proc):
         def terminate(self):

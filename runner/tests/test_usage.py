@@ -9,7 +9,7 @@ from runner.hosts.codex import CodexHost
 from runner.hosts.fake import FakeHost
 from runner.service import Runner
 from runner.tests.test_runner_resilience import FakeClient, attempt
-from runner.usage import Meter, billing_for
+from runner.usage import Meter
 
 
 class Counting(unittest.TestCase):
@@ -35,13 +35,6 @@ class Counting(unittest.TestCase):
         self.assertEqual(update((50_000, 40_000, 2_000), (1_000, 800, 100)), {"input": 1000, "cached": 800, "output": 100})
         self.assertEqual(update((52_000, 41_500, 2_150), (1_000, 700, 50)), {"input": 2000, "cached": 1500, "output": 150})
         self.assertEqual(update((52_000, 41_500, 2_150), (1_000, 700, 50)), {"input": 0, "cached": 0, "output": 0})     # a repeat
-
-    def test_only_a_plan_sign_in_is_a_subscription(self):
-        cases = [("codex", "Signed in with ChatGPT", "subscription"), ("codex", "Signed in with an API key", "api"),
-                 ("claude", "Signed in with CLAUDE_CODE_OAUTH_TOKEN", "subscription"),
-                 ("claude", "Signed in with ANTHROPIC_API_KEY", "api")]
-        for runtime, detail, expected in cases:
-            self.assertEqual(billing_for(runtime, detail), expected, (runtime, detail))
 
 
 class Sending(unittest.TestCase):

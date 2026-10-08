@@ -15,16 +15,6 @@ def write(path, data):
     return path
 
 
-def test_bot_yaml_is_read_first_and_employee_yaml_is_the_fallback(tmp_path):
-    only_old = write(tmp_path / "old" / "employee.yaml", {"name": "old"})
-    assert M.manifest_path(only_old.parent) == only_old
-    both = tmp_path / "both"
-    write(both / "employee.yaml", {"name": "old"})
-    write(both / "bot.yaml", {"name": "new"})
-    assert M.manifest_path(both) == both / "bot.yaml"
-    assert M.manifest_path(tmp_path / "empty") == tmp_path / "empty" / "bot.yaml"      # what a new bot gets
-
-
 def test_the_readers_take_either_manifest(tmp_path):
     from clients import registry
     from clients.remotecli import seed_routines

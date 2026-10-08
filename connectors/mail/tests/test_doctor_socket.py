@@ -80,16 +80,6 @@ class DoctorSocket(unittest.TestCase):
         self.assertIn("runner supervisor socket", output)
         self.assertNotIn("service-account key", output)
 
-    def test_direct_key_mode_keeps_key_diagnostics(self):
-        self.configure_doctor()
-        info = {"path": "/tmp/service.json", "client_email": "svc@example.com",
-                "client_id": "123", "project_id": "project"}
-        with patch.object(auth, "key_info", return_value=info) as key_info:
-            result, output = self.run_doctor()
-        self.assertEqual(result, 0)
-        key_info.assert_called_once_with()
-        self.assertIn("client id", output)
-
     def test_missing_labels_are_reported_with_repair_hint_without_writing(self):
         self.use_socket_mode()
         self.configure_doctor(

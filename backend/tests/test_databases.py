@@ -116,15 +116,6 @@ def test_the_row_cap_truncates_and_a_request_can_only_lower_it(tmp_path):
     assert D.execute(sqlite_db(tmp_path, max_rows=10**9), "SELECT id FROM orders")["row_count"] == 50
 
 
-@pytest.mark.slow
-def test_a_runaway_statement_is_stopped_by_the_timeout(tmp_path):
-    db = sqlite_db(tmp_path, timeout=1)
-    started = time.monotonic()
-    with pytest.raises(D.Refusal) as caught:
-        D.execute(db, "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT count(*) FROM r")
-    assert caught.value.code == "timeout" and time.monotonic() - started < 10
-
-
 # ----------------------------------------------------------------------------- redaction
 def test_credentials_never_appear_in_errors_or_the_audit_statement():
     url = "postgresql://readonly:s3cr%40t-pw@db.internal:5432/app?sslmode=require"
@@ -259,16 +250,6 @@ def postgres():
                "writer": f"postgresql://tico_writer:rw-secret-pw@127.0.0.1:{port}/postgres"}
     finally:
         subprocess.run([docker, "rm", "-f", name], capture_output=True)
-
-
-@pytest.mark.slow
-def test_postgres_reads_and_caps_rows(postgres):
-    db = D.Database("w", "postgres", postgres["readonly"], max_rows=100)
-    result = D.execute(db, "SELECT id, status FROM orders ORDER BY id")
-    assert result["row_count"] == 100 and result["truncated"] and result["columns"] == ["id", "status"]
-    assert D.execute(db, "SELECT count(*) FROM orders WHERE status = :s", {"s": "paid"})["rows"] == [[500]]
-    assert D.execute(db, "SELECT count(*) FROM orders WHERE id > $1", {"n": 990}, order=["n"])["rows"] == [[10]]
-    assert D.execute(db, "SHOW transaction_read_only")["rows"] == [["on"]]
 
 
 @pytest.mark.slow

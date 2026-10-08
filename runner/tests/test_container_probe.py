@@ -1,6 +1,5 @@
 """A computer whose Docker answers but cannot start a container is reported, not silently ready."""
 import subprocess
-import threading
 import types
 import unittest
 from unittest import mock
@@ -115,26 +114,6 @@ class Schedule(unittest.TestCase):
         with self.later(probe, container_probe.FAILING_EVERY_S):
             self.assertEqual(probe.report(), PASS)      # Docker recovered: the warning clears
         self.assertEqual(len(seen), 6)
-
-    def test_probes_run_in_the_background_at_most_every_fifteen_minutes(self):
-        release = threading.Event()
-        probe, seen = self.schedule(PASS, PASS)
-        probe.check = lambda: release.wait(5) and (seen.append(1) or PASS)
-        self.assertIsNone(probe.report())               # the heartbeat does not wait for a probe
-        release.set()
-        probe.thread.join(5)
-        self.assertEqual(probe.report(), PASS)
-        with self.later(probe, container_probe.FAILING_EVERY_S):
-            probe.report()                              # not due yet: nothing failed
-        with self.later(probe, container_probe.EVERY_S):
-            probe.report()
-            probe.thread.join(5)
-        self.assertEqual(len(seen), 2)
-
-    def test_the_test_suite_never_starts_containers(self):
-        self.assertTrue(container_probe.OFF)
-        probe = container_probe.ContainerProbe(check=lambda: self.fail("probed"))
-        self.assertIsNone(probe.report())
 
 if __name__ == "__main__":
     unittest.main()

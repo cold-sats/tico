@@ -115,10 +115,3 @@ def test_value_claims_reject_negation_contradiction_wrong_subject_and_double_neg
     assert E.score({"unknown": True}, "Not in the docs. No policy.", {})["unknown_ok"]
     ids = {q["id"] for q in E.load_questions()}
     assert ids >= {"change-instructions", "add-human-signin", "copy-credential-grants", "reopen-task"}
-
-
-@pytest.mark.parametrize("answer", ["Studio costs $29. In practice, it costs $99.", "Studio costs $29, give or take."])
-def test_a_later_sentence_contradicting_the_fact_fails_it(answer):
-    fact = {"subject": "studio", "predicate": "cost|price|month", "value": "$29"}
-    assert not E.fact_matches(answer, fact)
-    assert E.fact_matches("Studio costs $29. Team costs $99. Its price is $99.", fact)

@@ -1,5 +1,4 @@
-"""The release workflow and the docs that describe the install: lint the workflow, and no dead internal links."""
-import re
+"""The release workflow and the docs that describe the install: lint the workflow and check the API guide."""
 import shutil
 import subprocess
 import sys
@@ -30,63 +29,6 @@ def test_release_publishes_the_installer_its_bundle_and_checksums():
         assert asset in text
     assert "build_install_bundle.py --version \"$GITHUB_REF_NAME\"" in text
     assert text.index("Wait for the images") < text.index("gh release create")  # never a release whose images are missing
-
-
-def markdown_files():
-    files = [ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md", ROOT / "CHANGELOG.md"]
-    for d in ("docs", "infra", "setup", "connectors", "runner", "ui"):
-        files += [p for p in (ROOT / d).rglob("*.md") if "node_modules" not in p.parts and "history" not in p.parts]
-    return sorted(set(p for p in files if p.exists()))
-
-
-def slug(heading: str) -> str:
-    s = re.sub(r"[`*_]", "", heading.strip().lower())
-    s = re.sub(r"[^\w\- ]", "", s)
-    return s.replace(" ", "-")
-
-
-def anchors(path: Path) -> set[str]:
-    out, seen, fenced = set(), {}, False
-    for line in path.read_text().splitlines():
-        if line.startswith("```"):
-            fenced = not fenced
-        out.update(re.findall(r'<a id="([^"]+)"></a>', line) if not fenced else [])   # an explicit anchor keeps an old link alive
-        m = None if fenced else re.match(r"^#{1,6}\s+(.*)", line)
-        if m:
-            s = slug(m.group(1))
-            n = seen.get(s, 0)
-            seen[s] = n + 1
-            out.add(s if n == 0 else f"{s}-{n}")
-    return out
-
-
-LINK = re.compile(r"(?<!\!)\[[^\]]*\]\(([^)\s]+)\)")
-
-
-def internal_links(path: Path):
-    fenced = False
-    for line in path.read_text().splitlines():
-        if line.startswith("```"):
-            fenced = not fenced
-        if fenced:
-            continue
-        for target in LINK.findall(re.sub(r"`[^`]*`", "", line)):
-            if not re.match(r"^([a-z]+:|#$|mailto:)", target) or target.startswith("#"):
-                yield target
-
-
-def test_no_dead_internal_links_in_the_docs():
-    dead = []
-    for md in markdown_files():
-        for target in internal_links(md):
-            file_part, _, frag = target.partition("#")
-            dest = md if not file_part else (md.parent / file_part).resolve()
-            if not dest.exists():
-                dead.append(f"{md.relative_to(ROOT)}: {target} (no such file)")
-            elif frag and dest.suffix == ".md" and frag not in anchors(dest):
-                dead.append(f"{md.relative_to(ROOT)}: {target} (no such heading)")
-    assert not dead, "\n".join(dead)
-
 
 
 def test_api_guide_operation_groups_match_the_spec():

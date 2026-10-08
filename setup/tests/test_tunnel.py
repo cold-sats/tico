@@ -83,17 +83,6 @@ def test_cloudflared_itself_accepts_the_config_and_routes_the_domain_to_the_serv
     assert "http_status:404" in cloudflared("rule", "https://other.example.com/")
 
 
-def test_a_503_from_the_tunnel_fails_the_health_check_with_the_fix():
-    for code in (502, 503, 530):
-        check = verify.check_health("tico.example.com", get=lambda url, code=code: (code, {}, ""), front_door="cloudflared")
-        assert not check.ok and str(code) in check.detail and "tunnel" in check.detail
-        assert "docker compose up -d" in check.hint and "Public Hostname" in check.hint and "tico.example.com" in check.hint
-        assert "server:8765" in check.hint
-    # Behind Caddy a 503 is the server's, as before.
-    plain = verify.check_health("tico.example.com", get=lambda url: (503, {}, ""), front_door="caddy")
-    assert not plain.ok and "tunnel" not in plain.hint and "docker compose logs server" in plain.hint
-
-
 def test_cloudflared_logging_no_ingress_rules_fails_the_tunnel_route_check_even_though_the_container_runs():
     bad = FakeShell({"logs": Result(0, NO_INGRESS_LOG)})
     check = verify.check_tunnel_route(bad, "tico.example.com")

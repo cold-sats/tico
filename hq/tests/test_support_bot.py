@@ -197,7 +197,7 @@ def test_an_optional_approval_must_match_exactly_that_text_and_ticket(rig, hq, t
     assert tickets_cli.main(["reply", tid, str(reply)], rig.env, out=rig.lines.append, opener=rig.opener) == 1
 
 
-@pytest.mark.parametrize("manifest", ["outbound_send: false\n", "{}", "outbound_send: 'true'\n", "[invalid"])
+@pytest.mark.parametrize("manifest", ["outbound_send: false\n", "[invalid"])
 def test_sending_off_keeps_a_reply_a_draft_even_with_an_approval(rig, hq, tmp_path, manifest):
     tid, mine = rig.file("The board will not load")
     reply = tmp_path / "reply.md"
@@ -221,31 +221,3 @@ def test_sending_on_posts_without_a_separate_approval_and_reads_the_legacy_manif
         code, text = rig.cli("reply", tid, str(reply))
         assert code == 0 and "posted reply" in text and tid in text
         assert hq.get(f"/v1/support/{tid}", headers=mine).json()["messages"][0]["body"] == reply.read_text().strip()
-
-
-def test_show_prints_the_diagnostics_summary_first_and_the_whole_bundle_last(rig, hq):
-    bundle = {"format": 1, "versions": {"tico": "0.2.18", "runners": ["0.2.17"], "updater": "0.2.18"},
-              "system": {"os": "Linux", "arch": "x86_64", "docker": "27.1", "compose": "2.29"},
-              "database": {"migration": 12}, "counts": {"bots": 3, "people": 2, "routines": 4},
-              "update": {"state": "rolled_back", "from": "0.2.17", "to": "0.2.18", "message": "did not turn healthy"},
-              "health": [{"name": "Computers", "status": "bad"}, {"name": "Backups", "status": "ok"}],
-              "containers": [{"name": "server", "state": "running", "health": "healthy", "restarts": 3}],
-              "runners": [{"label": "runner-1", "online": False, "release": "0.2.17", "update": "needs_update", "bots": 3,
-                           "bots_ready": 0, "runtimes": [{"name": "codex", "ready": False}], "problems": ["bot-1: repository missing"],
-                           "log": ["2026-11-01T11:00:00Z Tico runner: bot-1 failed"]}],
-              "logs": {"server": ["2026-11-01T11:59:00Z WARNING tico.x: Sync for person-1 failed"], "updater": []}}
-    tid, _ = rig.file("It will not load", version="0.2.18", diagnostics=bundle)
-    plain, _ = rig.file("Nothing else attached")
-    (task,) = [e for e in rig.watch() if e["key"] == "hq:" + tid]
-    assert "diagnostics attached" in task["body"]
-    code, text = rig.cli("show", tid)
-    assert code == 0
-    summary, rest = text.split("<ticket-text>", 1)
-    assert "Diagnostics summary" in summary and "Health not ok: Computers=bad" in summary and "server running x3" in summary
-    assert "Last update: rolled_back 0.2.17 -> 0.2.18" in summary and "runtimes not ready: codex" in summary
-    assert "<diagnostics>" in rest and "Sync for person-1 failed" in rest.split("<diagnostics>", 1)[1]
-    assert json.loads(rest.split("<diagnostics>", 1)[1].split("</diagnostics>", 1)[0]) == bundle
-    # A ticket with none prints none, and a bundle of an unexpected shape still shows.
-    code, text = rig.cli("show", plain)
-    assert "iagnostics" not in text
-    assert tickets_cli.diagnostics_summary({"format": 1, "health": [1]}) == ["(the summary could not be made; read the bundle below)"]

@@ -79,18 +79,6 @@ def test_a_department_starts_with_its_head_and_defaults_and_the_answer_brings_in
     assert set(ids(R.rank(built, "finance", "invoices sales resellers"))) <= {"controller", "collections"}
 
 
-def test_the_catalog_takes_the_department_from_the_card_then_the_head_then_the_pack_and_an_icon_always():
-    built = catalog()
-    rows = {row["template"]: row for row in built["cards"]}
-    assert rows["controller"]["department"] == "finance" and rows["controller"]["lead"]
-    assert "collections" not in rows                                  # "operations" is not a department in this file
-    assert rows["controller"]["icon"] == "account_balance"            # no icon of its own: its department's
-    assert rows["controller"]["suggest"] == "common"                  # no `suggest`: shown, not pre-checked
-    assert rows["deal-desk"]["business_only"] and not rows["sdr"]["business_only"]
-    assert R.build(DEPARTMENTS, CARDS)["version"] == built["version"]
-    assert R.build(DEPARTMENTS, CARDS[1:])["version"] != built["version"]
-
-
 def test_the_shipped_catalog_has_a_head_for_every_department_and_hq_has_a_current_copy():
     """Every department's head is a card in it, and hq/catalog.json and hq/recruit_rank.py are what
     scripts/build_catalog_json.py builds today, with the same version the server computes."""

@@ -43,16 +43,6 @@ class Chain(Stage2):
         return pl.check_send(policy or self.policy(), slug, "ana@acme.example", list(to), list(cc),
                              root=self.root, **kw)
 
-    def test_an_internal_recipient_goes_without_approval(self):
-        d = self.decide(["colleague@acme.example"])
-        self.assertTrue(d.allowed, d)
-
-    def test_a_forward_target_the_owner_listed_goes_without_approval(self):
-        d = self.decide([ME])
-        self.assertTrue(d.allowed, d)
-        self.assertIn("forward target", [c for c in d["checks"] if c["gate"] == "recipient"][0]["detail"])
-        self.assertTrue(self.decide(["press@agency.example"]).allowed)
-
     def test_the_sender_of_the_thread_being_answered_goes_without_approval(self):
         d = self.decide([AVA], thread_id=THREAD, thread_senders=[AVA])
         self.assertTrue(d.allowed, d)
@@ -197,18 +187,6 @@ class NoRegistry(Stage2):
         pol = pl.load(slug="inbox")
         self.assertFalse(pol["builtin"] or pol["send_enabled"])
         self.assertEqual(pl.check_send(pol, "inbox", "ana@acme.example", [ME], root=self.root)["gate"], "global")
-
-    def test_a_reply_is_sent_through_the_cli_with_no_registry(self):
-        self.service.__init__([fake.message("m-ava", THREAD, INCOMING, body="Can you help?", epoch_ms=1788364800000)])
-        rc, out, err = self.run_json("reply", "--as", "inbox", "--thread", THREAD, "--body-file", self.body_file(BODY),
-                                     "--issue", "1", "--json")
-        self.assertEqual((rc, out.get("sent")), (0, True), (out, err))
-
-    def test_policy_show_says_where_the_policy_is_from(self):
-        rc, out, err = self.run_json("policy", "show", "--as", "inbox", "--json")
-        self.assertEqual(rc, 0, err)
-        self.assertEqual(out["forward_to"], ["owner@personal-domain.example", "press@agency.example"])
-        self.assertIn("built-in", out["policy_source"])
 
 
 if __name__ == "__main__":

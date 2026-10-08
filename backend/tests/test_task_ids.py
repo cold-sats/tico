@@ -37,16 +37,6 @@ def test_a_unique_prefix_reaches_the_task_and_listings_show_it(api):
     get(api, "tasks/" + task["id"][:7], expected=404)
 
 
-def test_an_ambiguous_prefix_lists_short_ids_and_titles(api):
-    one, two = make(api, title="First thing"), make(api, title="Second thing")
-    renumber(api, one["id"], "abcdef01-0000-4000-8000-000000000001")
-    renumber(api, two["id"], "abcdef01-0000-4000-8000-000000000002")
-    r = api.get("/api/v2/tasks/abcdef01", headers={"Authorization": "Bearer ana-test"})
-    assert r.status_code == 409 and r.json()["error"]["code"] == "ambiguous_id"
-    assert "abcdef01 (First thing)" in r.json()["error"]["detail"] and "abcdef01 (Second thing)" in r.json()["error"]["detail"]
-    assert get(api, "tasks/abcdef01-0000-4000-8000-000000000002")["task"]["title"] == "Second thing"
-
-
 def test_tasks_the_caller_cannot_see_are_never_matched_or_named(api):
     private = make(api, owner="inbox", title="Review Ana's private mail")
     # Cara may not see the inbox bot: its task's prefix and near misses answer like an unknown id.

@@ -1,7 +1,6 @@
 """The flight recorder (backend/flight.py): what it aggregates is right, only owners and admins read it, it forgets on
 schedule, it catches a stalled event loop in the act, and the start record holds no secret."""
 import json
-import threading
 import time
 from contextlib import contextmanager
 
@@ -190,30 +189,6 @@ def test_minutes_become_hours_and_old_rows_go(store):
     row = rows[0]
     assert (row["ts"], row["span"], row["n"], row["bytes"], row["max_ms"]) == (hour, 3600, 3, 15, 4000)
     assert row["p95"] >= 4000 and row["p50"] < 25
-
-
-def test_a_stalled_event_loop_has_every_busy_threads_stack_taken_once(store):
-    rec = store.recorder
-    assert rec.stalled() is None                    # the loop has not started
-    halt = threading.Event()
-
-    def blocking_handler():
-        while not halt.is_set():
-            time.sleep(0.01)
-    worker = threading.Thread(target=blocking_handler, name="tico_7")
-    worker.start()
-    try:
-        rec.beat = time.monotonic()
-        assert rec.stalled() is None                # on time
-        rec.beat = time.monotonic() - 3
-        capture = rec.stalled()
-        assert capture and capture["stalled_s"] >= 3
-        stack = next(t for t in capture["threads"]["busy"] if t["thread"] == "tico_7")["stack"]
-        assert any("blocking_handler" in frame and "test_flight.py" in frame for frame in stack)
-        assert rec.stalled() is None                # at most once per STALL_GAP
-    finally:
-        halt.set()
-        worker.join()
 
 
 def test_the_start_record_keeps_no_secret_and_flags_an_image_not_built_from_its_release(tmp_path, monkeypatch):

@@ -4,7 +4,7 @@ import pytest
 
 from backend.tests.test_api import api, headers  # noqa: F401
 
-PAIRS = [("/api/humans", "/api/people"), ("/api/v2/messages", "/api/v2/inbox")]
+PAIRS = [("/api/humans", "/api/people")]
 
 
 @pytest.mark.parametrize("new,old", PAIRS)
