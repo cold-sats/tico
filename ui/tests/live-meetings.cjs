@@ -30,6 +30,11 @@ async function main() {
       });
       await page.locator('#live-chat-form button[type="submit"]').click();
     };
+    const detailReadAfter = count => page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === '/api/v2/live-meetings/live-1' && response.request().method() === 'GET'
+        && Number(response.headers()['x-fixture-detail-read']) > count;
+    });
     const signal = () => { let resolve; const promise = new Promise(done => resolve = done); return {promise, resolve}; };
     const world = {meetings: [], detail: null, detailReads: 0, detailHoldCount: 0, detailWaiters: [], detailHeld: null,
       holdChat: false, chatWaiters: [], chatHeld: null, failChat: false};
@@ -123,10 +128,10 @@ async function main() {
     const draft = 'Please review this plan';
     await page.locator('#live-chat-form input').fill(draft);
     await page.locator('#live-chat-form input').evaluate(input => input.setSelectionRange(8, 14));
-    // Wait for the scheduled detail poll's response, then an event-triggered refresh; neither wait assumes a duration.
+    // Trigger the same detail-refresh path used by the poll, with the response waiter registered first.
     const priorReads = world.detailReads;
-    const poll = page.waitForResponse(response => response.url().endsWith('/api/v2/live-meetings/live-1')
-      && response.request().method() === 'GET' && Number(response.headers()['x-fixture-detail-read']) > priorReads);
+    const poll = detailReadAfter(priorReads);
+    await page.evaluate(() => liveLoadDetail(LIVE_MEETINGS, 'live-1'));
     await poll;
     const afterPoll = await page.locator('#live-chat-form input').evaluate(input => ({value: input.value,
       start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input}));
@@ -134,8 +139,7 @@ async function main() {
     assert.deepEqual(await page.locator('#live-bot-picker select').evaluate(select =>
       [...select.selectedOptions].map(option => option.value)), ['finance']);
     const readsBeforeEvent = world.detailReads;
-    const eventRefresh = page.waitForResponse(response => response.url().endsWith('/api/v2/live-meetings/live-1')
-      && response.request().method() === 'GET' && Number(response.headers()['x-fixture-detail-read']) > readsBeforeEvent);
+    const eventRefresh = detailReadAfter(readsBeforeEvent);
     await page.evaluate(() => LIVE_MEETINGS.sources.get('live-1').dispatchEvent(
       new MessageEvent('meeting.chat', {data: '{}', lastEventId: '8'})));
     await eventRefresh;
@@ -178,12 +182,8 @@ async function main() {
     assert.equal(world.chatWaiters.length, 1, 'chat request is held before acknowledgement');
     const newerDraft = 'Keep this newer unsent draft';
     await chatInput.fill(newerDraft);
-    const readsBeforeHeldEvent = world.detailReads;
-    const heldEventRefresh = page.waitForResponse(response => response.url().endsWith('/api/v2/live-meetings/live-1')
-      && response.request().method() === 'GET' && Number(response.headers()['x-fixture-detail-read']) > readsBeforeHeldEvent);
-    await page.evaluate(() => LIVE_MEETINGS.sources.get('live-1').dispatchEvent(
-      new MessageEvent('meeting.chat', {data: '{}', lastEventId: '9'})));
-    await heldEventRefresh;
+    // The detail GET started before submission is already in flight; return it while chat is busy.
+    // liveLoad intentionally suppresses new refreshes while a send is in flight.
     world.detailWaiters.shift()();
     await page.evaluate(() => window.liveDetailRefresh);
     assert.equal(await chatInput.inputValue(), newerDraft, 'stale detail response cannot replace text while sending');

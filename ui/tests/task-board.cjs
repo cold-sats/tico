@@ -330,8 +330,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await finish();
     await page.locator('dialog.task-outcome textarea').fill('Keep the budget on hold.');
     await page.locator('dialog.task-outcome button[type="submit"]').click();
-    await page.waitForFunction(() => !TASKS_ST.tasks.some(t => t.id === 'Approve the budget'), null,
-      {timeout: 30_000});
+    await page.locator('#task-body [data-task-key="tApprove the budget"]').waitFor({state:'detached'});
     const resultPost = posted.find(x => x.path === '/api/v2/tasks/Approve%20the%20budget' && x.body.status === 'done');
     assert.equal(resultPost.body.note, 'Keep the budget on hold.');
 

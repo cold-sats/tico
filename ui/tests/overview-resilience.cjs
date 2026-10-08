@@ -27,7 +27,7 @@ const {createOverviewFixture} = require('./support/overview-fixture.cjs');
 
     state.empty = true;
     const noTeam = await open({width:390,height:844}); await noTeam.evaluate(() => location.hash = '#/overview');
-    await noTeam.locator('#fallback p').filter({hasText:'add computers and teammates'}).waitFor();
+    await noTeam.frameLocator('#overview-frame').locator('#fallback p').filter({hasText:'add computers and teammates'}).waitFor();
     await noTeam.close();
     assert.deepEqual(errors, []);
     console.log('Overview resilience: unavailable inventory, large campus and empty-team states passed');
