@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SCREENSHOT_DIR;
 
 const now = Date.now(), iso = ms => new Date(now + ms).toISOString(), hour = 3600e3;
@@ -113,7 +114,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.match(await page.locator('#bot-latest .rail-age').innerText(), /10h ago/);
       assert.equal(await page.locator('#bot-latest a.rail-ico').getAttribute('href'), '#/bot/cmo/history');
       assert.match(await page.locator('#bot-latest .upd-body').innerText(), /two headline options/);
-      for (let i = 0; i < 40 && !read.includes('u1'); i++) await page.waitForTimeout(50);
+      for (const end = Date.now() + t(10000); !read.includes('u1') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
       assert.deepEqual(read, ['u1'], 'the latest update counts as read once the rail shows it');
       // Files: names only, three of them, and a small "+2" for the rest.
       assert.equal(await page.locator('#bot-files .bf-row').count(), 3);
@@ -174,7 +175,9 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       await page.route('**/api/status', route => route.fulfill({contentType: 'application/json', body: JSON.stringify({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: [], schedules: []})}));
       await page.goto('https://tico-ui.test/#/bot/cmo');
       await page.locator('#t-open .rail-empty:text("None")').waitFor();
-      await page.waitForTimeout(300);
+      // Files has drawn its (empty) answer, and the latest update has been read back empty.
+      await page.locator('#bot-files .rail-h').waitFor({state: 'attached'});
+      await page.evaluate(() => botLatestUpdate('cmo'));
       assert.deepEqual(await railOrder(page), ['Active']);
       assert.deepEqual(errors, []);
       bots[0].schedules = saved;

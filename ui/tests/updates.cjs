@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = require('./support/load.cjs');
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const now = Date.now(), iso = ms => new Date(now + ms).toISOString(), hour = 3600e3;
 const day = ms => new Date(now + ms).toLocaleDateString('en-CA', {timeZone: 'America/Los_Angeles'});
@@ -41,7 +42,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
   const threads = {'u-fin': [{id: 'm1', from_actor: 'human:ana', body: 'Re your update "Brex balance is fine": Thanks, flag anything under $10k', created: iso(-2 * hour)},
                              {id: 'm2', from_actor: 'bot:finance', body: 'Will do.', created: iso(-hour)}]};
   const archivedIds = new Set(), archiveRequests = [];
-  let archiveFails = false, delayNextList = false, holdList = null, holdReply = null, keepUnread = null;
+  let archiveFails = false, nextListGate = null, holdList = null, holdReply = null, keepUnread = null;
   const isArchived = u => archivedIds.has(u.id) || !!u.superseded;
   const feed = (kind, archive = false, includeArchive = false) => {
     const source = kind === 'weekly' ? weekly : updates;
@@ -79,7 +80,6 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       if (p === '/api/v2/updates/unread') return json({unread: updates.filter(u => !isArchived(u) && !u.read).length});
       if (p === '/api/v2/updates/archive' && req.method() === 'POST') {
         const body = req.postDataJSON(); archiveRequests.push(body);
-        await new Promise(r => setTimeout(r, 80));
         if (archiveFails) return json({error: {code: 'storage_unavailable', detail: 'Synthetic archive failure'}}, 500);
         for (const id of body.ids) { if (body.archived) archivedIds.add(id); else archivedIds.delete(id); }
         return json({updated: body.ids.length, archived: body.archived, unread: updates.filter(u => !isArchived(u) && !u.read).length});
@@ -88,7 +88,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
         const payload = feed(url.searchParams.get('kind'), url.searchParams.get('archive') === 'true',
           url.searchParams.get('include_archive') === 'true');
         if (holdList) await holdList;                   // held until the test has seen the cached paint
-        await new Promise(r => setTimeout(r, delayNextList ? (delayNextList = false, 700) : 120));
+        if (nextListGate) { const gate = nextListGate; nextListGate = null; gate.received = true; await gate.held; }
         return json(payload);                            // a real round trip; delayed replies can be stale
       }
       if (p === '/api/v2/updates/read') {
@@ -100,7 +100,6 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       if (reply) {
         const body = req.postDataJSON(); posted.push({path: p, body});
         if (holdReply) await holdReply;                 // held until the test has seen the pending reply
-        await new Promise(r => setTimeout(r, 250));
         const msg = {id: 'm-new', from_actor: 'human:ana', body: `Re your update "x": ${body.text}`, created: new Date().toISOString(), conversation_id: 'c-seo'};
         threads[reply[1]] = [...(threads[reply[1]] || []), msg];
         return json({message: msg, thread: threads[reply[1]]});
@@ -138,7 +137,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     // Seen is read: the visible unread cards are marked in one small request.
     await page.waitForFunction(() => !document.querySelector('#upd-feed .upd-card.unread'));
     await page.waitForFunction(() => document.querySelector('.side-scroll [data-upd-badge]')?.hidden === true);
-    for (const end = Date.now() + 10000; !posted.some(x => x.path === '/api/v2/updates/read') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+    for (const end = Date.now() + t(10000); !posted.some(x => x.path === '/api/v2/updates/read') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
     const reads = posted.filter(x => x.path === '/api/v2/updates/read');
     assert.equal(reads.length, 1, 'batched: ' + JSON.stringify(reads));
     assert.deepEqual(reads[0].body.ids.sort(), ['u-fin', 'u-seo']);
@@ -161,15 +160,22 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     });
     assert.equal(await page.locator('[data-upd="u-cmo"] textarea').inputValue(), 'Keep this reply draft');
     assert.equal(archiveRequests.length, 1);
-    archiveFails = false; delayNextList = true;
-    const staleRequest = page.waitForRequest(r => r.url().includes('/api/v2/updates?') && r.url().includes('kind=daily'));
+    archiveFails = false;
+    let releaseStale;
+    const staleGate = {held: new Promise(r => { releaseStale = r; }), received: false};
+    nextListGate = staleGate;
     const staleList = page.waitForResponse(r => r.url().includes('/api/v2/updates?') && r.url().includes('kind=daily'));
-    await page.evaluate(() => { void updLoad(UPD); return true; });
-    await staleRequest;                                 // the stale inbox response is now in flight
+    await page.evaluate(() => {
+      window.__staleLoadDone = false;
+      void updLoad(UPD).finally(() => { window.__staleLoadDone = true; });
+    });
+    for (const end = Date.now() + t(30000); !staleGate.received && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+    assert(staleGate.received, 'the stale inbox request is held before archiving');
     const archiveButton = page.locator('[data-upd="u-cmo"] [data-upd-archive]');
     await archiveButton.focus(); await page.keyboard.press('Enter');
     await page.locator('[data-upd="u-cmo"]').waitFor({state: 'detached'});
-    await staleList; await page.waitForTimeout(20);      // the stale payload returns after the archive write
+    releaseStale(); await staleList;                    // the stale payload returns after the archive write
+    await page.waitForFunction(() => window.__staleLoadDone);
     assert.equal(await page.locator('[data-upd="u-cmo"]').count(), 0, 'a delayed old inbox load cannot restore an archived card');
     assert.deepEqual(archiveRequests[1], {ids: ['u-cmo'], archived: true});
     await page.locator('#upd-view').click();
@@ -265,7 +271,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     assert.equal(await p.locator('#mobile-nav [data-nav="updates"]').evaluate(el => el.classList.contains('cur')), true);
     const card = await p.locator('#upd-feed .upd-card').first().boundingBox();
     assert(card.x >= 8 && card.x + card.width <= 390 - 8, 'cards fit the phone with a gutter');
-    if (shots) { await p.waitForTimeout(200); await p.screenshot({path: path.join(shots, 'updates-phone.png')}); }
+    if (shots) await p.screenshot({path: path.join(shots, 'updates-phone.png')});
     // A week's slides fit the phone and swipe sideways inside the card.
     await p.evaluate(() => { location.hash = '#/updates?kind=weekly'; });
     const track = p.locator('[data-upd="w-seo"] .upd-track');
@@ -300,7 +306,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await dispatchDrag(game, -140, 0);                       // left swipe on the card archives
     await p.locator('[data-upd="u-game"]').waitFor({state: 'detached'});
     assert.deepEqual(archiveRequests.at(-1), {ids: ['u-game'], archived: true});
-    await p.waitForTimeout(520);                            // synthetic pointer events have no native click to consume the guard
+    // The swipe's click guard applies only to that card; the Archive header remains usable.
     await p.locator('#upd-view').click();
     await p.waitForFunction(() => location.hash === '#/updates?view=archive' && document.querySelector('[data-upd="u-game"]'));
     await p.locator('[data-upd="u-game"] [data-upd-archive]').click();

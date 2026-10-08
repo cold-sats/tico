@@ -5,6 +5,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
@@ -49,7 +50,7 @@ const {html, uiFile} = require('./support/page.cjs');
     await page.mouse.move(box.x + 104, 400, {steps: 4});
     await page.mouse.up();
     assert.equal(await sideWidth(), 336);
-    const savedBy = Date.now() + 10000;                    // the account copy is written after a short pause
+    const savedBy = Date.now() + t(10000);                    // the account copy is written after a short pause
     while (pref?.left !== 336 && Date.now() < savedBy) await new Promise(r => setTimeout(r, 50));
     assert.equal(pref?.left, 336, 'the width is saved with the account');
 

@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const SHOTS = process.env.TASKS_SHOTS || '';
 
 const NOW = Date.now();
@@ -183,7 +184,9 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
 const shot = async (page, name) => {
   if (!SHOTS) return;
   fs.mkdirSync(SHOTS, {recursive: true});
-  await page.waitForTimeout(120);
+  // fonts in, and any finite animation or transition finished
+  await page.evaluate(() => document.fonts.ready.then(() => Promise.all(document.getAnimations()
+    .filter(a => a.playState === 'running' && Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})))));
   await page.screenshot({path: path.join(SHOTS, name + '.png')});
 };
 const rowKeys = page => page.locator('#task-body .tl-row').evaluateAll(rows => rows.map(r => r.dataset.taskKey));
@@ -196,11 +199,19 @@ const groupBy = async (page, by) => {
 };
 const peekTitle = (page, text) => page.locator('#task-peek .tmodal-title', {hasText: text}).waitFor();
 const focusedKey = page => page.evaluate(() => document.activeElement?.closest('[data-task-key]')?.dataset.taskKey || document.activeElement?.className);
+// Runs the poll n times (refresh(false)) and waits for every list load it starts to finish drawing.
+const polls = (page, n = 1) => page.evaluate(async n => {
+  const load = window.tasksLoad, runs = [];
+  window.tasksLoad = (...a) => { const p = load(...a); runs.push(p); return p; };
+  try { for (let i = 0; i < n; i++) await refresh(false); } finally { window.tasksLoad = load; }
+  await Promise.all(runs);
+}, n);
+const until = async (cond, ms = 10000) => { for (const end = Date.now() + t(ms); !cond() && Date.now() < end;) await new Promise(r => setTimeout(r, 50)); };
 
 // Polls until the account copy matches what the page would save now (it is posted after a short pause).
 async function prefSaved(page, pref) {
   const want = await page.evaluate(() => JSON.stringify({type: TASKS_ST.type, view: TASKS_ST.view, views: 2, ...tasksPrefsValue(TASKS_ST)}));
-  const savedBy = Date.now() + 10000;
+  const savedBy = Date.now() + t(10000);
   while (JSON.stringify(pref()) !== want && Date.now() < savedBy) await new Promise(r => setTimeout(r, 50));
   assert.equal(JSON.stringify(pref()), want, 'the preference is saved with the account');
 }
@@ -392,7 +403,7 @@ async function typeSelection(browser) {
   ];
   const extraTasks = types.slice(1).map(type => ({...fixtures()[0], id: type.id + '-task', title: type.name + ' only',
     type_id: type.id, type: {id: type.id, name: type.name}, step_id: type.steps[0].id, status: 'open'}));
-  const {page, errors, posts} = await open(browser, {types, extraTasks});
+  const {page, errors, posts, pref} = await open(browser, {types, extraTasks});
   assert.equal(await page.locator('#task-type [aria-pressed=true]').innerText(), 'General');
   assert.equal(await page.locator('[data-task-key="tdev-123-task"]').count(), 0);
   await page.locator('#task-filter').click();
@@ -434,7 +445,7 @@ async function typeSelection(browser) {
   await page.locator('#task-create button[type=submit]').click();
   await page.locator('#task-create').waitFor({state: 'hidden'});
   assert.equal(posts.find(x => x.p === '/api/v2/tasks').body.type, 'marketing');
-  await page.waitForTimeout(500);
+  await prefSaved(page, pref);                // Marketing is saved with the account before the page opens again
   await page.goto('https://tico-ui.test/#/issues');
   await page.waitForFunction(() => !TASKS_ST.loading && TASKS_ST.type === 'marketing');
   assert.equal(await page.locator('#task-type-more').innerText(), 'Marketing');
@@ -444,11 +455,14 @@ async function typeSelection(browser) {
   await shot(page, 'type-selector-phone-light');
   const fits = await page.locator('.tl-head').evaluate(el => el.scrollWidth <= el.clientWidth + 1);
   assert.equal(fits, true, 'type and search fit the phone toolbar');
-  // A late saved preference must not replace the choice just made in the header.
+  // A late saved preference must not replace the choice just made in the header. The read is held until the choice is
+  // made; its Owner grouping shows when the page has applied it.
+  let releasePref;
+  const prefHeld = new Promise(resolve => { releasePref = resolve; });
   await page.route('**/api/v2/preferences/tasks.view', async route => {
     if (route.request().method() !== 'GET') return route.fallback();
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    return route.fulfill({contentType: 'application/json', body: JSON.stringify({value: {type: 'marketing', view: 'list', views: 2}})});
+    await prefHeld;
+    return route.fulfill({contentType: 'application/json', body: JSON.stringify({value: {type: 'marketing', view: 'list', views: 2, group: {list: 'owner'}}})});
   });
   await page.goto('https://tico-ui.test/#/goals');
   const delayedPreferenceRead = page.waitForResponse(response => {
@@ -457,8 +471,10 @@ async function typeSelection(browser) {
   });
   await page.goto('https://tico-ui.test/#/issues');
   await page.locator('[data-task-type=dev-123]').click();
+  releasePref();
   await delayedPreferenceRead;
-  await page.waitForFunction(() => TASKS_ST.type === 'dev-123');
+  await page.waitForFunction(() => TASKS_ST.group.list === 'owner');   // the late preference was applied
+
   assert.equal(await page.evaluate(() => TASKS_ST.type), 'dev-123');
   assert.deepEqual(await rowKeys(page), ['tdev-123-task']);
   assert.deepEqual(errors, []);
@@ -473,7 +489,7 @@ async function carriedOver(browser) {
   assert.match(await page.locator('[data-chip="owner"]').innerText(), /Owner\s*You/);
   assert.match(await page.locator('[data-chip="asked"]').innerText(), /Asked by\s*You/);
   assert.equal(await page.evaluate(() => localStorage.getItem('hub.tasks.filter')), null, 'the old key is gone');
-  const preferenceDeadline = Date.now() + 10000;
+  const preferenceDeadline = Date.now() + t(10000);
   while (pref().filter !== undefined && Date.now() < preferenceDeadline)
     await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(pref().filter, undefined, 'the saved preference no longer carries it');
@@ -718,8 +734,20 @@ async function bulk(browser) {
   await page.waitForFunction(() => /1 closed/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
   assert.deepEqual(taskWrites(posts).map(x => [x.p, x.body]), [['/api/v2/tasks/t-rotate', {version: 3, close: true}]], 'only the visible task');
   // Close can be undone for ten seconds.
+  // Hold the reopen write so the busy-state check cannot race a fast successful Undo.
+  let releaseUndo;
+  const undoHeld = new Promise(resolve => { releaseUndo = resolve; });
+  await page.route('**/api/v2/tasks/t-rotate', async route => {
+    if (route.request().method() === 'POST' && route.request().postDataJSON().status === 'doing') await undoHeld;
+    await route.fallback();
+  });
+  const undoStarted = page.waitForRequest(request => new URL(request.url()).pathname === '/api/v2/tasks/t-rotate'
+    && request.method() === 'POST' && request.postDataJSON().status === 'doing');
   await page.locator('#task-bulk [data-bulk="undo"]').click();
+  await undoStarted;
+  await page.waitForFunction(() => TASKS_ST.bulkBusy && /Reopening/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
   assert.equal(await page.evaluate(() => TASKS_ST.bulkBusy), true, 'no other bulk action while Undo runs');
+  releaseUndo();
   await page.waitForFunction(() => /Reopened; bots were already told/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
   assert.deepEqual(taskWrites(posts).at(-1), {p: '/api/v2/tasks/t-rotate', body: {version: 4, status: 'doing'}}, 'back to what it was, not just Open');
   await page.locator('#task-q').fill('');
@@ -928,22 +956,29 @@ async function recheckSaves(browser) {
   // N1: a quick second edit is never lost. Saves queue per task, each with the version the last one returned; the
   // panel redraws at once from the server's answer while the (slow) list reload runs behind it.
   const {page, errors, posts, tasks} = await open(browser);
-  await page.route('**/api/v2/tasks?*', async route => { await new Promise(r => setTimeout(r, 1500)); await route.fallback(); });
+  // The list reloads are held until the test lets them through.
+  let releaseLists;
+  const listsHeld = new Promise(r => { releaseLists = r; });
+  await page.route('**/api/v2/tasks?*', async route => {
+    if (new URL(route.request().url()).pathname === '/api/v2/tasks') await listsHeld;
+    await route.fallback();
+  });
   const peek = page.locator('#task-peek'), props = peek.locator('[data-task-props]');
   await page.locator('[data-task-key="tt-triage"] .tl-title').click();
-  await props.locator('[data-prop="status"]').waitFor();
-  await page.waitForTimeout(400);
+  await peek.locator('.task-comments .tcomment').first().waitFor();     // the full task has drawn
   await props.locator('[data-prop="status"]').click();
   await peek.locator('.prop-pop [data-prop-pick="waiting"]').click();
-  await page.waitForTimeout(150);
-  assert.match(await props.locator('[data-prop="status"]').innerText(), /Waiting/, 'the saved value shows at once');
+  // the saved value shows at once: while the list reload is still held
+  await page.waitForFunction(() => /Waiting/.test(document.querySelector('#task-peek [data-prop="status"]')?.textContent || ''));
   await props.locator('[data-prop="owner"]').click();
   await peek.locator('.prop-pop [data-prop-pick="writer"]').click();
   await page.waitForFunction(() => /Writer/.test(document.querySelector('#task-peek [data-prop="owner"]')?.textContent || ''));
   const writes = () => taskWrites(posts).filter(x => x.p.endsWith('/t-triage')).map(x => x.body);
   assert.deepEqual(writes(), [{version: 3, status: 'waiting'}, {version: 4, owner: 'writer'}], 'one at a time, each with the newest version');
   assert.equal(tasks.find(x => x.id === 't-triage').owner, 'bot:writer');
-  await page.waitForTimeout(1800);
+  releaseLists();
+  // the last reload has drawn the list (the row shows the new owner)
+  await page.waitForFunction(() => document.querySelector('[data-task-key="tt-triage"] .tl-face')?.title === 'Writer');
   assert.equal(await props.locator('[data-props-msg]').innerText(), '');
   assert.match(await props.locator('[data-prop="owner"]').innerText(), /Writer/, 'the slow reload does not draw an older copy');
   // A refused save's reason stays until that property saves; another property's save does not wipe it.
@@ -1006,9 +1041,7 @@ async function recheckLists(browser) {
   await page.locator('[data-task-key="tt-flaky"] .tl-check').click();
   await page.locator('[data-task-key="tt-rotate"] .tl-open').focus();
   await page.evaluate(() => { window.kept = [...document.querySelectorAll('[data-task-key="tt-flaky"], [data-task-key="tt-rotate"]')]; });
-  await page.evaluate(() => refresh(false));
-  await page.evaluate(() => refresh(false));
-  await page.waitForTimeout(300);
+  await polls(page, 2);
   assert.equal(await page.evaluate(() => window.kept.every(el => el.isConnected)), true, 'not redrawn');
   assert.equal(await page.locator('[data-task-key="tt-flaky"]').evaluate(r => r.classList.contains('sel')), true);
   assert.equal(await focusedKey(page), 'tt-rotate');
@@ -1052,13 +1085,14 @@ async function recheckPhone(browser) {
   for (const how of ['x', 'esc']) {
     const {page, errors} = await open(browser, {viewport: {width: 390, height: 844}, hash: '#/issues'});
     await page.evaluate(() => { location.hash = '#/goals'; });
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => S.route === '#/goals' && !document.querySelector('.tasks-page'));
     await page.evaluate(() => { location.hash = '#/issues'; });
     await page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && document.querySelector('#task-body .tl-row'));
     await page.locator('[data-task-key="tt-checkout"] .tl-title').click();
     await page.locator('#task-peek[open]').waitFor();
     if (how === 'x') await page.locator('#task-peek [data-modal-close]').click(); else await page.keyboard.press('Escape');
-    await page.waitForTimeout(600);
+    // the sheet's own history entry is gone: its one back() has landed (popstate)
+    await page.waitForFunction(() => !document.querySelector('#task-peek[open]') && !PEEK_BACK && !history.state?.taskPeek);
     assert.deepEqual(await page.evaluate(() => [location.hash, !!document.querySelector('.tasks-page'), !!document.querySelector('#task-peek[open]')]), ['#/issues', true, false], how);
     assert.deepEqual(errors, []);
     await page.close();
@@ -1071,15 +1105,22 @@ async function recheckFinal(browser) {
   // R2-1: a menu opened while a save is on its way stays open when the save lands; the panel redraws once it closes.
   const {page, errors, posts, tasks} = await open(browser);
   const peek = page.locator('#task-peek'), props = peek.locator('[data-task-props]');
-  await page.route('**/api/v2/tasks/t-triage', async route => { if (route.request().method() === 'POST') await new Promise(r => setTimeout(r, 1500)); await route.fallback(); });
+  // The save is held until the Owner menu is open.
+  let saving = false, releaseSave;
+  const saveHeld = new Promise(r => { releaseSave = r; });
+  await page.route('**/api/v2/tasks/t-triage', async route => { if (route.request().method() === 'POST') { saving = true; await saveHeld; } await route.fallback(); });
   await page.locator('[data-task-key="tt-triage"] .tl-title').click();
-  await props.locator('[data-prop="status"]').waitFor();
-  await page.waitForTimeout(400);
+  await peek.locator('.task-comments .tcomment').first().waitFor();     // the full task has drawn
   await props.locator('[data-prop="status"]').click();
   await peek.locator('.prop-pop [data-prop-pick="waiting"]').click();
-  await page.waitForTimeout(200);
+  await until(() => saving);
+  assert.equal(saving, true, 'the save is on its way');
   await props.locator('[data-prop="owner"]').click();
-  await page.waitForTimeout(2000);                                    // the save lands meanwhile
+  await page.waitForFunction(() => !!document.querySelector('#task-peek .prop-pop:popover-open'));
+  releaseSave();
+  // the save lands meanwhile: it is done and the list reloaded (the row is under Waiting)
+  await page.waitForFunction(() => !document.querySelector('#task-peek').saving && document.querySelector('#task-peek').liveTask?.version === 4
+    && document.querySelector('[data-group="waiting"] [data-task-key="tt-triage"]'));
   assert.equal(await page.evaluate(() => !!document.querySelector('#task-peek .prop-pop:popover-open')), true, 'the menu is still open');
   assert.equal(await page.evaluate(() => document.activeElement?.closest('.prop-pop') != null), true, 'and keeps the focus');
   await page.keyboard.press('Escape');
@@ -1102,13 +1143,24 @@ async function recheckFinal(browser) {
   await page.close();
   // R2-2: a poll that overtakes a save's reload still moves the list and the peek on when the task leaves the view.
   const second = await open(browser, {hash: '#/tasks'});
-  await second.page.route('**/api/v2/tasks?*', async route => { await new Promise(r => setTimeout(r, 700)); await route.fallback(); });
+  // List reads are held, then let through in the order they were asked.
+  const held = [];
+  let holding = true;
+  await second.page.route('**/api/v2/tasks?*', async route => {
+    if (holding && new URL(route.request().url()).pathname === '/api/v2/tasks') await new Promise(r => held.push(r));
+    await route.fallback();
+  });
   await second.page.locator('[data-task-key="tt-access"] .tl-title').click();
   await second.page.locator('#task-peek [data-prop="owner"]').click();
   await second.page.locator('#task-peek .prop-pop [data-prop-pick="writer"]').click();
-  await second.page.waitForTimeout(200);
+  await until(() => held.length >= 1);
+  assert.equal(held.length, 1, 'the save\'s reload is on its way');
   await second.page.evaluate(() => refresh(false));                   // the poll starts while the save's reload is on its way
-  await second.page.waitForFunction(() => !document.querySelector('[data-task-key="tt-access"]') && TASKS_ST.peek && TASKS_ST.peek !== 'tt-access', null, {timeout: 10000});
+  await until(() => held.length >= 2);
+  assert.equal(held.length, 2, 'the poll is on its way too');
+  holding = false;
+  for (const release of held) release();
+  await second.page.waitForFunction(() => !document.querySelector('[data-task-key="tt-access"]') && TASKS_ST.peek && TASKS_ST.peek !== 'tt-access', null, {timeout: t(10000)});
   assert.deepEqual(second.errors, []);
   await second.page.close();
   // R2-5: as much of the last name as tells people apart.

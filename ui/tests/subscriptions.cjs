@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const SHOTS = process.env.SUBS_SHOTS || '';
 
 function fixtures() {
@@ -271,9 +272,9 @@ async function signInRefresh(browser) {
   data.finishLogin = true;
   await eng.locator('.subs-signin').click();
   const dialog = page.locator('dialog.model-login');
-  await dialog.locator('[data-status][data-state="signed_in"]').waitFor({timeout: 8000});
+  await dialog.locator('[data-status][data-state="signed_in"]').waitFor({timeout: t(8000)});
   await dialog.locator('[data-close]').first().click();
-  await card.locator('.subs-pc').first().locator('[data-subs-profile="acme-eng"]', {hasText: 'Claude Code · signed in'}).waitFor({timeout: 10000});
+  await card.locator('.subs-pc').first().locator('[data-subs-profile="acme-eng"]', {hasText: 'Claude Code · signed in'}).waitFor({timeout: t(10000)});
   assert.deepEqual(errors, []);
   console.log('sign-in refresh: ok');
   await page.close();
@@ -310,11 +311,12 @@ async function who(browser) {
 
 async function oldServer(browser) {
   const {page, errors} = await open(browser, {old: true});
-  await page.waitForTimeout(300);
+  await page.evaluate(() => renderSettingsSubs());          // resolves once the 404 has been read and the card drawn
   assert.equal(await page.locator('#settings-subs').isHidden(), true);
   await page.evaluate(() => settingsEditBot('builder'));
   await page.locator('#bot-editor [data-bot-people] .sb-row').first().waitFor();
-  await page.waitForTimeout(200);
+  // resolves once both 404s have been read and the rows painted
+  await page.evaluate(() => subsBotMount(document.querySelector('#bot-editor [data-bot-people]'), 'builder'));
   assert.equal(await page.locator('#bot-editor [data-bot-sub-row]').isHidden(), true);
   assert.equal(await page.locator('#bot-editor [data-bot-sub-line]').isHidden(), true);
   assert.deepEqual(errors, []);

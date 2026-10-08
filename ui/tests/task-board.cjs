@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
@@ -125,7 +126,8 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         return route.fulfill({contentType: 'application/octet-stream', headers: {'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`}, body: file.body});
       }
       if (p.startsWith('/api/v2/preferences/') && req.method() === 'GET') {
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // the saved preference answers only once the first task list was asked for (bounded, so a regression fails)
+        if (!process.env.TICO_TAG_TEST_ONLY) await Promise.race([initialTasksRequest, new Promise(resolve => setTimeout(resolve, t(10000)))]);
         preferencePending = false;
         return json({key: 'tasks.view', value: null});
       }
@@ -136,7 +138,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
           signalInitialTasksRequest();
           await initialTasksGate;
         }
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, t(50)));
         let rows = tasks.slice();
         const statuses = url.searchParams.get('status');
         if (statuses && statuses !== 'all') {
@@ -336,8 +338,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
 
     // Someone who may not move tasks (here the one who asked): no tag + and no Part of picker, but the comment box
     me = {...me, role: 'viewer', mover: false};
+    const draftDetail = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v2/tasks/Draft%20the%20newsletter');
     await page.evaluate(() => { S.me = {...S.me, mover: false}; taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Draft the newsletter')); });
-    await page.waitForTimeout(50);
+    await draftDetail;
+    await page.waitForFunction(() => { const d = document.querySelector('#task-modal'); return d.open && d.dataset.task === 'Draft the newsletter'; });
     await page.locator('#task-modal .task-comments').waitFor();
     await page.locator('#task-modal [data-task-props]').waitFor();
     assert.equal(await page.locator('#task-modal [data-prop="tags"], #task-modal [data-prop="parent"]').count(), 0);
@@ -349,7 +353,9 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.waitForFunction(() => TASKS_ST.tasks.some(t => t.id === 'Approve the budget'));
 
     await page.setViewportSize({width: 375, height: 844});
-    await page.waitForTimeout(250); // allow the sidebar's drawer transition to finish
+    // the sidebar's drawer transition has started and ended (two frames, then no finite animation running)
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.waitForFunction(() => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getComputedTiming().iterations === Infinity));
     await page.locator('#task-view [data-view="foryou"]').click();
     await page.locator('#task-body .tl').waitFor();
     const mobile = await page.evaluate(() => {
@@ -361,7 +367,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert(Math.max(...mobile.top) - Math.min(...mobile.top) <= 8, 'phone type selector and search share a line');
     assert(mobile.strip > mobile.top[0] && mobile.right <= mobile.edge + 1, 'phone view switch is on its own line');
     await page.locator('#task-filter').click();
-    await page.waitForTimeout(50);
+    await page.waitForFunction(() => document.querySelector('#task-filter-pop').matches(':popover-open'));
     assert.equal(await page.locator('#task-filter-pop').evaluate(el => Math.round(el.getBoundingClientRect().bottom)), 844, 'filter is a bottom sheet');
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#task-filter-pop').evaluate(el => el.matches(':popover-open')), false);
@@ -384,7 +390,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     // A view other than Needs you stays in the address, so a board link is stable; #/tasks/<id> opens the task.
     await page.goto('http://tico-ui.test/#/tasks?view=board');
     await page.waitForFunction(() => TASKS_ST?.view === 'board');
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => location.hash.includes('type='));    // the type is written into the address
     assert.equal(new URL(page.url()).hash, '#/tasks?type=general&view=board');
     await page.locator('#task-view [data-view="list"]').click();
     await page.waitForFunction(() => location.hash === '#/tasks?type=general&view=list');
@@ -410,7 +416,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert(mark.width >= 12 && mark.width <= 14, 'about 13px: ' + mark.width);
     }
     // Rich tag chips keep their keys while opening a shared checklist.
-    page.setDefaultTimeout(5000);
+    page.setDefaultTimeout(t(5000));
     me = {...me, role: 'owner', mover: true};
     await page.goto('http://tico-ui.test/#/tasks');
     await page.locator('#task-view [data-view="list"]').click();

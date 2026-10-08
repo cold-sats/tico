@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SHOTS || '';
 
 // A small striped PNG, made here so the test needs no image files.
@@ -85,7 +86,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
         questions: [{id: 'cap', question: 'Captions too?', options: [{label: 'Yes'}, {label: 'No'}]}]}},
     ];
     let prefs = {};
-    let thumbDelay = 250;
+    let thumbHold = null;      // while set, thumbnails wait until the test lets them go
     await page.route('**/*', async route => {
       const req = route.request(), u = new URL(req.url()), p = u.pathname;
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -122,7 +123,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
         requested.push(p + u.search);
         const [id, part] = [file[1], file[2] || ''], n = u.searchParams.get('v');
         if (part || id === 'f-frame' || id === 'f-still') {
-          await new Promise(r => setTimeout(r, thumbDelay));
+          if (thumbHold) await thumbHold.held;
           return route.fulfill({contentType: 'image/png', headers: {'Cache-Control': 'private, max-age=31536000, immutable'}, body: id === 'f-still' || (id === 'f-cut' && n === '1') ? AMBER : TEAL});
         }
         if (id === 'f-script' || id === 'f-notes') return route.fulfill({contentType: 'text/markdown', body: scripts[n]});
@@ -205,7 +206,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     assert.equal(await page.locator('#task-pin').getAttribute('aria-pressed'), 'false');
 
     // ---- the strip: one tile per file at its newest version, sized, a skeleton until the thumb arrives
-    thumbDelay = 400;
+    { let release; thumbHold = {held: new Promise(r => { release = r; })}; thumbHold.release = release; }
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 't1')));
     const modal = page.locator('#task-modal');
     await modal.locator('.tf-tile[data-tf-file="f-cut"]').waitFor();
@@ -215,10 +216,10 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     assert.equal(await cutTile.locator('.ask-dot').count(), 1, 'a file with an open question has a dot');
     assert.equal(await cutTile.locator('.tf-thumb.tf-skel:not(.ready)').count(), 1, 'a skeleton until the thumb arrives');
     assert.equal(await cutTile.evaluate(el => el.style.width), '128px', 'sized from the version\'s width and height');
+    thumbHold.release(); thumbHold = null;
     await cutTile.locator('.tf-thumb.ready').waitFor();
     assert(requested.includes('/api/v2/files/f-cut/thumb?v=3'), 'the versioned thumb');
     assert.equal(await modal.locator('.tf-tile[data-tf-file="f-logo"] .tf-thumb img').count(), 0, 'no picture: a type mark');
-    thumbDelay = 0;
     // files reach an open task by the +, a drop anywhere on it, or a pasted screenshot; a comment being typed stays
     assert.equal(await modal.locator('.task-files [data-tf-add]').isVisible(), true);
     await modal.locator('.task-chat textarea').fill('Half-written note');
@@ -357,6 +358,15 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     await video.evaluate(v => { v.dataset.keep = '1'; Object.defineProperty(v, 'paused', {configurable: true, get: () => false}); });
     comments.push({id: 'm6', kind: 'ask', from_actor: 'bot:editor', body: 'Which end card?', created: new Date().toISOString(), answers: [], refs: {task: 't1',
       questions: [{id: 'end', question: 'Which end card?', options: [{label: 'Logo'}, {label: 'Link'}], multi: true, other: true}]}});
+    // readDone: every answer the app has read in full (its handler runs in the same turn)
+    await page.evaluate(() => {
+      const send = fetch; window.readDone = [];
+      window.fetch = async (...args) => {
+        const r = await send(...args), text = r.text.bind(r);
+        r.text = async () => { try { return await text(); } finally { readDone.push(new URL(r.url).pathname); } };
+        return r;
+      };
+    });
     await page.evaluate(() => { window.fastPoll = true; });
     const m6 = modal.locator('.tcomment', {has: page.locator('.ask-q[data-qid="end"]')});
     await m6.locator('.ask-opt', {hasText: 'Logo'}).click();
@@ -368,7 +378,11 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     files[0].current_version = 4;
     comments.push({id: 'm7', kind: 'say', from_actor: 'bot:editor', body: 'End card added.', created: new Date().toISOString(), refs: {task: 't1', comment: true}});
     await modal.locator('.tf-tile[data-tf-file="f-new"]').waitFor();
-    await page.waitForTimeout(500);       // a few more polls
+    // two more polls of the files and the comments have been read and handled
+    const polled = () => page.evaluate(() => [readDone.filter(p => p === '/api/v2/tasks/t1/files').length, readDone.filter(p => p === '/api/v2/tasks/t1').length]);
+    const [filesRead, commentsRead] = await polled();
+    await page.waitForFunction(([f, c]) => readDone.filter(p => p === '/api/v2/tasks/t1/files').length >= f + 2
+      && readDone.filter(p => p === '/api/v2/tasks/t1').length >= c + 2, [filesRead, commentsRead]);
     assert.equal(await view.locator('video[data-keep="1"]').count(), 1, 'the playing video was left alone');
     assert.equal(await view.locator('[data-tf-v="4"]').count(), 0);
     assert.equal(await m6.locator('.ask-opt[aria-pressed="true"]').count(), 1, 'the picked choice stays');

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const INSTALL = '6f1c2a9e-3b7d-4c58-9a10-2d4e8b7f5a63';
 const DIAGNOSTICS_TEXT = '{\n  "format": 1,\n  "versions": {\n    "tico": "0.2.17"\n  }\n}';
 const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
@@ -110,7 +111,8 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     await page.screenshot({path: '/tmp/tico-support-desktop.png', fullPage: true});
     await page.setViewportSize({width: 390, height: 844});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'phone has no horizontal overflow');
-    await page.waitForTimeout(250); // finish the existing navigation drawer's resize transition
+    // finish the existing navigation drawer's resize transition (every finite animation has ended)
+    await page.waitForFunction(() => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, {timeout: t(5000)});
     await page.locator('#support-rail').scrollIntoViewIfNeeded();
     await page.screenshot({path: '/tmp/tico-support-phone.png', fullPage: false});
     await page.locator('[data-delete]').click();

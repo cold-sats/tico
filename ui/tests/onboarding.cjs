@@ -13,11 +13,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 // TICO_SCREENSHOT_DIR=<dir> saves screenshots of the first-run screens.
 // TICO_SHOT_SCHEME=dark takes them in the dark theme.
 const shots = process.env.TICO_SCREENSHOT_DIR, scheme = process.env.TICO_SHOT_SCHEME === 'dark' ? 'dark' : 'light';
-// A moment first, so a screen that animates in is photographed at rest.
-const shot = async (page, name) => { if (!shots) return; await page.waitForTimeout(650); await page.screenshot({path: path.join(shots, `${name}-${scheme}.png`)}); };
+// Every finite animation ended first, so a screen that animates in is photographed at rest.
+const shot = async (page, name) => { if (!shots) return; await page.waitForFunction(() => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, {timeout: t(5000)}); await page.screenshot({path: path.join(shots, `${name}-${scheme}.png`)}); };
 
 const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'Initech Hub',
   assistant_name: 'Ace', assistant_bot: 'coo', public_url: 'https://initech.test',
@@ -152,7 +153,7 @@ function recruitFor({department, briefing, share}) {
     const context = await browser.newContext({viewport: {width: 1100, height: 800}, serviceWorkers: 'block', acceptDownloads: true, colorScheme: scheme});
     const puts = [], tourPosts = [], completes = [], definitions = [], created = [], enrollments = [], chats = [], invites = [], owners = [];
     const recruits = [], opened = {};
-    let hq = {available: true, off_by: ''}, slowRecruit = 0;
+    let hq = {available: true, off_by: ''}, recruitHeld = null, releaseRecruit = () => {};   // a recruit answer the test holds
     let record = {
       names: {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace'},
       answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], software_product: '',
@@ -209,7 +210,7 @@ function recruitFor({department, briefing, share}) {
       if (p === '/api/v2/setup/recruit') {
         const body = request.postDataJSON();
         recruits.push(body);
-        if (slowRecruit) await new Promise(resolve => setTimeout(resolve, slowRecruit));
+        await recruitHeld;
         return json(recruitFor(body));
       }
       if (p === '/api/v2/setup/complete') {
@@ -367,7 +368,7 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('#ob-skip').isVisible(), true);
     assert.match(await page.locator('#ob-chart [data-oc-dept=sales]').getAttribute('class'), /oc-cur/);
     await shot(page, 'desktop-4-department');
-    slowRecruit = 1200;
+    recruitHeld = new Promise(resolve => { releaseRecruit = resolve; });
     await page.locator('#ob-brief').fill('Inbound demos, and a few resellers');
     await page.locator('#ob-brief').press('Enter');
     await page.locator('#ob-recruiting').waitFor();
@@ -375,8 +376,8 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('[data-ob-said]').textContent(), 'Inbound demos, and a few resellers');
     assert.match(await page.locator('#ob-chart [data-oc-dept=sales]').textContent(), /Recruiting…/);
     await shot(page, 'desktop-5-recruiting');
+    releaseRecruit(); recruitHeld = null;
     await page.locator('#ob-suggested').waitFor();
-    slowRecruit = 0;
     assert.deepEqual(recruits, [{department: 'sales', briefing: 'Inbound demos, and a few resellers', share: true}]);
 
     // The suggestions: the head and the defaults start checked, a common bot waits, and the answer brought in a niche one.
@@ -707,7 +708,7 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#bot-start-setup').click();
     await page.locator('#bot-start-setup', {hasText: 'Setup started'}).waitFor();
     // Its Chat tab was open and empty when Set up was pressed: the message shows at once, not after a reload.
-    await page.locator('#conv-thread .bubble.you', {hasText: "Let's set you up."}).waitFor({timeout: 3000});
+    await page.locator('#conv-thread .bubble.you', {hasText: "Let's set you up."}).waitFor({timeout: t(3000)});
     assert.equal(await page.locator('#conv-thread .empty').count(), 0);
     assert.deepEqual(definitions, [{path: '/api/v2/bots/meeting-notes/definition', body: {status: 'active', expected_revision: 4}}]);
     assert.deepEqual(chats.at(-1), ['meeting-notes', {text: "Let's set you up."}]);
@@ -823,13 +824,13 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await phone.locator('#ob-brief').inputValue(), 'Inbound demos, and a few resellers');     // the saved answer
     assert.equal(await fits(), true);
     await shot(phone, 'phone-4-department');
-    slowRecruit = 1200;
+    recruitHeld = new Promise(resolve => { releaseRecruit = resolve; });
     await phone.locator('#ob-go').click();
     await phone.locator('#ob-recruiting').waitFor();
     assert.equal(await fits(), true);
     await shot(phone, 'phone-5-recruiting');
+    releaseRecruit(); recruitHeld = null;
     await phone.locator('#ob-suggested').waitFor();
-    slowRecruit = 0;
     assert.equal(await fits(), true);
     await shot(phone, 'phone-6-suggestions');
 

@@ -3,6 +3,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 const makeDetail = id => ({id, title: 'Weekly sync', state: 'live', owner_actor: 'human:ana', seq: 2, event_id: 5,
   window_ms: 30000, cooldown_ms: 60000, reply_cap: 3, imported_meeting_id: null,
@@ -30,11 +31,11 @@ async function main() {
       });
       await page.locator('#live-chat-form button[type="submit"]').click();
     };
-    const detailReadAfter = count => page.waitForResponse(response => {
-      const url = new URL(response.url());
-      return url.pathname === '/api/v2/live-meetings/live-1' && response.request().method() === 'GET'
-        && Number(response.headers()['x-fixture-detail-read']) > count;
-    });
+    // A detail read later than `count` is painted: livePaintDetail runs in the same turn state.detail is set.
+    const detailPaintedAfter = count => page.waitForFunction(n => LIVE_MEETINGS?.detail?.fixture_read > n, count, {timeout: t(10000)});
+    // The chat box as it is on the page now, read in one step (a locator could hold the input a repaint just replaced).
+    const chatBox = () => page.evaluate(() => { const input = document.querySelector('#live-chat-form input');
+      return {value: input.value, start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input}; });
     const signal = () => { let resolve; const promise = new Promise(done => resolve = done); return {promise, resolve}; };
     const world = {meetings: [], detail: null, detailReads: 0, detailHoldCount: 0, detailWaiters: [], detailHeld: null,
       holdChat: false, chatWaiters: [], chatHeld: null, failChat: false};
@@ -71,8 +72,7 @@ async function main() {
           await new Promise(resolve => { world.detailWaiters.push(resolve); world.detailHeld?.resolve(); });
         }
         world.detailReads++;
-        return route.fulfill({contentType: 'application/json', headers: {'x-fixture-detail-read': String(world.detailReads)},
-          body: JSON.stringify(world.detail)});
+        return route.fulfill({contentType: 'application/json', body: JSON.stringify({...world.detail, fixture_read: world.detailReads})});
       }
       if (p.startsWith('/api/v2/live-meetings/live-1/')) {
         const operation = p.split('/').pop(), body = JSON.parse(route.request().postData() || '{}'); calls.push([operation, body]);
@@ -128,23 +128,19 @@ async function main() {
     const draft = 'Please review this plan';
     await page.locator('#live-chat-form input').fill(draft);
     await page.locator('#live-chat-form input').evaluate(input => input.setSelectionRange(8, 14));
-    // Trigger the same detail-refresh path used by the poll, with the response waiter registered first.
+    // Trigger the same detail-refresh path used by the poll; check the box once that read is painted.
     const priorReads = world.detailReads;
-    const poll = detailReadAfter(priorReads);
     await page.evaluate(() => { void liveLoadDetail(LIVE_MEETINGS, 'live-1'); });
-    await poll;
-    const afterPoll = await page.locator('#live-chat-form input').evaluate(input => ({value: input.value,
-      start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input}));
+    await detailPaintedAfter(priorReads);
+    const afterPoll = await chatBox();
     assert.deepEqual(afterPoll, {value: draft, start: 8, end: 14, focused: true});
     assert.deepEqual(await page.locator('#live-bot-picker select').evaluate(select =>
       [...select.selectedOptions].map(option => option.value)), ['finance']);
     const readsBeforeEvent = world.detailReads;
-    const eventRefresh = detailReadAfter(readsBeforeEvent);
     await page.evaluate(() => LIVE_MEETINGS.sources.get('live-1').dispatchEvent(
       new MessageEvent('meeting.chat', {data: '{}', lastEventId: '8'})));
-    await eventRefresh;
-    const afterEvent = await page.locator('#live-chat-form input').evaluate(input => ({value: input.value,
-      start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input}));
+    await detailPaintedAfter(readsBeforeEvent);
+    const afterEvent = await chatBox();
     assert.deepEqual(afterEvent, {value: draft, start: 8, end: 14, focused: true});
     assert.deepEqual(await page.locator('#live-bot-picker select').evaluate(select =>
       [...select.selectedOptions].map(option => option.value)), ['finance']);

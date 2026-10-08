@@ -6,6 +6,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const launch = () => chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
 const LONG = 'Ship the Acme onboarding checklist: write the welcome email, set up the three sample projects, '
   + 'check every link in the help pages, fix any broken ones, then post a short summary in the chat with what changed '
@@ -63,7 +64,7 @@ async function open(browser, viewport, touch = false, {empty = false, messages =
       if (api.goalResults.has(key)) return json(api.goalResults.get(key));
       api.goalPosts.push(body);
       if (!supported) return json({error: {code: 'goal_unsupported', detail: "This bot's harness doesn't support goals"}}, 409);
-      if (api.slowGoal) await new Promise(done => setTimeout(done, api.slowGoal));
+      if (api.slowGoal) await api.slowGoal;                          // a save held until the test releases it
       const status = {set: 'active', edit: api.goal?.status || 'active', pause: 'paused', resume: 'active', clear: 'cleared'}[body.action];
       api.goal = {id: 'g1', conversation_id: 'c1', bot: 'ops', objective: body.objective || api.goal?.objective, status, note: '',
                   set_by: 'human:ana', set_at: api.goal?.set_at || now(), updated_at: now(), ended_at: status === 'cleared' ? now() : null};
@@ -166,7 +167,7 @@ async function desktop(browser) {
 
   // Esc closes it; an unknown command is ordinary text.
   await box.pressSequentially('/frob');
-  await page.waitForTimeout(50);
+  await menu.waitFor({state: 'hidden', timeout: t(5000)});
   assert.equal(await menu.isHidden(), true, 'nothing matches');
   await box.pressSequentially(' the widget'); await box.press('Enter');
   await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
@@ -188,7 +189,7 @@ async function desktop(browser) {
 
   // The stream says it was met: the bar folds into one line in the thread.
   api.streamGoal = {...api.goal, status: 'met', note: 'All pages cleaned up', updated_at: new Date(Date.now() + 1000).toISOString(), ended_at: new Date().toISOString()};
-  await page.locator('#conv-thread .chat-goal-line').waitFor({timeout: 5000});
+  await page.locator('#conv-thread .chat-goal-line').waitFor({timeout: t(5000)});
   assert.match(await page.locator('#conv-thread .chat-goal-line').innerText(), /Goal met:\s*Clean up the Acme wiki\s*· All pages cleaned up/);
   assert.equal(await page.locator('#chat-goal').isHidden(), true);
   assert.deepEqual(api.errors, []);
@@ -284,10 +285,12 @@ async function emptyChat(browser) {
   await page.close();
   // Keyboard submission uses the same path; two Returns during a slow save still set it once.
   const again = await open(browser, {width: 1280, height: 860}, false, {empty: true});
-  again.slowGoal = 300;
+  let releaseGoal; again.slowGoal = new Promise(done => releaseGoal = done);
   await again.page.locator('#chat-composer .p-goal').click();
   const goalBox = again.page.locator('#chat-composer textarea');
   await goalBox.fill('Clean up the Acme wiki'); await goalBox.press('Enter'); await goalBox.press('Enter').catch(() => {});
+  for (const end = Date.now() + t(10000); !again.goalPosts.length && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+  releaseGoal();                                                  // both Returns came while the save was held
   await again.page.locator('#chat-goal .cg-bar').waitFor();
   assert.equal(again.created.length, 1);
   assert.deepEqual(again.goalPosts, [{action: 'set', objective: 'Clean up the Acme wiki'}]);
@@ -297,7 +300,7 @@ async function emptyChat(browser) {
 
   // Its computer said goals do not work there: nothing is offered.
   const no = await open(browser, {width: 1280, height: 860}, false, {empty: true, readiness: {ready: true, goals: false}});
-  await no.page.waitForTimeout(400);
+  await no.page.waitForFunction(() => V2C?.loaded && V2C.goalSupported === false, null, {timeout: t(5000)});   // the guess is made and drawn
   assert.equal(await no.page.locator('#chat-composer .p-goal').isHidden(), true);
   await no.page.close();
 

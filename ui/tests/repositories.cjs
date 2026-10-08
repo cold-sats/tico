@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const SHOTS = process.env.REPO_SHOTS || '';
 
 const repo = (full_name, extra = {}) => ({full_name, enabled: false, bot_repo: false, default_branch: 'main',
@@ -103,11 +104,11 @@ async function open(browser, {role = 'owner', connected = true, viewport = {widt
         if (data.refuse) return json({error: {code: 'forbidden', detail: data.refuse}}, 403);
         if (data.refuseOnce) { const why = data.refuseOnce; data.refuseOnce = ''; return json({error: {code: 'forbidden', detail: why}}, 403); }
         data.inflight = (data.inflight || 0) + 1; data.maxInflight = Math.max(data.maxInflight || 0, data.inflight);
-        if (data.delay) { const wait = data.delay; data.delay = 0; await new Promise(done => setTimeout(done, wait)); }
+        if (data.hold) { const gate = data.hold; data.hold = null; await gate; }        // held until the test releases it
         data.inflight -= 1;
         data.bot = {...data.bot, ...body};
       }
-      if (method === 'GET' && data.slowGet) { const wait = data.slowGet; data.slowGet = 0; await new Promise(done => setTimeout(done, wait)); }
+      if (method === 'GET' && data.holdGet) { const gate = data.holdGet; data.holdGet = null; data.getHeld = true; await gate; }
       return json({...data.bot, effective: effective(data)});         // GET and PUT both answer the whole access (backend access())
     }
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
@@ -119,6 +120,13 @@ async function open(browser, {role = 'owner', connected = true, viewport = {widt
   return {page, errors, writes, data};
 }
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({path: path.join(SHOTS, name), fullPage: false}); };
+const until = async (test, what) => {
+  for (const end = Date.now() + t(10000); !test() && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+  assert.ok(test(), 'timed out: ' + what);
+};
+const gate = () => { let release; const held = new Promise(r => { release = r; }); return {held, release}; };
+// Every theme transition has ended (a screenshot shows the settled colours).
+const settled = page => page.waitForFunction(() => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getComputedTiming().iterations === Infinity));
 const lastWrite = (writes, p) => [...writes].reverse().find(w => w.p === p)?.body;
 
 async function owner(browser) {
@@ -139,7 +147,8 @@ async function owner(browser) {
   assert.equal(await page.locator('#set-repos [data-repo="acme/web"] .repo-warn').count(), 0);
   await shot(page, 'settings-repositories-desktop-dark.png');
   await page.locator('[data-theme-choice=light]').click();
-  await page.waitForTimeout(150);
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  await settled(page);
   await shot(page, 'settings-repositories-desktop-light.png');
   await page.locator('[data-theme-choice=dark]').click();
 
@@ -275,35 +284,42 @@ async function saves(browser) {
   assert.equal(await box.locator('[data-brepo="acme/mobile"] [data-brepo-pick]').isChecked(), false);
   assert.equal(await box.locator('[data-brepo="acme/web"] [data-brepo-pick]').isChecked(), true);
   // A slow save, then a newer choice: the newer one is sent after it, and it is what stays.
-  data.refuse = ''; data.delay = 700; data.maxInflight = 0;
+  let put = gate();
+  data.refuse = ''; data.hold = put.held; data.maxInflight = 0;
   const before = writes.length;
   await box.locator('label:has(input[type=radio][value=all])').first().click();
   await box.locator('.brepo-all').waitFor();
+  await until(() => writes.length === before + 1, 'the first save is on its way');
   await box.locator('label:has(input[type=radio][value=own])').click();
-  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: 5000});
+  put.release();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: t(5000)});
   assert.equal(data.maxInflight, 1, 'one save at a time');
   assert.deepEqual(writes.slice(before).map(w => w.body.mode), ['all', 'own']);
   assert.equal(data.bot.mode, 'own', 'the latest choice wins on the server');
   assert.equal(await box.locator('input[type=radio][value=own]').isChecked(), true);
   // Three quick changes while one is on its way: only the last is sent next.
-  data.delay = 500;
+  put = gate(); data.hold = put.held;
   const mark = writes.length;
   await box.locator('label:has(input[type=radio][value=all])').first().click();
   await box.locator('.brepo-all').waitFor();
+  await until(() => writes.length === mark + 1, 'the first save is on its way');
   await box.locator('.brepo-all label:has(input[value=read])').click();
   await box.locator('label:has(input[type=radio][value=chosen])').click();
-  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: 5000});
+  put.release();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: t(5000)});
   assert.deepEqual(writes.slice(mark).map(w => [w.body.mode, w.body.all_access]), [['all', 'write'], ['chosen', 'read']]);
   assert.equal(data.bot.mode, 'chosen');
   assert.equal(await box.locator('input[type=radio][value=chosen]').isChecked(), true);
   // A change made while a refused save reads the server's copy back is still sent, and wins.
-  data.refuseOnce = 'Try again in a moment'; data.slowGet = 800;
+  const readBack = gate();
+  data.refuseOnce = 'Try again in a moment'; data.holdGet = readBack.held; data.getHeld = false;
   const from = writes.length;
   await box.locator('label:has(input[type=radio][value=own])').click();
-  await page.waitForTimeout(150);                                   // the PUT was refused; the read-back is on its way
+  await until(() => data.getHeld, 'the PUT was refused; the read-back is on its way');
   assert.equal(writes.length, from + 1);
   await box.locator('label:has(input[type=radio][value=all])').first().click();
-  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: 5000});
+  readBack.release();
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-brepo-status]')?.textContent === 'Saved', null, {timeout: t(5000)});
   assert.deepEqual(writes.slice(from).map(w => w.body.mode), ['own', 'all']);
   assert.equal(data.bot.mode, 'all', 'the newer choice is saved');
   assert.equal(await box.locator('input[type=radio][value=all]').isChecked(), true);
@@ -327,7 +343,7 @@ async function member(browser) {
   await box.locator('.brepo-row').first().waitFor();
   assert.equal(await box.locator('input:not([disabled])').count(), 0);
   await box.locator('label:has(input[type=radio][value=all])').first().click({force: true});
-  await page.waitForTimeout(150);
+  await page.evaluate(() => fetch('/api/v2/after-click'));          // the mock handles any save the click sent before this
   assert.equal(await box.locator('input[type=radio][value=chosen]').isChecked(), true);
   assert.deepEqual(writes, []);
   assert.deepEqual(errors, []);
@@ -340,9 +356,13 @@ async function notConnected(browser) {
   assert.equal((await page.locator('#set-repos').innerText()).replace(/\s+/g, ' '), "Repositories The GitHub App is not connected; bots use their computers' own GitHub sign-in. Connect GitHub");
   assert.equal(await page.locator('#set-repos a[data-repos-connect]').getAttribute('href'), '#/integrations');
   // The bot editor has no Repositories section then.
-  await page.evaluate(() => settingsEditBot('release-captain'));
+  await page.evaluate(() => {         // note when the Repositories section has finished deciding whether to show
+    const mount = botReposMount;
+    window.botReposMount = async (...args) => { try { return await mount(...args); } finally { window.botReposMounted = true; } };
+    settingsEditBot('release-captain');
+  });
   await page.locator('#bot-editor form').waitFor();
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => window.botReposMounted === true);
   assert.equal(await page.locator('#bot-editor [data-bot-repos]').isVisible(), false);
   assert.deepEqual(errors, []);
   await page.close();

@@ -8,6 +8,8 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
+const until = async cond => { for (const end = Date.now() + t(10000); !cond() && Date.now() < end;) await new Promise(r => setTimeout(r, 50)); };
 const launch = () => chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
 async function whileLoading(browser) {
     const page = await browser.newPage({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
@@ -100,22 +102,25 @@ async function afterHashNav(browser) {
   const box = page.locator('#chat-composer textarea');
   await box.waitFor();
   await page.waitForFunction(() => V2C?.loaded && V2C.liveOff);
+  // Record each snapshot the chat puts on the page from here on (the ids it listed).
+  await page.evaluate(() => { const apply = v2ChatApply; window.applied = []; window.v2ChatApply = (state, d) => { apply(state, d); applied.push((d.messages || []).map(m => m.id)); }; });
   const text = 'Please set up a bot for our support inbox. '.repeat(6).slice(0, 250);
   await box.click(); await box.pressSequentially(text);
   assert.equal(await box.inputValue(), text, 'everything typed is in the box');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
   assert.deepEqual(sends, [text], 'Return sends it once');
-  while (!served.includes('lagging')) await page.waitForTimeout(50);
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => applied.length >= 1, null, {timeout: t(10000)});   // the lagging snapshot is on the page
+  assert.deepEqual([served.includes('lagging'), await page.evaluate(() => applied[0])], [true, ['old']]);
   assert.match(await page.locator('#conv-thread').innerText(), /Please set up a bot/, 'the sent message stays in the chat');
   // The message's change arrives on the live stream; the snapshot read it causes lists it.
   releaseCurrent();
-  while (!streams.length) await page.waitForTimeout(50);
+  await until(() => streams.length);
+  assert.ok(streams.length, 'the live stream is open');
   await streams.at(-1).fulfill({contentType: 'text/event-stream', body: 'id: 5\nevent: messages\ndata: ' +
     JSON.stringify({seq: 5, id: 'm1', conversation_id: 'c1'}) + '\n\n'});
-  while (!served.includes('current')) await page.waitForTimeout(50);
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => applied.some(ids => ids.includes('m1')), null, {timeout: t(10000)});
+  assert.equal(served.includes('current'), true);
   const thread = await page.locator('#conv-thread').innerText();
   assert.equal((thread.match(/Please set up a bot/g) || []).length > 0, true);
   assert.equal(await page.locator('#conv-thread .bubble.you').count(), 1, 'listed once, not twice');

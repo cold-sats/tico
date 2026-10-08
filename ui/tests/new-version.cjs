@@ -5,7 +5,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile, bundled} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SCREENSHOT_DIR;
+// Every finite animation and transition has finished (an endless spinner does not count).
+const settled = () => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity);
 const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https://github.com/ticoteam/tico/releases/tag/v0.2.0',
                 published_at: '2026-10-20T10:00:00Z', name: 'Tico 0.2.0'};
 (async () => {
@@ -72,7 +75,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
     assert.equal((await notice.innerText()).trim(), 'New version v0.2.0');
     await notice.click();
     assert.equal(await v.page.locator('#nv-update').isVisible(), true, 'owner sees Update now');
-    if (shots) { await v.page.waitForTimeout(150); const box = await v.page.locator('aside').first().boundingBox(); await v.page.screenshot({path: path.join(shots, 'new-version-notice.png'), clip: {x: 0, y: Math.max(0, box.y + box.height - 330), width: box.width, height: 330}}); }
+    if (shots) { await v.page.waitForFunction(settled, null, {timeout: t(5000)}); const box = await v.page.locator('aside').first().boundingBox(); await v.page.screenshot({path: path.join(shots, 'new-version-notice.png'), clip: {x: 0, y: Math.max(0, box.y + box.height - 330), width: box.width, height: 330}}); }
     await v.page.locator('#nv-dismiss').click();
     assert.equal(await v.page.locator('#new-version-wrap').isVisible(), false, 'dismissed');
     const again = await visit({context: v.ctx});
@@ -93,7 +96,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
     await v.page.evaluate(() => get('/v2/config').then(applyConfig));
     assert.equal((await v.page.locator('#stale-banner').innerText()).replace(/\s+/g, ' ').trim(), 'New version · Reload');
     await v.page.locator('#stale-reload').waitFor();
-    await v.page.waitForTimeout(300);
+    await v.page.evaluate(() => get('/v2/config').then(applyConfig));    // the next config poll answers the same
     assert.equal(await v.page.locator('#stale-banner').isVisible(), true, 'it stays until the person reloads');
     assert.equal(v.reloads(), 0, 'the page is never reloaded for the person');
     await v.ctx.close();
@@ -114,7 +117,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
     assert.equal(await v.page.locator('#stale-banner').isVisible(), false);
     v.serve('0.4.0');
     await v.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    await v.page.locator('#stale-banner').waitFor({state: 'visible', timeout: 3000});
+    await v.page.locator('#stale-banner').waitFor({state: 'visible', timeout: t(3000)});
     await v.ctx.close();
 
     // Without an updater the owner is shown the command to run.
@@ -131,7 +134,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
     await v.page.locator('#new-version').click();
     await v.page.locator('#nv-update').click();
     await v.page.locator('#nv-out .nv-status').filter({hasText: 'Updating'}).waitFor();
-    await v.page.waitForEvent('framenavigated', {timeout: 15000});
+    await v.page.waitForEvent('framenavigated', {timeout: t(15000)});
     for (const x of [v]) assert.deepEqual(x.errors, []);
     await v.ctx.close();
     console.log('PASS: New version notice hidden unless available, changelog link for everyone, Update now for the owner only (progress, reload, manual command), dismissal per version.');

@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SCREENSHOT_DIR;
 
 const now = Date.now(), iso = ms => new Date(now + ms).toISOString(), min = 60e3;
@@ -144,4 +145,4 @@ async function open(browser, viewport, state) {
     }
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });
-async function until(test, ms = 5000) { for (const end = Date.now() + ms; !test(); ) { if (Date.now() > end) throw new Error('timed out'); await new Promise(r => setTimeout(r, 50)); } }
+async function until(test, ms = 5000) { for (const end = Date.now() + t(ms); !test(); ) { if (Date.now() > end) throw new Error('timed out'); await new Promise(r => setTimeout(r, 50)); } }

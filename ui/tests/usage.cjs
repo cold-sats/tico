@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 const day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 const figures = (runs, i, c, o, est, sub = 0) => ({runs, input_tokens: i, cached_tokens: c, output_tokens: o, est_cost_usd: est, subscription_equiv_usd: sub, unpriced_runs: 0});
@@ -117,7 +118,8 @@ const total = rows => rows.reduce((t, r) => ({runs: t.runs + r.runs, est_cost_us
     await page.locator('#use-from').fill('2026-09-01');
     await page.locator('#use-to').fill('2026-09-10');
     await page.waitForFunction(() => document.querySelector('#use-from').value === '2026-09-01');
-    await page.waitForTimeout(150);
+    const custom = () => asked.at(-1)?.from === '2026-09-01' && asked.at(-1)?.to === '2026-09-10';
+    for (const end = Date.now() + t(10000); !custom() && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
     assert.deepEqual([asked.at(-1).from, asked.at(-1).to], ['2026-09-01', '2026-09-10'], 'a custom range');
 
     // The department filter.

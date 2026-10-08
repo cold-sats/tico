@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 async function access(browser) {
   const FULL = {see: true, read: true, write: true};
@@ -172,7 +173,7 @@ async function access(browser) {
   assert.equal((await order())[0], 'b:legal', 'the Recent sort still orders what is left');
   assert.ok(!(await order()).includes('b:sales'), 'and the filter still applies');
   await page.locator('#org-history').click();
-  const savedBy = Date.now() + 10000;                     // the account copy is written after a short pause
+  const savedBy = Date.now() + t(10000);                     // the account copy is written after a short pause
   while (saved.at(-1)?.on !== true && Date.now() < savedBy) await new Promise(r => setTimeout(r, 50));
   assert.equal(saved.at(-1)?.on, true, 'kept with the account');
   // A newer copy from another device wins.

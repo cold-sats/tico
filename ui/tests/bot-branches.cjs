@@ -3,12 +3,13 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 (async () => {
   const browser = await chromium.launch({headless: true});
   try {
     const page = await browser.newPage({viewport: {width: 390, height: 844}, serviceWorkers: 'block'});
-    page.setDefaultTimeout(5000);
+    page.setDefaultTimeout(t(5000));
     const errors = [], writes = [];
     page.on('pageerror', error => errors.push(error.message));
     const base = {host: 'keeper', status: 'active', state: 'active', can_chat: true, can_manage: true,
@@ -169,7 +170,8 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(await dialog.locator('[name=runner_id]').count(), 0);
     assert.equal(await dialog.locator('[type=submit]').innerText(), 'Create planned branch');
     await dialog.locator('[type=submit]').click();
-    await page.waitForFunction(() => !document.querySelector('#branch-editor'));
+    // The submit refreshes the roster (S.emps) and then opens the branch: wait for that, so it cannot replace the row added below.
+    await page.waitForFunction(() => !document.querySelector('#branch-editor') && location.hash === '#/bot/architect-ana' && BOT?.slug === 'architect-ana');
     assert.deepEqual(writes.at(-1)[1], {});
     computers = [{id: 'ana-mac', label: 'My Mac', operator: 'ana', bots: ['architect-sam']}];
     await page.evaluate(() => {

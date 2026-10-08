@@ -10,7 +10,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SCREENSHOT_DIR;
+// Before a screenshot: the new viewport is laid out and no finite transition is still running.
+const settled = (page, width) => page.waitForFunction(w => innerWidth === w && document.getAnimations()
+  .every(a => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), width, {timeout: t(5000)});
 const shot = (page, name) => shots ? page.screenshot({path: path.join(shots, `onboarding-v2-${name}.png`)}) : null;
 // One state of the Market page, light and dark, on a desktop and a phone.
 const shotAll = async (page, name) => {
@@ -19,7 +23,7 @@ const shotAll = async (page, name) => {
     await page.emulateMedia({colorScheme});
     for (const [size, viewport] of [['desktop', {width: 1440, height: 900}], ['phone', {width: 390, height: 844}]]) {
       await page.setViewportSize(viewport);
-      await page.waitForTimeout(150);
+      await settled(page, viewport.width);
       await page.screenshot({path: path.join(shots, `market-${name}-${colorScheme}-${size}.png`)});
     }
   }
@@ -165,15 +169,16 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await notice.waitFor();
     // It polls the market every 30 seconds while it shows: two small GETs, no server change.
     const beforePolls = polls.length;
+    const pollsReach = async n => { for (const end = Date.now() + t(10000); polls.length < n && Date.now() < end;) await new Promise(r => setTimeout(r, 50)); };
     await page.clock.fastForward(31000);
-    await page.waitForTimeout(150);
+    await pollsReach(beforePolls + 1);
     assert.equal(polls.length, beforePolls + 1);
     // The market gets its first content a minute in: the notice stays out its two minutes.
     market = {entities: [
       {id: 'company/cleanco', name: 'CleanCo', type: 'company', tier: 'core', aliases: [], summary: '', status: 'active'}],
       docs: [{id: 'market/overview', title: 'Overview', fetched: '2026-09-29T10:00:00Z'}]};
     await page.clock.fastForward(30000);
-    await page.waitForTimeout(150);
+    await pollsReach(beforePolls + 2);
     assert.equal(polls.length, beforePolls + 2);
     assert.equal(await notice.count(), 1);
     // ...and goes once two minutes have passed and there is content: the normal Market page is drawn.
@@ -225,7 +230,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     if (shots) for (const colorScheme of ['light', 'dark']) {
       await page.setViewportSize({width: 1440, height: 900});
       await page.emulateMedia({colorScheme});
-      await page.waitForTimeout(150);
+      await settled(page, 1440);
       await page.screenshot({path: path.join(shots, `sidebar-botops-line-${colorScheme}.png`)});
     }
     await hint.locator('a').click();
@@ -290,7 +295,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.locator('.gs-tour').waitFor({state: 'detached'});
     await page.reload();
     await ready(page);
-    await page.waitForTimeout(300);
+    // gsBoot decides on the tour in the same turn GS lands; GS says it was seen.
+    await page.waitForFunction(() => GS?.tour_seen === true, null, {timeout: t(5000)});
     assert.equal(await page.locator('.gs-tour').count(), 0);
     await page.close();
 

@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
 
 const LONG = 'Publish one deeply researched comparison page every week for each of the twelve competitor keywords we track, with fresh pricing, screenshots and a customer quote on every page';
@@ -102,7 +103,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (edit && post) { Object.assign(goals.find(g => g.id === edit[1]), body); return json({goal: {}}); }
       return json({});
     });
-    const until = async (fn, what) => { for (let i = 0; i < 80; i++) { if (await fn()) return; await new Promise(r => setTimeout(r, 50)); } assert.fail('timed out: ' + what); };
+    const until = async (fn, what) => { for (const end = Date.now() + t(4000); Date.now() < end;) { if (await fn()) return; await new Promise(r => setTimeout(r, 50)); } if (!await fn()) assert.fail('timed out: ' + what); };
     const last = () => posted.at(-1);
 
     await page.goto('http://tico-ui.test/#/goals');
@@ -146,10 +147,10 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert.equal(await thread.evaluate(el=>el.scrollHeight>el.clientHeight),true,'long conversations scroll inside the rail');
     await thread.evaluate(el=>{el.scrollTop=0;});
     gmExtra.push({id:'new-update',from_actor:'bot:goal-manager',body:'Incoming update'});
-    while (!liveStreams.length) await page.waitForTimeout(50);
+    await until(() => liveStreams.length, 'the live stream is open');
     await liveStreams.splice(0).at(-1).fulfill({contentType: 'text/event-stream',
       body: 'id: 7\nevent: messages\ndata: ' + JSON.stringify({seq: 7, id: 'new-update', conversation_id: 'gm-chat'}) + '\n\n'});
-    await page.locator('[data-gm-thread]', {hasText:'Incoming update'}).waitFor({timeout:12000});
+    await page.locator('[data-gm-thread]', {hasText:'Incoming update'}).waitFor({timeout:t(12000)});
     assert.equal(await thread.evaluate(el=>el.scrollTop),0,'an incoming reply does not move older messages being read');
     gmExtra = [];
     gmLive = true;

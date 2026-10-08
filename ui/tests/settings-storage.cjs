@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const shots = process.env.TICO_SHOTS || '';
 
 (async () => {
@@ -91,7 +92,8 @@ const shots = process.env.TICO_SHOTS || '';
     await redraw();
     await row.locator('[data-hl-copy]').waitFor();
     await row.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(400);           // the phone drawer slides shut after the resize
+    // the phone drawer slides shut after the resize: wait for every finite animation and transition to end
+    await page.waitForFunction(() => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, {timeout: t(5000)});
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`storage-s3-phone-${mode}`); }
     // a bot admin's Health has no storage field and no row

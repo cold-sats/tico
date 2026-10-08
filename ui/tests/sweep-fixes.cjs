@@ -85,7 +85,8 @@ const light = s => { const [r, g, b] = rgb(s); return (r + g + b) / 3 > 160; };
       });
       assert(light(look.shell) && light(look.list) && light(look.graph), 'Market follows the light theme: ' + JSON.stringify(look));
       assert(!light(look.ink), 'dark words on it');
-      await page.waitForTimeout(300);
+      // the graph has painted its background (an unpainted canvas is transparent)
+      await page.waitForFunction(() => { try { const c = document.querySelector('.market-graph canvas'); return c.width > 2 && c.getContext('2d').getImageData(2, 2, 1, 1).data[3] > 0; } catch { return false; } });
       const corner = await page.locator('.market-graph canvas').evaluate(c => [...c.getContext('2d').getImageData(2, 2, 1, 1).data].slice(0, 3));
       assert(corner.reduce((a, b) => a + b) / 3 > 160, 'the graph is drawn on the light background: ' + corner);
       assert.deepEqual(errors, []);

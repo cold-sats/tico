@@ -7,10 +7,13 @@ const {spawn} = require('node:child_process');
 const net = require('node:net');
 const path = require('node:path');
 const readline = require('node:readline');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 const ROOT = path.join(__dirname, '../..');
 const PYTHON = process.env.TICO_PYTHON || 'python3';
 
+// True once something accepts connections on the port.
+function listening(port){return new Promise(resolve=>{const s=net.connect(port,'127.0.0.1',()=>{s.destroy();resolve(true);});s.on('error',()=>resolve(false));});}
 function freePort(){return new Promise(resolve=>{const s=net.createServer().listen(0,'127.0.0.1',()=>{const {port}=s.address();s.close(()=>resolve(port));});});}
 
 function start(cmd,args,ready){
@@ -18,7 +21,7 @@ function start(cmd,args,ready){
   let err='';child.stderr.on('data',d=>{err+=d;});
   return new Promise((resolve,reject)=>{
     child.on('exit',code=>reject(new Error(`${cmd} ${args.join(' ')} exited ${code}: ${err.slice(-1500)}`)));
-    const timer=setTimeout(()=>reject(new Error('server did not start: '+err.slice(-1500))),60000);
+    const timer=setTimeout(()=>reject(new Error('server did not start: '+err.slice(-1500))),t(60000));
     readline.createInterface({input:child.stdout}).on('line',line=>{const v=ready(line);if(v){clearTimeout(timer);resolve({child,value:v});}});
   });
 }
@@ -38,7 +41,8 @@ async function python(){
   const webPort=await freePort(), origin=`http://localhost:${webPort}`;
   // The example is served the way its README says: python3 -m http.server, on a port this test picked.
   const webChild=spawn(PYTHON,['-m','http.server',String(webPort),'--bind','127.0.0.1','-d','examples/custom-frontend'],{cwd:ROOT,stdio:'ignore'});
-  await new Promise(r=>setTimeout(r,800));
+  for(const end=Date.now()+t(15000);!await listening(webPort)&&Date.now()<end;)await new Promise(r=>setTimeout(r,50));
+  assert.ok(await listening(webPort),'the example is served on '+origin);
   const browser=await chromium.launch({headless:true,channel:process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   const servers=[webChild];
   try {
@@ -88,10 +92,10 @@ async function python(){
       await page.click('#send button');
       const sent=await (await posted).json();
       await page.waitForSelector('.msg.me:has-text("Hello ops")');
-      await page.waitForSelector('.msg.live:has-text("Hello from ops")',{timeout:30000});
-      const partial=await page.textContent('.msg.live:has-text("Hello from ops")');
-      assert.ok(partial.length>0&&partial.length<'Hello from ops. The reply is streaming to your own frontend, one word at a time.'.length,'a partial reply is shown while it streams: '+partial);
-      await page.waitForFunction(()=>[...document.querySelectorAll('.msg')].some(m=>m.textContent.includes('one word at a time.'))&&!document.querySelector('.msg.live'),null,{timeout:30000});
+      // The live text read in the same step that finds it: the stream may end right after.
+      const partial=await (await page.waitForFunction(()=>[...document.querySelectorAll('.msg.live')].find(m=>m.textContent.includes('Hello from ops'))?.textContent,null,{timeout:t(30000)})).jsonValue();
+      assert.ok('Hello from ops. The reply is streaming to your own frontend, one word at a time.'.startsWith(partial.trim()),'the reply so far is shown while it streams: '+partial);
+      await page.waitForFunction(()=>[...document.querySelectorAll('.msg')].some(m=>m.textContent.includes('one word at a time.'))&&!document.querySelector('.msg.live'),null,{timeout:t(30000)});
       assert.equal(await page.locator('.msg:has-text("Hello from ops")').count(),1,'the final reply replaces the live text');
       const chatBearer=await page.evaluate(()=>sessionStorage.getItem('tico.session'));
       const messages=await context.request.get(url+'/api/v2/conversations/'+sent.conversation.id+'/messages',

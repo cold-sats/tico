@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 
 const shots = process.env.GRANOLA_SHOTS || '';
 if (shots) fs.mkdirSync(shots, {recursive: true});
@@ -85,7 +86,7 @@ const world = (extra = {}) => ({role: 'owner', meetings: [meeting('g1', 'Renewal
 const lineText = page => page.locator('#mg-row .mg-line').evaluate(el => [...el.children].map(c => c.textContent.trim()).join(' · '));
 const count = (w, name) => w.calls.filter(c => c === name).length;
 const until = async (fn, what, ms = 10000) => {
-  for (const end = Date.now() + ms; !await fn();) { if (Date.now() > end) throw new Error('timed out: ' + what); await new Promise(r => setTimeout(r, 10)); }
+  for (const end = Date.now() + t(ms); !await fn();) { if (Date.now() > end) throw new Error('timed out: ' + what); await new Promise(r => setTimeout(r, 10)); }
 };
 // HTTP responses finish in real time; wait for each handler to arm its next fake timer before advancing again.
 const poll = async (page, w, name, ms) => {
@@ -182,7 +183,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       await page.clock.fastForward(4499);
       assert.equal(count(w, 'status'), 2, 'the next sync poll backs off to 4.5 seconds');
       await poll(page, w, 'status', 1);
-      await page.waitForFunction(() => document.querySelectorAll('.meet-row').length === 2, null, {timeout: 12000});
+      await page.waitForFunction(() => document.querySelectorAll('.meet-row').length === 2, null, {timeout: t(12000)});
       assert.equal(count(w, 'sync'), 1, 'one sync when the page opens');
       assert.deepEqual(await page.locator('.meet-row .note-title').allInnerTexts(), ['Pricing review', 'Renewal call with Dana']);
       await page.waitForFunction(() => /42 notes/.test(document.querySelector('#mg-row .mg-line')?.textContent || ''));
@@ -291,7 +292,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     await page.locator('#mg-row .mg-syncing').waitFor();
     await until(() => page.evaluate(() => !!MEET.gSyncTimer), 'existing sync timer armed');
     await poll(page, w, 'status', 3000);
-    await page.locator('#mg-row .mg-syncing').waitFor({state: 'detached', timeout: 8000});
+    await page.locator('#mg-row .mg-syncing').waitFor({state: 'detached', timeout: t(8000)});
     assert.equal(count(w, 'sync'), 0, 'no sync asked while one runs');
     assert.deepEqual(errors, []);
     await context.close();
