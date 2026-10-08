@@ -100,6 +100,23 @@ def reserved_credential(key):
     from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
     return bool(key) and (not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or key in RESERVED_ENV
                           or key.startswith(RESERVED_PREFIXES))
+DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "
+
+
+def claude_denied(path):
+    """The `gh` commands a bot's AGENT.md tells it to run (in backticks, not after "denies") that its
+    `.claude/settings.json` denies. Codex ignores that file, so a bot moved to Claude Code meets these denies for the
+    first time mid-task."""
+    try:
+        deny = (json.loads((Path(path) / ".claude" / "settings.json").read_text()).get("permissions") or {}).get("deny") or []
+        named = set(re.findall(r"(?<!denies )(?<!deny )`(gh [a-z-]+ [a-z-]+)", (Path(path) / "AGENT.md").read_text(errors="ignore")))
+    except (OSError, ValueError, AttributeError):
+        return []
+    prefixes = [m.group(1).rstrip("* ").strip() for rule in deny if isinstance(rule, str)
+                and (m := re.fullmatch(r"Bash\((gh [^)]*)\)", rule))]
+    return sorted(command for command in named if any(command == p or command.startswith(p + " ") for p in prefixes))
+
+
 FETCH_RETRY_S = 120         # how long a repository that could not be cloned is left before the next try
 PUBLISH_RETRY_S = 3600      # the same for a checkout whose history GitHub has not taken yet
 NO_RUNTIME = ("No AI provider is chosen: the owner picks providers and a default model in "
@@ -2049,6 +2066,8 @@ class Runner:
                     if sync_problem:
                         warnings.append(sync_problem)
                     self.__dict__.setdefault("assignment_learning_problems", {})[bot] = sync_problem
+                if runtime == "claude" and (denied := claude_denied(path)):
+                    warnings.append(DENIED_WARNING + ", ".join(denied) + ". Edit .claude/settings.json in its repository")
                 try:
                     agent_lines = sum(1 for _ in (path / "AGENT.md").open(encoding="utf-8", errors="ignore"))
                     if agent_lines > 150:

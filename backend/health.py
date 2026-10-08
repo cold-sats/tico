@@ -84,8 +84,17 @@ def _mail_key_exposed(c):
             if readiness_document(r["readiness_json"]).get("mail_key") == "exposed"]
 
 
+PUBLISH_WARNING = "GitHub history not published: "                     # runner/service.py PUBLISH_WARNING
+DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "          # runner/service.py DENIED_WARNING
+
+
 def _unpublished(c):
     """Bots whose local history the runner could not give a GitHub repository (runner/service.py `publish`)."""
+    return _reported(c, PUBLISH_WARNING)
+
+
+def _reported(c, prefix):
+    """(bot, the rest of the line) for each readiness warning starting with `prefix` from the computer hosting the bot."""
     out = []
     hosting = {(a["bot"], a["runner_id"]) for a in c.execute(
         "SELECT a.bot,a.runner_id FROM assignments a JOIN bots b ON b.slug=a.bot WHERE b.state<>'archived'")}
@@ -94,8 +103,8 @@ def _unpublished(c):
             if (bot, r["id"]) not in hosting:
                 continue                  # a computer that no longer hosts the bot has nothing to publish for it
             for warning in (row or {}).get("warnings") or []:
-                if str(warning).startswith("GitHub history not published: "):
-                    out.append((bot, str(warning).split(": ", 1)[1][:160]))
+                if str(warning).startswith(prefix):
+                    out.append((bot, str(warning)[len(prefix):][:200]))
     return sorted(set(out))
 
 
@@ -660,6 +669,12 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("publish", "Bot history", "warn",
                              "Some bots' history is not on GitHub yet: " + "; ".join(f"{bot} ({why})" for bot, why in unpublished[:3])
                              + ("." if len(unpublished) <= 3 else f"; and {len(unpublished) - 3} more."),
+                             [_fix("Open bots", "#/settings", "bots")]))
+    denied = _reported(c, DENIED_WARNING) if full else []
+    if denied:
+        checks.append(_check("claude_denies", "Claude Code permissions", "warn",
+                             "; ".join(f"{bot}: {DENIED_WARNING}{rest}" for bot, rest in denied[:3])
+                             + ("." if len(denied) <= 3 else f"; and {len(denied) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
     if full:
         from .worktrees import supported
