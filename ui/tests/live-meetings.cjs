@@ -131,7 +131,7 @@ async function main() {
     // Trigger the same detail-refresh path used by the poll, with the response waiter registered first.
     const priorReads = world.detailReads;
     const poll = detailReadAfter(priorReads);
-    await page.evaluate(() => liveLoadDetail(LIVE_MEETINGS, 'live-1'));
+    await page.evaluate(() => { void liveLoadDetail(LIVE_MEETINGS, 'live-1'); });
     await poll;
     const afterPoll = await page.locator('#live-chat-form input').evaluate(input => ({value: input.value,
       start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input}));
@@ -191,6 +191,7 @@ async function main() {
     assert.equal(calls.filter(([op, body]) => op === 'chat' && body.text === sent).length, 1,
       'duplicate submit is suppressed and whitespace is trimmed');
     world.holdChat = false;
+    world.detailHoldCount = 1;
     world.detailHeld = signal();
     world.chatWaiters.shift()();
     await page.locator('.live-status').getByText('Message sent.').waitFor();

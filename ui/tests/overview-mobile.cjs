@@ -24,7 +24,8 @@ const {createOverviewFixture} = require('./support/overview-fixture.cjs');
     // pointer hit-testing and wait for the scene to return to the campus state.
     await frame.locator('#back').evaluate(button => button.click());
     await frame.locator('#back').waitFor({state:'hidden'});
-    await frame.locator('#floors').waitFor({state:'visible'});
+    assert.equal(await frame.locator('#floors').evaluate(nav => nav.hidden), false,
+      'campus navigation is restored even though its controls are visually clipped for accessibility');
     await mobile.setViewportSize({width:360,height:740}); await enter(mobile, 'computer:alpha');
     await frame.locator('canvas').click({position:{x:10,y:10}});
     assert.equal(await frame.locator('#floors').getAttribute('hidden'), null, 'outside tap returns to campus');

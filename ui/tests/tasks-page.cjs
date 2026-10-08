@@ -88,6 +88,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
   types = [], local = {}, people = null, baseTasks = null, extraTasks = []} = {}) {
   const tasks = [...(baseTasks ?? fixtures()), ...extraTasks];
   const posts = [];
+  const conflictNextUpdate = new Set();
   let pref = prefs;
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
   const errors = [];
@@ -155,7 +156,8 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
       if (!task) return json({error: {detail: 'Not found'}}, 404);
       if (method === 'POST') {
         const body = req.postDataJSON(); posts.push({p, body});
-        if (failIds.includes(id) || body.version !== task.version) return json({error: {code: 'version_conflict', detail: 'Task changed; fetch it and retry your update'}}, 409);
+        if (failIds.includes(id) || conflictNextUpdate.delete(id) || body.version !== task.version)
+          return json({error: {code: 'version_conflict', detail: 'Task changed; fetch it and retry your update'}}, 409);
         const {version, close, note, ...fields} = body;
         if (fields.owner && !fields.owner.includes(':')) fields.owner = 'bot:' + fields.owner;   // as the server resolves a bot's name
         Object.assign(task, fields, {version: task.version + 1});
@@ -176,7 +178,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
   await page.goto('https://tico-ui.test/' + hash);
   await page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && document.querySelector('#task-body .tl-row, #task-body .bcard, #task-body .tl-empty'))
     .catch(e => { throw new Error(`${e.message}\npage errors: ${errors.join(' | ')}`); });
-  return {page, errors, posts, tasks, pref: () => pref};
+  return {page, errors, posts, tasks, pref: () => pref, conflictNextUpdate: id => conflictNextUpdate.add(id)};
 }
 const shot = async (page, name) => {
   if (!SHOTS) return;
@@ -569,7 +571,7 @@ async function peekAndKeys(browser) {
 }
 
 async function properties(browser) {
-  const {page, errors, posts, tasks} = await open(browser);
+  const {page, errors, posts, tasks, conflictNextUpdate} = await open(browser);
   const peek = page.locator('#task-peek'), props = peek.locator('[data-task-props]');
   await page.locator('[data-task-key="tt-checkout"] .tl-title').click();
   await peek.locator('.task-comments .tcomment').first().waitFor();
@@ -662,6 +664,7 @@ async function properties(browser) {
   assert.deepEqual(posts.at(-1), {p: '/api/v2/tasks/t-checkout/relations', body: {task: 't-rotate', kind: 'blocked_by'}});
   // A change made elsewhere: the save is refused, the server's value shows, with a short line. Never the stale value.
   Object.assign(tasks.find(x => x.id === 't-checkout'), {status: 'doing', version: 42});
+  conflictNextUpdate('t-checkout');
   await props.locator('[data-prop="status"]').click();
   await menu.locator('[data-prop-pick="ready"]').click();
   await page.waitForFunction(() => document.querySelector('#task-peek [data-props-msg]')?.textContent === 'Changed elsewhere. Showing the latest.');
