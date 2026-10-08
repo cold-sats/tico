@@ -211,10 +211,10 @@ class Execution(unittest.TestCase):
                 return {"lease_seconds": 90, "stop": True}
             return post(path, body, key)
 
-        started = time.monotonic()
+        # The held turn only ends when interrupted, so returning with an interrupt proves the Stop was acted on;
+        # no wall-clock bound (it failed on a loaded release machine).
         with mock.patch.object(client, "post", side_effect=stop_once_running):
             runner.execute(attempt())
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(self.host.interrupts)
         completion = client.completion()
         self.assertEqual(completion["outcome"], "interrupted")
@@ -402,6 +402,7 @@ def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
                     tmp_path / 'state', client=client, host_factory=lambda *args: host,
                     push=lambda *args, **kw: (0, ''))
     runner.renew_interval = 60
+    # The 120 s bounds only stop a hang; under a loaded release machine 10 s was not enough.
     (tmp_path / 'emp-coo').mkdir()
     renewed = threading.Event()
     original = client.post
@@ -424,7 +425,7 @@ def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
             first = False
             assert interval == 60
             timer_waiting.set()
-            assert tick.wait(10)
+            assert tick.wait(120)
             return done.is_set()
         with mock.patch.object(done, 'wait', side_effect=wait):
             renew_loop(aid, lost, done, deadline, stopped)
@@ -441,14 +442,14 @@ def test_lease_renews_while_turn_waits_for_worktree_maintenance(tmp_path):
         with lock:
             future = pool.submit(runner.execute, attempt())
             try:
-                assert timer_waiting.wait(10)
-                assert lock_waiting.wait(10)
+                assert timer_waiting.wait(120)
+                assert lock_waiting.wait(120)
                 tick.set()
-                assert renewed.wait(10)
+                assert renewed.wait(120)
                 assert host.replies == ['done'] and not future.done()
             finally:
                 tick.set()
-        future.result(timeout=10)
+        future.result(timeout=120)
     assert client.completion()['outcome'] == 'completed'
 
 
