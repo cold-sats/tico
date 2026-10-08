@@ -563,14 +563,14 @@ def runner_bell(store):
 
 # ---------------------------------------------------------------- what a viewer is sent
 
-def status_line(c, who, slug, default=None):
+def status_line(c, who, slug, default=None, inputs=None):
     """A bot's status as `GET /api/v2/status` lists it to `who`; None for no status row."""
     from . import task_privacy as privacy
     from . import usage_limits
     row = H.status(c, slug)
     if not row:
         return None
-    row = privacy.status(c, who, row)
+    row = privacy.status(c, who, row, **(inputs or {}))
     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
     return usage_limits.overlay(c, row, usage_limits.company(c) if default is None else default)
 

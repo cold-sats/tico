@@ -3,6 +3,7 @@
 import json
 
 from . import bot_access as A
+from . import read_cache
 from .store import H, P, Problem, encode
 
 
@@ -16,13 +17,21 @@ DOCS_ROOM = "docs"
 
 
 def roster(c):
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+    return read_cache.value(c, ("roster",), lambda: _roster(c))
+
+
+def _roster(c):
+    row = read_cache.metadata(c, "people")
     return P.load(json.loads(row[0])) if row else P.load({"people": H.humans(c)})
 
 
 def entries(c):
+    return read_cache.value(c, ("room_entries",), lambda: _entries(c))
+
+
+def _entries(c):
     result = {}
-    for row in c.execute("SELECT bot,config_json,owner_ids_json,description,reports_to,repo,thread_mode FROM bot_config"):
+    for row in read_cache.configs(c):
         config = json.loads(row["config_json"] or "{}")
         config.update({"description": row["description"] or "", "reports_to": row["reports_to"],
                        "repo": row["repo"] or ("emp-" + row["bot"])})

@@ -11,6 +11,7 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from . import hubdb as H
+from . import read_cache
 from .auth import validate_identity
 from .store import Problem
 
@@ -18,7 +19,7 @@ SETTINGS = 'repos_new_bot_default'
 
 
 def metadata(c, key):
-    row = c.execute('SELECT value_json FROM registry_metadata WHERE key=?', (key,)).fetchone()
+    row = read_cache.metadata(c, key)
     try:
         value = json.loads(row[0]) if row else {}
         return value if isinstance(value, dict) else {}
