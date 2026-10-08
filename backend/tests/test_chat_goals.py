@@ -16,7 +16,9 @@ def setup(api, supported=True, runtime='codex'):
         c.execute('UPDATE bot_config SET config_json=? WHERE bot=?', (encode({'runtime': runtime}), 'ops'))
     post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test', 'readiness': {
         'schema_version': 1, 'bots': {'ops': {'ready': True, 'runtime': runtime, 'goals': supported,
-            'commands': [{'name': 'compact', 'help': 'Compact this conversation', 'kind': 'harness'}]}}}}, machine['token'])
+            'commands': [{'name': 'compact', 'help': 'Compact this conversation', 'kind': 'harness'},
+                         {'name': 'docs:publish', 'args': '[target]', 'help': 'Publish the Acme docs', 'kind': 'harness'}]}}}},
+         machine['token'])
     conv = post(api, 'conversations', {'participants': ['bot:ops']})
     return machine, conv['id']
 
@@ -30,7 +32,9 @@ def test_goal_roundtrip_from_real_http_runner_and_completion_notice(api, live, t
     machine, cid = setup(api)
     goal = action(api, cid, objective='Produce the Acme summary')['goal']
     assert goal['status'] == 'active' and goal['set_by'] == 'human:ana'
-    assert get(api, f'conversations/{cid}/goal')['supported'] is True
+    shown = get(api, f'conversations/{cid}/goal')
+    assert shown['supported'] is True
+    assert [c['name'] for c in shown['commands'] if c['kind'] == 'harness'] == ['compact', 'docs:publish']   # its repo's own
     assert next(b for b in get(api, 'bots') if b['slug'] == 'ops')['goal_active'] is True
     assert get(api, f'conversations/{cid}/snapshot')['goal'] == goal
 

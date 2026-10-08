@@ -557,7 +557,8 @@ class Enrollment(Contract):
 
 
 class SlashCommand(Contract):
-    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,39}$")
+    # A bot's own Claude Code skills and commands may use "_" and ":" (runner/goals.py, repo_commands).
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9_:-]{0,63}$")
     args: str = Field(default="", max_length=100)
     help: str = Field(default="", max_length=300)
     kind: Literal["tico", "harness"] = "harness"

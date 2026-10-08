@@ -1,5 +1,5 @@
 /* ui/app/slash-commands.js — The "/" menu in a bot's chat box: Tico's own commands and the ones the bot's harness
-   takes as-is. Typing "/" at the start opens it; it narrows as you type.
+   takes as-is, its own repository's skills and commands among them. Typing "/" at the start opens it; it narrows as you type.
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -93,7 +93,8 @@ function slashAttach(P) {
 // text; false when it is not a command at all, or not one for this composer.
 function slashRun(P, text) {
   if (P.mode !== 'chat' || !P.slug || !/^\/[a-z0-9_-]/i.test(text)) return false;
-  const [, word, rest = ''] = text.match(/^\/([a-z0-9_-]+)(?:\s+([\s\S]*))?$/i) || [];
+  // A bot's own skills and commands may be namespaced (/docs:publish).
+  const [, word, rest = ''] = text.match(/^\/([a-z0-9_:-]+)(?:\s+([\s\S]*))?$/i) || [];
   if (!word) return 'plain';
   const name = word.toLowerCase(), arg = rest.trim();
   const cmd = slashCommands(P.slug).find(c => c.name === name);

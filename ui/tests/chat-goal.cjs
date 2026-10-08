@@ -19,6 +19,7 @@ const COMMANDS = [
   {name: 'help', help: 'Show commands', kind: 'tico'},
   {name: 'compact', help: 'Compact the thread', kind: 'harness'},
   {name: 'model', args: '<name>', help: 'Switch model', kind: 'harness'},
+  {name: 'release-notes', args: '[version]', help: 'Draft release notes for Acme', kind: 'harness'},   // the bot's repo skill
 ];
 
 async function open(browser, viewport, touch = false, {empty = false, messages = null, goal = null, theme = '', supported = true, readiness = {ready: true, goals: true}} = {}) {
@@ -154,7 +155,11 @@ async function desktop(browser) {
   await box.click(); await box.pressSequentially('/');
   const menu = page.locator('#chat-composer .slash-menu');
   await menu.waitFor();
-  assert.deepEqual(await menu.locator('.slash-name').allInnerTexts(), ['/goal', '/new', '/task', '/help', '/compact', '/model']);
+  assert.deepEqual(await menu.locator('.slash-name').allInnerTexts(), ['/goal', '/new', '/task', '/help', '/compact', '/model', '/release-notes']);
+  if (process.env.CHAT_GOAL_SHOTS) {
+    fs.mkdirSync(process.env.CHAT_GOAL_SHOTS, {recursive: true});
+    await page.screenshot({path: require('node:path').join(process.env.CHAT_GOAL_SHOTS, 'slash-menu-repo-skill.png')});
+  }
   await box.pressSequentially('m');
   assert.deepEqual(await menu.locator('.slash-name').allInnerTexts(), ['/model', '/compact']);
   await box.press('ArrowDown'); await box.press('Enter');
@@ -163,6 +168,12 @@ async function desktop(browser) {
   await box.press('Enter');
   await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
   assert.deepEqual(api.sends.at(-1), {text: '/compact', refs: {}, command: true});
+  // A repo skill runs in the harness the same way, with its argument.
+  await box.pressSequentially('/rel');
+  assert.deepEqual(await menu.locator('.slash-row').allInnerTexts(), ['/release-notes\n[version]\nDraft release notes for Acme']);
+  await box.press('Enter'); await box.pressSequentially('2.4'); await box.press('Enter');
+  await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
+  assert.deepEqual(api.sends.at(-1), {text: '/release-notes 2.4', refs: {}, command: true});
 
   // Esc closes it; an unknown command is ordinary text.
   await box.pressSequentially('/frob');
