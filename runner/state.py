@@ -131,6 +131,13 @@ class State:
             c.execute("UPDATE attempts SET phase='uploading',completion=? WHERE id=?", (json.dumps(completion), aid))
         return completion
 
+    def interrupted(self, aid, text):
+        """Saves an interrupted completion for an attempt that has none yet; a result already saved stands."""
+        with self.connect() as c:
+            seq = c.execute("SELECT coalesce(max(seq),0) FROM events WHERE attempt_id=?", (aid,)).fetchone()[0]
+            c.execute("UPDATE attempts SET phase='uploading',completion=? WHERE id=? AND completion IS NULL",
+                      (json.dumps({"outcome": "interrupted", "text": text, "last_seq": seq}), aid))
+
     def unfinished(self):
         with self.connect() as c:
             return [dict(r) for r in c.execute("SELECT * FROM attempts WHERE phase NOT IN ('synced','historical')")]
