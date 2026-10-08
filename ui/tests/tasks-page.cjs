@@ -197,8 +197,15 @@ const groupBy = async (page, by) => {
 const peekTitle = (page, text) => page.locator('#task-peek .tmodal-title', {hasText: text}).waitFor();
 const focusedKey = page => page.evaluate(() => document.activeElement?.closest('[data-task-key]')?.dataset.taskKey || document.activeElement?.className);
 
+// Polls until the account copy matches what the page would save now (it is posted after a short pause).
+async function prefSaved(page, pref) {
+  const want = await page.evaluate(() => JSON.stringify({type: TASKS_ST.type, view: TASKS_ST.view, views: 2, ...tasksPrefsValue(TASKS_ST)}));
+  const savedBy = Date.now() + 10000;
+  while (JSON.stringify(pref()) !== want && Date.now() < savedBy) await new Promise(r => setTimeout(r, 50));
+  assert.equal(JSON.stringify(pref()), want, 'the preference is saved with the account');
+}
 async function listAndTabs(browser) {
-  const {page, errors} = await open(browser);
+  const {page, errors, pref} = await open(browser);
   // Labelled tabs with counts, as a tab list; the count is part of each tab's name, after a comma.
   const tabs = await page.locator('#task-view [role=tab]').evaluateAll(ts => ts.map(t => [t.dataset.view, t.firstChild.textContent, t.querySelector('.cnt')?.textContent ?? null, t.getAttribute('aria-selected')]));
   assert.deepEqual(tabs, [['foryou', 'Needs you', String(NEEDS_YOU), 'false'], ['list', 'Open', String(OPEN_COUNT), 'true'], ['board', 'Board', null, 'false'],
@@ -293,7 +300,7 @@ async function listAndTabs(browser) {
   assert.equal(new Set(await rowKeys(page)).size, OPEN_COUNT);
   assert.equal(await page.locator('.tl-group[data-group="o:bot:engineer"] [data-task-key="tt-idem"]').getAttribute('aria-level'), '2', 'nested under the checkout');
   assert.equal(await page.locator('.tl-group[data-group="o:human:ana"] [data-task-key="tt-terms"]').count(), 1, 'under You, not under its parent');
-  await page.waitForTimeout(450);   // the preference is saved after a short pause
+  await prefSaved(page, pref);      // the preference is saved after a short pause
   await shot(page, 'list-owner-dark');
   await groupBy(page, 'tag');
   assert.ok((await groupNames(page)).includes('NO TAG'));
@@ -302,7 +309,7 @@ async function listAndTabs(browser) {
   await groupBy(page, 'parent');
   assert.deepEqual(await groupNames(page), ['DRAFT THE OCTOBER NEWSLETTER', 'SHIP THE CHECKOUT REDESIGN', 'NO PARENT']);
   await groupBy(page, 'owner');
-  await page.waitForTimeout(450);
+  await prefSaved(page, pref);
   await page.reload();
   await page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && document.querySelector('#task-body .tl')?.dataset.groupBy === 'owner');
   await groupBy(page, 'status');

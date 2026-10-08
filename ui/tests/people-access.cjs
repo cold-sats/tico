@@ -94,8 +94,22 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
-    const next = async () => { for (let i = 0; i < 60 && !calls.length; i += 1) await page.waitForTimeout(50); return calls.shift(); };
+    const next = async () => { for (let i = 0; i < 200 && !calls.length; i += 1) await new Promise(r => setTimeout(r, 50)); return calls.shift(); };
     const row = id => page.locator(`.people-row[data-person=${id}]`);
+    // A save re-reads /v2/access and repaints the list. Mark the current paint first, then wait for a fresh
+    // one, so the next click never lands on a row that is being replaced.
+    const repainted = async action => {
+      await page.evaluate(() => { document.querySelector('#set-people').firstElementChild.dataset.stale = '1'; });
+      const result = await action();
+      await page.waitForFunction(() => { const first = document.querySelector('#set-people')?.firstElementChild; return first && !first.dataset.stale; });
+      return result;
+    };
+    const menuAct = async (id, act) => {
+      await row(id).locator('.people-more').click();
+      const item = row(id).locator(`[data-person-act=${act}]`);
+      await item.waitFor({state: 'visible'});
+      await item.click();
+    };
 
     await page.goto('https://tico-ui.test/#/settings');
     await page.getByRole('tab', {name: 'Humans'}).click();
@@ -118,24 +132,29 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     assert.match(await page.locator('#people-proxy-note').textContent(), /Cloudflare Access/);
 
     // Role and sign-in change in place and save at once.
-    await row('ben').locator('[data-person-role]').selectOption('admin');
-    assert.deepEqual(await next(), ['edit', 'ben', {role: 'admin'}]);
+    await repainted(async () => {
+      await row('ben').locator('[data-person-role]').selectOption('admin');
+      assert.deepEqual(await next(), ['edit', 'ben', {role: 'admin'}]);
+    });
     await page.waitForFunction(() => document.querySelector('.people-row[data-person=ben] [data-person-role]')?.value === 'admin');
-    await row('cy').locator('[data-person-signin]').uncheck();
-    assert.deepEqual(await next(), ['edit', 'cy', {sign_in: false}]);
+    await repainted(async () => {
+      await row('cy').locator('[data-person-signin]').uncheck();
+      assert.deepEqual(await next(), ['edit', 'cy', {sign_in: false}]);
+    });
     await page.waitForFunction(() => document.querySelector('.people-row[data-person=cy] [data-person-signin]')?.checked === false);
 
     // The menu: what a member may do, and Mark as left behind its confirm; Restore brings them back.
-    await row('cy').locator('.people-more').click();
-    await row('cy').locator('[data-person-act=create_bots]').click();
-    assert.deepEqual(await next(), ['edit', 'cy', {create_bots: false}]);
-    await row('cy').waitFor();
-    await row('cy').locator('.people-more').click();
-    await row('cy').locator('[data-person-act=left]').click();
+    await repainted(async () => {
+      await menuAct('cy', 'create_bots');
+      assert.deepEqual(await next(), ['edit', 'cy', {create_bots: false}]);
+    });
+    await menuAct('cy', 'left');
     const dialog = page.locator('#people-dialog');
     assert.match(await dialog.textContent(), /API tokens/);
-    await dialog.locator('[type=submit]').click();
-    assert.deepEqual(await next(), ['left', 'cy', {left: true}]);
+    await repainted(async () => {
+      await dialog.locator('[type=submit]').click();
+      assert.deepEqual(await next(), ['left', 'cy', {left: true}]);
+    });
     await page.locator('.people-left summary').click();
     await page.locator('.people-row.is-left[data-person=cy] [data-person-act=restore]').click();
     assert.deepEqual(await next(), ['edit', 'cy', {left: false}]);

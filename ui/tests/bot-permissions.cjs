@@ -172,7 +172,8 @@ async function access(browser) {
   assert.equal((await order())[0], 'b:legal', 'the Recent sort still orders what is left');
   assert.ok(!(await order()).includes('b:sales'), 'and the filter still applies');
   await page.locator('#org-history').click();
-  await page.waitForTimeout(900);
+  const savedBy = Date.now() + 10000;                     // the account copy is written after a short pause
+  while (saved.at(-1)?.on !== true && Date.now() < savedBy) await new Promise(r => setTimeout(r, 50));
   assert.equal(saved.at(-1)?.on, true, 'kept with the account');
   // A newer copy from another device wins.
   serverMine = {on: false, at: Date.now() + 60000};
