@@ -1848,6 +1848,12 @@ class Runner:
                     # Preserve the venv path: resolving its python symlink selects the base installation.
                     "PATH": os.pathsep.join([str(Path(sys.executable).parent), str(ROOT / "scripts"),
                                              env.get("PATH", os.defpath)])})
+        # A bot's commits carry the bot's name. Without this a runner on a person's own computer
+        # commits under that person's global git identity, so their name lands on work they never did.
+        name = (attempt.get("config") or {}).get("display_name") or attempt["bot"]
+        for role in ("AUTHOR", "COMMITTER"):
+            env.setdefault(f"GIT_{role}_NAME", name)
+            env.setdefault(f"GIT_{role}_EMAIL", f"{attempt['bot']}@bots.tico.invalid")
         if is_assignment(attempt.get("config")):
             env["TICO_ASSIGNMENT_LEARNING_DIR"] = str(self.assignment_learning_path(attempt["bot"]))
         return env
