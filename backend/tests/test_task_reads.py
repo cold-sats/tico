@@ -115,3 +115,20 @@ def test_one_change_to_many_tasks_is_one_bulk_change_and_resets_lists(api):
         ana = Identity("human:ana", "owner", "ana@acme.example")
         sent, *_ = E.read(c, api.app.state.auth, ana, before, topics=("tasks",))
     assert [data for _, _, data in sent if data.get("bulk")] and len(sent) == 1
+
+
+def test_a_bot_list_stays_304_when_only_other_tasks_change(api):
+    mine = post(api, "tasks", {"owner": "ops", "title": "Check the backups", "body": "Please."})
+    other = post(api, "tasks", {"owner": "coo", "title": "Plan the offsite", "body": "Soon."})
+
+    def read(tag=None):
+        return api.get("/api/v2/tasks?owner=ops&status=open,doing,waiting,declined&brief=true",
+                       headers={**headers("ana-test"), **({"If-None-Match": tag} if tag else {})})
+    first = read()
+    assert first.status_code == 200 and "body" not in first.json()["tasks"][0], "brief rows carry no body"
+    tag = first.headers["etag"]
+    post(api, "tasks/" + other["id"], {"version": other["version"], "title": "Plan the offsite in May"})
+    assert read(tag).status_code == 304, "a change outside the rows sends no body"
+    post(api, "tasks/" + mine["id"], {"version": mine["version"], "title": "Check the backups twice"})
+    changed = read(tag)
+    assert changed.status_code == 200 and "Check the backups twice" in changed.text

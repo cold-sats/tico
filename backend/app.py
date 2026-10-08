@@ -2205,6 +2205,12 @@ def create_app(settings=None):
                            order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids, number=number,
                            updated_since=views.since_time(updated_since) if since else None, visible_sql=visible_sql,
                            member=member, role=TRo.role_name(role) if role else None)
+            def brief_rows(rows):
+                # A board or a bot's task list polling many tasks needs neither their text nor their criteria.
+                if brief:
+                    for row in rows:
+                        for field in ("body", "acceptance_criteria", "acceptance_json"):
+                            row.pop(field, None)
             if changed_after is not None:
                 found = reads.changed(c, changed_after, visible_sql)
                 ids = reads.around(c, found[0]) if found else []
@@ -2216,18 +2222,22 @@ def create_app(settings=None):
                 gone = reads.gone(c, visible_sql, was, {row["id"] for row in rows})
                 result = {"tasks": rows, "gone": gone, "cursor": cursor, "next_offset": None}
             else:
-                tag = reads.etag("tasks", reads.version(c), reads.access(visible_sql), reads.names(c), who.actor,
-                                 who.task_actor, sorted(request.query_params.multi_items()))
-                if reads.fresh(request, tag):
-                    return reads.not_modified(tag)
+                # Unchanged anywhere: a 304 without reading a row. Changed elsewhere but not in these rows: a 304
+                # after reading them, so an idle list on a busy team still sends no body.
+                reader = (reads.access(visible_sql), who.actor, who.task_actor, sorted(request.query_params.multi_items()))
+                whole, held = reads.digest("tasks", reads.version(c), reads.names(c), *reader), reads.held(request)
+                for was_whole, was_rows in held:
+                    if was_whole == whole:
+                        return reads.not_modified(reads.list_tag(whole, was_rows))
                 rows, next_offset = visible_tasks(c, who, owner, requester, limit=limit, offset=offset, **filters)
+                brief_rows(rows)
+                part = reads.digest(rows, next_offset, *reader)
+                tag = reads.list_tag(whole, part)
+                if any(was_rows == part for _, was_rows in held):
+                    return reads.not_modified(tag)
                 response.headers["ETag"] = tag
                 result = {"tasks": rows, "next_offset": next_offset, "cursor": reads.cursor(c, visible_sql)}
-            if brief:
-                # A board polling hundreds of tasks needs neither their text nor their criteria.
-                for row in rows:
-                    for field in ("body", "acceptance_criteria", "acceptance_json"):
-                        row.pop(field, None)
+            brief_rows(rows)
             return result
 
     # ------------------------------------------------------------------ quiet notes

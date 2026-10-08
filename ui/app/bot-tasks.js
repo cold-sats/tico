@@ -94,9 +94,11 @@ async function loadBotChatTasks(slug) {
   const host = $('#bot-chat-tasks');
   if (!host) return;
   const load = ++BOT_CHAT_TASK_LOAD;
+  // Only active company rows, without their text: the server filters, and an unchanged list is a 304.
+  const active = `status=${[...BOT_CHAT_ACTIVE].join(',')}&lane=company&brief=true`;
   const [owned, asked] = await Promise.all([
-    v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all`),
-    v2Get(`/v2/tasks?requester=${encodeURIComponent(slug)}&status=all`)]);
+    v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&${active}`),
+    v2Get(`/v2/tasks?requester=${encodeURIComponent(slug)}&${active}`)]);
   if (load !== BOT_CHAT_TASK_LOAD || BOT?.slug !== slug || !$('#bot-chat-tasks')) return;
   const unique = new Map();
   for (const task of [...(owned?.tasks || []), ...(asked?.tasks || [])]) {
@@ -116,8 +118,8 @@ async function loadBotTasksV2(slug) {
     if (wait) await new Promise(done => setTimeout(done, wait));
     if (!$('#t-open') || BOT?.slug !== slug) return;
     [owned, asked] = await Promise.all([
-      owned || v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all`),
-      asked || v2Get(`/v2/tasks?requester=${encodeURIComponent(slug)}&status=all`)]);
+      owned || v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all&brief=true`),     // Done needs the finished ones
+      asked || v2Get(`/v2/tasks?requester=${encodeURIComponent(slug)}&status=${V2_ACTIVE.join(',')}&brief=true`)]);
     if (owned && asked) break;
   }
   if (!$('#t-open')) return;

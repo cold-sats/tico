@@ -236,7 +236,7 @@ async function personTasksLoad(p) {
   PERSON_TASKS = p.id;
   const box = $('#person-tasks'); if (!box) return;
   const owner = 'human:' + p.id;
-  const d = await v2Get(`/v2/tasks?owner=${encodeURIComponent(owner)}&status=all`);
+  const d = await v2Get(`/v2/tasks?owner=${encodeURIComponent(owner)}&status=all&brief=true`);
   if (!$('#person-tasks') || PERSON_TASKS !== p.id) return;
   const all = d?.tasks || [];
   const active = all.filter(t => V2_ACTIVE.includes(String(t.status)));
