@@ -18,7 +18,7 @@ whose merged work it contains to Review with "Shipped in vX.Y.Z" (backend/github
 
 1. **Every PR** runs only the tests for what it changed (below).
 2. **Before you tag**, and only then, the full suite: the default suites, the opt-in tests and a short whole-product
-   check, about 3 to 5 minutes: `python scripts/release_checks.py --release`.
+   check, targeted under 8 minutes on a shared Mac: `python scripts/release_checks.py --release`.
 3. **Tag and push.** The GitHub release is published about 2 minutes later, as soon as the Docker images exist.
 4. **Server rollout** starts at once: the canary install first, then the rest ("Update now", about 2 minutes each).
 5. **Desktop follows**: built only when the shell changed, and attached to the published release when it is done.
@@ -50,23 +50,29 @@ python scripts/release_checks.py --release                     # this checkout i
 python scripts/release_checks.py --release --previous v0.3.21  # upgrade from a given release instead of the newest tag
 ```
 
-This is the full suite, run once per release. While the images build it runs every Python test, the opt-in
-`@pytest.mark.slow` ones included (real git, Docker, servers and long timers), and every browser script (`node scripts/ui-tests.cjs --all`). Then the
-product as installed, in Docker: it builds the server, runner and
-updater images once (BuildKit cache; a source-only change rebuilds one layer per image) and runs three checks against
-them at the same time, each with its own Docker names, while the journey installs the previous release during the build:
+This is the full suite, run once per release. It builds the server, runner and updater images once (BuildKit cache;
+a source-only change rebuilds one layer per image), while the journey installs the previous release. After every build
+finishes, it runs every Python test except Docker isolation, the opt-in `@pytest.mark.slow` ones included (real git,
+Docker, servers and long timers), and every browser script (`node scripts/ui-tests.cjs --all`). Python uses half the
+CPU count in workers (at least one; six on a 12-core Mac), and the browser uses four jobs. Set `TICO_PYTHON_WORKERS`
+or `TICO_UI_JOBS` to override these defaults. Successful builds also start the following checks against the candidate
+at the same time, each with its own Docker names; the journey proceeds once those images are ready:
 
 - `docker/smoke.sh`: the server comes up, a runner joins with a one-time code and installs Codex once OpenAI is enabled,
   the server restarts and the runner reconnects, the data survives down and up, and a runner box updates to the
   server's release and rolls back one that does not turn healthy;
 - `docker/side-jobs-smoke.sh`: a runner starts and stops the side job the hub assigns to it;
+- `runner/tests/test_isolation_docker.py`: Docker isolation against the candidate runner, with
+  `TICO_RUNNER_TEST_IMAGE=tico-rc-runner:local` and the same Python worker cap;
 - `scripts/journey-test.sh --release`: install the previous release from its checksummed bundle, upgrade to the
   candidate with "Update now", and roll back an update that migrates the database and never turns healthy (the
   pre-update snapshot is restored, with the server's real entrypoint running Litestream).
 
-It prints each check's time and the total, keeps the logs in a temporary directory and prints the end of any failed
-log. The target is under 5 minutes; a run over 300 seconds still passes but says so. Do not run two at once: the
-journey's candidate tags are fixed.
+It prints a phase table with each check's start offset, duration and exit code, plus total time and starting/ending
+load. It keeps the logs in a temporary directory and prints the end of any failed log. If any build fails, the
+Docker-dependent checks are reported as not run and the release check fails. The release target is under 8 minutes
+(480 seconds); a run over budget still passes its assertions but reports that it is over budget. The default suite's
+300-second hard budget is unchanged. Do not run two at once: the journey's candidate tags are fixed.
 
 The full journey stays available on demand (about ten minutes), for a release that changes enrollment, the runner's
 restart behavior, Litestream or backups:
