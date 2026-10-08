@@ -9,18 +9,31 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-function resources(env, cores, load) {
+async function sampleCpu(read = os.cpus, pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+  // CPU counters measure spare capacity even when macOS load average stays high.
+  const before = read();
+  await pause(1000);
+  const after = read();
+  const idle = cpus => cpus.reduce((sum, cpu) => sum + cpu.times.idle, 0);
+  const total = cpus => cpus.reduce((sum, cpu) => sum + Object.values(cpu.times).reduce((a, b) => a + b, 0), 0);
+  const elapsed = total(after) - total(before);
+  const idleFraction = before.length === after.length && elapsed > 0
+    ? Math.max(0, Math.min(1, (idle(after) - idle(before)) / elapsed)) : 0;
+  return {cores: Math.max(1, after.length), idleFraction};
+}
+
+function resources(env, cores, idleFraction) {
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-  const jobs = Number(env.TICO_UI_JOBS ?? Math.floor(clamp(cores - load, 1, 4)));
-  const slowdown = Number(env.TICO_UI_SLOWDOWN ?? clamp(load / (cores / 2), 1, 4));
+  const jobs = Number(env.TICO_UI_JOBS ?? clamp(Math.floor(cores * idleFraction), 1, 4));
+  const slowdown = Number(env.TICO_UI_SLOWDOWN ?? clamp(1 / Math.max(idleFraction * 2, 0.25), 1, 4));
   if (!Number.isInteger(jobs) || jobs < 1) throw new Error('TICO_UI_JOBS must be a positive integer');
   if (!Number.isFinite(slowdown) || slowdown <= 0) throw new Error('TICO_UI_SLOWDOWN must be a positive finite number');
   return {jobs, slowdown};
 }
 
 async function main() {
-  const cores = Math.max(1, os.cpus().length), load = os.loadavg()[0];
-  const selected = resources(process.env, cores, load);
+  const {cores, idleFraction} = await sampleCpu();
+  const selected = resources(process.env, cores, idleFraction);
 
   const dir = path.join(__dirname, '..', 'ui', 'tests');
   const CORE = ['bot-permissions', 'chat', 'docs', 'goals', 'meetings', 'page-layouts', 'people-access',
@@ -41,7 +54,7 @@ async function main() {
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.cjs')).sort()
     .filter(f => !chosen || chosen.includes(f.replace(/\.cjs$/, '')));
   if (!files.length) { console.error('no UI test scripts matched'); process.exit(1); }
-  console.log(`UI tests: jobs=${jobs}, slowdown=${selected.slowdown}, cores=${cores}, load1=${load}`);
+  console.log(`UI tests: jobs=${jobs}, slowdown=${selected.slowdown}, cores=${cores}, idle=${(idleFraction * 100).toFixed(1)}%`);
 
   const failed = [];
   const started = Date.now();
@@ -72,5 +85,5 @@ async function main() {
   process.exit(failed.length ? 1 : 0);
 }
 
-module.exports = {resources};
+module.exports = {resources, sampleCpu};
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });

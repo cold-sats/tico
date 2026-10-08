@@ -4,13 +4,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {spawnSync} = require('node:child_process');
-const {resources} = require('../ui-tests.cjs');
+const {resources, sampleCpu} = require('../ui-tests.cjs');
 
-test('one load policy, explicit overrides and shared context/page timeouts', async () => {
-  assert.deepEqual(resources({}, 12, 0), {jobs: 4, slowdown: 1});
-  assert.deepEqual(resources({}, 12, 10.5), {jobs: 1, slowdown: 1.75});
-  assert.deepEqual(resources({}, 12, 30), {jobs: 1, slowdown: 4});
-  assert.deepEqual(resources({TICO_UI_JOBS: '3', TICO_UI_SLOWDOWN: '2.5'}, 12, 30), {jobs: 3, slowdown: 2.5});
+test('one CPU-idle policy, explicit overrides and shared context/page timeouts', async () => {
+  const counters = (user, idle) => Array.from({length: 12}, () => ({times: {user, nice: 0, sys: 0, idle, irq: 0}}));
+  const snapshots = [counters(10000, 50000), counters(10070, 50030)];
+  const sampled = await sampleCpu(() => snapshots.shift(), async ms => assert.equal(ms, 1000));
+  assert.deepEqual(sampled, {cores: 12, idleFraction: 0.3});
+  assert.equal(snapshots.length, 0);
+  const spare = resources({}, sampled.cores, sampled.idleFraction);
+  assert.equal(spare.jobs, 3);
+  assert.ok(Math.abs(spare.slowdown - 5 / 3) < 1e-12);
+  assert.deepEqual(resources({}, 12, 1), {jobs: 4, slowdown: 1});
+  assert.deepEqual(resources({}, 12, 0.1), {jobs: 1, slowdown: 4});
+  assert.deepEqual(resources({}, 12, 0), {jobs: 1, slowdown: 4});
+  assert.deepEqual(resources({TICO_UI_JOBS: '3', TICO_UI_SLOWDOWN: '2.5'}, 12, 0.1), {jobs: 3, slowdown: 2.5});
 
   const support = path.resolve(__dirname, '../../ui/tests/support');
   for (const [value, expected] of [[undefined, 1], ['2.5', 2.5]]) {

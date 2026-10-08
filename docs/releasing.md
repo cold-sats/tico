@@ -55,12 +55,16 @@ a source-only change rebuilds one layer per image), while the journey installs t
 finishes, it runs every Python test except Docker isolation, the opt-in `@pytest.mark.slow` ones included (real git,
 Docker, servers and long timers), and every browser script (`node scripts/ui-tests.cjs --all`). Python uses half the
 CPU count in workers (at least one; six on a 12-core Mac); `TICO_PYTHON_WORKERS` overrides that default.
-The browser runner reads the core count and one-minute load once at startup. Its job count is
-`floor(clamp(cores - load1, 1, 4))`, and every child gets the same `TICO_UI_SLOWDOWN`:
-`clamp(load1 / (cores / 2), 1, 4)`. It prints jobs, slowdown, cores and load before running scripts.
+The browser runner samples CPU counters over one second at startup. The idle fraction is the change
+in idle time divided by the change in total CPU time across all cores. Its job count is
+`clamp(floor(cores * idleFraction), 1, 4)`, and every child gets the same `TICO_UI_SLOWDOWN`:
+`clamp(1 / max(idleFraction * 2, 0.25), 1, 4)`. It prints jobs, slowdown, cores and idle percentage
+before running scripts. On macOS, load average can stay high while several cores are idle.
 Explicit `TICO_UI_JOBS` (or `-j N` when invoking the browser runner) and `TICO_UI_SLOWDOWN` win;
 the release coordinator passes those overrides through without forcing four jobs. On a 12-core Mac
-at load 30, the defaults are one job and slowdown four; at load 8, four jobs and slowdown 1.33.
+at 30% idle, the defaults are three jobs and slowdown 1.67; at 50% idle, four jobs and slowdown one.
+If CPU counters do not advance or the core count changes during sampling, it conservatively uses
+one job and slowdown four. The selected settings stay fixed for that run.
 Shared browser support applies `30000 * slowdown` milliseconds to context/page action and navigation
 timeouts, including popups. `ui/tests/support/load.cjs` exports `SLOWDOWN`, `t(ms)` (rounded scaled
 milliseconds), and `applyTimeouts(contextOrPage)` for scripts' explicit waits. Direct script runs
