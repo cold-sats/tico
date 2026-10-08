@@ -10,6 +10,10 @@
 @media (prefers-reduced-motion:reduce){.tf-skel:not(.ready){animation:none}}
 /* the strip: one tile per file, its newest version */
 .task-files .rail-h{margin-bottom:6px}
+.task-files .tf-status{font-weight:400;letter-spacing:0;text-transform:none}
+.task-files .prop-add[hidden]{display:none}
+.tf-empty{margin:0;font-size:12px}
+dialog.tmodal.over{outline:2px dashed var(--accent);outline-offset:-6px}
 .tf-strip{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:thin}
 .tf-tile{flex:none;display:flex;flex-direction:column;gap:2px;min-width:0;padding:0 0 4px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer;overflow:hidden}
 .tf-tile:hover{border-color:var(--g4)}
@@ -136,3 +140,4 @@
 .pin-x:hover{color:var(--ink);background:var(--hover)}
 @media (hover:none){.pin-x{opacity:1}}
 .tl-pin[aria-pressed="true"]{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+.tf-rm{font-size:12px;padding:2px 8px}
