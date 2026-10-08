@@ -161,8 +161,9 @@ def _bounded(value, low, high):
 
 
 # ----------------------------------------------------------------------------- transports
-def direct(api_key, model=MODEL, timeout=TIMEOUT, opener=None, sleep=time.sleep):
-    """The TypeSafe API with a key. `opener(request, timeout)` is the seam the tests use."""
+def direct(api_key, model=MODEL, timeout=TIMEOUT, opener=None, sleep=time.sleep, retries=RETRIES):
+    """The TypeSafe API with a key. `opener(request, timeout)` is the seam the tests use. The server asks once,
+    briefly, and falls back to the company's own model (backend/judge.py); a direct caller keeps the retries."""
     if not api_key:
         raise JudgeError("unconfigured", "no TypeSafe key")
     opener = opener or urllib.request.urlopen
@@ -172,7 +173,7 @@ def direct(api_key, model=MODEL, timeout=TIMEOUT, opener=None, sleep=time.sleep)
         body = json.dumps({"state": state, "model": model, "questions": clean(questions)},
                           default=str).encode()
         started = time.monotonic()
-        for attempt in range(RETRIES + 1):
+        for attempt in range(retries + 1):
             request = urllib.request.Request(URL, data=body, method="POST", headers={
                 "Authorization": "Bearer " + api_key, "Content-Type": "application/json",
                 "Accept": "application/json"})
@@ -191,13 +192,13 @@ def direct(api_key, model=MODEL, timeout=TIMEOUT, opener=None, sleep=time.sleep)
                 if status == 422:
                     raise JudgeError("invalid", str(detail.get("detail") or detail or "TypeSafe refused the request"), 422)
                 if status in (429, 529) or status >= 500:
-                    if attempt < RETRIES:
+                    if attempt < retries:
                         sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
                         continue
                     raise JudgeError("unavailable", f"TypeSafe answered {status}", status, retryable=True)
                 raise JudgeError("http", f"TypeSafe answered {status}", status)
             except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-                if attempt < RETRIES:
+                if attempt < retries:
                     sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
                     continue
                 raise JudgeError("unavailable", f"TypeSafe did not answer: {type(exc).__name__}", retryable=True)
