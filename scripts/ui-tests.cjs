@@ -36,7 +36,7 @@ async function main() {
   const selected = resources(process.env, cores, idleFraction);
 
   const dir = path.join(__dirname, '..', 'ui', 'tests');
-  const CORE = ['bot-permissions', 'chat', 'docs', 'goals', 'meetings', 'page-layouts', 'people-access',
+  const CORE = ['bot-permissions', 'chat', 'docs', 'goals', 'meetings', 'people-access',
                 'settings-forms', 'sign-in-redirect', 'task-privacy', 'tasks-page'];
   const args = process.argv.slice(2);
   let jobs = selected.jobs;

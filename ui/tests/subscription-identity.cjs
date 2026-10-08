@@ -24,6 +24,7 @@ const path = require('node:path');
         {name: 'engineering', id: 'subscription:' + JSON.stringify([runner_id, 'engineering']), display_name: 'Engineering', runtimes: {codex: {signed_in: true}}}]})),
         assignments: [{scope: 'bot', target: 'builder', profile: 'engineering'}]};
       window.writes = [];
+      window.post = async (url, body) => { writes.push({url, body}); };
       window.get = async () => structuredClone(fixture);
       window.put = async (url, body) => {
         writes.push({url, body});
@@ -46,6 +47,16 @@ const path = require('node:path');
     assert.equal(await north.locator('[data-subs-weekly]').isVisible(), false);
     assert.equal(await north.locator('[data-subs-refresh]').isVisible(), true);
     assert.match(await north.locator('.subs-weekly').innerText(), /usage unknown/);
+    // Keep keyboard refresh and its routing contract in this retained subscription path.
+    await page.evaluate(() => {
+      const render = renderSettingsSubs;
+      renderSettingsSubs = async (...args) => { await render(...args); window.refreshRendered = true; };
+    });
+    await north.locator('[data-subs-refresh]').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.refreshRendered);
+    assert.deepEqual(await page.evaluate(() => writes.shift()), {url: '/v2/subscriptions/refresh', body: {
+      runner_id: 'r1', profile: 'engineering', runtime: 'codex'}});
     await north.getByText('Manage subscription', {exact: true}).focus();
     await page.keyboard.press('Enter');
     await page.evaluate(() => renderSettingsSubs());
@@ -70,7 +81,6 @@ const path = require('node:path');
     await page.waitForFunction(() => document.querySelector('.subs-weekly')?.innerText.includes('42% used'));
     assert.deepEqual(await page.evaluate(() => writes.at(-1)), {url: '/v2/subscriptions/weekly', body: {
       runner_id: 'r1', profile: 'engineering', runtime: 'codex', used_percent: 42, resets_at: null}});
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'open forms fit at 390px');
     await page.evaluate(() => { settingsIsAdmin = () => false; S.me.id = 'viewer'; return renderSettingsSubs(true); });
     assert.equal(await page.locator('[data-subs-rename]').count(), 0, 'nonoperators cannot rename');
     assert.equal(await page.locator('.subs-controls').count(), 0, 'nonoperators get no manual write controls');

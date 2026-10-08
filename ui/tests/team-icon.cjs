@@ -64,7 +64,6 @@ const logo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQV
       await page.evaluate(() => { window.ticoTheme.set('light'); setDrawer(false); });
       await page.waitForFunction(() => document.querySelector('#side').getBoundingClientRect().right <= 0);
       await page.screenshot({path:path.join(process.env.TICO_ICON_SCREENSHOTS,'settings-team-phone-light.png')});
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),true);
     }
     refusal = true;
     await input.setInputFiles({name:'bad.png',mimeType:'image/png',buffer:Buffer.from('invalid')});

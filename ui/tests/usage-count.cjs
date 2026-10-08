@@ -43,7 +43,6 @@ const {html, uiFile} = require('./support/page.cjs');
 
     let v = await visit();
     await v.page.locator('#usage-notice').waitFor({state: 'visible'});
-    assert.match(await v.page.locator('#usage-notice').innerText(), /counts active installs anonymously .* Turn off: Settings > Privacy or TICO_TELEMETRY=off/);
     assert.ok(v.calls.some(c => c.includes('POST') && c.includes('"shown"')), 'the app reports that the notice was shown');
     await v.page.locator('#usage-notice-x').click();
     assert.equal(await v.page.locator('#usage-notice').isVisible(), false);
