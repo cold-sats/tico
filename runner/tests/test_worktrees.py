@@ -74,6 +74,17 @@ def test_add_setup_report_attach_dirty_push_remove_restore(trees):
     (path / 'file').write_text('changed')
     report = W.inspect(workspace, row)
     assert report['state'] == 'present' and report['dirty_files'] == 2 and report['last_commit']
+    # A review checkout of a commit (detached HEAD) is present and healthy, just without a branch.
+    git(path, 'checkout', '-q', '--detach')
+    detached = W.inspect(workspace, row)
+    assert detached['state'] == 'present' and detached['branch'] is None and 'error' not in detached
+    git(path, 'checkout', '-q', row['branch'])
+    # A failure names the step and the reason instead of a list of guesses.
+    broken = workspace / 'tasks' / 'broken' / 'org__product'
+    broken.mkdir(parents=True)
+    (broken / '.git').write_text('gitdir: /nonexistent/worktree\n')
+    failed = W.inspect(workspace, {**row, 'path': 'tasks/broken/org__product'})
+    assert failed['error'].startswith('Could not read its remote: Git config failed'), failed
     attached = W.command(client, 'attach', str(path))
     assert attached['path'] == row['path']
     assert client.post.call_args.args[0].endswith('/worktrees/attach')
