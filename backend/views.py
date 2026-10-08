@@ -446,7 +446,7 @@ def operation_issues(c, who, auth):
 
 def conversation_snapshot(c, cid, who=None):
     page = privacy.page(c, who, cid) if who else message_page(c, cid)
-    job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until FROM jobs j JOIN messages m ON m.id=j.message_id "
+    job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until,a.stop_requested FROM jobs j JOIN messages m ON m.id=j.message_id "
                     "LEFT JOIN attempts a ON a.id=j.attempt_id WHERE m.conversation_id=? "
                     "AND coalesce(json_extract(m.refs_json,'$.maintenance'),'')!='checkpoint' "
                     "ORDER BY m.rowid DESC LIMIT 1", (cid,)).fetchone()
@@ -465,6 +465,8 @@ def conversation_snapshot(c, cid, who=None):
         bot_state = H.bot(c, job["bot"])["state"]
         label = {"queued": "Saved — queued", "leased": "Starting", "running": "Working",
                  "completed": "Complete", "cancelled": "Delivery dismissed", "uncertain": "Stopped — saved for later"}.get(state, state)
+        if state == "cancelled" and job["stop_requested"]:
+            label = "Stopped"
         if input_added and state == "running":
             label = "Working — follow-up added"
         if state == "uncertain" and job["attempt_state"] == "failed":

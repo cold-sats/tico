@@ -6,6 +6,7 @@
 // The composer at the bottom of a bot's Chat tab: Send is a chat message, the caret offers task or reply.
 // Each instance owns its own state.
 const ICON_CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.2-8.2a3.3 3.3 0 0 1 4.7 4.7l-8.2 8.2a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/></svg>';
+const ICON_STOP = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>';
 const ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg>';
 const clock = ms => { const t = Math.max(0, Math.round((ms || 0) / 1000)), h = Math.floor(t / 3600);
   return (h ? `${h}:` : '') + String(Math.floor(t % 3600 / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
@@ -66,6 +67,7 @@ function makePill(cfg) {
       ${goals ? '<button class="p-goal p-icon" type="button" title="Goal" aria-label="Goal" aria-pressed="false" hidden><span class="nav-icon" aria-hidden="true">target</span></button>' : ''}
       ${attach ? `<button class="p-attach p-icon" type="button" title="Attach files" aria-label="Attach files">${ICON_CLIP}</button>
       <input type="file" multiple hidden class="p-file">` : ''}
+      ${goals ? `<button class="p-stop p-send-icon" type="button" aria-label="Stop" title="Stop" hidden>${ICON_STOP}</button>` : ''}
       <button class="p-send p-send-icon" type="button" aria-label="Send" title="Send">${ICON_SEND}</button>
     </div>
     <div class="p-chips"></div>
@@ -139,6 +141,7 @@ function makePill(cfg) {
     }
   };
   q('.p-send').onclick = () => pillSend(P);
+  if (goals) q('.p-stop').onclick = () => pillStop(P);
   // Safari does not focus buttons on tap. Keep the composer in place until its
   // control click runs; restoring navigation on blur can swallow that tap.
   // Delegate so attachment-removal controls added after selection work too.
@@ -159,6 +162,20 @@ function pillButtons(P) {
   const btn = pq(P, '.p-send');
   btn.classList.toggle('p-off', !box.value.trim() && !fileChat);
   btn.disabled = !!P.sending;
+  // While the bot runs (chatStopSync sets P.running), Stop takes Send's place until something is typed: a message
+  // typed meanwhile still queues for after the run.
+  const stop = pq(P, '.p-stop');
+  if (stop) {
+    const show = !!P.running && !box.value.trim() && !P.files.length;
+    stop.hidden = !show; btn.hidden = show; stop.disabled = !!P.stopping;
+  }
+}
+// Ask the bot's running turn to stop; the button stays pressed until the run ends.
+async function pillStop(P) {
+  if (!P.running || P.stopping) return;
+  P.stopping = true; pillButtons(P);
+  try { await post(`/v2/bots/${encodeURIComponent(P.slug)}/stop`, P.running.attempt_id ? {attempt_id: P.running.attempt_id} : {}); }
+  catch (e) { P.stopping = false; pillButtons(P); toast(`Not stopped: ${e.message}`, true); }
 }
 // "when i paste an image into a box, can we show a clickable preview of it?"
 // An image waiting to be sent shows as a small thumbnail; a tap opens it full size.

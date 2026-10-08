@@ -23,6 +23,7 @@
 .p-send-icon svg{width:18px;height:18px}
 .p-send-icon:hover:not(:disabled,.p-off){filter:brightness(1.06)}
 .p-send-icon:disabled,.p-send-icon.p-off{opacity:.45;cursor:default}
+.p-send-icon[hidden]{display:none}
 /* a phone gives the bot page the whole screen: no bottom bar, the composer on the bottom edge */
 @media (max-width:760px){
   body.bot-page #mobile-nav{display:none}

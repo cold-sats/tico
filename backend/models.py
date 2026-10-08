@@ -1476,6 +1476,10 @@ class Empty(Contract):
     pass
 
 
+class StopTurn(Contract):
+    attempt_id: ID | None = None   # the run the person saw; a newer one is not stopped by mistake
+
+
 class AssistantMessage(Contract):
     text: Annotated[str, Field(min_length=1, max_length=8000)]
 

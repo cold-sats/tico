@@ -68,6 +68,8 @@ class State:
                 CREATE TABLE IF NOT EXISTS imports(
                   source TEXT NOT NULL, external_id TEXT NOT NULL, phase TEXT NOT NULL,
                   meeting_id TEXT, PRIMARY KEY(source,external_id));
+                CREATE TABLE IF NOT EXISTS left_out_reported(
+                  bot TEXT NOT NULL, path TEXT NOT NULL, stamp TEXT NOT NULL, PRIMARY KEY(bot,path));
                 CREATE TABLE IF NOT EXISTS close_transcript_pending(
                   resource_type TEXT NOT NULL, external_id TEXT NOT NULL,
                   created TEXT NOT NULL, last_checked TEXT NOT NULL,
@@ -132,6 +134,17 @@ class State:
     def unfinished(self):
         with self.connect() as c:
             return [dict(r) for r in c.execute("SELECT * FROM attempts WHERE phase NOT IN ('synced','historical')")]
+
+    def unreported(self, bot, files):
+        """The files in `files` ({path: stamp}) not yet reported for this bot at that stamp, and remember them all.
+        A file that is gone from the list is forgotten, so it is reported again if it comes back."""
+        with self.connect() as c:
+            seen = {r["path"]: r["stamp"] for r in c.execute("SELECT path,stamp FROM left_out_reported WHERE bot=?", (bot,))}
+            c.executemany("DELETE FROM left_out_reported WHERE bot=? AND path=?",
+                          [(bot, path) for path in seen if path not in files])
+            c.executemany("INSERT OR REPLACE INTO left_out_reported VALUES(?,?,?)",
+                          [(bot, path, stamp) for path, stamp in files.items()])
+        return [path for path, stamp in files.items() if seen.get(path) != stamp]
 
     def session(self, bot, conversation, runtime):
         with self.connect() as c:

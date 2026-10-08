@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Stop a bot's turn.** While a bot is running in a chat, Stop takes Send's place in the composer for anyone who manages the bot. The runner interrupts the turn within seconds (on its next lease renewal), the run ends as stopped rather than held for review or retried, the chat shows "Stopped by <person>", and the next queued message starts as usual.
+
+### Fixed
+- A file left out of a bot's commit is reported once, not after every turn it is still in the checkout, and the notice stays out of the turn's summary. Files over 2 MB are left out by size without a secret scan and noted once as "too large to commit".
+
 ### Removed
 - Trello guidance: the connect-tools guide and BotOps's connect-a-tool playbook no longer cover Trello; a generic REST skill example replaces it.
 

@@ -3922,6 +3922,10 @@ def create_app(settings=None):
     def undo_setting(request: Request, change_id: str, body: M.SettingsUndo):
         return mutate(request, body, lambda c: settings_admin.undo(c, request.state.identity, change_id, body))
 
+    @app.post("/api/v2/bots/{bot}/stop")
+    def stop_turn(request: Request, bot: str, body: M.StopTurn):
+        return mutate(request, body, lambda c: execution.stop(c, request.state.identity, bot, body.attempt_id))
+
     @app.post("/api/v2/bots/{bot}/control")
     def control(request: Request, bot: str, body: M.BotControl):
         who = request.state.identity
