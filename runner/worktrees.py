@@ -240,6 +240,7 @@ def fast_forward(path, branch, target, env):
 def inspect(workspace, row, env=None, cache=None):
     result = {'link_id': str(row['id'])[:100], 'state': 'unknown', 'branch': None}
     env = safe_git.environment(env)
+    step = 'find it'
     try:
         path = safe_path(workspace, row['path'])
         if not path.exists():
@@ -247,18 +248,24 @@ def inspect(workspace, row, env=None, cache=None):
             return result
         if not (path / '.git').is_file():
             raise ValueError('Tracked path is not a Git worktree; left as it is')
+        step = 'read its remote'
         origin = git(path, 'config', '--get', 'remote.origin.url', env=env).stdout.strip()
         result['repo'] = row.get('repo') or git_credentials.repository_name(origin) or origin
         if result['repo'] and (len(result['repo']) > 200 or not repositories.valid_repository(result['repo'])):
             result['repo'] = None
             result['error'] = 'Invalid or oversized repository name'
-        branch = git(path, 'symbolic-ref', '--short', 'HEAD', env=env).stdout.strip()
+        step = 'read its branch'
+        # A detached HEAD (a review checkout of a commit) is a normal state, not a failure: no branch to report.
+        branch = git(path, 'symbolic-ref', '--short', '-q', 'HEAD', env=env, check=False).stdout.strip()
+        step = 'read its changes'
         result.update(state='present', dirty_files=len(git(path, 'status', '--porcelain', env=env).stdout.splitlines()),
                       last_commit=git(path, 'rev-parse', 'HEAD', env=env).stdout.strip()[:100])
-        try:
-            result['branch'] = checked_branch(branch)
-        except ValueError:
-            result['error'] = 'Invalid or oversized worktree branch'
+        if branch:          # detached: no branch, and the report's fields stay ones every server accepts
+            try:
+                result['branch'] = checked_branch(branch)
+            except ValueError:
+                result['error'] = 'Invalid or oversized worktree branch'
+        step = 'compare it with the remote'
         task_branch = row.get('branch')
         remote = 'refs/remotes/origin/' + task_branch if task_branch else ''
         if remote and git(path, 'show-ref', '--verify', remote, env=env, check=False).returncode == 0:
@@ -268,6 +275,7 @@ def inspect(workspace, row, env=None, cache=None):
             result['ahead'] = int(git(path, 'rev-list', '--count', 'HEAD', '--not', '--remotes=origin', env=env).stdout)
             result['behind'] = 0
         # File statistics are expensive on dependency folders; refresh at most every ten minutes.
+        step = 'measure its size'
         cached = (cache or {}).get(row['id'])
         if not cached or time.monotonic() - cached[0] >= 600:
             size, activity = 0, 0
@@ -276,15 +284,20 @@ def inspect(workspace, row, env=None, cache=None):
                 for filename in files:
                     file = Path(root) / filename
                     if not file.is_symlink():
-                        stat = file.stat()
+                        try:
+                            stat = file.stat()
+                        except FileNotFoundError:
+                            continue        # removed while we walked (a build or install running in the tree)
                         size += stat.st_size
                         activity = max(activity, stat.st_mtime)
             cached = (time.monotonic(), round(size / 1024 ** 2, 1), activity)
             if cache is not None:
                 cache[row['id']] = cached
         result['size_mb'], result['last_activity'] = cached[1:]
-    except (ValueError, OSError, subprocess.SubprocessError):
-        result['error'] = 'Could not inspect worktree; check disk space, Git state and workspace permissions'
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        # Name the step and the kind of failure, so Health says what to fix rather than a list of guesses.
+        reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__ + (f' ({exc.strerror})' if getattr(exc, 'strerror', None) else '')
+        result['error'] = f'Could not {step}: {reason}'[:300]
     return result
 
 
