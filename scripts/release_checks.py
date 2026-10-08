@@ -22,6 +22,7 @@ import argparse
 import os
 from pathlib import Path
 import socket
+import re
 import subprocess
 import sys
 import tempfile
@@ -70,8 +71,8 @@ def free_port():
 class Check:
     """One command in the background, its output in a log file, its wall time recorded."""
 
-    def __init__(self, name, command, log_dir, env):
-        self.name, self.log = name, Path(log_dir) / f'{name}.log'
+    def __init__(self, name, command, log_dir, env, tests=False):
+        self.name, self.log, self.tests = name, Path(log_dir) / f'{name}.log', tests
         self.started = time.monotonic()
         self.stream = open(self.log, 'wb')
         self.process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=self.stream, stderr=subprocess.STDOUT)
@@ -83,6 +84,10 @@ class Check:
         self.code = self.process.wait()
         self.seconds = time.monotonic() - self.started
         self.stream.close()
+        # A test step that ran nothing (every test filtered out or skipped) proves nothing, so it fails.
+        if self.tests and self.code == 0 and not re.search(r'\b[1-9]\d* passed\b', self.tail(5)):
+            print(f'  {self.name}: no test passed; a release test step must run tests', flush=True)
+            self.code = 1
         print(f'  {self.name}: {"ok" if self.code == 0 else f"FAILED (exit {self.code})"} in {self.seconds:.0f}s', flush=True)
 
     def join(self):
@@ -125,7 +130,7 @@ def release(args):
     built = all(code == 0 for code in build_codes)
     ready.write_text('ok' if built else 'failed')
     checks.append(Check('all-python', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
-                                      '--ignore=runner/tests/test_isolation_docker.py'], logs, test_env))
+                                      '--ignore=runner/tests/test_isolation_docker.py'], logs, test_env, tests=True))
     checks.append(Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, test_env))
     if built:
         local_env = {**base_env, 'TICO_IMAGE': 'tico-rc', 'TICO_TAG': 'local', 'TICO_RUNNER_IMAGE': 'tico-rc-runner',
@@ -137,7 +142,8 @@ def release(args):
         checks.append(Check('isolation', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
                                          'runner/tests/test_isolation_docker.py'], logs,
                             {**test_env,
-                             'TICO_RUNNER_TEST_IMAGE': f"{local_env['TICO_RUNNER_IMAGE']}:{local_env['TICO_TAG']}"}))
+                             'TICO_RUNNER_TEST_IMAGE': f"{local_env['TICO_RUNNER_IMAGE']}:{local_env['TICO_TAG']}"},
+                            tests=True))
     else:
         print('  isolation: not run (candidate image builds failed)', flush=True)
     failed = [check for check in builds + checks if check.join() != 0]

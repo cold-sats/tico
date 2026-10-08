@@ -20,8 +20,9 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
         calls, completed = {}, set()
 
         class Check:
-            def __init__(self, name, command, log_dir, env):
+            def __init__(self, name, command, log_dir, env, tests=False):
                 calls[name] = (command, env, completed.copy())
+                assert tests == (name in ('all-python', 'isolation'))   # the test steps must run tests to pass
                 self.name, self.log = name, tmp_path / f'{name}.log'
                 self.started = release_checks.time.monotonic()
 
@@ -65,3 +66,14 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
             assert '| isolation | - | - | not run |' in output
             assert (tmp_path / 'images-ready').read_text() == 'failed'
     assert release_checks.BUDGET_SECONDS == 480 and release_checks.DEFAULT_BUDGET_SECONDS == 300
+
+
+def test_a_test_step_that_passes_nothing_fails(tmp_path):
+    import sys
+    def run(output, tests=True):
+        check = release_checks.Check('step', [sys.executable, '-c', f'print({output!r})'], tmp_path, {}, tests=tests)
+        return check.join()
+    assert run('3 passed, 1 skipped in 1.0s') == 0
+    assert run('4 skipped in 0.5s') == 1                # all skipped: the step proved nothing
+    assert run('no tests ran in 0.4s') == 1
+    assert run('4 skipped in 0.5s', tests=False) == 0   # a non-test step is judged by its exit code alone
