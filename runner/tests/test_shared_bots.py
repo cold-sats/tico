@@ -295,7 +295,7 @@ class Copy(unittest.TestCase):
             self.assertTrue(source.is_dir() and (source / "AGENT.md").is_file())
 
             self.assertTrue(runner.client.post.call_args_list)
-            self.assertTrue(all(call.args == ("github/token", {"bot": "backend-architect"})
+            self.assertTrue(all(call.args == ("github/token", {"bot": "backend-architect", "purpose": "git"})
                                 for call in runner.client.post.call_args_list))
 
             self.assertEqual(runner.assignment_checkout_problem(bot, config, path), "")
