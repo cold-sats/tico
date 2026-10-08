@@ -140,3 +140,4 @@ dialog.tmodal.over{outline:2px dashed var(--accent);outline-offset:-6px}
 .pin-x:hover{color:var(--ink);background:var(--hover)}
 @media (hover:none){.pin-x{opacity:1}}
 .tl-pin[aria-pressed="true"]{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+.tf-rm{font-size:12px;padding:2px 8px}

@@ -110,6 +110,13 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
         requested.push(p);
         return json({key, value: key === 'tasks.view' ? {view: 'board'} : prefs[key] ?? null});
       }
+      const rmFile = p.match(/^\/api\/v2\/files\/([^/]+)$/);
+      if (rmFile && req.method() === 'PATCH') {
+        posted.push({path: p, body: req.postDataJSON()});
+        const at = files.findIndex(f => f.id === rmFile[1]);
+        if (at >= 0) files.splice(at, 1);
+        return json({file: {id: rmFile[1], archived: true}});
+      }
       const file = p.match(/^\/api\/v2\/files\/([^/]+)(\/poster|\/thumb)?$/);
       if (file) {
         requested.push(p + u.search);
@@ -231,8 +238,18 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     assert.match(posted.at(-1).body.file, /^screenshot-\d{8}-\d{6}\.png$/);
     assert.equal(await modal.locator('.task-chat textarea').inputValue(), 'Half-written note');
     assert.equal(await modal.evaluate(d => d.classList.contains('over')), false);
+    // a file is removed from its viewer: the first press asks, the second takes it off
+    await modal.locator('.tf-tile', {hasText: 'mockup.png'}).click();
+    const rm = modal.locator('[data-tf-remove]');
+    await rm.click();
+    assert.equal(await rm.textContent(), 'Really remove?');
+    assert.equal(posted.filter(x => x.path.startsWith('/api/v2/files/')).length, 0, 'nothing sent on the first press');
+    await rm.click();
+    await modal.locator('.tf-tile .tf-name', {hasText: 'mockup.png'}).waitFor({state: 'detached'});
+    assert.deepEqual(posted.at(-1).body, {archived: true});
+    assert.match(posted.at(-1).path, /^\/api\/v2\/files\/f-up/);
     await modal.locator('.task-chat textarea').fill('');
-    files.splice(-2);
+    files.splice(-1);
     await page.evaluate(() => tfLoad($('#task-modal'), 't1'));
     await modal.locator('.tf-tile .tf-name', {hasText: 'mockup.png'}).waitFor({state: 'detached'});
     // a comment that carried files: a small thumb for the image, a chip for the video at its version

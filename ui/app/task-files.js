@@ -166,6 +166,31 @@ async function tfAdd(d, files) {
   if (d.open && d.taskOpening === opening && String(d.dataset.task) === id) await tfLoad(d, id);
   if (TASKS_ST) void tasksLoad(TASKS_ST);
 }
+// Taking a file off a task: its owner, its requester, or someone who may move tasks (the server's rule).
+function tfCanRemove(d) {
+  const t = d.liveTask;
+  return !!t && ([t.owner, t.requester].includes(myActor()) || canMove());
+}
+async function tfRemove(d, fid, button) {
+  const id = String(d.dataset.task || ''), opening = d.taskOpening;
+  const f = tfFiles(d).find(x => x.id === fid);
+  button.disabled = true;
+  try {
+    await patch(`/v2/files/${encodeURIComponent(fid)}`, {archived: true});
+  } catch (e) {
+    toast(e.message, true);
+    if (button.isConnected) { button.disabled = false; button.dataset.sure = ''; button.textContent = 'Remove'; }
+    return;
+  }
+  toast(`Removed ${f?.name || 'the file'}`);
+  if (!d.open || d.taskOpening !== opening || String(d.dataset.task) !== id) return;
+  d.taskFiles = (d.taskFiles || []).filter(x => x.id !== fid);
+  TF_CACHE.delete(id);
+  tfClose(d);
+  await tfLoad(d, id);
+  if (TASK_CHAT?.dialog === d) { TASK_CHAT.rendered = ''; void taskChatRead(TASK_CHAT); }
+  if (TASKS_ST) void tasksLoad(TASKS_ST);
+}
 // Files dragged onto a task or the new-task form land there; the zone lights up while they hover.
 function fileDropTarget(zone, take) {
   let depth = 0;
@@ -222,7 +247,7 @@ function tfViewPaint(d, force = false) {
   box.querySelector('video, audio')?.pause();
   box.innerHTML = `<div class="tf-view-head"><strong class="tf-view-name" title="${esc(f.name)}">${esc(f.name)}</strong>${vers}
       ${cmp ? `<label class="tf-with">with <select data-tf-with aria-label="Compare with">${others.map(x => `<option value="${x.n}"${x.n === cmp.n ? ' selected' : ''}>v${x.n}</option>`).join('')}</select></label>` : ''}
-      <span class="spacer"></span><span class="tf-break" aria-hidden="true"></span><a class="tf-dl" href="${esc(v.url)}" download aria-label="Download ${esc(f.name)} v${v.n}">↓</a>
+      <span class="spacer"></span><span class="tf-break" aria-hidden="true"></span>${tfCanRemove(d) ? '<button type="button" class="ghost danger tf-rm" data-tf-remove>Remove</button>' : ''}<a class="tf-dl" href="${esc(v.url)}" download aria-label="Download ${esc(f.name)} v${v.n}">↓</a>
       <button type="button" class="ghost tf-x" data-tf-close aria-label="Close" title="Close (Esc)">✕</button></div>
     ${cmp ? tfCompareHTML(f, cmp, v, kind) : `<div class="tf-body">${tfBodyHTML(f, v, kind, d)}</div>`}
     ${tfVersionMetaHTML(d, f, v)}`;
@@ -359,6 +384,12 @@ function tfWire(d) {
     if (tile) { const id = tile.dataset.tfFile; d.tfOpen?.id === id ? tfClose(d) : tfOpen(d, id); return; }
     if (ev.target.closest('[data-tf-close]')) { tfClose(d); return; }
     if (ev.target.closest('[data-tf-add]')) { $('[data-tf-input]', d.tfEl).click(); return; }
+    const rm = ev.target.closest('[data-tf-remove]');
+    if (rm && d.tfOpen) {
+      // The first press asks; the second removes. Tico keeps no way back for a task's file.
+      if (rm.dataset.sure !== '1') { rm.dataset.sure = '1'; rm.textContent = 'Really remove?'; return; }
+      void tfRemove(d, d.tfOpen.id, rm); return;
+    }
     const ver = ev.target.closest('[data-tf-v]');
     if (ver && d.tfOpen) {
       const n = Number(ver.dataset.tfV);
