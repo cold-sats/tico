@@ -10,6 +10,87 @@ def command(name, help, args=""):
     return {"name": name, "args": args, "help": help, "kind": "harness"}
 
 
+# The server keeps at most this many commands per bot (backend/models.py, GoalReadiness).
+MAX_COMMANDS = 30
+REPO_COMMAND_NAME = re.compile(r"^[a-z0-9][a-z0-9_:-]{0,63}$")
+_FRONTMATTER = {}     # (path, mtime_ns, size) -> parsed fields: readiness runs every heartbeat, files rarely change
+
+
+def frontmatter(path):
+    """The leading `---` block's plain `key: value` fields; folded and literal values become one line."""
+    try:
+        stat = path.stat()
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        if key in _FRONTMATTER:
+            return _FRONTMATTER[key]
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            head = handle.read(8192)
+    except OSError:
+        return {}
+    fields, lines = {}, head.splitlines()
+    if lines and lines[0].strip() == "---":
+        name = None
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            match = re.match(r"^([A-Za-z][\w-]*):\s*(.*)$", line)
+            if match:
+                name, value = match.group(1).lower(), match.group(2).strip()
+                fields[name] = "" if value in (">", "|", ">-", "|-") else value.strip("'\"")
+            elif name and line[:1] in (" ", "\t"):
+                fields[name] = (fields[name] + " " + line.strip()).strip()
+    if len(_FRONTMATTER) > 2000:
+        _FRONTMATTER.clear()
+    _FRONTMATTER[key] = fields
+    return fields
+
+
+def repo_commands(root):
+    """A Claude Code bot's own skills and commands, from its repository's .claude folder.
+
+    Claude Code runs these as "/name" in `claude -p`, so they go to the harness as-is, like /compact.
+    Skills marked `user-invocable: false` are the model's alone. A command in a subfolder keeps its file name.
+    """
+    found, root = [], Path(root)
+    skills = root / ".claude" / "skills"
+    try:
+        folders = sorted(path for path in skills.iterdir() if path.is_dir()) if skills.is_dir() else []
+    except OSError:
+        folders = []
+    for folder in folders[:MAX_COMMANDS * 2]:
+        fields = frontmatter(folder / "SKILL.md")
+        if fields and fields.get("user-invocable", "").lower() != "false":
+            found.append((fields.get("name") or folder.name, fields))
+    commands = root / ".claude" / "commands"
+    try:
+        files = sorted(commands.glob("*.md")) + sorted(commands.glob("*/*.md")) if commands.is_dir() else []
+    except OSError:
+        files = []
+    for path in files[:MAX_COMMANDS * 2]:
+        fields = frontmatter(path)
+        if path.is_file():
+            found.append((path.stem, fields))
+    result = []
+    for name, fields in found:
+        name = name.strip().lower()
+        if not REPO_COMMAND_NAME.match(name):
+            continue
+        help = " ".join(fields.get("description", "").split())
+        help = help if len(help) <= 80 else help[:79].rstrip() + "…"
+        result.append(command(name, help, fields.get("argument-hint", "")[:100]))
+    return result
+
+
+def with_repo_commands(builtins, root):
+    """The harness's own commands first, then the repository's, without repeating a name."""
+    merged, seen = list(builtins), {item["name"] for item in builtins}
+    for item in repo_commands(root):
+        if item["name"] not in seen and len(merged) < MAX_COMMANDS:
+            seen.add(item["name"])
+            merged.append(item)
+    return merged
+
+
 @functools.lru_cache(maxsize=32)
 def capabilities(runtime, executable, version):
     if not executable:

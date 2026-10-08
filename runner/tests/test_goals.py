@@ -106,6 +106,35 @@ def test_readiness_rolls_back_to_an_old_server_without_losing_heartbeat():
     assert report['readiness']['bots']['ops'] == {'ready': True}
 
 
+def test_claude_bot_offers_its_repository_skills_and_commands(tmp_path):
+    skill = tmp_path / '.claude' / 'skills' / 'release-notes'
+    skill.mkdir(parents=True)
+    (skill / 'SKILL.md').write_text('---\nname: release-notes\ndescription: >\n  Draft release notes\n  for Acme\n'
+                                    'argument-hint: [version]\n---\nBody\n')
+    hidden = tmp_path / '.claude' / 'skills' / 'house-style'
+    hidden.mkdir()
+    (hidden / 'SKILL.md').write_text('---\nname: house-style\ndescription: Acme tone\nuser-invocable: false\n---\n')
+    (tmp_path / '.claude' / 'commands' / 'docs').mkdir(parents=True)
+    (tmp_path / '.claude' / 'commands' / 'docs' / 'publish.md').write_text('Publish the Acme docs\n')
+    (tmp_path / '.claude' / 'commands' / 'compact.md').write_text('---\ndescription: not the built-in\n---\n')
+    (tmp_path / '.claude' / 'commands' / 'Bad Name.md').write_text('x')
+    service = Runner.__new__(Runner)
+    service.tools = None
+    builtins = goals.capabilities('claude', 'claude', '2.1.287')
+    report = service.readiness([], [{'bot': 'ops', 'ready': True, 'runtime': 'claude', 'repository': str(tmp_path),
+                                     'repository_present': True}], {'claude': {'installed': True, **builtins}})
+    commands = report['bots']['ops']['commands']
+    assert [c['name'] for c in commands] == ['compact', 'clear', 'model', 'release-notes', 'publish']
+    assert commands[3] == {'name': 'release-notes', 'args': '[version]', 'help': 'Draft release notes for Acme',
+                           'kind': 'harness'}
+    # A server that refuses a repository command's name still receives the harness's own.
+    service.client = Mock()
+    service.client.post.side_effect = [APIError('validation', 'readiness.StructuredReadiness.bots.ops.commands.4.name: '
+                                                'String should match pattern', 422), {}]
+    service.report_heartbeat({'readiness': report})
+    assert [c['name'] for c in report['bots']['ops']['commands']] == ['compact', 'clear', 'model']
+
+
 def test_codex_resume_clear_snapshot_cannot_stop_new_active_goal():
     host = Mock()
     host.request.return_value = {"goal": {"objective": "Acme summary", "status": "active"}}

@@ -2422,6 +2422,10 @@ class Runner:
                 bots[row["bot"]].pop("repository", None)
             capability = runtimes.get(row.get("runtime"), {})
             bots[row["bot"]].update({key: capability[key] for key in ("goals", "commands") if key in capability})
+            # A Claude Code bot's own skills and commands run like /compact; a harness too old for commands offers none.
+            if (row.get("runtime") == "claude" and capability.get("commands") and row.get("repository_present")
+                    and row.get("repository") and time.monotonic() >= self.__dict__.get("_repo_commands_after", 0)):
+                bots[row["bot"]]["commands"] = goals.with_repo_commands(capability["commands"], row["repository"])
             if row.get("published") is not None:
                 bots[row["bot"]]["published"] = row["published"]
             if row.get("tools"):
@@ -3397,6 +3401,14 @@ class Runner:
                 for row in readiness.get(section, {}).values():
                     row.pop("goals", None)
                     row.pop("commands", None)
+        def drop_repo_commands():
+            dropped = False
+            for row in readiness.get("bots", {}).values():
+                builtins = readiness.get("runtimes", {}).get(row.get("runtime"), {}).get("commands", [])
+                kept = [item for item in row.get("commands") or [] if item in builtins]
+                if "commands" in row and kept != row["commands"]:
+                    row["commands"], dropped = kept, True
+            return dropped
         if time.monotonic() < self.__dict__.get("_goal_readiness_after", 0):
             drop_goal_fields()
         while True:
@@ -3430,6 +3442,11 @@ class Runner:
                         for row in readiness.get(section, {}).values()):
                     drop_goal_fields()
                     self._goal_readiness_after = time.monotonic() + 600
+                    continue
+                # A server that refuses a repository command's name (older ones take only [a-z0-9-]) still gets
+                # the harness's own.
+                if re.search(r"bots\.[^. :;]+\.commands", detail) and drop_repo_commands():
+                    self._repo_commands_after = time.monotonic() + 600
                     continue
                 if "extra" in detail.lower() and re.search(r"readiness\.(?:StructuredReadiness\.)?bots\.[^. :;]+\.(?:profile|sign_in)(?:[.: ;]|$)", detail):
                     for row in readiness.get("bots", {}).values():
