@@ -22,8 +22,8 @@ import pytest  # noqa: E402
 def pytest_configure(config):
     """A test path that does not exist is an error. Under -n (on by default here) xdist drops it without a word,
     and the run ends as "no tests ran", which a reader piping the output can take for a pass."""
-    if hasattr(config, "workerinput"):
-        return
+    if hasattr(config, "workerinput") or config.option.pyargs:
+        return          # --pyargs names modules, not paths
     base = Path(config.invocation_params.dir)
     missing = [str(arg) for arg in config.args if not (base / str(arg).split("::")[0]).exists()]
     if missing:
@@ -31,7 +31,7 @@ def pytest_configure(config):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Zero collected tests is a failure (exit 5) and says so on the last line, not only in the exit code."""
+    """Zero collected tests is a failure (exit 5) and says so in an error line, not only in the exit code."""
     if exitstatus == pytest.ExitCode.NO_TESTS_COLLECTED and not hasattr(session.config, "workerinput"):
         session.config.get_terminal_writer().line(
             "ERROR: no tests were collected; check the test paths and the -m / -k filters", red=True, bold=True)

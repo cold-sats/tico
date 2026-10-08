@@ -74,6 +74,7 @@ def test_a_test_step_that_passes_nothing_fails(tmp_path):
         check = release_checks.Check('step', [sys.executable, '-c', f'print({output!r})'], tmp_path, {}, tests=tests)
         return check.join()
     assert run('3 passed, 1 skipped in 1.0s') == 0
+    assert run('\x1b[32m\x1b[1m5 passed\x1b[0m in 1.0s') == 0   # FORCE_COLOR / PY_COLORS output
     assert run('4 skipped in 0.5s') == 1                # all skipped: the step proved nothing
     assert run('no tests ran in 0.4s') == 1
     assert run('4 skipped in 0.5s', tests=False) == 0   # a non-test step is judged by its exit code alone

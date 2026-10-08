@@ -85,7 +85,8 @@ class Check:
         self.seconds = time.monotonic() - self.started
         self.stream.close()
         # A test step that ran nothing (every test filtered out or skipped) proves nothing, so it fails.
-        if self.tests and self.code == 0 and not re.search(r'\b[1-9]\d* passed\b', self.tail(5)):
+        summary = re.sub(r'\x1b\[[0-9;]*m', '', self.tail(5))   # a coloured summary reads the same
+        if self.tests and self.code == 0 and not re.search(r'(?<!\d)[1-9]\d* passed\b', summary):
             print(f'  {self.name}: no test passed; a release test step must run tests', flush=True)
             self.code = 1
         print(f'  {self.name}: {"ok" if self.code == 0 else f"FAILED (exit {self.code})"} in {self.seconds:.0f}s', flush=True)
