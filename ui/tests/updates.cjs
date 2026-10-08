@@ -261,6 +261,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await p.locator('[data-upd="u-seo"]').waitFor();
     await p.locator('#upd-mine').click();
     await p.locator('[data-upd="u-game"]').waitFor();
+    await p.waitForFunction(() => UPD && !UPD.mine && !UPD.loading && !UPD.fromCache);   // this scope's load has repainted
     const dispatchDrag = async (target, dx, dy) => {
       const box = await target.boundingBox(); assert(box, 'gesture target is visible');
       const x = box.x + Math.min(20, box.width / 3), y = box.y + Math.min(20, box.height / 2);
