@@ -166,6 +166,10 @@
 .notes-modal .notes-detail{padding-top:0;flex:1;min-height:0}
 .notes-modal-close{display:flex;justify-content:flex-end;padding:10px 14px;flex:none}
 .notes-modal-close button{padding:4px 10px}
+.notes-modal-close{gap:4px}
+.notes-modal-close .nav-icon{font-size:18px;vertical-align:middle}
+#notes-modal-window[hidden]{display:none}
+@media (max-width:760px){#notes-modal-window{display:none}}
 .notes.detail .notes-list{display:none}
 .notes:not(.detail) .notes-detail{display:none}
 .notes-empty{padding:28px 18px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5}
