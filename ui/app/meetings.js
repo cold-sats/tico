@@ -35,7 +35,7 @@ async function pageNotes() {
     <div class="notes" id="notes">
       <section class="notes-list"><div class="notes-filters" id="notes-filters" hidden><select id="notes-when" aria-label="When"><option value="all">Any time</option><option value="today">Today</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="older">Older than 30 days</option></select><select id="notes-person" aria-label="Participant"><option value="">All participants</option></select><select id="notes-source" aria-label="Source"><option value="">All sources</option></select><select id="notes-status" aria-label="Status"><option value="all">All statuses</option><option value="unsent">Not sent</option><option value="sent">Sent</option><option value="sending">Sending</option><option value="failed">Failed</option></select><span class="notes-count muted" id="notes-count"></span></div><div class="notes-rows" id="notes-rows"><div class="notes-empty">Loading…</div></div></section>
     </div>
-    <dialog class="tmodal notes-modal" id="notes-modal" aria-label="Meeting details"><div class="notes-modal-close"><button class="ghost" type="button" id="notes-modal-close" aria-label="Close meeting">✕</button></div><section class="notes-detail" id="notes-detail"></section></dialog>
+    <dialog class="tmodal notes-modal" id="notes-modal" aria-label="Meeting details"><div class="notes-modal-close"><button class="ghost" type="button" id="notes-modal-window" aria-label="Open in its own window" title="Open in its own window"><span class="nav-icon" aria-hidden="true">open_in_new</span></button><button class="ghost" type="button" id="notes-modal-close" aria-label="Close meeting">✕</button></div><section class="notes-detail" id="notes-detail"></section></dialog>
     <dialog class="tmodal import-modal" id="manual-modal" aria-label="Add notes"></dialog>`;
   document.querySelectorAll('[data-review]').forEach(button => button.onclick = () => {
     if (state.review === button.dataset.review) return;
@@ -52,6 +52,10 @@ async function pageNotes() {
     meetShow(state, false);
   };
   $('#notes-modal-close').onclick = closeNote;
+  // A meeting opens here; its own window is a choice, because a window that fails to open would look like a dead click.
+  const own = $('#notes-modal-window');
+  own.hidden = MEET_WINDOW;
+  own.onclick = () => { if (meetWindow(state.selected)) meetShow(state, false); };
   dialog.oncancel = e => { e.preventDefault(); closeNote(); };
   dialog.onclick = e => { if (e.target === dialog) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeNote(); } };
   $('#notes-manual').onclick = () => meetNotesOpen(state);
@@ -426,7 +430,6 @@ function meetList(state) {
     : state.empty ? meetEmptyHTML(state) : `<div class="notes-empty">${state.review === 'pending' && !state.query && !filtered ? 'No pending meetings. New imports wait here for your review.' : state.review === 'dismissed' && !state.query && !filtered ? 'No dismissed meetings.' : 'No meetings match.'}</div>`;
   el.querySelectorAll('[data-note-row]').forEach(b => b.onclick = event => {
     if (event.target.closest('[data-review-check], [data-review-action]')) return;
-    if (meetWindow(b.dataset.noteRow)) return;
     state.selected = b.dataset.noteRow; state.confirmDelete = ''; state.editing = false;
     meetShow(state, true); meetDetail(state, state.selected);
   });

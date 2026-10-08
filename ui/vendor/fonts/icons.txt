@@ -94,6 +94,7 @@ more_horiz
 more_vert
 new_releases
 newspaper
+open_in_new
 paid
 palette
 partner_exchange
