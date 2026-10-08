@@ -3552,8 +3552,14 @@ class Runner:
                 except Exception as exc:
                     # A worker can fail before it records its completion. Keep the main loop
                     # alive and let the recovery pass file an interrupted result from the
-                    # durable local attempt instead of silently losing the lease.
+                    # durable local attempt instead of silently losing the lease. The saved
+                    # reason names the error, so the turn does not read as a runner restart.
                     log(f"Tico runner: worker {aid} failed ({describe(exc)}); recovering saved attempt")
+                    try:
+                        self.state.interrupted(aid, f"The runner stopped this turn on an error ({describe(exc)}); "
+                                                    "see this computer's runner log")
+                    except Exception:
+                        pass        # the local store may be what failed; recovery still files the turn
         if self.maintenance and self.maintenance.done():
             try:
                 self.maintenance.result()

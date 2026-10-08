@@ -151,6 +151,7 @@ class Execution(unittest.TestCase):
         log.assert_called_once()
         runner.recover_output()
         self.assertEqual(client.completion()["outcome"], "interrupted")
+        self.assertIn("RuntimeError", client.completion()["text"], "the error, not a runner restart, is the reason given")
         self.assertEqual(runner.state.unfinished(), [])
 
     def test_a_turn_outlives_a_cloud_outage_longer_than_its_lease(self):
