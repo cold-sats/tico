@@ -188,7 +188,7 @@ function taskItems(state, view = state.view) {
 function tasksCounts(state) {
   if (state.loading) return {};
   const active = taskItems(state, 'list');
-  return {foryou: active.filter(it => taskNeedsViewer(it.task)).length, list: active.length,
+  return {foryou: active.filter(it => taskNeedsViewer(it.task)).length + looseAsks().length, list: active.length,
     recurring: typeof routineItems === 'function' ? routineItems(state).length : 0};
 }
 
@@ -346,6 +346,9 @@ function tasksEmptyHTML(state, what) {
 }
 function tasksListHTML(items, state) {
   const by = tasksGroupBy(state), done = state.view === 'done';
+  // Questions asked outside any task lead Needs you; a filter or a search is about tasks, so it hides them.
+  const asks = state.view === 'foryou' && !state.q && !tasksActiveFilterCount(state) ? looseAsksHTML() : '';
+  if (!items.length && asks) return `<div class="tl">${asks}</div>`;
   if (!items.length) {
     const emptyWhat = state.view === 'foryou' ? 'Nothing needs you.'
       : done ? state.doneNext != null ? 'No matching finished tasks on this page.' : 'Nothing finished yet.' : 'Nothing open.';
@@ -362,7 +365,7 @@ function tasksListHTML(items, state) {
     ...(older.length ? [{key: 'older', label: 'Older questions', items: older, folded: true}] : [])];
   const nest = by === 'status' || by === 'owner';
   const select = tasksCanSelect();
-  return `<div class="tl${select ? ' can-select' : ''}" data-group-by="${esc(by)}">${groups.map((g, i) => {
+  return `<div class="tl${select ? ' can-select' : ''}" data-group-by="${esc(by)}">${asks}${groups.map((g, i) => {
     const {tops: raw, kids} = tasksNest(g.items, nest);
     const tops = raw.slice().sort(done ? byNewest : g.key === 'scheduled' ? (a, b) => String(a.updated).localeCompare(String(b.updated)) : byRank);
     if (!tops.length) return '';

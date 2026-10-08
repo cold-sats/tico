@@ -18,6 +18,7 @@ Pure stdlib on purpose: this module is imported by the runner venv, the cloud ve
 CLI alike.
 """
 import base64
+import hashlib
 import json
 import os
 import re
@@ -234,8 +235,10 @@ def unnote(api, args):
 
 
 @tool("hub_question_ask", "Ask one or more bots a question and wait for their answers. Returns one entry "
-      "per bot: `answer`, `unknown`, or `timeout`, each with the ask's `message_id`. A timed-out ask stays open "
-      "and its answer reaches you later under that id. Asks nest at most three deep.",
+      "per bot: `answer`, `unknown`, `timeout` or `error`, each with the ask's `message_id` once it was delivered. "
+      "A timed-out ask stays open and its answer reaches you later under that id; an `error` entry was not "
+      "delivered and says why. Calling again with the same question does not send it twice. Asks nest at most "
+      "three deep. To ask a person about a task, use hub_task_ask: that question reaches their Needs you.",
       {"bots": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                 "description": "Bot slugs to ask"},
        "text": _s("The question"),
@@ -244,23 +247,62 @@ def unnote(api, args):
       required=("bots", "text"), writes=True)
 def ask(api, args):
     wait = max(0, min(int(args.get("wait_s", 60) or 0), ASK_WAIT_MAX))
-    pending, result = {}, {}
-    for i, bot in enumerate(args["bots"]):
-        msg = api.post("messages", {"to": bot, "text": args["text"], "kind": "ask", "wait_s": wait},
-                       key=_key(args, f":ask:{i}"))
+    pending, failed = ask_create(api, args["bots"], args["text"], wait, args)
+    return {**failed, **ask_wait(api, pending, wait, args)}
+
+
+def ask_key(args, bot, text, wait, i):
+    """The ask's Idempotency-Key: the caller's operation id, or one made from the question itself, so a bot that
+    calls again after a lost reply gets the same message back instead of asking twice (the server keeps keys 48 h)."""
+    if args.get("operation_id"):
+        return _key(args, f":ask:{i}")
+    return "ask:" + hashlib.sha256(json.dumps([bot, text, wait]).encode()).hexdigest()[:48]
+
+
+def ask_create(api, bots, text, wait, args):
+    """Send the ask to each bot: `({message_id: bot}, {bot: {"error": why}})`. Each send is one short request;
+    the wait is separate (`ask_wait`), so a wait that ends early never loses an id that was handed out."""
+    pending, failed = {}, {}
+    for i, bot in enumerate(bots):
+        try:
+            msg = api.post("messages", {"to": bot, "text": text, "kind": "ask", "wait_s": wait},
+                           key=ask_key(args, bot, text, wait, i))
+        except APIError as exc:
+            if exc.code == "unavailable":       # it may have landed: the same key makes a retry safe
+                failed[bot] = {"error": "The question may not have been delivered: Tico did not confirm it in time. "
+                                        "Retry; the same question is not sent twice. Or put it in the task note.",
+                               "retryable": True}
+            else:
+                failed[bot] = {"error": f"The question was not delivered: {exc.detail}. Retry, or put it in the task note."}
+            continue
         pending[msg["id"]] = bot
+    if failed and not pending:
+        raise APIError("not_delivered", " ".join(v["error"] for v in failed.values()),
+                       retryable=any(v.get("retryable") for v in failed.values()))
+    return pending, failed
+
+
+def ask_wait(api, pending, wait, args):
+    """Poll for the answers until `wait` runs out. An entry that has none yet is `timeout` with its `message_id`,
+    also when Tico stops answering the poll: the ask was delivered and its answer reaches the bot later."""
+    pending, result = dict(pending), {}
     deadline = time.monotonic() + wait
     while pending:
-        answers = api.get("answers", ids=",".join(pending))
+        try:
+            answers = api.get("answers", ids=",".join(pending))
+        except APIError:
+            break
         for mid, answer in answers.items():
             bot = pending.pop(mid)
             result[bot] = {"unknown" if (answer.get("refs") or {}).get("unknown") else "answer": answer["body"],
                            "message_id": mid}
-            api.post(f"messages/{answer['id']}/ack", {}, key=_key(args, ":ack:" + answer["id"]))
+            try:
+                api.post(f"messages/{answer['id']}/ack", {}, key=_key(args, ":ack:" + answer["id"]))
+            except APIError:
+                pass                    # an unacknowledged answer is only delivered again; it is not lost
         if not pending or time.monotonic() >= deadline:
             break
         time.sleep(1)
-    # The ask was delivered and stays open: its id is how the caller finds the answer later.
     result.update({bot: {"timeout": True, "message_id": mid} for mid, bot in pending.items()})
     return result
 
