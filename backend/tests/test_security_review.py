@@ -2,7 +2,7 @@
 import asyncio
 
 from backend.store import encode
-from backend.tests.test_api import api, post, setup_attempt  # noqa: F401
+from backend.tests.test_api import api, get, post, setup_attempt  # noqa: F401
 
 
 def raw_get(app, path):
@@ -118,3 +118,19 @@ def test_an_importer_machine_cannot_send_work_in_a_persons_name(api):
             "owner_email": "ben@acme.example", "send_to": "ops"}
     reply = api.post("/api/v2/meetings/import", json=body, headers=headers(machine["token"]))
     assert reply.status_code == 403
+
+
+def test_a_quarantined_bots_status_says_when_it_resumes_and_a_persons_message_waits(api):
+    from backend import hubdb as H
+    with api.app.state.store.transaction() as c:
+        H.quarantine(c, "ops", "10 refused writes today")
+    line = next(b for b in get(api, "status")["bots"] if b["bot"] == "ops")
+    q = line["quarantine"]
+    assert line["bot_state"] == "quarantined" and q["auto"] is True
+    assert q["resumes_at"] == H.shift(q["since"], seconds=H.QUARANTINE_COOLDOWN_S)
+    sent = post(api, "chat/ops", {"text": "are you stuck?"})            # kept, not refused
+    assert sent["body"] == "are you stuck?"
+    with api.app.state.store.transaction() as c:
+        H.quarantine(c, "ops", "escape: a secrets path")
+    q = next(b for b in get(api, "status")["bots"] if b["bot"] == "ops")["quarantine"]
+    assert q["auto"] is False and q["resumes_at"] is None, "an escape waits for a person"

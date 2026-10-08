@@ -62,9 +62,12 @@ is optional, decided by a human and consumed once. Bot requests to a human are l
 a nonempty first line and under 120 words outside quoted drafts. Put the ask first; the first-line
 check does not judge whether it is an ask. Replies to the human's own message are exempt from this
 request-format lint, and so is a task on a custom type, which is a ticket on that type's board
-rather than a request ([Tasks](tasks.md)); title and Credential checks apply separately. Repeated refusals
-open a review task and, at 10 a day, pause the bot for an hour; a third attempt in a day to reach another bot's files or a `secrets/` path
-(`TICO_ESCAPE_QUARANTINE_AT`) quarantines it until a human clears it.
+rather than a request ([Tasks](tasks.md)); title and Credential checks apply separately. Refusals open a
+review task at 3 a day. A refusal counts toward the pause only when it repeats one the bot already had that day (same
+rule, same words): at 10 such repeats the bot is paused for an hour and resumes by itself. A bot's first try at
+something new that is refused is recorded, not counted. A third attempt in a day to reach another bot's files or a
+`secrets/` path (`TICO_ESCAPE_QUARANTINE_AT`) quarantines it until a human clears it. A person's message to a
+paused or quarantined bot is kept and runs when it is back; another bot still cannot write to it.
 
 ## The three places
 
@@ -225,7 +228,8 @@ progress line at most once a minute while it stays so, and one when it is back; 
 status` says when the running bot job predates the checkout's current commit. On a bot's Chat
 page, one line above the composer says when the bot is paused and why (a usage limit, a
 quarantine, or a Mac offline for more than ten minutes) and that messages are saved, or that a
-review is owed while chat still answers.
+review is owed while chat still answers. For a quarantine it says when the bot resumes by itself, or that a person
+must check and resume it, with Resume now for anyone who manages the bot.
 
 **A subscription usage limit.** A run that hits one fails with `limited` set; it did nothing, so
 the job stays queued however often this happens (it is never *Interrupted*), the bot shows

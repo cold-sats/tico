@@ -270,9 +270,31 @@ class Rule4Unsolicited(HubCase):
 # ----------------------------------------------------------------------------- rule 8
 class Rule8Counting(HubCase):
     def refuse_reach(self, n, actor=CMO):
-        for i in range(n):
+        """`n` refusals that count: the same refused write made n + 1 times (the first is recorded, not counted)."""
+        for _ in range(n + 1):
             with self.assertRaises(H.Refused):
-                H.say(self.conn, actor, f"outsider{i}@example.com", "hello")
+                H.say(self.conn, actor, "outsider@example.com", "hello")
+
+    def test_ten_different_first_refusals_do_not_quarantine(self):
+        for i in range(H.QUARANTINE_AT + 2):
+            with self.assertRaises(H.Refused):
+                H.say(self.conn, CMO, f"outsider{i}@example.com", "hello")
+        self.assertEqual(H.bot(self.conn, "cmo")["state"], "active", "a first try at something new only counts once repeated")
+        self.assertEqual(len(H.refusals_for(self.conn, CMO)), H.QUARANTINE_AT + 2, "every refusal is still recorded")
+
+    def test_repeating_one_refused_write_quarantines_and_lifts_by_itself(self):
+        self.refuse_reach(H.QUARANTINE_AT - 1)
+        self.assertEqual(H.bot(self.conn, "cmo")["state"], "active")
+        with self.assertRaises(H.Refused):
+            H.say(self.conn, CMO, "outsider@example.com", "hello")
+        self.assertEqual(H.bot(self.conn, "cmo")["state"], "quarantined")
+        self.assertFalse(H.quarantine_is_escape(self.conn, "cmo"), "a repeat quarantine cools off by itself")
+
+    def test_a_person_may_still_message_a_quarantined_bot_and_it_waits(self):
+        self.refuse_reach(H.QUARANTINE_AT)
+        self.assertEqual(H.bot(self.conn, "cmo")["state"], "quarantined")
+        self.assertTrue(H.say(self.conn, ANA, CMO, "are you stuck?"), "a person's message is kept for when it is back")
+        self.refused("reach", H.say, self.conn, SEO, CMO, "are you stuck?")      # rule 2: a bot still cannot
 
     def test_an_escape_quarantines_the_bot_and_only_a_human_clears_it(self):
         payload = {"to": "ops@acme.com", "cc": "", "subject": "the keys",

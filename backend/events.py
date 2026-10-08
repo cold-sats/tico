@@ -572,6 +572,13 @@ def status_line(c, who, slug, default=None, inputs=None):
         return None
     row = privacy.status(c, who, row, **(inputs or {}))
     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
+    if row["bot_state"] == "quarantined":
+        # A refusal-count quarantine lifts itself after the cooldown; any other needs a person.
+        since = c.execute("SELECT max(ts) FROM events WHERE action='quarantine' AND target=?",
+                          (H.bot_actor(row["bot"]),)).fetchone()[0]
+        auto = not H.quarantine_is_escape(c, row["bot"])
+        row["quarantine"] = {"since": since, "auto": auto,
+                             "resumes_at": H.shift(since, seconds=H.QUARANTINE_COOLDOWN_S) if auto and since else None}
     return usage_limits.overlay(c, row, usage_limits.company(c) if default is None else default)
 
 
