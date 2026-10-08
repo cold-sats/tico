@@ -70,7 +70,8 @@ function pageUpdates() {
     state.mine = !state.mine;
     $('#upd-mine').setAttribute('aria-pressed', String(state.mine));
     try { localStorage.setItem('tico.updates.mine', state.mine ? '1' : '0'); } catch {}
-    state.data = updCacheRead(state); state.fromCache = !!state.data; state.loading = !state.data;
+    // Same kind and view, so the cards on screen stay up (refiltered) until this scope's own load lands.
+    state.data = updCacheRead(state) || state.data; state.fromCache = !!state.data; state.loading = !state.data;
     state.order = null; state.ordered = false;
     updRender(state);
     void updLoad(state);                          // its own count and order

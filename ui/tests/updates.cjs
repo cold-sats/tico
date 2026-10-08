@@ -41,7 +41,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
   const threads = {'u-fin': [{id: 'm1', from_actor: 'human:ana', body: 'Re your update "Brex balance is fine": Thanks, flag anything under $10k', created: iso(-2 * hour)},
                              {id: 'm2', from_actor: 'bot:finance', body: 'Will do.', created: iso(-hour)}]};
   const archivedIds = new Set(), archiveRequests = [];
-  let archiveFails = false, delayNextList = false;
+  let archiveFails = false, delayNextList = false, holdList = null, holdReply = null;
   const isArchived = u => archivedIds.has(u.id) || !!u.superseded;
   const feed = (kind, archive = false, includeArchive = false) => {
     const source = kind === 'weekly' ? weekly : updates;
@@ -58,6 +58,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
       if (url.origin !== 'http://tico-ui.test') return route.abort();
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
+      if (p === '/vendor/marked.min.js') return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(uiFile('vendor/marked.min.js'), 'utf8')});
       const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (ui) { const file = uiFile(ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
       if (p === '/api/employees') return json(bots);
@@ -77,6 +78,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       if (p === '/api/v2/updates' && req.method() === 'GET') {
         const payload = feed(url.searchParams.get('kind'), url.searchParams.get('archive') === 'true',
           url.searchParams.get('include_archive') === 'true');
+        if (holdList) await holdList;                   // held until the test has seen the cached paint
         await new Promise(r => setTimeout(r, delayNextList ? (delayNextList = false, 700) : 120));
         return json(payload);                            // a real round trip; delayed replies can be stale
       }
@@ -88,6 +90,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       const reply = p.match(/^\/api\/v2\/updates\/([^/]+)\/reply$/);
       if (reply) {
         const body = req.postDataJSON(); posted.push({path: p, body});
+        if (holdReply) await holdReply;                 // held until the test has seen the pending reply
         await new Promise(r => setTimeout(r, 250));
         const msg = {id: 'm-new', from_actor: 'human:ana', body: `Re your update "x": ${body.text}`, created: new Date().toISOString(), conversation_id: 'c-seo'};
         threads[reply[1]] = [...(threads[reply[1]] || []), msg];
@@ -171,10 +174,10 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await page.locator('[data-upd="u-seo"] [data-upd-reply]').click();
     const box = page.locator('[data-upd="u-seo"] textarea');
     await box.fill('Pitch it to Northwind Homes first');
-    const t0 = Date.now();
+    let sendReply; holdReply = new Promise(r => { sendReply = r; });
     await box.press('Enter');
-    await page.locator('[data-upd="u-seo"] .upd-msg.pending').waitFor();
-    assert(Date.now() - t0 < 200, 'the reply shows before the round trip');
+    await page.locator('[data-upd="u-seo"] .upd-msg.pending').waitFor();   // shown while the round trip is held
+    holdReply = null; sendReply();
     await page.locator('[data-upd="u-seo"] .upd-msg:not(.pending)').waitFor();
     assert.deepEqual(posted.at(-1), {path: '/api/v2/updates/u-seo/reply', body: {text: 'Pitch it to Northwind Homes first'}});
     assert.match(await page.locator('[data-upd="u-seo"] .upd-msg').last().innerText(), /Pitch it to Northwind Homes first/);
@@ -187,8 +190,10 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await page.locator('#upd-feed').click({position: {x: 5, y: 5}});
     await page.keyboard.press('Escape');
     await page.evaluate(() => document.activeElement?.blur());
+    // Coming back from Archive is a new visit: u-cmo, marked unread above, now leads.
+    assert.deepEqual(await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd)), ['u-cmo', 'u-seo', 'u-fin']);
     await page.keyboard.press('j'); await page.keyboard.press('j');
-    assert.equal(await page.locator('#upd-feed .upd-card.sel').getAttribute('data-upd'), 'u-fin');
+    assert.equal(await page.locator('#upd-feed .upd-card.sel').getAttribute('data-upd'), 'u-seo');
     // Weekly: the toggle swaps the feed; Friday's cards say so.
     await page.locator('[data-upd-kind="weekly"]').click();
     await page.waitForFunction(() => location.hash === '#/updates?kind=weekly' && document.querySelector('[data-upd="w-seo"]'));
@@ -214,8 +219,10 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     assert.match(await page.locator('[data-upd="w-cmo"] .upd-body').innerText(), /posted as bullets/);
     // Snappy: coming back to Daily paints from this tab's cache before the network answers, and the
     // unread one (AI CMO, marked unread above) now comes first.
+    let release; holdList = new Promise(r => { release = r; });
     await page.evaluate(() => { location.hash = '#/updates'; });
-    await page.waitForFunction(() => document.querySelector('[data-upd="u-seo"]'), null, {timeout: 60});
+    await page.locator('[data-upd="u-seo"]').waitFor();   // painted while the network reply is still held
+    holdList = null; release();
     await page.waitForFunction(() => document.querySelector('#upd-feed .upd-card')?.dataset.upd === 'u-cmo', null, {timeout: 3000});
     assert.deepEqual(errors, []);
     await page.close();
