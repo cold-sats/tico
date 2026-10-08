@@ -33,3 +33,7 @@ def test_adopted_legacy_urls_serve_original_and_new_ids_serve_latest(api):
     url = "/api/v2/files/" + made["file_id"]
     assert api.get(url, headers=headers()).content == b"latest"
     assert api.get(url + "?v=1", headers=headers()).content == b"first"
+    # Each file added is in the task's activity, a later version saying which.
+    events = api.get(f"/api/v2/tasks/{tid}", headers=headers()).json()["events"]
+    added = [(e["new"], e["note"]) for e in events if e["field"] == "file"]
+    assert added == [("legacy.txt", "version 2"), ("new.txt", ""), ("new.txt", "version 2")]
