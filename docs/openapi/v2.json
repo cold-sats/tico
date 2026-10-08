@@ -5863,7 +5863,7 @@
     },
     "/api/v2/health": {
       "get": {
-        "summary": "Checks, computers and failures (people only)",
+        "summary": "Checks, computers and failures (bots see counts, computers and failed runs)",
         "operationId": "getHealth",
         "responses": {
           "200": {

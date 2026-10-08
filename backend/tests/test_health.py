@@ -3,6 +3,7 @@
 import pytest
 
 from backend import onboarding, releases
+from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_getting_started import SIGNED_IN, add_bot, enrolled, heartbeat  # noqa: F401
 from backend.tests.test_onboarding import as_person, environment, signed_in  # noqa: F401
@@ -85,6 +86,23 @@ def test_others_see_counts_not_details(environment):
     assert set(checks) == {"computers", "waiting", "queue", "failed"}
     assert all(not row["fixes"] for row in checks.values())
     assert "helper" not in checks["waiting"]["summary"]
+
+
+def test_a_bot_reads_computers_and_failed_runs_without_admin_detail(environment):
+    api = environment()
+    runner = enrolled(api)
+    heartbeat(api, runner, seconds_ago=5, runtimes=SIGNED_IN)
+    add_bot(api, "qa")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES('qa','hermes','x',?,'human:ana')",
+                  (H.now(),))
+    api.app.state.store.settings.test_identities["qa-bot"] = Identity("bot:qa", "bot", agent="hermes")
+    body, checks = health_of(api, signed_in("qa-bot"))
+    assert body["audience"] == "bot" and "storage" not in body
+    assert body["computers"][0]["online"] and set(body["computers"][0]) == {
+        "id", "label", "online", "last_seen", "platform", "disk", "update"}
+    assert body["failures"] == [] and set(checks) == {"computers", "waiting", "queue", "failed"}
+    assert api.get("/api/v2/health/issues", headers=signed_in("qa-bot")).status_code == 200
 
 
 def test_a_local_credential_key_that_is_not_backed_up_is_a_warning_or_a_note():

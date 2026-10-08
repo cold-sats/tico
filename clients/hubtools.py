@@ -2103,7 +2103,7 @@ def health_check(api, args):
     return _as_person(api).get("health/issues")
 
 
-@tool("hub_health_metrics", "The server's flight recorder, for owners and admins: per route request counts, errors, p50/p95 and "
+@tool("hub_health_metrics", "The server's flight recorder, for owners, admins and bots: per route request counts, errors, p50/p95 and "
       "bytes by caller kind; slow requests; CPU, memory, event-loop lag and stalls with thread stacks; top SQL by total "
       "time; write-lock waits; database size and growth by table; and each start's release and image check.",
       {"minutes": {"type": "integer", "description": "Look back this many minutes (default 60, at most 20160)"},

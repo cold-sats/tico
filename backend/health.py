@@ -3,7 +3,8 @@
 Nothing here is stored but one note the owner still has to read (backend/access.py). A check is `ok`, `warn`, `bad`, `info` or `unknown`; `unknown` means the thing
 that would tell us is not reporting, which is not the same as fine, and `info` is an optional thing
 that is not set up (neither fine nor a problem). Each check may carry fixes,
-which the page turns into one-click links. People who are not administrators see counts only.
+which the page turns into one-click links. People who are not administrators see counts only; a bot sees the same
+counts plus which computers are up and the day's failed runs, so it can check the team's health itself.
 """
 
 import json
@@ -535,6 +536,14 @@ def _failed(c):
     return total, [{"bot": r["bot"], "state": r["state"], "at": r["finished"]} for r in rows]
 
 
+def _bot_computers(computers):
+    """A bot checking the team's health sees which computers are up, their release and disk, never who operates
+    them or their sign-in, container and browser errors."""
+    keep = ("id", "label", "online", "last_seen", "platform", "disk")
+    return [{**{k: x.get(k) for k in keep}, "update": {k: x["update"].get(k) for k in ("release", "state", "label")}}
+            for x in computers]
+
+
 def _v(version):
     """A release as people write it, `v0.2.3`, whichever way the source spelled it."""
     version = str(version or "")
@@ -557,9 +566,10 @@ def storage_view(c, settings):
 
 
 def view(c, who, settings, auth, github, config):
-    _person(who)
-    kind = "owner" if who.role == "owner" else "admin" if auth.bot_admin(who) else "human"
-    full = kind != "human"
+    if who.role != "bot":
+        _person(who)
+    kind = "owner" if who.role == "owner" else "admin" if auth.bot_admin(who) else who.role
+    full = kind in ("owner", "admin")
     online = _online_runners(c)
     online_ids = {r["id"] for r in online}
     computers = _computers(c, online, settings)
@@ -843,9 +853,9 @@ def view(c, who, settings, auth, github, config):
                          f"{_plural(failed, 'run')} failed in the last day." if failed else "No failed runs in the last day.",
                          [_fix("Open Runs", "#/runs")] if failed and full else []))
     return {**({"storage": storage_view(c, settings)} if kind == "owner" else {}), "audience": kind, "checks": checks, "attention": sum(1 for x in checks if x["status"] in ("warn", "bad")),
-            "computers": computers if full else [], "waiting": waiting if full else [], "slow": slow if full else [],
-            "stuck": blocked,
-            "failures": failures if full else [], "checked": H.now(),
+            "computers": computers if full else _bot_computers(computers) if kind == "bot" else [],
+            "waiting": waiting if full else [], "slow": slow if full else [], "stuck": blocked,
+            "failures": failures if full or kind == "bot" else [], "checked": H.now(),
             # The sidebar's notice reads the same fresh answer, so the two never disagree.
             "update": config.get("update") or {}}
 
@@ -886,7 +896,8 @@ def install(app, store, auth, settings):
     @app.get("/api/v2/health")
     def read(request: Request):
         who = request.state.identity
-        _person(who)
+        if who.role != "bot":
+            _person(who)
         github = getattr(request.app.state, "github_app", None)
         with store.read() as c:
             return view(c, who, settings, auth, github, onboarding.config_view(c, settings, who))

@@ -155,7 +155,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            humans and bots: who they are, Slack, what they own; each bot
                                            with its reports_to, group and template (the bots you may see)
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
-    hub health metrics [--minutes N]       the server's flight recorder (owners and admins)
+    hub health metrics [--minutes N]       the server's flight recorder (owners, admins and bots)
                                            (the Assistant gets the live snapshot)
     hub update list [--kind daily|weekly] [--bot X] [--unread] [--limit N]
                                            the bots' updates, newest first
