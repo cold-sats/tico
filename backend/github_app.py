@@ -785,15 +785,15 @@ def install_github_app(app, settings, store):
                                     (body.bot, who.runner_id)).fetchone() is not None
             else:
                 allowed = False
-            if not allowed:
-                raise Problem("forbidden", "This credential does not run that bot", 403)
             from .shared_bots import declared, source_of
-            bot_config = declared(c, body.bot)
+            bot_config = declared(c, body.bot) if allowed else {}
             if bot_config.get("assignment_branch"):
                 raise Problem("assignment_repository", "Temporary task assignments use a private local branch; GitHub credentials are not issued for them", 409)
             row = service.row(c)
             if not row:
                 return {"configured": False}
+            if not allowed:
+                raise Problem("forbidden", "This credential does not run that bot", 403)
             source = source_of(bot_config) or body.bot
             config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (source,)).fetchone()
             # A bare emp-<slug> means the connected org, whatever the default owner is.

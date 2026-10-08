@@ -284,6 +284,11 @@ def test_assignment_token_refusal_precedes_app_setup_and_checks_the_caller(api, 
         checks.setattr(api.app_state.github_app, "row", no_app)
         refused = turn_token(api)
         assert refused.status_code == 409 and refused.json()["error"]["code"] == "assignment_repository"
+    # Unauthorized requests do not inspect another bot's configuration. Preserve
+    # the old no-App answer, and still forbid them when an App is connected.
+    assert api.post("/api/v2/github/token", json={"bot": "cpo"}, headers=auth()).json() == {"configured": False}
+    with monkeypatch.context() as checks:
+        checks.setattr(api.app_state.github_app, "row", lambda *args: {"org": "Acme"})
         assert api.post("/api/v2/github/token", json={"bot": "cpo"}, headers=auth()).status_code == 403
         assert api.post("/api/v2/github/token", json={"bot": "cmo"}, headers=auth("runner-test")).status_code == 403
         with api.app_state.store.transaction() as c:
