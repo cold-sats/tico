@@ -12,7 +12,9 @@ bot's own work is tasks, never issues.
 
 ## Tests
 `python3 -m pytest -q` (parallel by default) runs the default Python suite, which leaves out tests marked
-`@pytest.mark.slow`; `npm run test:ui` runs the core browser scripts (`CORE` in `scripts/ui-tests.cjs`). Tests run
+`@pytest.mark.slow`; `npm run test:ui` runs the core browser scripts (`CORE` in `scripts/ui-tests.cjs`). On a fresh computer, a bot's runner
+included, run `npm ci && npx playwright install chromium` and install `backend/requirements-dev.txt` in a venv
+first: runner images ship neither. Tests run
 locally; GitHub Actions does not run tests. The default Python suite stays under about 60 seconds and the whole
 default run (pytest plus core UI) under 2 minutes; `python scripts/release_checks.py` runs both and records time and
 load. A PR runs only the tests for what it changed; the full suite runs once, right before a release. `--release` runs every test (slow included, `ui-tests.cjs --all`) and the Docker
