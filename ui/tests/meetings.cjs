@@ -178,8 +178,12 @@ async function shot(page, name) {
       assert.deepEqual(await page.locator('.meet-row .note-title').allInnerTexts(), ['Renewal call with Dana']);
       await page.locator('#notes-source').selectOption('');
       await page.evaluate(() => { window.opened = []; window.open = url => (window.opened.push(url), {}); });
-      await page.locator('.meet-row .note-title').first().click();   // a desktop opens the meeting in its own window
+      await page.locator('.meet-row .note-title').first().click();   // a click opens the meeting here, never only in a window
+      await page.locator('#notes-modal[open] #notes-detail').waitFor();
+      assert.deepEqual(await page.evaluate(() => window.opened), []);
+      await page.locator('#notes-modal-window').click();              // its own window is a choice
       assert.match(await page.evaluate(() => window.opened[0]), /meeting=m1&window=1/);
+      assert.equal(await page.locator('#notes-modal').evaluate(d => d.open), false);
       assert.deepEqual(errors, []);
       await context.close();
 
