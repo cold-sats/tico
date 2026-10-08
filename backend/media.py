@@ -718,7 +718,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             for linked in c.execute("SELECT m.* FROM message_assets a JOIN messages m ON m.id=a.message_id WHERE a.blob_id=?", (bid,)):
                 try:
                     auth.conversation(c, who, linked["conversation_id"])
-                    privacy.require_message(c, who, linked)
+                    privacy.require_message(c, who, dict(linked))
                     allowed = True
                     break
                 except Problem:
