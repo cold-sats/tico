@@ -107,7 +107,7 @@ def test_invalid_tray_labels_never_escape_errors(label, monkeypatch, capsys):
     assert str(label) not in out.out + out.err
 
 
-def test_local_check_keeps_company_identity_and_clears_inherited_label(tmp_path, monkeypatch):
+def test_local_check_keeps_company_identity_and_clears_inherited_label(tmp_path):
     import os
     from pathlib import Path
     import subprocess
@@ -126,13 +126,12 @@ def test_local_check_keeps_company_identity_and_clears_inherited_label(tmp_path,
     cargo.write_text("#!/usr/bin/env python3\nimport json, os\nfrom pathlib import Path\n"
                      "Path(os.environ['CAPTURE']).write_text(json.dumps({k:v for k,v in os.environ.items() if k.startswith('TICO_')}))\n")
     cargo.chmod(0o755)
-    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
-    monkeypatch.setenv("CAPTURE", str(capture))
-    monkeypatch.setenv("TICO_ENVIRONMENTS_DIR", str(env_dir.parent))
-    monkeypatch.setenv("TICO_TRAY_LABEL", "LEAK")
-    monkeypatch.delenv("TICO_ENV", raising=False)
+    # Inherited BASH_ENV can restore the turn's PATH and run real cargo instead of the stub.
+    env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", os.defpath),
+           "HOME": str(tmp_path / "home"), "CAPTURE": str(capture),
+           "TICO_ENVIRONMENTS_DIR": str(env_dir.parent), "TICO_TRAY_LABEL": "LEAK"}
     for args, label, slug in [(["--env", "acme"], "A1", "acme"), ([], "", "")]:
-        result = subprocess.run(["bash", str(root / "scripts/app.sh"), *args, "check"], capture_output=True, text=True, check=True)
+        result = subprocess.run(["bash", str(root / "scripts/app.sh"), *args, "check"], capture_output=True, text=True, check=True, env=env)
         values = json.loads(capture.read_text())
         assert values["TICO_TRAY_LABEL"] == label
         assert values["TICO_ENV_SLUG"] == slug

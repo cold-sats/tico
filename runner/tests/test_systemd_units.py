@@ -51,6 +51,8 @@ def test_a_unit_file_is_private_and_lands_where_systemd_looks(tmp_path):
 # -- scripts/tico on Linux, with systemctl and loginctl faked ----------------------------------------------
 
 def fake_linux(tmp_path, linger="no"):
+    if sys.platform != "linux":
+        pytest.skip("Linux systemd lifecycle scenarios require Linux; unit rendering is tested on every host")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "calls.log"
@@ -64,10 +66,11 @@ def fake_linux(tmp_path, linger="no"):
     config = tmp_path / "runner.json"
     config.write_text('{"runner_id": "r1", "url": "https://hub.example"}')
     config.chmod(0o600)
-    env = {**os.environ, "TICO_OS": "Linux", "PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": str(tmp_path / "home"),
+    # A turn's shell startup hook must not restore PATH over the fake supervisor commands.
+    env = {k: os.environ[k] for k in ("PYTHONPATH", "LANG") if k in os.environ}
+    env.update({"TICO_OS": "Linux", "PATH": f"{bin_dir}:{os.environ.get('PATH', os.defpath)}", "HOME": str(tmp_path / "home"),
            "TICO_RUNNER_PYTHON": sys.executable, "TICO_RUNNER_CONFIG": str(config), "TICO_SYSTEMD_USER_DIR": str(tmp_path / "units"),
-           "XDG_CONFIG_HOME": str(tmp_path / "xdg"), "USER": "ana"}
-    env.pop("TICO_ENV", None)
+           "XDG_CONFIG_HOME": str(tmp_path / "xdg"), "USER": "ana"})
     (tmp_path / "home").mkdir()
     return env, log
 

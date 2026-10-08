@@ -5,7 +5,9 @@ containers need network access; the tests skip when Docker is not available."""
 import hashlib
 import shutil
 import subprocess
+import sys
 import tarfile
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -85,13 +87,22 @@ def docker_ready():
 @pytest.mark.parametrize("image", ["ubuntu:24.04", "debian:12"])
 def test_installer_scenarios(image, rel, docker_ready):
     name = "tico-install-test-" + uuid.uuid4().hex[:8]
-    try:
-        r = subprocess.run(
-            ["docker", "run", "--name", name, "--rm", "-v", f"{rel}:/rel:ro", "-v", f"{Path(__file__).parent / 'install_scenarios.sh'}:/scen.sh:ro",
-             image, "sh", "-c", "apt-get update -qq >/dev/null 2>&1; sh /scen.sh"],
-            capture_output=True, text=True, timeout=900)
-    finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    # Docker Desktop may not share an external checkout or pytest's configured temp volume.
+    with tempfile.TemporaryDirectory(prefix="tico-install-test-", dir="/private/tmp" if sys.platform == "darwin" else None) as stage:
+        staged = Path(stage)
+        shutil.copytree(rel, staged / "rel")
+        shutil.copy(Path(__file__).parent / "install_scenarios.sh", staged / "scen.sh")
+        try:
+            r = subprocess.run(
+                ["docker", "run", "--name", name, "--rm", "--mount", f"type=bind,src={staged / 'rel'},dst=/rel,readonly",
+                 "--mount", f"type=bind,src={staged / 'scen.sh'},dst=/scen.sh,readonly",
+                 image, "sh", "-c", "apt-get update -qq >/dev/null 2>&1; sh /scen.sh"],
+                capture_output=True, text=True, timeout=900)
+        finally:
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    if r.returncode != 0 and any(message in r.stderr for message in (
+            "Mounts denied", "is not shared from the host", "error while creating mount source path")):
+        pytest.skip("Docker cannot bind-mount the staged installer fixtures; share the system temp directory in Docker Desktop")
     lines = r.stdout.splitlines()
     failed = [l for l in lines if l.startswith("not ok")]
     assert not failed, "\n".join(failed) + "\n" + r.stderr[-2000:]
