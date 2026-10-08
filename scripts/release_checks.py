@@ -5,8 +5,9 @@
     python scripts/release_checks.py --release  # the release gate: every test and the whole product, under 300 s
 
 A PR runs only the tests for what it changed, so the full suite runs here, once, right before a release. `--release`
-runs every test (`pytest -m "slow or not slow"` and `node scripts/ui-tests.cjs --all`) while it builds the candidate
-images once, then runs the whole-product checks against them at the same time: docker/smoke.sh,
+runs Python tests except Docker isolation (`pytest -m "slow or not slow"`) and every browser test
+(`node scripts/ui-tests.cjs --all`) while it builds the candidate images once, then runs the Docker isolation tests
+and whole-product checks against them at the same time: docker/smoke.sh,
 docker/side-jobs-smoke.sh and `scripts/journey-test.sh --release` (install the previous release, upgrade to the
 candidate, roll back a migrating update). The journey starts installing the previous release while the images build. Each check gets its own Docker names and smoke a free host port, so they run
 side by side; two release checks must not run at once, since the journey's candidate tags are fixed.
@@ -99,7 +100,8 @@ def release(args):
     journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready)}
     journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
     checks = [Check('journey', journey_cmd, logs, journey_env),   # installs the previous release while the images build
-              Check('all-python', [sys.executable, '-m', 'pytest', '-q', '-m', 'slow or not slow'], logs,
+              Check('all-python', [sys.executable, '-m', 'pytest', '-q', '-m', 'slow or not slow',
+                                   '--ignore=runner/tests/test_isolation_docker.py'], logs,
                     {**base_env, 'TICO_PYTHON': sys.executable}),
               Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, {**base_env, 'TICO_PYTHON': sys.executable})]
 
@@ -117,6 +119,12 @@ def release(args):
                             {**local_env, 'TICO_SMOKE_PROJECT': 'tico-rc-smoke', 'TICO_SMOKE_PORT': str(free_port())}))
         checks.append(Check('side-jobs', ['bash', 'docker/side-jobs-smoke.sh'], logs,
                             {**local_env, 'TICO_SIDEJOBS_NAME': 'tico-rc-sidejobs'}))
+        checks.append(Check('isolation', [sys.executable, '-m', 'pytest', '-q', '-m', 'slow or not slow',
+                                         'runner/tests/test_isolation_docker.py'], logs,
+                            {**base_env, 'TICO_PYTHON': sys.executable,
+                             'TICO_RUNNER_TEST_IMAGE': f"{local_env['TICO_RUNNER_IMAGE']}:{local_env['TICO_TAG']}"}))
+    else:
+        print('  isolation: not run (candidate image builds failed)', flush=True)
     failed = [check for check in builds + checks if check.join() != 0]
     for check in failed:
         print(f'\n--- {check.name} (last lines of {check.log}) ---\n{check.tail()}', flush=True)
