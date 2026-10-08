@@ -187,6 +187,7 @@ def costs(api, extra):
 
 def test_hot_reads_do_not_grow_with_bots(tmp_path, monkeypatch):
     """A request reads each kind of row once for all bots: 30 bots cost what 7 do, give or take a few."""
+    from backend import flight
     from backend.config import Settings
     init = Settings.__init__
 
@@ -194,6 +195,9 @@ def test_hot_reads_do_not_grow_with_bots(tmp_path, monkeypatch):
         kwargs.setdefault("flight_recorder", True)
         init(self, *args, **kwargs)
     monkeypatch.setattr(Settings, "__init__", recording)
+    # Count the raw SQL samples before their background consumer can drain or flush them.
+    # The thread still starts and stops normally; only its work is paused for this measurement.
+    monkeypatch.setattr(flight.Flight, "run", lambda self: self.halt.wait())
     measured = []
     for name, extra in (("few", []), ("many", [f"b{i:02d}" for i in range(23)])):
         (tmp_path / name).mkdir()
@@ -203,4 +207,5 @@ def test_hot_reads_do_not_grow_with_bots(tmp_path, monkeypatch):
         finally:
             install.close()
     few, many = measured
+    assert all(few[k] > 0 and many[k] > 0 for k in few), (few, many)
     assert all(many[k] - few[k] <= 4 for k in few), (few, many)
