@@ -57,6 +57,7 @@ outcome and computers. Update `knowledge/versioning.md` with the release and dat
 - `knowledge/rollout.json`: the repository and each install (copy `knowledge/rollout.example.json`). Mark the team's
   own install `"canary": true`.
 - On each install, its owner runs `hub service-key create --label "<this bot>" --scope update` and stores the key in
-  this team's Tools > Credentials, granted to this bot, with the variable named in `key_env`.
+  this team's Tools > Credentials, granted to this bot, with the variable named in `key_env`
+  (for example `UPDATE_KEY_ACME`; a name starting `TICO_` is Tico's own and is refused).
 - Write access for this bot on the repository: `hub bot repos <slug> --chosen <owner>/<repo>:write` (keep the grants it
   already has in the same command).

@@ -8,11 +8,17 @@ release's versioned notes automatically reach its users. No separate product ann
 Keep those versioned sections on `main` after publishing a tag; move only new work into Unreleased,
 so later builds retain the complete history and do not announce already shipped work again.
 
+**One release path.** On a team that runs Tico with a Release Manager bot, only the Release Manager publishes
+releases. A Claude Code session or any other outside session that finishes work hands it to the Release Manager on a
+task ("Release vX.Y.Z: <what>") instead of pushing the tag itself; the Release Manager tags, rolls out and records it,
+so the tasks waiting on the release learn it shipped. When a tag is pushed anyway, Tico still moves the Waiting tasks
+whose merged work it contains to Review with "Shipped in vX.Y.Z" (backend/github.py).
+
 ## The fast path
 
 1. **Every PR** runs only the tests for what it changed (below).
 2. **Before you tag**, and only then, the full suite: the default suites, the opt-in tests and a short whole-product
-   check, about 3 to 5 minutes: `python scripts/release_checks.py --release`.
+   check, targeted under 8 minutes on a shared Mac: `python scripts/release_checks.py --release`.
 3. **Tag and push.** The GitHub release is published about 2 minutes later, as soon as the Docker images exist.
 4. **Server rollout** starts at once: the canary install first, then the rest ("Update now", about 2 minutes each).
 5. **Desktop follows**: built only when the shell changed, and attached to the published release when it is done.
@@ -44,23 +50,29 @@ python scripts/release_checks.py --release                     # this checkout i
 python scripts/release_checks.py --release --previous v0.3.21  # upgrade from a given release instead of the newest tag
 ```
 
-This is the full suite, run once per release. While the images build it runs every Python test, the opt-in
-`@pytest.mark.slow` ones included (real git, Docker, servers and long timers), and every browser script (`node scripts/ui-tests.cjs --all`). Then the
-product as installed, in Docker: it builds the server, runner and
-updater images once (BuildKit cache; a source-only change rebuilds one layer per image) and runs three checks against
-them at the same time, each with its own Docker names, while the journey installs the previous release during the build:
+This is the full suite, run once per release. It builds the server, runner and updater images once (BuildKit cache;
+a source-only change rebuilds one layer per image), while the journey installs the previous release. After every build
+finishes, it runs every Python test except Docker isolation, the opt-in `@pytest.mark.slow` ones included (real git,
+Docker, servers and long timers), and every browser script (`node scripts/ui-tests.cjs --all`). Python uses half the
+CPU count in workers (at least one; six on a 12-core Mac), and the browser uses four jobs. Set `TICO_PYTHON_WORKERS`
+or `TICO_UI_JOBS` to override these defaults. Successful builds also start the following checks against the candidate
+at the same time, each with its own Docker names; the journey proceeds once those images are ready:
 
 - `docker/smoke.sh`: the server comes up, a runner joins with a one-time code and installs Codex once OpenAI is enabled,
   the server restarts and the runner reconnects, the data survives down and up, and a runner box updates to the
   server's release and rolls back one that does not turn healthy;
 - `docker/side-jobs-smoke.sh`: a runner starts and stops the side job the hub assigns to it;
+- `runner/tests/test_isolation_docker.py`: Docker isolation against the candidate runner, with
+  `TICO_RUNNER_TEST_IMAGE=tico-rc-runner:local` and the same Python worker cap;
 - `scripts/journey-test.sh --release`: install the previous release from its checksummed bundle, upgrade to the
   candidate with "Update now", and roll back an update that migrates the database and never turns healthy (the
   pre-update snapshot is restored, with the server's real entrypoint running Litestream).
 
-It prints each check's time and the total, keeps the logs in a temporary directory and prints the end of any failed
-log. The target is under 5 minutes; a run over 300 seconds still passes but says so. Do not run two at once: the
-journey's candidate tags are fixed.
+It prints a phase table with each check's start offset, duration and exit code, plus total time and starting/ending
+load. It keeps the logs in a temporary directory and prints the end of any failed log. If any build fails, the
+Docker-dependent checks are reported as not run and the release check fails. The release target is under 8 minutes
+(480 seconds); a run over budget still passes its assertions but reports that it is over budget. The default suite's
+300-second hard budget is unchanged. Do not run two at once: the journey's candidate tags are fixed.
 
 The full journey stays available on demand (about ten minutes), for a release that changes enrollment, the runner's
 restart behavior, Litestream or backups:
@@ -90,15 +102,15 @@ rollback step: it runs on the candidate's updater.
 
 The workflow then:
 
-- runs `scripts/build_install_bundle.py`, which attaches the one-line installer: `install.sh` with the tag baked into it,
-  `tico-bundle-vX.Y.Z.tar.gz` (`compose.yaml`, `.env.example`, `docker/runner.compose.yaml` and the `setup/` wizard) and
-  `SHA256SUMS` over both. `install.sh` checks the bundle against `SHA256SUMS` before it unpacks anything;
+- runs `scripts/build_install_bundle.py`, which attaches the one-line installers: `install.sh` and the Windows
+  `install-wsl.ps1` with the tag baked into them, `tico-bundle-vX.Y.Z.tar.gz` (`compose.yaml`, `.env.example`,
+  `docker/runner.compose.yaml` and the `setup/` wizard) and `SHA256SUMS` over all three. `install.sh` checks the bundle against `SHA256SUMS` before it unpacks anything;
 - waits until `ghcr.io/ticoteam/{tico,tico-runner,tico-updater}:vX.Y.Z` exist (the Docker workflow builds them from the
   same tag, in about 2 minutes), so no release is published whose installer would fail on `docker compose pull`;
 - uses the `[X.Y.Z]` section of the changelog, unchanged, as the release notes, and fails if the
   section is missing or empty. A tag with a suffix such as `v0.2.0-rc.1` is marked a prerelease,
   which the update check ignores;
-- publishes the release with those three files and the notes. That is everything the installer, the server's update
+- publishes the release with those four files and the notes. That is everything the installer, the server's update
   check and the updater read (`install.sh`, the bundle and `SHA256SUMS`), so the server rollout can start at once.
 
 Docker images are published by a separate workflow (on the same `v*` tag, plus a manual run) and set `TICO_VERSION` in the image, which is how the running app

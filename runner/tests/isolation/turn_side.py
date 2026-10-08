@@ -20,8 +20,13 @@ BOT_TOKEN = "ghs_fake_alpha_token"
 
 
 class Hub:
+    def __init__(self):
+        self.bodies = []
+
     def post(self, path, body):
-        assert path == "github/token" and body == {"bot": "alpha"}
+        assert path == "github/token"
+        assert body in ({"bot": "alpha"}, {"bot": "alpha", "purpose": "git"})
+        self.bodies.append(dict(body))
         return {"configured": True, "token": BOT_TOKEN, "repository": "acme/alpha"}
 
 
@@ -69,19 +74,22 @@ def main():
     threading.Thread(target=github.serve_forever, daemon=True).start()
     host = f"127.0.0.1:{github.server_address[1]}"
 
-    server = credential_socket.serve(Hub())
+    git_hub = Hub()
+    server = credential_socket.serve(git_hub)
     assert server, "isolation is not on: the entrypoint should have exported TICO_RUNNER_BOT_UID"
     server.register("attempt-1", "alpha")
     env = {"HOME": HOME, "PATH": os.environ["PATH"] + ":/home/runner/tools/bin", "HUB_TOKEN": "attempt-1",
            "TICO_GITHUB_HOST": host, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
-    assert git_credentials.apply(env, Hub(), "alpha", HOME + "/runner.json", server.path)
+    turn_hub = Hub()
+    assert git_credentials.apply(env, turn_hub, "alpha", HOME + "/runner.json", server.path)
     # git matches the helper by the remote's host; the fake GitHub is not github.com.
     for key in ("GIT_CONFIG_KEY_0", "GIT_CONFIG_KEY_1"):
         env[key] = f"credential.http://{host}.helper"
     turn = isolation.run(["sh", "/turn.sh", f"http://{host}/alpha.git"], env=env, cwd=HOME + "/workspace",
                          capture_output=True, text=True)
     print(json.dumps({"turn": turn.stdout.splitlines(), "stderr": turn.stderr[-800:],
+                      "token_bodies": {"turn_start": turn_hub.bodies, "git_helper": git_hub.bodies},
                       "registration": subprocess.run(["stat", "-c", "%U %a", HOME + "/runner.json"],
                                                      capture_output=True, text=True).stdout.strip(),
                       "pushed": subprocess.run(["git", "-C", "/tmp/remote/alpha.git", "log", "--format=%s", "main"],

@@ -78,6 +78,12 @@ history can be published separately. The write is audited as `github.product_rep
 the same request key replay the saved receipt. This path is Owner-only; it does not alter the bot-prefixed
 creator or grant repository access to any bot.
 
+The Owner-only MCP tool `hub_repo_product_create` follows the same review step. Call it with `name` and a
+stable `operation_id` to receive the preview. After reviewing the returned `org/name` and capability, call
+it again with the same `operation_id` and `confirm_repository` set to that exact `org/name`. The tool
+fetches a fresh preview before writing and refuses a mismatched confirmation. If the installation lacks
+verified Administration: write, it returns the capability detail and does not issue a create request.
+
 Before sending the create request, Tico durably binds the Owner, operation key, request digest, and exact
 organization/name. If GitHub's response is lost, times out, or returns a server error, the API returns
 `409 github_create_outcome_unknown`; a retry with different content gets `409 idempotency_conflict`, and a
@@ -146,9 +152,29 @@ The app's private key, client secret and webhook secret are encrypted (AES-GCM) 
 With `TICO_CREDENTIAL_KMS_KEY` set the key is the credential vault's KMS-wrapped data key; otherwise
 it is a random `github-app.key` (mode 0600) beside the database, so a database copy alone does not
 carry the app's key. No API returns the key and it is never logged. Installation tokens are cached in
-server memory only, until five minutes before they expire. The runner holds the run's token in the
-run's process environment (`GH_TOKEN`, and an inline git credential helper); nothing is written to disk.
-A token is fixed for its run, and a run may outlast it only after about fifty minutes of the hour.
+server memory only, and reused only while at least 45 minutes remain, so a turn's starting token lasts at
+least 45 minutes. The runner holds the run's token in the run's process environment (`GH_TOKEN` and
+`GITHUB_TOKEN`, and an inline git credential helper); nothing is written to disk. git asks for a fresh token
+each time it needs one, and so does `gh` through the turn's `gh` wrapper, which also picks the token for the
+repository it is working on.
+
+## How bots sign in to GitHub
+
+The GitHub App is every bot's GitHub identity: `git push`, `gh pr create`, `gh pr view` and `gh api` in a turn
+all use its token, with no `gh auth login`. People's own GitHub logins come from their profiles (Contact,
+**GitHub**); a bot that opens a pull request for a person requests that person's review by that login.
+
+The App's token wins for every repository in the connected organization. A `GH_TOKEN` or `GITHUB_TOKEN`
+credential granted to a bot does not override it there; it is kept for repositories outside the
+organization only. A login shell (`bash -l`, which Codex uses) resets `PATH`; the runner image puts the
+turn's `PATH` back (`/etc/profile.d/tico-turn.sh`), so the wrapper stays first. Mac turns pass Bash and
+zsh startup hooks through their environment. They read the user's existing startup files, then restore
+the turn's PATH so Homebrew's `gh` cannot take precedence over the per-call wrapper. No machine or user
+shell startup file is edited. A bare `gh` that bypasses the wrapper still uses the starting App token,
+which can expire during a long turn.
+
+Every 15 minutes each computer asks GitHub who a bot's App token is (`GET /installation/repositories`).
+Two 401 answers in a row show in Health as "<computer>: GitHub sign-in failed".
 
 ## Rotating the key
 
@@ -167,7 +193,9 @@ app from its settings page.
 New GitHub Apps include the task events and read permissions automatically. For an existing
 App, enable webhook events for Pull requests, Pull request reviews,
 Pull request review comments, Check runs, Check suites and Commit statuses, plus Push for
-release tracking. The webhook remains `POST /api/v2/github/webhook` with signature verification.
+release tracking. **Existing installs: also tick Release** (Permissions & events → Subscribe to events), so a
+release published on GitHub moves the Waiting tasks it contains to Review. Without it, a pushed `vX.Y.Z` tag
+still does the same through the Push event. The webhook remains `POST /api/v2/github/webhook` with signature verification.
 Checks need read access to Checks and commit statuses need read access to Commit statuses in
 the GitHub App. Existing installations without these events keep their last known PR states;
 opening a task refreshes reachable PRs, cached for three minutes.
@@ -190,6 +218,14 @@ reviewer who pushes to a bot's PR remains a reviewer; only a pusher matching the
 counts as the bot. New heads reset mergeability to Unknown, and conflicts wake once per head
 until a clean result clears the marker. Check suites are tracked separately by App.
 The grouping survives server restarts and keeps at most 50 distinct notice items per burst.
+
+A review request can also put the reviewer on the task. Set `TICO_GITHUB_REVIEW_ROLE` to a task role
+(for example `reviewer`) and restart the API, then give each person their GitHub login under **GitHub**
+in the Contact card of their profile (or `POST /api/v2/people/{id}` with `{"github": "login"}`).
+A request adds them to that role and a withdrawn request takes them off; a request GitHub drops because
+the review arrived leaves them on. Logins are unique on the team: setting one someone else has returns
+`409 github_taken`, and a login two people already share changes nobody. Unknown logins, people who
+cannot read a private task, and finished tasks are skipped. Unset, review requests change no roles.
 
 Several PRs can belong to one task. Automatic Ready requires every tracked PR merged or
 closed and at least one merge. Tracking applies to repositories in the connected org that are

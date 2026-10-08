@@ -1,6 +1,7 @@
 """The GitHub App: manifest, state nonce, secret storage, installation tokens, runner scope."""
 import json
 import sqlite3
+import statistics
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -31,12 +32,14 @@ class FakeGitHub:
         self.repositories = []
         self.setup_files = {}
         self.ttl = 3600
+        self.clock = time.time
         self.generate_status = 201
         self.delete_status = 204
         self.refuse = None                       # (status, message) for every token request
         self.permissions = None                  # the installation's live permissions; None leaves them out
         self.missing, self.selection, self.forbidden = set(), "all", False   # repositories GitHub answers 404 for
         self.selected_repositories = set()
+        self.list_status = 200
         self.created_repositories = set()
         self.create_response_message = ""
         self.lose_next_product_create_response = False
@@ -47,7 +50,10 @@ class FakeGitHub:
         path = request.url.path
         if path == "/installation/repositories":
             page = int(request.url.params.get("page", 1))
-            return httpx.Response(200, json={"repositories": self.repositories[(page-1)*100:page*100]})
+            seen = [r for r in self.repositories if r["full_name"].split("/")[1] not in self.missing]
+            if self.list_status != 200:
+                return httpx.Response(self.list_status)
+            return httpx.Response(200, json={"total_count": len(seen), "repositories": seen[(page-1)*100:page*100]})
         if "/contents/" in path:
             config = self.setup_files.get(path)
             if config is None:
@@ -76,7 +82,7 @@ class FakeGitHub:
             if body and self.selection == "selected" and any(
                     name not in self.selected_repositories for name in body.get("repositories", [])):
                 return httpx.Response(422, json={"message": "Repository is not in this selected installation"})
-            exp = datetime.now(timezone.utc) + timedelta(seconds=self.ttl)
+            exp = datetime.fromtimestamp(self.clock(), timezone.utc) + timedelta(seconds=self.ttl)
             return httpx.Response(201, json={"token": "ghs_" + uuid.uuid4().hex, "expires_at": exp.strftime("%Y-%m-%dT%H:%M:%SZ")})
         if path.startswith("/orgs/") and path.endswith("/repos"):
             repository = path.split("/")[2] + "/" + body["name"]
@@ -270,8 +276,76 @@ def put_extras(api, bot, repos, who="owner-test"):
     return api.put(f"/api/v2/bots/{bot}/github-repos", json={"repositories": repos}, headers=auth(who))
 
 
-def turn_token(api, bot="cpo"):
-    return api.post("/api/v2/github/token", json={"bot": bot}, headers=auth("runner-test"))
+def turn_token(api, bot="cpo", purpose="turn"):
+    body = {"bot": bot}
+    if purpose != "turn":
+        body["purpose"] = purpose
+    return api.post("/api/v2/github/token", json=body, headers=auth("runner-test"))
+
+
+def test_per_call_token_reuses_cache_without_writes_but_turn_start_keeps_45_minutes(api, gh, monkeypatch):
+    connect(api)
+    runner_token(api, "cpo")
+    clock = [time.time()]
+    gh.clock = lambda: clock[0]
+    monkeypatch.setattr(G.time, "time", lambda: clock[0])
+
+    started = turn_token(api)
+    assert started.status_code == 200, started.text
+    first = started.json()
+    remaining = G._iso(first["expires_at"]) - clock[0]
+    assert remaining >= G.TURN_START_REFRESH_MARGIN
+    github_mints = len(gh.of("/access_tokens"))
+    with api.app_state.store.read() as c:
+        events_before = c.execute("SELECT COUNT(*) FROM events WHERE action='github.token'").fetchone()[0]
+    clock[0] += 49 * 60  # the first 49 minutes of the old 45-minute-margin policy are the slow path
+
+    store = api.app_state.store
+    original_transaction = store.transaction
+    writes = []
+    def counted_transaction():
+        writes.append(True)
+        return original_transaction()
+    monkeypatch.setattr(store, "transaction", counted_transaction)
+
+    timings = []
+    for _ in range(40):
+        started_at = time.perf_counter()
+        refreshed = turn_token(api, purpose="git")
+        timings.append((time.perf_counter() - started_at) * 1000)
+        assert refreshed.status_code == 200, refreshed.text
+        assert refreshed.json()["token"] == first["token"]
+    assert len(gh.of("/access_tokens")) == github_mints
+    assert not writes, "a valid per-call cache hit must not open a write transaction"
+    with store.read() as c:
+        assert c.execute("SELECT COUNT(*) FROM events WHERE action='github.token'").fetchone()[0] == events_before
+    print(f"CACHED_GITHUB_TOKEN_P50_MS={statistics.median(timings):.2f}")
+
+    # Below ten minutes remaining, a per-call refresh mints again.
+    clock[0] += 2 * 60
+    next_git = turn_token(api, purpose="git")
+    assert next_git.status_code == 200, next_git.text
+    assert len(gh.of("/access_tokens")) == github_mints + 1
+    assert G._iso(next_git.json()["expires_at"]) - clock[0] >= G.GIT_CALL_REFRESH_MARGIN
+
+    # A token with only 44 minutes left is fine for a one-off git request but not a new turn seed.
+    clock[0] += 16 * 60
+    next_turn = turn_token(api)
+    assert next_turn.status_code == 200, next_turn.text
+    next_body = next_turn.json()
+    assert len(gh.of("/access_tokens")) == github_mints + 2
+    assert G._iso(next_body["expires_at"]) - clock[0] >= G.TURN_START_REFRESH_MARGIN
+    assert next_body["token"] != first["token"]
+
+    # An expired cached token still goes to GitHub, and mint errors keep their existing diagnosis.
+    clock[0] += 61 * 60
+    gh.refuse = (500, "ghs_SYNTHETIC_DO_NOT_EXPOSE")
+    mints_before_error = len(gh.of("/access_tokens"))
+    failed = turn_token(api, purpose="git")
+    assert failed.status_code == 502 and failed.json()["error"]["code"] == "github_token"
+    assert "HTTP 500" in failed.json()["error"]["detail"]
+    assert len(gh.of("/access_tokens")) == mints_before_error + 1
+    assert token_health(api)
 
 
 def test_extra_repositories_join_the_turn_token_with_the_same_permissions(api, gh):
@@ -288,6 +362,28 @@ def test_extra_repositories_join_the_turn_token_with_the_same_permissions(api, g
     assert body["repositories"] == ["design-system", "emp-cpo", "infra", "shared-docs"]
     assert body["permissions"] == {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
     assert set(api.get("/api/v2/bots/cpo/github-repos", headers=auth()).json()["repositories"]) == set(data["repositories"]) - {"Acme/emp-cpo"}
+
+
+def test_missing_own_repository_is_found_by_one_listing_not_a_probe_per_grant(api, gh):
+    connect(api)
+    assert api.put('/api/v2/bots/cpo/repositories', json={'mode': 'chosen', 'chosen': []}, headers=auth()).status_code == 200
+    runner_token(api, "cpo")
+    extras = [f"docs-{n}" for n in range(5)]
+    assert put_extras(api, "cpo", extras).status_code == 200
+    gh.repositories = [{"full_name": "Acme/" + name} for name in extras]
+    gh.missing = {"emp-cpo"}
+    data = turn_token(api).json()
+    assert set(data["repositories"]) == {"Acme/" + name for name in extras}
+    assert len(gh.of("/installation/repositories")) == 1 and not gh.of("/repos/Acme/docs-0")
+    # Within the missing mark, the own repository no longer fails a first mint on every call.
+    calls = len(gh.calls)
+    assert turn_token(api).status_code == 200 and len(gh.calls) == calls
+    # When GitHub will not list, each repository is probed as before.
+    with api.app_state.store.transaction() as c:
+        c.execute("DELETE FROM registry_metadata WHERE key='repositories-confirmed-missing'")
+    gh.list_status = 500
+    assert set(turn_token(api).json()["repositories"]) == {"Acme/" + name for name in extras}
+    assert gh.of("/repos/Acme/emp-cpo") and gh.of("/repos/Acme/docs-0")
 
 
 def test_only_the_owner_manages_extra_repositories(api, gh):
@@ -384,6 +480,52 @@ def test_owner_product_creation_uses_exact_name_private_empty_and_idempotent_rec
     durable_replay = product_repo_request(api, body, key="product-create-same")
     assert durable_replay.status_code == 200 and durable_replay.json() == created.json()
     assert len([call for call in gh.calls if call[0] == "POST" and call[1] == "/orgs/Acme/repos"]) == calls_before_durable_replay
+
+
+def test_owner_mcp_product_repository_tool_previews_confirms_and_replays(api, gh):
+    connect(api, administration="true")
+    gh.permissions = {"administration": "write", "metadata": "read"}
+
+    def call(arguments):
+        response = api.post("/api/v2/mcp", json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "hub_repo_product_create", "arguments": arguments},
+        }, headers=auth())
+        assert response.status_code == 200, response.text
+        result = response.json()["result"]
+        return result["isError"], result["structuredContent"]
+
+    operation_id = "mcp-product-create-stable"
+    error, preview = call({"name": "tico-recorder", "operation_id": operation_id})
+    assert not error and preview["confirmation_required"] is True and preview["created"] is False
+    assert preview["preview"]["repository"] == "Acme/tico-recorder"
+    assert not gh.of("/orgs/Acme/repos"), "the preview call does not create a repository"
+
+    error, refused = call({"name": "tico-recorder", "operation_id": operation_id,
+                           "confirm_repository": "Acme/other-product"})
+    assert error and refused["error"] == "confirmation_required"
+    assert not gh.of("/orgs/Acme/repos"), "a mismatched confirmation does not create a repository"
+
+    arguments = {"name": "tico-recorder", "operation_id": operation_id,
+                 "confirm_repository": "Acme/tico-recorder"}
+    error, created = call(arguments)
+    assert not error and created["repository"] == "Acme/tico-recorder"
+    creates = gh.of("/orgs/Acme/repos")
+    assert len(creates) == 1
+    assert creates[0][2] == {"name": "tico-recorder", "private": True, "auto_init": False,
+                             "description": "Tico product repository"}
+
+    error, replay = call(arguments)
+    assert not error and replay == created
+    assert len(gh.of("/orgs/Acme/repos")) == 1, "the same MCP operation id replays its saved receipt"
+
+    gh.permissions = {"contents": "write", "metadata": "read"}
+    before = len(gh.of("/orgs/Acme/repos"))
+    error, unavailable = call({"name": "tico-recorder", "operation_id": "mcp-product-create-no-admin"})
+    assert not error and unavailable["preview"]["capability"] == "missing"
+    assert "Administration: write" in unavailable["preview"]["capability_detail"]
+    assert unavailable["created"] is False and unavailable["confirmation_required"] is False
+    assert len(gh.of("/orgs/Acme/repos")) == before, "missing Administration does not create a repository"
 
 
 def test_lost_github_create_response_keeps_durable_key_binding_and_never_retries_create(api, gh):

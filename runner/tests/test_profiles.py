@@ -178,6 +178,16 @@ class Readiness(unittest.TestCase):
         self.assertEqual(env['CLAUDE_CONFIG_DIR'], '/operator/.claude')
         self.assertNotIn('CLAUDE_CONFIG_DIR', profiles.Profile('one', self.one['dir']).environment('claude', {}))
 
+    def test_turn_commits_under_the_bot_not_the_operator(self):
+        work = {**BOT, 'config': {'display_name': 'Head of Engineering'}}
+        self.runner.credential_environment = lambda *args: {}
+        self.runner.vault_values = {}
+        env = self.runner.environment(work)
+        self.assertEqual(env['GIT_AUTHOR_NAME'], 'Head of Engineering')
+        self.assertEqual(env['GIT_COMMITTER_EMAIL'], f"{work['bot']}@bots.tico.invalid")
+        self.runner.credential_environment = lambda *args: {'GIT_AUTHOR_NAME': 'Chosen'}
+        self.assertEqual(self.runner.environment(work)['GIT_AUTHOR_NAME'], 'Chosen')
+
     def test_named_profile_uses_state_not_workspace_and_rejects_symlinks(self):
         root = Path(self.tmp.name)
         destination = root / 'other-directory'

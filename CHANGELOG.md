@@ -7,13 +7,73 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+- Trello guidance: the connect-tools guide and BotOps's connect-a-tool playbook no longer cover Trello; a generic REST skill example replaces it.
+
+## [0.3.32] - 2026-10-07
+
+### Fixed
+- A Claude Code turn whose saved session is missing on its computer (after a move, a new HOME or cleaned sessions) restarts once as a fresh session with the same conversation's messages, instead of failing with "No conversation found with session ID" on every new job.
+- A bot's Files tab lists quickly on large teams: a file's provenance is read by index, and a run's tasks are read once per page instead of once per file version (2,000 files: 1.7 s to 44 ms).
+- The media worker reads only pending rows instead of scanning every stored file every few seconds.
+- Updates remove the untagged images older releases leave behind, keeping the one to roll back to. Without this a server's disk filled up over many releases.
+- Health's Computer sign-in names only a model the computer's bots run on, not the team's default model on every computer where it is installed.
+- A turn's GitHub token no longer takes 15-20 seconds for a bot whose own repository does not exist: Tico finds missing
+  repositories with one listing of what the GitHub App can see instead of asking about each granted repository, and stops
+  retrying a known-missing own repository beside the others until its five-minute mark expires.
+- Health's Tool credentials check and the bot's Tools row count a GitHub tool's `GH_TOKEN`/`GITHUB_TOKEN` as present when
+  the connected GitHub App mints it for the bot's repository.
+
+## [0.3.31] - 2026-10-07
+
 ### Added
-- When GitHub asks someone to review a pull request linked to a task, Tico can put them on the task in a role, and take them off if the request is withdrawn. Off unless `TICO_GITHUB_REVIEW_ROLE` names the role (for example `reviewer`); people are matched by a new `github` login on the roster (`POST /api/v2/people/{id}` with `{"github": "login"}`).
+- **Stuck bots** on Overview and in Health: a bot with queued work that its computer cannot start (no model sign-in, no repository, computer offline) shows at once with the computer's reason, for example "Claude login required on Team box", and one fix: Sign in, Move to a computer that can run it, or the settings page. Work not started after 15 minutes shows too, unless the bot or its computer is busy with other turns.
+- The bot Model control greys out harnesses its computer cannot run ("sign in", "not installed", "no key"), judged by the same rule as a model change and a move, and its editor offers Sign in or Move to a computer that can. Bulk "Change model" lists those bots as "Can't run" instead of sending the change.
+- Health warns about a bot over 100M uncached input tokens in a day, with the number (cache reads do not count). `TICO_TOKEN_ALERT_INPUT` sets the threshold; 0 turns it off.
+- **Windows PCs run bots through WSL 2.** Settings > Computers > Add computer > Windows PC (WSL 2, beta) shows one PowerShell line: `install-wsl.ps1`, now published with each release, sets up WSL 2 and Ubuntu if needed and runs the Linux runner inside it ([Install](docs/install.md#windows-pc-wsl-2)). Not yet tested on a real Windows PC.
+- **Add computer shows one command** for a Mac (the Docker installer; a Tico checkout is still an option), a Linux server or a Windows PC, each with Copy.
+- **Settings > Computers lists each computer's AI tools** with version and sign-in state. Owners, admins and the computer's operator can sign Codex and Claude Code in from there; Grok Build and Cursor show the command to run on the computer.
+- A published release moves the Waiting tasks it contains to Review with "Shipped in vX.Y.Z": a pushed `vX.Y.Z` tag, a published GitHub release, or the release the server runs, when the task's merged pull requests or linked commits are on main at or before it. Apps created earlier: tick the **Release** event in the GitHub App; pushed tags work without it ([GitHub App](docs/github-app.md#task-pr-events)).
+- Health flags a task whose status changes 20 times in 24 hours as a likely loop, naming who moves it, and tells its owner and requester once a day. Nothing is blocked.
+- Health shows "<computer>: GitHub sign-in failed" when a bot's GitHub App token gets 401 there, and "<computer>: browser does not start" when the Chromium a bot installed cannot launch. Each computer checks every 15 minutes and reports two failures in a row ([GitHub App](docs/github-app.md#how-bots-sign-in-to-github), [harnesses](docs/harnesses.md)).
+- `hub human list` shows each person's GitHub login, and a bot that opens a pull request for a person requests their review by it.
+- **BotOps keeps the asking person's rights** when it follows through later on a task that person filed: it cites the task (`--on-behalf-of <task id>` on `hub api` and `hub bot model`), acts with that person's role, and every such change is recorded with the person, the cited request and whether it came from a live chat or a follow-through run. Runs started by Slack, meetings, watchers or comments, and bot requests, keep only the bot's rights ([Permissions](docs/permissions.md)).
+- A refused BotOps action says what the person should click, with a link to the exact setting.
+- A model change, by BotOps or `hub bot model`, is checked against the bot's own sign-in on its computer (its subscription, its own key, or the computer's shared sign-in) and refused with the fix when the computer cannot run it; the answer says whether the computer can run the new model.
+
+### Changed
+- A task worktree whose pull requests are all merged or closed frees itself once its bot is idle, even while the task stays open; one with unsaved or unpushed work is kept, with the reason. The worktree limit error says which pull requests to merge and which worktrees free themselves.
+- A bot's new question to a person on a task replaces its earlier unanswered one to that person, and a finished task's open questions close (done keeps review questions). Questions older than three days move to a folded **Older questions** group at the end of Needs you and leave its count. `hub_question_ask` returns each ask's `message_id`, timeouts included.
+- Engineering bot templates and `policies/writing.md`: plain notes, asks to someone on the roster, and only the Release Manager publishes releases ([Releasing](docs/releasing.md)).
+
+### Fixed
+- The Docker sign-in command for Claude Code was `claude setup-token`, which prints a token and leaves the CLI signed out; it is now `claude auth login`, run as `bot`.
+- Moving a bot to another computer works again: the destination is judged by whether it can run the bot (its runtime installed and signed in, for the bot's own subscription or key), instead of always answering "Update the destination runner".
+- A bot set up from a catalog template that lands on a new computer clones its GitHub history instead of starting from a fresh template copy. A copy that shares no history with GitHub never gets a turn, and a computer the bot returns to brings its clean old clone up to GitHub's history before the first turn.
+- Credentials can no longer be saved or given to a bot under a name Tico reserves (`TICO_`, `DYLD_`, `LD_`, the runner's own `HUB_` names); the release-notes template now uses `UPDATE_KEY_*`. One stored before is left out of the bot's turns instead of stopping every turn, and Health names it under **Credential names** until its variable is renamed.
+- A turn that fails before it starts logs why (secrets scrubbed), not only the server's refusal of its result.
+- `gh pr create` in a bot's turn could fail with HTTP 401 Bad credentials while `git push` worked: a login shell (Codex runs `bash -lc`) dropped the turn's `gh` wrapper from PATH, and `gh` fell back to a token minted at turn start that could expire minutes later. The runner image now keeps the turn's PATH in login shells, and turn tokens are minted with at least 45 minutes left.
+- A `GH_TOKEN` credential granted to a bot no longer competes with the GitHub App: the App's token wins in the connected organization, and the stored token serves only repositories outside it.
+- The Docker runner image has the system libraries Chromium needs, so a Playwright browser a bot installs starts (it failed on missing `libglib-2.0.so.0`).
+
+## [0.3.30] - 2026-10-07
+
+### Added
+- When GitHub asks someone to review a pull request linked to a task, Tico can put them on the task in a role, and take them off if the request is withdrawn. Off unless `TICO_GITHUB_REVIEW_ROLE` names the role (for example `reviewer`); people are matched by a new **GitHub** login in the Contact card of their profile (or `POST /api/v2/people/{id}` with `{"github": "login"}`). Two people cannot share a login (409 `github_taken`), and a login a roster already shares names nobody ([GitHub App](docs/github-app.md#task-pr-events)).
+- An Owner's agent can create an empty private product repository through the MCP tool `hub_repo_product_create`: the first call previews, the second must repeat the exact `org/name`. Only Owners see the tool ([GitHub App](docs/github-app.md#creating-a-product-repository)).
 - **Bot messages in Slack**, under Profile → Notifications: turn it off to keep every bot's messages to you in Tico instead of your Tico DM in Slack, end-of-run reports included, or mute only some bots. A bot you are talking to in Slack still answers there. Also `notify_slack_bot_messages` and `slack_muted_bots` on `POST /api/v2/humans/<id>` ([Slack](docs/slack.md#bot-messages)).
+- The Assistant answers "hi" and "what task types do we use?" at once, from the workspace's own task types, without waiting on a model or starting a job.
+- **Connect on your own row** of the Team chart until one of your personal tokens has reached Tico; it opens the connect dialog. Only shown to someone who may make a personal token (`can_create` on `GET /api/v2/me/tokens`).
 
 ### Changed
 - A bot's page on a phone: the top line is only back, the bot and its tabs. Its goals lead More, then Learnings, branches and temporary assignments; the cards follow in groups, compact, with tools one line each and tables one line a row; status history, runs, tools, access and the session show three and "Show all". The rotating task line under the name is gone (the "needs you" card above the chat says it), and so are its two task reads per refresh.
 - "Temporary assignments need Allow branches" no longer shows on every bot's page; the switch stays in the bot's Settings.
+- The goal target beside a bot's chat box is now a mode instead of a form: while it is on, Send reads "Set goal", the box says "Goal for <bot>…", and what you send becomes the chat's pinned goal. It stays on for that bot until you turn it off; attached files still go as a message.
+- Task and note cards in a row fold into one line in the chat, "4 updates" with the latest time; a single card shows as it is.
+- A human's synced Grok Bots show as chips beside their name on the Team chart (one by name, then "+N") instead of rows under them.
+
+### Fixed
+- A Codex goal whose resumed thread reported "no goal" is checked with the harness before it is stopped, so a new goal is no longer cancelled at once; once a goal is met, a later clear is left alone.
 
 ## [0.3.29] - 2026-10-06
 

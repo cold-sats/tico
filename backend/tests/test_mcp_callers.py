@@ -45,6 +45,8 @@ def test_each_caller_is_offered_only_the_tools_it_can_use(api, botops):
         assert "hub_bot_assignment_policy" not in lists[who], who
     assert "hub_grokbot_sync" in lists["owner"] and "hub_grokbot_sync" in lists["admin"]
     assert "hub_grokbot_sync" not in lists["member"]
+    assert "hub_repo_product_create" in lists["owner"]
+    assert all("hub_repo_product_create" not in lists[who] for who in ("admin", "member", "bot", "botops", "agent"))
     assert {"hub_api", "hub_bot_update"} <= lists["member"]
     assert BOTOPS_ONLY <= lists["botops"] and BOTS_ONLY <= lists["botops"] and not HUMANS_ONLY & lists["botops"]
     assert (ASSIGNMENT_TOOLS - {"hub_bot_assignment_policy"}) <= lists["botops"]

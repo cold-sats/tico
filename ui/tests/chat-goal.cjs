@@ -24,7 +24,8 @@ const COMMANDS = [
 async function open(browser, viewport, touch = false, {empty = false, messages = null, goal = null, theme = '', supported = true, readiness = {ready: true, goals: true}} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block', ...(touch ? {hasTouch: true, isMobile: true} : {})});
   if (theme) await page.addInitScript(t => { try { localStorage.setItem('tico.theme', t); } catch {} }, theme);
-  const api = {errors: [], goalPosts: [], sends: [], created: [], goal, streamGoal: null, page, room: !empty, held: []};
+  const api = {errors: [], goalPosts: [], goalKeys: [], goalResults: new Map(), dropGoalOnce: false,
+    sends: [], uploads: [], created: [], goal, streamGoal: null, page, room: !empty, held: []};
   const tick = setInterval(() => {
     const g = api.streamGoal, route = api.held.at(-1);
     if (!g || !route) return;
@@ -58,7 +59,9 @@ async function open(browser, viewport, touch = false, {empty = false, messages =
     if (p === '/api/v2/events') { api.held.push(route); return; }
     if (p === '/api/v2/conversations/c1/goal') {
       if (req.method() === 'GET') return json({goal: api.goal, supported, commands: supported ? COMMANDS : COMMANDS.filter(c => c.name !== 'goal')});
-      const body = req.postDataJSON(); api.goalPosts.push(body);
+      const body = req.postDataJSON(), key = req.headers()['idempotency-key']; api.goalKeys.push(key);
+      if (api.goalResults.has(key)) return json(api.goalResults.get(key));
+      api.goalPosts.push(body);
       if (!supported) return json({error: {code: 'goal_unsupported', detail: "This bot's harness doesn't support goals"}}, 409);
       if (api.slowGoal) await new Promise(done => setTimeout(done, api.slowGoal));
       const status = {set: 'active', edit: api.goal?.status || 'active', pause: 'paused', resume: 'active', clear: 'cleared'}[body.action];
@@ -66,7 +69,13 @@ async function open(browser, viewport, touch = false, {empty = false, messages =
                   set_by: 'human:ana', set_at: api.goal?.set_at || now(), updated_at: now(), ended_at: status === 'cleared' ? now() : null};
       const out = {goal: api.goal};
       if (status === 'cleared') api.goal = null;
+      api.goalResults.set(key, out);
+      if (api.dropGoalOnce) { api.dropGoalOnce = false; return json({error:{detail:'temporary response interruption'}}, 503); }
       return json(out);
+    }
+    if (p === '/api/v2/uploads/chat/ops') {
+      api.uploads.push(req.postDataBuffer().toString());
+      return json({conversation: {id: 'c1'}, message: {id: 'u' + api.uploads.length, from_actor: 'human:ana', body: 'With a file', created: now()}});
     }
     if (p === '/api/v2/chat/ops') {
       const body = req.postDataJSON(); api.sends.push(body);
@@ -90,15 +99,23 @@ async function desktop(browser) {
   assert.equal(await target.getAttribute('title'), 'Goal');
   assert.equal(await page.locator('#chat-goal').isHidden(), true, 'no goal, no bar');
 
-  // Set a goal from the target.
+  // Goal is a highlighted mode, not a popup; Send says Set goal and saves its text as the goal.
+  const send = page.locator('#chat-composer .p-send'), composer = page.locator('#chat-composer textarea');
   await target.click();
-  const form = page.locator('#chat-goal textarea');
-  assert.equal(await form.getAttribute('placeholder'), 'What should it get done?');
-  await form.fill(LONG); await form.press('Enter');
+  assert.equal(await target.getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#chat-goal').isHidden(), true, 'the toggle does not open a form');
+  assert.equal(await send.innerText(), 'Set goal');
+  assert.equal(await composer.getAttribute('placeholder'), 'Goal for Ops…');
+  await composer.fill(LONG); api.dropGoalOnce = true;
+  await page.locator('#chat-composer .p-send').click();
   await page.locator('#chat-goal .cg-bar').waitFor();
   assert.deepEqual(api.goalPosts[0], {action: 'set', objective: LONG});
+  assert.equal(api.goalPosts.length, 1, 'retry after a lost response applies the goal once');
+  assert.equal(api.goalKeys.length, 2); assert.equal(api.goalKeys[0], api.goalKeys[1], 'retry keeps the operation id');
+  assert.deepEqual(api.sends, [], 'goal mode does not queue a normal chat turn');
+  await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
   assert.equal(await page.locator('#chat-goal .cg-chip').innerText(), 'Working');
-  assert.match(await target.getAttribute('class'), /\bon\b/, 'the target is filled');
+  assert.match(await target.getAttribute('class'), /\bon\b/, 'the goal mode remains highlighted');
   await page.locator('#side .tree-goal').waitFor();               // the bot's row has the mark
 
   // Three lines, then tap to read it all with Edit, Pause and Clear.
@@ -116,7 +133,20 @@ async function desktop(browser) {
   await page.getByRole('button', {name: 'Clear'}).click();
   await page.locator('#chat-goal').waitFor({state: 'hidden'});
   assert.equal(api.goalPosts.at(-1).action, 'clear');
-  assert.doesNotMatch(await target.getAttribute('class'), /\bon\b/);
+  // Files are never dropped: with one attached, Send is Send again and it all goes as a message.
+  const goalPosts = api.goalPosts.length;
+  await composer.fill('With a file');
+  await page.locator('#chat-composer .p-file').setInputFiles({name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('fixture')});
+  assert.equal(await send.getAttribute('aria-label'), 'Send');
+  await send.click();
+  await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
+  assert.equal(api.uploads.length, 1); assert.match(api.uploads[0], /With a file/);
+  assert.equal(api.goalPosts.length, goalPosts, 'not saved as the goal');
+  assert.equal(await send.innerText(), 'Set goal', 'the mode stays on for the next goal');
+  await target.click();
+  assert.equal(await target.getAttribute('aria-pressed'), 'false', 'the same Goal button exits the mode');
+  assert.equal(await send.getAttribute('aria-label'), 'Send');
+  assert.equal(await composer.getAttribute('placeholder'), 'Type a message…');
   assert.equal(await page.locator('#side .tree-goal').count(), 0);
 
   // The "/" menu: filter, arrows, Return picks; a harness command goes out flagged.
@@ -252,15 +282,16 @@ async function emptyChat(browser) {
   await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
   assert.deepEqual(api.errors, []);
   await page.close();
-  // The target works the same way, and Return twice sets it once.
+  // Keyboard submission uses the same path; two Returns during a slow save still set it once.
   const again = await open(browser, {width: 1280, height: 860}, false, {empty: true});
   again.slowGoal = 300;
   await again.page.locator('#chat-composer .p-goal').click();
-  const form = again.page.locator('#chat-goal textarea');
-  await form.fill('Clean up the Acme wiki'); await form.press('Enter'); await form.press('Enter').catch(() => {});
+  const goalBox = again.page.locator('#chat-composer textarea');
+  await goalBox.fill('Clean up the Acme wiki'); await goalBox.press('Enter'); await goalBox.press('Enter').catch(() => {});
   await again.page.locator('#chat-goal .cg-bar').waitFor();
   assert.equal(again.created.length, 1);
   assert.deepEqual(again.goalPosts, [{action: 'set', objective: 'Clean up the Acme wiki'}]);
+  assert.equal(again.sends.length, 0);
   assert.deepEqual(again.errors, []);
   await again.page.close();
 
@@ -270,20 +301,19 @@ async function emptyChat(browser) {
   assert.equal(await no.page.locator('#chat-composer .p-goal').isHidden(), true);
   await no.page.close();
 
-  // It said nothing, so the goal is offered, and the server refuses it: the typed goal stays with the reason.
+  // It said nothing, so the goal mode is offered; a server refusal keeps the composer draft.
   const refused = await open(browser, {width: 1280, height: 860}, false, {empty: true, supported: false, readiness: {ready: true}});
   await refused.page.locator('#chat-composer .p-goal').click();
-  const box2 = refused.page.locator('#chat-goal textarea');
+  const box2 = refused.page.locator('#chat-composer textarea');
   await box2.fill('Ship the Acme pricing page');
-  await refused.page.locator('#chat-goal [type=submit]').click();
-  await refused.page.locator('#chat-goal .cg-why', {hasText: "doesn't support goals"}).waitFor();
+  await box2.press('Enter');
+  await refused.page.getByText("This bot's harness doesn't support goals.", {exact:true}).waitFor();
   assert.equal(await box2.inputValue(), 'Ship the Acme pricing page', 'the typed goal is kept');
   assert.equal(refused.created.length, 1, "the bot's own room, the one its first message will use");
   assert.deepEqual(refused.goalPosts, [], 'not set where it is refused');
-  assert.equal(await refused.page.locator('#chat-goal [type=submit]').isDisabled(), false);
-  await refused.page.locator('#chat-goal [data-goal="cancel"]').click();
-  await refused.page.locator('#chat-goal').waitFor({state: 'hidden'});
-  assert.equal(await refused.page.locator('#chat-composer .p-goal').isHidden(), true, 'no longer offered');
+  assert.equal(await refused.page.locator('#chat-composer .p-goal').getAttribute('aria-pressed'), 'true');
+  await refused.page.locator('#chat-composer .p-goal').click();
+  assert.equal(await refused.page.locator('#chat-composer .p-goal').getAttribute('aria-pressed'), 'false');
   assert.deepEqual(refused.errors, []);
   await refused.page.close();
   console.log('empty chat: ok');

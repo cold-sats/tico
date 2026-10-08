@@ -59,10 +59,35 @@ def unreachable(c):
 
 def reachable(c, names):
     marks = metadata(c, 'repositories-confirmed-missing')
+    changed = False
     for name in names:
-        marks.pop(name.lower(), None)
-        c.execute('UPDATE repositories SET reachable=1 WHERE full_name=? COLLATE NOCASE', (name,))
-    save_metadata(c, 'repositories-confirmed-missing', marks)
+        if name.lower() in marks:
+            marks.pop(name.lower())
+            changed = True
+        row = c.execute('SELECT reachable FROM repositories WHERE full_name=? COLLATE NOCASE', (name,)).fetchone()
+        if row is not None and row['reachable'] != 1:
+            c.execute('UPDATE repositories SET reachable=1 WHERE full_name=? COLLATE NOCASE', (name,))
+            changed = True
+    if changed:
+        save_metadata(c, 'repositories-confirmed-missing', marks)
+    return changed
+
+
+def mark_reachable(store, names):
+    """Persist only a changed reachability state; routine token minting often finds no change."""
+    with store.read() as c:
+        marks = metadata(c, 'repositories-confirmed-missing')
+        needs_write = any(name.lower() in marks for name in names)
+        if not needs_write:
+            for name in names:
+                row = c.execute('SELECT reachable FROM repositories WHERE full_name=? COLLATE NOCASE', (name,)).fetchone()
+                if row is not None and row['reachable'] != 1:
+                    needs_write = True
+                    break
+    if not needs_write:
+        return False
+    with store.transaction() as c:
+        return reachable(c, names)
 
 
 def _botops():

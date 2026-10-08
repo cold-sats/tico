@@ -220,6 +220,7 @@ async function loadSettings() {
     S.emps = namedRoster(employees);
     setPeople(people);
     SETTINGS_DATA = {people: (people.people || []).filter(p => !p.hidden), machines: operations.machines || [],
+      runnable: operations.runnable || {},
       agents: operations.agents || [],
       services: operations.services || [], models: catalog.models || [],
       harnesses: catalog.harnesses || [],

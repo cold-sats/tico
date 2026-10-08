@@ -492,3 +492,44 @@ def test_a_review_request_puts_the_person_in_the_configured_role(api):
     assert roles() == {"reviewer": ["human:ana"]}
     hook(api, "pull_request", pr_event("synchronize", requested_reviewers=[]))
     assert roles() == {"reviewer": ["human:ana"]}
+    # Two people never share a login; one a roster already shares (written before the check) names nobody.
+    with api.app.state.store.transaction() as c:
+        people = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()[0])
+        people["people"].append({"id": "bo", "email": "bo@acme.example"})
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(people),))
+        H.sync_registry(c, {}, people)
+    post(api, "people/bo", {"github": "ANA-dev"}, expected=409)
+    with api.app.state.store.transaction() as c:
+        people["people"][-1]["github"] = "ana-dev"
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(people),))
+    hook(api, "pull_request", asked)
+    assert roles() == {"reviewer": ["human:ana"]}
+
+
+def test_a_release_tag_moves_the_waiting_tasks_it_contains_to_review(api):
+    shipped = post(api, "tasks", {"owner": "cpo", "title": "Fix the importer", "body": "x", "links": [PR]})
+    later = post(api, "tasks", {"owner": "cpo", "title": "Fix the exporter", "body": "x", "links": [PR.replace("/412", "/413")]})
+    main = {"ref": "refs/heads/main", "repository": {"full_name": "ticoteam/tico", "default_branch": "main"}}
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='waiting' WHERE id IN (?,?)", (shipped["id"], later["id"]))
+        c.execute("UPDATE task_links SET state='merged',pr_sha='a1' WHERE task_id=?", (shipped["id"],))
+        c.execute("UPDATE task_links SET state='merged',pr_sha='c3' WHERE task_id=?", (later["id"],))
+    hook(api, "push", {**main, "commits": [{"id": "a1"}, {"id": "b" * 40}], "head_commit": {"id": "b" * 40}})
+    hook(api, "push", {**main, "commits": [{"id": "c3"}], "head_commit": {"id": "c3"}})
+    tagged = hook(api, "push", {"ref": "refs/tags/v1.2.3", "repository": {"full_name": "ticoteam/tico"},
+                                "after": "b" * 40, "head_commit": {"id": "b" * 40}})
+    assert tagged["released"] == [shipped["id"]]
+    moved = get(api, "tasks/" + shipped["id"])["task"]
+    assert moved["status"] == "review" and "Shipped in v1.2.3" in moved["note"]
+    # merged after the tagged commit: not in this release, still waiting
+    assert get(api, "tasks/" + later["id"])["task"]["status"] == "waiting"
+    # put back in Waiting, the same work stays there; a published release that names only its tag is placed by the
+    # tag push recorded before it
+    cited = post(api, "tasks", {"owner": "cpo", "title": "Fix the parser", "body": "x",
+                                "links": ["https://github.com/ticoteam/tico/commit/" + "b" * 40]})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='waiting' WHERE id IN (?,?)", (shipped["id"], cited["id"]))
+    published = hook(api, "release", {"action": "published", "repository": {"full_name": "ticoteam/tico"},
+                                      "release": {"tag_name": "v1.2.3", "target_commitish": "main"}})
+    assert published["released"] == [cited["id"]]
+    assert get(api, "tasks/" + shipped["id"])["task"]["status"] == "waiting"

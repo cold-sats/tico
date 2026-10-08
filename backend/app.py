@@ -49,6 +49,7 @@ from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
 from .settings_admin import SettingsAdmin, repository_present
+from .readiness import absolute as absolute_link, can_run
 from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
 from .credential_cards import install_credential_cards, scrub_attempt
@@ -123,9 +124,10 @@ def create_app(settings=None):
             telemetry.capture("message_bots", exc)
         # This release may ship merged product tasks that waited for it (backend/github.py).
         try:
-            from .github import ship_deployed
+            from .github import ship_deployed, ship_running_release
             with store.transaction() as c:
                 ship_deployed(c, settings)
+                ship_running_release(c, settings)
         except Exception as exc:
             telemetry.capture("github", exc)
         # A deploy keeps the API down longer than a lease; do not fail turns for that.
@@ -243,6 +245,22 @@ def create_app(settings=None):
         if exc.status >= 500:
             telemetry.capture("request", exc, exc.status)
             request.state.telemetry_captured = True
+        caller = getattr(request.state, "privacy_source", None)
+        if (caller is not None and caller.actor == "bot:" + BOTOPS and exc.status in (403, 409)
+                and "fix" not in getattr(exc, "extra", {})):
+            # BotOps relays a refusal to a person: what to click, and where (botops_act.fix).
+            acting = getattr(request.state, "identity", None) or caller
+            def hint():
+                parts = request.url.path.split("/")
+                with store.read() as c:
+                    names = actor_names.lookup(c, [acting.actor] + (["bot:" + parts[4]] if parts[3:4] == ["bots"]
+                                                                     and len(parts) > 4 else []))
+                return botops_act.fix(request.url.path, exc.code, exc.status, acting, names, settings.public_url)
+            found = await asyncio.get_running_loop().run_in_executor(None, hint)
+            if found:
+                exc.extra = {**getattr(exc, "extra", {}), **found}
+        if getattr(exc, "extra", None) and str(exc.extra.get("link") or "").startswith("#/"):
+            exc.extra = absolute_link(exc.extra, settings.public_url)
         return JSONResponse({"error": {"code": exc.code, "detail": exc.detail,
                                        "retryable": exc.retryable, **getattr(exc, "extra", {})}},
                             status_code=exc.status)
@@ -307,7 +325,7 @@ def create_app(settings=None):
 
     @app.middleware("http")
     async def request_guard(request, call_next):
-        via_reset = None
+        via_reset = delegation_reset = None
         try:
             # The sign-in exemptions below match on prefixes; a dot segment would carry one of
             # them onto the static files ("/download/../index.html").
@@ -436,6 +454,8 @@ def create_app(settings=None):
                     request.state.identity = replace(acted, task_actor=caller.task_actor or caller.actor)
                     if via_reset is None:
                         via_reset = H.VIA.set("botops")
+                    if getattr(request.state, "delegation", None):
+                        delegation_reset = H.DELEGATION.set(request.state.delegation)
             response = early or await call_next(request)
             if response.status_code >= 500:
                 from .diagnostics import request_failure
@@ -501,6 +521,8 @@ def create_app(settings=None):
         finally:
             if via_reset is not None:
                 H.VIA.reset(via_reset)
+            if delegation_reset is not None:
+                H.DELEGATION.reset(delegation_reset)
 
     from . import routines
 
@@ -819,15 +841,16 @@ def create_app(settings=None):
                 "ROW_NUMBER() OVER (PARTITION BY t.id ORDER BY m.rowid DESC) AS ask_rank "
                 "FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
                 f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
-                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL AND m.answered_by IS NULL "
+                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
                 "AND task_ask_readable(m.id,m.conversation_id,m.refs_json,m.in_reply_to) "
-                "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')) "
+                f"AND {H.OPEN_ASK_SQL}) "
                 "WHERE ask_rank=1", ids):
             message = dict(message)
             tid = message.pop("ask_task_id")
             open_counts[tid] = message.pop("open_count")
             message.pop("ask_rank")
             message["refs"] = H._json(message.get("refs_json"), {}) or {}
+            message["older"] = H.ask_older(message)
             asks[tid] = message
 
         origins = {}
@@ -1607,6 +1630,11 @@ def create_app(settings=None):
                     raise Problem("forbidden", "You can only move people under yourself or your own reports", 403)
                 if who.role != "owner" and not boss:
                     raise Problem("forbidden", "Only the owner puts someone at the top of the chart", 403)
+            login = body.github.strip().lstrip("@").lower() if body.github is not None else None
+            # A review request names one login (backend/github.py), so two people never share one.
+            if login and any(row["id"] != pid and not row.get("hidden") and str(row.get("github") or "").lower() == login
+                             for row in roster["people"]):
+                raise Problem("github_taken", "Someone else on the team already has this GitHub login", 409)
             people = list(roster["people"])
             for i, row in enumerate(people):
                 if row["id"] != pid:
@@ -1621,8 +1649,8 @@ def create_app(settings=None):
                     row = {**row, "notes": body.notes}
                 if body.notify_slack_task_done is not None:
                     row = {**row, "notify_slack_task_done": body.notify_slack_task_done}
-                if body.github is not None:
-                    row = {**row, "github": body.github.strip().lstrip("@").lower()}
+                if login is not None:
+                    row = {**row, "github": login}
                 if body.notify_slack_bot_messages is not None:
                     row = {**row, "notify_slack_bot_messages": body.notify_slack_bot_messages}
                 if body.slack_muted_bots is not None:
@@ -2867,6 +2895,8 @@ def create_app(settings=None):
 
     DELEGATION_DAYS = 7               # the message that started the turn (a queued turn may wait)
     DELEGATION_CITED_HOURS = 24       # a message cited by id
+    # Keeper wakes a follow-through run may start from: the daily update, and a task's due, stall or routine notice.
+    FOLLOW_THROUGH_WAKES = ("update", "due", "stalled", "occurrence")
 
     def delegated_identity(c, who, ref):
         """Resolve the run's requester, never a human named in its text. Human messages and tasks
@@ -2882,9 +2912,11 @@ def create_app(settings=None):
                            attempt_id=who.attempt_id, agent=who.agent)
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps applies changes on a requester's behalf", 403)
-        def acting_as(principal):
+        def acting_as(principal, cited="", run="live"):
             # Keep the actual bot's credential so writes revalidate its lease under the lock,
             # and private reads intersect the requester with the bot doing the work.
+            if H.is_human(principal.actor):
+                H.DELEGATION.set({"for": principal.actor, "cited": cited, "run": run})
             return replace(principal, via="botops", confirmed=True, task_actor=who.actor,
                            runner_id=who.runner_id, attempt_id=who.attempt_id, agent=who.agent)
         message_id = ref
@@ -2893,6 +2925,10 @@ def create_app(settings=None):
                          (who.attempt_id,)).fetchone() if who.attempt_id else None
         if explicit and not turn:
             raise Problem("on_behalf_of", "Cite the request that started this run", 403)
+        if explicit:
+            cited = followed_task(c, ref)
+            if cited:
+                return acting_as(follow_through(c, who, cited), cited["id"], "follow_through")
         if not explicit:
             if not turn:
                 return who
@@ -2926,14 +2962,14 @@ def create_app(settings=None):
                                      "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                     if made and H._json(made["detail_json"], {}).get("via") != "assistant":
                         person = auth.identity_for_actor(c, task["requester"])
-                        return acting_as(person)
+                        return acting_as(person, task_id)
                 origin = c.execute("SELECT actor FROM events WHERE action='botops.task_requested' AND target=? "
                                    "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                 if origin and str(origin["actor"]).startswith("human:"):
                     auth.conversation(c, who, task["conversation_id"])
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
-                    return acting_as(person)
+                    return acting_as(person, task_id)
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 made = c.execute("SELECT 1 FROM events WHERE action='task.create' AND target=? AND actor=? LIMIT 1",
@@ -2984,7 +3020,59 @@ def create_app(settings=None):
             raise Problem("on_behalf_of", "Cite a request from the conversation you are working on", 403) from None
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
-        return acting_as(person)
+        return acting_as(person, message_id)
+
+    def followed_task(c, ref):
+        """The task `ref` names (its id, or an unambiguous prefix of eight or more), or None when it names none."""
+        ref = str(ref or "")
+        prefix = ref.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = c.execute("SELECT id FROM tasks WHERE id=? OR (length(?)>=8 AND id LIKE ? || '%' ESCAPE '\\') LIMIT 2",
+                         (ref, ref, prefix)).fetchall()
+        exact = [r for r in rows if r["id"] == ref]
+        return H.task(c, (exact or rows)[0]["id"]) if len(exact or rows) == 1 else None
+
+    def follow_through(c, who, task):
+        """The person whose open request BotOps is following through on, in a later run: a daily-update wake, a retry
+        once a busy bot finished, a notice. The run that started it is gone, so BotOps cites the task the person asked
+        for. Only a task BotOps owns, that the person filed themselves (not through the Assistant), still open and at
+        most a week old; and never from a run a bot or another person started, which keeps its own requester's rights."""
+        requester = task["requester"]
+        if task["owner"] != who.actor or not H.is_human(requester):
+            raise Problem("on_behalf_of", "Cite a task a person asked BotOps for", 403)
+        if task["status"] in ("done", "closed", "declined"):
+            raise Problem("on_behalf_of", "That task is closed; ask the person again", 403)
+        made = c.execute("SELECT actor,detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
+                         (task["id"],)).fetchone()
+        via = H._json(made["detail_json"], {}).get("via") if made else None
+        if not made or made["actor"] != requester or via == "assistant":
+            raise Problem("on_behalf_of", "That task was not filed by the person who asked for it", 403)
+        if via and not task.get("request_id"):
+            # Filed by BotOps as the person: only a continuation of their message (--request-id) counts, dated by that
+            # message, or a follow-through run could file a fresh task as them and so never run out of week.
+            raise Problem("on_behalf_of", "BotOps filed that task without the person's message; ask the person again", 403)
+        origin = H.message(c, task["request_id"]) if task.get("request_id") else None
+        if task.get("request_id") and (not origin or origin["from_actor"] != requester):
+            raise Problem("on_behalf_of", "That task's request is not the person's own", 403)
+        if (origin or task)["created"] < H.shift(H.now(), days=-DELEGATION_DAYS):
+            raise Problem("on_behalf_of", "That request is more than a week old; ask the person again", 403)
+        current = delegated_identity(c, who, "turn")
+        if current.actor not in (who.actor, requester):
+            raise Problem("on_behalf_of", "This run is for " + current.actor + "; it keeps that requester's rights", 403)
+        if current.actor == who.actor:
+            # A run with no requester lends a person's rights only when the keeper started it on its own schedule. A
+            # Slack digest, a live meeting, a watcher or a task comment also start such runs, with words anyone there
+            # wrote; those never carry a person's rights (Slack and comments are refused the same way above).
+            turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
+                             (who.attempt_id,)).fetchone()
+            start = H.message(c, turn["message_id"]) if turn else None
+            refs = (start or {}).get("refs") or {}
+            if (not start or start["from_actor"] != H.KEEPER or start["kind"] != "notice"
+                    or refs.get("wake") not in FOLLOW_THROUGH_WAKES
+                    or any(refs.get(k) for k in ("slack", "routing", "via", "assistant", "comment", "live_meeting"))):
+                raise Problem("on_behalf_of", "This run started from words others wrote; act on the person's task in "
+                              "their chat or the next daily update", 403)
+        H.VIA.set("botops")
+        return auth.identity_for_actor(c, requester)
 
     def botops_owns_task(path, body=None):
         """A note, comment or status on a task BotOps owns is BotOps' own work: it needs no one's rights and is BotOps'
@@ -3004,8 +3092,15 @@ def create_app(settings=None):
         who = request.state.identity
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps acts on a person's behalf", 403)
+        # Runs on an executor thread: the delegation record is read back here and set again for the route.
+        token = H.DELEGATION.set(None)
+        try:
+            with store.read() as c:
+                acting = delegated_identity(c, who, ref)
+            request.state.delegation = H.DELEGATION.get()
+        finally:
+            H.DELEGATION.reset(token)
         with store.read() as c:
-            acting = delegated_identity(c, who, ref)
             if acting.actor == who.actor:
                 return None, None
             body = botops_act.parse_body(getattr(request, "_body", b"")) if request.method != "GET" else None
@@ -3785,13 +3880,20 @@ def create_app(settings=None):
             runtime = runtime_of(harness) or choice["runtime"]
             if (old_model == choice["id"] and old_runtime == runtime
                     and old_effort == effort and old_harness == harness):
+                # Asking again for what is set is how a caller re-checks that the bot's computer runs it.
                 return {"bot": bot, "model": choice["id"], "runtime": runtime, "harness": harness,
-                        "effort": effort, "revision": row["revision"], "sessions_reset": 0}
+                        "effort": effort, "revision": row["revision"], "sessions_reset": 0,
+                        "readiness": absolute_link(can_run(c, bot, runtime, harness=harness, model=choice["id"]), settings.public_url)}
             before = settings_admin.snapshot(c, bot, "model")
             execution.expire(c)
             active = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (bot,)).fetchone()
             if active:
                 raise Problem("busy", "Wait for the current run to finish before changing models", 409)
+            # The same check a prepared change makes (settings_admin._target): a model the bot's computer reports it
+            # cannot run is refused with the fix, not saved for a bot that then never runs.
+            can = absolute_link(can_run(c, bot, runtime, harness=harness, model=choice["id"]), settings.public_url)
+            if can["can_run"] is False:
+                raise Problem("runner_not_ready", can["problem"], 409, extra={"fix": can["fix"], "link": can["link"]})
             config.update({"model": choice["id"], "runtime": runtime, "harness": harness,
                            "reasoning_effort": effort,
                            "model_managed_by": "cloud"})
@@ -3807,7 +3909,7 @@ def create_app(settings=None):
                      "harness": harness, "effort": effort,
                      "sessions_reset": reset})
             return {"bot": bot, "model": choice["id"], "runtime": runtime, "harness": harness,
-                    "effort": effort, "revision": row["revision"] + 1, "sessions_reset": reset}
+                    "effort": effort, "revision": row["revision"] + 1, "sessions_reset": reset, "readiness": can}
         return mutate(request, body, work)
 
     @app.post("/api/v2/bots/{bot}/fallback")

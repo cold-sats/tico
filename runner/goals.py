@@ -47,6 +47,29 @@ def codex_status(goal):
             "budgetLimited": "stopped", "budget_limited": "stopped", "completed": "met"}.get(status, status)
 
 
+def reconcile_codex_clear(host, thread_id, event, objective):
+    """A resume snapshot has no revision; verify it before stopping a new goal.
+
+    The app server emits goal/cleared when a resumed thread has no goal, even
+    though a subsequent goal/set may already have activated the requested goal.
+    Query off the notification-reader thread. A failed query propagates rather
+    than pretending the goal is active; a genuine clear returns a null goal.
+    """
+    if event.get("status") != "cleared":
+        return event
+    result = host.request("thread/goal/get", {"threadId": thread_id})
+    goal = (result or {}).get("goal")
+    if not goal:
+        return event
+    if goal.get("objective") != objective:
+        return {**event, "status": "stopped", "note": "The native goal changed"}
+    status = codex_status(goal)
+    if status not in ("active", "paused", "met", "stopped"):
+        raise RuntimeError("The native goal returned an unsupported status")
+    return {**event, "status": status, "objective": objective,
+            "note": goal.get("note") or (goal.get("status") if status == "stopped" else "")}
+
+
 def claude_status(message):
     attachment = message.get("attachment") or message
     if attachment.get("type") != "goal_status":

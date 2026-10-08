@@ -104,3 +104,39 @@ def test_readiness_rolls_back_to_an_old_server_without_losing_heartbeat():
     service.report_heartbeat(report)
     assert service.client.post.call_count == 2
     assert report['readiness']['bots']['ops'] == {'ready': True}
+
+
+def test_codex_resume_clear_snapshot_cannot_stop_new_active_goal():
+    host = Mock()
+    host.request.return_value = {"goal": {"objective": "Acme summary", "status": "active"}}
+    snapshot = {"kind": "goal", "thread_id": "thread", "turn_id": None, "status": "cleared", "note": ""}
+    event = goals.reconcile_codex_clear(host, "thread", snapshot, "Acme summary")
+    assert event["status"] == "active" and event["objective"] == "Acme summary"
+    assert snapshot["status"] == "cleared"
+    host.request.assert_called_once_with("thread/goal/get", {"threadId": "thread"})
+
+
+def test_codex_real_clear_and_stopped_states_are_not_hidden():
+    host = Mock()
+    snapshot = {"kind": "goal", "status": "cleared"}
+    host.request.return_value = {"goal": None}
+    assert goals.reconcile_codex_clear(host, "thread", snapshot, "Acme summary") == snapshot
+    for native, status in [("paused", "paused"), ("complete", "met"), ("blocked", "stopped")]:
+        host.request.return_value = {"goal": {"objective": "Acme summary", "status": native}}
+        assert goals.reconcile_codex_clear(host, "thread", snapshot, "Acme summary")["status"] == status
+    host.request.return_value = {"goal": {"objective": "Different goal", "status": "active"}}
+    event = goals.reconcile_codex_clear(host, "thread", snapshot, "Acme summary")
+    assert event["status"] == "stopped" and event["note"] == "The native goal changed"
+
+
+def test_codex_clear_verification_failure_does_not_invent_active_goal():
+    import pytest
+    from runner.hosts.base import HostError
+    host = Mock()
+    host.request.side_effect = HostError("unavailable")
+    with pytest.raises(HostError):
+        goals.reconcile_codex_clear(host, "thread", {"status": "cleared"}, "Acme summary")
+    host.request.reset_mock()
+    event = {"status": "active", "objective": "Acme summary"}
+    assert goals.reconcile_codex_clear(host, "thread", event, "Acme summary") is event
+    host.request.assert_not_called()

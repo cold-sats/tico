@@ -3,6 +3,7 @@ schedule, it catches a stalled event loop in the act, and the start record holds
 import json
 import threading
 import time
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -66,7 +67,59 @@ def test_a_full_buffer_counts_what_it_drops(monkeypatch):
     assert rec.take(MINUTE)["process"][-1] == 2 and rec.take(MINUTE)["process"][-1] == 0
 
 
-def test_only_owners_and_admins_read_the_metrics(tmp_path):
+def test_table_sizes_are_reused_for_a_day_even_after_a_restart(store, monkeypatch):
+    with store.transaction() as c:
+        c.execute("CREATE TABLE size_fixture(created INTEGER, payload BLOB)")
+        # Large enough to appear in the top 40 alongside the initialized schema's tables/indexes.
+        c.execute("INSERT INTO size_fixture VALUES(?, zeroblob(?))", (MINUTE, 128 * 1024))
+    monkeypatch.setattr(flight, "BIG", {**flight.BIG, "size_fixture": "created"})
+    scans = []
+    read = store.read
+
+    @contextmanager
+    def traced_read():
+        with read() as c:
+            def trace(sql):
+                if "FROM dbstat" in sql:
+                    scans.append((sql, c.in_transaction))
+            c.set_trace_callback(trace)
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
+    monkeypatch.setattr(store, "read", traced_read)
+
+    sampler = flight.Flight(store.recorder, store, store.settings)
+    sampler.size_db(MINUTE)
+    with store.read() as c:
+        first = flight._db(c, MINUTE)
+    assert first["objects"]["size_fixture"] > 0
+    assert len(scans) == 1
+    with store.transaction() as c:
+        c.execute("INSERT INTO size_fixture VALUES(?, zeroblob(?))", (MINUTE + 1, 256 * 1024))
+    sampler.size_db(MINUTE + 3600)
+    # A new recorder must use the persisted sample rather than repeat the scan on each restart.
+    sampler = flight.Flight(store.recorder, store, store.settings)
+    sampler.size_db(MINUTE + 7200)
+    with store.read() as c:
+        reused = flight._db(c, MINUTE + 7200)
+    assert len(scans) == 1
+    assert reused["objects"] == first["objects"] and reused["objects_at"] == MINUTE
+    assert reused["at"] == (MINUTE + 7200) // 3600 * 3600
+    assert reused["rows"]["size_fixture"] == 2 and reused["oldest"]["size_fixture"] == MINUTE
+
+    sampler.size_db(MINUTE + 86400)
+    with store.read() as c:
+        refreshed = flight._db(c, MINUTE + 86400)
+        assert [r[1] for r in c.execute("PRAGMA table_info(flight_db)")] == [
+            "ts", "bytes", "wal_bytes", "free_bytes", "detail_json"]
+    assert len(scans) == 2
+    assert refreshed["objects_at"] == MINUTE + 86400
+    assert refreshed["objects"]["size_fixture"] > first["objects"]["size_fixture"]
+    assert all("aggregate=TRUE" in sql and not in_transaction for sql, in_transaction in scans)
+
+
+def test_owners_admins_and_bots_read_the_metrics(tmp_path):
     registry = tmp_path / "registry"
     registry.mkdir()
     (registry / "hub-access.yaml").write_text(yaml.safe_dump({"owner": "ana@acme.example",
@@ -74,10 +127,14 @@ def test_only_owners_and_admins_read_the_metrics(tmp_path):
     app = create_app(Settings(db_path=tmp_path / "hub.db", registry_dir=registry, flight_recorder=True, test_identities={
         "ana-test": Identity("human:ana", "owner", "ana@acme.example"),
         "ben-test": Identity("human:ben", "human", "ben@acme.example"),
-        "cara-test": Identity("human:cara", "human", "cara@acme.example")}))
+        "cara-test": Identity("human:cara", "human", "cara@acme.example"),
+        "qa-test": Identity("bot:qa", "bot", agent="hermes"), "runner-test": Identity("runner:r1", "runner", runner_id="r1")}))
     with TestClient(app) as client:
         with app.state.store.transaction() as c:
-            H.sync_registry(c, {}, {"people": [{"id": p, "email": p + "@acme.example"} for p in ("ana", "ben", "cara")]})
+            H.sync_registry(c, {"qa": {"name": "QA", "status": "active"}},
+                            {"people": [{"id": p, "email": p + "@acme.example"} for p in ("ana", "ben", "cara")]})
+            c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES('qa','hermes','x',?,'human:ana')",
+                      (H.now(),))
 
         def get(token, path="/api/v2/system/metrics"):
             return client.get(path, headers={"Authorization": "Bearer " + token})
@@ -86,7 +143,20 @@ def test_only_owners_and_admins_read_the_metrics(tmp_path):
         rec.drain()
         with app.state.store.transaction() as c:
             flight.write(c, rec.take(int(time.time() // 60 * 60) - 120))
-        assert get("cara-test").status_code == 403
+        # The start event comes from the recorder's thread; on a busy machine it lands after the first requests.
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            with app.state.store.transaction() as c:
+                if flight.last_start(c):
+                    break
+            time.sleep(0.05)
+        assert get("cara-test").status_code == 403 and get("runner-test").status_code in (401, 403)
+        with app.state.store.transaction() as c:
+            c.execute("INSERT INTO flight_slow(ts,route,caller,actor,ms,bytes,status) VALUES(?,?,?,?,?,?,?)",
+                      (int(time.time()), "GET /api/v2/tasks", "human", "human:cara", 1500, 10, 200))
+        slow = get("qa-test", "/api/v2/system/metrics?section=slow")
+        assert slow.status_code == 200 and slow.json()["slow"][0]["ms"] == 1500
+        assert "actor" not in slow.json()["slow"][0]
         assert get("ben-test").status_code == 200
         body = get("ana-test").json()
         routes = {r["route"]: r for r in body["requests"]["routes"]}

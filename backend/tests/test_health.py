@@ -3,6 +3,7 @@
 import pytest
 
 from backend import onboarding, releases
+from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_getting_started import SIGNED_IN, add_bot, enrolled, heartbeat  # noqa: F401
 from backend.tests.test_onboarding import as_person, environment, signed_in  # noqa: F401
@@ -87,6 +88,23 @@ def test_others_see_counts_not_details(environment):
     assert "helper" not in checks["waiting"]["summary"]
 
 
+def test_a_bot_reads_computers_and_failed_runs_without_admin_detail(environment):
+    api = environment()
+    runner = enrolled(api)
+    heartbeat(api, runner, seconds_ago=5, runtimes=SIGNED_IN)
+    add_bot(api, "qa")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES('qa','hermes','x',?,'human:ana')",
+                  (H.now(),))
+    api.app.state.store.settings.test_identities["qa-bot"] = Identity("bot:qa", "bot", agent="hermes")
+    body, checks = health_of(api, signed_in("qa-bot"))
+    assert body["audience"] == "bot" and "storage" not in body
+    assert body["computers"][0]["online"] and set(body["computers"][0]) == {
+        "id", "label", "online", "last_seen", "platform", "disk", "update"}
+    assert body["failures"] == [] and set(checks) == {"computers", "waiting", "queue", "failed"}
+    assert api.get("/api/v2/health/issues", headers=signed_in("qa-bot")).status_code == 200
+
+
 def test_a_local_credential_key_that_is_not_backed_up_is_a_warning_or_a_note():
     from types import SimpleNamespace
 
@@ -135,3 +153,78 @@ destinations:
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO humans(id,name,email) VALUES('sam','Sam','sam@example.com')")
     assert "listening" not in health_of(api, as_person(api, "sam"))[1]
+
+
+def test_a_bot_its_computer_cannot_start_is_stuck_with_the_reason_and_one_fix(environment):
+    """Queued work behind "Claude login required" is named at once (not after 15 minutes), with a sign-in fix
+    for administrators; someone without Read access on the bot hears nothing about it."""
+    import json
+    api = environment()
+    runner = enrolled(api)
+    add_bot(api, "release")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET label='Team box', last_seen=?, readiness_json=? WHERE id=?",
+                  (H.now(), json.dumps({"schema_version": 1, "runtimes": {
+                      "claude": {"installed": True, "authenticated": "missing", "detail": "Claude login required"}},
+                      "bots": {"release": {"ready": False, "runtime": "claude", "problems": ["Claude login required"]}}}), runner))
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('release',?,1,?,'t')",
+                  (runner, H.now()))
+        c.execute("UPDATE bots SET runtime='claude' WHERE slug='release'")
+        owner = "human:" + c.execute("SELECT id FROM humans ORDER BY id LIMIT 1").fetchone()[0]
+        conversation = H.open_conversation(c, owner, [owner, "bot:release"], kind="chat")
+        H._write_message(c, owner, "bot:release", "ship it", conversation, "say", {}, None, None)
+    body, checks = health_of(api)
+    assert checks["queue"]["status"] == "bad" and checks["queue"]["summary"] == "1 bot with work that is not starting."
+    [row] = body["stuck"]
+    assert row["bot"] == "release" and row["why"] == "Claude login required on Team box"
+    assert row["fix"]["login"] == {"runner_id": runner, "runtime": "claude", "computer": "Team box"}
+    # The model picker gets the same answer from the same rule (backend/readiness.py can_run).
+    picker = api.get("/api/v2/operations", headers=signed_in()).json()["runnable"]["release"]["claude"]
+    assert picker["can_run"] is False and picker["short"] == "sign in" and picker["sign_in"]["runner_id"] == runner
+    assert health_of(api, as_person(api, "quinn"))[0]["stuck"][0]["fix"] is None   # readable: the reason, no fix
+    from backend import bot_access as A
+    only_ana = A.audience({"people": ["ana"]})
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bot_config(bot,config_json,operator,access_json) VALUES('release','{}','ana',?)",
+                  (A.stored({"see": only_ana, "read": only_ana, "write": only_ana}),))
+    body, checks = health_of(api, as_person(api, "quinn"))
+    assert body["stuck"] == [] and "release" not in json.dumps(body)
+
+
+def test_computer_sign_in_names_only_a_model_its_bots_run_on(environment):
+    """The company default is Codex but the bots here run on Claude: no Codex warning, still a Sign in button."""
+    import json
+    api = environment()
+    revision = api.get("/api/v2/providers", headers=signed_in()).json()["revision"]
+    assert api.put("/api/v2/providers", headers=signed_in(), json={
+        "enabled": ["openai", "anthropic"], "runtime": "codex", "expected_revision": revision}).status_code == 200
+    runner = enrolled(api)
+    add_bot(api, "writer")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('writer',?,'ana')", (json.dumps({"runtime": "claude"}),))
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('writer',?,1,?,'t')",
+                  (runner, H.now()))
+    heartbeat(api, runner, runtimes={"codex": {"installed": True, "authenticated": "missing"},
+                                     "claude": {"installed": True, "authenticated": "ready"}})
+    body, checks = health_of(api)
+    assert "computer_signin" not in checks
+    assert next(r for r in body["computers"][0]["runtimes"] if r["name"] == "codex")["signable"]
+    add_bot(api, "coder")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('coder',?,'ana')", (json.dumps({"runtime": "codex"}),))
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('coder',?,1,?,'t')",
+                  (runner, H.now()))
+    assert "sign in to Codex" in health_of(api)[1]["computer_signin"]["summary"]
+
+
+def test_a_bot_over_the_daily_token_threshold_is_flagged(environment):
+    """Uncached input only: cache reads are cheap and would dominate the count."""
+    api = environment()
+    add_bot(api, "loop")
+    api.app.state.store.settings.token_alert_input = 1000
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO turns(id,bot,started,input_tokens,cached_tokens) VALUES('t1','loop',?,1100,90000)", (H.now(),))
+        c.execute("INSERT INTO turns(id,bot,started,input_tokens,cached_tokens) VALUES('t0','loop',?,9000,0)",
+                  (H.shift(H.now(), hours=-30),))
+    checks = health_of(api)[1]
+    assert checks["tokens"]["status"] == "warn" and "1,100 uncached input tokens in 24 h" in checks["tokens"]["summary"]

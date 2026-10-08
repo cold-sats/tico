@@ -29,7 +29,4 @@ tools:
   - service: github
     identity: "the product repositories the owner lists for this bot"
     can: [read]
-    note: "reads pull requests, checks and merged changes and proposes; never comments, reviews, labels or merges"
-# Writing to GitHub is the owner's decision, not the template's: the team's GitHub App token can write, so the only
-# thing between this bot and a public comment is its declared access and.claude/settings.json, which deny every write
-# verb. It stays read only; requested changes need granted write access.
+    note: "reads pull requests, checks and merged changes; reviews and merges pull requests others wrote, once related tests pass, on repositories the owner grants write; never publishes a release"

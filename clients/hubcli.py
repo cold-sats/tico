@@ -155,7 +155,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            humans and bots: who they are, Slack, what they own; each bot
                                            with its reports_to, group and template (the bots you may see)
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
-    hub health metrics [--minutes N]       the server's flight recorder (owners and admins)
+    hub health metrics [--minutes N]       the server's flight recorder (owners, admins and bots)
                                            (the Assistant gets the live snapshot)
     hub update list [--kind daily|weekly] [--bot X] [--unread] [--limit N]
                                            the bots' updates, newest first
@@ -1363,6 +1363,7 @@ def parser():
     s.add_argument("bot")
     s.add_argument("model", nargs="?", help="a model id or name; leave out to list")
     s.add_argument("--effort")
+    s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
     s.set_defaults(fn="bot model")
     for verb in ("pause", "resume"):
         s = bot.add_parser(verb, help=f"{verb} a bot (BotOps)")
@@ -1510,6 +1511,7 @@ def parser():
     s.add_argument("method", type=str.upper, choices=["GET", "POST", "PUT", "PATCH", "DELETE"])
     s.add_argument("path", help="/api/v2/... or the part after it")
     s.add_argument("body", nargs="?", help="a JSON body for a write; - reads it from standard input")
+    s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
     s.set_defaults(fn="api")
     sub.add_parser("computer", help="the computers a bot may go on").add_subparsers(dest="sub").add_parser(
         "list", help="the computers a bot may go on, and what runs on each").set_defaults(fn="computer list")

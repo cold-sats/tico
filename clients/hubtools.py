@@ -79,7 +79,9 @@ def tool(name, description, properties, required=(), *, writes=False, local=Fals
         schema["required"] = list(required)
     if writes:
         schema["properties"]["operation_id"] = _s(
-            "A stable id for this write so a retried call lands once. Omit for a fresh id.")
+            "A stable id for this write so a retried call lands once. " +
+            ("This tool requires the id." if "operation_id" in schema.get("required", []) else
+             "Omit for a fresh id."))
 
     def register(fn):
         TOOLS.append({"name": name, "description": description, "inputSchema": schema,
@@ -232,7 +234,8 @@ def unnote(api, args):
 
 
 @tool("hub_question_ask", "Ask one or more bots a question and wait for their answers. Returns one entry "
-      "per bot: `answer`, `unknown`, or `timeout`. Asks nest at most three deep.",
+      "per bot: `answer`, `unknown`, or `timeout`, each with the ask's `message_id`. A timed-out ask stays open "
+      "and its answer reaches you later under that id. Asks nest at most three deep.",
       {"bots": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                 "description": "Bot slugs to ask"},
        "text": _s("The question"),
@@ -251,12 +254,14 @@ def ask(api, args):
         answers = api.get("answers", ids=",".join(pending))
         for mid, answer in answers.items():
             bot = pending.pop(mid)
-            result[bot] = {"unknown" if (answer.get("refs") or {}).get("unknown") else "answer": answer["body"]}
+            result[bot] = {"unknown" if (answer.get("refs") or {}).get("unknown") else "answer": answer["body"],
+                           "message_id": mid}
             api.post(f"messages/{answer['id']}/ack", {}, key=_key(args, ":ack:" + answer["id"]))
         if not pending or time.monotonic() >= deadline:
             break
         time.sleep(1)
-    result.update({bot: {"timeout": True} for bot in pending.values()})
+    # The ask was delivered and stays open: its id is how the caller finds the answer later.
+    result.update({bot: {"timeout": True, "message_id": mid} for mid, bot in pending.items()})
     return result
 
 
@@ -1757,9 +1762,10 @@ def people_add(api, args):
     return api.post("access/humans", body, key=_key(args))
 
 
-@tool("hub_human_list", "The people on the roster: id, name, email, title, group (`team`) and who they report to.", {})
+@tool("hub_human_list", "The people on the roster: id, name, email, title, group (`team`), who they report to, and "
+      "their GitHub login (`github`, from their profile; empty when unset).", {})
 def people_list(api, args):
-    return [{k: p.get(k) for k in ("id", "name", "email", "title", "team", "reports_to")}
+    return [{k: p.get(k) for k in ("id", "name", "email", "title", "team", "reports_to", "github")}
             for p in api.get("org")["people"]]
 
 
@@ -1797,11 +1803,11 @@ def group_update(api, args):
 class _Requester:
     """The same `api`, using the requester's rights, recorded via BotOps."""
 
-    def __init__(self, api):
-        self.api = api
+    def __init__(self, api, ref=None):
+        self.api, self.ref = api, ref
 
     def call(self, method, path, body=None, key=None, query=None):
-        return self.api.call(method, path, body, key, query, delegate=True)
+        return self.api.call(method, path, body, key, query, delegate=self.ref or True)
 
     def get(self, path, **query):
         return self.call("GET", path, query=query)
@@ -1813,13 +1819,18 @@ class _Requester:
         return self.call("PATCH", path, body if body is not None else {}, key)
 
 
-def _as_person(api):
-    """BotOps uses the requester; other callers keep their own rights."""
+def _as_person(api, ref=None):
+    """BotOps uses the requester; other callers keep their own rights. `ref` names the request BotOps follows
+    through on when something else started this run: the open task the person asked for, or their message id."""
     if isinstance(api, _Requester):
-        return api
+        return _Requester(api.api, ref) if ref else api
     if "_tico_is_botops" not in api.__dict__:
         api.__dict__["_tico_is_botops"] = kind_of(api.get("me")) == "botops"
-    return _Requester(api) if api.__dict__["_tico_is_botops"] else api
+    return _Requester(api, ref) if api.__dict__["_tico_is_botops"] else api
+
+
+ON_BEHALF_OF = _s("BotOps, following through on a person's request in a run something else started (a daily update, "
+                  "a notice): the id of the open task they asked you for. Default: the request that started this run")
 
 
 def _api_path(path):
@@ -1833,10 +1844,10 @@ def _api_path(path):
       {"method": _s("GET, POST, PUT, PATCH or DELETE", enum=["GET", "POST", "PUT", "PATCH", "DELETE"]),
        "path": _s("A v2 route: /api/v2/bots/jira-manager/model or bots/jira-manager/model"),
        "body": {"type": "object", "description": "The JSON body for a write"},
-       "query": {"type": "object", "description": "Query parameters for a read"}},
+       "query": {"type": "object", "description": "Query parameters for a read"}, "on_behalf_of": ON_BEHALF_OF},
       required=("method", "path"), writes=True)
 def api_call(api, args):
-    return _as_person(api).call(str(args["method"]).upper(), _api_path(args["path"]), args.get("body"), _key(args), args.get("query"))
+    return _as_person(api, args.get("on_behalf_of")).call(str(args["method"]).upper(), _api_path(args["path"]), args.get("body"), _key(args), args.get("query"))
 
 
 @tool("hub_bot_place", "Put a bot on a computer, as the person who asked you: the one named (label or id), or the best one that "
@@ -2036,10 +2047,11 @@ def agent_pair_decline(api, args):
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
-       "effort": _s("Reasoning effort that model supports"), "harness": _s("A harness from that model's harnesses list")},
+       "effort": _s("Reasoning effort that model supports"), "harness": _s("A harness from that model's harnesses list"),
+       "on_behalf_of": ON_BEHALF_OF},
       required=("bot",), writes=True)
 def bot_model(api, args):
-    who = _as_person(api)
+    who = _as_person(api, args.get("on_behalf_of"))
     catalog = who.get("models")
     current = who.get(f"bots/{args['bot']}")
     if not any(args.get(k) for k in ("model", "harness", "effort")):
@@ -2091,7 +2103,7 @@ def health_check(api, args):
     return _as_person(api).get("health/issues")
 
 
-@tool("hub_health_metrics", "The server's flight recorder, for owners and admins: per route request counts, errors, p50/p95 and "
+@tool("hub_health_metrics", "The server's flight recorder, for owners, admins and bots: per route request counts, errors, p50/p95 and "
       "bytes by caller kind; slow requests; CPU, memory, event-loop lag and stalls with thread stacks; top SQL by total "
       "time; write-lock waits; database size and growth by table; and each start's release and image check.",
       {"minutes": {"type": "integer", "description": "Look back this many minutes (default 60, at most 20160)"},
@@ -2652,6 +2664,41 @@ def github_create_bot_repo(api, args):
     return api.post("github/repos", body, key=_key(args))
 
 
+@tool("hub_repo_product_create", "Owner only. First call with `name` and a stable `operation_id` to preview the "
+      "connected organization, exact repository name, private visibility, empty initialization, and live App "
+      "capability. If capability is available, review the preview and call again with `confirm_repository` set "
+      "to the exact `org/name`. The create request uses the same stable operation id, so retries replay the saved "
+      "receipt and never issue a second GitHub create.",
+      {"name": _s("Exact product repository name, without owner or bot- prefix"),
+       "confirm_repository": _s("Exact org/name from the preview; omit on the preview call")},
+      required=("name", "operation_id"), writes=True)
+def repo_product_create(api, args):
+    operation_id = args.get("operation_id")
+    if not isinstance(operation_id, str) or not operation_id:
+        raise APIError("operation_id", "A stable operation_id is required for this Owner create flow", 422)
+    key = _key(args, ":product-repository")
+    if len(key) > 200:
+        raise APIError("operation_id", "operation_id is too long for a product-repository idempotency key", 422)
+
+    preview = api.get("github/product-repos/preview", name=args["name"])
+    repository = f"{preview.get('org', '')}/{preview.get('name', '')}"
+    if (preview.get("name") != args["name"] or preview.get("repository") != repository or
+            preview.get("visibility") != "private" or preview.get("auto_init") is not False):
+        raise APIError("product_repository_preview", "The server returned an invalid product-repository preview; no repository was created", 502)
+
+    if preview.get("capability") != "available":
+        return {"preview": preview, "created": False, "confirmation_required": False}
+    if not args.get("confirm_repository"):
+        return {"preview": preview, "created": False, "confirmation_required": True}
+    if args["confirm_repository"] != repository:
+        raise APIError("confirmation_required", f"To create this repository, confirm the exact preview target {repository}; no repository was created", 409)
+
+    return api.post("github/product-repos", {
+        "org": preview["org"], "name": preview["name"], "visibility": preview["visibility"],
+        "auto_init": preview["auto_init"], "confirmed": True,
+    }, key=key)
+
+
 @tool("hub_tool_list", "Every tool the team uses (each outside system), and what you need to use it: how you reach it "
       "(`access`), the credentials or env names, how it is declared, writes, and query/learning counts. Read this "
       "list before touching an outside system; `hub_tool_show` is the full page. With `bot`, the tools that bot uses, "
@@ -2908,9 +2955,8 @@ def docs_fetch(api, args):
 # has neither the credential nor any business connecting to a team database. A person makes and
 # revokes service keys in their own shell: a new key is shown to them, never to an agent's context.
 # `hub_team_icon` streams a local image file; the JSON tool transport cannot open that path.
-# Product repository creation asks a person to type the exact name at a terminal, so it has no tool.
 SHELL_ONLY = {"hub_task_worktree_setup", "hub_bot_check", "hub_db", "hub_service_key_create",
-              "hub_service_key_list", "hub_service_key_revoke", "hub_team_icon", "hub_repo_product_create"}
+              "hub_service_key_list", "hub_service_key_revoke", "hub_team_icon"}
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 
@@ -2952,6 +2998,7 @@ AUDIENCE = {
     "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
+    "hub_repo_product_create": ("owner",),
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",

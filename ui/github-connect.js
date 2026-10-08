@@ -11,6 +11,7 @@ window.mountGithubConnect = async function (host) {
     host.innerHTML = `<p>Connected to <strong>${text(state.org)}</strong> through the app <strong>${text(state.slug)}</strong>.
       <span data-gh-install>${state.installed ? 'Installed on the organization.' : 'Not installed yet.'}</span></p>
       <p class="muted">Can create repositories: ${state.administration ? 'yes' : 'no'}</p>
+      <p class="muted">Connected before release tracking? In <a href="https://github.com/organizations/${encodeURIComponent(state.org || '')}/settings/apps/${encodeURIComponent(state.slug || '')}/permissions" target="_blank" rel="noopener">the app's events on GitHub</a>, tick <strong>Release</strong>. Pushed tags work without it.</p>
       ${state.installed ? '' : `<p class="muted">Choose <strong>All repositories</strong> when GitHub asks. Each bot's token still covers only its own repository.</p>`}
       <div class="row">${state.installed ? '' : `<a class="primary" role="button" href="${text(state.install_url)}" target="_blank" rel="noopener">Install on ${text(state.org)}</a>`}
       <button type="button" class="ghost" data-gh-disconnect>Disconnect</button>

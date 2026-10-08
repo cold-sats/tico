@@ -191,14 +191,22 @@ background thread does the rest and writes once a minute in one short transactio
 | `flight_slow` | Each request over one second: route, caller kind, actor id, milliseconds, bytes, status (at most 50 a minute). | 14 days, 5,000 rows |
 | `flight_process` | Per minute: CPU (% of one core), memory, threads, open files and sockets, event-loop lag (p95, max), SQL statements and time, write transactions with the longest lock wait and hold, `database is locked` errors, and `dropped`: samples lost because the background thread fell behind (a gap in that minute's numbers). | 14 days |
 | `flight_sql` | Per hour, per statement shape (literals folded): count, total, p95 and max milliseconds, from the statement's start through its last row fetched (rows read by iterating, `fetchone`, `fetchmany` or `fetchall`; never the caller's own work between rows); the top 100 by time, the rest as `(other)`. | 90 days |
-| `flight_db` | Hourly: file, WAL and free bytes, size per table and index (when SQLite has `dbstat`), row counts of the growing tables and their oldest row. | 90 days |
+| `flight_db` | Hourly: file, WAL and free bytes, row counts of the growing tables and their oldest row. Table/index sizes (when SQLite has `dbstat` aggregate mode) refresh at most once per 24 hours and are reused between scans, including across restarts. | 90 days |
 | `flight_events` | `start`: release, commit, Python, SQLite, a hash of the installed packages and of the non-secret settings (with a short hash per setting, so two starts show which changed; no values), and `provenance`: `modified` when the code on disk differs from the hash the image build stored in `release-manifest.json` (files copied over a release image), `mismatch` when the image was not built from its release tag's commit on GitHub, otherwise `match`, `unverified` or `unknown`. `stall`: the event loop late by two seconds or more, with every busy thread's stack (file, line, function; never values), at most once in five minutes. | 90 days |
 
 Times are Unix seconds. A `modified` or `mismatch` start shows as **Release image** on the Health page. The integrity of the
 database is checked by the daily verified backup (`PRAGMA integrity_check`), not here.
 
-Owners and admins (and BotOps for one of them) read it at `GET /api/v2/system/metrics?minutes=60&section=all`
-(`section`: any of `requests,slow,process,sql,db,events`), with `hub health metrics` or `hub_health_metrics`, and see the
+The `flight_db` columns remain `ts`, `bytes`, `wal_bytes`, `free_bytes` and `detail_json`. Within the detail,
+`objects_at` dates the table/index sizes, while `seconds` measures the current hourly sampling pass.
+Metrics expose `db.objects_at` beside `db.objects`; these sizes can be older than the hourly `db.at`.
+Older records without `objects_at` use their snapshot timestamp. If dbstat aggregate mode is unavailable,
+object sizes are null; hourly totals and row statistics remain available. Size collection runs only in the
+flight recorder's background thread through autocommit reads, finished before the short snapshot write transaction.
+Opening Health or metrics reads recorded samples and does not trigger a page scan.
+
+Owners, admins and the team's bots read it at `GET /api/v2/system/metrics?minutes=60&section=all` (a bot's slow requests
+leave out who made them; `section`: any of `requests,slow,process,sql,db,events`), with `hub health metrics` or `hub_health_metrics`, and see the
 last hour under **Performance** on the Health page. `GET /api/v2/ops/timing` still answers with the last 300 requests per
 route since the start.
 

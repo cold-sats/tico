@@ -255,7 +255,9 @@ class Pushing(unittest.TestCase):
         messages = [call.args[0] for call in log.call_args_list]
         self.assertTrue(any("pull before coo turn failed" in m and "using the local tree" in m for m in messages), messages)
         self.assertEqual(messages[-1], "Tico runner: emp-coo has 1 unpushed commits and push failed (non-fast-forward); leaving it for a person")
-        self.assertEqual(len(messages), 2)
+        # Placement says once that the diverged copy was kept; the pull and push failures follow.
+        self.assertTrue(messages[0].startswith("Tico runner: coo: kept this computer's copy as it is"), messages)
+        self.assertEqual(len(messages), 3)
 
 def _git(cwd, *args):
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
@@ -491,3 +493,15 @@ def test_startup_push_refreshes_through_the_socket_and_revokes_its_capability(tm
     finally:
         server.stop()
         socket_dir.cleanup()
+
+
+def test_a_credential_under_a_reserved_name_is_left_out_and_the_turn_still_starts(tmp_path):
+    runner = Runner.__new__(Runner)
+    runner.config = {"url": "https://acme.test", "projects_dir": str(tmp_path)}
+    runner.vault_values, runner.vault_names, runner.vault_files = {}, {}, {}
+    granted = {"credentials": [
+        {"id": "c1", "name": "Acme update key", "env": "TICO_UPDATE_KEY_ACME", "kind": "api_key", "value": "k1-synthetic"},
+        {"id": "c2", "name": "PostHog", "env": "POSTHOG_API_KEY", "kind": "api_key", "value": "ph-synthetic"}]}
+    env = runner.environment({"id": "a1", "bot": "rel", "token": "t", "config": {"runtime": "codex"}}, granted)
+    assert "TICO_UPDATE_KEY_ACME" not in env and "k1-synthetic" not in env.values()
+    assert env["POSTHOG_API_KEY"] == "ph-synthetic" and runner.vault_names["a1"] == {"POSTHOG_API_KEY"}

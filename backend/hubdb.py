@@ -881,10 +881,16 @@ def migrate(conn, adopt_legacy=False):
     # every start rather than numbered, so no migration number collides with another branch's.
     add_column(conn, "messages", "edited_at", "TEXT")
     add_column(conn, "messages", "deleted_at", "TEXT")
+    # An ask that a later ask by the same bot on the same task, or the task's end, made moot (supersede_asks).
+    add_column(conn, "messages", "superseded_at", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS messages_pending_conversation ON messages(conversation_id) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
     # The media check visits blobs often; an unindexed version lookup multiplies both histories.
     conn.execute("CREATE INDEX IF NOT EXISTS bot_file_versions_blob_media ON bot_file_versions(blob_id,media_state)")
+    # The media poll's pending rows, a handful even when blobs number in the tens of thousands.
+    conn.execute("CREATE INDEX IF NOT EXISTS blob_media_pending ON blob_media(blob_id) WHERE media_state='pending'")
+    conn.execute("CREATE INDEX IF NOT EXISTS bot_file_versions_pending ON bot_file_versions(blob_id) "
+                 "WHERE media_state='pending'")
     # Quiet notes (`hub note`): a line left for a bot's next run, asking nothing. `carried_by` is
     # the attempt that took it there; a cancelled note never goes.
     conn.execute("CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, from_actor TEXT NOT NULL, "
@@ -931,6 +937,9 @@ def _one(conn, sql, args=()):
 # the length of one request (backend/app.py request_guard), so every event and task-history row the
 # request writes says "via assistant" without each write knowing about it.
 VIA = contextvars.ContextVar("hub_via", default="")
+# When BotOps acts with a person's rights: whose, which request lent them (a message or task id), and whether the person
+# asked in this run (`live`) or BotOps cites their open task in a later one (`follow_through`). Every event then says so.
+DELEGATION = contextvars.ContextVar("hub_delegation", default=None)
 
 PRIVATE_WRITE = contextvars.ContextVar("hub_private_write", default=False)
 
@@ -969,6 +978,8 @@ def event(conn, actor, action, target="", detail=None):
     """Append the audit row every write leaves behind."""
     if VIA.get() and (detail is None or isinstance(detail, dict)):
         detail = {**(detail or {}), "via": VIA.get()}
+        if VIA.get() == "botops" and DELEGATION.get():
+            detail["delegation"] = DELEGATION.get()
     row = {"id": new_id(), "ts": now(), "actor": str(actor), "action": action,
            "target": str(target or ""), "detail_json": _dump(detail)}
     conn.execute("INSERT INTO events (id, ts, actor, action, target, detail_json) "
@@ -1654,6 +1665,10 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
 
     msg = _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s)
     _close_open_asks(conn, actor, target, kind, msg)
+    if kind == "ask" and is_bot(actor) and is_human(target):
+        about = message_task_id({"refs": refs}, conv)
+        if about and supersede_asks(conn, about, from_actor=actor, to_actor=target, keep=msg["id"]):
+            _recount(conn, actor)
     return msg
 
 
@@ -2177,7 +2192,56 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
         _task_event(conn, row["id"], actor, "step", row.get("step_id"), step_id, note)
     if row.get("status") != effective:
         _task_event(conn, row["id"], actor, "status", row.get("status"), effective, note)
+        if effective in ("done", "closed", "declined"):
+            # A finished task's open questions to people are moot. Done keeps its structured questions: that is how
+            # a done task asks for acceptance of what it delivered.
+            supersede_asks(conn, row["id"], plain_only=effective == "done")
     return effective
+
+
+ASK_OLDER_DAYS = 3      # an unanswered ask older than this leaves the person's queue for its "older" list
+OPEN_ASK_SQL = ("m.answered_by IS NULL AND m.superseded_at IS NULL AND NOT EXISTS "
+                "(SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')")
+
+
+def ask_older(message, at=None):
+    """True when this unanswered ask is older than ASK_OLDER_DAYS: it moves to the person's "older" list."""
+    created = parse_ts((message or {}).get("created"))
+    if not created:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return created < (at or datetime.now(timezone.utc)) - timedelta(days=ASK_OLDER_DAYS)
+
+
+def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, plain_only=False):
+    """Mark the task's unanswered asks to people superseded: those `from_actor` sent `to_actor` before the ask `keep`,
+    or all of them (plain ones only with `plain_only`). They stay in the thread and leave every queue and count. A
+    question to one person never replaces a different person's question."""
+    # Only the task's own thread, where its queue and counts look (open_task_asks): a lookup by conversation, not a
+    # scan of every pending ask on the server each time a task finishes.
+    sql = ("SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+           "WHERE m.conversation_id=(SELECT conversation_id FROM tasks WHERE id=?) "
+           f"AND m.kind='ask' AND m.deleted_at IS NULL AND m.to_actor LIKE 'human:%' AND {OPEN_ASK_SQL} "
+           f"AND {MESSAGE_TASK_SQL}=?")
+    args = [task_id, task_id]
+    if from_actor:
+        sql += " AND m.from_actor=?"
+        args.append(from_actor)
+    if to_actor:
+        sql += " AND m.to_actor=?"
+        args.append(to_actor)
+    if keep:
+        sql += " AND m.id<>?"
+        args.append(keep)
+    if plain_only:
+        sql += " AND json_type(m.refs_json,'$.questions') IS NULL"
+    ids = [r[0] for r in conn.execute(sql, args)]
+    if ids:
+        conn.executemany("UPDATE messages SET superseded_at=? WHERE id=?", [(now(), mid) for mid in ids])
+        _task_event(conn, task_id, KEEPER, "asks_superseded", None, str(len(ids)),
+                    "Replaced by a newer question" if keep else "The task finished")
+    return ids
 
 
 def _step_end(conn, step_id, task_id, top=False):
@@ -2744,8 +2808,7 @@ def open_task_asks(conn, task_row, *, actor=None):
     asks = _rows(conn.execute(
         "SELECT m.* FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
         f"WHERE m.conversation_id=? AND m.kind='ask' AND {MESSAGE_TASK_SQL}=? "
-        "AND m.answered_by IS NULL AND NOT EXISTS "
-        "(SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer') ORDER BY m.rowid DESC",
+        f"AND {OPEN_ASK_SQL} ORDER BY m.rowid DESC",
         (conv, task_row["id"])))
     if actor is not None:
         asks = [ask for ask in asks if privacy.message_readable(conn, actor, ask)]
@@ -3273,6 +3336,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _wake(conn, after, after["requester"],
               f"{'Finished' if status == 'done' else 'Declined'}: {after['title']}"
               + (f"\n{note}" if note and not quiet else ""), refs=refs, quiet_bots=True)
+    if status == "review" and row["status"] != "review" and actor != after["requester"]:
+        # Review is the requester's turn. Nothing else tells a bot that asked for the work, so
+        # without this a handoff between bots waits until someone notices.
+        _wake(conn, after, after["requester"], f"Ready for review: {after['title']}"
+              + (f"\n{note}" if note and not quiet else ""))
     if (status == "open" or owner is not None and owner != row["owner"]) and actor != after["owner"]:
         _wake(conn, after, after["owner"], f"Open: {after['title']}")
     recount(conn, [after["owner"], after["requester"], row["owner"]])   # the old owner too, on a handoff
@@ -3371,7 +3439,7 @@ def waiting_for(conn, row):
     live = "('done','closed','declined')"
     asks = [r["id"] for r in _rows(conn.execute(
         "SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
-        f"WHERE m.from_actor=? AND m.kind='ask' AND {MESSAGE_TASK_SQL}=?",
+        f"WHERE m.from_actor=? AND m.kind='ask' AND m.superseded_at IS NULL AND {MESSAGE_TASK_SQL}=?",
         (row["owner"], row["id"])))]
     if asks and len(answers_to(conn, asks)) < len(asks):
         return "an unanswered question"
@@ -4063,8 +4131,7 @@ def status_counts(conn, actor):
         "OR (t.owner=? AND t.status='waiting' AND t.waiting_on LIKE 'human:%') "
         "OR EXISTS (SELECT 1 FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
         f"WHERE m.conversation_id=t.conversation_id AND {MESSAGE_TASK_SQL}=t.id AND m.kind='ask' "
-        "AND m.from_actor=? AND m.to_actor LIKE 'human:%' AND m.answered_by IS NULL AND m.deleted_at IS NULL "
-        "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer')))",
+        f"AND m.from_actor=? AND m.to_actor LIKE 'human:%' AND m.deleted_at IS NULL AND {OPEN_ASK_SQL}))",
         (*live, actor, actor, actor, actor, actor))}
     approvals = sum(not r[0] or r[0] not in waits for r in conn.execute(
         "SELECT task_id FROM approvals WHERE requested_by=? AND decision IS NULL", (actor,)))
@@ -4569,8 +4636,7 @@ def tasks_asked_of(conn, actor):
         f"JOIN messages m ON m.conversation_id=t.conversation_id AND {MESSAGE_TASK_SQL}=t.id "
         f"WHERE (t.status IN ({','.join(repr(x) for x in ACTIVE_STATUSES)}) "
         "OR (t.status='done' AND json_type(m.refs_json,'$.questions')='array')) "
-        "AND m.kind='ask' AND m.to_actor=? AND m.answered_by IS NULL "
-        "AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.in_reply_to=m.id AND a.kind='answer') "
+        f"AND m.kind='ask' AND m.to_actor=? AND {OPEN_ASK_SQL} "
         "GROUP BY t.id ORDER BY t.created", (actor,)))
 
 

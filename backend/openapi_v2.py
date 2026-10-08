@@ -389,7 +389,7 @@ STABLE = [
      "the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns "
      "over or the limit is raised", "BotUsageLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
-    ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (people only)", "Health"),
+    ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (bots see counts, computers and failed runs)", "Health"),
 ]
 
 
@@ -627,7 +627,10 @@ SCHEMAS = {
     "NeedsYou": {"oneOf": [obj({"actor": "s", "items": items({
         "type": "object", "required": ["id", "kind", "title"], "additionalProperties": True,
         "properties": {"id": {"type": "string"}, "kind": {"enum": ["task", "question", "declined", "approval"]},
-                       "title": {"type": "string"}}})}), obj({"actor": "s", "count": "i"})]},
+                       "title": {"type": "string"}}})}, required=["actor", "items"],
+        older={"type": "array", "items": {"type": "object", "additionalProperties": True},
+               "description": "Tasks there only for a question older than three days, out of the queue and its count"}),
+        obj({"actor": "s", "count": "i"})]},
     "GranolaStatus": obj({"mode": {"type": "string", "enum": ["account", "api_key", "off"]},
                           "connected": "b", "email": "n", "plan_hint": {"type": ["string", "null"], "enum": ["free", "paid", None]},
                           "last_sync": "n", "last_error": "n", "imported_count": "i", "needs_signin": "b", "syncing": "b", "skipped": "i"}),
@@ -670,7 +673,11 @@ SCHEMAS = {
                     "files": "i", "bytes": "i", "copy": obj({"done": "i", "total": "i", "failed": "i"})}),
     "Health": obj({"audience": "s", "checks": "a", "attention": "i", "checked": "s"},
                   required=["audience", "checks", "attention", "checked"],
-                  storage={**ref("Storage"), "description": "Read-only file storage usage and copy progress; Team owners only"}),
+                  storage={**ref("Storage"), "description": "Read-only file storage usage and copy progress; Team owners only"},
+                  stuck={"type": "array", "items": {"type": "object"}, "description":
+                         "Bots with queued work that is not starting (the caller may read them): bot, name, queued, oldest, "
+                         "computer, reason (not_ready, computer_offline, no_computer, slow), why, and fix (label plus "
+                         "href/tab, login or move; null unless the caller administers bots)"}),
     "BotFile": obj({"id": "s", "bot": "s", "title": "s", "kind": "s", "mime": "s", "locator": "s", "scope": "s",
                     "version": "i", "state": "s", "synced": "b", "size": {"type": ["integer", "null"]},
                     "name": "n", "open": {"type": ["object", "null"], "description": "{type: tico|external, url}: "

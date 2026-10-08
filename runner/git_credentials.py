@@ -1,12 +1,20 @@
 """GitHub credentials from the team's GitHub App (backend/github_app.py), scoped to the bot's repository.
 
 The hub mints an installation token that lasts an hour, and a turn can run longer, so git does not
-keep one: its credential helper is this module, which gets a fresh token on every credential
-request: from the hub with the runner's own registration, or, where bot code cannot read that file
-(runner/isolation.py), from the supervisor's socket with the turn's attempt token. The helper is configured through
+keep one: its credential helper is this module, which asks the hub on every credential request and
+can reuse a still-valid cached token: from the hub with the runner's own registration, or, where bot code
+cannot read that file (runner/isolation.py), from the supervisor's socket with the turn's attempt token. The helper is configured through
 environment variables (no file, no askpass script on disk) and the token is only ever printed to
 git. `gh` selects a token for its repository through a turn-local command wrapper. With no App
 connected, the turn keeps the machine’s git access. App token failures disable that fallback.
+
+Precedence: the App's token wins for every repository in the connected organization. A `GH_TOKEN` credential
+granted to the bot is kept aside (`OTHER_TOKEN_KEY`) and used only for repositories outside that organization,
+so a stale personal token can never shadow the App. A login shell resets PATH (Debian's /etc/profile, macOS's
+path_helper), which can hide the wrapper; the runner image's profile hook and Mac turn startup hooks restore the
+turn's PATH from `TURN_PATH_KEY`. A bare `gh` that bypasses the wrapper uses the start-of-turn `GH_TOKEN`, kept
+with at least 45 minutes remaining; the credential helper's explicit git-purpose request can reuse a cached token
+with at least 10 minutes remaining.
 """
 import json
 import os
@@ -25,6 +33,10 @@ ROOT = Path(__file__).resolve().parents[1]
 # so a stale keychain entry cannot win over the scoped token.
 KEY = "credential.https://github.com.helper"
 TOKENS_KEY = "TICO_GITHUB_TOKENS"
+# A GitHub token the bot was granted as a credential, for repositories outside the App's organization only.
+OTHER_TOKEN_KEY = "TICO_GITHUB_OTHER_TOKEN"
+# The turn's PATH, restored by the image's profile hook and the Mac turn's shell startup files.
+TURN_PATH_KEY = "TICO_TURN_PATH"
 # A fixed token, for when the runner's registration file is not known (tests, embedding).
 # The bot's repository (`owner/name`) as the hub resolved it, for the turn's publish step.
 REPOSITORY_KEY = "TICO_GITHUB_REPOSITORY"
@@ -62,8 +74,11 @@ def apply(env, client, bot, config_path=None, socket_path=None):
     if not granted.get("configured"):
         return False
     applied = bool(granted.get('token'))
+    stored = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or ""
     if not applied:
         granted = {**granted, 'token': '', 'tokens': []}
+    elif stored and stored != granted["token"] and granted.get("repository"):
+        env[OTHER_TOKEN_KEY] = stored
     helper = fresh_helper(config_path, bot, socket_path) if (config_path or socket_path or "tokens" in granted) else STATIC_HELPER
     env.update(environment(granted["token"], helper if applied else FAILED_HELPER))
     if "tokens" in granted:
@@ -76,6 +91,13 @@ def apply(env, client, bot, config_path=None, socket_path=None):
             if config_path and not socket_path:
                 env["TICO_GITHUB_CONFIG"] = str(config_path)
             env["PATH"] = str(ROOT / "runner" / "credential_bin") + os.pathsep + env.get("PATH", os.environ.get("PATH", os.defpath))
+            env[TURN_PATH_KEY] = env["PATH"]
+            if sys.platform == "darwin":
+                startup = str(ROOT / "runner" / "shell_init")
+                env["TICO_TURN_BASH_ENV"] = env.get("BASH_ENV", "")
+                env["TICO_TURN_ZDOTDIR"] = env.get("ZDOTDIR") or env.get("HOME") or str(Path.home())
+                env["BASH_ENV"] = str(Path(startup) / "bash-env")
+                env["ZDOTDIR"] = startup
     if socket_path:
         env[credential_socket.SOCKET_ENV] = str(socket_path)
     if granted.get("repository"):
@@ -141,10 +163,18 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
                   for line in listed.stdout.splitlines() if "\t" in line}
         if remote:
             # Anything already there must be an ancestor of what is pushed, or this would rewrite it.
-            if branch not in remote:
+            names = [branch] if branch in remote else sorted(remote)[:20]
+            fetched = git("fetch", "--quiet", "--no-tags", "origin", *names, timeout=timeout).returncode == 0
+            if fetched and branch in remote and git("merge-base", "--is-ancestor", remote[branch], "HEAD").returncode == 0:
+                pass
+            elif fetched and _unrelated(git, [remote[name] for name in names]):
+                # No commit in common (a template copy beside the bot's real history): the readiness check keys
+                # on "unrelated history" and holds turns, unlike a checkout that merely diverged from GitHub.
+                return "failed", (f"{repository} holds unrelated history on {', '.join(names)}"
+                                  + ("" if branch in remote else f", not {branch}") + "; nothing pushed")
+            elif branch not in remote:
                 return "failed", f"{repository} already has history on {', '.join(sorted(remote))}, not {branch}; nothing pushed"
-            if git("fetch", "--quiet", "--no-tags", "origin", branch, timeout=timeout).returncode != 0 \
-                    or git("merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD").returncode != 0:
+            else:
                 return "failed", f"{repository} already has different history on {branch}; nothing pushed"
         pushed = git("push", "-q", "-u", "origin", branch, timeout=timeout)
         if pushed.returncode != 0:
@@ -154,6 +184,66 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
         return "failed", "timed out"
     except (OSError, subprocess.SubprocessError) as exc:
         return "failed", type(exc).__name__
+
+
+def fast_forward(path, env=None, timeout=60):
+    """Bring a checkout that tracks GitHub up to it, only when that loses nothing: (state, detail), state `updated`,
+    `current` (already there, or ahead), `skipped` (no upstream to follow) or `kept` (local changes, diverged, or
+    GitHub unreachable; the copy is left exactly as it was)."""
+    path = Path(path)
+    env = safe_git.environment(env)
+
+    def git(*args, timeout=15):
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+
+    try:
+        if git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode != 0:
+            return "skipped", "no upstream"
+        if git("fetch", "--quiet", "--no-tags", timeout=timeout).returncode != 0:
+            return "kept", "could not reach GitHub"
+        if git("merge-base", "--is-ancestor", "@{u}", "HEAD").returncode == 0:
+            return "current", ""
+        if git("merge-base", "--is-ancestor", "HEAD", "@{u}").returncode != 0:
+            return "kept", "it has commits GitHub does not, and GitHub has commits it does not"
+        if git("status", "--porcelain", "--untracked-files=no").stdout.strip():
+            return "kept", "it has uncommitted changes"
+        merged = git("merge", "--ff-only", "--quiet", "@{u}", timeout=timeout)
+        return ("updated", "") if merged.returncode == 0 else ("kept", "fast-forward failed")
+    except subprocess.TimeoutExpired:
+        return "kept", "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "kept", type(exc).__name__
+
+
+def _unrelated(git, commits):
+    """Whether HEAD shares no commit with any of `commits` (already fetched). Only a definite answer counts:
+    a shallow checkout or a git error is not proof, so it is never called unrelated."""
+    if git("rev-parse", "--is-shallow-repository").stdout.strip() != "false":
+        return False
+    codes = [git("merge-base", commit, "HEAD").returncode for commit in commits]
+    return bool(codes) and all(code == 1 for code in codes)
+
+
+def remote_history(repository, env=None, url=None, timeout=30):
+    """Whether GitHub already holds history for a bot's repository: (`present` | `empty` | `unknown`, detail).
+
+    A bot set up from a catalog template is materialized only when its repository has nothing in it yet; one that
+    does is cloned instead, so a moved bot never runs on a fresh template copy. `unknown` (unreachable, no access)
+    says why in `detail`."""
+    env = safe_git.environment(env)
+    wanted = url or f"https://github.com/{repository}.git"
+    try:
+        done = isolation.run([*safe_git.PREFIX, "ls-remote", "--heads", wanted], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return "unknown", "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "unknown", type(exc).__name__
+    if done.returncode != 0:
+        lines = (done.stderr or done.stdout or "").strip().splitlines()
+        return "unknown", (lines[-1] if lines else f"exit {done.returncode}")[:200]
+    return ("present" if done.stdout.strip() else "empty"), ""
 
 
 def clone_repository(path, repository, env=None, url=None, timeout=180):
@@ -209,16 +299,29 @@ def select_token(granted, repository=None):
     return granted.get("token", "")
 
 
+def outside_token(repository, env=None):
+    """The bot's own GitHub credential, for a repository outside the App's organization; '' otherwise."""
+    env = os.environ if env is None else env
+    org = str(env.get(REPOSITORY_KEY) or "").partition("/")[0].lower()
+    owner = str(repository or "").partition("/")[0].lower()
+    return env.get(OTHER_TOKEN_KEY, "") if org and owner and owner != org else ""
+
+
 def credential(config_path, bot, socket_path=None, repository=None):
-    """Fresh repository credentials, falling back to the turn's matching token in memory."""
+    """Fresh repository credentials, falling back to the turn's matching token in memory. A repository
+    outside the App's organization gets the bot's own GitHub credential, if it was granted one."""
+    other = outside_token(repository)
+    if other:
+        return other
     from clients.tico import Client
     try:
         if socket_path:
             return credential_socket.request(socket_path, os.environ.get("HUB_TOKEN", ""), timeout=15,
-                                             repository=repository)
+                                             repository=repository, purpose="git")
         if config_path:
             config = json.loads(Path(config_path).read_text())
-            granted = Client(config["url"], config["token"], timeout=10, retries=1).post("github/token", {"bot": bot})
+            granted = Client(config["url"], config["token"], timeout=10, retries=1).post(
+                "github/token", {"bot": bot, "purpose": "git"})
             return select_token(granted, repository)
     except Exception as exc:
         print(f"Tico runner: no fresh GitHub App token ({type(exc).__name__})", file=sys.stderr)

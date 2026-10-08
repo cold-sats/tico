@@ -41,12 +41,41 @@ function settingsAllChoices() {
         return {harness, model: model.id, effort, label, search, value: settingsChoiceValue(harness, model.id, effort)};
       })));
 }
+// What the bot's computer cannot run, as the server judges it (backend/readiness.py `can_run`, sent with
+// /v2/operations as `runnable`): {can_run: false, problem, short, computer, sign_in, move}. Not listed: not refused.
+function settingsRuntimeBlock(e, harness) {
+  const answer = e && !e.agent && harness ? SETTINGS_DATA.runnable?.[e.name]?.[harness] : null;
+  if (!answer || answer.can_run !== false) return null;
+  return {runtime: settingsHarness(harness)?.runtime || harness, short: answer.short || "can't run", reason: answer.problem || "Can't run here",
+    computer: answer.computer, move: answer.move,
+    signIn: answer.sign_in && (settingsIsAdmin() || settingsMachineOperator(answer.computer?.id) === S.me?.id) ? answer.sign_in : null};
+}
+const settingsMachineOperator = id => (SETTINGS_DATA.machines || []).find(row => row.id === id)?.operator;
+// One line per harness this computer cannot run that has a way out: sign in here, or move the bot.
+function settingsBlockedNote(e, harnesses) {
+  return harnesses.map(id => [id, settingsRuntimeBlock(e, id)]).filter(([, block]) => block && (block.move || block.signIn))
+    .filter(([, block], i, rows) => rows.findIndex(([, other]) => other.runtime === block.runtime) === i)
+    .map(([id, block]) => `<p class="settings-choice-block" data-choice-block="${esc(block.runtime)}"><span>${block.reason.toLowerCase().includes(block.runtime) ? '' : esc(harnessWords(block.runtime) || settingsHarnessName(id)) + ': '}${esc(block.reason)}</span>
+      ${block.signIn ? `<button class="ghost" type="button" data-model-login data-runner="${esc(block.signIn.runner_id)}" data-runtime="${esc(block.runtime)}" data-machine="${esc(block.signIn.computer)}">Sign in</button>` : ''}
+      ${block.move ? `<button class="ghost" type="button" data-choice-move="${esc(block.move.id)}" data-machine="${esc(block.move.label)}">Move to ${esc(block.move.label)}</button>` : ''}</p>`).join('');
+}
+async function settingsMoveForModel(button) {
+  const box = button.closest('[data-bot-choice]'), e = S.emps.find(row => row.name === box?.dataset.botChoice);
+  if (!e || !await settingsConfirmTransition(e, 'machine', button.dataset.machine)) return;
+  await settingsBeginTransition(button, e, {kind: 'machine', runner_id: button.dataset.choiceMove,
+    expected_generation: e.machine?.generation || 0, expected_revision: e.revision});
+}
+document.addEventListener('click', event => {
+  const move = event.target.closest('[data-choice-move]');
+  if (move) void settingsMoveForModel(move);
+});
 // Keep the three choices local until Apply, so selecting a harness cannot start a transition.
 function settingsChoiceFields(current = '', disabled = false, none = false, label = 'Model settings') {
   return `<div class="settings-model-choice" role="group" aria-label="${esc(label)}" data-choice-fields data-current="${esc(current)}" ${disabled ? 'data-readonly' : ''} ${none ? 'data-allow-none' : ''}>
     <label>Harness / provider<select data-choice-harness aria-label="Harness / provider" ${disabled ? 'disabled' : ''}></select></label>
     <label>Model<select data-choice-model aria-label="Model" ${disabled ? 'disabled' : ''}></select></label>
     <label>Effort<select data-choice-effort aria-label="Effort" ${disabled ? 'disabled' : ''}></select></label>
+    <div class="settings-choice-blocks" data-choice-blocks></div>
   </div>`;
 }
 function settingsWireChoiceFields(fields, onChange = () => {}) {
@@ -54,13 +83,24 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
   const model = fields.querySelector('[data-choice-model]');
   const effort = fields.querySelector('[data-choice-effort]');
   const choices = settingsAllChoices(), readonly = fields.hasAttribute('data-readonly');
+  // A bot's own Model control greys out what its computer cannot run; bulk change checks each bot on Apply.
+  const box = fields.closest('[data-bot-choice]');
+  const bot = box?.dataset.kind === 'model' ? S.emps.find(row => row.name === box.dataset.botChoice) : null;
+  const block = id => bot ? settingsRuntimeBlock(bot, id) : null;
   const option = (value, label, selected, disabled = false) => `<option value="${esc(value)}" ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${esc(label)}</option>`;
   let picked = settingsChoiceFromValue(fields.dataset.current);
   const paint = () => {
     const harnesses = [...new Set(choices.map(row => row.harness))];
     harness.innerHTML = option('', fields.hasAttribute('data-allow-none') ? 'None' : 'Choose harness', !picked.harness)
       + (picked.harness && !harnesses.includes(picked.harness) ? option(picked.harness, settingsHarnessName(picked.harness) || picked.harness, true, true) : '')
-      + harnesses.map(id => option(id, settingsHarnessName(id) || id, id === picked.harness)).join('');
+      + harnesses.map(id => { const why = block(id);
+        // Short, so a narrow select does not cut it off: "Claude Code (sign in)".
+        return option(id, why ? `${harnessWords(why.runtime)} (${why.short})` : settingsHarnessName(id) || id, id === picked.harness, !!why && id !== picked.harness); }).join('');
+    harness.title = block(picked.harness)?.reason || '';
+    // The reason and its Sign in / Move line only in the open bot editor: the table already marks the bot's row,
+    // and every bot on that computer would repeat it.
+    const notes = fields.querySelector('[data-choice-blocks]');
+    if (notes) notes.innerHTML = bot && !readonly && fields.closest('#bot-editor') ? settingsBlockedNote(bot, harnesses) : '';
     const models = [...new Set(choices.filter(row => row.harness === picked.harness).map(row => row.model))];
     model.innerHTML = option('', 'Choose model', !picked.model, true)
       + (picked.model && !models.includes(picked.model) ? option(picked.model, `${settingsModelName(picked.model)} (current)`, true, true) : '')
@@ -75,7 +115,7 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
     effort.disabled = readonly || efforts.length <= 1;
   };
   const value = () => picked.model ? settingsChoiceValue(picked.harness, picked.model, picked.effort) : '';
-  const valid = () => choices.some(row => row.value === value()) || (!picked.harness && fields.hasAttribute('data-allow-none'));
+  const valid = () => (choices.some(row => row.value === value()) && !block(picked.harness)) || (!picked.harness && fields.hasAttribute('data-allow-none'));
   harness.onchange = () => {
     picked = {harness: harness.value, model: '', effort: ''};
     paint(); onChange(value(), valid());
@@ -250,6 +290,9 @@ function settingsBulkModelDialog() {
       dialog.querySelector('[data-bulk-apply]').disabled = !choice;
       dialog.querySelector('[data-bulk-destination]').textContent = choice
         ? `Destination: ${settingsChoiceLabel(choice.harness, choice.model, choice.effort)}` : '';
+      // Before Apply: say which bots' computers cannot run this choice.
+      bots.forEach(e => { const why = choice && settingsRuntimeBlock(e, choice.harness);
+        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run: ${why.reason}` : settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e))); });
     });
     dialog.querySelector('[data-bulk-apply]').onclick = () => void run(bots);
   };
@@ -263,8 +306,11 @@ function settingsBulkModelDialog() {
     const apply = dialog.querySelector('[data-bulk-apply]');
     apply.disabled = true;
     dialog.querySelectorAll('[data-bot-choice] select,[data-choice-apply]').forEach(control => control.disabled = true);
-    const results = {changed: 0, skipped: 0, failed: []};
+    const results = {changed: 0, skipped: 0, blocked: 0, failed: []};
     for (const e of targets) {
+      // A bot whose computer cannot run the choice is reported, not sent: the server would refuse it anyway.
+      const why = settingsRuntimeBlock(e, choice.harness);
+      if (why) { mark(e.name, 'blocked', `Can't run: ${why.reason}${why.move ? ` · move to ${why.move.label}` : ''}`); results.blocked++; continue; }
       mark(e.name, 'working', 'Changing…');
       const result = await settingsBulkApplyOne(e.name, choice);
       mark(e.name, result.state, result.note);
@@ -272,6 +318,7 @@ function settingsBulkModelDialog() {
     }
     running = false;
     const summary = [`${results.changed} changed`, results.skipped ? `${results.skipped} already on it` : '',
+      results.blocked ? `${results.blocked} can't run it` : '',
       results.failed.length ? `${results.failed.length} failed` : ''].filter(Boolean).join(' · ');
     dialog.querySelector('[data-bulk-summary]').textContent = summary;
     const actions = dialog.querySelector('.transition-actions');

@@ -648,7 +648,9 @@ def recent_bots(c, auth, who, since, limit, needs):
     return out
 
 
-def needs_items(c, auth, who, task_view):
+def needs_items(c, auth, who, task_view, older=None):
+    """The person's queue. A task there only for a question older than H.ASK_OLDER_DAYS goes to `older` instead
+    (a list the caller passes), out of the queue and its count."""
     raw = H.needs_you(c, who.actor)
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
     items = []
@@ -660,10 +662,17 @@ def needs_items(c, auth, who, task_view):
                 continue
             open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
-            items.append({**task_view(row),
-                          "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
-                          "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
-                          "first_line": (row.get("body") or "").split("\n")[0]})
+            item = {**task_view(row),
+                    "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
+                    "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
+                    "first_line": (row.get("body") or "").split("\n")[0]}
+            if (item["kind"] == "question" and row["owner"] != who.actor and H.ask_older(ask)
+                    and not any(a["to_actor"] == who.actor and not H.ask_older(a) for a in open_asks)):
+                ask["older"] = True
+                if older is not None:
+                    older.append(item)
+                continue
+            items.append(item)
     for row in raw["approvals"]:
         msg = H.message(c, row["message_id"])
         if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
@@ -1004,7 +1013,8 @@ def install_views(app, store, auth, mutate, task_view):
                       for r in c.execute("SELECT service,last_success,last_error FROM service_health")]
             from .agents import listing as agent_listing
             # `machines` is the older name of `computers`, kept for older clients.
-            return {"cloud": True, "computers": machines, "machines": machines, "agents": agent_listing(c, who, auth), "services": health,
+            return {"cloud": True, "computers": machines, "machines": machines,
+                    "runnable": runnable_choices(c, who, auth, store.settings), "agents": agent_listing(c, who, auth), "services": health,
                     "issues": operation_issues(c, who, auth),
                     "server_time": H.now(), "scheduler_enabled": store.settings.scheduler_enabled}
 
@@ -1248,8 +1258,10 @@ def install_views(app, store, auth, mutate, task_view):
         who = request.state.identity
         human_only(who)
         with store.read() as c:
-            items = needs_items(c, auth, who, task_view)
-            return {"actor": who.actor, "count": len(items)} if count else {"actor": who.actor, "items": items}
+            older = []
+            items = needs_items(c, auth, who, task_view, older)
+            return ({"actor": who.actor, "count": len(items)} if count
+                    else {"actor": who.actor, "items": items, "older": older})
 
     @app.get("/api/v2/tico/fleet")
     def tico_fleet(request: Request):
@@ -1348,3 +1360,31 @@ def install_views(app, store, auth, mutate, task_view):
             snap = conversation_snapshot(c, cid, request.state.identity)
             turns.annotate(c, auth, request.state.identity, snap["messages"])
             return snap
+
+
+def runnable_choices(c, who, auth, settings):
+    """{bot: {harness: answer}} for the harnesses the model picker offers that the bot's computer cannot run, for the bots
+    this person manages (backend/readiness.py `can_run`, via health.runtime_choice). A harness not listed is not refused."""
+    from .harnesses import HARNESS_BY_ID
+    from .health import _movable, runtime_choice
+    from .getting_started import _online_runners
+    enabled = providers.load(c, settings)["enabled"]
+    harnesses = sorted({h for model in providers.MODEL_CATALOG if not model.get("deprecated")
+                        and (not enabled or not model.get("provider") or model["provider"] in enabled)
+                        for h in model.get("harnesses") or () if not (HARNESS_BY_ID.get(h) or {}).get("external")})
+    computers = _movable(c, who, {r["id"] for r in _online_runners(c)})
+    out = {}
+    from .harnesses import resolve_harness
+    for row in c.execute("SELECT a.bot,b.runtime,bc.config_json FROM assignments a JOIN bots b ON b.slug=a.bot "
+                         "LEFT JOIN bot_config bc ON bc.bot=a.bot WHERE b.state<>'archived' ORDER BY a.bot"):
+        bot = row["bot"]
+        if not auth.bot_manager(c, who, bot):
+            continue
+        # The bot's own harness too: the picker keeps it shown when its provider is no longer offered.
+        own = resolve_harness(H._json(row["config_json"], {}) or {}, row["runtime"])
+        for harness in sorted(set(harnesses) | ({own} if own in HARNESS_BY_ID and not HARNESS_BY_ID[own].get("external") else set())):
+            runtime = HARNESS_BY_ID[harness]["runtime"]
+            answer = runtime_choice(c, bot, runtime, who, computers, harness=harness)
+            if answer.get("can_run") is False:
+                out.setdefault(bot, {})[harness] = answer
+    return out

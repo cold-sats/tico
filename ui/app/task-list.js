@@ -180,7 +180,7 @@ function taskItems(state, view = state.view) {
     if (view === 'board' && pipelineSelectedType(state)) return true;
     if (view === 'done') return it.col === 'done';
     if (it.col === 'done') return false;
-    return view === 'foryou' ? taskNeedsViewer(it.task) : true;
+    return view === 'foryou' ? taskNeedsViewer(it.task) || taskOlderAsk(it.task) : true;
   });
   state.memo?.set(view, out);
   return out;
@@ -355,7 +355,11 @@ function tasksListHTML(items, state) {
       ? `<div class="tl">${empty}<button class="ghost tl-more" type="button" id="board-more">Show more</button></div>`
       : empty;
   }
-  const groups = by === 'none' ? [{key: 'all', label: '', items}] : tasksGroupsFor(items, by, state);
+  // Needs you ends with the questions nobody answered in three days, folded until opened.
+  const older = state.view === 'foryou' ? items.filter(it => taskOlderAsk(it.task)) : [];
+  const live = older.length ? items.filter(it => !taskOlderAsk(it.task)) : items;
+  const groups = [...(by === 'none' ? [{key: 'all', label: older.length ? 'Needs you' : '', items: live}] : tasksGroupsFor(live, by, state)),
+    ...(older.length ? [{key: 'older', label: 'Older questions', items: older, folded: true}] : [])];
   const nest = by === 'status' || by === 'owner';
   const select = tasksCanSelect();
   return `<div class="tl${select ? ' can-select' : ''}" data-group-by="${esc(by)}">${groups.map((g, i) => {
@@ -364,7 +368,7 @@ function tasksListHTML(items, state) {
     if (!tops.length) return '';
     const ctx = {state, kids, done, by, select};
     const count = tops.reduce((n, it) => n + 1 + tasksDescendants(it.key, kids), 0);
-    const ck = `${state.view}:${by}:${g.key}`, collapsed = state.collapsed.has(ck);
+    const ck = `${state.view}:${by}:${g.key}`, collapsed = state.collapsed.has(ck) !== !!g.folded;
     const id = `tl-g-${i}`;
     const head = g.label ? `<header class="tl-ghead">
         <button type="button" class="tl-gtoggle" data-group-toggle="${esc(ck)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${id}" aria-label="${esc(g.label)}, ${count}">

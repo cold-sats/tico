@@ -34,6 +34,10 @@ def product_repo_create(client, name, *, stdin=None, stderr=None):
     """Preview the exact target and require an interactive exact-name confirmation before writing."""
     stdin = stdin or sys.stdin
     stderr = stderr or sys.stderr
+    request_id = os.environ.get("HUB_OPERATION_ID") or uuid.uuid4().hex
+    key = request_id + ":product-repository"
+    if len(key) > 200:
+        raise APIError("operation_id", "HUB_OPERATION_ID is too long for a product-repository idempotency key; no repository was created", 422)
     preview = client.get("github/product-repos/preview", name=name)
     print(f"Product repository preview: {preview['repository']} · private · empty (no initial commit)", file=stderr)
     print(f"GitHub App capability: {preview['capability']}. {preview['capability_detail']}", file=stderr)
@@ -44,8 +48,6 @@ def product_repo_create(client, name, *, stdin=None, stderr=None):
     print(f"Type {preview['repository']} to create it: ", end="", file=stderr, flush=True)
     if stdin.readline().strip() != preview["repository"]:
         raise APIError("cancelled", "Confirmation did not match; no repository was created")
-    request_id = os.environ.get("HUB_OPERATION_ID") or uuid.uuid4().hex
-    key = (request_id + ":product-repository")[:200]
     return client.post("github/product-repos", {
         "org": preview["org"], "name": preview["name"], "visibility": preview["visibility"],
         "auto_init": preview["auto_init"], "confirmed": True,
@@ -531,7 +533,8 @@ def botops_tools(client, args):
             body = json.loads(text) if text else None
         except ValueError:
             raise APIError("body", "The body must be JSON") from None
-        return hubtools.BY_NAME["hub_api"]["fn"](client, {"method": args.method, "path": args.path, "body": body, "operation_id": key})
+        return hubtools.BY_NAME["hub_api"]["fn"](client, {"method": args.method, "path": args.path, "body": body, "operation_id": key,
+                                                         **({"on_behalf_of": args.on_behalf_of} if getattr(args, "on_behalf_of", None) else {})})
     name = tool_name(args.fn)
     fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "subsub", "fn", "what", "no_redact") and v is not None}
     if args.fn in ("credential set", "message redact"):

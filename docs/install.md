@@ -482,8 +482,11 @@ Only the optional unnamed manual install uses `tico-runner`. Sign in as `bot`:
 
 ```
 docker exec -it -u bot '<container-name>' codex login --device-auth      # ChatGPT subscription: open the URL, enter the code
-docker exec -it -u bot '<container-name>' claude setup-token             # Claude: prints a long-lived token
+docker exec -it -u bot '<container-name>' claude auth login              # Claude subscription: open the URL, paste the code back
 ```
+
+`claude setup-token` is not a sign-in: it prints a long-lived token and leaves Claude Code signed out. To use such a
+token, store it as a `CLAUDE_CODE_OAUTH_TOKEN` Credential for every computer instead (above).
 
 Store API keys and other Credentials in **Tools > Credentials**, set their environment-variable name,
 and grant them to each bot that needs them. A bot run receives only its grants; it does not inherit
@@ -547,8 +550,11 @@ instance metadata hop limit at 1 for runner computers too.
 
 ### Mac
 
+**Mac** in Add computer shows the same one-line installer as Linux; it needs Docker Desktop running and installs into
+`~/tico-runner-<name>` without sudo. Sign the computer in from **Settings > Computers** afterwards.
+
 The native runner is unchanged and fully supported: a Mac keeps its own logins, desktop apps and files. Choose **Mac**
-in Add computer, then in the Tico checkout on that Mac run the command it prints
+in Add computer and **Use a Tico checkout instead**, then in the Tico checkout on that Mac run the command it prints
 (`scripts/setup-runner.sh "$HOME/Downloads/<setup-file>.json"`, or `scripts/tico -e <env> enroll --code-file <file>
 --label "Studio Mac"`, then `scripts/tico -e <env> install bot`; see the README). It connects to
 `https://<TICO_DOMAIN>`, runs under launchd, and reconnects on its own after the server restarts.
@@ -557,6 +563,25 @@ in Add computer, then in the Tico checkout on that Mac run the command it prints
 After a healthy update it also restarts the side jobs installed beside it (`connectors`, `close-calls`, `importers`), and
 each side job exits and restarts when it sees the checkout move to another revision (checked about once a minute), so no job
 keeps old code in memory. `scripts/tico restart` does the same by hand.
+
+### Windows PC (WSL 2)
+
+A Windows PC runs the Linux runner inside WSL 2. Choose **Windows** in Add computer and paste the line it shows into
+PowerShell opened **as administrator**:
+
+```
+& ([scriptblock]::Create((irm https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install-wsl.ps1))) `
+  -Url https://tico.example.com -Code <code> -Label 'Build PC'
+```
+
+`install-wsl.ps1` (in `infra/windows/`, published with each release) installs WSL and Ubuntu when they are missing (as root, skipping the "create a Linux user" prompt),
+turns on systemd in Ubuntu, then runs `install.sh --runner` inside it, so Docker, the runner and its updater are the same
+as on a Linux server. If WSL was just enabled, Windows asks for a restart first: restart, take a new code from Add
+computer (codes last 15 minutes) and run the line again. WSL stops an idle distribution, so the script adds a logon task,
+**Tico runner keep-alive**, that holds Ubuntu open, and turns off sleep on mains power (`-AllowSleep` leaves it alone).
+To undo both: `Unregister-ScheduledTask 'Tico runner keep-alive'` and `powercfg /change standby-timeout-ac 30`.
+Bots run while that Windows user is signed in. Sign the computer in to Claude Code or Codex from **Settings > Computers**.
+Docker Desktop is not needed; if its WSL integration is on for Ubuntu, the runner uses it.
 
 ### A Linux checkout (systemd)
 

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Three images from one file, chosen with --target:
 #   server   ghcr.io/ticoteam/tico          the API and web app, plus Litestream. It runs no bots.
-#   runner   ghcr.io/ticoteam/tico-runner   what a bot needs: git, gh, node, python, build tools. No model CLIs:
+#   runner   ghcr.io/ticoteam/tico-runner   what a bot needs: git, gh, node, python, build tools, and the system
+#            libraries a Playwright Chromium needs (bots install the browser itself). No model CLIs:
 #            the runner installs the ones the company's providers need into its volume (docs/harnesses.md).
 #   updater  ghcr.io/ticoteam/tico-updater  the one-click updater (compose service `updater`).
 # Tool versions and sha256 digests come from docker/versions.env, so the server and runner
@@ -85,6 +86,9 @@ RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
 FROM ${PYTHON_IMAGE} AS runner
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git curl openssh-client build-essential ripgrep jq procps \
+      libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 \
+      libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 \
+      libxfixes3 libxkbcommon0 libxrandr2 libfontconfig1 fonts-liberation \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10002 ticorun \
     && useradd --uid 10002 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash ticorun \
@@ -95,6 +99,7 @@ COPY --from=gh /out/gh /usr/local/bin/gh
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/
 COPY docker/runner-entrypoint.sh /usr/local/bin/tico-runner-entrypoint
 COPY docker/gitconfig /etc/gitconfig
+COPY docker/profile-turn.sh /etc/profile.d/tico-turn.sh
 # Two users share /home/runner (SECURITY.md, runner/isolation.py). The supervisor stays `ticorun` (10002,
 # what every earlier image ran as, so runner.json, state-* and tools/ keep their owner and an older image
 # can still start on the volume). Every process that runs bot code is `bot` (10003), in the same group so
