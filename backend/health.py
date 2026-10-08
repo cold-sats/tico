@@ -865,11 +865,19 @@ def note_github_token(store, error=None, action=""):
     App itself belongs here (its key, installation or permissions), with what to do about it; a bot whose
     repository is not on GitHub yet is that bot's readiness problem."""
     now = H.now()
+    detail = json.dumps({"message": error, "action": action}) if error else None
+    with store.read() as c:
+        current = c.execute("SELECT last_error,detail_json FROM service_health WHERE service=?", (GITHUB_HEALTH,)).fetchone()
+        if error:
+            if current and current["last_error"] == error and current["detail_json"] == detail:
+                return
+        elif not current or not current["last_error"]:
+            return
     with store.transaction() as c:
         if error:
             c.execute("INSERT INTO service_health(service,last_success,last_error,detail_json) VALUES(?,NULL,?,?) "
                       "ON CONFLICT(service) DO UPDATE SET last_error=excluded.last_error,detail_json=excluded.detail_json",
-                      (GITHUB_HEALTH, now, json.dumps({"message": error, "action": action})))
+                      (GITHUB_HEALTH, error, detail))
         else:   # only a recovery is written, so a healthy turn costs no extra write
             c.execute("UPDATE service_health SET last_success=?,last_error=NULL WHERE service=? AND last_error IS NOT NULL",
                       (now, GITHUB_HEALTH))

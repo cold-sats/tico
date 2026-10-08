@@ -7,7 +7,8 @@ belongs to, minted with the runner's registration. The socket has no other quest
 name a bot, so an attempt never gets another bot's token, an attempt that has ended gets nothing,
 and the runner's own token never crosses it.
 
-One JSON line each way: {"token": "<attempt token>", "repository": "owner/repo"} (repository optional) then {"token": "<github token>"} or {"error": "..."}.
+One JSON line each way: {"token": "<attempt token>", "repository": "owner/repo", "purpose": "git"}
+(repository and purpose optional) then {"token": "<github token>"} or {"error": "..."}.
 
 The same socket serves an inbox bot's mail access (runner/mail_key.py holds the Google key, which
 bots cannot read): {"token": "<attempt token>", "mail": {"service": "gmail", "mailbox": "ana@..."}}
@@ -31,10 +32,24 @@ MAX_LINE = 4096
 MAIL_SERVICES = ("gmail", "calendar")
 
 
+def _server_rejects_token_purpose(exc):
+    """Only identify the old-server schema error for the optional purpose field."""
+    if getattr(exc, "status", None) != 422:
+        return False
+    if str(getattr(exc, "code", "")).lower() not in {
+        "validation", "validation_error", "unknown_field", "extra_forbidden",
+    }:
+        return False
+    detail = str(getattr(exc, "detail", exc)).lower()
+    return "purpose" in detail and any(marker in detail for marker in (
+        "extra input", "extra field", "unknown field", "unexpected field", "extra_forbidden",
+    ))
+
+
 class Server:
     """Serves `mint(bot, repository)` to the attempt registered for that bot; repository is optional."""
 
-    def __init__(self, path, mint, mail=None, refresh=None):
+    def __init__(self, path, mint, mail=None, refresh=None, mint_git=None):
         self.path, self.mint, self.mail = str(path), mint, mail
         self.attempts, self.mailboxes, self.lock = {}, {}, threading.Lock()
         self.server = None
@@ -42,6 +57,7 @@ class Server:
         self.issued = {}
         self.directory = None
         self.refresh = refresh
+        self.mint_git = mint_git
 
     def register(self, attempt_token, bot, mailboxes=()):
         with self.lock:
@@ -78,7 +94,11 @@ class Server:
             repository = asked.get("repository")
             if repository is not None and not isinstance(repository, str):
                 return {"error": "bad repository"}
-            granted = self.mint(bot, repository) if repository else self.mint(bot)
+            purpose = asked.get("purpose", "turn")
+            if purpose not in ("turn", "git"):
+                return {"error": "bad purpose"}
+            mint = self.mint_git if purpose == "git" and self.mint_git else self.mint
+            granted = mint(bot, repository) if repository else mint(bot)
             if asked.get('refresh'):
                 if not granted or not repository or not self.refresh:
                     return {'error': 'mirror refresh unavailable'}
@@ -162,8 +182,30 @@ def serve(client, path=None, mail=None, refresh=None):
         from .git_credentials import select_token
         granted = client.post("github/token", {"bot": bot})
         return select_token(granted, repository)
+    legacy_purpose_servers = set()
+    purpose_lock = threading.Lock()
+    server_key = str(getattr(client, "url", None) or id(client))
+
+    def mint_git(bot, repository=None):
+        from .git_credentials import select_token
+        with purpose_lock:
+            legacy_server = server_key in legacy_purpose_servers
+        if legacy_server:
+            granted = client.post("github/token", {"bot": bot})
+        else:
+            try:
+                granted = client.post("github/token", {"bot": bot, "purpose": "git"})
+            except Exception as exc:
+                if not _server_rejects_token_purpose(exc):
+                    raise
+                with purpose_lock:
+                    legacy_purpose_servers.add(server_key)
+                # Older servers default an omitted purpose to turn. Retry once, then remember
+                # that schema for this server so every later git request uses its supported body.
+                granted = client.post("github/token", {"bot": bot})
+        return select_token(granted, repository)
     try:
-        server = Server(path, mint, mail, refresh).start()
+        server = Server(path, mint, mail, refresh, mint_git=mint_git).start()
         server.directory = directory
         return server
     except OSError as exc:
@@ -173,7 +215,7 @@ def serve(client, path=None, mail=None, refresh=None):
         return None
 
 
-def request(path, attempt_token, timeout=20, repository=None):
+def request(path, attempt_token, timeout=20, repository=None, purpose="turn"):
     """The GitHub token for the bot this attempt belongs to. Raises OSError/ValueError on failure."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(timeout)
@@ -181,6 +223,10 @@ def request(path, attempt_token, timeout=20, repository=None):
         asked = {"token": attempt_token}
         if repository:
             asked["repository"] = repository
+        if purpose != "turn":
+            if purpose != "git":
+                raise ValueError("bad purpose")
+            asked["purpose"] = purpose
         connection.sendall(json.dumps(asked).encode() + b"\n")
         line = connection.makefile("rb").readline(MAX_LINE)
     reply = json.loads(line)

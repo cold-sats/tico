@@ -7,6 +7,7 @@ Runners fetch that token per turn (runner/git_credentials.py); no long-lived per
 The app's private key and secrets are encrypted at rest and are never returned by any endpoint or
 written to a log. See docs/github-app.md.
 """
+import hashlib
 import json
 import logging
 import os
@@ -37,10 +38,12 @@ log = logging.getLogger("tico.github_app")
 API = "https://api.github.com"
 STATE_TTL = 3600
 LIVE_TTL = 60                 # how long the installation's live permissions are trusted
-# A cached token is reused only while it has this long left. A turn's shell holds the token it started with
-# (`GH_TOKEN`), and a `gh` that a login shell finds ahead of the turn's wrapper uses that value for the whole turn;
-# with a five-minute margin it could expire minutes into the turn (gh: HTTP 401 Bad credentials).
-REFRESH_MARGIN = 45 * 60
+# Start-of-turn tokens seed `GH_TOKEN` and may be used throughout a turn, so keep at least 45 minutes
+# remaining. The git credential helper can ask again per call, so its explicit purpose needs only ten.
+TURN_START_REFRESH_MARGIN = 45 * 60
+GIT_CALL_REFRESH_MARGIN = 10 * 60
+# Kept as the default for callers that are not the per-call git helper.
+REFRESH_MARGIN = TURN_START_REFRESH_MARGIN
 # What a bot's turn needs in its own repository, and nothing else.
 TURN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
 CREATE_PERMISSIONS = {"administration": "write", "contents": "read"}
@@ -123,6 +126,7 @@ class GitHubApp:
     def __init__(self, settings, store, vault=None):
         self.settings, self.store, self.vault = settings, store, vault
         self.cache = {}
+        self.audited_tokens = {}
         self.live = {}
         self.lock = threading.Lock()
         # Serialize confirmed product creates in this process so same-process retries see the
@@ -306,15 +310,16 @@ class GitHubApp:
             self.cache = {key: value for key, value in self.cache.items() if repository not in key[0]}
         return {"repository": repository, "deleted": True}
 
-    def mint(self, repos, permissions, diagnose=True):
+    def mint(self, repos, permissions, diagnose=True, refresh_margin=REFRESH_MARGIN, include_cache_status=False):
         """A token for the repositories (`owner/name` each), or the whole installation when there are none.
-        Cached until shortly before it expires."""
+        Cached until it has less than `refresh_margin` seconds left."""
         repos = sorted(set(repos or ()))
         key = (tuple(repos), tuple(sorted(permissions.items())))
         with self.lock:
             hit = self.cache.get(key)
-            if hit and hit["exp"] - REFRESH_MARGIN > time.time():
-                return hit["token"], hit["expires_at"]
+            if hit and hit["exp"] - refresh_margin > time.time():
+                result = (hit["token"], hit["expires_at"])
+                return (*result, True) if include_cache_status else result
         installation = self.installation()
         if not installation:
             raise Problem("github_not_installed", "The GitHub App is not installed on the organization yet", 409)
@@ -346,9 +351,22 @@ class GitHubApp:
             if len(self.cache) >= 256:
                 self.cache.pop(next(iter(self.cache)))
             self.cache[key] = entry
-        return entry["token"], entry["expires_at"]
+        result = (entry["token"], entry["expires_at"])
+        return (*result, False) if include_cache_status else result
 
-    def mint_reachable(self, repos, permissions, diagnose_empty=False, own=None):
+    def should_audit_token(self, bot, token):
+        """Keep token values out of durable state and audit each bot/token pair at most once."""
+        key = (bot, hashlib.sha256(token.encode("utf-8")).hexdigest())
+        with self.lock:
+            if key in self.audited_tokens:
+                return False
+            self.audited_tokens[key] = None
+            if len(self.audited_tokens) > 1024:
+                self.audited_tokens.pop(next(iter(self.audited_tokens)))
+            return True
+
+    def mint_reachable(self, repos, permissions, diagnose_empty=False, own=None,
+                       refresh_margin=REFRESH_MARGIN, include_cache_status=False):
         """Discard confirmed missing repositories and retry the remaining scope once."""
         from .repositories import unreachable, metadata, save_metadata
         with self.store.read() as c:
@@ -361,9 +379,13 @@ class GitHubApp:
         if not names:
             if diagnose_empty:
                 raise Problem('github_repo_not_accessible', 'Repository is not reachable; check the GitHub App installation (retry in five minutes)', 409)
-            return None, None, []
+            result = (None, None, [])
+            return (*result, False, False) if include_cache_status else result
         try:
-            token, expires = self.mint(names, permissions, diagnose=False)
+            minted = self.mint(names, permissions, diagnose=False, refresh_margin=refresh_margin,
+                               include_cache_status=include_cache_status)
+            token, expires = minted[:2]
+            cached = minted[2] if include_cache_status else False
         except Problem as problem:
             if problem.code not in ('github_repo_not_accessible', 'github_repo_missing'):
                 raise
@@ -387,12 +409,16 @@ class GitHubApp:
             if not names:
                 if diagnose_empty:
                     raise self._unreachable(self.installation(), repos, 404, known_absent=absent)
-                return None, None, []
-            token, expires, names = self.mint_reachable(names, permissions, diagnose_empty=diagnose_empty)
-        from .repositories import reachable
-        with self.store.transaction() as c:
-            reachable(c, names)
-        return token, expires, names
+                result = (None, None, [])
+                return (*result, False, False) if include_cache_status else result
+            recursive = self.mint_reachable(names, permissions, diagnose_empty=diagnose_empty,
+                                             refresh_margin=refresh_margin,
+                                             include_cache_status=include_cache_status)
+            return recursive
+        from .repositories import mark_reachable
+        reachability_changed = mark_reachable(self.store, names)
+        result = (token, expires, names)
+        return (*result, cached, reachability_changed) if include_cache_status else result
 
     def _absent(self, repos, wide):
         """Which of `repos` the installation cannot see: one paged listing instead of a GET per repository
@@ -605,6 +631,8 @@ class TokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bot: str = Field(min_length=1, max_length=100)
     repository: str | None = None
+    # This selects cache headroom only; grants and permissions are identical for both purposes.
+    purpose: Literal["turn", "git"] = "turn"
 
 
 def _said(response):
@@ -746,7 +774,7 @@ def install_github_app(app, settings, store):
     @app.post("/api/v2/github/token")
     def token(request: Request, body: TokenRequest):
         who = request.state.identity
-        with store.transaction() as c:
+        with store.read_transaction() as c:
             validate_identity(c, who)
             row = service.row(c)
             if not row:
@@ -784,16 +812,25 @@ def install_github_app(app, settings, store):
             read_repos = [grant['full_name']] if grant['access'] == 'read' else []
             repos = [grant['full_name']]
         tokens = []
+        refresh_margin = GIT_CALL_REFRESH_MARGIN if body.purpose == "git" else TURN_START_REFRESH_MARGIN
         try:
             # GitHub permissions are token-wide. Never put read grants in a write token.
             if write_repos:
-                value, expires, write_repos = service.mint_reachable(write_repos, TURN_PERMISSIONS, diagnose_empty=write_repos == [repo], own=repo)
+                value, expires, write_repos, cached, reachability_changed = service.mint_reachable(
+                    write_repos, TURN_PERMISSIONS, diagnose_empty=write_repos == [repo], own=repo,
+                    refresh_margin=refresh_margin, include_cache_status=True)
                 if value:
-                    tokens.append({'token': value, 'expires_at': expires, 'repositories': write_repos, 'access': 'write'})
+                    tokens.append({'token': value, 'expires_at': expires, 'repositories': write_repos,
+                                   'access': 'write', 'cached': cached,
+                                   'reachability_changed': reachability_changed})
             if read_repos:
-                read_value, read_expires, read_repos = service.mint_reachable(read_repos, {'contents': 'read', 'metadata': 'read'})
+                read_value, read_expires, read_repos, cached, reachability_changed = service.mint_reachable(
+                    read_repos, {'contents': 'read', 'metadata': 'read'}, refresh_margin=refresh_margin,
+                    include_cache_status=True)
                 if read_value:
-                    tokens.append({'token': read_value, 'expires_at': read_expires, 'repositories': read_repos, 'access': 'read'})
+                    tokens.append({'token': read_value, 'expires_at': read_expires, 'repositories': read_repos,
+                                   'access': 'read', 'cached': cached,
+                                   'reachability_changed': reachability_changed})
             if not tokens:
                 raise Problem('github_repo_not_accessible', f'{repo} is not reachable; check the GitHub App installation', 409)
             repos = write_repos + read_repos
@@ -802,10 +839,18 @@ def install_github_app(app, settings, store):
             if problem.code not in BOT_SCOPED:
                 note_github_token(store, problem.detail, "Open Settings > Tools and check the GitHub connection.")
             raise
-        R.repository_health(service)
-        with store.transaction() as c:
-            H.event(c, who.actor, "github.token", body.bot, {"repository": repo, "repositories": repos})
-        return {"configured": True, "token": value, "expires_at": expires, "repository": repo, "repositories": repos, "tokens": tokens}
+        newly_minted = [item for item in tokens if not item["cached"]]
+        if newly_minted or any(item["reachability_changed"] for item in tokens):
+            R.repository_health(service)
+        if newly_minted:
+            for item in newly_minted:
+                if service.should_audit_token(body.bot, item["token"]):
+                    with store.transaction() as c:
+                        H.event(c, who.actor, "github.token", body.bot,
+                                {"repository": repo, "repositories": item["repositories"]})
+        response_tokens = [{key: value for key, value in item.items() if key != "cached"} for item in tokens]
+        return {"configured": True, "token": value, "expires_at": expires, "repository": repo,
+                "repositories": repos, "tokens": response_tokens}
 
     def bot_repos(c, bot):
         if not c.execute("SELECT 1 FROM bot_config WHERE bot=?", (bot,)).fetchone():

@@ -70,7 +70,7 @@ def test_git_gets_a_fresh_token_on_every_credential_request_and_nothing_is_writt
         first, second = fill(env, tmp_path), fill(env, tmp_path)
         assert "username=x-access-token" in first and "password=ghs_fresh1" in first
         assert "password=ghs_fresh2" in second
-        assert hub.seen[0] == ("/api/v2/github/token", "Bearer runner-secret", {"bot": "cpo"})
+        assert hub.seen[0] == ("/api/v2/github/token", "Bearer runner-secret", {"bot": "cpo", "purpose": "git"})
         assert sorted(p.name for p in tmp_path.rglob("*")) == before
         # An unrelated host gets nothing, and neither does a store or erase.
         other = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=example.com\n\n",
@@ -108,7 +108,7 @@ def test_fresh_groups_and_outage_fallback_keep_repository_selection(tmp_path, mo
     monkeypatch.setattr("clients.tico.Client", lambda *a, **kw: hub)
     assert G.credential(config, "alpha", repository="Acme/docs") == "read-token"
     assert G.credential(config, "alpha", repository="Acme/product") == "write-token"
-    assert hub.calls == [("github/token", {"bot": "alpha"})] * 2
+    assert hub.calls == [("github/token", {"bot": "alpha", "purpose": "git"})] * 2
     monkeypatch.setenv(G.TOKENS_KEY, json.dumps(grants["tokens"]))
     monkeypatch.setenv("GH_TOKEN", "write-token")
     hub.error = OSError()
