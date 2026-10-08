@@ -228,3 +228,20 @@ def test_a_bot_over_the_daily_token_threshold_is_flagged(environment):
                   (H.shift(H.now(), hours=-30),))
     checks = health_of(api)[1]
     assert checks["tokens"]["status"] == "warn" and "1,100 uncached input tokens in 24 h" in checks["tokens"]["summary"]
+
+
+def test_a_bot_that_has_not_finished_setup_warns_once_its_held_work_is_old(environment):
+    """A parked bot holds its work on purpose, so it is not "slow"; but work an hour old means nobody is finishing setup."""
+    api = environment()
+    add_bot(api, "support")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bot_config(bot,config_json,operator,onboarding_state) VALUES('support','{}','ana','needs_setup') "
+                  "ON CONFLICT(bot) DO UPDATE SET onboarding_state='needs_setup'")
+        task = H.task_create(c, H.KEEPER, "Ticket 42", "", "bot:support")
+    assert "setup:support" not in health_of(api)[1]                 # just filed: setup may be under way
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET created='2026-01-02T03:04:05Z' WHERE id=?", (task["id"],))
+    check = health_of(api)[1]["setup:support"]
+    assert check["status"] == "warn" and check["summary"] == "support hasn't finished setup; 1 task waiting since 2026-01-02."
+    assert check["fixes"][0]["href"] == "#/bot/support"
+    assert "setup:support" not in health_of(api, as_person(api, "quinn"))[1]

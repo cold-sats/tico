@@ -253,7 +253,7 @@ RUNNER_TRIGGERS = [
      + _tell("work", "SELECT NEW.runner_id AS rid", "NEW.bot")),
     ("changes_runner_assignments_delete", "DELETE", "assignments", None,
      _tell("assignments", "SELECT OLD.runner_id AS rid", "OLD.bot")),
-    ("changes_runner_bot_config_update", "UPDATE", "bot_config", _changed("config_json", "operator", "team"),
+    ("changes_runner_bot_config_update", "UPDATE", "bot_config", _changed("config_json", "operator", "team", "onboarding_state"),
      _bot_runner("assignments", "NEW.bot")),
     ("changes_runner_cleanup_insert", "INSERT", "assignment_branch_cleanup", "NEW.state='requested'",
      _tell("cleanups", "SELECT NEW.runner_id AS rid")),

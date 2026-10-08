@@ -31,7 +31,7 @@ from .hosts.pi import MODELS as PI_HOST_MODELS
 from .outage import RECENT, Outage, describe, log
 from .state import BOT_THREAD, State, session_key
 from .warm import WarmSessions
-from .watchers import Watchers
+from .watchers import PARKED_STATES, Watchers
 from .profiles import SubscriptionUnavailable
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,8 +65,6 @@ TEAM_KEYS_FILE = "_team_model.env"
 CREDENTIAL_IMPORT_POLL_S = 5
 TEAM_KEY_RETRY_S = 300
 LOGIN_ONLY = ("OPENAI_API_KEY",)
-# A parked starter bot's status: `needs_setup`, or `needs_onboarding` from a hub that has not moved to the new word.
-PARKED_STATES = ("needs_setup", "needs_onboarding")
 # What a person's chat with a parked starter bot is: its onboarding, not a request for work.
 SETUP_TURN = ("Setup: a human is setting you up, and you are parked until your setup is done. Your first routine is already "
               "on, so nobody has to approve it. Follow the "
