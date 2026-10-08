@@ -6,6 +6,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from runner import git_credentials as G
 
+import pytest
+
 
 class Hub:
     def __init__(self, answer=None, error=None):
@@ -215,3 +217,56 @@ def test_app_token_wins_in_the_org_and_a_stored_gh_token_serves_only_other_owner
     refused = run("pr", "view", "-R", "Acme/elsewhere")  # in the org but not granted: never the stored token
     assert refused.returncode == 1 and "ghp_stale" not in refused.stdout + refused.stderr
     assert redact.for_turn(env).scrub_text("ghp_stale write-token") == redact.MASK + " " + redact.MASK
+
+
+@pytest.mark.slow
+def test_mac_login_shells_keep_the_wrapper_and_refresh_after_the_starting_token_expires(tmp_path, monkeypatch):
+    import os
+    import shlex
+    import shutil
+
+    bash, zsh = shutil.which("bash"), shutil.which("zsh")
+    if not bash or not zsh:
+        pytest.skip("Bash and zsh are needed for the Mac login-shell regression")
+    brew = tmp_path / "homebrew"
+    brew.mkdir()
+    gh = brew / "gh"
+    gh.write_text("#!/bin/sh\nprintf '%s\\n' \"$GH_TOKEN\"\n")
+    gh.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    zdotdir = tmp_path / "user zsh files"
+    zdotdir.mkdir()
+    reset_path = f"export PATH={shlex.quote(str(brew))}:$PATH\n"
+    bash_env = home / "bash-env"
+    bash_env.write_text(reset_path + "export STARTUP_ENV=kept\n")
+    for name in (".zshenv", ".zprofile", ".zshrc", ".zlogin"):
+        (zdotdir / name).write_text(reset_path + "export STARTUP_ENV=kept\n")
+    logout = tmp_path / "logout"
+    (zdotdir / ".zlogout").write_text(f"printf x >> {shlex.quote(str(logout))}\n")
+    original_files = {p: p.read_bytes() for p in (bash_env, *zdotdir.iterdir())}
+    hub = HubServer()
+    try:
+        config = tmp_path / "runner.json"
+        config.write_text(json.dumps({"url": hub.url, "token": "synthetic-registration"}))
+        monkeypatch.setattr(G.sys, "platform", "darwin")
+        for shell, flags in ((bash, ["--noprofile", "-lc"]), (zsh, ["-d", "-lc"]), (zsh, ["-d", "-lic"])):
+            env = {"PATH": str(brew) + os.pathsep + os.defpath, "HOME": str(home),
+                   "BASH_ENV": str(bash_env), "ZDOTDIR": str(zdotdir)}
+            grants = {"configured": True, "token": "expired-start-token", "tokens": [
+                {"token": "expired-start-token", "repositories": ["Acme/product"]}]}
+            assert G.apply(env, Hub(grants), "alpha", config)
+            inner = "command -v gh; gh repo view -R Acme/product"
+            command = inner + "; " + shlex.join([shell, *flags, inner]) + "; printf '%s\\n' \"$STARTUP_ENV\""
+            before = hub.count
+            result = subprocess.run([shell, *flags, command], env=env, cwd=home,
+                                    capture_output=True, text=True, timeout=15)
+            wrapper = str(G.ROOT / "runner" / "credential_bin" / "gh")
+            assert result.returncode == 0, result.stderr
+            assert result.stdout.splitlines() == [wrapper, f"ghs_fresh{before + 1}",
+                                                   wrapper, f"ghs_fresh{before + 2}", "kept"]
+            assert hub.count == before + 2
+        assert logout.read_text()
+        assert {p: p.read_bytes() for p in original_files} == original_files
+    finally:
+        hub.close()

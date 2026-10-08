@@ -3,7 +3,7 @@
 An incident (a server pinned at 100% CPU for hours) should be one query, and a release should be comparable with the one
 before it, without installing profilers on the server. So the server keeps, per minute: requests per route template and
 caller kind (count, 5xx, p50/p95/max, bytes), process CPU, memory, threads, open files and event-loop lag, and the write
-transactions' lock waits and hold times; per hour: SQL time by query shape and the database's size by table; and as
+transactions' lock waits and hold times; per hour: SQL time by query shape and database totals, with table sizes daily; and as
 events: each start (release, commit, dependency and settings hashes, whether the image is the published release) and
 each stall of the event loop with every thread's stack at that moment.
 
@@ -58,6 +58,7 @@ MINUTE_DAYS = 2                 # request minutes older than this become hours
 SHORT_DAYS = 14                 # requests, slow requests, process minutes
 LONG_DAYS = 90                  # SQL hours, database sizes, events
 SQL_TOP = 100                   # query shapes kept per hour; the rest are one "(other)" row
+DBSTAT_EVERY = 86400            # minimum interval between table/index page scans
 BUFFER = 200_000                # samples waiting for the background thread, at most
 # The tables that grow, counted each hour; with the column that dates their oldest row, read by rowid or an index.
 BIG = {"events": "ts", "messages": "created", "attempt_events": "created", "attempts": "created", "jobs": "created",
@@ -520,11 +521,11 @@ def db_stats(store, use_dbstat=True):
         present = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if use_dbstat:
             try:
-                objects = c.execute("SELECT name, sum(pgsize) FROM dbstat GROUP BY name ORDER BY 2 DESC LIMIT 40"
+                objects = c.execute("SELECT name, pgsize FROM dbstat WHERE aggregate=TRUE ORDER BY pgsize DESC LIMIT 40"
                                     ).fetchall()
                 detail["objects"] = {r[0]: r[1] for r in objects}
             except sqlite3.OperationalError:
-                detail["objects"] = None            # SQLite built without dbstat
+                detail["objects"] = None            # dbstat or its aggregate mode is unavailable
         for table, column in BIG.items():
             if table not in present:
                 continue
@@ -632,14 +633,21 @@ class Flight(threading.Thread):
 
     def size_db(self, now):
         started = time.monotonic()
-        size, wal, free, detail = db_stats(self.store)
+        with self.store.read() as c:
+            latest = c.execute("SELECT ts,detail_json FROM flight_db ORDER BY ts DESC LIMIT 1").fetchone()
+        previous = json.loads(latest["detail_json"] or "{}") if latest else {}
+        # The original scan timestamp travels with each hourly sample, including across recorder restarts.
+        objects_at = previous.get("objects_at", latest["ts"] if latest else None)
+        scan = objects_at is None or now - objects_at >= DBSTAT_EVERY
+        size, wal, free, detail = db_stats(self.store, use_dbstat=scan)
+        detail["objects_at"] = int(now) if scan else objects_at
+        if not scan:
+            detail["objects"] = previous.get("objects")
         took = time.monotonic() - started
         detail["seconds"] = round(took, 2)
         with self.store.transaction() as c:
             c.execute("INSERT OR REPLACE INTO flight_db VALUES(?,?,?,?,?)",
                       (int(now // 3600 * 3600), size, wal, free, json.dumps(detail, separators=(",", ":"))))
-        # The size pass reads every page; on a large file it runs less often, so it stays a small share of a CPU.
-        self.db_every = max(3600, int(took * 400))
         self.db_next = now + self.db_every
 
     def stop(self):
@@ -713,7 +721,8 @@ def _db(c, now):
     before = json.loads(day["detail_json"] or "{}") if day else {}
     return {"at": latest["ts"], "bytes": latest["bytes"], "wal_bytes": latest["wal_bytes"],
             "free_bytes": latest["free_bytes"], "growth_24h": latest["bytes"] - day["bytes"] if day else None,
-            "objects": detail.get("objects"), "rows": detail.get("rows"), "oldest": detail.get("oldest"),
+            "objects": detail.get("objects"), "objects_at": detail.get("objects_at", latest["ts"]),
+            "rows": detail.get("rows"), "oldest": detail.get("oldest"),
             "rows_24h": {k: v - (before.get("rows") or {}).get(k, v) for k, v in (detail.get("rows") or {}).items()}
             if day else None}
 
