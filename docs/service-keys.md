@@ -20,7 +20,8 @@ hub service-key revoke <id>
 store. The label names that system on every task it files. `list` shows every key, when it was last used and whether it
 is revoked, never the secret. The same routes are `POST /api/v2/service-keys` `{"label": "..."}`,
 `GET /api/v2/service-keys` and `POST /api/v2/service-keys/{id}/revoke`, from a signed-in session or a personal API
-token, with an `Idempotency-Key` like other writes. Retrying a create acknowledges the same key id without
+token, with an `Idempotency-Key` like other writes. A key made with a personal token ends with it: once that token is
+revoked or expires the key is refused (`401`); `list` shows it as `made_with_token` and `token_label`. Retrying a create acknowledges the same key id without
 returning its secret again; the retry cache stores only metadata. There is no Settings page for them yet.
 
 ## The one route
@@ -113,5 +114,5 @@ as made by Tico.
 - The audit log has every key made (`service_key.create`), every call (`service_key.use`, with the `key` and the task)
   and every revocation (`service_key.revoke`). A call the task rules refuse (a request's wording, an inactive bot) is
   recorded as a refusal under the key.
-- The owner's and admins' personal API tokens can make keys, so `hub` can. A leaked token can make a key that outlives
-  the token: when you revoke a token, check `hub service-key list` too.
+- A key made with a personal token stops with that token, so a leaked token leaves no key behind. Keys made signed in,
+  and keys made before this rule, last until revoked.

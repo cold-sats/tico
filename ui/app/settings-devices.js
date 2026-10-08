@@ -86,30 +86,32 @@ async function settingsAgentCredential(slug) {
   document.body.appendChild(dialog); dialog.showModal();
 }
 // Personal API tokens (backend/personal_tokens.py): listed, made and revoked only from a signed-in
-// browser; the secret is shown once, in the same dialog the agent credential uses.
+// browser; the secret is shown once, in the same dialog the agent credential uses. The owner and the
+// admins see everyone's tokens, with whose each is, and may revoke any of them.
 async function renderSettingsTokens() {
   const el = $('#set-tokens'); if (!el) return;
+  const everyone = settingsIsAdmin();
   let rows;
-  try { rows = (await get('/v2/me/tokens')).tokens || []; }
+  try { rows = (await get(everyone ? '/v2/access/tokens' : '/v2/me/tokens')).tokens || []; }
   catch (error) { el.innerHTML = `<div class="err">${esc(error.message || 'Tokens could not be loaded')}</div>`; return; }
   const now = Date.now();
   const state = row => row.revoked_at ? '<span class="pill fail">revoked</span>'
     : row.expires_at && new Date(row.expires_at) < now ? '<span class="pill fail">expired</span>' : '<span class="pill ok">active</span>';
   const live = rows.filter(row => !row.revoked_at);
-  const table = live.length ? `<div class="scroll"><table class="settings-table"><thead><tr><th>Label</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>${live.map(row =>
-    `<tr data-token-row="${esc(row.id)}"><td><strong>${esc(row.label)}</strong></td><td>${esc(ago(row.created))}</td><td>${row.last_used ? esc(ago(row.last_used)) : '<span class="muted">never</span>'}</td><td>${row.expires_at ? esc(new Date(row.expires_at).toLocaleDateString()) : '<span class="muted">never</span>'}</td><td>${state(row)}</td><td><button class="ghost" type="button" data-token-revoke="${esc(row.id)}" data-token-label="${esc(row.label)}">Revoke</button></td></tr>`).join('')}</tbody></table></div>`
+  const table = live.length ? `<div class="scroll"><table class="settings-table"><thead><tr>${everyone ? '<th>Person</th>' : ''}<th>Label</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>${live.map(row =>
+    `<tr data-token-row="${esc(row.id)}">${everyone ? `<td>${esc(row.name || row.email || row.human)}</td>` : ''}<td><strong>${esc(row.label)}</strong></td><td>${esc(ago(row.created))}</td><td>${row.last_used ? esc(ago(row.last_used)) : '<span class="muted">never</span>'}</td><td>${row.expires_at ? esc(new Date(row.expires_at).toLocaleDateString()) : '<span class="muted">never</span>'}</td><td>${state(row)}</td><td><button class="ghost" type="button" data-token-revoke="${esc(row.id)}" data-token-label="${esc(row.label)}">Revoke</button></td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty">No tokens yet.</div>';
   // Only the list is redrawn; the form under it keeps what is being typed.
-  if (!el.querySelector('#settings-token-form')) el.innerHTML = `<div data-tokens-list></div>
+  if (!el.querySelector('[data-tokens-list]')) el.innerHTML = `<div data-tokens-list></div>${settingsCanMakeTokens() ? `
     <form class="row settings-token-form" id="settings-token-form">
       <label>Label <input name="label" type="text" required maxlength="80" autocomplete="off" placeholder="CI script" aria-label="Token label"></label>
       <label>Expires in <input name="days" type="number" inputmode="numeric" min="1" max="365" value="90" required aria-label="Days until the token expires"> days</label>
       <button class="primary" type="submit">New token</button>
-    </form>`;
+    </form>` : ''}`;
   el.querySelector('[data-tokens-list]').innerHTML = table;
   el.querySelectorAll('[data-token-revoke]').forEach(button => { button.onclick = () => void settingsTokenRevoke(button.dataset.tokenRevoke, button.dataset.tokenLabel); });
   const form = el.querySelector('#settings-token-form');
-  form.onsubmit = async event => {
+  if (form) form.onsubmit = async event => {
     event.preventDefault();
     const label = form.label.value.trim(), days = Number(form.days.value);
     if (!label) { form.label.focus(); return; }

@@ -268,6 +268,13 @@ wake a bot.
 
 Personal API tokens, the MCP tools and the Assistant act as the human, with the human's access.
 
+**Personal tokens** never leave a credential behind: a token is refused (`403`) on making or revoking tokens, creating or
+rotating a bot's agent credential, approving a pairing and making a SCIM token. A service key made with a token stops
+working when that token is revoked or expires ([Service keys](service-keys.md)). A token still enrolls the person's own computers (the code lasts 15 minutes) and
+stores, grants and reveals Credentials as the human may. The owner and the Admins see every person's tokens (Settings >
+Computers > API tokens, `GET /api/v2/access/tokens`, never the secret) and revoke any of them; a member sees and revokes
+only their own.
+
 ## What each answer looks like
 
 - A bot the caller cannot **see** does not exist for them: lists leave it out, counts and pages do not
