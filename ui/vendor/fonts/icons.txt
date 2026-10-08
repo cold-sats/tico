@@ -6,6 +6,7 @@ alt_route
 analytics
 api
 architecture
+archive
 arrow_forward
 article
 assignment
