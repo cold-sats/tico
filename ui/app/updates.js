@@ -43,7 +43,7 @@ function pageUpdates() {
   if (cached) updOrder(state, true);
   $('#main').innerHTML = `<div class="upd-page">
     <div class="upd-head">
-      <h1>Updates</h1>
+      <h1>${view === 'archive' ? 'Archive' : 'Updates'}</h1>
       <div class="upd-seg" role="tablist" aria-label="Kind">
         <button type="button" role="tab" data-upd-kind="daily" aria-selected="${kind === 'daily'}" aria-label="Daily" title="Daily"><span class="nav-icon" aria-hidden="true">today</span><span class="upd-lbl">Daily</span></button>
         <button type="button" role="tab" data-upd-kind="weekly" aria-selected="${kind === 'weekly'}" aria-label="Weekly" title="Weekly"><span class="nav-icon" aria-hidden="true">date_range</span><span class="upd-lbl">Weekly</span></button>

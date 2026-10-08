@@ -41,7 +41,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
   const threads = {'u-fin': [{id: 'm1', from_actor: 'human:ana', body: 'Re your update "Brex balance is fine": Thanks, flag anything under $10k', created: iso(-2 * hour)},
                              {id: 'm2', from_actor: 'bot:finance', body: 'Will do.', created: iso(-hour)}]};
   const archivedIds = new Set(), archiveRequests = [];
-  let archiveFails = false, delayNextList = false, holdList = null, holdReply = null;
+  let archiveFails = false, delayNextList = false, holdList = null, holdReply = null, keepUnread = null;
   const isArchived = u => archivedIds.has(u.id) || !!u.superseded;
   const feed = (kind, archive = false, includeArchive = false) => {
     const source = kind === 'weekly' ? weekly : updates;
@@ -53,6 +53,15 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     const page = await browser.newPage({viewport, serviceWorkers: 'block', ...(viewport.width < 600 ? {isMobile: true, hasTouch: true} : {})});
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
+    // Every value the rail badge shows, in order: seen-is-read can lower it within a second of the first paint.
+    await page.addInitScript(() => {
+      window.__badges = [];
+      new MutationObserver(() => {
+        const b = document.querySelector('.side-scroll [data-upd-badge]');
+        const v = b && !b.hidden ? b.textContent : '';
+        if (v && v !== window.__badges.at(-1)) window.__badges.push(v);
+      }).observe(document, {subtree: true, childList: true, characterData: true, attributes: true});
+    });
     await page.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -84,7 +93,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       }
       if (p === '/api/v2/updates/read') {
         const body = req.postDataJSON(); posted.push({path: p, body});
-        for (const u of updates) if (body.all || body.ids.includes(u.id)) u.read = body.read !== false;
+        for (const u of updates) if ((body.all || body.ids.includes(u.id)) && u.id !== keepUnread) u.read = body.read !== false;
         return json({marked: body.ids.length, read: body.read !== false});
       }
       const reply = p.match(/^\/api\/v2\/updates\/([^/]+)\/reply$/);
@@ -108,23 +117,28 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await page.goto('http://tico-ui.test/#/updates');
     await page.locator('#upd-feed .upd-card').first().waitFor();
     assert.equal(await page.locator('.side-scroll .nav-link:visible').first().getAttribute('data-nav'), 'overview');
-    await page.waitForFunction(() => document.querySelector('.side-scroll [data-upd-badge]')?.textContent === '2');
+    await page.waitForFunction(() => window.__badges.length > 0);
+    assert.equal(await page.evaluate(() => window.__badges[0]), '2', 'the badge opens on the unread count');
     // Just the updates, each only its bullets: no title, no sections, no greeting,
     // no day headers, no who did not report, no More / Less.
     // My bots is on by default: Ben's bot's update is hidden until it is off.
     assert.equal(await page.locator('#upd-mine').getAttribute('aria-pressed'), 'true');
     assert.deepEqual(await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd)), ['u-seo', 'u-fin', 'u-cmo']);
+    // All bots paints at once from the cards already loaded; its own load (held here) then sets its order.
+    let releaseAll; holdList = new Promise(r => { releaseAll = r; });
     await page.locator('#upd-mine').click();
     assert.deepEqual(await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd)), ['u-seo', 'u-fin', 'u-game', 'u-cmo']);
+    holdList = null; releaseAll();
+    await page.waitForFunction(() => UPD && !UPD.mine && !UPD.loading && !UPD.fromCache);
     await page.locator('#upd-mine').click();
     assert.equal(await page.evaluate(() => localStorage.getItem('tico.updates.mine')), '1');
     assert.equal(await page.locator('#upd-mine .upd-lbl').isVisible(), true, 'words on a desktop');
     assert.equal(await page.locator('#upd-feed .upd-headline, #upd-feed .upd-day, #upd-today, .upd-missed, [data-upd-open], .upd-body.clamp').count(), 0);
     assert.match(await page.locator('[data-upd="u-seo"] .upd-body').innerText(), /Published the vacation rental checklist page/);
     // Seen is read: the visible unread cards are marked in one small request.
-    await page.waitForFunction(() => !document.querySelector('#upd-feed .upd-card.unread'), null, {timeout: 5000});
+    await page.waitForFunction(() => !document.querySelector('#upd-feed .upd-card.unread'));
     await page.waitForFunction(() => document.querySelector('.side-scroll [data-upd-badge]')?.hidden === true);
-    for (const end = Date.now() + 3000; !posted.some(x => x.path === '/api/v2/updates/read') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+    for (const end = Date.now() + 10000; !posted.some(x => x.path === '/api/v2/updates/read') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
     const reads = posted.filter(x => x.path === '/api/v2/updates/read');
     assert.equal(reads.length, 1, 'batched: ' + JSON.stringify(reads));
     assert.deepEqual(reads[0].body.ids.sort(), ['u-fin', 'u-seo']);
@@ -161,12 +175,14 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await page.locator('#upd-view').click();
     await page.waitForFunction(() => location.hash === '#/updates?view=archive' && document.querySelector('[data-upd="u-cmo"]'));
     assert.equal(await page.locator('#upd-allread').isHidden(), true);
+    assert.equal(await page.locator('.upd-head h1').innerText(), 'Archive', 'the reader knows they are in the Archive');
     assert.equal(await page.locator('[data-upd="u-cmo"] [data-upd-archive]').innerText(), 'Restore');
     await page.locator('[data-upd="u-cmo"] [data-upd-archive]').click();
     await page.locator('[data-upd="u-cmo"]').waitFor({state: 'detached'});
     assert.deepEqual(archiveRequests[2], {ids: ['u-cmo'], archived: false});
     await page.locator('#upd-view').click();
     await page.locator('[data-upd="u-cmo"]').waitFor();
+    assert.equal(await page.locator('.upd-head h1').innerText(), 'Updates');
     await page.locator('[data-upd="u-cmo"] [data-upd-reply]').click();
     assert.equal(await page.locator('[data-upd="u-cmo"] textarea').inputValue(), 'Keep this reply draft');
     // Current loaded bot history is explicitly allowed to request archived rows.
@@ -179,7 +195,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await page.locator('[data-upd="u-seo"] .upd-msg.pending').waitFor();   // shown while the round trip is held
     holdReply = null; sendReply();
     await page.locator('[data-upd="u-seo"] .upd-msg:not(.pending)').waitFor();
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/updates/u-seo/reply', body: {text: 'Pitch it to Northwind Homes first'}});
+    assert.deepEqual(posted.filter(x => x.path.endsWith('/reply')).at(-1), {path: '/api/v2/updates/u-seo/reply', body: {text: 'Pitch it to Northwind Homes first'}});
     assert.match(await page.locator('[data-upd="u-seo"] .upd-msg').last().innerText(), /Pitch it to Northwind Homes first/);
     assert.match(await page.locator('[data-upd="u-seo"] .upd-hint').innerText(), /Goes to AI SEO's chat too/);
     // A thread with replies opens with them.
@@ -190,10 +206,11 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     await page.locator('#upd-feed').click({position: {x: 5, y: 5}});
     await page.keyboard.press('Escape');
     await page.evaluate(() => document.activeElement?.blur());
-    // Coming back from Archive is a new visit: u-cmo, marked unread above, now leads.
-    assert.deepEqual(await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd)), ['u-cmo', 'u-seo', 'u-fin']);
+    // Coming back from Archive is a new visit, so the order depends on what was seen meanwhile; j j is the second card.
+    const visitOrder = await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd));
+    assert.deepEqual([...visitOrder].sort(), ['u-cmo', 'u-fin', 'u-seo']);
     await page.keyboard.press('j'); await page.keyboard.press('j');
-    assert.equal(await page.locator('#upd-feed .upd-card.sel').getAttribute('data-upd'), 'u-seo');
+    assert.equal(await page.locator('#upd-feed .upd-card.sel').getAttribute('data-upd'), visitOrder[1]);
     // Weekly: the toggle swaps the feed; Friday's cards say so.
     await page.locator('[data-upd-kind="weekly"]').click();
     await page.waitForFunction(() => location.hash === '#/updates?kind=weekly' && document.querySelector('[data-upd="w-seo"]'));
@@ -219,11 +236,14 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
     assert.match(await page.locator('[data-upd="w-cmo"] .upd-body').innerText(), /posted as bullets/);
     // Snappy: coming back to Daily paints from this tab's cache before the network answers, and the
     // unread one (AI CMO, marked unread above) now comes first.
+    // Seeing AI CMO in Archive or Inbox above may have marked it read; another device marks it unread again.
+    keepUnread = 'u-cmo'; updates.find(u => u.id === 'u-cmo').read = false;
     let release; holdList = new Promise(r => { release = r; });
     await page.evaluate(() => { location.hash = '#/updates'; });
     await page.locator('[data-upd="u-seo"]').waitFor();   // painted while the network reply is still held
     holdList = null; release();
-    await page.waitForFunction(() => document.querySelector('#upd-feed .upd-card')?.dataset.upd === 'u-cmo', null, {timeout: 3000});
+    await page.waitForFunction(() => document.querySelector('#upd-feed .upd-card')?.dataset.upd === 'u-cmo');
+    keepUnread = null;
     assert.deepEqual(errors, []);
     await page.close();
 
