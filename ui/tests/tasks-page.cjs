@@ -734,8 +734,20 @@ async function bulk(browser) {
   await page.waitForFunction(() => /1 closed/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
   assert.deepEqual(taskWrites(posts).map(x => [x.p, x.body]), [['/api/v2/tasks/t-rotate', {version: 3, close: true}]], 'only the visible task');
   // Close can be undone for ten seconds.
+  // Hold the reopen write so the busy-state check cannot race a fast successful Undo.
+  let releaseUndo;
+  const undoHeld = new Promise(resolve => { releaseUndo = resolve; });
+  await page.route('**/api/v2/tasks/t-rotate', async route => {
+    if (route.request().method() === 'POST' && route.request().postDataJSON().status === 'doing') await undoHeld;
+    await route.fallback();
+  });
+  const undoStarted = page.waitForRequest(request => new URL(request.url()).pathname === '/api/v2/tasks/t-rotate'
+    && request.method() === 'POST' && request.postDataJSON().status === 'doing');
   await page.locator('#task-bulk [data-bulk="undo"]').click();
+  await undoStarted;
+  await page.waitForFunction(() => TASKS_ST.bulkBusy && /Reopening/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
   assert.equal(await page.evaluate(() => TASKS_ST.bulkBusy), true, 'no other bulk action while Undo runs');
+  releaseUndo();
   await page.waitForFunction(() => /Reopened; bots were already told/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
   assert.deepEqual(taskWrites(posts).at(-1), {p: '/api/v2/tasks/t-rotate', body: {version: 4, status: 'doing'}}, 'back to what it was, not just Open');
   await page.locator('#task-q').fill('');
