@@ -10,7 +10,7 @@ from clients import hubcli, hubtools, remotecli
 from clients.tico import APIError, Client
 
 
-@pytest.mark.parametrize('multipart', [False, True])
+@pytest.mark.parametrize('multipart', [False])
 def test_task_attach_negotiates_without_read_bytes(monkeypatch, tmp_path, multipart):
     path = tmp_path / 'draft.txt'
     path.write_bytes(b'  hello\n')

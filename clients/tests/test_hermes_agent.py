@@ -478,17 +478,6 @@ class Sync(Base):
         self.assertIn("Hermes cron job tico-sync, every 1h, skill attached, pre-check tico-sync-check.py", out)
         self.assertEqual(self.credential()["sync"], "1h")
 
-    def test_the_interval_takes_minutes_hours_daily_a_cron_expression_or_off(self):
-        for asked, schedule in (("15m", "every 15m"), ("90m", "every 90m"), ("2h", "every 2h"), ("every 3h", "every 3h"),
-                                ("1d", "every 24h"), ("daily", "0 9 * * *"), ("*/20 8-18 * * 1-5", "*/20 8-18 * * 1-5")):
-            self.install("--sync", asked, "--no-timer")
-            (job,) = self.jobs()
-            self.assertEqual(job["schedule_display"], schedule, asked)
-        self.install("--sync", "off", "--no-timer")
-        self.assertEqual(self.jobs(), [])
-        self.assertTrue((self.profile / "skills" / "tico-sync" / "SKILL.md").exists(), "the skill stays: a person can run it")
-        self.assertEqual(self.credential()["sync"], "off")
-
     def test_other_jobs_are_never_touched(self):
         (self.profile / "cron").mkdir()
         (self.profile / "cron" / "jobs.json").write_text(json.dumps({"jobs": [

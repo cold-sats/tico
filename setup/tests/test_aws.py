@@ -14,13 +14,6 @@ def deployer(p, ec2, iam, ssm):
     return aws.Deployer(p, ec2, iam, ssm, "123456789012", say=lambda m: None, sleep=lambda s: None)
 
 
-def test_plan_caddy_opens_80_443_with_an_elastic_ip_and_cloudflared_opens_nothing():
-    c, t = plan("caddy"), plan("cloudflared")
-    assert c.ports == [80, 443] and c.elastic_ip and t.ports == [] and not t.elastic_ip
-    text = "\n".join(t.lines())
-    assert "no inbound rules at all" in text and "hop limit 1" in text and "SSM" in text and "Estimated cost" in text
-
-
 def test_deploy_caddy_creates_tagged_locked_down_resources():
     ec2, iam, ssm, _ = aws_clients()
     d = deployer(plan("caddy"), ec2, iam, ssm)

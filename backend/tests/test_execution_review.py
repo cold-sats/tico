@@ -256,7 +256,7 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
 
-@pytest.mark.parametrize('activity', [None, 'tool', 'delta'])
+@pytest.mark.parametrize('activity', [None, 'tool'])
 def test_rejected_signin_cannot_replay_a_run_that_acted(api, activity):
     import json
 

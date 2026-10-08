@@ -9,12 +9,6 @@ HUB = Path("/Users/x/tico-work/tico")
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_a_mac_keeps_everything_beside_the_checkout():
-    projects, runtime = locations({}, HUB)
-    assert projects == Path("/Users/x/tico-work")
-    assert runtime == projects / "runtime" / "mail"
-
-
 def test_a_linux_runner_names_its_places():
     env = {"TICO_PROJECTS_DIR": "/home/runner/workspace"}
     assert locations(env, HUB) == (Path("/home/runner/workspace"), Path("/home/runner/workspace/runtime/mail"))

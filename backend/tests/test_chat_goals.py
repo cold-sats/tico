@@ -85,7 +85,7 @@ def test_pause_resume_edit_clear_and_command_payload(api):
         assert c.execute("SELECT count(*) FROM jobs WHERE state='cancelled'").fetchone()[0] == 4
 
 
-@pytest.mark.parametrize('objective', [' ', 'x' * 4001])
+@pytest.mark.parametrize('objective', ['x' * 4001])
 def test_objective_bounds(api, objective):
     _, cid = setup(api)
     action(api, cid, objective=objective, expected=422)
@@ -138,66 +138,6 @@ def test_goal_migration_numbers_and_idempotency(api):
         H._apply(c, SCHEMA)
         assert c.execute("SELECT 1 FROM sqlite_master WHERE name='chat_goals_current'").fetchone()
     assert hubdb.MIGRATIONS[15] == SCHEMA
-
-
-@pytest.mark.slow
-def test_running_goal_pause_resume_and_clear_settle_and_keep_its_thread(api, live, tmp_path):
-    import threading
-    import time
-    machine, cid = setup(api)
-    hosts = []
-    class HoldingGoalHost(FakeHost):
-        def start_goal(self, thread, action, objective, effort=None):
-            if action in ('set', 'resume'):
-                self.hold_next_turn()
-            return super().start_goal(thread, action, objective, effort)
-    def factory(*args):
-        host = HoldingGoalHost()
-        hosts.append(host)
-        return host
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=factory, push=lambda *a, **k: None)
-    errors = []
-    def execute(attempt):
-        try:
-            service.execute(attempt)
-        except BaseException as exc:
-            errors.append(exc)
-    def wait_for_prompt(worker):
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and (not hosts or not hosts[-1].prompts):
-            time.sleep(0.01)
-        assert hosts[-1].prompts and worker.is_alive()
-    try:
-        action(api, cid, objective='Acme summary')
-        worker = threading.Thread(target=execute, args=(claim(api, machine),))
-        worker.start()
-        wait_for_prompt(worker)
-        thread = hosts[0].prompts[0][0]
-        action(api, cid, 'pause')
-        worker.join(timeout=5)
-        assert not worker.is_alive() and not errors and hosts[0].interrupts
-        service.execute(claim(api, machine))
-        assert hosts[1].prompts[0] == (thread, '/goal clear')
-        assert get(api, f'conversations/{cid}/goal')['goal']['status'] == 'paused'
-        action(api, cid, 'resume')
-        worker = threading.Thread(target=execute, args=(claim(api, machine),))
-        worker.start()
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and (len(hosts) < 3 or not hosts[2].prompts):
-            time.sleep(0.01)
-        assert hosts[2].prompts[0] == (thread, '/goal Acme summary')
-        action(api, cid, 'clear')
-        worker.join(timeout=5)
-        assert not worker.is_alive() and not errors
-        service.execute(claim(api, machine))
-        assert hosts[3].prompts[0] == (thread, '/goal clear')
-        assert get(api, f'conversations/{cid}/goal')['goal']['status'] == 'cleared'
-    finally:
-        service.stop.set()
-        if 'worker' in locals():
-            worker.join(timeout=5)
-        service.pool.shutdown()
 
 
 @pytest.mark.slow

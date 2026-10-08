@@ -26,6 +26,9 @@ of wording or docs, no exhaustive parametrizations. Write tests freely while bui
 `@pytest.mark.slow`. Adding a test that slows the default run means cutting another. `evals/botops/run.py` scores a real BotOps
 against a dev install with a real model, on demand only; `backend/tests/test_botops_evals.py` is its scripted layer.
 
+Tests stay at zero failures. An intermittent test is fixed quickly or deleted; never rerun it until it passes, and
+never ship around a known failure. If a test may fail, it shouldn't exist.
+
 ## Conventions
 - Keep real team names, human names, domains, buckets and credentials out of the repository. Examples use
   the fictional team Acme (`acme.example`).

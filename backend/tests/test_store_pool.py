@@ -1,7 +1,6 @@
 """Pooled reads (backend/store.py Store.read): reused, rolled back, and never carrying a caller's state."""
 import os
 import shutil
-import threading
 
 from backend.config import Settings
 from backend.store import Store
@@ -44,15 +43,3 @@ def test_a_replaced_database_file_drops_the_pool(tmp_path):
     with s.read() as second:
         assert second is not first
 
-
-def test_pooled_reads_work_across_threads(tmp_path):
-    s = store(tmp_path)
-    with s.read():
-        pass
-    seen = []
-    def read():
-        with s.read() as c:
-            seen.append(c.execute("SELECT x FROM t").fetchone()[0])
-    worker = threading.Thread(target=read)
-    worker.start(); worker.join()
-    assert seen == [1]

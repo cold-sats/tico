@@ -815,7 +815,8 @@ def test_claims_skip_only_bot_under_maintenance(light):
 
 @pytest.mark.slow
 @pytest.mark.parametrize('use_file_url', [False])
-def test_no_app_clone_add_snapshot_cleanup_restore_and_retirement(trees, use_file_url):
+def test_no_app_clone_add_snapshot_cleanup_restore_and_retirement(trees, use_file_url, monkeypatch):
+    monkeypatch.delenv('GH_TOKEN', raising=False)       # a bot's own shell may carry one; check only what the runner adds
     from runner.repositories import Repositories, REMOVE_AFTER, base_folder
     workspace, base, remote, row, client = trees
     shutil.rmtree(base)

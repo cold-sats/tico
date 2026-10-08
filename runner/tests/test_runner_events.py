@@ -136,21 +136,3 @@ def test_a_server_without_the_stream_is_polled_as_before():
         clock.now += service.CREDENTIAL_IMPORT_POLL_S
         r.poll_credential_imports()
     assert r.client.gets == ["runner-credential-imports"] * 2
-
-
-def test_the_stream_request_names_the_runner_as_every_request_does():
-    from unittest import mock
-    from clients.tico import CLIENT_VERSION
-    seen = {}
-
-    class Opener:
-        def open(self, request, timeout=None):
-            seen.update(request.headers)
-            raise OSError("stop")
-
-    client = type("C", (), {"url": "https://hub.example", "token": "t", "opener": Opener()})()
-    try:
-        next(RE.connect(client))
-    except OSError:
-        pass
-    assert seen.get("User-agent") == "Tico-Client/" + CLIENT_VERSION

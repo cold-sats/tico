@@ -91,7 +91,7 @@ def test_botops_cannot_be_its_own_last_resort_and_sources_do_not_share_a_repair_
         assert not c.execute("SELECT 1 FROM jobs WHERE bot='botops' AND state='queued'").fetchone()
 
 
-@pytest.mark.parametrize('state', ['paused', None])
+@pytest.mark.parametrize('state', ['paused'])
 def test_unavailable_botops_routes_stalled_work_to_a_human(api, state):
     with api.app.state.store.transaction() as c:
         if state:

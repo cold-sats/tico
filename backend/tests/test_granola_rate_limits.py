@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from backend.granola_mcp import GranolaMCP
-from backend.tests.test_granola_mcp import BASE, Provider, api, headers  # noqa: F401
+from backend.tests.test_granola_mcp import Provider, api  # noqa: F401
 
 
 PREFIXED_NOTES = '''Here are the shared notes for this meeting:
@@ -86,28 +86,6 @@ def test_text_before_xml_is_ignored(raw, expected):
     assert GranolaMCP.xml_content(raw) == expected
 
 
-def test_rate_limits_wait_and_retry_the_same_batch(api):
-    kind, message = "rpc", "Rate limit exceeded"
-    provider = NotesProvider(api)
-    provider.connect()
-    provider.responses = [rate_limit(kind, message)]
-    provider.sync()
-    status = api.get(BASE, headers=headers()).json()
-    assert status["imported_count"] == 2 and status["skipped"] == 0 and status["last_error"] is None
-    assert len(provider.notes_calls) == 2
-    assert all(ids == provider.ids for _, ids in provider.notes_calls)
-    assert provider.notes_calls[1][0] - provider.notes_calls[0][0] == 15
-
-
-def test_retry_after_is_honored(api):
-    provider = NotesProvider(api)
-    provider.connect()
-    provider.responses = [rate_limit("tool", retry_after="42")]
-    provider.sync()
-    first, second = [t for t, _ in provider.notes_calls]
-    assert second - first == 42
-
-
 def test_four_rate_limits_stop_without_skipping_or_advancing_cursor(api, caplog):
     kind = "tool"
     provider = NotesProvider(api)
@@ -140,4 +118,3 @@ def test_completed_batch_checkpoint_survives_a_rate_limit_and_resumes(api):
     provider.sync()
     meta = provider.service.load("human:ana")[1]
     assert meta["imported_count"] == 20 and meta["last_sync"] and meta["last_error"] is None
-

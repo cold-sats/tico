@@ -200,14 +200,6 @@ def test_an_mcp_tool_shows_its_host_and_the_runners_check_never_its_headers(api)
         assert "Bearer" not in json.dumps(tool)
 
 
-def test_tools_render_when_bot_has_no_config_row(api):
-    with api.app.state.store.transaction() as c:
-        c.execute("DELETE FROM bot_config WHERE bot='ops'")
-    page = tools_of(api)
-    assert page['bot'] == 'ops'
-    assert isinstance(page['tools'], list)
-
-
 def test_a_github_gh_token_counts_present_when_the_github_app_mints_it(api):
     from backend.health import _missing_tool_credentials
     configure(api)

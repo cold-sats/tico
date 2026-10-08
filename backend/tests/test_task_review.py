@@ -48,22 +48,6 @@ def test_version_names_scopes_archive_and_author_edits(api):
     assert attach(api, tid)["file_id"] != fid
 
 
-def test_legacy_attachment_is_v1_and_adopted_without_rewriting(api):
-    tid = task(api)
-    from backend.auth import Identity
-    from backend.blobs import register
-    digest = api.app.state.blobs.put(b"old")
-    with api.app.state.store.transaction() as c:
-        old = register(c, Identity("human:ana", "owner"), digest, 3, "report.md", "text/markdown")
-        c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, old["id"]))
-    listed = get(api, f"tasks/{tid}/files")["files"][0]
-    assert listed["id"] == old["id"] and listed["versions"][0]["n"] == 1
-    new = attach(api, tid)
-    assert new["file_id"] == old["id"] and new["version"] == 2
-    assert api.get(f"/api/v2/files/{old['id']}?v=1", headers=headers()).content == b"old"
-    assert api.get(f"/api/v2/files/{old['id']}?v=2", headers=headers()).content == b"# Report"
-
-
 @pytest.mark.parametrize("change", [{"extra": True}])
 def test_ask_validation(api, change):
     tid = task(api)

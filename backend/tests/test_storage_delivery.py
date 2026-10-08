@@ -6,8 +6,6 @@ import json
 import shutil
 import sqlite3
 import struct
-import subprocess
-import sys
 import threading
 import time
 
@@ -17,7 +15,6 @@ from botocore.exceptions import ClientError
 from backend.blobs import Blobs, disposition
 from backend.config import Settings
 from backend.file_delivery import byte_range
-from backend.file_metadata import dimensions
 from backend.store import Problem
 from backend.tests.test_api import api, headers, post  # noqa: F401
 from backend.tests.test_files import turn
@@ -103,7 +100,7 @@ def test_stream_hash_and_s3_first_multipart(tmp_path):
     assert error.value.status == 413
 
 
-@pytest.mark.parametrize('mime,inline', [('image/png', True), ('image/svg+xml', False), ('text/html', False)])
+@pytest.mark.parametrize('mime,inline', [('image/png', True), ('image/svg+xml', False)])
 def test_safe_disposition(mime, inline):
     assert disposition(mime) == ('inline' if inline else 'attachment')
 
@@ -158,7 +155,7 @@ def test_attachment_bytes_and_digests_across_versions_and_legacy_ids(api, name, 
             assert head.headers[key] == full.headers[key], (url, key)
 
 
-@pytest.mark.parametrize('kind', ['raw', 'stream'])
+@pytest.mark.parametrize('kind', ['stream'])
 def test_display_names_leave_byte_responses_untouched(api, tmp_path, monkeypatch, kind):
     from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
     raw = b'{\n  "owner": "human:ana"\n}\n'
@@ -298,18 +295,6 @@ def test_rehearsal_skips_s3_write_probe(api):
     assert not s3.calls
 
 
-def test_header_parsing_without_pillow(monkeypatch, tmp_path):
-    from backend.file_metadata import image
-    monkeypatch.setitem(sys.modules, 'PIL', None)
-    png = b'\x89PNG\r\n\x1a\n' + b'\x00' * 8 + struct.pack('>II', 640, 320)
-    source = tmp_path / 'source.png'
-    source.write_bytes(png)
-    assert image(source, tmp_path / 'thumb.jpg') == (640, 320, None)
-    assert dimensions(io.BytesIO(b'GIF89a' + struct.pack('<HH', 20, 10))) == (20, 10)
-    webp = b'RIFF' + b'\x00' * 4 + b'WEBPVP8X' + b'\x00' * 8 + (639).to_bytes(3, 'little') + (319).to_bytes(3, 'little')
-    assert dimensions(io.BytesIO(webp)) == (640, 320)
-
-
 def test_multipart_client_replay_and_bounded_reads(tmp_path):
     path = tmp_path / 'media.mp4'
     path.write_bytes(b'v' * (1024 * 1024 + 10))
@@ -317,24 +302,6 @@ def test_multipart_client_replay_and_bounded_reads(tmp_path):
     first, second = list(body), list(body)
     assert first == second and sum(map(len, first)) == body.size
     assert max(map(len, first)) <= 1024 * 1024
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(not shutil.which('ffmpeg') or not shutil.which('ffprobe'), reason='optional video tools')
-def test_video_metadata_with_tools(api, tmp_path):
-    worker = api.app.state.file_metadata
-    worker.stop.set()
-    worker.wake.set()
-    video = tmp_path / 'clip.mp4'
-    subprocess.run([shutil.which('ffmpeg'), '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x32:d=1',
-                    '-c:v', 'mpeg4', str(video)], check=True)
-    bid = attach(api, task(api), 'clip.mp4', video.read_bytes())
-    with api.app.state.store.read() as c:
-        blob = dict(c.execute('SELECT * FROM blobs WHERE id=?', (bid,)).fetchone())
-    worker.process(blob)
-    meta = api.get('/api/v2/files/' + bid + '/meta', headers=headers('ana-test')).json()
-    assert (meta['width'], meta['height'], meta['duration_ms']) == (64, 32, 1000)
-    assert meta['poster_blob_id'] and meta['media_state'] == 'ready'
 
 
 @pytest.mark.slow

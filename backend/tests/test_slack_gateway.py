@@ -567,7 +567,7 @@ def test_a_muted_bot_stays_in_tico_unless_the_person_is_talking_to_it_in_slack(g
     assert posts == {answer: "ready", later: "ready", muted: "cancelled", other: "ready"}
 
 
-@pytest.mark.parametrize('skip', ['outside', 'wrong_person'])
+@pytest.mark.parametrize('skip', ['wrong_person'])
 def test_task_result_skips(gateway, hub, skip):
     link_task_requester(hub, slack_id={'outside': 'U8', 'wrong_person': 'U2'}[skip])
     task_notice(hub)

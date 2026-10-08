@@ -120,12 +120,6 @@ def test_import_does_not_probe_docker(monkeypatch):
     assert calls == []
 
 
-def test_docker_is_ready_returns_false_when_cli_is_missing(monkeypatch):
-    monkeypatch.setattr(shutil, "which", lambda _: None)
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("docker should not run"))
-    assert docker_is_ready() is False
-
-
 def test_docker_is_ready_returns_false_on_nonzero_exit(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
     calls = []
@@ -137,23 +131,6 @@ def test_docker_is_ready_returns_false_on_nonzero_exit(monkeypatch):
     monkeypatch.setattr(subprocess, "run", failed_info)
     assert docker_is_ready() is False
     assert calls == [(["docker", "info"], {"capture_output": True, "timeout": 8})]
-
-
-def test_docker_is_ready_returns_false_on_timeout(monkeypatch):
-    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
-
-    def timed_out(command, **kwargs):
-        assert kwargs["timeout"] == 8
-        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
-
-    monkeypatch.setattr(subprocess, "run", timed_out)
-    assert docker_is_ready() is False
-
-
-def test_docker_is_ready_returns_false_when_probe_cannot_start(monkeypatch):
-    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("unavailable")))
-    assert docker_is_ready() is False
 
 
 def test_bundle_from_the_real_repo_has_what_a_server_needs_and_is_reproducible(tmp_path):

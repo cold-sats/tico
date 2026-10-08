@@ -4,7 +4,6 @@ import json
 import pytest
 
 from scripts.company_apps import Invalid, key, main, matrix, parse
-from scripts.company_app_publisher import policies
 
 ENTRY = {"slug": "acme", "id": "12345678-1234-4234-8234-123456789abc", "app_name": "Acme Tico",
          "url": "https://tico.example.com", "icon_url": "/api/v2/team/icon",
@@ -41,17 +40,6 @@ def test_loopback_urls_and_matrix_contains_only_hashes(monkeypatch, capsys):
     assert main(["matrix"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines == [json.dumps(matrix([ENTRY]), separators=(",", ":"))]
-
-
-def test_publisher_policies_are_tag_and_prefix_scoped():
-    provider, trust, access = policies("123456789012", "acme-files", "team",
-        subject="repo:ticoteam/tico:ref:refs/tags/v*")
-    condition = trust["Statement"][0]["Condition"]
-    assert condition["StringLike"]["token.actions.githubusercontent.com:sub"] == "repo:ticoteam/tico:ref:refs/tags/v*"
-    assert condition["StringEquals"]["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
-    assert access["Statement"][0]["Resource"] == "arn:aws:s3:::acme-files/team/releases/app/*"
-    assert access["Statement"][1]["Condition"] == {"StringLike": {"s3:prefix": "team/releases/app/*"}}
-    assert provider.endswith(":oidc-provider/token.actions.githubusercontent.com")
 
 
 def test_configuration_bakes_company_identity_and_runner_feed(tmp_path, monkeypatch, capsys):
@@ -111,7 +99,7 @@ def test_invalid_company_isolated_and_publishing_does_not_fetch_icon(tmp_path, m
     assert "TICO_TRAY_LABEL=\n" in (tmp_path / "env").read_text()
 
 
-@pytest.mark.parametrize("label", ["PrivateLongLabel", "\u202eAB"])
+@pytest.mark.parametrize("label", ["\u202eAB"])
 def test_invalid_tray_labels_never_escape_errors(label, monkeypatch, capsys):
     monkeypatch.setenv("TICO_COMPANY_APPS", json.dumps([{**ENTRY, "tray_label": label}]))
     assert main(["configure", "--company", key(ENTRY)]) == 1

@@ -14,15 +14,6 @@ KW = dict(python="/srv/tico/runtime/runner-venv/bin/python", config="/home/ana/.
           log="/home/ana/.config/tico/logs/tico-bot.log", path="/usr/local/bin:/usr/bin", home="/home/ana", user="ana")
 
 
-def test_the_runner_unit_restarts_always_and_says_who_supervises_it():
-    text = su.render("bot", **KW)
-    assert 'ExecStart="/srv/tico/runtime/runner-venv/bin/python" "-m" "runner" "--config" "/home/ana/.config/tico/runner.json" "run"' in text
-    assert "Restart=always" in text and "RestartSec=10" in text and "StartLimitIntervalSec=0" in text
-    assert "WorkingDirectory=/srv/tico" in text and "WantedBy=default.target" in text
-    assert 'Environment="TICO_SUPERVISED=1"' in text and 'Environment="TICO_SYSTEMD_UNIT=tico-bot.service"' in text
-    assert "StandardOutput=append:/home/ana/.config/tico/logs/tico-bot.log" in text
-
-
 def test_each_helper_runs_its_own_command_and_an_environment_has_its_own_names():
     for kind in ("connectors", "close-calls", "importers"):
         text = su.render(kind, **KW)

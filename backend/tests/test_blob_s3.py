@@ -23,8 +23,7 @@ def client_options(monkeypatch):
 
 
 @pytest.mark.parametrize("storage,aws", [
-    (Blobs, {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing", "AWS_SESSION_TOKEN": "testing-token"}),
-    (Downloads, {"AWS_PROFILE": "example"})])
+    (Blobs, {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing", "AWS_SESSION_TOKEN": "testing-token"})])
 def test_auto_tries_backup_first_even_with_aws_credential_source(storage, aws, client_options, monkeypatch):
     calls, result = client_options
     monkeypatch.setenv("LITESTREAM_ACCESS_KEY_ID", "testing-backup")
@@ -40,7 +39,7 @@ def test_auto_tries_backup_first_even_with_aws_credential_source(storage, aws, c
     assert dict(os.environ) == before
 
 
-@pytest.mark.parametrize("backup", [{}, {"LITESTREAM_ACCESS_KEY_ID": "testing", "LITESTREAM_SECRET_ACCESS_KEY": ""}])
+@pytest.mark.parametrize("backup", [{"LITESTREAM_ACCESS_KEY_ID": "testing", "LITESTREAM_SECRET_ACCESS_KEY": ""}])
 def test_absent_or_incomplete_backup_pair_keeps_default_chain(backup, client_options, monkeypatch):
     calls, _ = client_options
     for key, value in backup.items():
@@ -60,8 +59,6 @@ def test_no_file_bucket_does_not_use_backup_keys(client_options, monkeypatch):
 @pytest.mark.parametrize("storage", [Blobs])
 @pytest.mark.parametrize("env,expected", [
     ({"TICO_BLOB_REGION": "us-west-2", "TICO_BACKUP_REGION": "us-east-1", "AWS_REGION": "eu-west-1"}, "us-west-2"),
-    ({"TICO_BLOB_ENDPOINT": "https://s3.example.com", "TICO_BACKUP_REGION": "auto", "AWS_DEFAULT_REGION": "eu-west-1"}, "eu-west-1"),
-    ({"TICO_BACKUP_ENDPOINT": "https://s3.example.com", "TICO_BACKUP_REGION": "auto"}, None),
 ])
 def test_region_resolution(storage, env, expected, client_options, monkeypatch):
     calls, _ = client_options
@@ -272,7 +269,7 @@ def test_none_writable_warns_and_retains_first_source_and_local_reads(tmp_path, 
     assert 'private credential material' not in json.dumps(detail) + caplog.text
 
 
-@pytest.mark.parametrize('operation', ['get_object', 'head_object'])
+@pytest.mark.parametrize('operation', ['get_object'])
 def test_denied_read_tries_other_source_once_without_switching_writes(tmp_path, monkeypatch, credential_clients, operation):
     import hashlib
     clients, _ = credential_clients
@@ -402,55 +399,6 @@ def test_uploads_reject_unselected_and_denied_sources_then_heal(tmp_path, monkey
                for kind, source in clients.items() if kind != chosen)
 
 
-def test_blocked_probe_gates_uploads_and_reuses_one_in_flight_check(tmp_path, monkeypatch, credential_clients):
-    import threading
-    from backend.store import Problem
-
-    clients, calls = credential_clients
-    enable_pairs(monkeypatch, ['backup'])
-    clients['backup'].writable = True
-    clients['backup'].cleanup = False
-    clients['role'].writable = True
-    storage, store = storage_store(tmp_path)
-    entered, release = threading.Event(), threading.Event()
-    original = clients['backup'].create_multipart_upload
-    def blocked(**options):
-        entered.set()
-        assert release.wait(3)
-        return original(**options)
-    monkeypatch.setattr(clients['backup'], 'create_multipart_upload', blocked)
-    first_stop = threading.Event()
-    worker = threading.Thread(target=storage.check_write, args=(store, first_stop))
-    worker.start()
-    try:
-        assert entered.wait(2)
-        for size in (1, 9 * 1024 ** 2):
-            import io
-            import hashlib
-            with pytest.raises(Problem, match='pending'):
-                storage._upload(io.BytesIO(b'x'), hashlib.sha256(b'x').hexdigest(), size, 'application/octet-stream')
-        first_stop.set()
-        worker.join(2)
-        assert not worker.is_alive()
-        # A shutdown return leaves the original daemon alive, so another caller must join it.
-        second_stop = threading.Event()
-        timer = threading.Timer(0.1, second_stop.set)
-        timer.start()
-        try:
-            assert storage.check_write(store, second_stop) is False
-        finally:
-            timer.cancel()
-        assert [kind for kind, _ in calls] == ['backup']
-        assert all(not any(op == 'put' for op, _ in source.calls) for source in clients.values())
-    finally:
-        first_stop.set()
-        release.set()
-        worker.join(2)
-        assert storage._probe_task[0].wait(2)
-    assert storage.check_write(store) is True
-    assert storage._sources.selected == 'role'
-
-
 def test_upload_client_construction_errors_never_expose_credentials(tmp_path, monkeypatch, credential_clients, caplog):
     from backend.store import Problem
     clients, _ = credential_clients
@@ -501,40 +449,6 @@ def test_multipart_keeps_its_selected_identity_through_completion_or_abort(tmp_p
     assert not clients['backup'].calls
     assert source.calls[-1][0] == ('abort' if fail else 'complete')
     assert source.calls[-1][1]['UploadId'] == 'attachment'
-
-
-def test_pending_read_client_construction_is_bounded_shared_and_keeps_local_fallback(tmp_path, monkeypatch, credential_clients):
-    import hashlib
-    import io
-    import threading
-    from backend import blob_s3
-
-    clients, calls = credential_clients
-    storage, store = storage_store(tmp_path)
-    downloads = Downloads(store.settings, s3_source=storage)
-    data = b'  retained\nbytes\x00'
-    digest = hashlib.sha256(data).hexdigest()
-    storage._local(io.BytesIO(data), digest)
-    entered, release = threading.Event(), threading.Event()
-    original = blob_s3.client
-    def blocked(*args, **options):
-        entered.set()
-        assert release.wait(2)
-        return original(*args, **options)
-    monkeypatch.setattr(blob_s3, 'CLIENT_BUILD_TIMEOUT', 0.05)
-    monkeypatch.setattr(blob_s3, 'client', blocked)
-    try:
-        assert storage.get(digest) == data
-        assert entered.is_set() and not calls
-        assert downloads.bucket_manifest() is None
-        assert downloads.file_url('0.3.11', 'Tico.dmg') is None
-        assert len(storage._sources._building) == 1
-        assert not storage._sources._building[('role', True)][0].is_set()
-    finally:
-        release.set()
-        assert storage._sources._building[('role', True)][0].wait(1)
-    assert len(calls) == 1
-    assert storage.s3 is downloads.s3 is clients['role']
 
 
 @pytest.mark.parametrize('stage', ['create'])

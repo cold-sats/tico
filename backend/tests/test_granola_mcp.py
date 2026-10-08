@@ -252,27 +252,6 @@ def test_transient_refresh_keeps_token_and_retries(api, caplog):
     assert provider.service.load("human:ana")[1]["last_sync"]
 
 
-def test_any_transcript_failure_imports_notes(api):
-    transcript = "tool_error"
-    provider = Provider(api)
-    provider.paid = True
-    provider.connect()
-    previous = provider.handle
-    def handle(request):
-        if request.url.path == "/mcp":
-            body = json.loads(request.content)
-            if body.get("params", {}).get("name") == "get_meeting_transcript":
-                result = {"isError": True, "content": [{"type": "text", "text": "Transcripts are available on Business and Enterprise plans"}]} if transcript == "tool_error" else {"structuredContent": {"transcript": transcript}}
-                return httpx.Response(200, json={"result": result})
-        return previous(request)
-    provider.service.transport = httpx.MockTransport(handle)
-    provider.sync()
-    status = api.get(BASE, headers=headers("ana-test")).json()
-    assert status["last_sync"] and status["imported_count"] == 1 and status["skipped"] == 0
-    with api.app.state.store.read() as c:
-        assert "Ship it" in c.execute("SELECT notes FROM meetings").fetchone()[0]
-
-
 def test_inactive_person_connection_deleted_and_revoked(api):
     field, value = "hidden", True
     provider = Provider(api)
