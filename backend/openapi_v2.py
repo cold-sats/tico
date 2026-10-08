@@ -387,7 +387,7 @@ STABLE = [
      "the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns "
      "over or the limit is raised", "BotUsageLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
-    ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (people only)", "Health"),
+    ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (bots see counts, computers and failed runs)", "Health"),
 ]
 
 

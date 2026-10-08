@@ -205,8 +205,8 @@ object sizes are null; hourly totals and row statistics remain available. Size c
 flight recorder's background thread through autocommit reads, finished before the short snapshot write transaction.
 Opening Health or metrics reads recorded samples and does not trigger a page scan.
 
-Owners and admins (and BotOps for one of them) read it at `GET /api/v2/system/metrics?minutes=60&section=all`
-(`section`: any of `requests,slow,process,sql,db,events`), with `hub health metrics` or `hub_health_metrics`, and see the
+Owners, admins and the team's bots read it at `GET /api/v2/system/metrics?minutes=60&section=all` (a bot's slow requests
+leave out who made them; `section`: any of `requests,slow,process,sql,db,events`), with `hub health metrics` or `hub_health_metrics`, and see the
 last hour under **Performance** on the Health page. `GET /api/v2/ops/timing` still answers with the last 300 requests per
 route since the start.
 

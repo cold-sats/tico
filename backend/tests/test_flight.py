@@ -119,7 +119,7 @@ def test_table_sizes_are_reused_for_a_day_even_after_a_restart(store, monkeypatc
     assert all("aggregate=TRUE" in sql and not in_transaction for sql, in_transaction in scans)
 
 
-def test_only_owners_and_admins_read_the_metrics(tmp_path):
+def test_owners_admins_and_bots_read_the_metrics(tmp_path):
     registry = tmp_path / "registry"
     registry.mkdir()
     (registry / "hub-access.yaml").write_text(yaml.safe_dump({"owner": "ana@acme.example",
@@ -127,10 +127,14 @@ def test_only_owners_and_admins_read_the_metrics(tmp_path):
     app = create_app(Settings(db_path=tmp_path / "hub.db", registry_dir=registry, flight_recorder=True, test_identities={
         "ana-test": Identity("human:ana", "owner", "ana@acme.example"),
         "ben-test": Identity("human:ben", "human", "ben@acme.example"),
-        "cara-test": Identity("human:cara", "human", "cara@acme.example")}))
+        "cara-test": Identity("human:cara", "human", "cara@acme.example"),
+        "qa-test": Identity("bot:qa", "bot", agent="hermes"), "runner-test": Identity("runner:r1", "runner", runner_id="r1")}))
     with TestClient(app) as client:
         with app.state.store.transaction() as c:
-            H.sync_registry(c, {}, {"people": [{"id": p, "email": p + "@acme.example"} for p in ("ana", "ben", "cara")]})
+            H.sync_registry(c, {"qa": {"name": "QA", "status": "active"}},
+                            {"people": [{"id": p, "email": p + "@acme.example"} for p in ("ana", "ben", "cara")]})
+            c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES('qa','hermes','x',?,'human:ana')",
+                      (H.now(),))
 
         def get(token, path="/api/v2/system/metrics"):
             return client.get(path, headers={"Authorization": "Bearer " + token})
@@ -146,7 +150,13 @@ def test_only_owners_and_admins_read_the_metrics(tmp_path):
                 if flight.last_start(c):
                     break
             time.sleep(0.05)
-        assert get("cara-test").status_code == 403
+        assert get("cara-test").status_code == 403 and get("runner-test").status_code in (401, 403)
+        with app.state.store.transaction() as c:
+            c.execute("INSERT INTO flight_slow(ts,route,caller,actor,ms,bytes,status) VALUES(?,?,?,?,?,?,?)",
+                      (int(time.time()), "GET /api/v2/tasks", "human", "human:cara", 1500, 10, 200))
+        slow = get("qa-test", "/api/v2/system/metrics?section=slow")
+        assert slow.status_code == 200 and slow.json()["slow"][0]["ms"] == 1500
+        assert "actor" not in slow.json()["slow"][0]
         assert get("ben-test").status_code == 200
         body = get("ana-test").json()
         routes = {r["route"]: r for r in body["requests"]["routes"]}

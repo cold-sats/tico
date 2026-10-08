@@ -10,9 +10,10 @@ each stall of the event loop with every thread's stack at that moment.
 The request path pays for two clock reads and a deque append (`Recorder.request`, `Recorder.query`); everything else
 (bucketing, fingerprinting SQL, writing) happens in one background thread (`Flight`), which writes once a minute in one
 short transaction. Nothing leaves the server: no query text with values (SQL is reduced to its shape), no request paths
-with ids (route templates only), no bodies, no setting values. Owners and admins read it at `GET /api/v2/system/metrics`
-and on the Health page. Retention: minutes for two days, then hours; requests, slow requests and process rows 14 days,
-SQL, database and events 90 days (`sweep`, run by the scheduler's hourly sweep).
+with ids (route templates only), no bodies, no setting values. Owners, admins and the team's bots read it at
+`GET /api/v2/system/metrics` (bots without the slow requests' actors), and owners and admins on the Health page.
+Retention: minutes for two days, then hours; requests, slow requests and process rows 14 days, SQL, database and events
+90 days (`sweep`, run by the scheduler's hourly sweep).
 """
 import bisect
 import collections
@@ -756,13 +757,19 @@ def install(app, store, auth):
 
     @app.get("/api/v2/system/metrics")
     def system_metrics(request: Request, minutes: int = 60, section: str = "all"):
-        """The flight recorder (backend/flight.py): owners and admins, or BotOps for one of them."""
+        """The flight recorder (backend/flight.py): owners, admins and the team's bots."""
         who = request.state.identity
         auth.domain(who)
-        if not auth.bot_admin(who):
-            raise Problem("forbidden", "Only an owner or an admin reads the server's metrics", 403)
+        if not auth.bot_admin(who) and who.role != "bot":
+            raise Problem("forbidden", "Only an owner, an admin or a bot reads the server's metrics", 403)
         wanted = SECTIONS if section == "all" else tuple(s for s in section.split(",") if s in SECTIONS)
         if not wanted:
             raise Problem("section", "section is all or a list of: " + ", ".join(SECTIONS), 422)
         with store.read() as c:
-            return view(c, max(1, min(int(minutes), SHORT_DAYS * 1440)), wanted)
+            out = view(c, max(1, min(int(minutes), SHORT_DAYS * 1440)), wanted)
+        if who.role == "bot":
+            # A slow request's actor names the person or bot who made it; a bot doing performance work needs the
+            # route and timing, not who was waiting.
+            for row in out.get("slow") or []:
+                row.pop("actor", None)
+        return out
