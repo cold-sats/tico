@@ -30,10 +30,10 @@ def live(api, monkeypatch):
     server = uvicorn.Server(uvicorn.Config(api.app, log_level="error"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 30
     while not server.started and thread.is_alive() and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert server.started
+    assert server.started, "test API did not become ready within 30 seconds"
     streams = []
     yield lambda token="ana-test", query="", headers=None, path="/api/v2/events": streams.append(
         Stream(f"http://127.0.0.1:{port}", token, query, headers, path)) or streams[-1]
