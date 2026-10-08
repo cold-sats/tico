@@ -1,6 +1,7 @@
 // The page the browser tests serve: ui/index.html as the server sends it, with its bundle regions replaced by
 // the two bundle tags (backend/ui_bundle.py builds them, so the tests run the real bundler), and uiFile() for
 // the files a test serves from disk. TICO_UI_BUNDLE=off serves the separate files as index.html lists them.
+require('./browser.cjs');
 const {execFileSync} = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
