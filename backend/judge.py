@@ -32,6 +32,9 @@ from .models import Contract
 from .store import H, Problem
 
 DAILY_CALLS = {"owner": 20_000, "human": 5_000, "bot": 5_000}
+# TypeSafe gets one short try from the server; when it is slow or down, the company's own model answers instead of
+# a caller waiting a minute for a 503 (Oct 8: up to 49 s and six 503s on one install in a day).
+JEV_TIMEOUT = 8
 
 
 def fallback_engine(record, env=None):
@@ -62,7 +65,7 @@ def used_today(c, actor, at=None):
 
 def install_judge(app, store, auth):
     settings = store.settings
-    app.state.judge = J.direct(settings.typesafe_api_key) if settings.typesafe_api_key and not settings.rehearsal else None
+    app.state.judge = J.direct(settings.typesafe_api_key, timeout=JEV_TIMEOUT, retries=0) if settings.typesafe_api_key and not settings.rehearsal else None
 
     @app.get("/api/v2/judge")
     def config(request: Request):
@@ -100,7 +103,15 @@ def install_judge(app, store, auth):
         detail = {"label": label, "questions": len(body.questions),
                   "types": sorted({q["type"] for q in body.questions.values()})}
         try:
-            result = engine(body.state, body.questions, body.label)
+            try:
+                result = engine(body.state, body.questions, body.label)
+            except J.JudgeError as exc:
+                with store.read() as c:
+                    backup = fallback_engine(providers.load(c, settings)) if engine is app.state.judge and exc.retryable else None
+                if backup is None:
+                    raise
+                detail["fallback"] = exc.code
+                result = backup(body.state, body.questions, body.label)
         except J.JudgeError as exc:
             with store.transaction() as c:
                 H.event(c, who.actor, "judge.call", label, {**detail, "error": exc.code, "detail": exc.detail[:300]})

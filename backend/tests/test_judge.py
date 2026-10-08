@@ -71,3 +71,35 @@ def test_rehearsal_decisions_never_reach_a_configured_or_fallback_provider(api, 
         result = api.post("/api/v2/decisions", json={"state": {"team": "Acme"}, "questions": QUESTIONS}, headers=headers())
         assert result.status_code == 503 and result.json()["error"]["code"] == "rehearsal"
     assert engine.calls == [] and events(api, "human:ana") == []
+
+
+def test_a_slow_or_down_typesafe_falls_back_to_the_companys_model_instead_of_a_503(api, monkeypatch):
+    from clients import judge as J
+    jev, backup = fake(api), FakeJudge()
+    jev.fail = J.JudgeError("unavailable", "TypeSafe did not answer: TimeoutError", retryable=True)
+    monkeypatch.setattr(B, "fallback_engine", lambda *args, **kwargs: backup)
+    out = post(api, "decisions", {"state": {"subject": "Invoice 4471"}, "questions": QUESTIONS, "label": "mail-triage@1"})
+    assert out["answers"]["bucket"]["choice"] == "reply" and len(jev.calls) == 1 and len(backup.calls) == 1
+    assert events(api, "human:ana")[-1][1]["fallback"] == "unavailable"
+    # With nothing to fall back to, the caller still gets a quick, honest 503; a refused request is not retried elsewhere.
+    monkeypatch.setattr(B, "fallback_engine", lambda *args, **kwargs: None)
+    result = api.post("/api/v2/decisions", json={"state": {"team": "Acme"}, "questions": QUESTIONS}, headers=headers())
+    assert result.status_code == 503 and result.json()["error"]["code"] == "judge_unavailable"
+    jev.fail = J.JudgeError("invalid", "TypeSafe refused the request", 422)
+    monkeypatch.setattr(B, "fallback_engine", lambda *args, **kwargs: backup)
+    result = api.post("/api/v2/decisions", json={"state": {"team": "Acme"}, "questions": QUESTIONS}, headers=headers())
+    assert result.status_code == 422 and len(backup.calls) == 1
+
+
+def test_the_server_asks_typesafe_once_and_briefly():
+    from clients import judge as J
+    seen = []
+    def opener(request, timeout):
+        seen.append(timeout)
+        raise TimeoutError()
+    engine = J.direct("key", timeout=B.JEV_TIMEOUT, retries=0, opener=opener, sleep=lambda s: None)
+    try:
+        engine({"team": "Acme"}, QUESTIONS)
+    except J.JudgeError as exc:
+        assert exc.retryable
+    assert seen == [B.JEV_TIMEOUT] and B.JEV_TIMEOUT <= 10
