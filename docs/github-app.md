@@ -158,6 +158,21 @@ least 45 minutes. The runner holds the run's token in the run's process environm
 each time it needs one, and so does `gh` through the turn's `gh` wrapper, which also picks the token for the
 repository it is working on.
 
+Turn-start requests keep the 45-minute margin. A per-command request with `purpose: "git"`
+reuses a token with more than ten minutes left; older runners can keep omitting that field.
+Repository checkout/history maintenance also uses that shorter margin, with a remembered
+fallback to the old request body if an older server rejects `purpose`.
+Cache hits still check current identity, assignment and repository grants, but do not call
+GitHub, open a write transaction or repeat the token audit. Repository reachability uses the
+same request snapshot as the grants.
+
+Temporary task assignments return `409 assignment_repository` before reading the App or
+looking up its installation, including when no App is connected. Runners remember only this
+refusal in memory per bot and repository, until the placement, assignment revision or effective
+configuration changes, the bot is removed, or the runner restarts. A remembered refusal keeps
+GitHub access blocked; it never falls back to machine credentials. Other errors retain their
+normal retries. Older servers and runners need no new response fields or request parameters.
+
 ## How bots sign in to GitHub
 
 The GitHub App is every bot's GitHub identity: `git push`, `gh pr create`, `gh pr view` and `gh api` in a turn

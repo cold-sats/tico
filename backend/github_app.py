@@ -366,12 +366,13 @@ class GitHubApp:
             return True
 
     def mint_reachable(self, repos, permissions, diagnose_empty=False, own=None,
-                       refresh_margin=REFRESH_MARGIN, include_cache_status=False):
+                       refresh_margin=REFRESH_MARGIN, include_cache_status=False, missing=None):
         """Discard confirmed missing repositories and retry the remaining scope once."""
         from .repositories import unreachable, metadata, save_metadata
-        with self.store.read() as c:
-            missing = unreachable(c)
-            names = [name for name in repos if name.lower() not in missing or name.lower() == str(own).lower()]
+        if missing is None:
+            with self.store.read() as c:
+                missing = unreachable(c)
+        names = [name for name in repos if name.lower() not in missing or name.lower() == str(own).lower()]
         # A known-missing own repository is kept only so a lone own scope can still be diagnosed; beside
         # other repositories it would just fail the first mint every call until the mark expires.
         if any(name.lower() not in missing for name in names):
@@ -776,9 +777,6 @@ def install_github_app(app, settings, store):
         who = request.state.identity
         with store.read_transaction() as c:
             validate_identity(c, who)
-            row = service.row(c)
-            if not row:
-                return {"configured": False}
             # A turn may ask only for its own bot; a runner only for a bot assigned to it.
             if who.role == "bot":
                 allowed = H.actor_id(who.actor) == body.bot
@@ -787,19 +785,24 @@ def install_github_app(app, settings, store):
                                     (body.bot, who.runner_id)).fetchone() is not None
             else:
                 allowed = False
-            if not allowed:
-                raise Problem("forbidden", "This credential does not run that bot", 403)
             from .shared_bots import declared, source_of
-            bot_config = declared(c, body.bot)
+            bot_config = declared(c, body.bot) if allowed else {}
             if bot_config.get("assignment_branch"):
                 raise Problem("assignment_repository", "Temporary task assignments use a private local branch; GitHub credentials are not issued for them", 409)
+            row = service.row(c)
+            if not row:
+                return {"configured": False}
+            if not allowed:
+                raise Problem("forbidden", "This credential does not run that bot", 403)
             source = source_of(bot_config) or body.bot
             config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (source,)).fetchone()
             # A bare emp-<slug> means the connected org, whatever the default owner is.
             repo = repo_of(config["repo"] if config else "", row["org"] or settings.github_owner)
             if not repo or repo.split("/")[0].lower() != row["org"].lower():
                 raise Problem("forbidden", f"That bot's repository is not in the connected organization ({row['org']})", 403)
-            grants = R.access(c, body.bot, row['org'])['effective']
+            reads = R.Reads(c, [body.bot])
+            grants = R.access(c, body.bot, row['org'], reads=reads)['effective']
+            missing = reads.missing
         repos = [r['full_name'] for r in grants]
         write_repos = [r['full_name'] for r in grants if r['access'] == 'write']
         read_repos = [r['full_name'] for r in grants if r['access'] == 'read']
@@ -818,7 +821,7 @@ def install_github_app(app, settings, store):
             if write_repos:
                 value, expires, write_repos, cached, reachability_changed = service.mint_reachable(
                     write_repos, TURN_PERMISSIONS, diagnose_empty=write_repos == [repo], own=repo,
-                    refresh_margin=refresh_margin, include_cache_status=True)
+                    refresh_margin=refresh_margin, include_cache_status=True, missing=missing)
                 if value:
                     tokens.append({'token': value, 'expires_at': expires, 'repositories': write_repos,
                                    'access': 'write', 'cached': cached,
@@ -826,7 +829,7 @@ def install_github_app(app, settings, store):
             if read_repos:
                 read_value, read_expires, read_repos, cached, reachability_changed = service.mint_reachable(
                     read_repos, {'contents': 'read', 'metadata': 'read'}, refresh_margin=refresh_margin,
-                    include_cache_status=True)
+                    include_cache_status=True, missing=missing)
                 if read_value:
                     tokens.append({'token': read_value, 'expires_at': read_expires, 'repositories': read_repos,
                                    'access': 'read', 'cached': cached,
