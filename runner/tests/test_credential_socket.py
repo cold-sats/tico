@@ -100,6 +100,70 @@ def test_socket_preserves_repository_selection_and_attempt_identity(monkeypatch,
         shutil.rmtree(directory)
 
 
+def test_git_token_purpose_falls_back_once_for_an_older_server(monkeypatch):
+    from clients.tico import APIError
+
+    grants = {"configured": True, "token": "write-token", "tokens": [
+        {"token": "write-token", "repositories": ["Acme/product"]},
+        {"token": "read-token", "repositories": ["Acme/docs"]}]}
+
+    class OlderHub:
+        url = "https://tico.example"
+
+        def __init__(self):
+            self.calls = []
+
+        def post(self, path, body):
+            self.calls.append((path, body))
+            if "purpose" in body:
+                raise APIError("validation", "body.purpose: Extra inputs are not permitted", 422)
+            return grants
+
+    hub = OlderHub()
+    directory = tempfile.mkdtemp(dir="/tmp")
+    monkeypatch.setattr(isolation, "enabled", lambda: True)
+    server = C.serve(hub, os.path.join(directory, "cred.sock"))
+    try:
+        server.register("attempt-a", "alpha")
+        assert C.request(server.path, "attempt-a", repository="Acme/docs", purpose="git") == "read-token"
+        assert C.request(server.path, "attempt-a", repository="Acme/product", purpose="git") == "write-token"
+        assert hub.calls == [
+            ("github/token", {"bot": "alpha", "purpose": "git"}),
+            ("github/token", {"bot": "alpha"}),
+            ("github/token", {"bot": "alpha"}),
+        ]
+    finally:
+        server.stop()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def test_git_token_purpose_fallback_does_not_hide_other_422_errors(monkeypatch):
+    from clients.tico import APIError
+
+    class Hub:
+        url = "https://tico.example"
+
+        def __init__(self):
+            self.calls = []
+
+        def post(self, path, body):
+            self.calls.append((path, body))
+            raise APIError("github_repo", "The repository is outside this installation", 422)
+
+    hub = Hub()
+    directory = tempfile.mkdtemp(dir="/tmp")
+    monkeypatch.setattr(isolation, "enabled", lambda: True)
+    server = C.serve(hub, os.path.join(directory, "cred.sock"))
+    try:
+        server.register("attempt-a", "alpha")
+        with pytest.raises(ValueError, match="APIError"):
+            C.request(server.path, "attempt-a", repository="Acme/docs", purpose="git")
+        assert hub.calls == [("github/token", {"bot": "alpha", "purpose": "git"})]
+    finally:
+        server.stop()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def test_refreshed_tokens_join_attempt_redactor_and_are_released(channel):
     from runner.redact import Redactor, MASK
     channel.register('attempt-a', 'alpha')

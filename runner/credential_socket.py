@@ -32,6 +32,20 @@ MAX_LINE = 4096
 MAIL_SERVICES = ("gmail", "calendar")
 
 
+def _server_rejects_token_purpose(exc):
+    """Only identify the old-server schema error for the optional purpose field."""
+    if getattr(exc, "status", None) != 422:
+        return False
+    if str(getattr(exc, "code", "")).lower() not in {
+        "validation", "validation_error", "unknown_field", "extra_forbidden",
+    }:
+        return False
+    detail = str(getattr(exc, "detail", exc)).lower()
+    return "purpose" in detail and any(marker in detail for marker in (
+        "extra input", "extra field", "unknown field", "unexpected field", "extra_forbidden",
+    ))
+
+
 class Server:
     """Serves `mint(bot, repository)` to the attempt registered for that bot; repository is optional."""
 
@@ -168,9 +182,27 @@ def serve(client, path=None, mail=None, refresh=None):
         from .git_credentials import select_token
         granted = client.post("github/token", {"bot": bot})
         return select_token(granted, repository)
+    legacy_purpose_servers = set()
+    purpose_lock = threading.Lock()
+    server_key = str(getattr(client, "url", None) or id(client))
+
     def mint_git(bot, repository=None):
         from .git_credentials import select_token
-        granted = client.post("github/token", {"bot": bot, "purpose": "git"})
+        with purpose_lock:
+            legacy_server = server_key in legacy_purpose_servers
+        if legacy_server:
+            granted = client.post("github/token", {"bot": bot})
+        else:
+            try:
+                granted = client.post("github/token", {"bot": bot, "purpose": "git"})
+            except Exception as exc:
+                if not _server_rejects_token_purpose(exc):
+                    raise
+                with purpose_lock:
+                    legacy_purpose_servers.add(server_key)
+                # Older servers default an omitted purpose to turn. Retry once, then remember
+                # that schema for this server so every later git request uses its supported body.
+                granted = client.post("github/token", {"bot": bot})
         return select_token(granted, repository)
     try:
         server = Server(path, mint, mail, refresh, mint_git=mint_git).start()
