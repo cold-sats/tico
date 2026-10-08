@@ -193,7 +193,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
     for (const viewport of [{width: 1440, height: 900}, {width: 390, height: 844}]) {
       // A quarantine from repeated refusals says when it lifts and offers Resume now to a manager; the message box stays.
       const since = iso(-10 * 60e3), resumes = iso(50 * 60e3);
-      const held = {bot: 'cmo', state: 'quarantined', bot_state: 'quarantined', since, focus: '10 refused writes today',
+      const held = {bot: 'cmo', state: 'quarantined', bot_state: 'quarantined', since, focus: '10 repeated refusals today',
         quarantine: {since, auto: true, resumes_at: resumes}};
       const {page, errors, context, cleared} = await open(browser, viewport, {}, {status: held});
       await page.goto('https://tico-ui.test/#/bot/cmo');

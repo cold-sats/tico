@@ -125,7 +125,8 @@ CAP_PER_HOUR = 20               # rule 3: messages in one conversation between b
 MAX_ASK_DEPTH = 3               # rule 3: A asks B asks C; C may not ask on
 UNSOLICITED_PER_DAY = int(os.environ.get("TICO_UNSOLICITED_PER_DAY", "10"))   # rule 4: per human, per bot, per UTC day
 REVIEW_AT = 3                   # rule 8: refusals in a day that open a review task
-QUARANTINE_AT = 10              # rule 8: refusals in a day that quarantine the bot
+QUARANTINE_AT = 10              # rule 8: repeated refusals in a day that quarantine the bot
+QUARANTINE_TOTAL_AT = 3 * QUARANTINE_AT   # rule 8: any refusals in a day, repeated or not (a loop over new targets)
 ESCAPE_QUARANTINE_AT = int(os.environ.get("TICO_ESCAPE_QUARANTINE_AT", "3"))   # rule 8: `escape` refusals in a day that quarantine it until a person clears it
 NOTICE_DAYS = 14                # how long a notice stays in the inbox
 
@@ -1298,9 +1299,13 @@ def _escalate(conn, actor, rule, detail, severity, ts):
     # Keep the audit, internal repeated-failure review, and quarantine enforcement.
     escapes = conn.execute("SELECT COUNT(*) FROM refusals WHERE actor=? AND ts>=? AND severity='escape'",
                            (actor, since)).fetchone()[0]
-    if (severity == "escape" and escapes >= ESCAPE_QUARANTINE_AT) or repeats >= QUARANTINE_AT:
-        quarantine(conn, slug, f"{rule}: {said}" if severity == "escape"
-                   else f"{repeats} refused writes today")
+    if severity == "escape" and escapes >= ESCAPE_QUARANTINE_AT:
+        quarantine(conn, slug, f"{rule}: {said}")
+    elif repeats >= QUARANTINE_AT:
+        quarantine(conn, slug, f"{repeats} repeated refusals today")
+    elif count >= QUARANTINE_TOTAL_AT:
+        # The backstop: refusals that each name a new target are no repeats, but this many still mean a loop.
+        quarantine(conn, slug, f"{count} refusals today")
 
 
 def task_origin(conn, row):
@@ -1347,7 +1352,7 @@ def _review_task(conn, owner, title, body, origin=None):
 
 
 QUARANTINE_COOLDOWN_S = 3600
-COUNT_QUARANTINE = re.compile(r"\d+ refused writes today")
+COUNT_QUARANTINE = re.compile(r"\d+ (?:refused writes|repeated refusals|refusals) today")   # the first: before #287
 
 
 def quarantine_reason(conn, slug):

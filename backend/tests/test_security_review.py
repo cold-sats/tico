@@ -123,7 +123,7 @@ def test_an_importer_machine_cannot_send_work_in_a_persons_name(api):
 def test_a_quarantined_bots_status_says_when_it_resumes_and_a_persons_message_waits(api):
     from backend import hubdb as H
     with api.app.state.store.transaction() as c:
-        H.quarantine(c, "ops", "10 refused writes today")
+        H.quarantine(c, "ops", "10 repeated refusals today")
     line = next(b for b in get(api, "status")["bots"] if b["bot"] == "ops")
     q = line["quarantine"]
     assert line["bot_state"] == "quarantined" and q["auto"] is True

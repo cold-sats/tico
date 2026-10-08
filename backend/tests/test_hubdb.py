@@ -289,6 +289,24 @@ class Rule8Counting(HubCase):
             H.say(self.conn, CMO, "outsider@example.com", "hello")
         self.assertEqual(H.bot(self.conn, "cmo")["state"], "quarantined")
         self.assertFalse(H.quarantine_is_escape(self.conn, "cmo"), "a repeat quarantine cools off by itself")
+        self.assertEqual(H.quarantine_reason(self.conn, "cmo"), f"{H.QUARANTINE_AT} repeated refusals today")
+
+    def test_a_loop_of_new_refusals_still_quarantines_at_the_total_and_cools_off(self):
+        for i in range(H.QUARANTINE_TOTAL_AT - 1):
+            with self.assertRaises(H.Refused):
+                H.say(self.conn, CMO, f"outsider{i}@example.com", "hello")
+        self.assertEqual(H.bot(self.conn, "cmo")["state"], "active")
+        with self.assertRaises(H.Refused):
+            H.say(self.conn, CMO, "one-more@example.com", "hello")
+        self.assertEqual(H.bot(self.conn, "cmo")["state"], "quarantined", "a loop over new targets still stops")
+        self.assertEqual(H.quarantine_reason(self.conn, "cmo"), f"{H.QUARANTINE_TOTAL_AT} refusals today")
+        self.assertFalse(H.quarantine_is_escape(self.conn, "cmo"))
+        self.conn.execute("UPDATE events SET ts=? WHERE action='quarantine'", (H.shift(H.now(), seconds=-3700),))
+        self.assertEqual(H.lift_cooled_quarantines(self.conn), ["cmo"])
+
+    def test_a_quarantine_from_before_the_repeat_rule_still_cools_off(self):
+        H.quarantine(self.conn, "cmo", "10 refused writes today")
+        self.assertFalse(H.quarantine_is_escape(self.conn, "cmo"))
 
     def test_a_person_may_still_message_a_quarantined_bot_and_it_waits(self):
         self.refuse_reach(H.QUARANTINE_AT)
