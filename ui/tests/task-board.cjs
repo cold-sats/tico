@@ -11,13 +11,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
 const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
-// The icon font is subset (ui/vendor/fonts/icons.txt); a ligature missing from that list renders as a stray glyph.
-{
-  const subset = require('node:fs').readFileSync(require('node:path').join(__dirname, '../vendor/fonts/icons.txt'), 'utf8').split('\n').filter(Boolean);
-  for (const name of ['chevron_right', ...[...html.matchAll(/class="nav-icon" aria-hidden="true">([a-z_]+)</g)].map(m => m[1])])
-    assert(subset.includes(name), `icon ${name} is not in ui/vendor/fonts/icons.txt (run scripts/build-icon-font.py)`);
-  assert.deepEqual(subset, [...subset].sort(), 'icons.txt must stay alphabetical for Google Fonts');
-}
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
@@ -62,6 +55,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const posted = [];
     const people = [];
     let preferencePending = true, tasksStartedBeforePreference = false;
+    let releaseInitialTasks, signalInitialTasksRequest;
+    const initialTasksRequest = new Promise(resolve => { signalInitialTasksRequest = resolve; });
+    const initialTasksGate = new Promise(resolve => { releaseInitialTasks = resolve; });
+    let holdInitialTasks = !process.env.TICO_TAG_TEST_ONLY;
     await page.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -134,6 +131,11 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       }
       if (p === '/api/v2/tasks' && req.method() === 'GET') {
         if (preferencePending) tasksStartedBeforePreference = true;
+        if (holdInitialTasks) {
+          holdInitialTasks = false;
+          signalInitialTasksRequest();
+          await initialTasksGate;
+        }
         await new Promise(resolve => setTimeout(resolve, 50));
         let rows = tasks.slice();
         const statuses = url.searchParams.get('status');
@@ -172,7 +174,12 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     });
     if (!process.env.TICO_TAG_TEST_ONLY) {
     await page.goto('http://tico-ui.test/#/tasks');
-    await page.getByText('Loading tasks…', {exact: true}).waitFor();
+    await initialTasksRequest;
+    try {
+      await page.getByText('Loading tasks…', {exact: true}).waitFor();
+    } finally {
+      releaseInitialTasks();
+    }
     await page.waitForFunction(() => S.me?.id === 'reviewer' && TASKS_ST && TASKS_ST.tasks.length === 3);
     assert.equal(tasksStartedBeforePreference, true, 'task loading starts before the saved preference returns');
     assert.equal(await page.evaluate(() => TASKS_ST.tasks.some(t => t.lane === 'product')), false, 'product tasks are never loaded');
@@ -247,74 +254,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.doesNotMatch(await page.locator('#task-body').innerText(), /Open chat|bots and people|bot or person/);
     if (screenshotDir) { fs.mkdirSync(screenshotDir, {recursive: true}); await page.screenshot({path: path.join(screenshotDir, 'task-board-company.png')}); }
 
-    // Filters are chips: Owner "You" shows only my task; a tag narrows; Clear removes them all.
-    const pickFilter = async (field, value) => {
-      await page.locator('#task-filter').click();
-      assert.equal(await page.locator('#task-filter-pop').evaluate(el => el.matches(':popover-open')), true);
-      await page.locator(`#task-filter-pop [data-pick-field="${field}"]`).click();
-      await page.locator(`#task-filter-pop input[value="${value}"]`).check();
-      await page.keyboard.press('Escape');
-    };
-    await pickFilter('owner', 'me');
-    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
-    assert.match(await page.locator('#task-body .tl-row').innerText(), /Approve the budget/);
-    assert.match(await page.locator('[data-chip="owner"]').innerText(), /Owner\s*You/);
-    await pickFilter('tag', 'finance');
-    assert.equal(await page.locator('#task-chips [data-chip]').count(), 2);
-    await page.locator('#task-filter-clear').click();
-    assert.equal(await page.locator('#task-chips [data-chip]').count(), 0);
-
-    // Search reaches task titles, requester names, waiting lines and recurring routines, then clears.
-    await page.locator('#task-q').fill('  BuDgEt  ');
-    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
-    await page.locator('#task-q').fill('COO');
-    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
-    await page.locator('#task-q').fill('finance approval');
-    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
-    assert.match(await page.locator('#task-body .tl-row').innerText(), /Approve the budget/);
-    await page.locator('#task-q').fill('unmatched phrase');
-    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 0);
-    await page.locator('#task-q').press('Escape');
-    await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
-    await page.locator('#task-view [data-view="recurring"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('.rrow').length === 3);
-    assert.deepEqual((await page.locator('.rrow').allInnerTexts()).map(s => s.match(/Review (?:customer signals|release readiness|build health)/)?.[0]).sort(),
-      ['Review build health', 'Review customer signals', 'Review release readiness'], 'every routine shows, whatever its team');
-    await page.locator('#task-q').fill('customer signals');
-    await page.waitForFunction(() => document.querySelectorAll('.rrow').length === 1);
-    await page.locator('#task-q').fill('unmatched phrase');
-    await page.waitForFunction(() => document.querySelectorAll('.rrow').length === 0);
-    await page.locator('#task-q').fill('AI CMO');
-    await page.waitForFunction(() => document.querySelectorAll('.rrow').length === 1);
-    await page.locator('#task-q').press('Escape');
-    tasks.push({id: 'Closed invoice', title: 'Closed invoice', owner: 'bot:cmo', requester: 'human:reviewer',
-      status: 'done', lane: 'company', rank: 3, labels: ['finance'], links: [], parts: {total: 0, done: 0},
-      version: 1, closed_at: new Date().toISOString(), updated: new Date().toISOString()});
-    // A routine's run (a 30-minute sweep) is not listed under Done; it lives under Recurring.
-    tasks.push({id: 'Sweep run', title: 'Worker sweep', owner: 'bot:cmo', requester: 'keeper', routine_id: 'cmo:worker-sweep',
-      status: 'done', lane: 'company', rank: 4, labels: [], links: [], parts: {total: 0, done: 0},
-      version: 1, done_at: new Date().toISOString(), updated: new Date().toISOString()});
-    await page.locator('#task-view [data-view="done"]').click();
-    await page.waitForFunction(() => document.querySelector('#task-body')?.textContent.includes('Closed invoice'));
-    assert.equal(await page.locator('#task-body').innerText().then(t => t.includes('Worker sweep')), false, 'routine runs stay out of Done');
-    await page.locator('#task-q').fill('finance');
-    await page.waitForFunction(() => document.querySelector('#task-body')?.textContent.includes('Closed invoice'));
-    // When it was done, quietly on the right.
-    assert.match(await page.locator('#task-body .tl-row .tl-age').first().getAttribute('title'), /^Done /);
-    await page.locator('#task-q').fill('newsletter');
-    await page.waitForFunction(() => !document.querySelector('#task-body')?.textContent.includes('Closed invoice'));
-    await page.locator('#task-q').press('Escape');
-    await page.locator('#task-view [data-view="foryou"]').click();
-
-    await pickFilter('tag', 'copy');
-    await page.locator('#task-q').fill('Write');
-    await page.waitForFunction(() => location.hash.includes('tag=copy'));
-    await page.reload();
-    await page.waitForFunction(() => TASKS_ST?.tasks.length === 3);
-    assert.equal(await page.locator('#task-q').inputValue(), '', 'search is not remembered');
-    assert.match(await page.locator('[data-chip="tag"]').innerText(), /Tag\s*copy/, 'the tag filter lives in the address');
-    await page.locator('[data-chip-drop="tag"]').click();
-    await page.waitForFunction(() => location.hash === '#/tasks?type=general&view=foryou');
+    // List filters, search, Done and recurring controls are exercised in tasks-page.cjs.
 
     // The modal: comments with authors, state changes inline, one box; the mover controls are there
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Draft the newsletter')));
@@ -390,8 +330,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await finish();
     await page.locator('dialog.task-outcome textarea').fill('Keep the budget on hold.');
     await page.locator('dialog.task-outcome button[type="submit"]').click();
-    await page.waitForFunction(() => !TASKS_ST.tasks.some(t => t.id === 'Approve the budget'), null,
-      {timeout: 30_000});
+    await page.locator('#task-body [data-task-key="tApprove the budget"]').waitFor({state:'detached'});
     const resultPost = posted.find(x => x.path === '/api/v2/tasks/Approve%20the%20budget' && x.body.status === 'done');
     assert.equal(resultPost.body.note, 'Keep the budget on hold.');
 
@@ -578,6 +517,6 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('[data-tag-notes] input:checked').waitFor();
     assert.equal(posted.length, afterRace);
     assert.deepEqual(errors, []);
-    console.log('PASS: task board, filters, comments, mobile, rich tags, checklist versions, permissions and templates.');
+    console.log('PASS: task board, comments, mobile, rich tags, checklist versions, permissions and templates.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

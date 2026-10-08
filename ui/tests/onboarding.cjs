@@ -736,10 +736,7 @@ function recruitFor({department, briefing, share}) {
     await page.locator('[data-settings-tab=devices]').click();
     await page.locator('#machine-kind').selectOption('linux');
     assert.equal(await page.locator('#machine-label').inputValue(), "Ana Rivera's server");
-    await page.locator('#register-machine').click();
-    await page.waitForFunction(() => /--code 'enroll-code' --label "Ana Rivera's server"/.test(document.querySelector('#machine-enroll-status').textContent));
-    assert.match(await page.locator('#machine-enroll-status').textContent(), /join --url https:\/\/initech\.test/);
-    // A Windows PC gets one PowerShell line: the release's WSL installer with the same code, URL and name.
+    // The first-run enrollment step already checks the Linux server command; keep this distinct Windows installer path.
     await page.locator('#machine-kind').selectOption('windows');
     await page.locator('#register-machine').click();
     await page.waitForFunction(() => /install-wsl\.ps1/.test(document.querySelector('#machine-enroll-status').textContent));

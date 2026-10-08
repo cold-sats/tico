@@ -216,9 +216,7 @@ async function desktop(browser) {
   await rail.locator('[data-sub="k1a"]').waitFor();
   assert.equal(await first.locator('[data-sub-toggle]').getAttribute('aria-expanded'), 'true');
   assert.equal(await page.evaluate(() => document.activeElement?.dataset.subToggle), 'k1', 'focus stays on the toggle');
-  // The rail sits to the right of the details on a desktop.
-  const main = await modal.locator('.tmodal-main').boundingBox(), side = await rail.boundingBox();
-  assert.ok(side.x > main.x + main.width - 1, 'the rail is to the right');
+  // Rail ordering and desktop placement are covered by the task manager full-task layout check.
   if (SHOTS) { fs.mkdirSync(SHOTS, {recursive: true}); await modal.screenshot({path: path.join(SHOTS, 'task-code-desktop-dark.png')}); }
 
   // Add subtask: a task with a parent relation, for whoever is picked (the parent's owner to start with).
