@@ -11,9 +11,10 @@ connected, the turn keeps the machine’s git access. App token failures disable
 Precedence: the App's token wins for every repository in the connected organization. A `GH_TOKEN` credential
 granted to the bot is kept aside (`OTHER_TOKEN_KEY`) and used only for repositories outside that organization,
 so a stale personal token can never shadow the App. A login shell resets PATH (Debian's /etc/profile, macOS's
-path_helper), which hides the wrapper; the runner image restores the turn's PATH from `TURN_PATH_KEY`. PR236
-restores that wrapper path on Macs. The start-of-turn `GH_TOKEN` keeps at least 45 minutes remaining, while
-the credential helper's explicit git-purpose request can reuse a token with at least 10 minutes remaining.
+path_helper), which can hide the wrapper; the runner image's profile hook and Mac turn startup hooks restore the
+turn's PATH from `TURN_PATH_KEY`. A bare `gh` that bypasses the wrapper uses the start-of-turn `GH_TOKEN`, kept
+with at least 45 minutes remaining; the credential helper's explicit git-purpose request can reuse a cached token
+with at least 10 minutes remaining.
 """
 import json
 import os
@@ -34,7 +35,7 @@ KEY = "credential.https://github.com.helper"
 TOKENS_KEY = "TICO_GITHUB_TOKENS"
 # A GitHub token the bot was granted as a credential, for repositories outside the App's organization only.
 OTHER_TOKEN_KEY = "TICO_GITHUB_OTHER_TOKEN"
-# The turn's PATH, which docker/profile.d/tico-turn.sh puts back after a login shell resets it.
+# The turn's PATH, restored by the image's profile hook and the Mac turn's shell startup files.
 TURN_PATH_KEY = "TICO_TURN_PATH"
 # A fixed token, for when the runner's registration file is not known (tests, embedding).
 # The bot's repository (`owner/name`) as the hub resolved it, for the turn's publish step.
@@ -91,6 +92,12 @@ def apply(env, client, bot, config_path=None, socket_path=None):
                 env["TICO_GITHUB_CONFIG"] = str(config_path)
             env["PATH"] = str(ROOT / "runner" / "credential_bin") + os.pathsep + env.get("PATH", os.environ.get("PATH", os.defpath))
             env[TURN_PATH_KEY] = env["PATH"]
+            if sys.platform == "darwin":
+                startup = str(ROOT / "runner" / "shell_init")
+                env["TICO_TURN_BASH_ENV"] = env.get("BASH_ENV", "")
+                env["TICO_TURN_ZDOTDIR"] = env.get("ZDOTDIR") or env.get("HOME") or str(Path.home())
+                env["BASH_ENV"] = str(Path(startup) / "bash-env")
+                env["ZDOTDIR"] = startup
     if socket_path:
         env[credential_socket.SOCKET_ENV] = str(socket_path)
     if granted.get("repository"):
