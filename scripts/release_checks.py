@@ -14,7 +14,8 @@ candidate, roll back a migrating update). The journey starts installing the prev
 side by side; two release checks must not run at once, since the journey's candidate tags are fixed.
 
 Use the test environment's Python to invoke this script. The release gate defaults to half the CPU count in
-Python workers (at least one) and four browser jobs; TICO_PYTHON_WORKERS and TICO_UI_JOBS override those caps.
+Python workers (at least one); the browser runner selects free-core concurrency and load-scaled timeouts.
+TICO_PYTHON_WORKERS, TICO_UI_JOBS and TICO_UI_SLOWDOWN override those defaults.
 Existing pytest and TICO_UI_JOBS settings still select concurrency for the default suites.
 """
 import argparse
@@ -108,8 +109,7 @@ def release(args):
     ready = logs / 'images-ready'
     base_env = {**os.environ, 'DOCKER_BUILDKIT': '1'}
     workers = str(max(1, int(os.environ.get('TICO_PYTHON_WORKERS', max(1, (os.cpu_count() or 2) // 2)))))
-    test_env = {**base_env, 'TICO_PYTHON': sys.executable,
-                'TICO_UI_JOBS': os.environ.get('TICO_UI_JOBS', '4')}
+    test_env = {**base_env, 'TICO_PYTHON': sys.executable}
     print(f'Release check: candidate {CANDIDATE} from {commit[:7]}; logs in {logs}', flush=True)
 
     journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready)}

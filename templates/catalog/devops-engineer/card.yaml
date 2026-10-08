@@ -9,7 +9,7 @@ icon: deployed_code
 suggest: niche
 tags: [saas, github, ci, flaky-tests, build-times, deploys, developer-tools]
 when: "Offer to a software team whose GitHub Actions pipelines are slow, flaky or often red, and where nobody owns fixing them."
-summary: "Owns the health of the build and deploy pipeline: finds flaky tests, slow and failing CI jobs and red-main streaks in GitHub Actions, and writes the fix plan for each. It never reruns, cancels or deploys."
+summary: "Owns the health of the build and deploy pipeline: finds flaky tests, slow and failing CI jobs and red-main streaks in GitHub Actions, and writes the fix plan for each, opening a pull request for a fix when asked. It never reruns, cancels, deploys or merges."
 pains:
   - "our CI is flaky and people just hit rerun"
   - "builds take forever"

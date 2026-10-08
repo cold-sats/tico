@@ -538,6 +538,8 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                 edit_version(c, auth, who, tid, fid, number,
                              M.FileVersionEdit(note=body.note, ask=body.ask))
             c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), tid))
+            # The task's own activity says a file was added, as it says a link was.
+            H._task_event(c, tid, who.actor, "file", None, item["name"], "" if number == 1 else f"version {number}")
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
             preview = register(c, who, **poster)["id"] if poster else None
             c.execute("INSERT INTO blob_media(blob_id,poster_blob_id) VALUES(?,?)", (item["id"], preview))
@@ -716,7 +718,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             for linked in c.execute("SELECT m.* FROM message_assets a JOIN messages m ON m.id=a.message_id WHERE a.blob_id=?", (bid,)):
                 try:
                     auth.conversation(c, who, linked["conversation_id"])
-                    privacy.require_message(c, who, linked)
+                    privacy.require_message(c, who, dict(linked))
                     allowed = True
                     break
                 except Problem:

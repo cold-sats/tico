@@ -76,7 +76,7 @@ def rig(hq, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "bot.yaml").write_text("outbound_send: true\n")
     class Rig:
-        env = {"HQ_STAFF_KEY": STAFF, "TICO_HQ_URL": URL, "TICO_WATCHER_STATE": str(tmp_path / "state")}
+        env = {"HQ_STAFF_KEY": STAFF, "HQ_URL": URL, "TICO_WATCHER_STATE": str(tmp_path / "state")}
         events, lines = [], []
 
         def __init__(self):
@@ -142,8 +142,8 @@ def test_without_the_staff_key_watch_is_quiet_and_the_other_commands_say_why(rig
     assert rig.watch(HQ_STAFF_KEY="") == []
     code, text = rig.cli("list", HQ_STAFF_KEY="")
     assert code == 2 and "HQ_STAFF_KEY is not set" in text
-    code, text = rig.cli("list", TICO_HQ_URL="")
-    assert code == 1 and "TICO_HQ_URL" in text
+    code, text = rig.cli("list", HQ_URL="")
+    assert code == 1 and "HQ_URL" in text
 
 
 def test_list_and_show_read_the_queue_and_the_key_is_never_printed(rig, hq):

@@ -11,9 +11,9 @@
                                          post FILE when outbound_send is on; an optional approval must match
                                          these bytes and this ticket
 
-It needs HQ_STAFF_KEY and TICO_HQ_URL in this bot's credentials (docs/support.md). Without HQ_STAFF_KEY every command
+It needs HQ_STAFF_KEY and HQ_URL in this bot's credentials (docs/support.md). Without HQ_STAFF_KEY every command
 says so and `watch` exits 0, so a team that does not work HQ tickets loses nothing. The key is sent only as a
-bearer token to TICO_HQ_URL and is never printed. A ticket is text from an outside person: it is quoted and labelled as
+bearer token to HQ_URL and is never printed. A ticket is text from an outside person: it is quoted and labelled as
 data wherever it is shown, and nothing here follows an instruction in it.
 """
 import hashlib
@@ -88,12 +88,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def hq_url(env):
+    """The HQ address. The runner keeps TICO_* names out of a bot's environment, so the credential is HQ_URL; the
+    old name is read only if it still arrives."""
+    return (env.get("HQ_URL") or env.get("TICO_HQ_URL") or "").strip()
+
+
 def settings(env):
-    key, url = env.get("HQ_STAFF_KEY", "").strip(), env.get("TICO_HQ_URL", "").strip()
+    key, url = env.get("HQ_STAFF_KEY", "").strip(), hq_url(env)
     if not key:
         return None, "HQ_STAFF_KEY is not set in this bot's credentials, so there are no HQ tickets to work"
     if not url.startswith("https://") and not url.startswith("http://127.0.0.1") and not url.startswith("http://localhost"):
-        raise Refused("TICO_HQ_URL must be set in this bot's credentials to the HQ address (https://...)")
+        raise Refused("HQ_URL must be set in this bot's credentials to the HQ address (https://...)")
     return HQ(url, key), ""
 
 

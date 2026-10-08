@@ -1,6 +1,10 @@
 """Real attachment submissions, authorization boundaries, retries, and local downloads."""
 
+import hashlib
+import io
+
 import pytest
+from PIL import Image
 
 from backend.tests.test_api import api, assign, claim, get, headers, post, ready, runner  # noqa: F401
 
@@ -34,6 +38,35 @@ def test_same_bot_other_conversation_cannot_download_private_attachment(api):
     post(api, 'chat/product-design', {'text': 'Different Ana conversation'})
     other = claim(api, machine)
     assert other['conversation']['id'] != result['conversation']['id']
+    assert api.get(attachment['url'], headers=headers(other['token'])).status_code == 403
+
+
+def test_bot_downloads_a_chat_image_only_in_its_authorized_conversation(api):
+    image = io.BytesIO()
+    Image.new('RGB', (1, 1)).save(image, format='PNG')
+    data = image.getvalue()
+    response = api.post('/api/v2/uploads/chat/ops', data={'text': 'Review this image'},
+                        files={'files': ('sample.png', data, 'image/png')}, headers=headers('ben-test'))
+    assert response.status_code == 200, response.text
+    chat = response.json()
+    attachment = chat['message']['refs']['attachments'][0]
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    ready(api, machine, ['ops'])
+    attempt = claim(api, machine, 'ops')
+    assert attempt['conversation']['id'] == chat['conversation']['id']
+    get(api, 'conversations/' + chat['conversation']['id'] + '/messages', attempt['token'])
+    downloaded = api.get(attachment['url'], headers=headers(attempt['token']))
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content == data
+    assert downloaded.headers['content-type'] == 'image/png'
+    assert downloaded.headers['x-content-sha256'] == hashlib.sha256(data).hexdigest()
+    # A later turn of the same bot in somebody else's chat still cannot read this image.
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'image'}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/complete", {'outcome': 'completed', 'last_seq': 0, 'text': 'Read'}, machine['token'])
+    post(api, 'chat/ops', {'text': 'A separate conversation'})
+    other = claim(api, machine, 'ops')
+    assert other['conversation']['id'] != chat['conversation']['id']
     assert api.get(attachment['url'], headers=headers(other['token'])).status_code == 403
 
 

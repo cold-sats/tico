@@ -63,6 +63,12 @@ def new_id():
     return "file-" + secrets.token_hex(12)
 
 
+def removed_event(c, task_id, actor, fid, title):
+    """The task's activity says which file was taken off it, by its newest name."""
+    row = c.execute("SELECT name FROM bot_file_versions WHERE file_id=? ORDER BY version DESC LIMIT 1", (fid,)).fetchone()
+    H._task_event(c, task_id, actor, "file", row["name"] if row else title, None, "")
+
+
 def is_file_id(value):
     return isinstance(value, str) and len(value) == 29 and value.startswith("file-")
 
@@ -449,7 +455,9 @@ class Files:
                 c.execute("UPDATE bot_files SET archived=1,last_activity_at=? WHERE id=?", (H.now(), fid))
                 c.execute("DELETE FROM task_assets WHERE task_id=? AND blob_id IN "
                           "(SELECT blob_id FROM bot_file_versions WHERE file_id=?)", (stored["task_id"], fid))
+                c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), stored["task_id"]))
                 self.activity(c, fid, who.actor, "archived", task=stored["task_id"])
+                removed_event(c, stored["task_id"], who.actor, fid, stored["title"])
                 H.event(c, who.actor, "task.file_archived", stored["task_id"], {"file": fid})
                 return {"file": {"id": fid, "archived": True}}
             if not is_file_id(fid) and not stored:
@@ -464,7 +472,9 @@ class Files:
                             and not (who.role == "owner" or who.role == "human" and H.can_move(c, who.actor))):
                         raise Problem("forbidden", "Only a task participant or someone who can move it archives its attachments", 403)
                 c.execute("DELETE FROM task_assets WHERE blob_id=?", (fid,))
+                blob = c.execute("SELECT name FROM blobs WHERE id=?", (fid,)).fetchone()
                 for task in linked:
+                    H._task_event(c, task["task_id"], who.actor, "file", blob["name"] if blob else fid, None, "")
                     c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task["task_id"]))
                     for published in c.execute("SELECT f.id FROM bot_files f JOIN bot_file_versions v "
                                                "ON v.file_id=f.id "

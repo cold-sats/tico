@@ -31,7 +31,7 @@ from .hosts.pi import MODELS as PI_HOST_MODELS
 from .outage import RECENT, Outage, describe, log
 from .state import BOT_THREAD, State, session_key
 from .warm import WarmSessions
-from .watchers import Watchers
+from .watchers import PARKED_STATES, Watchers
 from .profiles import SubscriptionUnavailable
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,8 +65,6 @@ TEAM_KEYS_FILE = "_team_model.env"
 CREDENTIAL_IMPORT_POLL_S = 5
 TEAM_KEY_RETRY_S = 300
 LOGIN_ONLY = ("OPENAI_API_KEY",)
-# A parked starter bot's status: `needs_setup`, or `needs_onboarding` from a hub that has not moved to the new word.
-PARKED_STATES = ("needs_setup", "needs_onboarding")
 # What a person's chat with a parked starter bot is: its onboarding, not a request for work.
 SETUP_TURN = ("Setup: a human is setting you up, and you are parked until your setup is done. Your first routine is already "
               "on, so nobody has to approve it. Follow the "
@@ -102,6 +100,23 @@ def reserved_credential(key):
     from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
     return bool(key) and (not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or key in RESERVED_ENV
                           or key.startswith(RESERVED_PREFIXES))
+DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "
+
+
+def claude_denied(path):
+    """The `gh` commands a bot's AGENT.md tells it to run (in backticks, not after "denies") that its
+    `.claude/settings.json` denies. Codex ignores that file, so a bot moved to Claude Code meets these denies for the
+    first time mid-task."""
+    try:
+        deny = (json.loads((Path(path) / ".claude" / "settings.json").read_text()).get("permissions") or {}).get("deny") or []
+        named = set(re.findall(r"(?<!denies )(?<!deny )`(gh [a-z-]+ [a-z-]+)", (Path(path) / "AGENT.md").read_text(errors="ignore")))
+    except (OSError, ValueError, AttributeError):
+        return []
+    prefixes = [m.group(1).rstrip("* ").strip() for rule in deny if isinstance(rule, str)
+                and (m := re.fullmatch(r"Bash\((gh [^)]*)\)", rule))]
+    return sorted(command for command in named if any(command == p or command.startswith(p + " ") for p in prefixes))
+
+
 FETCH_RETRY_S = 120         # how long a repository that could not be cloned is left before the next try
 PUBLISH_RETRY_S = 3600      # the same for a checkout whose history GitHub has not taken yet
 NO_RUNTIME = ("No AI provider is chosen: the owner picks providers and a default model in "
@@ -2051,6 +2066,8 @@ class Runner:
                     if sync_problem:
                         warnings.append(sync_problem)
                     self.__dict__.setdefault("assignment_learning_problems", {})[bot] = sync_problem
+                if runtime == "claude" and (denied := claude_denied(path)):
+                    warnings.append(DENIED_WARNING + ", ".join(denied) + ". Edit .claude/settings.json in its repository")
                 try:
                     agent_lines = sum(1 for _ in (path / "AGENT.md").open(encoding="utf-8", errors="ignore"))
                     if agent_lines > 150:

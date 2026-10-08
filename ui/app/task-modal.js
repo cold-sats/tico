@@ -317,7 +317,7 @@ const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}`
   related: v => v ? 'attached a related task' : 'removed a related task', duplicate_of: v => v ? 'marked it a duplicate' : 'unmarked it as a duplicate',
   duplicated_by: v => v ? 'marked a duplicate of it' : 'unmarked a duplicate of it', follow_up_of: v => v ? 'marked it a follow-up' : 'unmarked it as a follow-up',
   follow_ups: v => v ? 'added a follow-up' : 'removed a follow-up',
-  link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
+  link: v => v ? `linked ${v}` : 'removed a link', file: (v, x) => v ? `added ${v}` : `removed ${x.old || 'a file'}`, due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
   lint: v => `noted: ${v}`, note: v => `noted: ${clipLine(String(v || ''), 200)}`, comment: () => 'deleted a comment'};
 // `files`: the task's files (ui/app/task-files.js), for the files a comment carried.
 function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
@@ -333,7 +333,7 @@ function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
       if (!text || all?.some(y => near(y) && ((y.kind === 'event' && y.field === 'status' && y.note && text.startsWith(String(y.note).trim().slice(0, 40)))
         || (y.kind === 'comment' && String(y.message?.body || '').trim() === text)))) return '';
     }
-    const say = TASK_EVENT_WORDS[x.field] ? TASK_EVENT_WORDS[x.field](x.new) : `changed ${x.field}`;
+    const say = TASK_EVENT_WORDS[x.field] ? TASK_EVENT_WORDS[x.field](x.new, x) : `changed ${x.field}`;
     // A result mirrored into a comment keeps its full text there; the event still records the status move.
     const mirrored = x.note && all?.some(y => y.kind === 'comment' && y.message?.from_actor === x.actor
       && String(y.message.body || '').trim() === String(x.note).trim() && Math.abs(Date.parse(y.ts) - Date.parse(x.ts)) < 5000);
@@ -370,7 +370,7 @@ function taskCommentsRender(state, data) {
   // `can_comment`: false for someone who may read the task but not comment on it; they get no box and no answer controls
   const can = data.can_comment !== false, d = state.dialog;
   $('form', host).hidden = !can;
-  if (d.canComment !== can) { d.canComment = can; if (d.tfEl) tfViewPaint(d); }
+  if (d.canComment !== can) { d.canComment = can; if (d.tfEl) tfPaint(d); }
   // a new comment may have carried a new version of a file, or answered a question on one
   const count = (data.comments || data.messages || []).length;
   if (state.count != null && count !== state.count) void tfLoad(state.dialog, state.id);

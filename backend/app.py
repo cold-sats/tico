@@ -1857,16 +1857,30 @@ def create_app(settings=None):
         return {slug for slug in readable if operators.get(slug) == pid
                 or (not operators.get(slug) and who.role == "owner")}
 
+    def readable_update_ids(c, who, ids):
+        """Validate the whole personal batch before a read/archive write can mutate any row."""
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return ids
+        readable = update_visible(c, who)
+        rows = c.execute("SELECT id, bot FROM updates WHERE id IN (" + ",".join("?" * len(ids)) + ")",
+                          ids).fetchall()
+        if len(rows) != len(ids) or any(row["bot"] not in readable for row in rows):
+            raise Problem("not_found", "Update not found", 404)
+        return ids
+
     @app.get("/api/v2/updates")
     def updates_list(request: Request, kind: str | None = None, bot: str | None = None, unread: bool = False,
-                     before: str | None = None, limit: int = 40, mine: bool = False):
+                     before: str | None = None, limit: int = 40, mine: bool = False,
+                     archive: bool = False, include_archive: bool = False):
         who = request.state.identity
         auth.domain(who)
         if kind and kind not in updates.KINDS:
             raise Problem("kind", "kind is daily or weekly", 422)
         with store.read() as c:
             return updates.listing(c, who.actor, update_visible(c, who, mine), kind=kind, bot=bot, unread=unread,
-                                   before=before, limit=max(1, min(limit, 100)))
+                                   before=before, limit=max(1, min(limit, 100)), archive=archive,
+                                   include_archive=include_archive)
 
     @app.get("/api/v2/updates/unread")
     def updates_unread(request: Request, mine: bool = False):
@@ -1899,7 +1913,8 @@ def create_app(settings=None):
                         rooms_ok[cid] = False
                 return rooms_ok[cid]
             thread = [m for m in updates.thread(c, uid) if readable(m)]
-            return {"update": {**row, "read": bool(read)}, "thread": thread}
+            return {"update": {**row, "read": bool(read), "archived": updates.archived(c, who.actor, uid)},
+                    "thread": thread}
 
     @app.post("/api/v2/updates")
     def update_post(request: Request, body: M.UpdatePost):
@@ -1927,12 +1942,26 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             views.human_only(who)
-            ids = list(body.ids)
             if body.all:
                 visible = update_visible(c, who)
-                ids = [r["id"] for r in c.execute("SELECT id, bot FROM updates WHERE created>=?",
-                                                   (H.shift(H.now(), days=-30),)) if r["bot"] in visible]
+                ids = updates.inbox_ids(c, who.actor, visible, created_after=H.shift(H.now(), days=-30))
+            else:
+                ids = readable_update_ids(c, who, body.ids)
             return {"marked": updates.mark(c, who.actor, ids, read=body.read), "read": body.read}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/updates/archive")
+    def updates_archive(request: Request, body: M.UpdateArchive):
+        who = request.state.identity
+        auth.domain(who)
+        def work(c):
+            views.human_only(who)
+            ids = readable_update_ids(c, who, body.ids)
+            updates.set_archived(c, who.actor, ids, archived=body.archived)
+            for uid in ids:
+                H.event(c, who.actor, "update.archive" if body.archived else "update.restore", uid, {})
+            return {"updated": len(ids), "archived": body.archived,
+                    "unread": updates.count_unread(c, who.actor, update_visible(c, who))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/updates/{uid}/reply")

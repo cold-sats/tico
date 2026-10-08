@@ -35,7 +35,7 @@ python scripts/release_checks.py
 ```
 
 That is the default suite: pytest in parallel without the tests marked `@pytest.mark.slow` (about a minute), then the
-core browser scripts (`CORE` in `scripts/ui-tests.cjs`) three at a time. The check records wall time and load and fails
+core browser scripts (`CORE` in `scripts/ui-tests.cjs`) with the load-aware concurrency described below. The check records wall time and load and fails
 if the combined run reaches 300 seconds; it should take about two minutes. This is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
 that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. CI only
 builds and publishes: the Docker workflow builds the three images for a `v*` tag, and the Release workflow publishes the
@@ -54,8 +54,23 @@ This is the full suite, run once per release. It builds the server, runner and u
 a source-only change rebuilds one layer per image), while the journey installs the previous release. After every build
 finishes, it runs every Python test except Docker isolation, the opt-in `@pytest.mark.slow` ones included (real git,
 Docker, servers and long timers), and every browser script (`node scripts/ui-tests.cjs --all`). Python uses half the
-CPU count in workers (at least one; six on a 12-core Mac), and the browser uses four jobs. Set `TICO_PYTHON_WORKERS`
-or `TICO_UI_JOBS` to override these defaults. Successful builds also start the following checks against the candidate
+CPU count in workers (at least one; six on a 12-core Mac); `TICO_PYTHON_WORKERS` overrides that default.
+The browser runner samples CPU counters over one second at startup. The idle fraction is the change
+in idle time divided by the change in total CPU time across all cores. Its job count is
+`clamp(floor(cores * idleFraction), 1, 4)`, and every child gets the same `TICO_UI_SLOWDOWN`:
+`clamp(1 / max(idleFraction * 2, 0.25), 1, 4)`. It prints jobs, slowdown, cores and idle percentage
+before running scripts. On macOS, load average can stay high while several cores are idle.
+Explicit `TICO_UI_JOBS` (or `-j N` when invoking the browser runner) and `TICO_UI_SLOWDOWN` win;
+the release coordinator passes those overrides through without forcing four jobs. On a 12-core Mac
+at 30% idle, the defaults are three jobs and slowdown 1.67; at 50% idle, four jobs and slowdown one.
+If CPU counters do not advance or the core count changes during sampling, it conservatively uses
+one job and slowdown four. The selected settings stay fixed for that run.
+Shared browser support applies `30000 * slowdown` milliseconds to context/page action and navigation
+timeouts, including popups. `ui/tests/support/load.cjs` exports `SLOWDOWN`, `t(ms)` (rounded scaled
+milliseconds), and `applyTimeouts(contextOrPage)` for scripts' explicit waits. Direct script runs
+default to slowdown one unless the environment sets it. Explicit per-script timeout options still
+override the shared defaults; those waits should use `t(...)` and wait on conditions.
+Successful builds also start the following checks against the candidate
 at the same time, each with its own Docker names; the journey proceeds once those images are ready:
 
 - `docker/smoke.sh`: the server comes up, a runner joins with a one-time code and installs Codex once OpenAI is enabled,

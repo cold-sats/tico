@@ -33,3 +33,13 @@ def test_adopted_legacy_urls_serve_original_and_new_ids_serve_latest(api):
     url = "/api/v2/files/" + made["file_id"]
     assert api.get(url, headers=headers()).content == b"latest"
     assert api.get(url + "?v=1", headers=headers()).content == b"first"
+    # Each file added is in the task's activity, a later version saying which.
+    events = api.get(f"/api/v2/tasks/{tid}", headers=headers()).json()["events"]
+    added = [(e["new"], e["note"]) for e in events if e["field"] == "file"]
+    assert added == [("legacy.txt", "version 2"), ("new.txt", ""), ("new.txt", "version 2")]
+    # Removing a file takes it off the task and says so in the activity, by name.
+    removed = api.patch(url, json={"archived": True}, headers=headers())
+    assert removed.status_code == 200, removed.text
+    detail = api.get(f"/api/v2/tasks/{tid}", headers=headers()).json()
+    assert [(e["old"], e["new"]) for e in detail["events"] if e["field"] == "file"][-1] == ("new.txt", None)
+    assert "new.txt" not in [a["name"] for a in detail["task"]["attachments"]]

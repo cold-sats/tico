@@ -229,6 +229,24 @@ function taskCreateModal() {
   document.body.appendChild(d);
   return d;
 }
+// The new-task form's file input also takes files dropped on the form and images pasted into it, and lists what it
+// holds, so the submit reads one FileList.
+function taskFormFiles(form) {
+  const input = form.querySelector('input[type=file]');
+  const list = document.createElement('div');
+  list.className = 'files';
+  input.closest('label').after(list);
+  const show = () => { list.innerHTML = [...input.files].map(f => `<span>${esc(f.name)}</span>`).join(''); };
+  const add = files => {
+    if (!files.length) return;
+    const merged = new DataTransfer();
+    [...input.files, ...files].forEach(f => merged.items.add(f));
+    input.files = merged.files; show();
+  };
+  input.addEventListener('change', show);
+  fileDropTarget(form, add);
+  pasteImages(form, add);
+}
 function openTaskCreate(owner = '', opts = {}) {
   const d = taskCreateModal();
   const parent = opts.parent || null;
@@ -248,7 +266,7 @@ function openTaskCreate(owner = '', opts = {}) {
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
         <label>Details (required)<textarea name="body" required aria-label="Details" placeholder="Details"></textarea></label>
         <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Link (pull request, doc)" aria-label="Link">
-        <label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>
+        <label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label><span class="muted"> or drop them on this form, or paste a screenshot</span>
         <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="task-create-msg"></span></div>
         <p class="muted hint">You close it. For a human, start the title with a verb.</p>
       </form>
@@ -270,6 +288,7 @@ function openTaskCreate(owner = '', opts = {}) {
     sel.innerHTML = '<option value="">No goal</option>' + goals.map(g =>
       `<option value="${esc(g.id)}">${esc(g.title)} · ${esc(goalOwnerInfo(g.owner).name)}</option>`).join('');
   });
+  taskFormFiles(creation);
   void taskPipelineCreate($('#task-create-form'), TASKS_ST?.type);
   $('#task-create-form').onsubmit = async ev => {
     ev.preventDefault();

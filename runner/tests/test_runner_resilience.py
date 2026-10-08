@@ -505,3 +505,15 @@ def test_a_credential_under_a_reserved_name_is_left_out_and_the_turn_still_start
     env = runner.environment({"id": "a1", "bot": "rel", "token": "t", "config": {"runtime": "codex"}}, granted)
     assert "TICO_UPDATE_KEY_ACME" not in env and "k1-synthetic" not in env.values()
     assert env["POSTHOG_API_KEY"] == "ph-synthetic" and runner.vault_names["a1"] == {"POSTHOG_API_KEY"}
+
+
+def test_a_claude_deny_on_a_command_agent_md_asks_for_is_named(tmp_path):
+    """Codex ignores .claude/settings.json, so a bot moved to Claude Code would otherwise find these mid-task."""
+    import json as _json
+    from runner.service import claude_denied
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(_json.dumps({"permissions": {"deny": [
+        "Bash(gh pr create *)", "Bash(gh pr merge *)", "Bash(gh secret *)"]}}))
+    (tmp_path / "AGENT.md").write_text("Open your pull request with `gh pr create`. The settings deny `gh pr merge`.\n"
+                                       "Read with `gh pr view`.\n")
+    assert claude_denied(tmp_path) == ["gh pr create"]

@@ -117,9 +117,13 @@ function tfPaint(d) {
   if (!el) return;
   const files = tfFiles(d);
   if (d.tfOpen && !files.some(f => f.id === d.tfOpen.id)) d.tfOpen = null;
-  el.hidden = !files.length;
-  if (!$('.tf-strip', el)) el.innerHTML = '<h3 class="rail-h">Files</h3><div class="tf-strip"></div><div class="tf-view" data-tf-view hidden></div>';
-  const strip = $('.tf-strip', el), html = files.map(f => tfTileHTML(f, d.tfOpen?.id === f.id)).join('');
+  const can = d.canComment !== false;
+  el.hidden = !files.length && !can;
+  if (!$('.tf-strip', el)) el.innerHTML = `<h3 class="rail-h">Files<span class="muted tf-status" data-tf-status role="status"></span><button type="button" class="prop-add" data-tf-add aria-label="Add files" title="Add files, or drop them on this task, or paste a screenshot">${TL_ICON.plus}</button></h3>
+    <input type="file" multiple hidden data-tf-input aria-label="Add files to this task"><div class="tf-strip"></div><div class="tf-view" data-tf-view hidden></div>`;
+  $('[data-tf-add]', el).hidden = !can;
+  const strip = $('.tf-strip', el), html = files.map(f => tfTileHTML(f, d.tfOpen?.id === f.id)).join('')
+    || '<p class="muted tf-empty">Drop files here or paste a screenshot.</p>';
   if (strip.dataset.html !== html) { strip.innerHTML = strip.dataset.html = html; tfLazy(strip); }
   tfViewPaint(d);
 }
@@ -136,6 +140,86 @@ function tfClose(d) {
   const id = d.tfOpen?.id;
   d.tfOpen = null; tfPaint(d);
   if (id) $(`.tf-tile[data-tf-file="${CSS.escape(id)}"]`, d.tfEl)?.focus({preventScroll: true});
+}
+
+// ---- adding files: the + on Files, a drop anywhere on the task, or a pasted screenshot. One upload per file; a name
+// the task already has becomes that file's next version.
+async function tfAdd(d, files) {
+  const id = String(d.dataset.task || ''), el = d.tfEl, opening = d.taskOpening;
+  if (!id || !el || d.canComment === false || !files.length) return;
+  const status = $('[data-tf-status]', el);
+  let added = 0;
+  try {
+    for (const file of files) {
+      status.textContent = files.length > 1 ? `Uploading ${added + 1} of ${files.length}…` : 'Uploading…';
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      const response = await formFetch(`${API}/v2/tasks/${encodeURIComponent(id)}/files`, fd);
+      if (!response.ok) throw new Error(apiError(await response.json().catch(() => ({})), response) || `Upload failed (${response.status})`);
+      added++;
+    }
+  } catch (e) {
+    toast(added ? `Added ${plural(added, 'file')}; ${e.message}` : e.message, true);
+  } finally { status.textContent = ''; }
+  if (!added) return;
+  if (added === files.length) toast(`Added ${plural(added, 'file')}`);
+  if (d.open && d.taskOpening === opening && String(d.dataset.task) === id) await tfLoad(d, id);
+  if (TASKS_ST) void tasksLoad(TASKS_ST);
+}
+// Taking a file off a task: its owner, its requester, or someone who may move tasks (the server's rule).
+function tfCanRemove(d) {
+  const t = d.liveTask;
+  return !!t && ([t.owner, t.requester].includes(myActor()) || canMove());
+}
+async function tfRemove(d, fid, button) {
+  const id = String(d.dataset.task || ''), opening = d.taskOpening;
+  const f = tfFiles(d).find(x => x.id === fid);
+  button.disabled = true;
+  try {
+    await patch(`/v2/files/${encodeURIComponent(fid)}`, {archived: true});
+  } catch (e) {
+    toast(e.message, true);
+    if (button.isConnected) { button.disabled = false; button.dataset.sure = ''; button.textContent = 'Remove'; }
+    return;
+  }
+  toast(`Removed ${f?.name || 'the file'}`);
+  if (!d.open || d.taskOpening !== opening || String(d.dataset.task) !== id) return;
+  d.taskFiles = (d.taskFiles || []).filter(x => x.id !== fid);
+  TF_CACHE.delete(id);
+  tfClose(d);
+  await tfLoad(d, id);
+  if (TASK_CHAT?.dialog === d) { TASK_CHAT.rendered = ''; void taskChatRead(TASK_CHAT); }
+  if (TASKS_ST) void tasksLoad(TASKS_ST);
+}
+// Files dragged onto a task or the new-task form land there; the zone lights up while they hover.
+function fileDropTarget(zone, take) {
+  let depth = 0;
+  const on = v => zone.classList.toggle('over', v);
+  zone.addEventListener('dragenter', ev => { if (!draggingFiles(ev)) return; ev.preventDefault(); depth++; on(true); });
+  zone.addEventListener('dragover', ev => { if (!draggingFiles(ev)) return; ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; });
+  zone.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) on(false); });
+  zone.addEventListener('drop', ev => {
+    if (!draggingFiles(ev)) return;
+    ev.preventDefault(); depth = 0; on(false);
+    take([...ev.dataTransfer.files]);
+  });
+}
+// A pasted screenshot arrives as "image.png": each gets its own name, so a second paste is a new file rather than
+// a new version of the first. Text on the clipboard keeps its normal paste.
+function pastedImages(ev) {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+  return Array.from(ev.clipboardData?.items || [])
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+    .map(item => item.getAsFile()).filter(Boolean)
+    .map((f, i) => new File([f], `screenshot-${stamp}${i ? '-' + (i + 1) : ''}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, {type: f.type}));
+}
+function pasteImages(zone, take) {
+  zone.addEventListener('paste', ev => {
+    const images = pastedImages(ev);
+    if (!images.length) return;
+    if (!ev.clipboardData.getData('text/plain')) ev.preventDefault();
+    take(images);
+  });
 }
 
 // ---- the viewer, in place under the strip
@@ -163,7 +247,7 @@ function tfViewPaint(d, force = false) {
   box.querySelector('video, audio')?.pause();
   box.innerHTML = `<div class="tf-view-head"><strong class="tf-view-name" title="${esc(f.name)}">${esc(f.name)}</strong>${vers}
       ${cmp ? `<label class="tf-with">with <select data-tf-with aria-label="Compare with">${others.map(x => `<option value="${x.n}"${x.n === cmp.n ? ' selected' : ''}>v${x.n}</option>`).join('')}</select></label>` : ''}
-      <span class="spacer"></span><span class="tf-break" aria-hidden="true"></span><a class="tf-dl" href="${esc(v.url)}" download aria-label="Download ${esc(f.name)} v${v.n}">↓</a>
+      <span class="spacer"></span><span class="tf-break" aria-hidden="true"></span>${tfCanRemove(d) ? '<button type="button" class="ghost danger tf-rm" data-tf-remove>Remove</button>' : ''}<a class="tf-dl" href="${esc(v.url)}" download aria-label="Download ${esc(f.name)} v${v.n}">↓</a>
       <button type="button" class="ghost tf-x" data-tf-close aria-label="Close" title="Close (Esc)">✕</button></div>
     ${cmp ? tfCompareHTML(f, cmp, v, kind) : `<div class="tf-body">${tfBodyHTML(f, v, kind, d)}</div>`}
     ${tfVersionMetaHTML(d, f, v)}`;
@@ -299,6 +383,13 @@ function tfWire(d) {
     const tile = ev.target.closest('.tf-tile');
     if (tile) { const id = tile.dataset.tfFile; d.tfOpen?.id === id ? tfClose(d) : tfOpen(d, id); return; }
     if (ev.target.closest('[data-tf-close]')) { tfClose(d); return; }
+    if (ev.target.closest('[data-tf-add]')) { $('[data-tf-input]', d.tfEl).click(); return; }
+    const rm = ev.target.closest('[data-tf-remove]');
+    if (rm && d.tfOpen) {
+      // The first press asks; the second removes. Tico keeps no way back for a task's file.
+      if (rm.dataset.sure !== '1') { rm.dataset.sure = '1'; rm.textContent = 'Really remove?'; return; }
+      void tfRemove(d, d.tfOpen.id, rm); return;
+    }
     const ver = ev.target.closest('[data-tf-v]');
     if (ver && d.tfOpen) {
       const n = Number(ver.dataset.tfV);
@@ -316,7 +407,11 @@ function tfWire(d) {
   });
   d.addEventListener('change', ev => {
     if (ev.target.matches('[data-tf-with]') && d.tfOpen) { d.tfOpen.cmp = Number(ev.target.value); tfViewPaint(d); }
+    if (ev.target.matches('[data-tf-input]')) { const files = [...ev.target.files]; ev.target.value = ''; void tfAdd(d, files); }
   });
+  const take = files => { if (d.tfEl && d.canComment !== false) void tfAdd(d, files); };
+  fileDropTarget(d, take);
+  pasteImages(d, take);
   d.addEventListener('cancel', ev => { if (d.tfJustClosed) { ev.preventDefault(); ev.stopImmediatePropagation(); } });
 }
 // Esc folds an open file before it closes the task; ←/→ step through the task's images. On the document, in capture:

@@ -343,7 +343,7 @@ class Execution:
         runner = self.runner(c, who)
         # The environment owner hosts any bot; every other operator hosts only their own.
         owner = self.auth.owner_id(c)
-        rows = c.execute("SELECT a.*,b.state,bc.config_json,bc.operator FROM assignments a "
+        rows = c.execute("SELECT a.*,b.state,bc.config_json,bc.operator,bc.onboarding_state FROM assignments a "
                          "JOIN bots b ON b.slug=a.bot JOIN bot_config bc ON bc.bot=a.bot "
                          "WHERE a.runner_id=? ORDER BY a.bot", (who.runner_id,)).fetchall()
         result = []
