@@ -35,7 +35,7 @@ function overviewModel() {
     const location = readable ? e.machine : null;
     const group = location?.runner_id ? computer(String(location.runner_id), location.label) : commons;
     group.members.push({id: 'bot:' + e.name, name: botDisplayName(e.name) + (e.shared_from || e.is_branch ? ' · Your branch' : ''),
-      type: 'bot', state, detail: word, href: readable || e.can_chat ? '#/bot/' + encodeURIComponent(e.name) : ''});
+      type: 'bot', state, detail: word, href: readable || e.can_chat ? '#/bot/' + encodeURIComponent(e.name) : '', face: overviewFace(e)});
     if (group === commons) continue;
     const collaborators = new Set([actor(e.operator), ...(e.users || []).map(actor), ...(e.owners || []).map(actor), ...(e.bot_owners || []).map(actor)]);
     // Follow visible reporting chains too: a human may direct a bot through another bot.
@@ -54,6 +54,12 @@ function overviewModel() {
   groups.sort((a, b) => (a.kind === 'commons') - (b.kind === 'commons') || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   for (const group of groups) group.members.sort((a, b) => (a.type === 'bot') - (b.type === 'bot') || a.id.localeCompare(b.id));
   return {company: companyName(), groups, fresh: !!fresh};
+}
+// A robot's screen face is the same symbol as its avatar (avatars.js botAvatar), glowing in its colour.
+function overviewFace(e) {
+  const meta = BOT_AVATARS[e.name], glyph = !meta?.tico && TEMPLATE_ICON.test(e.icon || '') ? e.icon : '';
+  return {glyph, initials: avInitials(e.name), color: meta?.tico ? '#3fd6a8' : meta?.color || `hsl(${avHue(e.name)} 60% 55%)`,
+    svg: meta?.tico ? '/assets/tico/tico-glyph.svg' : !glyph && meta?.icon ? '/assets/bot-symbols/' + meta.icon + '.svg' : ''};
 }
 async function overviewLoadComputers() {
   const state = OVERVIEW_PAGE;
