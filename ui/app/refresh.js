@@ -26,7 +26,7 @@ async function refresh(force) {
   if (S.me?.cloud) void updUnreadRefresh();
   renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync();
   if (BOT?.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
-  if (BOT && $('#bot-alert')) $('#bot-alert').innerHTML = botAlertHTML(BOT.slug);   // an alert comes and goes with the poll
+  botAlertDraw();
   if (BOT && $('#bot-onboard-host') && ($('#bot-onboard') ? '1' : '') !== (frNeedsSetup(S.emps.find(x => x.name === BOT.slug)) ? '1' : '')) frBotRefresh(BOT.slug);   // the mark clears when the bot says it is set up
   // Poll data without destroying an expanded document or a comment being typed.
   const reviewing = $('#main .req[open], #main .issue-compose:not([hidden])');
@@ -87,7 +87,7 @@ function liveWire() {
     if (d.status) S.v2.status[d.bot] = d.status; else delete S.v2.status[d.bot];
     liveSoon('bots', () => {
       renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync();
-      if (BOT && $('#bot-alert')) $('#bot-alert').innerHTML = botAlertHTML(BOT.slug);
+      botAlertDraw();
     }, 200);
   });
   liveOn('needs', d => {

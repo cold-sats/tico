@@ -132,12 +132,40 @@ def why(blocked_by):
     return f"Paused: over its {blocked_by} limit"
 
 
+def over(c, bot, at=None, default=None):
+    """The limit a bot is over, for the pages and the hub tools: {period, spent, limit, until}, else None.
+    `until` is when the period turns over (UTC)."""
+    found = state(c, bot, at, default)
+    met = found["blocked"]
+    if not met:
+        return None
+    return {"period": met, "spent": found["day_spent" if met == "daily" else "month_spent"],
+            "limit": found[met + "_usd"], "until": bounds(at)[met][2] + "Z"}
+
+
+def warning(c, actor, at=None):
+    """The words a sender gets when its message or task goes to a bot over its limit, else None. It is a warning
+    beside the saved message or task, not a refusal: the work stays queued and runs once the limit allows."""
+    if not str(actor or "").startswith("bot:"):
+        return None
+    bot = actor[4:]
+    met = over(c, bot, at)
+    if not met:
+        return None
+    name = (H.bot(c, bot) or {}).get("display_name") or bot
+    until = datetime.fromisoformat(met["until"][:-1])
+    reset = "00:00 UTC" if met["period"] == "daily" else f"{until:%b} {until.day} 00:00 UTC"
+    return (f"{name} is over its {met['period']} limit (${met['spent']:,.2f} of ${met['limit']:,.2f}); "
+            f"it starts again at {reset} or when a person raises the limit.")
+
+
 def overlay(c, row, default=None):
-    """A bot's status row as the pages should read it: paused, and why, while a limit is met (unless it is running)."""
+    """A bot's status row as the pages should read it: paused, why, and the limit it is over, while a limit is met
+    (unless it is running)."""
     if not row or row.get("state") in ("running", "quarantined"):
         return row
-    met = blocked(c, row["bot"], default=default)
-    return {**row, "state": "paused", "focus": why(met)} if met else row
+    met = over(c, row["bot"], default=default)
+    return {**row, "state": "paused", "focus": why(met["period"]), "limit": met} if met else row
 
 
 def after_run(c, bot, owner_email="", at=None):

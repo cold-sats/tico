@@ -1001,6 +1001,8 @@ def create_app(settings=None):
             if who.attempt_id and all(p.startswith("bot:") for p in conv["participants"]):
                 c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, conv["id"]))
             auth.conversation(c, who, conv["id"])
+        if note := usage_limits.warning(c, to):
+            message = {**message, "warning": note}
         return message
 
     @app.get("/healthz")
@@ -2461,7 +2463,9 @@ def create_app(settings=None):
                 TRo.set_roles(c, who.actor, row["id"], body.roles, mover=mover(c, who) or None)
             except ValueError as exc:
                 raise Problem("roles", str(exc), 422)
-        return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who)}
+        note = usage_limits.warning(c, owner)
+        return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who),
+                **({"warning": note} if note else {})}
 
     @app.post("/api/v2/tasks")
     def create_task(request: Request, body: M.TaskCreate):
