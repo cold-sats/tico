@@ -49,7 +49,8 @@ const {html, uiFile} = require('./support/page.cjs');
     await page.mouse.move(box.x + 104, 400, {steps: 4});
     await page.mouse.up();
     assert.equal(await sideWidth(), 336);
-    await page.waitForTimeout(1000);                       // the account copy is written after a short pause
+    const savedBy = Date.now() + 10000;                    // the account copy is written after a short pause
+    while (pref?.left !== 336 && Date.now() < savedBy) await new Promise(r => setTimeout(r, 50));
     assert.equal(pref?.left, 336, 'the width is saved with the account');
 
     await page.evaluate(() => localStorage.clear());       // another computer: the account's copy wins
