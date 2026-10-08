@@ -18,6 +18,7 @@ from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
 from .readiness import absolute, can_run
 from .statuses import PARKED_SQL
+from . import read_cache
 from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
 
 
@@ -111,11 +112,11 @@ class SettingsAdmin:
         return config
 
     def _entries(self, c):
-        return {row["bot"]: self._entry(row) for row in c.execute("SELECT * FROM bot_config")}
+        return {row["bot"]: self._entry(row) for row in read_cache.configs(c)}
 
     @staticmethod
     def _roster(c):
-        row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+        row = read_cache.metadata(c, "people")
         return P.load(_json(row[0], {}) if row else {"people": H.humans(c)})
 
     def _team(self, c, bot, proposed=None):
@@ -978,7 +979,7 @@ def archive_bot(c, actor, bot, successor="", revoke_agent=True):
               (ts, ts, bot))
 
     # The team it rooted passes to the successor, which now heads it.
-    people = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+    people = read_cache.metadata(c, "people")
     roster = _json(people["value_json"], {}) if people else {}
     rooted = [name for name, team in (roster.get("teams") or {}).items()
               if isinstance(team, dict) and team.get("root") == bot]
@@ -1010,7 +1011,7 @@ def archive_bot(c, actor, bot, successor="", revoke_agent=True):
     H._recount(c, "bot:" + bot)
     H._recount(c, heir)
 
-    entries = {row["bot"]: SettingsAdmin._entry(row) for row in c.execute("SELECT * FROM bot_config")}
+    entries = {row["bot"]: SettingsAdmin._entry(row) for row in read_cache.configs(c)}
     loaded = P.load(roster or {"people": H.humans(c)})
     for slug in entries:
         c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, loaded), slug))

@@ -4302,7 +4302,8 @@ def bots(conn, host=None, state=None):
         args.append(state)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    return _rows(conn.execute(sql + " ORDER BY slug", args))
+    from .read_cache import rows
+    return [dict(row) for row in rows(conn, sql + " ORDER BY slug", args)]
 
 
 def human(conn, pid):
