@@ -7,14 +7,33 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.33] - 2026-10-08
+
 ### Added
-- **Stop a bot's turn.** While a bot is running in a chat, Stop takes Send's place in the composer for anyone who manages the bot. The runner interrupts the turn within seconds (on its next lease renewal), the run ends as stopped rather than held for review or retried, the chat shows "Stopped by <person>", and the next queued message starts as usual.
+- **Stop a bot's turn.** While a bot is running in a chat, Stop takes Send's place in the composer for anyone who manages the bot. The runner interrupts the turn within seconds (on its next lease renewal), the run ends as stopped rather than held for review or retried, the chat shows "Stopped by <person>", and the next queued message starts as usual. ([#256](https://github.com/ticoteam/tico/pull/256))
+- **Updates archive.** Archive an update to take it out of your Updates inbox for you only, browse the Archive view, and restore from there. A bot's newer daily or weekly update now replaces its older ones of the same kind in your inbox, without deleting history. Also `archive=true` on `GET /api/v2/updates` and `POST /api/v2/updates/archive`. ([#249](https://github.com/ticoteam/tico/pull/249), [#260](https://github.com/ticoteam/tico/pull/260))
+- Add files to a task that already exists: drop them anywhere on the open task, paste a screenshot with Cmd+V, or use the **+** on Files. They upload straight away, and a comment being typed is kept. The new-task form takes dropped and pasted files too. Adding a file still needs the right to comment on the task. ([#235](https://github.com/ticoteam/tico/pull/235))
+- The chat's **/** menu lists a Claude Code bot's own skills and commands from its repository, after the built-in ones. ([#253](https://github.com/ticoteam/tico/pull/253))
+- **Over its spend limit:** a bot stopped by its daily limit shows a banner on its page with a Raise limit link and a "!" in the Team tree. Messages, tasks and questions sent to it are still saved, and the reply warns when it starts again. ([#262](https://github.com/ticoteam/tico/pull/262))
+- Moving a task to Review wakes whoever asked for it, with "Ready for review: <title>" and the note. ([#247](https://github.com/ticoteam/tico/pull/247))
+- Bots can read system metrics and Health: `GET /api/v2/system/metrics` answers the team's bots without who made each slow request, and `GET /api/v2/health` (and `hub health check`) answers them with the non-admin checks and which computers are up. ([#240](https://github.com/ticoteam/tico/pull/240))
+- Health warns admins when a bot still in setup has held work for over an hour, with a Finish setup link, and that bot's watchers wait until setup is done. Health and readiness also name Claude Code deny rules that block commands a bot's instructions ask for. ([#251](https://github.com/ticoteam/tico/pull/251))
+- Engineering templates: a Head of Engineering bot can review and merge the engineer bots' pull requests, never its own without another reviewer. A DevOps Engineer opens its own pull requests, and a reviewer bot can post reviews. Codex bots now read the repository's instructions through `AGENTS.md`. ([#240](https://github.com/ticoteam/tico/pull/240), [#251](https://github.com/ticoteam/tico/pull/251), [#246](https://github.com/ticoteam/tico/pull/246))
 
 ### Fixed
-- A file left out of a bot's commit is reported once, not after every turn it is still in the checkout, and the notice stays out of the turn's summary. Files over 2 MB are left out by size without a secret scan and noted once as "too large to commit".
+- Git calls in a bot's turn reuse a cached GitHub token instead of asking the server each time, and a cache hit no longer writes to the database. Fetching tokens had taken most of the server's time. Runners on this release still work with an older server. ([#239](https://github.com/ticoteam/tico/pull/239))
+- The hourly database-size snapshot measures table sizes at most once a day instead of every hour (about 10 seconds each time). ([#238](https://github.com/ticoteam/tico/pull/238))
+- A bot's question to a person is never lost: the question's id comes back at once, even if waiting for the answer times out. Health also flags a task that waits on a person who was never asked. ([#258](https://github.com/ticoteam/tico/pull/258))
+- A bot can download an image attached in a chat it may read, instead of getting an error (HTTP 500). ([#255](https://github.com/ticoteam/tico/pull/255))
+- Reopening a task quickly after closing it no longer empties its Files strip or shows the previous task's file. ([#261](https://github.com/ticoteam/tico/pull/261))
+- Commits a bot makes on a Mac or Linux computer are authored by the bot (its name and `<slug>@bots.tico.invalid`), not the computer's owner, unless the bot's own environment sets a git identity. ([#241](https://github.com/ticoteam/tico/pull/241))
+- A file left out of a bot's commit is reported once, not after every turn it is still in the checkout, and the notice stays out of the turn's summary. Files over 2 MB are left out by size without a secret scan and noted once as "too large to commit". ([#256](https://github.com/ticoteam/tico/pull/256))
+- On a Mac, login shells keep `gh` on Tico's GitHub wrapper, so bots stay signed in to GitHub. ([#236](https://github.com/ticoteam/tico/pull/236))
+- The Support Agent's watchers read `HQ_URL`, which reaches them, instead of `TICO_HQ_URL`, which the runner strips. ([#251](https://github.com/ticoteam/tico/pull/251))
+- The release check runs the Docker isolation tests against the candidate's own runner image, fits its schedule to the computer's load, and its browser tests wait on conditions instead of fixed sleeps. ([#242](https://github.com/ticoteam/tico/pull/242)–[#245](https://github.com/ticoteam/tico/pull/245), [#248](https://github.com/ticoteam/tico/pull/248), [#252](https://github.com/ticoteam/tico/pull/252), [#254](https://github.com/ticoteam/tico/pull/254), [#257](https://github.com/ticoteam/tico/pull/257), [#259](https://github.com/ticoteam/tico/pull/259))
 
 ### Removed
-- Trello guidance: the connect-tools guide and BotOps's connect-a-tool playbook no longer cover Trello; a generic REST skill example replaces it.
+- Trello guidance: the connect-tools guide and BotOps's connect-a-tool playbook no longer cover Trello; a generic REST skill example replaces it. ([#234](https://github.com/ticoteam/tico/pull/234))
 
 ## [0.3.32] - 2026-10-07
 
