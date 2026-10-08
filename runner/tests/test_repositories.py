@@ -1,5 +1,6 @@
 """Computer base-clone contracts, without a GitHub account or running server."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,8 +19,16 @@ def repos(tmp_path):
     client.get.return_value = {'repositories': [dict(full_name='org/one', default_branch='main'), dict(full_name='org/two', default_branch='main')]}
     client.post.return_value = {'token': 'synthetic-install-token', 'repositories': ['org/one', 'org/two']}
     manager = Repositories(tmp_path, tmp_path / 'state' / 'repositories.json', client)
-    yield manager
-    manager.close()
+    # Fixture writes use an explicit mask, independent of the invoking shell's group-write mask.
+    previous_mask = os.umask(0o022)
+    try:
+        yield manager
+    finally:
+        try:
+            manager.close()
+            manager.pool.shutdown(wait=True, cancel_futures=True)
+        finally:
+            os.umask(previous_mask)
 
 
 def fake_git(args, **kwargs):
@@ -40,7 +49,8 @@ def fake_git(args, **kwargs):
 def cycle(manager):
     result = manager.poll()
     if manager.pending:
-        manager.pending.result(timeout=5)
+        # Completion is the condition; this is a hang guard, not a Git speed requirement.
+        manager.pending.result(timeout=120)
     return result
 
 

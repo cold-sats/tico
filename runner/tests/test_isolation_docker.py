@@ -21,7 +21,7 @@ import pytest
 
 pytestmark = pytest.mark.slow  # Docker: opt-in
 
-IMAGE = os.environ.get("TICO_RUNNER_TEST_IMAGE", "tico-runner:local")
+IMAGE = os.environ.get("TICO_RUNNER_TEST_IMAGE", "").strip()
 HERE = Path(__file__).parent / "isolation"
 
 
@@ -31,8 +31,12 @@ def docker(*args, **kwargs):
 
 @pytest.fixture
 def volume():
-    if not shutil.which("docker") or docker("image", "inspect", IMAGE).returncode != 0:
-        pytest.skip(f"Docker or the runner image {IMAGE} is not available")
+    if not IMAGE:
+        pytest.skip("Set TICO_RUNNER_TEST_IMAGE to a freshly built runner image; the release check selects its candidate")
+    if not shutil.which("docker"):
+        pytest.skip("Docker is not installed; runner isolation requires Docker and an explicitly selected image")
+    if docker("image", "inspect", IMAGE).returncode != 0:
+        pytest.fail(f"The explicitly selected runner image {IMAGE} is unavailable")
     name = "tico-isolation-test-" + uuid.uuid4().hex[:8]
     yield name
     docker("volume", "rm", "-f", name)

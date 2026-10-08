@@ -30,6 +30,13 @@ tests while you build and run them as you go; once the change passes, keep only 
 run the test files for what you touched and the checks the change obviously affects, not the full suite. The full
 suite runs as late as possible: once, right before a release.
 
+Use `pytest -ra` to see prerequisite skip reasons. Systemd lifecycle scenarios run on Linux;
+unit rendering still runs on every host. Installer scenarios need Docker and stage their mounts
+in the system temporary directory (`/private/tmp` on macOS), so an external checkout need not
+be shared with Docker Desktop. Runner isolation requires `TICO_RUNNER_TEST_IMAGE` to name a
+freshly built image; an unset value skips it, while an explicitly selected missing image fails.
+The release check builds and selects its candidate image before running isolation.
+
 ```
 python scripts/release_checks.py
 ```
