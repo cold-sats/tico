@@ -444,9 +444,14 @@ async function typeSelection(browser) {
     return route.fulfill({contentType: 'application/json', body: JSON.stringify({value: {type: 'marketing', view: 'list', views: 2}})});
   });
   await page.goto('https://tico-ui.test/#/goals');
+  const delayedPreferenceRead = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/v2/preferences/tasks.view' && response.request().method() === 'GET';
+  });
   await page.goto('https://tico-ui.test/#/issues');
   await page.locator('[data-task-type=dev-123]').click();
-  await page.waitForTimeout(1200);
+  await delayedPreferenceRead;
+  await page.waitForFunction(() => TASKS_ST.type === 'dev-123');
   assert.equal(await page.evaluate(() => TASKS_ST.type), 'dev-123');
   assert.deepEqual(await rowKeys(page), ['tdev-123-task']);
   assert.deepEqual(errors, []);
@@ -461,8 +466,9 @@ async function carriedOver(browser) {
   assert.match(await page.locator('[data-chip="owner"]').innerText(), /Owner\s*You/);
   assert.match(await page.locator('[data-chip="asked"]').innerText(), /Asked by\s*You/);
   assert.equal(await page.evaluate(() => localStorage.getItem('hub.tasks.filter')), null, 'the old key is gone');
-  await page.waitForFunction(() => true);
-  await page.waitForTimeout(500);
+  const preferenceDeadline = Date.now() + 10000;
+  while (pref().filter !== undefined && Date.now() < preferenceDeadline)
+    await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(pref().filter, undefined, 'the saved preference no longer carries it');
   assert.deepEqual(errors, []);
   await page.close();
