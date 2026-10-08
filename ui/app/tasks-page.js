@@ -464,6 +464,7 @@ function tasksPatchNode(live, next) {
       || (live.nodeType === 1 && (live.dataset.taskKey || '') !== (next.dataset.taskKey || ''))) { live.replaceWith(next); return; }
   if (live.nodeType === 3) { if (live.data !== next.data) live.data = next.data; return; }
   if (live.nodeType !== 1) return;
+  if (live.dataset.patchKey || next.dataset.patchKey) { if (live.dataset.patchKey !== next.dataset.patchKey) live.replaceWith(next); return; }
   if (live.dataset.taskKey) { if (!next.dataset.sig || live.dataset.sig !== next.dataset.sig) live.replaceWith(next); return; }   // a row: whole, or not at all
   for (const {name} of [...live.attributes]) if (!next.hasAttribute(name)) live.removeAttribute(name);
   for (const {name, value} of [...next.attributes]) if (live.getAttribute(name) !== value) live.setAttribute(name, value);

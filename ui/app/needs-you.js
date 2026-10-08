@@ -39,6 +39,51 @@ function needsV2Item(it, folded, showName = true) {
     </div>
   </details>`;
 }
+// A question a bot asked the person outside any task: no task row carries it, so Needs you lists it on its own,
+// answered in place. `data-patch-key` keeps an opened row (and a half-written answer) through the list's redraws.
+const looseAsks = () => (S.v2?.needs || []).filter(it => it.kind === 'ask');
+function looseAskRow(it) {
+  const from = it.requester || '', slug = actorSlug(from);
+  return `<details class="req v2" data-patch-key="ask:${esc(it.id)}" data-ask="${esc(it.id)}">
+    <summary>
+      ${slug && S.emps.some(e => e.name === slug) ? avatar(slug, 24) : personCircle(actorLabel(from) || 'Tico', 24)}
+      <span class="req-text"><span class="req-from">${esc(actorLabel(from) || 'Tico')}:</span> ${esc(plainActors(it.first_line || it.title))}</span>
+      <span class="req-meta"><span class="pill needs">Question</span>${esc(ago(it.created))}</span>
+      <span class="req-arrow" aria-hidden="true">›</span>
+    </summary>
+    <div class="req-body">
+      <div class="req-context"><div class="md">${safeMd(plainActors(it.body || ''))}</div></div>
+      <form class="issue-compose" data-ask-answer="${esc(it.id)}">
+        <textarea aria-label="Your answer" placeholder="Your answer…" required></textarea>
+        <div class="row"><button class="primary" type="submit">Answer</button><span class="muted" data-ask-msg></span></div>
+      </form>
+    </div>
+  </details>`;
+}
+function looseAsksHTML() {
+  const asks = looseAsks();
+  if (!asks.length) return '';
+  return `<section class="tl-group" data-group="asks"><header class="tl-ghead"><span class="tl-gname">Questions</span><span class="tl-gcount tnum">${asks.length}</span></header>
+    <div class="tl-rows" role="list" aria-label="Questions">${asks.map(looseAskRow).join('')}</div></section>`;
+}
+document.addEventListener('submit', async ev => {
+  const form = ev.target.closest?.('[data-ask-answer]');
+  if (!form) return;
+  ev.preventDefault();
+  const box = $('textarea', form), msg = $('[data-ask-msg]', form), text = box.value.trim();
+  if (!text) { box.focus(); return; }
+  [...form.elements].forEach(el => el.disabled = true); msg.textContent = 'Sending…';
+  try {
+    await post(`/v2/messages/${encodeURIComponent(form.dataset.askAnswer)}/answer`, {text});
+    toast('Answered');
+    form.closest('details')?.remove();
+    await v2Refresh();
+    if (TASKS_ST && isTasksRoute(S.route)) tasksRender(TASKS_ST);
+  } catch (e) {
+    msg.innerHTML = `<span class="err">${esc(e.message)}</span>`;
+    [...form.elements].forEach(el => el.disabled = false);
+  }
+});
 async function v2Decide(button, id, decision) {
   const label = button.textContent;
   button.disabled = true; button.textContent = '…';

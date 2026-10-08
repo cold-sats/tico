@@ -54,3 +54,18 @@ def test_a_task_waiting_on_a_person_nobody_asked_shows_in_health_until_they_are_
     with api.app.state.store.transaction() as c:
         H.task_ask(c, "bot:ops", tid, "Should the domain renew for one year or three?")
     assert check() is None
+
+
+def test_a_question_asked_outside_any_task_is_in_the_persons_needs_you_until_answered(api):
+    token = bot_token(api, "ops")
+    asked = post(api, "messages", {"to": "ana", "text": "Which bank should Acme use for payroll?", "kind": "ask"},
+                 token=token)
+
+    def needs():
+        return api.get("/api/v2/needs-you", headers=headers()).json()["items"]
+
+    item = next(it for it in needs() if it["id"] == asked["id"])
+    assert item["kind"] == "ask" and item["requester"] == "bot:ops"
+    assert api.get("/api/v2/needs-you?count=1", headers=headers()).json()["count"] == len(needs())
+    post(api, f"messages/{asked['id']}/answer", {"text": "Acme Bank."})
+    assert all(it["id"] != asked["id"] for it in needs())

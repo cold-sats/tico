@@ -883,6 +883,9 @@ def migrate(conn, adopt_legacy=False):
     add_column(conn, "messages", "deleted_at", "TEXT")
     # An ask that a later ask by the same bot on the same task, or the task's end, made moot (supersede_asks).
     add_column(conn, "messages", "superseded_at", "TEXT")
+    # A person's open asks, read on every Needs-you load (loose_asks_to).
+    conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
+                 "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS messages_pending_conversation ON messages(conversation_id) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
     # The media check visits blobs often; an unindexed version lookup multiplies both histories.
@@ -4640,6 +4643,16 @@ def tasks_asked_of(conn, actor):
         "OR (t.status='done' AND json_type(m.refs_json,'$.questions')='array')) "
         f"AND m.kind='ask' AND m.to_actor=? AND {OPEN_ASK_SQL} "
         "GROUP BY t.id ORDER BY t.created", (actor,)))
+
+
+def loose_asks_to(conn, actor):
+    """Unanswered questions bots asked this person outside any task (`hub question ask <person>`), oldest first.
+    No task carries them into Needs you, so they are listed on their own; an expired one has left."""
+    return _rows(conn.execute(
+        "SELECT m.* FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+        "WHERE m.to_actor=? AND m.kind='ask' AND m.answered_by IS NULL AND m.deleted_at IS NULL "
+        f"AND m.from_actor LIKE 'bot:%' AND {MESSAGE_TASK_SQL} IS NULL AND {OPEN_ASK_SQL} "
+        "AND (m.expires_at IS NULL OR m.expires_at>?) ORDER BY m.created", (actor, now())))
 
 
 def needs_you(conn, who):

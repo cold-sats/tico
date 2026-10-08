@@ -510,7 +510,7 @@ def conversation_snapshot(c, cid, who=None):
 # bot lifted out of mail last; within a source the decisive kinds lead, oldest first.
 SOURCE_RANK = {"bot": 0, "self": 1, "mail": 2}
 # A bot's task set waiting on the person blocks that bot just as its question does.
-KIND_RANK = {"approval": 0, "question": 1, "waiting": 1, "declined": 2, "task": 3, "report": 4}
+KIND_RANK = {"approval": 0, "question": 1, "ask": 1, "waiting": 1, "declined": 2, "task": 3, "report": 4}
 
 
 def needs_source(actor):
@@ -673,6 +673,21 @@ def needs_items(c, auth, who, task_view, older=None):
                     older.append(item)
                 continue
             items.append(item)
+    for msg in H.loose_asks_to(c, who.actor):
+        if not privacy.message_readable(c, privacy.actor(who), msg):
+            continue
+        msg["refs"] = H._json(msg.get("refs_json"), {}) or {}
+        ask = {k: msg[k] for k in ("id", "from_actor", "to_actor", "body", "created", "conversation_id")}
+        item = {"kind": "ask", "id": msg["id"], "message_id": msg["id"], "title": _clip(msg["body"], 160),
+                "first_line": (msg["body"] or "").split("\n")[0], "body": msg["body"], "requester": msg["from_actor"],
+                "origin_actor": msg["from_actor"], "conversation_id": msg["conversation_id"],
+                "created": msg["created"], "ask": ask}
+        if H.ask_older(msg):
+            ask["older"] = True
+            if older is not None:
+                older.append(item)
+            continue
+        items.append(item)
     for row in raw["approvals"]:
         msg = H.message(c, row["message_id"])
         if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
