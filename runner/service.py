@@ -892,7 +892,7 @@ class Runner:
         last = notes.get(bot)
         if last and last[0] == key and time.monotonic() - last[1] < FETCH_RETRY_S:
             return last[2]
-        env, problem = self.github_access(bot)
+        env, problem = self.github_access(bot, entry)
         state, detail = git_credentials.remote_history(repository, env) if env is not None else ("unknown", problem)
         if state == "unknown":
             notes[bot] = (key, time.monotonic(), state)
@@ -1019,15 +1019,56 @@ class Runner:
         else:
             notes.pop(bot, None)
 
-    def github_access(self, bot):
+    @staticmethod
+    def github_assignment_key(entry):
+        if not entry:
+            return None
+        assignment = entry.get("assignment") or {}
+        return (entry.get("repository"), entry.get("runner_id"), entry.get("generation"),
+                json.dumps(entry.get("config") or {}, sort_keys=True),
+                assignment.get("id"), assignment.get("revision"))
+
+    def remember_github_assignments(self, assignments):
+        refused = self.__dict__.setdefault("github_assignment_refusals", {})
+        rows = {row["bot"]: row for row in assignments}
+        for bot, previous in list(refused.items()):
+            if previous[0] != self.github_assignment_key(rows.get(bot)):
+                refused.pop(bot, None)
+                # A changed assignment must not wait out an older retry/backoff.
+                for name in ("fetch_notes", "history_notes", "publish_checked"):
+                    self.__dict__.get(name, {}).pop(bot, None)
+
+    def github_access(self, bot, entry=None):
         """(environment, problem) for talking to this bot's GitHub repository. The environment carries the
         bot's scoped token, or is the machine's own when no GitHub App is connected; the problem is a plain
         sentence naming why the repository cannot be reached (the server's own words for a repository that is
         not on GitHub yet) and then the environment is None."""
+        # Keep only the private-assignment refusal, not outages or missing repositories.
+        # A changed placement, repository or configuration gets a fresh server answer.
+        # Without an assignment entry there is no reliable invalidation key: do not cache.
+        entry = entry or next((row for row in getattr(self, "assignments_seen", ()) if row["bot"] == bot), None)
+        key = self.github_assignment_key(entry)
+        refused = self.__dict__.setdefault("github_assignment_refusals", {})
+        previous = refused.get(bot)
+        if previous and key is not None and previous[0] == key:
+            return None, previous[1]
+        refused.pop(bot, None)
         try:
-            granted = self.client.post("github/token", {"bot": bot})
+            body = {"bot": bot}
+            if not self.__dict__.get("github_token_legacy_purpose", False):
+                body["purpose"] = "git"       # checkout work is not a new 45-minute turn
+            try:
+                granted = self.client.post("github/token", body)
+            except APIError as exc:
+                if "purpose" not in body or not credential_socket._server_rejects_token_purpose(exc):
+                    raise
+                self.github_token_legacy_purpose = True
+                granted = self.client.post("github/token", {"bot": bot})
         except APIError as exc:
-            return None, str(exc.detail or exc.code)[:400]
+            problem = str(exc.detail or exc.code)[:400]
+            if exc.status == 409 and exc.code == "assignment_repository" and key is not None:
+                refused[bot] = (key, problem)
+            return None, problem
         except Exception as exc:
             return None, f"the server did not answer ({type(exc).__name__})"
         env = dict(os.environ)
@@ -1570,7 +1611,7 @@ class Runner:
             else:
                 problem = f"Could not clone the original repository {repository or config['shared_from']}: {detail}"
         else:
-            env, problem = self.github_access(bot)
+            env, problem = self.github_access(bot, entry)
             if env is not None:
                 state, detail = git_credentials.clone_repository(path, repository, env)
                 if state == "cloned":
@@ -1603,7 +1644,7 @@ class Runner:
             return
         checked[bot] = now
         self.publish_next = now + 20
-        env, problem = self.github_access(bot)
+        env, problem = self.github_access(bot, entry)
         if env is None:
             self.__dict__.setdefault("publish_notes", {})[bot] = f"{repository}: {problem}"[:300]
             return
@@ -3312,6 +3353,7 @@ class Runner:
             self.migrate_credentials(assignments)
             self.bot_credential_names = self.client.get("runner-credential-grants")["bots"]
             self.assignments_seen = assignments
+            self.remember_github_assignments(assignments)
         else:
             repository_rows, assignments = None, self.assignments_seen
         candidates = self.readiness_candidates(assignments)
