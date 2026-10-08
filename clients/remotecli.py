@@ -233,23 +233,14 @@ def run(args, who=None):
     if fn == "question ask":
         if len(args.words) < 2:
             raise APIError("usage", 'hub question ask <bot> [<bot>...] "question"')
-        pending, result = {}, {}
-        for i, bot in enumerate(args.words[:-1]):
-            msg = post("messages", {"to": bot, "text": args.words[-1], "kind": "ask",
-                       "wait_s": min(300, max(0, int(args.wait)))}, suffix=f":ask:{i}")
-            pending[msg["id"]] = bot
-        deadline = time.monotonic() + max(0, min(args.wait, 300))
-        while pending:
-            answers = client.get("answers", ids=",".join(pending))
-            for mid, answer in answers.items():
-                bot = pending.pop(mid)
-                result[bot] = {"unknown" if answer.get("refs", {}).get("unknown") else "answer": answer["body"]}
-                post(f"messages/{answer['id']}/ack", {}, suffix=":ack:" + answer["id"])
-            if not pending or time.monotonic() >= deadline:
-                break
-            time.sleep(1)
-        result.update({bot: {"timeout": True} for bot in pending.values()})
-        return result
+        from clients import hubtools
+        wait = max(0, min(int(args.wait), hubtools.ASK_WAIT_MAX))
+        fields = {"operation_id": key}
+        pending, failed = hubtools.ask_create(client, args.words[:-1], args.words[-1], wait, fields)
+        # Said before the wait: a shell that kills a long wait still leaves the bot holding each id.
+        for mid, bot in pending.items():
+            print(f"hub: asked {bot}, message {mid}; waiting up to {wait} s for the answer", file=sys.stderr, flush=True)
+        return {**failed, **hubtools.ask_wait(client, pending, wait, fields)}
     if fn == "note create":
         text = Path(args.text_file).read_text() if args.text_file else args.text
         return post("notes", {"to": target(args.to), "text": text})["note"]

@@ -898,6 +898,8 @@ def migrate(conn, adopt_legacy=False):
                  "cancelled_at TEXT, cancelled_by TEXT)")
     conn.execute("CREATE INDEX IF NOT EXISTS notes_to_created ON notes(to_actor, created)")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_owner_rank ON tasks(owner, rank)")
+    # Health's waits-on-a-person check (backend/health.py silent_waits) reads only these few rows.
+    conn.execute("CREATE INDEX IF NOT EXISTS tasks_waiting_on ON tasks(waiting_on) WHERE waiting_on IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_lane_status_rank ON tasks(lane,status,rank,created)")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_active_lane_rank ON tasks("
                  "lane,(rank IS NULL),rank,created,id) WHERE status IN "

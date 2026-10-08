@@ -527,6 +527,26 @@ def _server_settings(c, settings):
     return checks
 
 
+SILENT_WAIT_HOURS = 1       # a task set waiting on a person this long with nothing said to them is stuck unseen
+
+
+def silent_waits(c, at=None):
+    """Tasks waiting on a person who was never asked: no open question to them in the task's thread and no message
+    from the task's owner to them since it started waiting. A bot whose ask failed can still set the task waiting,
+    and then nobody knows. Indexed lookups only: Health is read by every open tab."""
+    cutoff = H.shift(at or H.now(), hours=-SILENT_WAIT_HOURS)
+    return [dict(r) for r in c.execute(
+        "SELECT * FROM (SELECT t.id, t.title, t.owner, t.waiting_on, t.conversation_id, t.private, "
+        "coalesce((SELECT max(e.ts) FROM task_events e WHERE e.task_id=t.id AND e.field='waiting_on' "
+        "AND e.new=t.waiting_on), t.updated) AS since FROM tasks t "
+        "WHERE t.waiting_on IS NOT NULL AND t.status='waiting') w WHERE w.since<? "
+        "AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.to_actor=w.waiting_on AND m.from_actor=w.owner "
+        "AND m.created>=w.since AND m.deleted_at IS NULL) "
+        "AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=w.conversation_id AND m.kind='ask' "
+        f"AND m.to_actor=w.waiting_on AND m.deleted_at IS NULL AND {H.OPEN_ASK_SQL}) "
+        "ORDER BY w.since LIMIT 20", (cutoff,))]
+
+
 def _failed(c):
     since = H.shift(H.now(), hours=-RECENT_HOURS)
     rows = c.execute("SELECT bot,state,finished FROM attempts WHERE state IN ('failed','expired') AND finished>? "
@@ -661,6 +681,13 @@ def view(c, who, settings, auth, github, config):
                 f"{item['title'] if not item['private'] or H.task_private_readable(c, who.actor, H.task(c, item['task_id'])) else 'A private task'}"
                 f" {task_loops.describe(item)}" for item in loops[:3]) + ". Likely a bug; nothing is blocked.",
                 [_fix("Open tasks", "#/tasks")]))
+    if full and (silent := silent_waits(c)):
+        named = [(row, H.task_private_readable(c, who.actor, row)) for row in silent]
+        checks.append(_check("silent_waits", "Waiting on people", "warn", "; ".join(
+            f"{row['title'] if readable else 'A private task'} waits on "
+            f"{(H.human(c, row['waiting_on']) or {}).get('name') or H.actor_id(row['waiting_on'])} but nothing was asked"
+            for row, readable in named[:3]) + ("." if len(named) <= 3 else f"; and {len(named) - 3} more."),
+            [_fix("Open " + (row["title"][:40] if readable else "task"), "#/task/" + row["id"]) for row, readable in named[:3]]))
     if full and (missing_tools := _missing_tool_credentials(c, online_ids)):
         checks.append(_check("tool_credentials", "Tool credentials", "warn",
                              "Missing Credential: " + "; ".join(f"{tool} on {label}" for tool, label in missing_tools[:5])
