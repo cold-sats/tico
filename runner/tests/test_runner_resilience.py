@@ -207,6 +207,25 @@ class Execution(unittest.TestCase):
         self.host.hold_next_turn()
         post = client.post
         stopped_turns = set()
+        stop_flags, active_drains = [], []
+        stop_ready = threading.Event()
+        renew, drain = runner.renew_loop, self.host.drain
+
+        def observe_stop(aid, lost, done, deadline, stopped=None):
+            stop_flags.append(stopped)
+            stop_ready.set()
+            return renew(aid, lost, done, deadline, stopped)
+
+        def drain_until_stop():
+            if self.host.turn_of:
+                active_drains.append(True)
+                # Let the real renewal process Stop before this iteration finishes. Its
+                # next iteration must interrupt, not poll the still-held turn again.
+                self.assertTrue(stop_ready.wait(60), "the renewer starts")
+                self.assertTrue(stop_flags[0].wait(60), "the Stop renewal is processed")
+            return drain()
+
+        runner.renew_loop = observe_stop
 
         def stop_once_running(path, body=None, key=None):
             if path.endswith("/renew") and self.host.turn_of:
@@ -215,11 +234,14 @@ class Execution(unittest.TestCase):
             return post(path, body, key)
 
         with mock.patch.object(client, "post", side_effect=stop_once_running), \
+                mock.patch.object(self.host, "drain", side_effect=drain_until_stop), \
                 mock.patch.object(self.host, "interrupt", wraps=self.host.interrupt) as interrupt:
             runner.execute(attempt())
         # Preparation and thread scheduling are not part of the Stop contract. The renewal
         # carrying Stop must interrupt that held turn and finish without a retry.
         self.assertEqual(len(stopped_turns), 1)
+        self.assertTrue(stop_flags[0].is_set())
+        self.assertLessEqual(len(active_drains), 1, "Stop takes effect before another host poll")
         interrupt.assert_called_with(*next(iter(stopped_turns)))
         completion = client.completion()
         self.assertEqual(completion["outcome"], "interrupted")
