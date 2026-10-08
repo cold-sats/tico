@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- Overview is a floating island at dusk: soft glow on lamps, screens and robot faces, clouds, fireflies, wildflowers, stepping-stone paths with a delivery robot, and furnished floors (bookshelves, arcade cabinets, lamps). Opening a floor works like an elevator: it settles onto the ground while floors above lift away and floors below sink, with a sweeping camera; buildings stack up storey by storey when the page opens. Teammates blink, hop, look up and wave when tapped.
+
+### Changed
 - Overview: select any floor to see it from above, with name tags; ▲ ▼ move between floors. Bots are 80s robots whose screen face is their own icon, glowing; people are rounder and varied. A **Buildings / Tower** switch shows one building per computer or every computer as a floor of one tower. The 3D view loads faster: its scripts download in parallel and three.js is sent gzipped (~790 KB to ~200 KB).
 
 ## [0.3.34] - 2026-10-08
