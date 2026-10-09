@@ -2615,12 +2615,20 @@ def create_app(settings=None):
                                  "name": version["name"], "size": version["size"], "content_type": version["mime"],
                                  "url": f"/api/v2/files/{fid}?v={number}"})
             moves = mover(c, who)
+            # A person @mentioned in a comment gets it as a question, so it reaches their Needs you.
+            # The comment itself is the question to the first one, unless it also names the bot,
+            # which must hear it; everyone else mentioned gets their own copy.
+            people = [] if ask or who.role == "bot" else H.mentioned_people(c, body.text, row, who.actor)
+            if people and not H.names_a_filer(c, body.text, row):
+                ask, people = H.mention_ask(body.text, people[0]), people[1:]
             if ask:
                 wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or moves
             else:
                 wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves)
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask,
                                  extra_refs={"attachments": attached, "files": body.attachments} if attached else None)
+            for person in people:
+                H.task_comment(c, who.actor, task_id, body.text, wake=False, ask=H.mention_ask(body.text, person))
             for item in attached:
                 c.execute("INSERT OR IGNORE INTO task_file_reviews(file_id,version) VALUES(?,?)",
                           (item["id"], item["version"]))

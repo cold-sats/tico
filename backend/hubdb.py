@@ -2795,16 +2795,58 @@ def comment_wakes(conn, actor, row, text, *, mover=False):
         return True
     if row.get("waiting_on") == actor:
         return True
+    return names_a_filer(conn, text, row)
+
+
+def names_a_filer(conn, text, row):
+    """`text` @mentions the bot that filed the task (its requester or origin)."""
     filers = [a for a in dict.fromkeys([row["requester"], task_origin(conn, row)]) if is_bot(a)]
     return any(_mentions_bot(conn, text, a) for a in filers)
+
+
+def _at(text, name):
+    return re.search(r"(?<![\w@])@" + re.escape(name) + r"(?![\w-])", str(text or ""), re.IGNORECASE) is not None
 
 
 def _mentions_bot(conn, text, actor):
     """`text` names the bot `actor` with an @, by slug (@product-manager) or by name (@Product Manager)."""
     slug = actor_id(actor)
     row = bot(conn, slug) or {}
-    names = [slug] + ([row["name"]] if row.get("name") else [])
-    return any(re.search(r"(?<![\w@])@" + re.escape(n) + r"(?![\w-])", str(text or ""), re.IGNORECASE) for n in names)
+    return any(_at(text, n) for n in [slug] + ([row["name"]] if row.get("name") else []))
+
+
+def mentioned_people(conn, text, row, author):
+    """The people `text` @mentions who may read the task, in the order they appear, never the author.
+    A person is named by id, by the part of their email before the @, by full name or by first name
+    when no one else shares it."""
+    if "@" not in str(text or ""):
+        return []
+    people = humans(conn)
+    firsts = {}
+    for p in people:
+        first = str(p.get("name") or "").split(" ")[0].lower()
+        if first:
+            firsts[first] = firsts.get(first, 0) + 1
+    found = []
+    for p in people:
+        actor = human_actor(p["id"])
+        if actor == author or not task_private_readable(conn, actor, row):
+            continue
+        name = str(p.get("name") or "").strip()
+        names = [p["id"], str(p.get("email") or "").split("@")[0], name]
+        if name and firsts.get(name.split(" ")[0].lower()) == 1:
+            names.append(name.split(" ")[0])
+        spots = [m.start() for n in dict.fromkeys(x for x in names if x)
+                 for m in re.finditer(r"(?<![\w@])@" + re.escape(n) + r"(?![\w-])", text, re.IGNORECASE)]
+        if spots:
+            found.append((min(spots), actor))
+    return [actor for _, actor in sorted(found)]
+
+
+def mention_ask(text, person):
+    """The question a mention puts to `person`: the comment itself, answered in their own words."""
+    return {"questions": [{"id": "mention", "header": "Mention", "question": str(text).strip()[:300],
+                           "options": [], "multi": False, "other": True}], "who": person}
 
 
 def task_comments(conn, task_id, *, actor=None):
