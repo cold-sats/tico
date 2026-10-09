@@ -87,17 +87,18 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape') tipHide();
 window.addEventListener('scroll', tipHide, true);
 window.addEventListener('hashchange', tipHide);
 
+// The bot's Status history under More: newest first, one line a change (state, focus, why and who changed it
+// when that was someone else, when it began).
 async function v2HistoryLoad(slug) {
   const el = $('#v2-history'); if (!el) return;
   const d = await v2Get(`/v2/status?bot=${encodeURIComponent(slug)}&since=7d`);
   const box = $('#v2-history'); if (!box) return;
-  const rows = d?.history || [];
+  const rows = [...(d?.history || [])].sort((a, b) => String(b.since || '').localeCompare(String(a.since || '')));
   box.innerHTML = rows.length
-    ? `<div class="scroll"><table><tr><th>State</th><th>Focus</th><th>From</th><th>Until</th><th>Why</th></tr>
-      ${rows.map(h => `<tr><td><span class="pill ${V2_PILL[h.state] ?? ''}">${esc(V2_WORD[h.state] || h.state || '')}</span></td>
-        <td>${esc(h.focus || '')}</td>
-        <td class="muted tnum" title="${esc(fmt(h.since))}">${esc(ago(h.since))}</td>
-        <td class="muted tnum">${h.until ? esc(ago(h.until)) : '<span class="pill in-progress">now</span>'}</td>
-        <td class="muted">${[h.reason || '', h.by ? actorLabel(h.by) : ''].filter(Boolean).map(x => esc(x)).join(' · ')}</td></tr>`).join('')}</table></div>`
+    ? `<ul class="sh-list">${rows.map(h => { const by = h.by && h.by !== 'keeper' && actorSlug(h.by) !== slug ? actorLabel(h.by) : '';   // the bot or the hub itself goes without saying
+        const why = [h.reason || '', by].filter(Boolean).join(' · ');
+        return `<li class="sh-row"><span class="pill ${V2_PILL[h.state] ?? ''}">${esc(V2_WORD[h.state] || h.state || '')}</span>
+        <span class="sh-focus"${h.focus || why ? ` title="${esc([h.focus, why].filter(Boolean).join(' · '))}"` : ''}>${esc(h.focus || '')}${why ? ` <span class="muted">${esc(why)}</span>` : ''}</span>
+        <span class="sh-when muted tnum" title="${esc(fmt(h.since))}${h.until ? ' to ' + esc(fmt(h.until)) : ''}">${esc(ago(h.since))}</span></li>`; }).join('')}</ul>`
     : '<div class="empty">No status changes in the last week.</div>';
 }

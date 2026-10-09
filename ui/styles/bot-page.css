@@ -117,7 +117,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}
 #pane-tasks .trow .tbody{padding:2px 0 10px 24px;font-size:12.5px}
 #main.bot-split-layout #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{display:block;white-space:nowrap;text-overflow:ellipsis}
-/* the top bar: the bot's name, its runtime mark and up to three tool icons on one line */
+/* the top bar: the bot's name, its runtime mark and the tool stack on one line */
 .bot-nameline{display:flex;align-items:center;min-width:0}
 .bot-nameline h1{min-width:0;flex:0 1 auto}
 @media (min-width:1100px){.bot-top .bot-switch{display:none}}
@@ -139,7 +139,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .bot-switch .bt-icon{display:none}
 @media (max-width:760px){
   .bot-top{flex-wrap:nowrap}
-  #bot-tool-strip{display:none}               /* no room beside the name; the Tools card under More has them */
+  #bot-tool-strip{display:none}               /* no room beside the name; the Tools card under More lists them */
   .bot-top>.bot-goal{display:none}            /* the Goals card leads More on a phone */
   .bot-top .bot-switch{margin-left:auto;border:0;background:none;padding:0;gap:0}
   .bot-switch button{display:inline-flex;align-items:center;justify-content:center;width:38px;height:36px;padding:0;border-radius:8px}
@@ -155,10 +155,22 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 /* A status heading also removes the row's unused status track. */
 #pane-tasks .trow.status-in-heading :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"ttl pr who"}
 
-/* More on a phone: the Goals card, then what moved off the top line (alert, Learnings, branches), then the cards
-   grouped (setup and tools, what it does, what it did, its docs), each a compact block; long lists show three
-   rows and "Show all" (moreClamp in ui/app/bot-page.js); tables become one line a row. */
+/* Long lists in More show their three newest rows and a small "Show more" on every width (moreClamp in
+   ui/app/bot-page.js). On a phone: the Goals card, then what moved off the top line (alert, Learnings, branches),
+   then the cards grouped (setup and tools, what it does, what it did, its docs), each a compact block; tables
+   become one line a row. */
 .bot-more-top:empty,.more-cut{display:none!important}
+.more-all{display:block;margin:6px 0 0;padding:2px 0;border:0;background:none;font:inherit;font-size:12px;color:var(--muted);cursor:pointer}
+.more-all:hover{color:var(--ink)}
+.more-all:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+/* Status history: one tight line a change, newest first */
+.sh-list{list-style:none;margin:0;padding:0}
+.sh-row{display:flex;align-items:center;gap:8px;min-height:28px;padding:3px 0;border-top:1px solid var(--line);font-size:13px;line-height:18px}
+.sh-row:first-child{border-top:0}
+.sh-row .pill{flex:none;margin:0}
+.sh-focus{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sh-focus .muted{font-size:12px}
+.sh-when{flex:none;font-size:12px}
 .bot-more-top>:empty,.bot-more-top:not(:has(>:not(:empty):not([hidden]))){display:none!important}   /* nothing to show yet: no gap, no margin */
 @media (max-width:760px){
   #pane-more:not([hidden]){display:flex;flex-direction:column}
@@ -179,19 +191,15 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   :is(#pane-more,#pane-docs) section.card>header{margin-bottom:6px;align-items:center}
   :is(#pane-more,#pane-docs) section.card>header h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
   :is(#pane-more,#pane-docs) section.card>header :is(.ghost,.linkish){margin-left:auto;font-size:12.5px;padding:3px 8px}
-  .more-all{display:block;margin:8px 0 0;font-size:12.5px;text-decoration:none}
   #bot-goals-card .bot-goal-row{padding:6px 0}
   #sess-turns{max-height:none}
   /* tables as one line a row, no column heads */
-  :is(#v2-history,#bot-recent-runs,#bot-access-card) .scroll{overflow:visible}
-  :is(#v2-history,#bot-recent-runs,#bot-access-card) :is(table,tbody){display:block;width:100%}
-  :is(#v2-history,#bot-recent-runs,#bot-access-card) tr:first-child:has(th){display:none}
-  :is(#v2-history,#bot-recent-runs,#bot-access-card) tr{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:12.5px}
-  :is(#v2-history,#bot-recent-runs,#bot-access-card) tr:nth-child(2){border-top:0}
-  :is(#v2-history,#bot-recent-runs,#bot-access-card) td{display:block;padding:0;border:0;min-width:0}
-  #v2-history td:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #v2-history td:nth-child(3){order:3}
-  #v2-history td:nth-child(n+4){display:none}
+  :is(#bot-recent-runs,#bot-access-card) .scroll{overflow:visible}
+  :is(#bot-recent-runs,#bot-access-card) :is(table,tbody){display:block;width:100%}
+  :is(#bot-recent-runs,#bot-access-card) tr:first-child:has(th){display:none}
+  :is(#bot-recent-runs,#bot-access-card) tr{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:12.5px}
+  :is(#bot-recent-runs,#bot-access-card) tr:nth-child(2){border-top:0}
+  :is(#bot-recent-runs,#bot-access-card) td{display:block;padding:0;border:0;min-width:0}
   #bot-recent-runs td:nth-child(1){order:3;margin-left:auto}
   #bot-recent-runs td:nth-child(5){display:none}
   #bot-recent-runs td:nth-child(6){order:4}

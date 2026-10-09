@@ -96,7 +96,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       await page.locator('#t-open .trow').first().waitFor();
       await page.locator('#bot-files .bf-row').first().waitFor();
       await page.locator('#bot-latest:not([hidden])').waitFor();
-      await page.locator('#bot-tool-strip .bts-icon').first().waitFor();
+      await page.locator('#bot-tool-strip .bts-stack .bts-icon').first().waitFor();
 
       assert.deepEqual(await railOrder(page), ['Active', 'Updates', 'Files', 'Recurring'], scheme + ': Active leads');
       assert.equal(await page.locator('#pane-tasks .card').count(), 0, 'no cards in the rail');
@@ -117,28 +117,43 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       // Assigned to others opens while it waits on a person; Done stays folded.
       assert.equal(await page.locator('#bot-assigned').evaluate(el => el.open), true);
       assert.equal(await page.locator('#pane-tasks .bot-done').evaluate(el => el.open), false);
-      // Tools beside the name: the runtime mark, then three icons (not the model again) and "+5".
+      // Tools beside the name: the runtime mark, then one stack of three icons (not the model again) and "+5".
       const strip = page.locator('#bot-tool-strip');
+      const stack = strip.locator('.bts-stack');
       assert.equal(await page.locator('.bot-nameline .rt').count(), 1);
-      assert.deepEqual(await strip.locator('.bts-icon').evaluateAll(els => els.map(el => el.dataset.tool)), ['repo', 'posthog', 'slack']);
-      assert.equal((await strip.locator('.bts-more').innerText()).trim(), '+5');
-      assert.equal(await strip.locator('.bts-more').getAttribute('aria-label'), 'All 9 tools');
-      assert.match(await strip.locator('[data-tool=slack]').getAttribute('aria-label'), /^Slack, Acme workspace, can read, post, channels #ops, #launch, Ready$/);
-      assert.match(await strip.locator('[data-tool=posthog]').getAttribute('aria-label'), /PostHog, PostHog project 12345 \(US\), personal key, .*Credential missing on Test Mac$/);
-      await strip.locator('[data-tool=slack]').hover();
-      assert.match(await page.locator('#bts-tip').innerText(), /Slack · Acme workspace[\s\S]*read, post[\s\S]*#ops, #launch[\s\S]*Ready/);
-      await page.mouse.move(700, 500);
-      assert.equal(await strip.locator('[data-tool=posthog] .bt-dot').count(), 1, 'a problem shows a dot');
+      assert.equal(await strip.locator('button').count(), 1, 'one button, not an icon each');
+      assert.deepEqual(await stack.locator('.bts-icon').evaluateAll(els => els.map(el => el.dataset.tool)), ['repo', 'posthog', 'slack']);
+      assert.equal((await stack.locator('.bts-more').innerText()).trim(), '+5');
+      assert.equal(await stack.getAttribute('aria-label'), 'Tools: 8');
+      assert.equal(await stack.locator('[data-tool=posthog] .bt-dot').count(), 1, 'a problem shows a dot');
       if (shots) await page.screenshot({path: path.join(shots, `bot-page-desktop-${scheme}.png`)});
-
-      // The icons and "+5" open the Tools card under More, every tool with its details.
-      await strip.locator('[data-tool=posthog]').focus();
+      // It opens a list, one line a tool; Escape closes it and gives the button back its focus.
+      await stack.click();
+      const pop = page.locator('#bts-pop');
+      assert.equal(await stack.getAttribute('aria-expanded'), 'true');
+      assert.equal(await pop.locator('.bts-row').count(), 8);
+      assert.match(await pop.locator('.bts-row[data-tool=slack]').getAttribute('title'), /^Slack, Acme workspace, can read, post, channels #ops, #launch, Ready$/);
+      assert.match(await pop.locator('.bts-row[data-tool=posthog]').innerText(), /PostHog[\s\S]*Credential missing on Test Mac/);
+      await page.keyboard.press('Escape');
+      assert.equal(await pop.count(), 0);
+      assert.equal(await stack.evaluate(el => el === document.activeElement), true);
+      // From the keyboard, "Manage" opens the Tools card under More, every tool with its details.
+      await page.keyboard.press('Enter');
+      await page.locator('#bts-pop .bts-manage').waitFor();
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => location.hash === '#/bot/cmo/tools');
+      assert.equal(await pop.count(), 0, 'leaving closes the list');
       const list = page.locator('#bot-tools');
       await list.locator('.bt-item').first().waitFor();
       assert.equal(await page.locator('#pane-more').isVisible(), true);
-      assert.equal(await list.locator('.bt-item').count(), 9);
+      // Three tools, then a small "Show more" for the rest.
+      const moreAll = page.locator('#bot-tools + .more-all');
+      await moreAll.waitFor();
+      assert.equal(await list.locator('.bt-item:visible').count(), 3);
+      assert.equal(await moreAll.innerText(), 'Show more');
+      await moreAll.click();
+      assert.equal(await list.locator('.bt-item:visible').count(), 9);
+      assert.equal(await moreAll.innerText(), 'Show less');
       const text = await list.innerText();
       for (const expected of ['GPT-6-luna', 'acme-co/emp-cmo', 'PostHog project 12345 (US), personal key', '12345', 'POSTHOG_KEY',
         'funnels only', 'Credential missing on Test Mac', '#ops, #launch', 'SLACK_TOKEN', 'nothing to check', 'account 3'])

@@ -239,6 +239,20 @@ USAGE = {"coo": ("claude-opus-5", "anthropic", "subscription"), "botops": ("clau
          "inbox": ("gpt-6-luna", "openai", "api"), "content": ("claude-fable-5-1", "anthropic", "api"),
          "librarian": ("gpt-6-sol", "openai", "subscription")}
 
+# The support bot's status over the last day and a half, oldest first, so its Status history has rows:
+# (hours ago, state, focus, why).
+STATUS_STEPS = [
+    (31, "running", "Morning ticket triage", "routine"),
+    (30, "waiting_human", "Refund over $200 needs a decision", "asked Ana"),
+    (26, "idle", "Queue clear", "turn finished"),
+    (8, "running", "Drafting replies for three tickets", "message from Ana"),
+    (7.5, "waiting_bot", "Refund policy wording from BotOps", "handed off"),
+    (5.2, "running", "Morning ticket triage", "routine"),
+    (4.8, "idle", "Queue clear", "turn finished"),
+    (1.6, "running", "Drafting replies for three tickets", "message from Ana"),
+    (1.3, "blocked", "Refund limit not set", "needs a decision"),
+]
+
 FOCUS = {"support": "Drafting ticket replies", "sales": "Waiting on an approval", "content": "Launch post review",
          "botops": "Refund policy wording", "inbox": "Sorting today's mail", "coo": "Routing requests",
          "librarian": "Watching Northwind"}

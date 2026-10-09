@@ -63,14 +63,25 @@
 .bubble.bot .md>:first-child{margin-top:0}
 .bubble.pending{opacity:.75}
 .bubble{position:relative}
-/* The copy button sits on the bubble's bottom-right corner, faint until wanted; it may overlap the text a little
-   rather than take a row of its own. */
-.chat-message-actions{position:absolute;right:2px;bottom:0;margin:0;white-space:normal;line-height:0}
-.chat-message-actions .chat-message-copy{display:inline-flex;align-items:flex-end;justify-content:flex-end;width:26px;height:26px;padding:0 2px 4px 0;
-  color:var(--muted);background:transparent;border:0;opacity:.45;transition:opacity .12s}
-.bubble:hover .chat-message-copy,.chat-message-actions .chat-message-copy:hover,.chat-message-actions .chat-message-copy:focus-visible{opacity:1;color:var(--ink)}
-.chat-message-copy .nav-icon{font-size:16px}
-@media (pointer:coarse){.chat-message-actions .chat-message-copy{width:40px;height:40px}}   /* a full touch target; it stays transparent */
+/* The copy button. With a mouse it waits just outside the bubble's bottom corner (after a reply, before your own
+   message) and shows on hover or keyboard focus, never over the words. On touch it stays out of the thread until
+   the message is tapped, then sits on its own short line under it (bindChatCopyTap in ui/app/chat.js). */
+.chat-message-actions{margin:0;white-space:normal;line-height:0}
+.chat-message-actions .chat-message-copy{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;
+  color:var(--muted);background:transparent;border:0;border-radius:5px;opacity:0;transition:opacity .12s}
+.chat-message-actions .chat-message-copy:hover{color:var(--ink);background:var(--surface2)}
+.chat-message-copy .nav-icon{font-size:15px}
+@media not (pointer:coarse){
+  .chat-message-actions{position:absolute;bottom:0;left:100%;padding-left:4px}
+  .bubble.you .chat-message-actions{left:auto;right:100%;padding:0 4px 0 0}
+  .bubble.bot{max-width:min(78ch,calc(100% - 30px))}   /* room for the copy button beside a long reply */
+  .bubble:hover .chat-message-copy,.chat-message-actions .chat-message-copy:focus-visible{opacity:1}
+}
+@media (pointer:coarse){
+  .chat-message-actions{display:none}
+  .bubble.acts>.chat-message-actions{display:flex;justify-content:flex-end;margin:2px -6px -6px 0}
+  .bubble.acts .chat-message-copy{width:40px;height:30px;opacity:1}
+}
 
 .conv-act{margin:4px 0 2px}
 .conv-act>summary{color:var(--muted);font-size:12.5px;padding:3px 0}
@@ -305,9 +316,14 @@ body:has(#app-nudge:not([hidden])) #main.bot-split-layout>#bot-top{margin-top:8p
 #main.bot-chat-layout #conv-thread{font-size:var(--read-size);padding-left:max(0px,calc((100% - var(--read-width)) / 2));padding-right:max(4px,calc((100% - var(--read-width)) / 2))}
 #main.bot-chat-layout #pane-chat>#conv-paused,#main.bot-chat-layout #pane-chat>#chat-composer,#main.bot-chat-layout #pane-chat>.bot-chat-tasks,#main.bot-chat-layout #conv-bots{width:100%;max-width:var(--read-width);margin-left:auto;margin-right:auto}
 .bubble .md,.bubble.you{line-height:var(--read-leading)}
-.bubble.you{max-width:min(94%,96ch);background:var(--bubble);border:0;border-radius:12px;border-bottom-right-radius:4px;padding:7px 26px 7px 13px}   /* room for the copy corner */
+.bubble.you{max-width:min(94%,96ch);background:var(--bubble);border:0;border-radius:12px;border-bottom-right-radius:4px;padding:7px 13px}
 .sess-turn.user .body{background:var(--bubble)}
 /* The Assistant's page has no right rail: its column centres on the whole main area. */
 #main.bot-chat-layout:has(.asst-top){max-width:none}
 #main.bot-chat-layout:not(.bot-split-layout) .asst-top{margin:6px 0 var(--s3)}
-@media (pointer:coarse){.bubble.bot,.bubble.bot.reply,#pane-chat .conv-run.chat .bubble.bot.reply{padding-bottom:40px}}   /* the 40px copy target sits below the last line, not over a link in it */
+/* A phone keeps a bot's messages close together; the space opens up only where the speaker changes. */
+@media (max-width:760px){
+  #pane-chat .conv-run.chat{padding:2px 0}
+  #pane-chat .conv-run.chat .bubble{margin:3px 0}
+  #pane-chat .conv-run.chat.from-me,#pane-chat .conv-run.chat.from-me+.conv-run.chat:not(.from-me){padding-top:10px}
+}

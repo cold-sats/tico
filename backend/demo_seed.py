@@ -428,9 +428,15 @@ class Builder:
                     c.execute("UPDATE schedules SET last_fired=max(coalesce(last_fired,''),?) WHERE id=?",
                               (turn["started"], routine["id"]))
                 hubdb.status_result(c, hubdb.KEEPER, bot, last_result=summary, last_turn_at=H.now())
+            # A change's reason is written on the row it closes, so each step's why goes in with the next one.
+            why = ""
+            for hours, state, focus, next_why in D.STATUS_STEPS:
+                self.at(hours=hours)
+                hubdb.status_set(c, hubdb.KEEPER, "support", state=state, focus=focus, reason=why)
+                why = next_why
             self.at(hours=1)
             for bot, focus in D.FOCUS.items():
-                hubdb.status_set(c, hubdb.KEEPER, bot, state="idle", focus=focus)
+                hubdb.status_set(c, hubdb.KEEPER, bot, state="idle", focus=focus, reason=why if bot == "support" else "")
         self.write(work)
 
     def messaging(self):

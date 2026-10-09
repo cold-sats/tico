@@ -1,9 +1,9 @@
 /* A bot's tools (docs/creating-bots.md, "What people see about a bot's tools"), in two places.
-   Beside the bot's name, after its runtime mark: up to three small icons, the service's logo when
-   ui/tool-icons.js has it and the name's first two letters otherwise, then "+N" for the rest; each
-   shows its tool's details on hover or focus (which account or repository, what it may do, its state, so two
-   tools of one service read apart) and opens the full list. The model the bot runs on is left out there, since
-   the runtime mark beside the name already says it. A red dot marks a tool with a problem.
+   Beside the bot's name, after its runtime mark: one button, up to three small icons overlapped (the
+   service's logo when ui/tool-icons.js has it, the name's first two letters otherwise) and "+N" for the rest.
+   It opens a short list, a line a tool (name, what it acts as, a problem), and "Manage" opens the full list.
+   The model the bot runs on is left out there, since the runtime mark beside the name already says it. A red
+   dot marks a tool with a problem.
    The full list is the Tools card under More: every tool with what it acts as, what it may do, its
    scope, note, credential name and status.
    ui/app/bot-page.js calls window.botTools.mountStrip(host, deps) once per bot page and mountList(host,
@@ -13,15 +13,25 @@
   const STRIP_MAX = 3;
 
   const css = `
-.bot-tool-strip{display:inline-flex;align-items:center;gap:6px;flex:none;margin-left:6px}
-.bot-tool-strip .bts-icon{position:relative;flex:none;display:inline-grid;place-items:center;width:16px;height:16px;border-radius:4px;color:var(--muted);text-decoration:none;opacity:.8}
-.bot-tool-strip .bts-icon:hover,.bot-tool-strip .bts-more:hover{opacity:1;color:var(--ink);text-decoration:none}
-.bot-tool-strip a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;opacity:1}
-.bot-tool-strip .bts-icon svg{width:100%;height:100%;display:block}
-.bot-tool-strip .bts-icon.bt-tint{border-radius:50%;background:color-mix(in srgb,hsl(var(--h) 60% 50%) 22%,transparent);color:color-mix(in srgb,hsl(var(--h) 65% 42%) 72%,var(--ink))}
-.bot-tool-strip .tool-initials{font-size:8px;font-weight:600;line-height:1;letter-spacing:0}
-.bot-tool-strip .bt-dot{position:absolute;right:-3px;bottom:-3px;width:7px;height:7px;border-radius:50%;background:var(--fail);border:1.5px solid var(--bg)}
-.bot-tool-strip .bts-more{flex:none;font-size:11px;font-weight:600;line-height:16px;color:var(--muted);text-decoration:none;font-variant-numeric:tabular-nums}
+.bot-tool-strip{position:relative;display:inline-flex;align-items:center;flex:none;margin-left:6px}
+.bts-stack{display:inline-flex;align-items:center;gap:0;height:22px;padding:0 5px 0 3px;border:0;border-radius:11px;background:none;color:var(--muted);cursor:pointer;font:inherit}
+.bts-stack:hover,.bts-stack[aria-expanded=true]{background:var(--surface2);color:var(--ink)}
+.bts-stack:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.bts-icon{position:relative;flex:none;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--surface2);color:var(--ink);box-shadow:0 0 0 1.5px var(--bg)}
+.bts-stack .bts-icon+.bts-icon{margin-left:-5px}
+.bts-icon svg{width:11px;height:11px;display:block}
+.bts-icon.bt-tint{background:color-mix(in srgb,hsl(var(--h) 60% 50%) 22%,var(--surface));color:color-mix(in srgb,hsl(var(--h) 65% 42%) 72%,var(--ink))}
+.bts-icon .tool-initials{font-size:7.5px;font-weight:600;line-height:1;letter-spacing:0}
+.bts-icon .bt-dot{position:absolute;right:-2px;top:-2px;width:6px;height:6px;border-radius:50%;background:var(--fail);border:1px solid var(--bg)}
+.bts-more{flex:none;margin-left:4px;font-size:11px;font-weight:600;line-height:16px;font-variant-numeric:tabular-nums}
+.bts-pop{position:absolute;left:0;top:calc(100% + 6px);z-index:40;min-width:220px;max-width:300px;padding:4px 0;border:1px solid var(--line);border-radius:8px;background:var(--raised);box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:12.5px;line-height:18px}
+.bts-row{display:flex;align-items:center;gap:8px;padding:4px 10px;min-width:0}
+.bts-row .bts-icon{box-shadow:none}
+.bts-row .bts-name{flex:none;font-weight:600;color:var(--ink)}
+.bts-row .bts-id{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.bts-row .bt-problem{flex:none;font-size:11.5px}
+.bts-manage{display:block;margin-top:4px;padding:5px 10px 3px;border-top:1px solid var(--line);font-size:12px;color:var(--accent-quiet)}
+.bts-manage:hover{color:var(--accent)}
 .tool-initials{font-size:11.5px;font-weight:600;letter-spacing:.01em}
 .bt-list .bt-item{display:grid;grid-template-columns:22px minmax(0,1fr);gap:2px 10px;padding:10px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.45}
 .bt-list .bt-item:first-child{border-top:0;padding-top:2px}
@@ -43,10 +53,7 @@
   .bt-list .bt-item.open dl{display:grid}
 }
 .bt-list .bt-problem{color:var(--fail)}
-.bts-tip{max-width:300px}
-.bts-tip .tip-head{display:block;margin-bottom:2px;font-weight:600;overflow-wrap:anywhere}
-.bts-tip .tip-sub{margin-bottom:4px;overflow-wrap:anywhere}
-.bts-tip .bt-problem{color:var(--fail)}`;
+`;
 
   const STATUS = {ready: ['ok', 'Ready'], problem: ['fail', 'Needs attention'], pending: ['', 'Pending'], unknown: ['', 'Not checked']};
   const label = key => String(key).replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase());
@@ -93,31 +100,9 @@
     return [tool.name, shownIdentity(tool), ...facts(tool).map(([k, v]) => k === 'State' ? v : `${k.toLowerCase()} ${v}`)].filter(Boolean).join(', ');
   }
 
-  // One tooltip for the strip, moved to whichever icon the pointer or focus is on (the .tip look of ui/app/tooltip.js).
-  let TIP = null;
-  function tipShow(el, tool, esc) {
-    if (!TIP) {
-      TIP = document.createElement('div');
-      TIP.id = 'bts-tip'; TIP.className = 'tip bts-tip'; TIP.setAttribute('role', 'tooltip'); TIP.hidden = true;
-      document.body.append(TIP);
-    }
-    TIP.innerHTML = `<div class="tip-head">${esc(tool.name)}${tool.identity ? ` · ${esc(shownIdentity(tool))}` : ''}</div>
-      <dl>${facts(tool).map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === 'State' && tool.status === 'problem' ? ' class="bt-problem"' : ''}>${esc(v)}</dd>`).join('')}</dl>`;
-    TIP.hidden = false;
-    el.setAttribute('aria-describedby', 'bts-tip');
-    const r = el.getBoundingClientRect(), box = TIP.getBoundingClientRect();
-    TIP.style.left = Math.max(8, Math.min(r.left, innerWidth - box.width - 8)) + 'px';
-    TIP.style.top = (r.bottom + box.height + 14 > innerHeight ? Math.max(8, r.top - box.height - 6) : r.bottom + 6) + 'px';
-    TIP.owner = el;
-  }
-  function tipHide(el) {
-    if (!TIP || (el && TIP.owner !== el)) return;
-    TIP.hidden = true;
-    TIP.owner?.removeAttribute('aria-describedby');
-    TIP.owner = null;
-  }
-  document.addEventListener('keydown', ev => { if (ev.key === 'Escape') tipHide(); });
-  window.addEventListener('hashchange', () => tipHide());
+  // One open list at a time; leaving the page closes it.
+  let closeOpen = null;
+  window.addEventListener('hashchange', () => closeOpen?.());
 
   function style() {
     if (document.getElementById('bot-tools-style')) return;
@@ -144,29 +129,51 @@
     return {tools, reportError: page?.report_error || ''};
   }
 
-  // Beside the name: three icons at most and "+N", every one a link to the full list (deps.href).
+  // Beside the name: one button, up to three small icons overlapped and "+N"; it opens a short list of the
+  // tools (name, what it acts as, a problem in red) with "Manage" to the full list (deps.href).
   function mountStrip(host, deps) {
     if (!host) return;
     style();
     const {slug, get, esc, href, skipModel} = deps;
     host.classList.add('bot-tool-strip');
-    host.setAttribute('role', 'group');
-    host.setAttribute('aria-label', 'Tools');
-    let tools = [];
+    let tools = [], open = false;
+    const shownTools = () => skipModel ? tools.filter(t => t.id !== 'model') : tools;
+    const icon = tool => `<span class="bts-icon${tint(tool)}" data-tool="${esc(tool.id)}">${icons().markup(tool)}${tool.status === 'problem' ? '<span class="bt-dot" aria-hidden="true"></span>' : ''}</span>`;
+    function close(focus) {
+      if (!open) return;
+      open = false; closeOpen = null;
+      host.querySelector('.bts-pop')?.remove();
+      host.querySelector('.bts-stack')?.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('pointerdown', outside, true);
+      if (focus) host.querySelector('.bts-stack')?.focus();
+    }
+    function outside(ev) { if (!host.contains(ev.target)) close(false); }
+    function openPop() {
+      const shown = shownTools();
+      open = true; closeOpen = () => close(false);
+      const pop = document.createElement('div');
+      pop.className = 'bts-pop'; pop.id = 'bts-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Tools');
+      pop.innerHTML = shown.map(tool => `<div class="bts-row" data-tool="${esc(tool.id)}" title="${esc(summary(tool))}">${icon(tool)}
+          <span class="bts-name">${esc(tool.name)}</span><span class="bts-id">${esc(shownIdentity(tool) || '')}</span>${
+          tool.status === 'problem' ? `<span class="bt-problem">${esc(stateWord(tool))}</span>` : ''}</div>`).join('')
+        + `<a class="bts-manage" href="${esc(href)}">Manage</a>`;
+      host.append(pop);
+      host.querySelector('.bts-stack').setAttribute('aria-expanded', 'true');
+      pop.querySelector('.bts-manage').addEventListener('click', () => close(false));
+      document.addEventListener('pointerdown', outside, true);
+      pop.querySelector('.bts-manage').focus();
+    }
+    host.addEventListener('keydown', ev => { if (ev.key === 'Escape' && open) { ev.stopPropagation(); close(true); } });
     function render() {
-      const shown = skipModel ? tools.filter(t => t.id !== 'model') : tools;
+      const shown = shownTools();
       host.hidden = !shown.length;
       const few = shown.slice(0, STRIP_MAX), rest = shown.length - few.length;
-      tipHide();
-      host.innerHTML = few.map(tool => `<a class="bts-icon${tint(tool)}" href="${esc(href)}" data-tool="${esc(tool.id)}"
-          aria-label="${esc(summary(tool))}">${icons().markup(tool)}${tool.status === 'problem' ? '<span class="bt-dot" aria-hidden="true"></span>' : ''}</a>`).join('')
-        + (rest > 0 ? `<a class="bts-more" href="${esc(href)}" title="All ${tools.length} tools" aria-label="All ${tools.length} tools">+${rest}</a>` : '');
-      for (const el of host.querySelectorAll('.bts-icon')) {
-        const tool = few.find(t => t.id === el.dataset.tool);
-        const show = () => tipShow(el, tool, esc), hide = () => tipHide(el);
-        el.addEventListener('mouseenter', show); el.addEventListener('focus', show);
-        el.addEventListener('mouseleave', hide); el.addEventListener('blur', hide); el.addEventListener('click', hide);
-      }
+      const wasOpen = open;
+      close(false);
+      host.innerHTML = `<button type="button" class="bts-stack" aria-haspopup="dialog" aria-expanded="false" aria-controls="bts-pop"
+          aria-label="Tools: ${shown.length}" title="Tools">${few.map(icon).join('')}${rest > 0 ? `<span class="bts-more">+${rest}</span>` : ''}</button>`;
+      host.querySelector('.bts-stack').addEventListener('click', () => open ? close(false) : openPop());
+      if (wasOpen) openPop();
     }
     async function refresh() {
       try { const got = await load(slug, get); if (!host.isConnected) return; tools = got.tools; }
