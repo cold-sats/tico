@@ -368,6 +368,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.equal(patches[1].body.note, 'Rewrote it');
 
     // ---- history: who changed it, view an old version, restore it
+    await page.locator('#doc-more').click();
     await page.locator('#doc-history').click();
     await page.locator('.docs-history-list button').first().waitFor();
     assert.deepEqual(await page.locator('.docs-history-list .docs-history-top strong').allInnerTexts(), ['v3', 'v2', 'v1']);
@@ -379,11 +380,12 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await shot(page, 'history');
     await page.locator('.docs-history [type=button].primary, .docs-history button.primary').click();
     await page.locator('.docs-history').waitFor({state: 'detached'});
-    await page.locator('#docs-reader > .docs-content li strong', {hasText: 'Laptop'}).waitFor();
+    await page.locator('#docs-reader .docs-content li strong', {hasText: 'Laptop'}).waitFor();
     assert.match(await page.locator('.docs-reader-head').textContent(), /Version 4/);
     assert.equal(versions.get(newId)[0].note, 'Restored version 1');
 
     // ---- lock: owners and bot administrators only
+    await page.locator('#doc-more').click();
     await page.locator('#doc-lock').click();
     await page.locator('.docs-lock-badge').waitFor();
     assert.equal(docs.get(newId).locked, true);
@@ -395,6 +397,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.equal(await page.locator('#doc-lock').count(), 0);
     assert.equal(await page.locator('#doc-edit').getAttribute('aria-disabled'), 'true');
     assert.match(await page.locator('.docs-locked-note').textContent(), /only an owner or bot administrator/i);
+    await page.locator('#doc-more').click();
     await page.locator('#doc-history').click();
     await page.locator('.docs-history-list button', {hasText: 'v1'}).click();
     await page.locator('.docs-history button.primary').waitFor();
@@ -490,16 +493,20 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     add('doc-000000000002', 'pricing.md', 'Pricing and plans', '# Pricing and plans');
     await page.setViewportSize({width: 1280, height: 860});
     await page.goto('https://tico-ui.test/#/docs/doc-000000000002');
+    await page.locator('#doc-more').click();
     await page.locator('#doc-archive').click();
     await page.locator('.toast button').filter({hasText: 'Undo'}).click();
-    await page.locator('#doc-archive').waitFor();
+    await page.locator('#doc-archive').waitFor({state: 'attached'});
     assert.equal(docs.get('doc-000000000002').archived, false);
+    await page.locator('#doc-more').click();
     await page.locator('#doc-archive').click();
-    await page.locator('.docs-actions a').filter({hasText: /^Archived$/}).click();
+    await page.locator('#docs-more').click();
+    await page.locator('#docs-archived').filter({hasText: /^Archived$/}).click();
     await page.locator('#docs-h-internal').filter({hasText: 'Archived docs'}).waitFor();
     await page.locator('.docs-item').filter({hasText: 'Pricing and plans'}).click();
+    await page.locator('#doc-more').click();
     await page.locator('#doc-archive').filter({hasText: 'Restore'}).click();
-    await page.locator('#doc-archive').filter({hasText: 'Archive'}).waitFor();
+    await page.locator('#doc-archive').filter({hasText: 'Archive'}).waitFor({state: 'attached'});
     assert.equal(docs.get('doc-000000000002').archived, false);
     await page.close();
 

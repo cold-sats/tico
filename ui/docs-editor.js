@@ -35,11 +35,10 @@
         <span class="muted">Markdown</span></div>
       <textarea name="body" class="docs-textarea" spellcheck="true" aria-label="Markdown" placeholder="# Heading"></textarea>
       <div class="docs-preview md docs-content" hidden aria-label="Preview"></div>
-      <label class="gs-field"><span>What changed? <em>(optional)</em></span><input name="note" type="text" maxlength="300" autocomplete="off" placeholder="Shortened the refund window"></label>
       <div class="docs-conflict" role="alert" hidden></div>
       <p class="err" data-error role="alert" hidden></p>
-      <div class="docs-editor-actions"><button class="primary" type="submit">Save</button>
-        <button class="ghost" type="button" data-cancel>Cancel</button><span class="muted" data-status role="status"></span></div>`;
+      <div class="docs-editor-actions"><input name="note" type="text" maxlength="300" autocomplete="off" aria-label="What changed? (optional)" placeholder="What changed? (optional)">
+        <span class="muted" data-status role="status"></span><button class="ghost" type="button" data-cancel>Cancel</button><button class="primary" type="submit" title="Save (⌘S)">Save</button></div>`;
     form.elements.title.value = doc?.title || '';
     form.elements.path.value = doc?.path || (folder ? folder + '/' : '');
     form.elements.body.value = doc?.body || '';
@@ -53,7 +52,17 @@
       area.hidden = show; preview.hidden = !show;
       if (show) preview.innerHTML = area.value.trim() ? safeMd(area.value, {documentImages: true}) : '<p class="muted">Nothing to preview yet.</p>';
     });
-    form.querySelector('[data-cancel]').onclick = () => onCancel?.();
+    // Unsaved text: leaving by Cancel, the list or a reload asks first (ui/docs-page.js reads data-dirty).
+    const start = () => [form.elements.title.value, form.elements.path.value, area.value].join('\u0000');
+    const initial = start();
+    const onUnload = event => { if (form.isConnected && form.dataset.dirty === '1') { event.preventDefault(); event.returnValue = ''; } };
+    form.addEventListener('input', () => { form.dataset.dirty = start() === initial ? '' : '1'; });
+    window.addEventListener('beforeunload', onUnload);
+    const done = () => { form.dataset.dirty = ''; window.removeEventListener('beforeunload', onUnload); };
+    form.querySelector('[data-cancel]').onclick = () => {
+      if (form.dataset.dirty === '1' && !confirm('Discard your changes to this doc?')) return;
+      done(); onCancel?.();
+    };
     form.addEventListener('keydown', event => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); form.requestSubmit(); }
     });
@@ -84,6 +93,7 @@
         else saved = await writeRequest('PATCH', '/v2/docs/' + encodeURIComponent(doc.id),
           {version, title, body: area.value, ...(path && path !== doc.path ? {path} : {}), note});
         say('');
+        done();
         onSaved?.(saved.doc);
       } catch (error) {
         say('');
