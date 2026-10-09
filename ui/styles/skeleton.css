@@ -10,4 +10,4 @@
 @keyframes skel{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.skel-dot,.skel-bar{animation:none}}
 /* A button whose write is still in flight (pressPending in app/api.js). */
-.is-pending{cursor:progress;opacity:.6;transition:opacity .12s}
+.is-pending{cursor:progress;opacity:.6;transition:opacity var(--dur-fast) var(--ease)}
