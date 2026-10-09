@@ -489,8 +489,7 @@ async function botUpdatesCardLoad(slug) {
   if (!$('#bot-updates') || BOT?.slug !== slug) return;
   if (!r) { host.innerHTML = '<div class="empty">Could not load.</div>'; return; }
   host.innerHTML = ['daily', 'weekly'].map(k => `<label class="upd-switch"><input type="checkbox" data-upd-set="${k}"${r[k] ? ' checked' : ''}>
-      <span>${k === 'daily' ? 'Daily update' : 'Friday week in review'}</span></label>`).join('')
-    + `<a class="linkish" href="${UPDATES}">See updates</a>`;
+      <span>${k === 'daily' ? 'Daily update' : 'Friday week in review'}</span></label>`).join('');   // "See updates" is in the card's header
   host.onchange = async ev => {
     const box = ev.target.closest('[data-upd-set]'); if (!box) return;
     try { await post(`/v2/bots/${encodeURIComponent(slug)}/updates`, {[box.dataset.updSet]: box.checked}); toast('Saved'); }

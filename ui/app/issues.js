@@ -318,9 +318,9 @@ function accessTable(e) {
   return `<div class="acc-summary">
       <div><span class="k">Email</span> ${emailLine}</div>
       <div><span class="k">Outbound</span> ${e.outbound_send ? '<strong>on</strong>' : '<strong>off</strong>: drafts only'}</div>
-      ${e.secrets_file ? '' : '<div><span class="muted">No credentials file yet: nothing is connected.</span></div>'}
+      ${e.secrets_file ? '' : '<div><span class="muted">No credentials file.</span></div>'}
     </div>
-    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : '<div class="empty">No tools.</div>'}`;
+    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : ''}`;
 }
 
 async function pageRuns() {

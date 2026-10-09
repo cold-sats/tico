@@ -309,7 +309,7 @@ async function pageBot(slug, tab) {
       <p>${esc(v2StatusOf(slug)?.focus || 'Paused after refused actions.')}${v2StatusOf(slug)?.quarantine?.resumes_at ? ` It resumes by itself at ${esc(clockTime(v2StatusOf(slug).quarantine.resumes_at))}.` : /(refused writes|repeated refusals|refusals) today$/.test(v2StatusOf(slug)?.focus || '') ? ' It resumes by itself within an hour.' : ''}</p>
       <p class="muted" id="bot-quarantine-result"></p>
     </section>` : ''}
-    <section class="card" id="bot-updates-card"><header><h2>Updates</h2></header>
+    <section class="card" id="bot-updates-card"><header><h2>Updates</h2><a class="linkish" href="${UPDATES}">See updates</a></header>
       <div id="bot-updates"><div class="empty">Loading…</div></div></section>
     <section class="card" id="bot-goals-card"><header><h2>Goals</h2>
         <button class="linkish" type="button" id="bot-goals-add">Add goal</button></header>
@@ -319,7 +319,8 @@ async function pageBot(slug, tab) {
     <section class="card" id="bot-access-card"><header><h2>Access</h2></header>
       ${accessTable(e)}</section>
 
-    <section class="card" id="bot-routines"><header><h2>Routines</h2></header>
+    <section class="card" id="bot-routines"><header><h2>Routines</h2>${routineMayEdit({bot: slug}) ? `
+        <button class="linkish" type="button" data-new-routine="${esc(slug)}">New routine</button>` : ''}</header>
       <div id="bot-routines-list">${botRoutinesHTML(e, slug)}</div>
     </section>
 

@@ -14,17 +14,18 @@
 
   const css = `
 .bot-tool-strip{position:relative;display:inline-flex;align-items:center;flex:none;margin-left:6px}
-.bts-stack{display:inline-flex;align-items:center;gap:0;height:22px;padding:0 5px 0 3px;border:0;border-radius:11px;background:none;color:var(--muted);cursor:pointer;font:inherit}
+.bts-stack{display:inline-flex;align-items:center;gap:0;height:24px;padding:0 6px 0 3px;border:0;border-radius:11px;background:none;color:var(--muted);cursor:pointer;font:inherit}
 .bts-stack:hover,.bts-stack[aria-expanded=true]{background:var(--surface2);color:var(--ink)}
 .bts-stack:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.bts-icon{position:relative;flex:none;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--surface2);color:var(--ink);box-shadow:0 0 0 1.5px var(--bg)}
-.bts-stack .bts-icon+.bts-icon{margin-left:-5px}
+.bts-icon{position:relative;flex:none;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--surface2);color:var(--ink);box-shadow:0 0 0 2px var(--bg)}
+.bts-stack .bts-icon+.bts-icon{margin-left:-3px}   /* about a third under the one before, which stays on top */
+.bts-stack .bts-icon:nth-child(1){z-index:3}.bts-stack .bts-icon:nth-child(2){z-index:2}.bts-stack .bts-icon:nth-child(3){z-index:1}
 .bts-icon svg{width:11px;height:11px;display:block}
 .bts-icon.bt-tint{background:color-mix(in srgb,hsl(var(--h) 60% 50%) 22%,var(--surface));color:color-mix(in srgb,hsl(var(--h) 65% 42%) 72%,var(--ink))}
 .bts-icon .tool-initials{font-size:7.5px;font-weight:600;line-height:1;letter-spacing:0}
 .bts-icon .bt-dot{position:absolute;right:-2px;top:-2px;width:6px;height:6px;border-radius:50%;background:var(--fail);border:1px solid var(--bg)}
 .bts-more{flex:none;margin-left:4px;font-size:11px;font-weight:600;line-height:16px;font-variant-numeric:tabular-nums}
-.bts-pop{position:absolute;left:0;top:calc(100% + 6px);z-index:40;min-width:220px;max-width:300px;padding:4px 0;border:1px solid var(--line);border-radius:8px;background:var(--raised);box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:12.5px;line-height:18px}
+.bts-pop{position:absolute;left:0;top:calc(100% + 6px);z-index:40;min-width:220px;max-width:300px;padding:4px 0;border:1px solid color-mix(in srgb,var(--ink) 16%,transparent);border-radius:8px;background:var(--raised);box-shadow:0 8px 28px rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.2);font-size:12.5px;line-height:18px}
 .bts-row{display:flex;align-items:center;gap:8px;padding:4px 10px;min-width:0}
 .bts-row .bts-icon{box-shadow:none}
 .bts-row .bts-name{flex:none;font-weight:600;color:var(--ink)}

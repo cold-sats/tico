@@ -171,6 +171,9 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .sh-focus{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sh-focus .muted{font-size:12px}
 .sh-when{flex:none;font-size:12px}
+/* a card's one action sits in its header, small, after the title */
+#pane-more section.card>header .linkish{font-size:12.5px;font-weight:400;text-decoration:none}
+#pane-more section.card>header .linkish:hover{text-decoration:underline}
 .bot-more-top>:empty,.bot-more-top:not(:has(>:not(:empty):not([hidden]))){display:none!important}   /* nothing to show yet: no gap, no margin */
 @media (max-width:760px){
   #pane-more:not([hidden]){display:flex;flex-direction:column}
@@ -206,9 +209,4 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   #bot-access-card td:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   #bot-access-card td:nth-child(5){display:none}
   #bot-access-card .acc-summary{font-size:12.5px;margin-bottom:6px}
-}
-@media (max-width:760px){
-  #pane-more>#bot-routines{position:relative}
-  #bot-routines-list>.row:first-child{position:absolute;top:8px;right:14px}
-  #bot-routines-list>.row:first-child .ghost{font-size:12.5px;padding:3px 8px}
 }
