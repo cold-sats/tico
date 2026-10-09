@@ -119,9 +119,9 @@ async function shot(page, name) {
         await page.locator('[data-note-row=one]').waitFor({state: 'detached'});
         await page.locator('[data-review=pending]').click();
         await page.locator('[data-review-check=one]').check();
-        await page.locator('[data-review-bulk=approve_all]').click();
+        assert.equal(await page.locator('#meet-review-bulk').isHidden(), true, 'one ticked row: the row actions are enough');
+        await page.locator('[data-note-row=one] [data-review-action=approve]').click();
         await page.locator('[data-note-row=one]').waitFor({state: 'detached'});
-        assert.deepEqual(writes.find(w => w.action === 'approve_all').ids, ['one']);
         await page.locator('#meet-settings').click();
         const settings = page.getByRole('dialog', {name: 'Meeting settings'});
         await settings.locator('[name=personal]').selectOption('auto');
@@ -131,7 +131,8 @@ async function shot(page, name) {
         await settings.waitFor({state: 'detached'});
         assert.equal(await page.locator('.meet-row').count(), 1, 'Auto-share leaves the existing queue pending');
         assert.deepEqual(writes.at(-1).settings, {auto_share: true, review_default: 'auto'});
-        await page.locator('[data-review-bulk=dismiss_all]').click();
+        assert.equal(await page.locator('#meet-select-all').isHidden(), true, 'no Select all for one row');
+        await page.locator('[data-note-row=three] [data-review-action=dismiss]').click();
         await page.locator('.notes-empty').waitFor();
         assert.equal(rows.find(r => r.id === 'other').review_state, 'pending');
         assert.equal(await page.locator('[data-meet-pending]:visible').count(), 0);
@@ -145,6 +146,7 @@ async function shot(page, name) {
     const {context, page, writes, errors} = await open(browser, {width: 390, height: 844}, 'light', 'human');
     await page.locator('[data-review=pending]').click();
     await page.locator('[data-note-row=one]').waitFor();
+    await page.locator('#meet-select-all input').check();
     await page.locator('[data-review-bulk=approve_all]').click();
     await page.locator('.notes-empty').waitFor();
     assert.equal(writes.at(-1).action, 'approve_all'); assert.deepEqual(writes.at(-1).ids, ['one', 'two', 'three']);
@@ -168,22 +170,21 @@ async function shot(page, name) {
         // A selected row becoming invisible must never be sent by a visible-list button.
         await page.locator('[data-review-check=two]').check();
         if (filter === 'search') {
-          await page.locator('#notes-search').fill('Planning review');
-          await page.locator('[data-note-row=three]').waitFor({state: 'detached'});
+          await page.locator('#notes-search').fill('review');
         } else {
           await page.locator('#notes-source').selectOption('zoom');
         }
         await page.locator('[data-note-row=two]').waitFor({state: 'detached'});
-        const visible = filter === 'search' ? ['one'] : ['one', 'three'];
+        const visible = ['one', 'three'];
+        await page.locator('#meet-select-all input').check();
         const button = page.locator(`[data-review-bulk=${action}]`);
-        assert.equal(await button.textContent(), action === 'approve_all' ? 'Share visible' : 'Dismiss visible');
+        assert.equal(await button.textContent(), action === 'approve_all' ? 'Share 2' : 'Dismiss 2');
         if (action === 'approve_all' && filter === 'search') await shot(page, 'desktop-share-visible-light');
         await button.click();
         await page.locator('[data-note-row=one]').waitFor({state: 'detached'});
         assert.deepEqual(writes.at(-1).ids, visible);
         assert.equal(rows.find(r => r.id === 'two').review_state, 'pending', 'filtered-out private meeting stays pending');
         assert.equal(rows.find(r => r.id === 'other').review_state, 'pending', 'another person stays private');
-        if (filter === 'search') assert.equal(rows.find(r => r.id === 'three').review_state, 'pending');
         assert.deepEqual(errors, []);
         await context.close();
       }

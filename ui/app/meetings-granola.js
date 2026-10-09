@@ -184,7 +184,7 @@ function granolaFacts(s, syncing) {
   return [s.email ? `<span class="mg-email" title="${esc(s.email)}">${esc(s.email)}</span>` : '',
     syncing ? '<span class="mg-syncing"><i class="mg-spin" aria-hidden="true"></i>Syncing…</span>'
       : `<span>${s.last_sync ? 'Synced ' + esc(ago(s.last_sync)) : 'Not synced yet'}</span>`,
-    `<span${free}>${n} ${n === 1 ? 'note' : 'notes'}</span>`,
+    `<span class="mg-count"${free}>${n} ${n === 1 ? 'note' : 'notes'}</span>`,
     skipped ? `<span class="mg-skip" title="${skipped} ${skipped === 1 ? 'note' : 'notes'} from Granola could not be imported">${skipped} skipped</span>` : ''].filter(Boolean).join('');
 }
 // The row says how the account is doing; signing in happens in a dialog (granolaDialog), so the row never grows.
@@ -281,6 +281,10 @@ function granolaWire(state, row) {
   };
 }
 document.addEventListener('click', event => {
+  const sources = $('#meet-sources .meet-src-menu');
+  if (sources && !sources.hidden && !event.target.closest?.('#meet-sources')) {
+    sources.hidden = true; $('#meet-sources .meet-src-btn')?.setAttribute('aria-expanded', 'false');
+  }
   const row = $('#mg-row');
   if (row && !event.target.closest?.('.mg-more-wrap')) granolaMenu(row, false);
 });

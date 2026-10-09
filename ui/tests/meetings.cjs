@@ -104,7 +104,9 @@ async function shot(page, name) {
       await dialog.locator('select[name=runner]').selectOption('mac');
       w.sources = SOME;
       await dialog.locator('button[type=submit]').click();
-      await page.waitForFunction(() => document.querySelector('.meet-blank [data-msrc=granola] .mt-status')?.textContent.includes('Connected'));
+      // Once something is connected the large tiles give way to a plain line and the quiet Add source menu.
+      await page.waitForFunction(() => !document.querySelector('.meet-blank') && /No shared meetings yet/.test(document.querySelector('#notes-rows')?.textContent || ''));
+      assert.equal(await page.locator('#meet-sources .meet-src-btn').isVisible(), true);
       assert.deepEqual(w.saved, [{source: 'granola', enabled: true, runner_id: 'mac'}]);
       await page.keyboard.press('Escape');
       await dialog.waitFor({state: 'detached'});
@@ -129,7 +131,7 @@ async function shot(page, name) {
       await retired.waitFor({state: 'detached'});
 
       // Close goes to its integration page.
-      assert.equal(await page.locator('.meet-blank a[data-state]').first().getAttribute('href'), '#/integrations/close-crm');
+      assert.equal(await page.locator('#meet-sources a[data-state]').first().getAttribute('href'), '#/integrations/close-crm');
 
       // Add notes: notes alone are filed as "manual"; a dropped or uploaded transcript files as an upload.
       await page.locator('#notes-manual').click();

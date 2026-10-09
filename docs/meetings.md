@@ -35,8 +35,8 @@ In Meetings, **Shared** keeps the existing live list; **Pending** and **Dismisse
 meetings filed for you. The page opens on Pending while it has meetings. Open a pending meeting to read it
 and choose Team or Private and the bot to send it to before sharing, or use the row's **Share & send** to keep
 its source privacy and send it to your Assistant. Sharing alone files no tasks: the bot a meeting is sent to
-does, and the row shows **Processing** while it works and then what it created. Select rows for Share selected
-or Dismiss selected; Share visible and Dismiss visible apply only to meetings shown by the current
+does, and the row shows **Processing** while it works and then what it created. Tick two or more rows (or
+the select-all box) for Share and Dismiss on all of them; they apply only to ticked meetings shown by the current
 search and filters. Hidden meetings are never included, even if previously selected. Bulk sharing
 keeps each meeting's source privacy. Restore in Dismissed
 returns a meeting to Pending. **Settings** controls future imports and, for the owner, the Team default.
@@ -74,8 +74,8 @@ meeting has `review_state` (`pending`, `live` or `dismissed`). The rail's existi
 The same preference is available at `GET`/`POST /api/v2/preferences/meetings.auto_share`, using
 the existing `{"value": true|false}` body. Only the owner can set the Team default through
 `POST /api/v2/meetings/settings {"review_default": "auto"}`; its initial value is `review`.
-A person's choice wins. Turning auto-share on leaves their existing queue pending: use Share visible
-to approve the meetings shown, or the explicit whole-queue CLI/API action.
+A person's choice wins. Turning auto-share on leaves their existing queue pending: tick the meetings shown
+and Share them, or the explicit whole-queue CLI/API action.
 
 CLI: `hub meeting pending`, `hub meeting approve <id>` or `hub meeting approve --all`,
 `hub meeting dismiss <id>`, and `hub meeting restore <id>`. MCP equivalents are
@@ -231,10 +231,10 @@ and 365; it makes one bounded pass, then exits. Restart the service afterward. O
 service to stop: move `secrets/close-calls.env` aside so the runner stops the job, run the backfill, then put it back. The worker stops with an
 error if a single day exceeds its 5,000-activity page limit, so narrow the window and retry.
 
-The **Sources** strip on the Meetings page shows a tile for Close and for each importer below, with the worker's
+The **Add source** menu beside Settings on the Meetings page lists Close and each importer below, with the worker's
 heartbeat in one word: **Connect** until the worker connects, **Connected** (with the last import) after a recent
-successful pull, **Delayed** when its heartbeat is stale, **Error** after a failed pull. With no meetings yet, the
-page shows the same tiles large, with **Add notes**. A tile opens that source's setup: Close its tool page,
+successful pull, **Delayed** when its heartbeat is stale, **Error** after a failed pull (a red dot on the menu).
+With no meetings and nothing connected, the page shows them as large tiles, with **Add notes**. An entry opens that source's setup: Close its tool page,
 the others a dialog with the same form as Tools > Meeting importers (owners only).
 
 ## Meeting importers

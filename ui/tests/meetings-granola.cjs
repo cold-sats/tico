@@ -274,6 +274,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     ({page, errors, context} = await open(browser, desk, w));
     await page.locator('.meet-row').first().waitFor();
     await page.waitForFunction(() => document.querySelector('#meet-granola')?.hidden === true);
+    await page.locator('#meet-sources .meet-src-btn').click();
     await page.locator('#meet-sources [data-msrc=granola]').click();
     await page.locator('dialog[aria-label="Connect Granola"]').waitFor();
     await context.close();

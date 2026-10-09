@@ -29,14 +29,14 @@ async function pageNotes() {
       <button type="button" role="tab" data-review="live" aria-selected="false">Shared</button>
       <button type="button" role="tab" data-review="pending" aria-selected="false">Pending <span class="meet-pending-n" id="meet-pending-count"></span></button>
       <button type="button" role="tab" data-review="dismissed" aria-selected="false">Dismissed</button></div>
+      <div class="meet-sources" id="meet-sources" hidden></div>
       <button class="linkish" type="button" id="meet-settings">Settings</button></div>
     <section class="meet-granola" id="meet-granola" aria-label="Granola" hidden></section>
-    <section class="meet-sources" id="meet-sources" aria-label="Sources"></section>
     <div class="meet-review-help muted" id="meet-review-help" hidden></div>
     <div class="meet-review-bulk" id="meet-review-bulk" hidden></div>
     <div class="notes" id="notes">
       <div class="meet-syncing" id="meet-syncing" role="status" hidden>${meetLogo('granola', 30)}<div class="meet-main"><b>Checking Granola</b><div class="meet-meta"><span>New notes arrive once Granola has a summary</span></div></div><div class="meet-side"><span class="meet-state"><i class="mg-spin" aria-hidden="true"></i>Syncing</span></div></div>
-      <section class="notes-list"><div class="notes-filters" id="notes-filters" hidden><select id="notes-when" aria-label="When"><option value="all">Any time</option><option value="today">Today</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="older">Older than 30 days</option></select><select id="notes-person" aria-label="Participant"><option value="">All participants</option></select><select id="notes-source" aria-label="Source"><option value="">All sources</option></select><select id="notes-status" aria-label="Status"><option value="all">All statuses</option><option value="unsent">Not sent</option><option value="sent">Sent</option><option value="sending">Sending</option><option value="failed">Failed</option></select><span class="notes-count muted" id="notes-count"></span></div><div class="notes-rows" id="notes-rows"><div class="notes-empty">Loading…</div></div></section>
+      <section class="notes-list"><div class="notes-filters" id="notes-filters" hidden><label class="meet-select-all" id="meet-select-all" hidden><input type="checkbox" aria-label="Select all shown meetings"></label><select id="notes-when" aria-label="When"><option value="all">Any time</option><option value="today">Today</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="older">Older than 30 days</option></select><select id="notes-person" aria-label="Participant"><option value="">All participants</option></select><select id="notes-source" aria-label="Source"><option value="">All sources</option></select><select id="notes-status" aria-label="Status"><option value="all">All statuses</option><option value="unsent">Not sent</option><option value="sent">Sent</option><option value="sending">Sending</option><option value="failed">Failed</option></select><span class="notes-count muted" id="notes-count"></span></div><div class="notes-rows" id="notes-rows"><div class="notes-empty">Loading…</div></div></section>
     </div>
     <dialog class="tmodal notes-modal" id="notes-modal" aria-label="Meeting details"><div class="notes-modal-close"><button class="ghost" type="button" id="notes-modal-window" aria-label="Open in its own window" title="Open in its own window"><span class="nav-icon" aria-hidden="true">open_in_new</span></button><button class="ghost" type="button" id="notes-modal-close" aria-label="Close meeting">✕</button></div><section class="notes-detail" id="notes-detail"></section></dialog>
     <dialog class="tmodal import-modal" id="manual-modal" aria-label="Add notes"></dialog>`;
@@ -106,16 +106,24 @@ function meetReviewTabs(state) {
   if (help) { help.hidden = state.review === 'live'; help.textContent = state.review === 'pending'
     ? 'Only you see these until you share them.' : 'Only you see dismissed meetings.'; }
 }
+// Bulk actions appear only once two or more shown rows are ticked; a hidden row is never part of them.
 function meetReviewBulk(state) {
   const el = $('#meet-review-bulk'); if (!el) return;
   const visible = meetVisible(state), selected = visible.filter(r => state.checked.has(r.id)).length;
-  el.hidden = state.review !== 'pending' || !visible.length;
-  el.innerHTML = `<label><input type="checkbox" id="meet-select-all" aria-label="Select visible meetings"${visible.length && visible.every(r => state.checked.has(r.id)) ? ' checked' : ''}> Select all</label>
-    <span class="muted">${selected ? `${selected} selected` : `${visible.length} visible`}</span><span class="spacer"></span>
-    <button class="primary" type="button" data-review-bulk="approve_all">${selected ? 'Share selected' : 'Share visible'}</button>
-    <button class="ghost" type="button" data-review-bulk="dismiss_all">${selected ? 'Dismiss selected' : 'Dismiss visible'}</button>`;
-  $('#meet-select-all').onchange = e => { for (const r of visible) e.target.checked ? state.checked.add(r.id) : state.checked.delete(r.id); meetList(state); };
+  const all = $('#meet-select-all');
+  if (all) {
+    all.hidden = state.review !== 'pending' || visible.length < 2;
+    const box = all.querySelector('input');
+    box.checked = visible.length > 0 && visible.every(r => state.checked.has(r.id));
+    box.onchange = () => { for (const r of visible) box.checked ? state.checked.add(r.id) : state.checked.delete(r.id); meetList(state); };
+  }
+  el.hidden = state.review !== 'pending' || selected < 2;
+  el.innerHTML = `<span>${selected} selected</span><span class="spacer"></span>
+    <button class="primary small" type="button" data-review-bulk="approve_all">Share ${selected}</button>
+    <button class="ghost small" type="button" data-review-bulk="dismiss_all">Dismiss ${selected}</button>
+    <button class="linkish" type="button" data-review-clear>Clear</button>`;
   el.querySelectorAll('[data-review-bulk]').forEach(b => b.onclick = () => meetReviewAct(state, b, b.dataset.reviewBulk));
+  el.querySelector('[data-review-clear]').onclick = () => { state.checked.clear(); meetList(state); };
 }
 function meetReviewWire(state, host) {
   host.querySelectorAll('[data-review-action]').forEach(b => b.onclick = () => meetReviewAct(state, b, b.dataset.reviewAction, b.dataset.id));
@@ -127,10 +135,10 @@ async function meetReviewAct(state, button, action, id) {
   if (state.reviewBusy) return;
   const visible = id ? [] : meetVisible(state).map(r => r.id);
   const selected = visible.filter(id => state.checked.has(id));
-  if (!id && !visible.length) return;
+  if (!id && !selected.length) return;
   state.reviewBusy = true; button.disabled = true;
   const body = {action};
-  if (!id) body.ids = selected.length ? selected : visible;
+  if (!id) body.ids = selected;
   const detail = id && button.closest('#notes-detail');
   const privacy = detail?.querySelector('#meet-review-private');
   if (action === 'approve' && privacy) body.private = privacy.value === 'private';
@@ -224,8 +232,8 @@ function meetTile(state, source, big) {
   const when = mine ? (mine.when ? ago(mine.when) : '') : st.key === 'on' ? ago(row.last_import || row.last_success) : '';
   const label = `${source.name}: ${st.word || 'Connect'}${when ? (mine ? ', synced ' : ', last import ') + when : ''}`;
   const attrs = source.id === 'close' ? `href="${INTEGRATIONS}/close-crm"` : `type="button" data-msrc="${esc(source.id)}"${S.me?.role === 'owner' || account ? '' : ' disabled title="The owner connects sources"'}`;
-  return `<${source.id === 'close' ? 'a' : 'button'} class="meet-tile${big ? ' big' : ''}" data-state="${st.key}" ${attrs} aria-label="${esc(label)}">
-      ${meetLogo(source.id, big ? 40 : 30)}<span class="mt-text"><b>${esc(source.name)}</b><span class="mt-status">${st.key && st.key !== 'off' ? '<i class="dot" aria-hidden="true"></i>' : ''}${esc(st.word)}${when ? ` <span class="mt-when">${esc(when)}</span>` : ''}</span></span></${source.id === 'close' ? 'a' : 'button'}>`;
+  return `<${source.id === 'close' ? 'a' : 'button'} class="meet-tile${big ? ' big' : ' item'}" data-state="${st.key}" ${attrs}${big ? '' : ' role="menuitem"'} aria-label="${esc(label)}">
+      ${meetLogo(source.id, big ? 40 : 20)}<span class="mt-text"><b>${esc(source.name)}</b><span class="mt-status">${st.key && st.key !== 'off' ? '<i class="dot" aria-hidden="true"></i>' : ''}${esc(st.word)}${when ? ` <span class="mt-when">${esc(when)}</span>` : ''}</span></span></${source.id === 'close' ? 'a' : 'button'}>`;
 }
 // With the viewer's own Granola row above the strip (ui/app/meetings-granola.js), the strip leaves Granola out: one place for it.
 const meetTilesHTML = (state, big) => MEET_SOURCES.filter(s => s.id !== 'granola' || !state.granola).map(s => meetTile(state, s, big)).join('');
@@ -236,12 +244,22 @@ function meetWireTiles(state, root) {
     if (window.openMeetingImporter) window.openMeetingImporter(source.id, source.name, () => meetSources(state));
   });
 }
-// The strip under the header, and the large tiles in the empty state, from the same data.
+// Whether anything already brings meetings in: the viewer's Granola or any importer that has been set up.
+const meetConnected = state => granolaReady(state.granola) || (state.sourceRows || []).some(r => MEET_SOURCES.some(m => m.id === r.id) && r.status && r.status !== 'needs_setup');
+// A quiet "Add source" menu in the tab bar, and the large tiles only on a page with no meetings and nothing connected.
 function meetPaintTiles(state) {
+  // Granola's status can land after the list: swap the empty state's tiles for a plain line once something is connected.
+  if (state.empty && !!$('#notes-rows .meet-blank') === meetConnected(state)) { meetList(state); return; }
   const strip = $('#meet-sources');
   if (strip) {
-    strip.hidden = !state.loaded || !!state.empty;
-    strip.innerHTML = `<div class="meet-sources-label">Sources</div><div class="meet-tiles">${meetTilesHTML(state, false)}</div>`;
+    const open = !!strip.querySelector('.meet-src-menu:not([hidden])');
+    const trouble = (state.sourceRows || []).some(r => r.status === 'error' || r.status === 'delayed');
+    strip.hidden = !state.loaded || (!!state.empty && !meetConnected(state));
+    strip.innerHTML = `<button type="button" class="linkish meet-src-btn" aria-haspopup="menu" aria-expanded="${open}">${trouble ? '<i class="dot" aria-hidden="true"></i>' : ''}Add source</button>
+      <div class="meet-src-menu" role="menu" aria-label="Sources"${open ? '' : ' hidden'}>${meetTilesHTML(state, false)}</div>`;
+    const button = strip.querySelector('.meet-src-btn'), menu = strip.querySelector('.meet-src-menu');
+    button.onclick = event => { event.stopPropagation(); menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) menu.querySelector('button:not(:disabled), a')?.focus(); };
+    menu.onkeydown = event => { if (event.key === 'Escape') { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); button.focus(); } };
     meetWireTiles(state, strip);
   }
   const big = document.querySelector('#notes-rows [data-meet-tiles]');
@@ -341,7 +359,7 @@ async function meetLoad(state, first) {
 }
 const meetFiltersOn = state => !!(state.person || state.source || state.filter !== 'all' || (state.when || 'all') !== 'all');
 // No meetings and nothing narrowing the list: offer both ways in.
-const meetEmptyHTML = state => `<div class="meet-blank"><h2>Connect a source or add a note</h2>
+const meetEmptyHTML = state => meetConnected(state) ? '<div class="notes-empty">No shared meetings yet.</div>' : `<div class="meet-blank"><h2>Connect a source or add a note</h2>
     <div class="meet-tiles big" data-meet-tiles>${meetTilesHTML(state, true)}</div>
     <div class="meet-or">or</div>
     <button class="primary" type="button" data-add>Add notes</button></div>`;
@@ -384,7 +402,7 @@ function meetPeopleList(r) {
   if (!out.length) for (const s of r.speakers || []) add(meetPersonFor(s));
   return out;
 }
-// Who was in a meeting, for the list: a few avatars and up to two names.
+// Who was in a meeting, for the list: the first person's avatar and up to two names.
 function meetWhoHTML(r) {
   if (r.source === 'close') {
     const lead = r.source_context?.lead_name || r.source_context?.contact_name || '';
@@ -394,7 +412,7 @@ function meetWhoHTML(r) {
   if (!people.length) return '';
   const names = people.map(p => firstName(p.name) || p.id);
   const text = names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '');
-  return `<span class="meet-who" title="${esc(people.map(p => p.name || p.id).join(', '))}"><span class="meet-faces">${people.slice(0, 3).map(p => personAvatar(p, 18)).join('')}</span>${esc(text)}</span>`;
+  return `<span class="meet-who" title="${esc(people.map(p => p.name || p.id).join(', '))}"><span class="meet-faces">${personAvatar(people[0], 18)}</span>${esc(text)}</span>`;
 }
 // What a meeting turned into: items a person pushed, and the follow-ups the bot it was sent to filed.
 const MEET_KINDS = {task: ['task', 'tasks', 'Task'], feature: ['feature request', 'feature requests', 'Feature request'], doc: ['doc update', 'doc updates', 'Doc update']};
