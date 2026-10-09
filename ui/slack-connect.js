@@ -1,5 +1,6 @@
 /* Tools > Slack: paste the two tokens of the Slack app created from the manifest
    (docs/slack.md). They are sent once and stored encrypted; the browser is never sent them back. */
+'use strict';
 window.mountSlackConnect = async function (host) {
   if (!host) return;
   const text = value => { const s = document.createElement('span'); s.textContent = value ?? ''; return s.innerHTML; };

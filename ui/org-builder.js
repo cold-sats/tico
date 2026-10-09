@@ -5,6 +5,7 @@
    from which ui/first-run.js builds `selected`. Nothing exists until "Create my team". Built-in and message bots
    are not on the chart: the built-ins are always created, and a `kind: helper` card is
    one switch under Message bots on the finished chart, off until someone turns it on. */
+'use strict';
 const OB_ICONS = {goal: 'flag', go: 'arrow_forward', why: 'auto_awesome', edit: 'edit', chart: 'account_tree',
                   bot: 'smart_toy', expand: 'expand_more'};
 // One hue per department; a department this page does not know gets one from its id.

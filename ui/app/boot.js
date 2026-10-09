@@ -16,12 +16,16 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   navigator.serviceWorker.register('/sw.js?v=40', {updateViaCache: 'none'}).then(reg => reg.update()).catch(() => {});
 });
 (async () => {
+  // What the first page needs goes out first: a browser opens only a few connections to one server, so the
+  // roster and the opening page's own read are not queued behind the sidebar's counts.
+  const roster = Promise.all([get('/employees'), get('/me'), get('/humans').catch(() => ({people: []}))]);
+  updPrefetch();
   // Health and sidebar counts enrich the page; a slow diagnostic must not hold up opening a chat or task.
   const status = get('/status').catch(() => null).then(st => { S.status = st; S.statusPending = false; });
   const issues = get('/issues').catch(() => []).then(rows => { S.issues = rows; });
   const counts = v2Refresh();
   try {
-    const [emps, me, people] = await Promise.all([get('/employees'), get('/me'), get('/humans').catch(() => ({people: []}))]);
+    const [emps, me, people] = await roster;
     applyConfig(me?.config);           // team-facing names before the first render
     S.emps = namedRoster(emps); S.me = me; setPeople(people);
   } catch (e) {

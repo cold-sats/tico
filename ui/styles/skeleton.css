@@ -1,0 +1,13 @@
+/* Shaped placeholders while a page's first read is in flight (skelRows in app/core.js): rows the size of the
+   list that replaces them, so nothing jumps when the data lands. */
+.skel{display:flex;flex-direction:column}
+.skel-row{display:flex;align-items:center;gap:10px;min-height:32px;padding:0 12px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.skel-card .skel-row{border-bottom:0;min-height:28px;padding:0}
+.skel-dot{flex:none;width:16px;height:16px;border-radius:50%}
+.skel-bar{height:9px;border-radius:5px}
+.skel-dot,.skel-bar{background:linear-gradient(90deg,var(--surface2) 25%,color-mix(in srgb,var(--line) 70%,var(--surface2)) 50%,var(--surface2) 75%);background-size:200% 100%;animation:skel 1.2s linear infinite}
+.skel-end{margin-left:auto;width:48px}
+@keyframes skel{from{background-position:200% 0}to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skel-dot,.skel-bar{animation:none}}
+/* A button whose write is still in flight (pressPending in app/api.js). */
+.is-pending{cursor:progress;opacity:.6;transition:opacity .12s}

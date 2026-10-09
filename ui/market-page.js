@@ -1,5 +1,6 @@
 /* Market is its own room: a note, the graph of who connects to whom, and Ask the Librarian beside it
    (ui/docs-ask.js), which reads the graph at the moment you ask. It is not the Docs library. */
+'use strict';
 let MARKET_VIEW = null;
 
 const MARKET_TYPES = [

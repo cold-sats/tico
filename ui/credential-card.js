@@ -4,6 +4,7 @@
    window.credentialCards.mount(root, {get, post, esc, toast, reload}) fills from the request.
    The value lives only in the input (and in `typed` while the chat repaints around it): never in storage, a URL,
    a toast, the console or an error message. */
+'use strict';
 (function () {
   const css = `
 .cc-card{align-self:flex-start;width:min(560px,100%);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:var(--surface)}

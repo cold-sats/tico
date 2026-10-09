@@ -1,5 +1,6 @@
 /* Tools > GitHub: connect the team's GitHub organization through a GitHub App the
    owner creates there (docs/github-app.md). The private key never reaches the browser. */
+'use strict';
 window.mountGithubConnect = async function (host) {
   if (!host) return;
   const text = value => { const s = document.createElement('span'); s.textContent = value ?? ''; return s.innerHTML; };

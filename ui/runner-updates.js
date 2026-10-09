@@ -1,6 +1,7 @@
 /* How a computer stands against the server's release (backend/runner_versions.py): its version, whether it is
    up to date, updating, behind or too old to work with (its bots are paused), and the last update error.
    Health and Settings > Computers both draw it. */
+'use strict';
 // `version`: what the computer itself reported; with one, "Version not reported" would contradict it, so an unknown state says nothing.
 window.runnerUpdateHtml = function runnerUpdateHtml(update, version) {
   if (!update || !update.state || (update.state === 'unknown' && version)) return '';

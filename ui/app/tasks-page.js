@@ -515,7 +515,7 @@ function tasksRender(state) {
   else {
     const items = taskItems(state);
     html = state.loading && state.view !== 'done' && !items.length
-      ? '<div class="tl-empty">Loading tasks…</div>'
+      ? skelRows(6)
       : state.view === 'done' ? tasksDoneHTML(items, state)
       : state.view === 'board' ? tasksBoardHTML(items, state)
       : tasksListHTML(items, state);

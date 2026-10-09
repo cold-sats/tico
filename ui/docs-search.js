@@ -1,6 +1,7 @@
 /* What the Docs page knows about a doc's kind, and the one search that covers both kinds
    (internal docs and linked docs, GET /api/v2/docs/search). The kind detection mirrors the server's
    (backend/docs.py detect_kind) so a person sees what a link will be filed as while they type it. */
+'use strict';
 (function (root) {
   'use strict';
   const svg = body => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;

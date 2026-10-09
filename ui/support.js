@@ -1,5 +1,6 @@
 /* Support uses the existing ticket transport and the app's right rail. Drafts stay on this page's account in memory;
    an attachment is an immutable server preview, never silently replaced when Send is pressed. */
+'use strict';
 (function () {
   'use strict';
   const API_BASE = () => (typeof API === 'string' ? API : '/api') + '/v2';

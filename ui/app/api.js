@@ -22,17 +22,45 @@ const signInRedirect = (r, j) => {
 // A list the server tags (tasks, labels, routines) is asked for again with its tag: unchanged, the answer is a 304
 // with no body and the copy kept here is read again, so the server neither loads nor sends it. A few dozen at most.
 const GET_TAGGED = new Map();
-const get = async p => {
+// Two readers of the same path at the same moment (the bot page asks for its goals twice, a poll lands while a page
+// loads) share one request; each parses its own copy. A write forgets them all, so a read that follows a write never
+// gets an answer from before it.
+const GET_INFLIGHT = new Map();
+// What startup asks for ahead of the page that will need it (getPrefetch): read once, within a few seconds.
+const GET_PREFETCHED = new Map();
+const getForget = () => { GET_INFLIGHT.clear(); GET_PREFETCHED.clear(); };
+const getRaw = p => {
   const kept = GET_TAGGED.get(p);
-  const r = await fetch(API + p, {cache:'no-store', headers: kept ? {'If-None-Match': kept.tag} : {}});
-  window.TicoObservability?.response(r.status);
+  return fetch(API + p, {cache:'no-store', headers: kept ? {'If-None-Match': kept.tag} : {}}).then(async r => {
+    window.TicoObservability?.response(r.status);
+    const text = r.status === 304 ? '' : await r.text().catch(() => '');
+    if (r.ok) {
+      const tag = r.headers.get('ETag');
+      if (r.status !== 304) GET_TAGGED.delete(p);
+      if (tag && r.status !== 304) { GET_TAGGED.set(p, {tag, text}); if (GET_TAGGED.size > 40) GET_TAGGED.delete(GET_TAGGED.keys().next().value); }
+    }
+    return {r, text, kept};
+  });
+};
+const getPrefetch = p => { if (!GET_PREFETCHED.has(p)) GET_PREFETCHED.set(p, {at: Date.now(), raw: getRaw(p).catch(() => null)}); };
+const get = async p => {
+  let res = null;
+  const pre = GET_PREFETCHED.get(p);
+  if (pre) { GET_PREFETCHED.delete(p); if (Date.now() - pre.at < 5000) res = await pre.raw; }
+  if (!res) {
+    let raw = GET_INFLIGHT.get(p);
+    if (!raw) {
+      raw = getRaw(p);
+      GET_INFLIGHT.set(p, raw);
+      const done = () => { if (GET_INFLIGHT.get(p) === raw) GET_INFLIGHT.delete(p); };
+      raw.then(done, done);
+    }
+    res = await raw;
+  }
+  const {r, text, kept} = res;
   if (r.status === 304 && kept) return JSON.parse(kept.text);
-  const text = await r.text().catch(() => '');
   let j; try { j = JSON.parse(text); } catch { j = {}; }
   if (!r.ok) { signInRedirect(r, j); throw apiFailure(j, r); }
-  const tag = r.headers.get('ETag');
-  GET_TAGGED.delete(p);
-  if (tag) { GET_TAGGED.set(p, {tag, text}); if (GET_TAGGED.size > 40) GET_TAGGED.delete(GET_TAGGED.keys().next().value); }
   return j;
 };
 const pendingWrites = new Map();
@@ -42,7 +70,8 @@ const newRequestId = () => globalThis.crypto?.randomUUID?.() || 'xxxxxxxx-xxxx-4
 });
 // Every JSON write goes through one path so a PUT carries the same Idempotency-Key and the same
 // retry rules as a POST; the method is part of the signature so the two never share a request id.
-const writeRequest = async (method, p, body={}, operationId) => {
+const writeRequestOnce = async (method, p, body={}, operationId) => {
+  getForget();
   const payload = JSON.stringify(body), signature = method + ' ' + p + '\n' + payload;
   const key = operationId || pendingWrites.get(signature) || newRequestId();
   pendingWrites.set(signature, key);
@@ -62,6 +91,22 @@ const writeRequest = async (method, p, body={}, operationId) => {
     }
   }
 };
+// The button just pressed shows the write is under way until it settles (styles/skeleton.css), so a slow server
+// never looks like an ignored click. Only a press in the last moment counts; a later background save marks nothing.
+let LAST_PRESS = null;
+document.addEventListener('click', e => {
+  const el = e.target.closest?.('button, [role="button"], input[type="submit"]');
+  LAST_PRESS = el ? {el, at: performance.now()} : null;
+}, true);
+document.addEventListener('submit', e => { if (e.submitter) LAST_PRESS = {el: e.submitter, at: performance.now()}; }, true);
+const pressPending = () => {
+  const press = LAST_PRESS;
+  if (!press || performance.now() - press.at > 400 || !press.el.isConnected || press.el.classList.contains('is-pending')) return () => {};
+  const el = press.el;
+  el.classList.add('is-pending'); el.setAttribute('aria-busy', 'true');
+  return () => { el.classList.remove('is-pending'); el.removeAttribute('aria-busy'); };
+};
+const writeRequest = async (...args) => { const done = pressPending(); try { return await writeRequestOnce(...args); } finally { done(); } };
 const postRequest = (p, body={}, operationId) => writeRequest('POST', p, body, operationId);
 const patchRequest = (p, body={}, operationId) => writeRequest('PATCH', p, body, operationId);
 const putRequest = (p, body={}, operationId) => writeRequest('PUT', p, body, operationId);
@@ -72,7 +117,8 @@ const patch = (p, body={}, operationId) => window.TicoObservability
 const put = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => putRequest(p, body, operationId)) : putRequest(p, body, operationId);
 // Keep multipart and binary retries stable across newly constructed bodies.
-const formRequest = async (url, body) => {
+const formRequestOnce = async (url, body) => {
+  getForget();
   if (!S.me?.cloud) return fetch(url, {method:'POST', body});
   const fields = [];
   for (const [name, value] of body instanceof Blob ? [['file', body]] : body.entries()) {
@@ -102,6 +148,7 @@ const formRequest = async (url, body) => {
     }
   }
 };
+const formRequest = async (...args) => { const done = pressPending(); try { return await formRequestOnce(...args); } finally { done(); } };
 const formFetch = (url, body) => window.TicoObservability
   ? window.TicoObservability.run(url.startsWith(API) ? url.slice(API.length) : '', () => formRequest(url, body)) : formRequest(url, body);
 async function cloudCompose(path, body, files = []) {

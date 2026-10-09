@@ -2,6 +2,7 @@
    Granola on, picks the enrolled computer that runs each one, and shows how it is doing. Their
    credentials are never typed here: they are files on that computer (docs/meetings.md).
    `only` shows one importer (the setup dialog on the Meetings page) and `onChange` runs after a save. */
+'use strict';
 window.mountMeetingImporters = async function (host, options) {
   if (!host) return;
   const {only = '', onChange} = options || {};

@@ -9,6 +9,7 @@
    ui/app/bot-page.js calls window.botTools.mountStrip(host, deps) once per bot page and mountList(host,
    deps) when More opens; deps keeps this file free of the page's globals (get, esc). Nothing here reads
    a secret: the server sends names, never values. */
+'use strict';
 (function () {
   const STRIP_MAX = 3;
 

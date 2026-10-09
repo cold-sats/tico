@@ -5,6 +5,7 @@
    are the API and the bot's own tools (PATCH /api/v2/files/{id}), not buttons here.
    ui/app/bot-page.js calls window.botFiles.mount(host, deps) once per bot page; deps keeps this file free
    of the page's globals (get, esc, openFile). */
+'use strict';
 (function () {
   const SHORT = 3, PAGE = 20;
 
