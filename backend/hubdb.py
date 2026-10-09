@@ -3408,10 +3408,7 @@ def _task_close_allowed(conn, actor, row, note):
     shipped = row["status"] == "ready" and type_bot_works(conn, actor, row)
     if actor != row["requester"] and not is_human(actor) and actor != KEEPER and not shipped:
         refuse(conn, actor, "close", f"{actor_id(row['requester'])} asked for this; only they close it")
-    if (row["status"] not in ("done", "declined", "closed") and is_human(actor)
-            and is_human(row["owner"]) and is_bot(row["requester"])
-            and not str(note or "").strip()):
-        refuse(conn, actor, "lint", "Tell the requesting bot why you are closing this task in a note")
+    # A person closes without giving a reason; the requesting bot is still told it was closed (task_close wakes it).
 
 
 @private_task_write

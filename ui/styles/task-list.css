@@ -190,6 +190,12 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 .peek-tools{display:inline-flex;gap:2px;margin-left:4px}
 .peek-btn{display:grid;place-items:center;width:26px;height:26px;padding:0;border-radius:6px;color:var(--muted)}
 .peek-btn:hover{color:var(--ink)}
+/* Done and Close in the task header: compact text buttons the height of the icon buttons beside them */
+.tmodal-act{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 9px;border-radius:6px;font-size:var(--t-sm);font-weight:600;white-space:nowrap}
+.tmodal-act svg{flex:none}
+.tmodal-x svg{width:12px;height:12px}
+/* The title takes the focus when the task opens (tabindex=-1, never tabbed to): no ring for that */
+.tmodal-title:focus:not(:focus-visible),.tmodal-title[tabindex="-1"]:focus{outline:none}
 
 /* ---- menus: a filter's values, the fields, the bulk actions */
 .tl-pop{position:fixed;inset:auto;margin:0;z-index:60;width:248px;max-height:min(60vh,440px);overflow-y:auto;padding:var(--s1);border:1px solid var(--line);border-radius:var(--r-pop);background:var(--surface);color:var(--ink);box-shadow:0 14px 40px rgba(0,0,0,.3)}
@@ -274,6 +280,7 @@ button.linkish.tl-clear:hover{color:var(--ink)}
   #task-peek{position:fixed;inset:0;z-index:40;width:100%;height:100%;height:100dvh;border:0}
   #task-peek .tmodal-head{padding-top:max(10px,env(safe-area-inset-top))}
   #task-peek .peek-btn,#task-peek .tmodal-x{width:40px;height:40px}
+  #task-peek .tmodal-act{height:40px}
   #task-peek .prop{min-height:44px}
   #task-peek .tmodal-head{gap:6px;padding-left:12px}
   #task-peek .tmodal-head>.tnum{display:none}
@@ -324,6 +331,7 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 @media (max-width:760px){
   .tmodal:has(.task-layout) .tmodal-head{position:sticky;top:0;z-index:2;background:var(--surface)}
   .tmodal:has(.task-layout) .tmodal-head .peek-btn,.tmodal:has(.task-layout) .tmodal-x{min-width:40px;min-height:40px}
+  .tmodal:has(.task-layout) .tmodal-act{min-height:40px}
   .tmodal:has(.task-layout) .tmodal-head .peek-pos,.tmodal:has(.task-layout) .tmodal-owner .who{display:none}
   .tmodal-body.task-layout{align-items:stretch}
   .sub-owner{width:40px;height:40px}

@@ -125,6 +125,8 @@ async function taskModalShow(task, d = taskModal()) {
     if (peek && matchMedia('(max-width:760px)').matches) d.showModal();     // a phone's sheet covers the list: modal
     else if (peek) { d.show(); if (was && was !== document.body && was.isConnected) was.focus({preventScroll: true}); }
     else d.showModal();
+    // Opening lands on the title, not on the first header button (a focus ring on "…" read as a stray highlight).
+    if (d.open && d.matches(':modal')) $('.tmodal-title', d)?.focus({preventScroll: true});
   }
   if (!peek) document.body.classList.add('task-modal-open');
   d.scrollTop = 0;
@@ -162,10 +164,18 @@ function taskModalBind(d, task, full = false) {
   if (d.taskRail?.id !== String(task.id)) d.taskRail = {id: String(task.id), open: new Set()};
   if (full) d.taskRail.full = task;
   taskRailPaint(d, task); taskRailBind(d, task);
-  $('[data-modal-close]', d).onclick = () => d.dataset.peek && TASKS_ST ? taskPeekClose(TASKS_ST) : d.close();
+  const dismiss = () => d.dataset.peek && TASKS_ST ? taskPeekClose(TASKS_ST) : d.close();
+  $('[data-modal-close]', d).onclick = dismiss;
   void taskGoalTitle(d);
   // Each change goes through the dialog's queue (taskSave), one at a time, each with the latest version.
   const change = (body, then, field) => taskSaveQueued(d, String(task.id), body, then, field);
+  // Done and Close finish with the task: the window closes and the page behind it is where the person was.
+  d.querySelectorAll('[data-task-finish]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const saved = await change(b.dataset.taskFinish === 'close' ? {close: true} : {status: 'done'}, false, 'status');
+    if (saved && d.open && String(d.dataset.task) === String(task.id)) dismiss();
+    else b.disabled = false;
+  });
   taskPropsBind(d, task, change);
   const privacy = $('[data-task-private]', d);
   if (privacy) privacy.onchange = () => change({private: privacy.checked}, undefined, 'private');
@@ -477,8 +487,9 @@ function taskPeekPos(id) {
   const keys = tasksVisibleKeys(), i = keys.indexOf('t' + id);
   return i < 0 ? '' : `${i + 1} / ${keys.length}`;
 }
-// The task in full or in the peek. The header: its status (icon and name, as everywhere else), its owner, its age,
-// a "…" menu and ✕. Then the title, who added it and when, the properties, the details, Code, Subtasks, Comments.
+// The task in full or in the peek. The header: its status, its owner, its age, Done and Close for whoever may use them
+// (the two most common actions), a "…" menu and ✕. Then the title, who added it and when, the properties, the
+// details, Code, Subtasks, Comments.
 function hubModalHTML(t, it, opts = {}) {
   const askToYou = taskAskToPerson(t);
   const finished = taskFinished(t);
@@ -492,14 +503,20 @@ function hubModalHTML(t, it, opts = {}) {
   const mover = canMove();
   const links = (t.links || []).filter(l => l.kind !== 'pr' && l.kind !== 'worktree');   // those are Code, in the rail
   const pos = opts.peek ? taskPeekPos(t.id) : '';
-  return `<div class="tmodal-head"><span class="pill tstatus">${esc(statusWord)}</span>${t.private ? '<span title="Only the requester and assignee can see this task" aria-label="Private"><span class="nav-icon" aria-hidden="true">lock</span></span>' : ''}${blockers.length && !finished
+  // Done for the owner; Close as the "…" menu allows it (who may move tasks, or the task's parties)
+  const rights = taskPropRights(t);
+  const canDone = !finished && t.status !== 'done' && !!myActor() && myActor() === t.owner;
+  const canClose = t.status !== 'closed' && (rights.mover || rights.party);
+  return `<div class="tmodal-head"><span class="pill tstatus">${esc(statusWord)}</span>${blockers.length && !finished
       ? `<span class="tchip-blocked" title="Blocked by ${esc(blockers.map(b => b.title).join(', '))}">blocked</span>` : ''}
       <span class="tmodal-owner">${actorFace(t.owner, 18)}<span class="who">${esc(actorLabel(t.owner))}</span></span>
       <span class="spacer"></span>${pos ? `<span class="peek-pos tnum" title="J / K or ↑ / ↓ move to the next or previous task">${esc(pos)}</span>` : ''}
       <span class="muted tnum tmodal-age" title="Updated ${esc(fmt(it.updated))}">${esc(ago(it.updated))}</span>
+      ${canDone ? `<button class="ghost tmodal-act" type="button" data-task-finish="done" title="Mark this task done">${PROP_ICON.check}<span>Done</span></button>` : ''}
+      ${canClose ? `<button class="ghost tmodal-act" type="button" data-task-finish="close" aria-label="Close task" title="Close this task">Close</button>` : ''}
       <button class="ghost peek-btn" type="button" data-task-more aria-haspopup="menu" aria-label="More actions" title="More">${PROP_ICON.more}</button>
-      <button class="ghost tmodal-x" type="button" data-modal-close aria-label="Close" title="Close (Esc)">✕</button></div>
-    <h2 class="tmodal-title"${opts.peek ? ' tabindex="-1"' : ''}>${esc(t.title)}</h2>
+      <button class="ghost peek-btn tmodal-x" type="button" data-modal-close aria-label="Close" title="Close (Esc)">${TL_ICON.x}</button></div>
+    <h2 class="tmodal-title" tabindex="-1">${esc(t.title)}</h2>
     <div class="muted tmeta">${esc(taskSourceLine(t))} · ${esc(ago(t.created))}${t.goal_id ? ` · <a href="#/goals/${encodeURIComponent(t.goal_id)}" class="task-goal" data-goal-title="${esc(t.goal_id)}">serves a goal</a>` : ''}</div>
     <div class="tmodal-body task-layout">
       <div class="tmodal-main">
