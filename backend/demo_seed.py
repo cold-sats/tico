@@ -124,7 +124,7 @@ class Builder:
                 "demo-cara": Identity("human:cara", "human", D.PEOPLE[2]["email"]),
                 "demo-ben": Identity("human:ben", "human", D.PEOPLE[1]["email"])})
         app = create_app(seeding)
-        self.store = app.state.store
+        self.app, self.store = app, app.state.store
         self.at(days=7)
         with TestClient(app) as api:
             self.api = api
@@ -363,12 +363,35 @@ class Builder:
             result = self.call("POST", "meetings/import", {
                 "title": entry["title"], "started_at": started.isoformat(), "duration_seconds": at_ms / 1000,
                 "participants": entry["participants"], "source": entry["source"], "external_id": entry["external_id"],
-                "transcript": turns, "notes": entry["notes"]})
+                "transcript": turns, "notes": entry["notes"], "review": entry.get("review", "live")})
+            items = {}
             for section, text, detail, quote, at in entry["items"]:
-                self.call("POST", f"/api/meetings/{result['id']}/items",
-                          {"section": section, "text": text, "detail": detail, "quote": quote, "at_ms": at})
+                items[text] = self.call("POST", f"/api/meetings/{result['id']}/items",
+                                        {"section": section, "text": text, "detail": detail, "quote": quote, "at_ms": at})["item"]["id"]
+            for text in entry.get("push", ()):
+                self.call("POST", f"/api/meetings/{result['id']}/items/{items[text]}/push", {"force": True})
+            if entry.get("send_to"):
+                sent = self.call("POST", f"/api/meetings/{result['id']}/send", {"slug": entry["send_to"]})
+                if entry.get("send_status") and sent.get("task"):
+                    self.write(lambda c: hubdb.task_update(c, "bot:" + entry["send_to"], sent["task"], status=entry["send_status"],
+                                                           note="Reading the call for follow-ups."))
             for actor, text, at in entry["comments"]:
                 self.call("POST", f"/api/meetings/{result['id']}/comments", {"text": text, "at_ms": at})
+        self.granola()
+
+    def granola(self):
+        """A connected Granola account for Ana, as Meetings shows it after a sync."""
+        self.at(hours=D.GRANOLA["minutes_ago"] / 60)
+        synced = hubdb.now()
+
+        def work(c):
+            cid = "granola:demo"
+            ciphertext, nonce = self.app.state.vault.cipher.encrypt(c, cid, encode({"client_id": "demo"}))
+            meta = {"state": "connected", "email": D.GRANOLA["email"], "last_sync": synced, "plan_hint": "free",
+                    "imported_count": D.GRANOLA["imported_count"], "needs_signin": False, "last_error": None, "skipped": 0}
+            c.execute("INSERT INTO granola_connections VALUES(?,?,?,?,?,?)",
+                      ("human:ana", cid, D.GRANOLA["email"], ciphertext, nonce, encode(meta)))
+        self.write(work)
 
     def updates(self):
         """A week of daily updates and Friday's review, posted mid-morning Pacific. Older ones are read. Eight days, so

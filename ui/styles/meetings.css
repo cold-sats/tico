@@ -69,9 +69,8 @@
 /* The viewer's own Granola account (ui/app/meetings-granola.js): one dense row above the strip. */
 .meet-granola{margin:0 0 10px}
 .meet-granola[hidden]{display:none}
-.mg-row{display:flex;align-items:flex-start;gap:10px;padding:8px 10px 8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
-.mg-row .msrc-logo{margin-top:1px}
-.mg-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding-top:4px}
+.mg-row{display:flex;align-items:center;gap:10px;padding:6px 8px 6px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.mg-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .mg-line{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;font-size:13px;color:var(--muted);min-width:0}
 .mg-line b{color:var(--ink);font-weight:600}
 .mg-line>*+*::before{content:'·';margin-right:6px;color:var(--muted)}
@@ -147,7 +146,7 @@
 .meet-blank .primary{padding:9px 22px}
 .meet-or{font-size:12.5px;color:var(--muted)}
 .meet-list{list-style:none;margin:0;padding:0}
-.meet-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+.meet-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);cursor:pointer}
 .meet-row:last-child{border-bottom:0}
 .meet-row:hover{background:var(--surface2)}
 .meet-main{min-width:0}
@@ -284,6 +283,47 @@
 }
 @media (max-width:640px){.meeting-head{align-items:flex-start;flex-direction:column}.notes-head{grid-template-columns:minmax(0,1fr) auto}.notes-head input[type=search]{grid-column:1 / -1;grid-row:2;max-width:none;justify-self:stretch}.note-send select{flex:1 0 100%;max-width:none}.kbd-hint{display:none}.meet-row{padding:12px}.meet-blank{padding:24px 14px 28px}.meet-meta .meet-who{flex-basis:100%;margin-top:1px}.meet-meta .meet-who::before{content:none}.meet-tiles.big{grid-template-columns:1fr 1fr}.meet-tile.big{flex-direction:row;justify-content:flex-start;gap:10px;padding:10px 12px;text-align:left}.meet-tile.big .mt-text{align-items:flex-start}.meet-tile.big .mt-text b{font-size:13px}}
 
+/* What a meeting is doing and what it made: a spinner while a bot works, then links to the tasks. */
+.meet-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;color:var(--ink)}
+.meet-made-chip{padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;text-decoration:none;background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent)}
+a.meet-made-chip:hover{text-decoration:underline}
+.meet-proposed{font-size:12px;white-space:nowrap}
+.meet-syncing{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--accent) 5%,var(--surface))}
+.meet-syncing[hidden]{display:none}
+.meet-syncing b{font-size:14px;font-weight:600}
+.meet-made{margin-top:12px;padding:8px 0 10px;border-bottom:1px solid var(--line)}
+.meet-made h3{margin:0 0 4px;font-size:12px;font-weight:600;color:var(--muted)}
+.meet-made ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+.meet-made li{display:flex;align-items:baseline;gap:8px;font-size:13px;min-width:0}
+.meet-made li a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meet-made-kind{flex:none;width:112px;font-size:12px;color:var(--muted)}
+.note-outcome strong.meet-state{font-size:13px}
+.meet-review-tabs button.has-pending:not([aria-selected=true]) .meet-pending-n{color:var(--accent);font-weight:600}
+.meet-review-tag{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--wait) 18%,var(--surface));color:var(--ink)}
+.meet-review-who{font-size:12.5px}
+.meet-review-detail select{flex:0 1 auto;width:auto;max-width:220px}
+/* Connect Granola: the code and three steps in a small dialog. */
+.mg-dialog{width:min(440px,calc(100vw - 24px));padding:16px 18px 14px}
+.mg-dhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.mg-dhead h2{margin:0;font-size:14px}
+.mg-dhead .ghost{padding:3px 9px}
+.mg-steps{margin:0;padding:0;list-style:none;counter-reset:mg}
+.mg-steps li{counter-increment:mg;display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-height:38px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
+.mg-steps li:first-child{border-top:0}
+.mg-steps li>span:first-child{flex:1 0 160px}
+.mg-steps li>span:first-child::before{content:counter(mg);display:inline-grid;place-items:center;width:18px;height:18px;margin-right:8px;border-radius:50%;background:var(--surface2);color:var(--muted);font-size:11px;font-weight:600}
+.mg-steps .mg-code{font-size:16px;padding:2px 8px}
+.mg-steps .mg-code-row{margin:0;gap:6px}
+a.mg-open{display:inline-flex;align-items:center;padding:5px 11px;border-radius:7px;background:var(--accent);color:var(--accent-ink);font-size:12.5px;text-decoration:none}
+.mg-dialog .mg-wait{margin:8px 0 0;font-size:12.5px}
+.mg-facts{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:12px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
+.mg-facts dt{color:var(--muted)}
+.mg-facts dd{margin:0}
+.mg-dfoot{display:flex;align-items:center;gap:8px;margin-top:12px}
+.mg-dfoot .spacer{flex:1}
+.mg-dfoot .mg-key{font-size:12px;color:var(--muted);text-decoration:none}
+.mg-dfoot .mg-key:hover{color:var(--ink);text-decoration:underline}
+
 /* Personal import review uses the existing page, list and detail dialog. */
 .meet-review-bar{display:flex;align-items:center;gap:12px;margin-bottom:12px}
 .meet-review-tabs{display:flex;gap:4px;flex:1}
@@ -295,6 +335,7 @@
 .meet-review-bulk{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 12px;font-size:13px}
 .meet-review-bulk .spacer{flex:1}
 .meet-review-bulk label{display:flex;align-items:center;gap:6px}
+.meet-review-bulk button{padding:5px 11px;font-size:12.5px}
 .meet-review-bulk input,.meet-row input[type=checkbox]{width:16px;height:16px;flex:none;accent-color:var(--accent)}
 .meet-row.review-pending{grid-template-columns:16px auto minmax(0,1fr) auto}
 .meet-row .meet-side{display:flex;align-items:center;gap:6px}
@@ -311,6 +352,7 @@
   .meet-review-tabs button{padding:8px;font-size:13px;min-height:40px}
   #main:has(.meet-review-bar){padding-bottom:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 16px)}
   .meet-row.review-pending .meet-main{grid-column:3 / -1}
+  .meet-row.review-live .meet-side:not(:empty){grid-column:2 / -1;flex-wrap:wrap}
   .meet-row.review-pending .meet-side,.meet-row.review-dismissed .meet-side{grid-column:2 / -1}
   .meet-row [data-review-action]{min-height:36px}
   .meet-settings-modal select{font-size:16px}

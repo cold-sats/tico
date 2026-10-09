@@ -32,8 +32,10 @@ acting with their rights. The Team owner, participants, other people and bots ca
 or dismissed meetings. They do not appear in search, SQL exports, routines, Updates or KPIs.
 Pending is quiet: it does not add to **Needs you**. Existing meetings stay live after upgrade.
 In Meetings, **Shared** keeps the existing live list; **Pending** and **Dismissed** show only
-meetings filed for you. Open a pending meeting to read it and choose Team or Private before
-sharing, or use the row's Share button to keep its source privacy. Select rows for Share selected
+meetings filed for you. The page opens on Pending while it has meetings. Open a pending meeting to read it
+and choose Team or Private and the bot to send it to before sharing, or use the row's **Share & send** to keep
+its source privacy and send it to your Assistant. Sharing alone files no tasks: the bot a meeting is sent to
+does, and the row shows **Processing** while it works and then what it created. Select rows for Share selected
 or Dismiss selected; Share visible and Dismiss visible apply only to meetings shown by the current
 search and filters. Hidden meetings are never included, even if previously selected. Bulk sharing
 keeps each meeting's source privacy. Restore in Dismissed
@@ -49,6 +51,7 @@ meeting has `review_state` (`pending`, `live` or `dismissed`). The rail's existi
 `GET /api/v2/meetings/{id}` opens a meeting under the same access rules as the older detail route.
 
 - `POST /api/v2/meetings/{id}/review {"action": "approve", "private": false}` shares a pending meeting.
+  `send_to` (a bot slug or `auto`) also hands it to that bot once shared, as Send does.
   Omit `private` to keep its source default: Granola is private by default; other sources are team
   meetings unless their importer chose private. A team meeting with a transcript fires
   `meeting.ready` and the older `recording.ready` once. Repeating approval does not fire again.

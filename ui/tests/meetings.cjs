@@ -171,7 +171,8 @@ async function shot(page, name) {
       assert.equal(await page.locator('#notes-filters').isVisible(), true);
       assert.deepEqual(await page.locator('#notes-filters select').evaluateAll(els => els.map(el => el.getAttribute('aria-label'))), ['When', 'Participant', 'Source', 'Status']);
       assert.deepEqual(await page.locator('.meet-row .note-title').allInnerTexts(), ['Weekly ops sync', 'Renewal call with Dana', 'Notes from standup']);
-      assert.deepEqual(await page.locator('.meet-row').evaluateAll(rows => rows.map(r => r.querySelector('.meet-tasks')?.textContent || '')), ['2 tasks', '1 task', '']);
+      // A row counts what a meeting turned into (pushed items), and only otherwise what is still proposed.
+      assert.deepEqual(await page.locator('.meet-row').evaluateAll(rows => rows.map(r => [...r.querySelectorAll('.meet-made-chip, .meet-proposed')].map(e => e.textContent).join(' '))), ['1 task', '1 proposed', '']);
       assert.match(await page.locator('.meet-row').first().locator('.meet-meta').innerText(), /Ana, Ben \+1/);
       // Search and the Source filter narrow the list.
       await page.locator('#notes-source').selectOption('granola');

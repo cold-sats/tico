@@ -2,10 +2,11 @@
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// One compact row above the source strip. Connecting is a device-code sign-in: the server hands out a short code,
-// the person enters it in Granola, and this page polls GET .../connect/status every `interval` seconds until it
-// connects, expires or is denied. When the page opens and the account is connected it asks for one sync (fire and
-// forget) and refreshes the list once the sync lands. The API-key importer (Business/Enterprise) stays one link away.
+// One compact row above the source strip, the only place Granola is offered. Connecting is a device-code sign-in in
+// a dialog: the server hands out a short code, the person enters it in Granola, and this page polls
+// GET .../connect/status every `interval` seconds until it connects, expires or is denied. When the page opens and the
+// account is connected it asks for one sync (fire and forget) and refreshes the list once the sync lands. The API-key
+// importer (Business/Enterprise) is a link in the dialog, for the owner.
 // state.granola is the last GET /v2/meetings/granola; null when the server has no such route, and then the
 // Granola tile keeps opening the API-key importer as before.
 const GRANOLA = '/v2/meetings/granola';
@@ -14,6 +15,7 @@ const GRANOLA_DOTS = '<svg viewBox="0 0 24 24" width="16" height="16" fill="curr
 
 function granolaStop(state) {
   if (!state) return;
+  if (state.gflow) { state.gflow = null; $('#mg-dialog')?.remove(); }
   clearTimeout(state.gTimer); clearTimeout(state.gSyncTimer);
   state.gTimer = state.gSyncTimer = 0;
 }
@@ -54,6 +56,8 @@ async function granolaSync(state) {
     return;
   }
   if (MEET !== state) return;
+  // "recent", "off" and "needs_signin" start nothing: say so now instead of showing a sync that is not running.
+  if (r?.state && r.state !== 'syncing') { state.gSyncing = false; granolaStatus(state); return; }
   granolaWatch(state, true);
 }
 // Re-read the status while the server says `syncing`: every 3 s, backing off to 15 s, until it stops (or the page
@@ -176,54 +180,74 @@ function granolaTileState(state) {
 
 function granolaFacts(s, syncing) {
   const n = Number(s.imported_count) || 0, skipped = Math.max(0, Number(s.skipped) || 0);
+  const free = s.plan_hint === 'free' ? ' title="Free plan: notes from the last 30 days"' : '';
   return [s.email ? `<span class="mg-email" title="${esc(s.email)}">${esc(s.email)}</span>` : '',
     syncing ? '<span class="mg-syncing"><i class="mg-spin" aria-hidden="true"></i>Syncing…</span>'
-      : `<span>${s.last_sync ? 'synced ' + esc(ago(s.last_sync)) : 'not synced yet'}</span>`,
-    `<span>${n} ${n === 1 ? 'note' : 'notes'}</span>`,
+      : `<span>${s.last_sync ? 'Synced ' + esc(ago(s.last_sync)) : 'Not synced yet'}</span>`,
+    `<span${free}>${n} ${n === 1 ? 'note' : 'notes'}</span>`,
     skipped ? `<span class="mg-skip" title="${skipped} ${skipped === 1 ? 'note' : 'notes'} from Granola could not be imported">${skipped} skipped</span>` : ''].filter(Boolean).join('');
 }
+// The row says how the account is doing; signing in happens in a dialog (granolaDialog), so the row never grows.
 function granolaPaint(state, focus) {
   const el = $('#meet-granola'); if (!el) return;
   const s = state.granola;
+  const busy = $('#meet-syncing'); if (busy) busy.hidden = !(state.gSyncing && granolaReady(s));
   el.hidden = !s;
-  if (!s) { el.innerHTML = ''; return; }
+  if (!s) { el.innerHTML = ''; granolaDialog(state); return; }
   if (!$('#mg-live')) el.innerHTML = '<p class="sr-only" id="mg-live" aria-live="polite"></p><div class="mg-row" id="mg-row"></div>';
   const row = $('#mg-row');
-  const flow = state.gflow, owner = S.me?.role === 'owner';
-  const keyLink = owner ? '<button type="button" class="linkish mg-key" data-g="key">Use a Granola API key instead (Business/Enterprise)</button>' : '';
+  const flow = state.gflow;
   const menu = items => `<div class="mg-more-wrap"><button type="button" class="mg-more" data-g="more" aria-haspopup="menu" aria-expanded="false" aria-controls="mg-menu" aria-label="Granola options">${GRANOLA_DOTS}</button>
       <div class="mg-menu" id="mg-menu" role="menu" hidden>${items}</div></div>`;
-  let line, actions = '', extra = '';
-  if (flow?.phase === 'code' || flow?.phase === 'starting') {
-    const code = flow.phase === 'code';
-    line = `<b>Granola</b><span>${code ? 'Enter this code in Granola' : 'Getting a code…'}</span>`;
-    actions = `<button type="button" class="ghost" data-g="cancel">Cancel</button>`;
-    if (code) extra = `<div class="mg-code-row">
-        <output class="mg-code" id="mg-code" aria-label="Granola code">${esc(flow.code)}</output>
-        <button type="button" class="ghost" data-g="copy" aria-label="Copy code">Copy</button>
-        ${flow.uri ? `<a class="mg-open" href="${esc(flow.uri)}" target="_blank" rel="noopener" data-g="open">Open Granola</a>`
-          : flow.host ? `<span class="mg-host">${esc(flow.host)}</span>` : ''}
-        <span class="mg-wait muted" aria-hidden="true"><i class="dot"></i>Waiting</span></div>`;
-  } else if (s.needs_signin) {
+  let line, actions = '';
+  if (s.needs_signin) {
     line = `<b>Granola</b>${s.email ? `<span class="mg-email" title="${esc(s.email)}">${esc(s.email)}</span>` : ''}<span class="mg-bad">Signed out</span>`;
-    actions = `<button type="button" class="primary small" data-g="connect">Sign in to Granola again</button>${menu('<button type="button" role="menuitem" class="danger-text" data-g="disconnect">Disconnect</button>')}`;
+    actions = `<button type="button" class="primary small" data-g="connect">Sign in again</button>${menu('<button type="button" role="menuitem" class="danger-text" data-g="disconnect">Disconnect</button>')}`;
   } else if (s.connected) {
     line = `<b>Granola</b>${granolaFacts(s, state.gSyncing)}`;
-    actions = menu(`<button type="button" role="menuitem" data-g="sync"${state.gSyncing ? ' disabled' : ''}>Sync</button><button type="button" role="menuitem" class="danger-text" data-g="disconnect">Disconnect</button>`);
-    if (s.plan_hint === 'free') extra = '<p class="mg-sub muted">Free plan: notes from the last 30 days</p>';
+    actions = `<button type="button" class="ghost small" data-g="sync"${state.gSyncing ? ' disabled' : ''}>Sync now</button>${menu('<button type="button" role="menuitem" class="danger-text" data-g="disconnect">Disconnect</button>')}`;
   } else {
     line = `<b>Granola</b>${s.mode === 'api_key' ? '<span>Using an API key</span>' : ''}`;
     actions = `<button type="button" class="primary small" data-g="connect">Connect Granola</button>`;
-    extra = keyLink ? `<p class="mg-sub">${keyLink}</p>` : '';
   }
-  const err = state.gmsg || ((s.connected || s.needs_signin) && !flow ? s.last_error : '');
-  row.dataset.state = flow ? 'code' : s.needs_signin ? 'signin' : s.connected ? 'on' : 'off';
-  row.innerHTML = `${meetLogo('granola', 26)}<div class="mg-body"><div class="mg-line">${line}</div>${extra}
+  const err = flow ? '' : state.gmsg || ((s.connected || s.needs_signin) ? s.last_error : '');
+  row.dataset.state = s.needs_signin ? 'signin' : s.connected ? 'on' : 'off';
+  row.innerHTML = `${meetLogo('granola', 22)}<div class="mg-body"><div class="mg-line">${line}</div>
       ${err ? `<p class="mg-err" role="alert">${esc(err)}</p>` : ''}</div><div class="mg-actions">${actions}</div>`;
   granolaWire(state, row);
-  const target = focus === 'connect' ? row.querySelector('[data-g=connect]') : focus === 'open' ? row.querySelector('[data-g=open], [data-g=cancel]')
+  granolaDialog(state, focus);
+  const target = focus === 'connect' ? row.querySelector('[data-g=connect]')
     : focus === 'more' ? row.querySelector('[data-g=more], [data-g=connect]') : null;
   target?.focus({preventScroll: true});
+}
+// Connect Granola: three short steps around the code, open while a code is being fetched or waited on.
+function granolaDialog(state, focus) {
+  const flow = state.gflow;
+  let dialog = $('#mg-dialog');
+  if (!flow) { dialog?.remove(); return; }
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.className = 'tmodal mg-dialog'; dialog.id = 'mg-dialog'; dialog.setAttribute('aria-label', 'Connect Granola');
+    dialog.oncancel = e => { e.preventDefault(); granolaCancel(state); };
+    dialog.onclick = e => { if (e.target === dialog) granolaCancel(state); };
+    document.body.append(dialog);
+  }
+  const code = flow.phase === 'code';
+  const open = flow.uri ? `<a class="primary small mg-open" href="${esc(flow.uri)}" target="_blank" rel="noopener" data-g="open">Open Granola</a>`
+    : flow.host ? `<span class="mg-host">${esc(flow.host)}</span>` : '';
+  const key = S.me?.role === 'owner' ? '<button type="button" class="linkish mg-key" data-g="key">Use an API key</button>' : '';
+  dialog.innerHTML = `<header class="mg-dhead"><h2>Connect Granola</h2><button type="button" class="ghost" data-g="cancel" aria-label="Close">✕</button></header>
+    ${code ? `<ol class="mg-steps">
+      <li><span>Open Granola and sign in</span>${open}</li>
+      <li><span>Enter this code if asked</span><span class="mg-code-row"><output class="mg-code" id="mg-code" aria-label="Granola code">${esc(flow.code)}</output><button type="button" class="ghost small" data-g="copy" aria-label="Copy code">Copy</button></span></li>
+      <li><span>Allow access</span></li></ol>
+      <p class="mg-wait muted"><i class="mg-spin" aria-hidden="true"></i>Waiting for Granola</p>`
+      : '<p class="mg-wait muted"><i class="mg-spin" aria-hidden="true"></i>Getting a code…</p>'}
+    <dl class="mg-facts"><dt>Sync</dt><dd>Every 25 min and when you open Meetings</dd><dt>New notes</dt><dd>Land in Pending, only you see them</dd><dt>Free plan</dt><dd>Summaries from the last 30 days</dd></dl>
+    <footer class="mg-dfoot">${key}<span class="spacer"></span><button type="button" class="ghost" data-g="cancel">Cancel</button></footer>`;
+  granolaWire(state, dialog);
+  if (!dialog.open) dialog.showModal();
+  if (focus === 'open') (dialog.querySelector('[data-g=open]') || dialog.querySelector('[data-g=copy]'))?.focus();
 }
 function granolaMenu(row, open) {
   const button = row.querySelector('[data-g=more]'), menu = row.querySelector('.mg-menu');
@@ -241,9 +265,9 @@ function granolaWire(state, row) {
       if (act === 'connect') granolaConnect(state);
       else if (act === 'cancel') granolaCancel(state);
       else if (act === 'copy') void copyText(state.gflow?.code || '').then(() => toast('Code copied'), () => toast('Could not copy', true));
-      else if (act === 'sync') { granolaMenu(row, false); granolaSync(state); row.querySelector('[data-g=more]')?.focus(); }
+      else if (act === 'sync') granolaSync(state);
       else if (act === 'disconnect') granolaDisconnect(state);
-      else if (act === 'key') window.openMeetingImporter?.('granola', 'Granola', () => meetSources(state));
+      else if (act === 'key') { granolaCancel(state); window.openMeetingImporter?.('granola', 'Granola', () => meetSources(state)); }
     };
   });
   const menu = row.querySelector('.mg-menu');

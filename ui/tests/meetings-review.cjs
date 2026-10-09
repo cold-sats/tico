@@ -67,7 +67,9 @@ async function open(browser, viewport, scheme, role = 'owner') {
     return json({});
   });
   await page.goto('https://tico-ui.test/#/meetings');
-  await page.locator('[data-note-row=live]').waitFor();
+  // New imports are the first thing a person sees: the page opens on Pending while it has any.
+  await page.locator('[data-note-row=one]').waitFor();
+  assert.equal(await page.locator('[data-review=pending]').getAttribute('aria-selected'), 'true');
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => { window.open = () => null; });
   return {context, page, errors, writes, rows};
@@ -109,6 +111,7 @@ async function shot(page, name) {
         await page.locator('#notes-modal').waitFor({state: 'hidden'});
         await page.waitForFunction(() => document.querySelectorAll('.meet-row').length === 2);
         assert.equal(rows.find(r => r.id === 'two').private, false);
+        assert.equal(writes.find(w => w.path === '/api/v2/meetings/two/review').send_to, 'auto', 'Share & send hands it to a bot');
         await page.locator('[data-note-row=one] [data-review-action=dismiss]').click();
         await page.locator('[data-note-row=one]').waitFor({state: 'detached'});
         await page.locator('[data-review=dismissed]').click();
