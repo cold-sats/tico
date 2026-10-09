@@ -2781,6 +2781,32 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     return msg
 
 
+def comment_wakes(conn, actor, row, text, *, mover=False):
+    """Whether a comment from `actor` wakes the bot on the other side of the task. A bot's comment
+    does. A person's does when they are a mover, the owner or the requester, and the bot owns the
+    task (they are directing its work). On a task a bot only filed, which a person owns, a person's
+    comment wakes the bot only when it names the bot with an @ or the task waits on that person (the
+    bot asked them); anything else is saved for the bot's next turn on the task."""
+    if is_bot(actor):
+        return True
+    if not (mover or actor in (row["owner"], row["requester"])):
+        return False
+    if is_bot(row["owner"]):
+        return True
+    if row.get("waiting_on") == actor:
+        return True
+    filers = [a for a in dict.fromkeys([row["requester"], task_origin(conn, row)]) if is_bot(a)]
+    return any(_mentions_bot(conn, text, a) for a in filers)
+
+
+def _mentions_bot(conn, text, actor):
+    """`text` names the bot `actor` with an @, by slug (@product-manager) or by name (@Product Manager)."""
+    slug = actor_id(actor)
+    row = bot(conn, slug) or {}
+    names = [slug] + ([row["name"]] if row.get("name") else [])
+    return any(re.search(r"(?<![\w@])@" + re.escape(n) + r"(?![\w-])", str(text or ""), re.IGNORECASE) for n in names)
+
+
 def task_comments(conn, task_id, *, actor=None):
     """Every comment and ask on this task, oldest first, with who wrote it. A deleted comment is not
     listed; an edited one carries `edited_at`."""
