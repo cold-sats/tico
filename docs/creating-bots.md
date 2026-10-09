@@ -496,7 +496,10 @@ tab: every tool the bot uses, with its details. It is how a human learns what a 
   Calendar, PostHog, MongoDB, PostgreSQL, MySQL, OpenAI, Anthropic, Notion, Linear, Stripe, AWS,
   Cloudflare, Zoom) and the first two letters of the name in a tinted circle for everything else.
   A red dot means the tool has a problem.
-- **The Tools list** under More gives each tool's details: the service's name, the identity it acts as
+- **The Tools list** under More is one line a tool: its icon, name, key values (the model and effort, who it
+  acts as and what it may do, or a problem in red) and its status, with the rest in the line's tooltip. Two
+  or more GitHub repositories share one line, "GitHub · N repositories" with their access added up, which
+  opens to a short line each. Opening a line gives the tool's details: the service's name, the identity it acts as
   (`identity:`), what it may do (`can:`), its scope (`database:`, `channels:`, `project:`,
   `mailbox:`, `sites:`, `repo:` and a few like them), the `note:`, the name of the environment
   variable, and a status: ready, or the problem, such as "Credential missing on Test Mac".
