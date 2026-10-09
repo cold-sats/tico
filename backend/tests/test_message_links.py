@@ -263,13 +263,19 @@ def test_an_edit_and_a_delete_move_a_message_on_and_off_a_task_page(tmp_path, mo
     assert ids(second) == []
     with s.read() as c:
         assert not c.execute("SELECT 1 FROM message_links_dirty").fetchone()
+        # Every task page asks for the run events naming the task: by their own index, not all events.
+        c.execute("DROP INDEX IF EXISTS events_action_target")
+        plan = " ".join(r[3] for r in c.execute(
+            "EXPLAIN QUERY PLAN SELECT target FROM events WHERE action IN (" + task_privacy.RUN_TASK_EVENTS_SQL
+            + ") AND instr(detail_json, ?)>0", (first,)))
+        assert "events_run_task" in plan, plan
         # The task's own room, and an id the links never keep, are read whole.
         assert message_links.candidates(c, world.tasks[0], world.task_room) is None
         assert message_links.candidates(c, "not an id", cid) is None
     compare(s, world, monkeypatch)
 
 
-def test_a_write_outside_store_transaction_is_read_from_its_row_until_refreshed(tmp_path, monkeypatch):
+def test_a_write_outside_store_transaction_is_read_from_its_row_until_the_next_tick(tmp_path, monkeypatch):
     s = store(tmp_path)
     world = World(s, 4, kinds=("refs",))
     first, second = world.tasks[:2]
@@ -286,8 +292,11 @@ def test_a_write_outside_store_transaction_is_read_from_its_row_until_refreshed(
         assert {r[0] for r in c.execute("SELECT message_id FROM message_links_dirty")} == {mid, orphan}
         assert c.execute("SELECT 1 FROM message_links WHERE message_id=? AND target=?", (mid, first)).fetchone()
     assert ids(first) == [] and ids(second) == [mid, reply, orphan]
-    with s.transaction():
-        pass
+    # The scheduler's tick, every few seconds, is a Store.transaction: it refreshes them.
+    from backend.auth import Auth
+    from backend.execution import Execution
+    from backend.scheduler import Scheduler
+    assert not Scheduler(s, Execution(s, Auth(s))).tick()["failures"]
     with s.read() as c:
         assert not c.execute("SELECT 1 FROM message_links_dirty").fetchone()
     assert ids(first) == [] and ids(second) == [mid, reply, orphan]

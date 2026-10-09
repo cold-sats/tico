@@ -44,6 +44,10 @@ SCHEMA = (
     "CREATE TRIGGER IF NOT EXISTS message_links_delete AFTER DELETE ON messages BEGIN "
     "DELETE FROM message_links WHERE message_id=OLD.id; DELETE FROM message_links_dirty WHERE message_id=OLD.id; END",
     "CREATE INDEX IF NOT EXISTS conversations_task ON conversations(task_id) WHERE task_id IS NOT NULL",
+    # The few run events that name tasks (task_privacy.RUN_TASK_EVENTS_SQL), read on every task page: here, with
+    # the links, so it never depends on the start-up index on all events.
+    "CREATE INDEX IF NOT EXISTS events_run_task ON events(action, target) "
+    "WHERE action IN ('task.next-run.carried','attempt.input.moved')",
 )
 
 
