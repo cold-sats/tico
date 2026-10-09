@@ -22,8 +22,12 @@ const TOOLS = [
   tool('posthog', 'posthog', 'PostHog', {logo_key: 'posthog', identity: 'PostHog project 12345 (US), personal key', can: ['read'],
     scope: {project: '12345'}, env: 'POSTHOG_KEY', note: 'funnels only', status: 'problem', problem: 'Credential missing on Test Mac'}),
   tool('slack', 'slack', 'Slack', {logo_key: 'slack', identity: 'Acme workspace', can: ['read', 'post'], scope: {channels: ['#ops', '#launch']}, env: 'SLACK_TOKEN'}),
+  tool('github', 'github', 'GitHub', {logo_key: 'github', identity: 'acme-co/website', can: ['read', 'write'], scope: {repo: 'acme-co/website'},
+    env: 'GH_TOKEN', status: 'problem', problem: 'Credential missing on Test Mac'}),
   tool('meeting-notes', 'meeting-notes', 'Meeting notes', {can: ['use'], status: 'unknown', detail: 'No credential is declared, so there is nothing to check'}),
   ...Array.from({length: 4}, (_, n) => tool('extra' + n, 'extra' + n, 'Extra ' + n, {identity: 'account ' + n})),
+  ...['acme-co/docs', 'acme-co/pricing-api'].map((name, n) => tool('github-extra-' + n, 'github', 'GitHub', {logo_key: 'github', identity: name,
+    can: n ? ['read', 'write'] : ['read'], scope: {repo: name}, url: 'https://github.com/' + name, status: 'unknown', detail: 'Granted repository'})),
 ];
 const task = (id, title, extra) => ({id, title, status: 'doing', owner: 'bot:cmo', requester: 'human:ana', created: iso(-30 * hour), updated: iso(-hour), ...extra});
 const TASKS = [task('t1', 'Draft the October pricing page copy'), task('t2', 'Pull last week\'s funnel numbers from PostHog', {status: 'open'}),
@@ -117,27 +121,27 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       // Assigned to others opens while it waits on a person; Done stays folded.
       assert.equal(await page.locator('#bot-assigned').evaluate(el => el.open), true);
       assert.equal(await page.locator('#pane-tasks .bot-done').evaluate(el => el.open), false);
-      // Tools beside the name: the runtime mark, then one stack of three icons (not the model again) and "+5".
+      // Tools beside the name: the runtime mark, then one stack of three icons (not the model again) and "+8".
       const strip = page.locator('#bot-tool-strip');
       const stack = strip.locator('.bts-stack');
       assert.equal(await page.locator('.bot-nameline .rt').count(), 1);
       assert.equal(await strip.locator('button').count(), 1, 'one button, not an icon each');
       assert.deepEqual(await stack.locator('.bts-icon').evaluateAll(els => els.map(el => el.dataset.tool)), ['repo', 'posthog', 'slack']);
-      assert.equal((await stack.locator('.bts-more').innerText()).trim(), '+5');
-      assert.equal(await stack.getAttribute('aria-label'), 'Tools: 8');
+      assert.equal((await stack.locator('.bts-more').innerText()).trim(), '+8');
+      assert.equal(await stack.getAttribute('aria-label'), 'Tools: 11');
       assert.equal(await stack.locator('[data-tool=posthog] .bt-dot').count(), 1, 'a problem shows a dot');
       if (shots) await page.screenshot({path: path.join(shots, `bot-page-desktop-${scheme}.png`)});
       // It opens a list, one line a tool; Escape closes it and gives the button back its focus.
       await stack.click();
       const pop = page.locator('#bts-pop');
       assert.equal(await stack.getAttribute('aria-expanded'), 'true');
-      assert.equal(await pop.locator('.bts-row').count(), 8);
+      assert.equal(await pop.locator('.bts-row').count(), 11);
       assert.match(await pop.locator('.bts-row[data-tool=slack]').getAttribute('title'), /^Slack, Acme workspace, can read, post, channels #ops, #launch, Ready$/);
       assert.match(await pop.locator('.bts-row[data-tool=posthog]').innerText(), /PostHog[\s\S]*Credential missing on Test Mac/);
       await page.keyboard.press('Escape');
       assert.equal(await pop.count(), 0);
       assert.equal(await stack.evaluate(el => el === document.activeElement), true);
-      // From the keyboard, "Manage" opens the Tools card under More, every tool with its details.
+      // From the keyboard, "Manage" opens the Tools card under More: a closed line a tool, the repositories sharing one.
       await page.keyboard.press('Enter');
       await page.locator('#bts-pop .bts-manage').waitFor();
       await page.keyboard.press('Enter');
@@ -154,8 +158,14 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       await moreAll.click();
       assert.equal(await list.locator('.bt-item:visible').count(), 9);
       assert.equal(await moreAll.innerText(), 'Show less');
+      assert.equal(await list.locator('details[open]').count(), 0);
+      const repos = list.locator('.bt-item[data-tool=github-repos]');
+      assert.match(await repos.locator('summary').first().innerText(), /4 repositories · 2 read and write, 1 read only[\s\S]*Needs attention/);
+      // Opened, every detail reads as before.
+      await list.locator('details').evaluateAll(els => els.forEach(el => { el.open = true; }));
+      assert.equal(await repos.locator('.bt-repo').count(), 4);
       const text = await list.innerText();
-      for (const expected of ['GPT-6-luna', 'acme-co/emp-cmo', 'PostHog project 12345 (US), personal key', '12345', 'POSTHOG_KEY',
+      for (const expected of ['GPT-6-luna', 'acme-co/emp-cmo', 'acme-co/website', 'GH_TOKEN', 'acme-co/pricing-api', 'PostHog project 12345 (US), personal key', '12345', 'POSTHOG_KEY',
         'funnels only', 'Credential missing on Test Mac', '#ops, #launch', 'SLACK_TOKEN', 'nothing to check', 'account 3'])
         assert(text.includes(expected), scheme + ': the list says ' + expected + '\n' + text);
       assert.equal(await list.locator('[data-tool=repo] a').getAttribute('href'), 'https://github.com/acme-co/emp-cmo');
@@ -201,7 +211,14 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       await page.evaluate(() => { location.hash = '#/bot/cmo/more'; });
       await page.locator('#bot-tools .bt-item').first().waitFor();
       assert.equal(await page.locator('#bot-tools .bt-item').count(), 9);
+      // Open, the repositories and a tool's details still fit: every line stays one line and nothing scrolls sideways.
+      await page.locator('#bot-tools [data-tool=github-repos] > summary').click();
+      await page.locator('#bot-tools [data-tool=posthog] > summary').click();
+      await page.locator('#bot-tools [data-tool=posthog][open] dl').waitFor();
+      const heights = await page.locator('#bot-tools summary:visible').evaluateAll(els => els.map(el => el.getBoundingClientRect().height));
+      assert(heights.length > 4 && heights.every(h => h < 40), 'one line a tool: ' + heights);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'More: no sideways scroll');
+      if (shots) await page.screenshot({path: path.join(shots, `bot-page-phone-tools-${scheme}.png`), fullPage: true});
       assert.deepEqual(errors, [], scheme + ': phone page errors');
       await context.close();
     }
