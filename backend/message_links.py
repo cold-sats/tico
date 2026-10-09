@@ -17,8 +17,9 @@ and a missing one would hide a message. To keep links from going missing:
 - triggers mark every inserted or re-pointed message dirty in the same statement, whoever writes it;
 - `Store.transaction` refreshes the dirty rows before it commits, and `candidates` reads a dirty row's
   links from the row itself, so a write outside `Store.transaction` is still seen;
-- every start reruns the backfill after a stored watermark, so rows an older server wrote (a rollback
-  then an upgrade) get their links, and until the first full pass has finished a page reads its room.
+- `message_links_seen` records every message whose links were worked out, and every start backfills the
+  messages missing from it, so rows an older server wrote (a rollback then an upgrade) get their links, even
+  where SQLite reused the rowid of a deleted one; until the first full pass has finished a page reads its room.
 """
 import json
 import re
@@ -26,9 +27,9 @@ import sqlite3
 
 from . import hubdb as H
 
-WATERMARK = "message_links.rowid"
 READY = "message_links.ready"
 BATCH = 2000
+SPAN = 20000    # rowids the backfill reads per look, outside the write lock
 DEPTH = 100
 SHAPE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 
@@ -37,12 +38,14 @@ SCHEMA = (
     "PRIMARY KEY(kind, target, message_id)) WITHOUT ROWID",
     "CREATE INDEX IF NOT EXISTS message_links_message ON message_links(message_id)",
     "CREATE TABLE IF NOT EXISTS message_links_dirty(message_id TEXT PRIMARY KEY) WITHOUT ROWID",
+    "CREATE TABLE IF NOT EXISTS message_links_seen(message_id TEXT PRIMARY KEY) WITHOUT ROWID",
     "CREATE TRIGGER IF NOT EXISTS message_links_insert AFTER INSERT ON messages BEGIN "
     "INSERT OR IGNORE INTO message_links_dirty VALUES(NEW.id); END",
     "CREATE TRIGGER IF NOT EXISTS message_links_update AFTER UPDATE OF id, refs_json, in_reply_to ON messages BEGIN "
     "INSERT OR IGNORE INTO message_links_dirty VALUES(NEW.id); END",
     "CREATE TRIGGER IF NOT EXISTS message_links_delete AFTER DELETE ON messages BEGIN "
-    "DELETE FROM message_links WHERE message_id=OLD.id; DELETE FROM message_links_dirty WHERE message_id=OLD.id; END",
+    "DELETE FROM message_links WHERE message_id=OLD.id; DELETE FROM message_links_dirty WHERE message_id=OLD.id; "
+    "DELETE FROM message_links_seen WHERE message_id=OLD.id; END",
     "CREATE INDEX IF NOT EXISTS conversations_task ON conversations(task_id) WHERE task_id IS NOT NULL",
     # The few run events that name tasks (task_privacy.RUN_TASK_EVENTS_SQL), read on every task page: here, with
     # the links, so it never depends on the start-up index on all events.
@@ -58,7 +61,6 @@ def ensure(conn):
         conn.execute(statement)
     if fresh and not conn.execute("SELECT 1 FROM messages LIMIT 1").fetchone():
         _set(conn, READY, True)
-        _set(conn, WATERMARK, 0)
 
 
 def _get(conn, key):
@@ -101,7 +103,7 @@ def links_for(row):
 
 
 def refresh(conn, ids):
-    """Rewrite these messages' links from their rows and clear them from the dirty set."""
+    """Rewrite these messages' links from their rows, mark them seen and clear them from the dirty set."""
     ids = list(ids)
     for start in range(0, len(ids), 500):
         chunk = ids[start:start + 500]
@@ -110,6 +112,8 @@ def refresh(conn, ids):
         rows = conn.execute(f"SELECT id, refs_json, in_reply_to FROM messages WHERE id IN ({marks})", chunk).fetchall()
         conn.executemany("INSERT OR IGNORE INTO message_links VALUES(?,?,?)",
                          [(row["id"], kind, target) for row in rows for kind, target in links_for(row)])
+        conn.execute(f"DELETE FROM message_links_seen WHERE message_id IN ({marks})", chunk)
+        conn.executemany("INSERT INTO message_links_seen VALUES(?)", [(row["id"],) for row in rows])
         conn.execute(f"DELETE FROM message_links_dirty WHERE message_id IN ({marks})", chunk)
 
 
@@ -123,30 +127,33 @@ def refresh_dirty(conn):
         refresh(conn, ids)
 
 
-def backfill(conn, batch=BATCH):
-    """Links for every message after the watermark, `batch` rows per transaction, so a large file never holds
-    the write lock for long. Idempotent: run at every start, it catches rows an older server wrote. Returns
-    how many rows it read."""
-    done = 0
-    while True:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            mark = _get(conn, WATERMARK) or 0
-            rows = conn.execute("SELECT rowid, id FROM messages WHERE rowid>? ORDER BY rowid LIMIT ?",
-                                (mark, batch)).fetchall()
-            if rows:
-                refresh(conn, [row["id"] for row in rows])
-                _set(conn, WATERMARK, rows[-1]["rowid"])
-            else:
-                refresh_dirty(conn)
-                _set(conn, READY, True)
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
-        done += len(rows)
-        if not rows:
-            return done
+def backfill(conn, batch=BATCH, span=SPAN):
+    """Links for every message not yet seen, at every start: rows an older server wrote, whatever their rowid.
+    The search reads `span` rowids at a time outside the write lock; each `batch` of unseen rows is refreshed in
+    its own short write transaction. Idempotent. Returns how many rows it refreshed."""
+    done, after = 0, 0
+    top = conn.execute("SELECT coalesce(max(rowid), 0) FROM messages").fetchone()[0]
+    while after < top:
+        ids = [r[0] for r in conn.execute(
+            "SELECT id FROM messages m WHERE rowid>? AND rowid<=? AND NOT EXISTS "
+            "(SELECT 1 FROM message_links_seen s WHERE s.message_id=m.id) ORDER BY rowid", (after, after + span))]
+        after += span
+        for start in range(0, len(ids), batch):
+            _write(conn, lambda: refresh(conn, ids[start:start + batch]))
+        done += len(ids)
+    # Rows written while it ran are dirty (the triggers) or were refreshed by their own transaction.
+    _write(conn, lambda: (refresh_dirty(conn), _set(conn, READY, True)))
+    return done
+
+
+def _write(conn, work):
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        work()
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def _fresh(conn):
