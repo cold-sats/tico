@@ -171,3 +171,13 @@ def test_delayed_send_rechecks_rights_and_rolls_back_approval(api):
     assert len(get(api, 'tasks', 'ben-test')['tasks']) == 1
 
 
+
+
+def test_share_and_send_hands_the_shared_meeting_to_a_bot_once(api):
+    made = imported(api)
+    approved = review(api, made['id'], send_to='ops')
+    assert approved['review_state'] == 'live'
+    task = approved['delivery']['task_id']
+    assert task and approved['delivery']['destination'] == 'ops'
+    # A repeat is harmless: the meeting stays live and keeps its one delivery.
+    assert review(api, made['id'], send_to='ops')['delivery']['task_id'] == task

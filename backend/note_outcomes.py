@@ -38,4 +38,5 @@ def outcome(conn, record, actor='', owner=False):
     return dict(base, bot=task['owner'].removeprefix('bot:'), status=task['status'],
                 summary=note or fallback.get(task['status'],'No outcome reported yet.'),
                 updated=task['updated'], followups=len(children), completed_followups=complete,
-                open_followups=len(children)-complete)
+                open_followups=len(children)-complete,
+                tasks=[{'id': t['id'], 'title': t['title'], 'status': t['status']} for t in children])
