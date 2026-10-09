@@ -22,9 +22,11 @@ def built(tmp_path_factory):
 
 def rows(path):
     with sqlite3.connect(path) as db:
-        return {table: db.execute(f'SELECT * FROM "{table}" ORDER BY 1,2').fetchall()
-                for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' "
-                                           "AND name NOT LIKE 'sqlite_%' ORDER BY name")}
+        tables = [table for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                                   "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        # Ordered by the first two columns, or the only one.
+        return {table: db.execute(f'SELECT * FROM "{table}" ORDER BY ' + ("1" if len(
+            db.execute(f'PRAGMA table_info("{table}")').fetchall()) == 1 else "1,2")).fetchall() for table in tables}
 
 
 def signed_in(settings):
