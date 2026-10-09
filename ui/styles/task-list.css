@@ -12,6 +12,7 @@
 /* ---- explicit status words shared by task lists and cards */
 .task-status{flex:none;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:var(--t-xs);font-weight:400}
 .tl-row > .task-status{width:65px;text-align:right}
+.tl-row > .tl-status-pad{flex:none;width:65px}
 
 /* ---- toolbar: title, labelled tabs with counts, search, new task */
 .tl-head{display:flex;align-items:center;gap:12px;min-height:44px}
@@ -244,14 +245,22 @@ button.linkish.tl-clear:hover{color:var(--ink)}
   .tl-note-text,.tl-due{display:none}
 }
 
-/* ---- a phone: the peek is a full-screen sheet; rows are thumb-sized */
+/* ---- a phone: the peek is a full-screen sheet; rows are dense, the title gets two lines and the note its own
+   line below (two lines), a lone subtask's 0/1 stays out (the chevron already shows it) */
 @media (max-width:760px){
   #main.tasks-layout{display:block;overflow:visible}
   .tasks-page,.tasks-page.peek-open{display:block}
   .tasks-pane{overflow:visible;padding:14px 12px calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 12px)}
   .tl{margin:0 -12px}
   .tl-ghead{top:0;padding:0 8px 0 6px}
-  .tl-row{min-height:44px;padding:0 12px 0 4px}
+  .tl-row{min-height:40px;padding:4px 10px 4px 0;gap:6px;flex-wrap:wrap;row-gap:0}
+  .tl-open{flex:1 1 0;height:auto;min-height:30px}
+  .tl-title{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.3}
+  .tl-fill{display:none}
+  .tl-note{order:1;flex:0 0 100%;align-items:flex-start;margin:0 0 2px;padding-left:calc(var(--depth,0) * 22px + 30px)}
+  .tl-note-ic{margin-top:2px}
+  .tl-note-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;line-height:1.35}
+  .tl-sub.one{display:none}
   .tl-check{display:none}
   #task-body.has-sel .tl-check{display:inline-block;width:18px;height:18px;opacity:1}
   .tl-chips .tlabel{display:none}

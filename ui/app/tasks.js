@@ -175,7 +175,7 @@ function progressRing(done, total) {
 function subProgressChip(t) {
   const p = taskSubProgress(t); if (!p) return '';
   const words = `${p.done} of ${p.total} subtask${p.total === 1 ? '' : 's'} done`;
-  return `<span class="tl-sub${p.done === p.total ? ' all' : ''}" role="img" aria-label="${esc(words)}" title="${esc(words)}">${progressRing(p.done, p.total)}<span class="tnum">${p.done}/${p.total}</span></span>`;
+  return `<span class="tl-sub${p.done === p.total ? ' all' : ''}${p.total <= 1 ? ' one' : ''}" role="img" aria-label="${esc(words)}" title="${esc(words)}">${progressRing(p.done, p.total)}<span class="tnum">${p.done}/${p.total}</span></span>`;
 }
 // A task's PR state: the server's pr_state (the worst across its PRs); an older server sends only the links.
 function taskPRState(t) {

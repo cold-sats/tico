@@ -850,6 +850,7 @@ async function waitingOnYou(browser) {
   assert.equal(await row.count(), 1);
   assert.equal(await row.locator('.tl-waiting').innerText(), 'Waiting');
   assert.equal(await page.locator('#task-body .tl-waiting').count(), 1, 'only on what waits on you');
+  assert.equal(await row.locator('.task-status').count(), 0, 'the chip is its status: "Waiting" once');
   assert.equal(await page.locator('[data-task-key="tt-sams"]').count(), 0, 'what waits on Sam is not in your Needs you');
   const buttons = r => page.locator(`[data-task-key="${r}"] button`).evaluateAll(b => b.map(x => x.className));
   assert.deepEqual(await buttons('tt-host'), await buttons('tt-access'), 'no status buttons of its own');
@@ -911,8 +912,18 @@ async function phone(browser) {
   const {page, errors, tasks} = await open(browser, {viewport: {width: 390, height: 844}});
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   assert.ok(overflow <= 1, 'no sideways scroll: ' + overflow);
+  // Dense rows that are still a tap target; the title wraps to two lines and the note gets its own line below.
   const heights = await page.locator('#task-body .tl-row').evaluateAll(rows => rows.map(r => Math.round(r.getBoundingClientRect().height)));
-  assert.ok(heights.every(h => h >= 44 && h <= 48), 'thumb-sized rows: ' + heights);
+  assert.ok(heights.every(h => h >= 40), 'tap-sized rows: ' + heights);
+  assert.ok((await page.locator('[data-task-key="tt-digest"]').boundingBox()).height < 44, 'a one-line row is dense');
+  const inbox = page.locator('[data-task-key="tt-inbox"]');
+  assert.equal(await inbox.locator('.tl-note-text').isVisible(), true, 'the note shows on a phone');
+  assert.ok((await inbox.locator('.tl-note').boundingBox()).y >= (await inbox.locator('.tl-title').boundingBox()).y + 16, 'below the title');
+  // A lone subtask's 0/1 stays out; 1/4 stays.
+  assert.equal(await page.locator('[data-task-key="tt-news"] .tl-sub').isVisible(), false);
+  assert.equal(await page.locator('[data-task-key="tt-checkout"] .tl-sub').isVisible(), true);
+  // Tasks has its own button in the bottom bar, current here instead of More.
+  assert.deepEqual(await page.locator('#mobile-nav .cur').evaluateAll(els => els.map(el => el.dataset.nav)), ['tasks']);
   await shot(page, 'phone-list-dark');
   // Select mode: a tap selects; the bar works.
   await page.locator('#task-select-mode').click();

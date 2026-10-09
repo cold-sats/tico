@@ -317,6 +317,8 @@ function taskListRowHTML(it, ctx, depth = 0) {
   const selected = state.selected.has(key), failed = state.bulkFail?.get(key);
   const note = taskRowNote(t);
   const me = myActor(), asker = taskRequester(t);
+  // The amber "Waiting" chip already says the status, so the status word stays out (an empty pad keeps the columns).
+  const waitsOnMe = !!taskWaitingOn(t) && taskWaitingOn(t) === me;
   // who asked: a tiny face beside the owner's when it is not you (and not already the group's heading)
   const showAsker = ctx.by !== 'requester' && asker && asker !== me && asker !== t.owner && (t.owner === me || !!actorPerson(asker));
   // a subtask shown away from its parent says whose it is
@@ -332,8 +334,8 @@ function taskListRowHTML(it, ctx, depth = 0) {
     <button type="button" class="tl-open" data-open-task="${esc(key)}" tabindex="-1"${kids.length ? ` aria-expanded="${open ? 'true' : 'false'}"` : ''}><span class="tl-title">${esc(it.title)}</span></button>
     ${parent?.title ? `<span class="tl-parent" title="Part of ${esc(parent.title)}"><span aria-hidden="true">↳ </span><span class="tl-parent-t">${esc(parent.title)}</span></span>` : ''}
     ${note ? `<span class="tl-note" title="${esc(note.text)}"><span class="tl-note-ic">${TL_ICON.note}</span><span class="tl-note-text">${esc(note.text)}</span></span>` : '<span class="tl-fill"></span>'}
-    <span class="tl-chips">${taskWaitingOn(t) && taskWaitingOn(t) === me ? '<span class="tl-waiting" title="Its bot is waiting on you">Waiting</span>' : ''}${taskChipsHTML(t)}</span>
-    ${ctx.by === 'status' ? '' : taskStatusText(t)}
+    <span class="tl-chips">${waitsOnMe ? '<span class="tl-waiting" title="Its bot is waiting on you">Waiting</span>' : ''}${taskChipsHTML(t)}</span>
+    ${ctx.by === 'status' ? '' : waitsOnMe && taskStatusLabel(t) === 'Waiting' ? '<span class="tl-status-pad"></span>' : taskStatusText(t)}
     <span class="tl-people">${showAsker ? `<span class="tl-asker" title="Asked by ${esc(actorLabel(asker))}">${actorFace(asker, 14)}</span>` : ''}<span class="tl-face" title="${esc(actorLabel(t.owner))}">${actorFace(t.owner, 18)}</span></span>
     <time class="tl-age tnum" datetime="${esc(when || '')}" title="${ctx.done ? 'Done' : 'Updated'} ${esc(fmt(when))}">${esc(ageShort(when))}</time>
     ${failed ? `<span class="tl-failed" role="img" aria-label="Not changed: ${esc(failed)}" title="Not changed: ${esc(failed)}">!</span>` : ''}

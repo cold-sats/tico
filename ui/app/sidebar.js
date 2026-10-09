@@ -598,7 +598,8 @@ function renderTree() {
     renderTree();
   };
   document.querySelectorAll('[data-nav]').forEach(a => {
-    const mobilePrimary = S.route === OVERVIEW || S.route === UPDATES || S.route.startsWith(UPDATES + '?');   // Tasks lives in More on a phone now
+    // More is current only for pages the bottom bar does not have its own button for.
+    const mobilePrimary = S.route === OVERVIEW || S.route === UPDATES || S.route.startsWith(UPDATES + '?') || isTasksRoute(S.route) || S.route.startsWith('#/task/');
     const isCurrent = (a.dataset.nav === 'overview' && S.route === OVERVIEW) ||
       (a.dataset.nav === 'welcome' && S.route === WELCOME) ||
       (a.dataset.nav === 'meetings' && (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?'))) ||
