@@ -45,7 +45,8 @@ const liveFallback = (fn, ms) => liveAvailable() ? 0 : setInterval(fn, ms);
 const LIVE_SOON = new Map();
 function liveSoon(key, fn, ms = 250) {
   if (LIVE_SOON.has(key)) return;
-  LIVE_SOON.set(key, setTimeout(() => { LIVE_SOON.delete(key); fn(); }, ms));
+  // Something changed: the reads this sets off start fresh rather than sharing one sent before the change (api.js get).
+  LIVE_SOON.set(key, setTimeout(() => { LIVE_SOON.delete(key); getForget(); fn(); }, ms));
 }
 // Run `fn` at most once per `ms`, the last call winning, and never while the tab is hidden: a hidden tab runs it once
 // when it is shown again. For the reads a change sets off that fetch whole lists.
@@ -58,7 +59,7 @@ function liveThrottle(key, fn, ms = 15000) {
   t.timer = setTimeout(() => {
     t.timer = 0;
     if (document.hidden) { t.hidden = true; return; }
-    t.at = Date.now(); t.fn();
+    t.at = Date.now(); getForget(); t.fn();
   }, Math.max(0, t.at + ms - Date.now()));
 }
 document.addEventListener('visibilitychange', () => {
@@ -107,6 +108,7 @@ function liveEventsConnect() {
     if (!current()) return;
     const d = liveData(ev); if (!d) return;
     liveAdvance(ev.lastEventId || d.seq);
+    getForget();
     liveEmit(topic, d);
   });
   es.addEventListener('cursor', ev => { if (current()) liveAdvance(ev.lastEventId || liveData(ev)?.seq); });
