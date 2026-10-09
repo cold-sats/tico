@@ -55,6 +55,19 @@ const {open} = require('./tasks-page.cjs');
       assert.deepEqual(await finish('t-news', 'close'), {version: 3, close: true});
       assert.deepEqual(await finish('t-deck', 'done'), {version: 3, status: 'done'});
       assert.deepEqual(await finish('t-access', 'close'), {version: 3, close: true}, 'a bot\'s request closes without a note');
+      // Done on a bot's request asks what was decided (the bot's answer); cancel keeps the task open, and the note goes with Done.
+      await show('t-copy');
+      await head.locator('[data-task-finish="done"]').click();
+      const box = v.page.locator('dialog.task-outcome');
+      await box.locator('textarea').waitFor();
+      await box.locator('[data-cancel]').click();
+      assert.equal(await v.page.locator('#task-modal').evaluate(el => el.open), true, 'cancel keeps the task open');
+      assert.equal(v.posts.filter(p => p.p === '/api/v2/tasks/t-copy').length, 0, 'cancel saves nothing');
+      await head.locator('[data-task-finish="done"]').click();
+      await box.locator('textarea').fill('Go with headline B.');
+      await box.locator('button[type=submit]').click();
+      await v.page.waitForFunction(() => !document.querySelector('#task-modal').open);
+      assert.deepEqual(v.posts.filter(p => p.p === '/api/v2/tasks/t-copy').at(-1).body, {version: 3, status: 'done', note: 'Go with headline B.'});
       assert.deepEqual(v.errors, []);
       await v.page.close();
     }
