@@ -37,7 +37,8 @@ def test_the_queue_asks_one_bot_at_a_time_and_moves_on_when_it_posts(api):
         assert c.execute("SELECT state FROM update_queue WHERE bot=? AND day='2026-09-29'", (first,)).fetchone()[0] == "posted"
 
 
-def test_a_bot_posts_once_a_day_and_each_person_has_their_own_read_state(api):
+def test_a_bot_posts_once_a_day_and_each_person_has_their_own_read_state(api, monkeypatch):
+    monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")   # a Tuesday: a daily, whatever today is
     r, msg, attempt = setup_attempt(api, "ops")
     bot = {"Authorization": "Bearer " + attempt["token"]}
     first = api.post("/api/v2/updates", json={"body": "- Drafted the checklist"},
