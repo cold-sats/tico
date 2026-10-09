@@ -36,6 +36,8 @@ async function granolaStatus(state) {
 }
 async function granolaInit(state) {
   const s = await granolaStatus(state);
+  // Tools > Granola links here with ?connect=granola: open the sign-in straight away.
+  if (state.connectGranola && s && !granolaReady(s) && !s.needs_signin) { state.connectGranola = false; return granolaConnect(state); }
   if (s?.syncing) granolaWatch(state);           // a sync already running (the schedule, another tab): follow it
   else if (granolaReady(s)) granolaSync(state);
 }
@@ -288,3 +290,20 @@ document.addEventListener('click', event => {
   const row = $('#mg-row');
   if (row && !event.target.closest?.('.mg-more-wrap')) granolaMenu(row, false);
 });
+
+// Tools > Granola: the viewer's own account, any plan (free included). Connecting happens on Meetings, where the
+// notes land, so the button links there with the sign-in open.
+window.mountGranolaTool = async function (host) {
+  if (!host) return;
+  let s;
+  try { s = await get(GRANOLA); } catch { s = null; }
+  if (!host.isConnected) return;
+  if (!s || typeof s.mode !== 'string') { host.closest('section')?.remove(); return; }
+  const go = MEETINGS + '?connect=granola';
+  const line = s.needs_signin ? '<span class="mg-bad">Signed out</span>'
+    : s.connected ? granolaFacts(s, s.syncing) : '<span>Any Granola plan, free included</span>';
+  const [word, cls, to] = s.needs_signin ? ['Sign in again', 'primary', go] : s.connected ? ['Open Meetings', 'ghost', MEETINGS] : ['Connect', 'primary', go];
+  host.innerHTML = `<div class="mg-row mg-flat">${meetLogo('granola', 22)}<div class="mg-body"><div class="mg-line">${line}</div></div>
+    <div class="mg-actions"><button type="button" class="${cls} small">${word}</button></div></div>`;
+  host.querySelector('button').onclick = () => { location.hash = to; };
+};

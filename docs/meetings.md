@@ -379,7 +379,7 @@ here but not run against a Workspace.
 
 ### Granola
 
-**Connect your own Granola account in Meetings (default).** Choose **Connect Granola**, open the
+**Connect your own Granola account in Meetings (default).** Choose **Connect Granola** (in Meetings, Add source, or Tools > Granola), open the
 verification link and enter the code if asked. Each person connects their own account through
 Granola's official remote MCP at `https://mcp.granola.ai/mcp`. Tico stores tokens encrypted in the
 server credential vault; bots and Computers cannot read them. Disconnect in Meetings to delete them.

@@ -195,7 +195,8 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       assert.equal(count(w, 'status'), polled, 'polling stops once the sync is done');
       assert.equal(await page.locator('#mg-row .mg-line > span[title^="Free plan"]').innerText(), '42 notes');
       assert.equal(await page.locator('#mg-row [data-g=connect]').count(), 0);
-      assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 0, 'Granola shows once: its row, not a tile too');
+      assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 1, 'Add source still lists Granola');
+      assert.equal(await page.locator('[data-meet-tiles] [data-msrc=granola]').count(), 0, 'the big tiles leave Granola to its row');
       await shot(page, `granola-connected-${scheme}`);
       // The … menu: keyboard opens it on its first item; Escape closes it back on the button.
       const more = page.locator('#mg-row [data-g=more]');
@@ -250,9 +251,9 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     await page.locator('#mg-dialog .mg-key').click();
     await page.locator('dialog.import-modal[aria-label="Connect Granola"] form[data-importer=granola]').waitFor();
     await page.keyboard.press('Escape');
-    // the row is the one way in: no Granola tile in the strip beside it
-    assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 0);
-    await page.locator('#mg-row [data-g=connect]').click();
+    // Add source > Granola opens the same sign-in as the row
+    await page.locator('#meet-sources .meet-src-btn').click();
+    await page.locator('#meet-sources [data-msrc=granola]').click();
     await page.locator('#mg-code').waitFor();
     assert.deepEqual(errors, []);
     await context.close();

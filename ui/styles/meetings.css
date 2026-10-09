@@ -70,6 +70,7 @@
 .meet-granola{margin:0 0 10px}
 .meet-granola[hidden]{display:none}
 .mg-row{display:flex;align-items:center;gap:10px;padding:6px 8px 6px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.mg-row.mg-flat{border:0;padding:0;background:none}
 .mg-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .mg-line{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;font-size:var(--t-base);color:var(--muted);min-width:0}
 .mg-line b{color:var(--ink);font-weight:600}
