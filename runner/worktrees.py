@@ -248,14 +248,20 @@ def _verify_ready_registration(workspace, row, repo, task=None):
         raise ValueError('Ready worktree has no completed local setup record; kept unverified')
 
 
-def _verify_worktree(path, workspace, repo, branch, env, expected_base=None):
+def _verify_worktree(path, workspace, repo, branch, env, expected_base=None, detached_ok=False):
+    """`detached_ok`: inspecting a legacy tree, where a detached HEAD (a review checkout of a commit) is a
+    normal state; creation, resume and setup always need the task's branch checked out."""
     if not (path / '.git').is_file():
         raise ValueError('Tracked path is not a Git worktree; left as it is')
     origin = git(path, 'config', '--get', 'remote.origin.url', env=env).stdout.strip()
     matches = git_repository.matches(origin, repo.get('full_name') or repo['repo']) if repo.get('machine_git') else git_credentials._same_repository(origin, repo.get('full_name') or repo['repo'])
     if not matches:
         raise ValueError('Worktree repository does not match its task link; left as it is')
-    if git(path, 'symbolic-ref', '--short', 'HEAD', env=env).stdout.strip() != branch:
+    if detached_ok:
+        head = git(path, 'symbolic-ref', '--short', '-q', 'HEAD', env=env, check=False).stdout.strip()
+        if head and head != branch:
+            raise ValueError('Worktree branch does not match its task link; left as it is')
+    elif git(path, 'symbolic-ref', '--short', 'HEAD', env=env).stdout.strip() != branch:
         raise ValueError('Worktree branch does not match its task link; left as it is')
     common = _common_dir(path, env)
     if Path(workspace).resolve() not in common.parents:
@@ -777,7 +783,7 @@ def inspect(workspace, row, env=None, cache=None):
                 raise ValueError('Legacy worktree has no registered repository or branch; kept unverified')
             _verify_worktree(path, workspace, {'full_name': row['repo'],
                                                'machine_git': not git_credentials._same_repository(origin, row['repo'])},
-                             row['branch'], env)
+                             row['branch'], env, detached_ok=True)
             if git(path, 'ls-files', '--deleted', '-z', env=env).stdout:
                 result.update(state='pending', checkout_state='unverified',
                               error='Legacy worktree has missing tracked files; kept unchanged and unverified')

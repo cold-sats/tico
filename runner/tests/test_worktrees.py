@@ -1171,6 +1171,34 @@ def test_legacy_present_checkout_remains_usable_without_new_marker(trees):
     client.patch.assert_not_called()
 
 
+def test_a_detached_legacy_checkout_is_inspected_as_present_but_not_adopted_for_setup(trees):
+    """A review checkout of a commit is healthy (#276): inspection reports it present without a branch,
+    pre-marker or explicitly legacy; creating or resuming on it still needs the task's branch."""
+    workspace, base, remote, row, client = trees
+    row['kind'] = 'worktree'
+    path = workspace / row['path']
+    path.parent.mkdir(parents=True)
+    git(base, 'worktree', 'add', '--no-track', '-b', row['branch'], str(path), 'origin/main')
+    git(path, 'checkout', '--detach')
+    (path / 'file').write_text('legacy user edit')
+    for state, detail in (('present', '{}'), ('present', '{"checkout_state": "legacy_present"}'),
+                          ('unknown', '{"checkout_state": "legacy_present"}')):
+        row.update(state=state, detail_json=detail)
+        report = W.inspect(workspace, row)
+        assert report['state'] == 'present' and report['checkout_state'] == 'legacy_present', (state, detail, report)
+        assert report.get('branch') is None and 'error' not in report
+    git(path, 'checkout', '-q', '-b', 'someone-else')
+    row.update(state='present', detail_json='{}')
+    assert W.inspect(workspace, row)['state'] != 'present'
+    git(path, 'checkout', '-q', '--detach')
+    link = client.post.return_value
+    link.pop('checkout_state', None)
+    link.update(state='present', setup_pending=False)
+    with pytest.raises(Exception):
+        W.command(client, 'add', 'org/product')
+    assert (path / 'file').read_text() == 'legacy user edit'
+
+
 def test_short_task_option_is_resolved_before_worktree_registration(trees, monkeypatch):
     from clients import hubcli, remotecli
 
