@@ -9,6 +9,7 @@ const PROP_ICON = {
   due: '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><rect x="2" y="3" width="10" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6h10M5 1.8v2.4M9 1.8v2.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
   type: '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><path d="M2.5 4.5h9M2.5 7h9M2.5 9.5h5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
   open: '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false"><path d="M5 2.5H2.5v7h7V7M7 2.5h2.5V5M9.5 2.5L5.5 6.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  check: '<svg viewBox="0 0 14 14" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3 7.3l2.6 2.6L11 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   more: '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="3" cy="7" r="1.2" fill="currentColor"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/><circle cx="11" cy="7" r="1.2" fill="currentColor"/></svg>',
 };
 // who may change what (the server holds the rules; this only hides controls that could never work)
@@ -39,7 +40,8 @@ function taskPropsHTML(t, opts = {}) {
   const asker = taskRequester(t);
   rows.push(row('asker', 'Asked by', asker ? actorFace(asker, 16) + txt(actorLabel(asker)) : txt('Unknown'), {words: actorLabel(asker) || 'Unknown', empty: !asker}));
   if (t.roles && (typed || Object.keys(t.roles).length)) rows.push(taskPeopleRowHTML(t, r));
-  rows.push(`<div class="prop" data-prop-row="private"><span class="prop-k">Private</span><label class="prop-v" title="Only the requester and assignee see a private task"><input type="checkbox" aria-label="Private" data-task-private ${t.private ? 'checked' : ''} ${r.party && (!t.private || myActor() === t.requester) ? '' : 'disabled'}></label></div>`);
+  // Private: the label never changes; the line under it says what the current setting means
+  rows.push(`<div class="prop" data-prop-row="private"><span class="prop-k">Private</span><span class="prop-vwrap"><label class="prop-v prop-check"><input type="checkbox" aria-label="Private" data-task-private ${t.private ? 'checked' : ''} ${r.party && (!t.private || myActor() === t.requester) ? '' : 'disabled'}></label><small>${t.private ? 'Only the requester and assignee can see a private task' : 'Visible to everyone in the company'}</small></span></div>`);
   // Due: a person's deadline (red once passed), or when a bot's parked task wakes (muted "Wakes Oct 2")
   const dueAt = parseServerTime(t.due);
   const info = taskDueInfo(t);
