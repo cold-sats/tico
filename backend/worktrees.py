@@ -446,9 +446,21 @@ def install(app, store, auth, mutate):
                                      and body.checkout_state is None and body.setup_pending is True
                                      and link['state'] == 'pending' and link['added_by'].startswith('human:')
                                      and detail.get('checkout_state') in (None, 'queued'))
+            # A runner from before checkout records adds a worktree, then reports it present with only its path
+            # (and runs setup itself, reporting setup_pending after). Accept that one report on the link it just
+            # added, still queued, as legacy_present with setup still pending; it never certifies a ready checkout.
+            # The same old clients also attach an existing tree (bare present on an attached_pending link; attach runs
+            # no setup) and close both add and attach with one more bare present, which confirms what is recorded.
+            bare_present = (body.state == 'present' and body.checkout_state is None and body.setup_pending is None
+                            and body.expected_head is None and body.checkout_target is None and body.expected_base is None
+                            and (who.role == 'runner' or link['added_by'] == who.actor))
+            legacy_add_report = bare_present and link['state'] == 'pending' and detail.get('checkout_state') == 'queued'
+            legacy_attach_report = (bare_present and link['state'] == 'pending'
+                                    and detail.get('checkout_state') == 'attached_pending')
+            legacy_confirm = bare_present and link['state'] == 'present' and detail.get('checkout_state') == 'legacy_present'
             if body.state == 'present' and (checkout_state != 'ready' or setup_pending
                     or not body.expected_head or not body.checkout_target or not body.expected_base) \
-                    and not legacy_restore_report:
+                    and not (legacy_restore_report or legacy_add_report or legacy_attach_report or legacy_confirm):
                 raise Problem('worktree_not_ready', 'Checkout and setup must complete before a worktree is reported present', 409)
             if body.cleanup and who.role != 'runner':
                 raise Problem('forbidden', 'Only the computer reports cleanup', 403)
@@ -466,6 +478,10 @@ def install(app, store, auth, mutate):
                 for key in ('checkout_state', 'expected_head', 'checkout_target', 'expected_base'):
                     detail.pop(key, None)
                 detail['legacy_restore_pending'] = True
+            if legacy_add_report or legacy_attach_report:
+                for key in ('expected_head', 'checkout_target', 'expected_base'):
+                    detail.pop(key, None)
+                detail.update(checkout_state='legacy_present', setup_pending=legacy_add_report)
             if body.setup_pending is not None:
                 detail['setup_pending'] = body.setup_pending
             if body.checkout_state is not None:

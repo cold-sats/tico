@@ -301,6 +301,49 @@ def test_initializing_checkout_stays_pending_until_checkout_and_setup_complete(p
         assert json.loads(saved['detail_json'])['checkout_state'] == 'ready'
 
 
+def test_an_older_runner_can_still_add_a_worktree_and_finish_its_setup(prepared):
+    """A 0.3.34 runner adds as the bot, reports present with only its path, then setup_pending True and False."""
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
+    route = f'/api/v2/tasks/{tid}/links/{link["link_id"]}'
+    send = lambda body: api.patch(route, json=body, headers={**auth('bot-test'), 'Idempotency-Key': uuid.uuid4().hex})
+    assert send({'state': 'present', 'path': link['path']}).status_code == 200
+    with api.app_state.store.read() as c:
+        saved = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+    detail = json.loads(saved['detail_json'])
+    assert saved['state'] == 'present' and detail['checkout_state'] == 'legacy_present' and detail['setup_pending'] is True
+    assert send({'setup_pending': True}).status_code == 200
+    assert send({'setup_pending': False}).status_code == 200
+    assert send({'state': 'present', 'path': link['path']}).status_code == 200    # its closing report, a confirm
+    with api.app_state.store.read() as c:
+        assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])['setup_pending'] is False
+    # Only that bare first report on a link still queued: a second link once past queued still needs the proof.
+    other = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET detail_json=? WHERE id=?",
+                  (json.dumps({'owner': 'bot:cmo', 'checkout_state': 'initializing', 'setup_pending': True}), other['link_id']))
+    refused = api.patch(f'/api/v2/tasks/{tid}/links/{other["link_id"]}', json={'state': 'present', 'path': other['path']},
+                        headers={**auth('bot-test'), 'Idempotency-Key': uuid.uuid4().hex})
+    assert refused.status_code == 409 and refused.json()['error']['code'] == 'worktree_not_ready'
+
+
+def test_an_older_runner_can_still_attach_an_existing_worktree(prepared):
+    """A 0.3.34 attach: the link comes back attached_pending, then a bare present (attach runs no setup), twice."""
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET detail_json=? WHERE id=?",
+                  (json.dumps({'owner': 'bot:cmo', 'checkout_state': 'attached_pending', 'setup_pending': False}), link['link_id']))
+    route = f'/api/v2/tasks/{tid}/links/{link["link_id"]}'
+    for _ in range(2):
+        r = api.patch(route, json={'state': 'present', 'path': link['path']}, headers={**auth('bot-test'), 'Idempotency-Key': uuid.uuid4().hex})
+        assert r.status_code == 200, r.text
+    with api.app_state.store.read() as c:
+        saved = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+    detail = json.loads(saved['detail_json'])
+    assert saved['state'] == 'present' and detail['checkout_state'] == 'legacy_present' and detail['setup_pending'] is False
+
+
 def test_old_runner_without_checkout_state_preserves_existing_legacy_present_link(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
