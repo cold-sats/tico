@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- A task's header has Done (for its owner) and Close buttons: one tap, no reason asked, and the task window closes back to where you were. Closing a request a bot made no longer asks why. The header's icons match (no stray lock, a drawn ✕), and the Private setting always reads Private, with a line saying who can see the task.
 ### Fixed
 - Granola imports recover from Granola's rate limits. A throttled sync no longer retries on a fixed short schedule that kept the quota exhausted; it backs off (5 minutes, doubling, up to 6 hours, or longer if Granola asks), waits in the sync only when Granola names a short wait, and fetches notes not yet imported before re-reading ones it already has.
 

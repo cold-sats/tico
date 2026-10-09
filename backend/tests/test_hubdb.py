@@ -204,11 +204,13 @@ class Rule5Tasks(HubCase):
         return [m for m in H.messages(self.conn, row["conversation_id"])
                 if m["to_actor"] == to and m["body"].startswith(("Closed:", "Child closed:"))]
 
-    def test_human_must_record_result_before_finishing_or_closing_bot_request(self):
+    def test_human_records_a_result_to_finish_a_bot_request_but_closes_without_a_reason(self):
         decision = H.task_create(self.conn, CMO, "Decide whether to release the draft", "Review it.", ANA)
         self.refused("lint", H.task_update, self.conn, ANA, decision["id"], status="done")
-        self.refused("lint", H.task_close, self.conn, ANA, decision["id"])
         self.assertEqual(H.task(self.conn, decision["id"])["status"], "open")
+        dropped = H.task_create(self.conn, CMO, "Pick a launch date", "Choose one.", ANA)
+        self.assertEqual(H.task_close(self.conn, ANA, dropped["id"])["status"], "closed")
+        self.assertTrue(self.closed_notices(dropped, CMO), "the bot that asked is told it was closed")
         result = H.task_update(self.conn, ANA, decision["id"], status="done",
                                note="Keep the draft on hold; do not publish it.")
         self.assertEqual(result["status"], "done")

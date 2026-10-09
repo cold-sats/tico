@@ -130,21 +130,20 @@ async function v2TaskAct(button, id, body) {
     return true;
   } catch (e) { toast(e.message, true); button.disabled = false; button.textContent = label; return false; }
 }
+// Finishing a bot's request records what was decided; closing never asks for a reason.
 function taskOutcomeNote(task, action) {
-  if (!task || !String(task.owner || '').startsWith('human:') ||
-      !String(task.requester || '').startsWith('bot:') ||
-      (action.close && ['done', 'declined'].includes(task.status))) return Promise.resolve('');
+  if (!task || action.close || !String(task.owner || '').startsWith('human:') ||
+      !String(task.requester || '').startsWith('bot:')) return Promise.resolve('');
   return new Promise(resolve => {
     const dialog = document.createElement('dialog');
     dialog.className = 'tmodal task-outcome';
-    const closing = !!action.close;
     dialog.innerHTML = `<form class="tmodal-body">
-      <h2>${closing ? 'Close this request' : 'Finish this request'}</h2>
+      <h2>Finish this request</h2>
       ${task.title ? `<p class="task-outcome-title">${esc(task.title)}</p>` : ''}
-      <p class="muted">${closing ? 'Why close it?' : 'What did you decide or do?'}</p>
+      <p class="muted">What did you decide or do?</p>
       <textarea required maxlength="4000" aria-label="Result or decision" placeholder="State the result or decision explicitly."></textarea>
       <div class="row"><button class="ghost" type="button" data-cancel>Cancel</button>
-        <button class="primary" type="submit">${closing ? 'Close task' : 'Mark done'}</button></div>
+        <button class="primary" type="submit">Mark done</button></div>
     </form>`;
     const finish = note => { dialog.close(); dialog.remove(); resolve(note); };
     dialog.querySelector('[data-cancel]').onclick = () => finish(null);

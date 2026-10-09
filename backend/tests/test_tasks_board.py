@@ -90,7 +90,6 @@ def test_completing_a_bot_requested_human_task_needs_a_result(api):
     task = post(api, "tasks", {"owner": "ana", "title": "Decide the content hold",
         "body": "Keep or change the hold?"}, token=token)
     post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done"}, expected=422)
-    post(api, "tasks/" + task["id"], {"version": task["version"], "close": True}, expected=422)
     done = post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done",
         "note": "Keep the hold; no publication is approved."})
     assert done["status"] == "done" and done["note"] == "Keep the hold; no publication is approved."
