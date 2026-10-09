@@ -8,6 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- Settings > Bots is one line per bot: Model and Fallback show as text ("Claude Opus 5.5 · high") and open a small popover with harness, model and effort; computer and fallback read as text until hovered. Settings > Computers shows status as a dot, the bots as one line that opens Bots filtered to that computer, and moves Remove computer and Accepts members' bots into the row's ⋯ menu.
 - Overview is a floating island at dusk: soft glow on lamps, screens and robot faces, clouds, fireflies, wildflowers, stepping-stone paths with a delivery robot, and furnished floors (bookshelves, arcade cabinets, lamps). Opening a floor works like an elevator: it settles onto the ground while floors above lift away and floors below sink, with a sweeping camera; buildings stack up storey by storey when the page opens. Teammates blink, hop, look up and wave when tapped.
 
 ### Changed

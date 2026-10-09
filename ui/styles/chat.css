@@ -181,7 +181,7 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .settings-agents-title{margin:var(--s3) 0 var(--s1);font-size:14px}
 .agent-credential .agent-credential-body{display:flex;flex-direction:column;gap:var(--s2);max-width:720px}
 .agent-credential label{display:flex;flex-direction:column;gap:6px;font-size:13px}.agent-credential code{white-space:pre-wrap;word-break:break-all;flex:1;padding:6px 8px;background:var(--surface2);border-radius:var(--radius)}
-.settings-token-form{margin-top:var(--s2);align-items:flex-end;flex-wrap:wrap;gap:var(--s2)}.settings-token-form label{display:flex;flex-direction:column;gap:4px;font-size:13px}.settings-token-form input[type=number]{width:5em}
+.settings-token-form{margin-top:var(--s2);align-items:center;flex-wrap:wrap;gap:var(--s2) var(--s3)}.settings-token-form label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);white-space:nowrap}.settings-token-form input{color:var(--ink)}.settings-token-form input[type=text]{width:220px}.settings-token-form input[type=number]{width:4.5em}
 .agent-credential pre{white-space:pre-wrap;word-break:break-all;background:var(--surface2);padding:8px;border-radius:var(--radius);font-size:12px}
 .bfiles{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .fchip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;background:var(--bg);font-size:11.5px}
