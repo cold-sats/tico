@@ -3,6 +3,7 @@
 Structured provenance is checked again on each request. This cannot retract a download
 or identify private information copied into unrelated, untagged prose.
 """
+import json
 import re
 
 from .store import H, Problem
@@ -87,7 +88,8 @@ def message_tasks(c, message, seen=None, include_run=True, current=False):
         for mid in refs.get(key, []) if isinstance(refs.get(key), list) else []:
             if isinstance(mid, str):
                 ids.update(message_tasks(c, H.message(c, mid, include_deleted=True), seen, include_run=False))
-    tid = H.message_task_id(message, conv)
+    # `refs` as parsed here: a row as stored has only `refs_json`, and its `refs.task` still decides.
+    tid = H.message_task_id({**message, "refs": refs}, conv)
     if tid:
         ids.add(tid)
     if message.get("in_reply_to"):
@@ -182,6 +184,16 @@ def page(c, who, cid, *, before=None, since=None, limit=200, task_id=None):
     if since:
         clauses.append("created>?")
         args.append(since)
+    if task_id:
+        # Only the messages that could be about the task are read (backend/message_links.py); each is still
+        # checked below exactly as before, so an extra candidate costs a check and nothing more.
+        from .message_links import candidates
+        ids = candidates(c, task_id, cid)
+        if ids is not None:
+            # Looked up by id: `+` keeps SQLite from walking the room's index instead.
+            clauses[0] = "+conversation_id=?"
+            clauses.append("id IN (SELECT value FROM json_each(?))")
+            args.append(json.dumps(sorted(ids)))
     visible, reader = [], actor(who)
     for row in c.execute("SELECT * FROM messages WHERE " + " AND ".join(clauses) + " ORDER BY rowid DESC", args):
         # message_readable's own steps, with the row's tasks worked out once: a task's page skips another
