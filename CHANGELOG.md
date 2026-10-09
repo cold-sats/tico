@@ -7,16 +7,23 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.35] - 2026-10-09
+
+### Added
+- **Copy a chat message:** a faint copy button sits in the message's bottom-right corner and shows fully on hover or focus. People's message bubbles are wider. ([#283](https://github.com/ticoteam/tico/pull/283))
+- **A paused bot says when it resumes.** Its banner gives the resume time and a Resume now button, people's messages wait for it instead of being refused, and only repeated refusals count toward a pause (at most 30 a day). ([#287](https://github.com/ticoteam/tico/pull/287))
+
+### Changed
+- A design pass across the app: one type scale and control size, clearer bot page tool stack, Docs with a recent list, reading width, "On this page" and a guard for unsaved edits, lighter Meetings with one Granola entry and an Add source menu, and pages that show content sooner. ([#296](https://github.com/ticoteam/tico/pull/296))
+- Settings > Bots is one line per bot: Model and Fallback show as text ("Claude Opus 5.5 · high") and open a small popover with harness, model and effort; computer and fallback read as text until hovered. Settings > Computers shows status as a dot, the bots as one line that opens Bots filtered to that computer, and moves Remove computer and Accepts members' bots into the row's ⋯ menu. ([#292](https://github.com/ticoteam/tico/pull/292))
+- Overview is a floating island at dusk: soft glow on lamps, screens and robot faces, clouds, fireflies, wildflowers, stepping-stone paths with a delivery robot, and furnished floors (bookshelves, arcade cabinets, lamps). Opening a floor works like an elevator: it settles onto the ground while floors above lift away and floors below sink, with a sweeping camera; buildings stack up storey by storey when the page opens. Teammates blink, hop, look up and wave when tapped. ([#290](https://github.com/ticoteam/tico/pull/290))
+- Overview: select any floor to see it from above, with name tags; ▲ ▼ move between floors. Bots are 80s robots whose screen face is their own icon, glowing; people are rounder and varied. A **Buildings / Tower** switch shows one building per computer or every computer as a floor of one tower. The 3D view loads faster: its scripts download in parallel and three.js is sent gzipped (~790 KB to ~200 KB). ([#289](https://github.com/ticoteam/tico/pull/289))
+- Opening a task reads only the messages that could be about it, not its whole chat room: each message keeps which tasks, replies and runs it links to, filled in for older messages at start. A task in a busy bot's room opens in the same time however long the room's history is. ([#293](https://github.com/ticoteam/tico/pull/293))
+
 ### Fixed
-- Granola imports recover from Granola's rate limits. A throttled sync no longer retries on a fixed short schedule that kept the quota exhausted; it backs off (5 minutes, doubling, up to 6 hours, or longer if Granola asks), waits in the sync only when Granola names a short wait, and fetches notes not yet imported before re-reading ones it already has.
-
-### Changed
-- Opening a task reads only the messages that could be about it, not its whole chat room: each message keeps which tasks, replies and runs it links to, filled in for older messages at start. A task in a busy bot's room opens in the same time however long the room's history is.
-- Settings > Bots is one line per bot: Model and Fallback show as text ("Claude Opus 5.5 · high") and open a small popover with harness, model and effort; computer and fallback read as text until hovered. Settings > Computers shows status as a dot, the bots as one line that opens Bots filtered to that computer, and moves Remove computer and Accepts members' bots into the row's ⋯ menu.
-- Overview is a floating island at dusk: soft glow on lamps, screens and robot faces, clouds, fireflies, wildflowers, stepping-stone paths with a delivery robot, and furnished floors (bookshelves, arcade cabinets, lamps). Opening a floor works like an elevator: it settles onto the ground while floors above lift away and floors below sink, with a sweeping camera; buildings stack up storey by storey when the page opens. Teammates blink, hop, look up and wave when tapped.
-
-### Changed
-- Overview: select any floor to see it from above, with name tags; ▲ ▼ move between floors. Bots are 80s robots whose screen face is their own icon, glowing; people are rounder and varied. A **Buildings / Tower** switch shows one building per computer or every computer as a floor of one tower. The 3D view loads faster: its scripts download in parallel and three.js is sent gzipped (~790 KB to ~200 KB).
+- Granola imports recover from Granola's rate limits. A throttled sync no longer retries on a fixed short schedule that kept the quota exhausted; it backs off (5 minutes, doubling, up to 6 hours, or longer if Granola asks), waits in the sync only when Granola names a short wait, and fetches notes not yet imported before re-reading ones it already has. ([#295](https://github.com/ticoteam/tico/pull/295))
+- Task checkouts are created resumably again, and older or mixed-version worktrees are handled safely. This restores a fix that an accidental revert had removed. ([#284](https://github.com/ticoteam/tico/pull/284))
+- Task lists, status and runner assignments read from one consistent database snapshot, and the media poll always uses its small pending index instead of scanning every file. ([#285](https://github.com/ticoteam/tico/pull/285), [#288](https://github.com/ticoteam/tico/pull/288))
 
 ## [0.3.34] - 2026-10-08
 
