@@ -169,6 +169,12 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
         'funnels only', 'Credential missing on Test Mac', '#ops, #launch', 'SLACK_TOKEN', 'nothing to check', 'account 3'])
         assert(text.includes(expected), scheme + ': the list says ' + expected + '\n' + text);
       assert.equal(await list.locator('[data-tool=repo] a').getAttribute('href'), 'https://github.com/acme-co/emp-cmo');
+      // The repository's name opens GitHub (window.open is stubbed: nothing leaves the test) and leaves its line as it was.
+      await page.evaluate(() => { window.opened = []; window.open = url => { window.opened.push(url); return null; }; });
+      await list.locator('[data-tool=repo]').evaluate(d => { d.open = false; });
+      await list.locator('[data-tool=repo] summary a').click();
+      assert.deepEqual(await page.evaluate(() => window.opened), ['https://github.com/acme-co/emp-cmo']);
+      assert.equal(await list.locator('[data-tool=repo]').evaluate(d => d.open), false, 'following the link does not open the line');
       assert.equal(await list.locator('[data-tool=meeting-notes] .tool-initials').innerText(), 'Me');
       if (shots && scheme === 'dark') await page.screenshot({path: path.join(shots, 'bot-page-tools-desktop-dark.png')});
       assert.deepEqual(errors, [], scheme + ': page errors');

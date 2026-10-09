@@ -268,6 +268,13 @@
       host.innerHTML = (got.reportError ? `<p class="err" data-tool-report-error>${esc(got.reportError)}</p>` : '')
         + (got.tools.length ? lines(got.tools) : '<div class="empty">None.</div>');
     }
+    // A repository's name is a link inside its line: following it opens GitHub and leaves the line as it was.
+    host.addEventListener('click', ev => {
+      const link = ev.target.closest('summary a[href]');
+      if (!link) return;
+      ev.preventDefault();
+      window.open(link.href, '_blank', 'noopener,noreferrer');
+    });
     refresh();
   }
 
