@@ -2,16 +2,16 @@
    The cascade runs in the order index.html links these files; keep rules in order. */
 /* Demo mode (python -m backend.demo): a strip nobody can close, and the page below it shortened to fit. */
 #demo-banner{display:none}
-#stale-banner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+#stale-banner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:var(--t-base);box-shadow:0 6px 20px rgba(0,0,0,.2)}
 #stale-banner[hidden]{display:none}
-#usage-notice{position:fixed;left:16px;bottom:16px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+#usage-notice{position:fixed;left:16px;bottom:16px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:var(--t-sm);box-shadow:0 6px 20px rgba(0,0,0,.12)}
 #usage-notice[hidden]{display:none}
 /* Fixed over the bottom-left of every page, which is where a bot's composer sits: a click on the box must reach the box, so only the bar's own link and button take clicks. */
 #usage-notice{pointer-events:none}
 #usage-notice a,#usage-notice button{pointer-events:auto}
-.privacy-row{display:flex;align-items:center;gap:8px;font-size:14px}.privacy-row input{width:auto;flex:none}
+.privacy-row{display:flex;align-items:center;gap:8px;font-size:var(--t-md)}.privacy-row input{width:auto;flex:none}
 html.demo{--demo-h:30px;padding-top:var(--demo-h)}
-html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:var(--demo-h);display:flex;align-items:center;justify-content:center;gap:10px;padding:0 12px;background:var(--wait-bg);color:var(--wait);border-bottom:1px solid var(--wait);font-size:12.5px;line-height:1.2;white-space:nowrap;overflow:hidden}
+html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:var(--demo-h);display:flex;align-items:center;justify-content:center;gap:10px;padding:0 12px;background:var(--wait-bg);color:var(--wait);border-bottom:1px solid var(--wait);font-size:var(--t-sm);line-height:1.2;white-space:nowrap;overflow:hidden}
 html.demo #demo-banner strong{color:var(--ink);font-weight:600}
 html.demo #demo-banner span{overflow:hidden;text-overflow:ellipsis}
 html.demo body{min-height:calc(100vh - var(--demo-h))}
@@ -26,20 +26,51 @@ html.demo #main.chat-layout{height:calc(100dvh - var(--demo-h))}
 }
 /* one spacing scale, used everywhere instead of ad-hoc pixel values */
 :root{--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:22px;--s6:32px;--radius:9px;--mobile-nav-height:64px}
+/* corners: controls 6px, menus and popovers 10px, cards --radius. Controls get one height from 20px lines and padding
+   (forms.css): 32px on a desktop, 40px on a phone */
+:root{--r-ctl:6px;--r-pop:10px}
 *{box-sizing:border-box}
 html,body{height:100%}
 /* The rails' widths; dragging an edge changes them (ui/app/rails.js, ui/styles/rails.css). */
 :root{--rail-left:236px;--rail-right:320px}
-body{margin:0;font:14px/1.5 var(--sans);color:var(--ink);background:var(--bg);display:grid;grid-template-columns:var(--rail-left) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-height:100vh}
+body{margin:0;font:var(--t-md)/1.5 var(--sans);color:var(--ink);background:var(--bg);display:grid;grid-template-columns:var(--rail-left) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-height:100vh}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
-/* The type scale: 13px text, page titles 16px at most, card headings 13.5px, labels 11-12px; 600 for names and
-   labels, 400 for text. Set apart from the body's grid rule so the layout and the type change independently. */
-body{font-size:13px}
-h1{font-size:16px;line-height:1.3}
-h2{font-size:14px;color:var(--ink);letter-spacing:.01em}
-h3{font-size:13px}
-.mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+/* The type scale (tokens.css): 13px text, page titles 16px, card headings 13-14px, one 11px uppercase label; 600 for
+   names and labels, 400 for text. Set apart from the body's grid rule so the layout and the type change independently. */
+body{font-size:var(--t-base);text-rendering:optimizeLegibility;font-optical-sizing:auto;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+/* light glyphs on a dark page bloom under subpixel-style smoothing; grayscale keeps them crisp */
+:root:not([data-theme="light"]) body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+@media (prefers-color-scheme:light){:root[data-theme="system"] body{-webkit-font-smoothing:auto;-moz-osx-font-smoothing:auto}}
+/* SF tightens as it grows: titles get a touch of negative tracking */
+h1{font-size:var(--t-lg);line-height:1.3;letter-spacing:-.011em}
+h2{font-size:var(--t-md);color:var(--ink)}
+h3{font-size:var(--t-base)}
+/* the one uppercase label, for markup that wants it without a rule of its own */
+.label{font-size:var(--t-label);font-weight:600;letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--muted)}
+/* figures line up: counts, ages, table cells, badges */
+table,time,.age,.cnt,.count,.pill,.nav-badge,.tnum,[class*="-count"],input[type=number]{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-size:var(--t-sm);font-variant-numeric:tabular-nums}
 .muted{color:var(--muted)}
-.tnum{font-variant-numeric:tabular-nums}
+/* Icon glyphs are ligatures ("dynamic_feed"): until the icon font is in, a glyph would read as that word. They hold
+   their box but stay invisible until ui/theme.js marks the page html.icons-ready (the font settled, or 3s). */
+html:not(.icons-ready) :is(.nav-icon,.mobile-nav-icon,.ob-ms,.agent-mark,.person-mail-link,.av-glyph,.int-key){visibility:hidden}
+/* Motion (tokens.css: --dur-fast, --dur, --ease). Surfaces that appear on top fade in; rows answer a
+   hover with a quick tint. Only opacity and transform move, never layout. */
+@keyframes tico-pop{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:none}}
+@keyframes tico-fade{from{opacity:0}to{opacity:1}}
+/* menus settle from 98% on a desktop; dialogs, and a phone's menus (bottom sheets there), only fade, so their box never moves */
+:where(.tl-pop,.p-menu,.people-menu,.slash-menu,.mg-menu,#account-menu,#new-version-pop,[popover]:popover-open){animation:tico-fade var(--dur) var(--ease)}
+@media (min-width:761px){:where(.tl-pop,.p-menu,.people-menu,.slash-menu,.mg-menu,#account-menu,#new-version-pop,[popover]:popover-open){animation-name:tico-pop}}
+:where(dialog[open]){animation:tico-fade var(--dur) var(--ease)}
+:where(.slash-menu,#account-menu,#new-version-pop){transform-origin:bottom center}
+:where(.p-menu,.people-menu,.mg-menu){transform-origin:top right}
+:where(dialog[open])::backdrop{animation:tico-fade var(--dur) var(--ease)}
+:where(.nav-link,.tree a.node,.inbox-list a,.tl-row,.mail-row,.meet-row,.kpi-line,.need-row,.req>summary,.settings-table tbody tr,
+  .search-results li,.market-list a,.slash-row,.p-menu button,#docs-menu button,.mg-menu button,.people-menu button,.section-toggle,
+  button.ghost,button.primary){transition:background-color var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
+/* Reduced motion: no entrances, no spinners' travel, no smooth scrolling. State still changes, instantly. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important;scroll-behavior:auto!important}
+}

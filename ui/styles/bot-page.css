@@ -2,13 +2,13 @@
    The cascade runs in the order index.html links these files; keep rules in order. */
 /* bot page */
 .bothead{display:flex;align-items:center;gap:12px;margin-bottom:22px}   /* room for the sticky strip's padding below: nothing overlaps the goal */
-.bothead h1{font-size:16px;display:inline}
+.bothead h1{font-size:var(--t-lg);display:inline}
 .bothead .botid{min-width:0;flex:1}
-.bothead .meta{display:inline-block;vertical-align:middle;margin-left:8px;font-size:13px}
+.bothead .meta{display:inline-block;vertical-align:middle;margin-left:8px;font-size:var(--t-base)}
 .bothead .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-.role{color:var(--muted);font-size:13.5px;line-height:1.5;max-width:72ch;white-space:pre-wrap;margin-top:6px}
-.bot-request-head{font-size:14px;margin:14px 2px 6px}
-.bot-setup{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 16px;margin:0;font-size:13px;align-items:center}
+.role{color:var(--muted);font-size:var(--t-base);line-height:1.5;max-width:72ch;white-space:pre-wrap;margin-top:6px}
+.bot-request-head{font-size:var(--t-md);margin:14px 2px 6px}
+.bot-setup{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 16px;margin:0;font-size:var(--t-base);align-items:center}
 .bot-setup dt{color:var(--muted)}.bot-setup dd{margin:0;min-width:0;overflow-wrap:anywhere}.bot-setup .pchip{margin-left:0;margin-right:4px}
 button.linkish{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline}
 /* the tab strip stays put while the pane scrolls */
@@ -16,12 +16,12 @@ button.linkish{border:0;background:none;padding:0;color:var(--accent);cursor:poi
 @media (max-width:760px){
   .bothead{gap:10px;margin-bottom:18px}
   .bothead .actions{display:none}       /* the same two links live in the More tab */
-  .bothead .av{width:32px!important;height:32px!important;font-size:12px!important}
-  .bothead h1{font-size:16px;line-height:1.2}
-  .bothead .meta{font-size:12px;margin-left:6px}
-  .role{font-size:13px;margin-top:4px;cursor:pointer}
+  .bothead .av{width:32px!important;height:32px!important;font-size:var(--t-sm)!important}
+  .bothead h1{font-size:var(--t-lg);line-height:1.2}
+  .bothead .meta{font-size:var(--t-sm);margin-left:6px}
+  .role{font-size:var(--t-base);margin-top:4px;cursor:pointer}
   .role:not(.open){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal}
-  .bot-setup{grid-template-columns:1fr;gap:2px}.bot-setup dt{margin-top:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em}.bot-setup dt:first-child{margin-top:0}
+  .bot-setup{grid-template-columns:1fr;gap:2px}.bot-setup dt{margin-top:8px;font-size:var(--t-label);text-transform:uppercase;letter-spacing:var(--track-caps);font-weight:600}.bot-setup dt:first-child{margin-top:0}
   /* the Chat tab is for the thread: no goal, no sticky strip (only the thread scrolls), no header while typing */
   #main.bot-chat-layout .role{display:none}
   #main.bot-chat-layout .bothead{margin-bottom:8px}
@@ -38,50 +38,50 @@ button.linkish{border:0;background:none;padding:0;color:var(--accent);cursor:poi
 .bot-back-arrow{display:none}
 .bot-ident{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;max-width:340px;order:1}
 .bot-ident .botid{min-width:0;flex:1}
-.bot-ident h1{font-size:15px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bot-ident h1{font-size:var(--t-lg);line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-ident .meta{margin-top:2px;min-width:0}.bot-ident .meta:empty{display:none}
 .bot-limit{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 var(--s3);padding:8px 14px;border:1px solid color-mix(in srgb,var(--fail) 35%,var(--line));border-radius:var(--radius);background:var(--fail-bg);color:var(--fail);font-weight:600}
 .bot-limit a{color:inherit;text-decoration:underline}
-.bot-alert{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:1px 7px;border-radius:9px;background:var(--fail-bg);color:var(--fail);font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bot-goal{order:2;flex:0 1 auto;min-width:0;display:flex;align-items:center;align-self:center;padding:0;font-size:13px;color:var(--muted)}
+.bot-alert{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:1px 7px;border-radius:9px;background:var(--fail-bg);color:var(--fail);font-size:var(--t-sm);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bot-goal{order:2;flex:0 1 auto;min-width:0;display:flex;align-items:center;align-self:center;padding:0;font-size:var(--t-base);color:var(--muted)}
 .bot-goal[data-status=none]{display:block;flex:0 1 auto}
 .bot-goal-main{display:flex;align-items:center;gap:7px;min-width:0;color:inherit}
 a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title{color:var(--accent)}
 .bot-goal-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:600}
 .bot-goal-set{flex:none;color:var(--accent-quiet)}.bot-goal-set:hover{color:var(--accent)}
 .bot-goal-row{padding:8px 0;border-top:1px solid var(--line)}.bot-goal-row:first-child{border-top:0;padding-top:0}
-.person-edit-btn{font-size:13px;font-weight:400;margin-left:8px;vertical-align:middle}
+.person-edit-btn{font-size:var(--t-base);font-weight:400;margin-left:8px;vertical-align:middle}
 .person-notify{display:flex;width:fit-content;align-items:center;gap:10px;cursor:pointer}.person-notify+.person-notify{margin-top:10px}
-.person-muted{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:8px 0 0 44px;font-size:13px}.person-muted[hidden]{display:none}.person-muted select{width:auto;min-width:0;flex:none;padding:2px 6px;font-size:13px}
-#person-notify-status:empty{display:none}#person-notify-status{margin-top:8px;font-size:13px}
+.person-muted{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:8px 0 0 44px;font-size:var(--t-base)}.person-muted[hidden]{display:none}.person-muted select{width:auto;min-width:0;flex:none;padding:2px 6px;font-size:var(--t-base)}
+#person-notify-status:empty{display:none}#person-notify-status{margin-top:8px;font-size:var(--t-base)}
 .person-head-form{display:grid;gap:8px;margin-top:6px;max-width:640px}.person-head-form input,.person-head-form textarea{width:100%}
 .person-github-form{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.person-github-form input{width:auto;flex:1 1 140px;min-width:0}
 .bot-more-btn{order:3;flex:none;align-self:center;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:6px;color:var(--muted);text-decoration:none}
 .bot-more-btn:hover,.bot-more-btn.cur{color:var(--ink)}
 .bot-more-btn:hover{text-decoration:none}
-.bot-more-btn .nav-icon{width:22px;height:22px;font-size:22px;color:inherit}
+.bot-more-btn .nav-icon{width:20px;height:20px;font-size:20px;color:inherit}
 .bot-more-btn.cur{background:var(--surface2)}
 .bot-switch{display:none}
-.bot-switch button{flex:none;border:0;border-radius:7px;background:none;padding:5px 10px;color:var(--muted);font-weight:600;font-size:13px;cursor:pointer}
+.bot-switch button{flex:none;border:0;border-radius:7px;background:none;padding:5px 10px;color:var(--muted);font-weight:600;font-size:var(--t-base);cursor:pointer}
 .bot-switch button.cur{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.bot-back{display:inline-block;margin:0 0 var(--s3);font-size:13px}
+.bot-back{display:inline-block;margin:0 0 var(--s3);font-size:var(--t-base)}
 /* The right rail (#pane-tasks), after BotDesk: plain sections split by 1px lines, small muted headings,
    rows about 28px tall, one short muted line or no section at all when empty, and a small "+N" instead of
    a button. On a desktop it runs the full height of the page beside the top bar and chat (chat.css). */
 .rail-sec{padding:var(--s2) 0 10px;border-top:1px solid var(--line)}
 .rail-sec:first-child{border-top:0}
-.rail-h{display:flex;align-items:center;gap:6px;min-height:22px;margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.rail-h{display:flex;align-items:center;gap:6px;min-height:22px;margin:0 0 2px;font-size:var(--t-label);font-weight:600;letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--muted)}
 .rail-h .cnt{font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums}
 .rail-head{display:flex;align-items:center;gap:6px;min-height:22px;margin:0 0 2px}
 .rail-head .rail-h{margin:0;min-height:0}
 .rail-head .spacer{flex:1}
 .rail-head .upd-dot{margin-left:0;width:6px;height:6px}
-.rail-age{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.rail-age{font-size:var(--t-sm);color:var(--muted);white-space:nowrap}
 .rail-ico{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;margin:-2px -4px -2px 0;border-radius:5px;color:var(--muted);opacity:.7}
 .rail-ico:hover,.rail-ico:focus-visible{opacity:1;color:var(--ink);background:var(--surface2);text-decoration:none}
 .rail-ico .nav-icon{font-size:16px;width:16px;height:16px;color:inherit}
-.rail-empty{font-size:12.5px;color:var(--muted);padding:1px 0}
-.rail-more{border:0;background:none;padding:1px 0;margin:0;font:inherit;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;font-variant-numeric:tabular-nums}
+.rail-empty{font-size:var(--t-sm);color:var(--muted);padding:1px 0}
+.rail-more{border:0;background:none;padding:1px 0;margin:0;font:inherit;font-size:var(--t-sm);font-weight:600;color:var(--muted);cursor:pointer;font-variant-numeric:tabular-nums}
 .rail-more:hover{color:var(--ink)}
 .rail-more:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 .bot-rail a{color:var(--accent-quiet)}
@@ -89,33 +89,33 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .rail-fold:not([open]){padding-bottom:var(--s2)}
 .rail-fold>summary{cursor:pointer;list-style:none;margin:0}
 .rail-fold>summary::-webkit-details-marker{display:none}
-.rail-fold>summary::before{content:"";flex:none;border-left:4px solid currentColor;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform .12s}
+.rail-fold>summary::before{content:"";flex:none;border-left:4px solid currentColor;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform var(--dur-fast) var(--ease)}
 .rail-fold[open]>summary::before{transform:rotate(90deg)}
 .rail-fold>summary:hover{color:var(--ink)}
 .rail-fold>summary:focus:not(:focus-visible){outline:none}
 /* Updates: the latest one's text in small type; a long one folds behind "More". */
-.bot-latest .upd-body{margin:0;font-size:12.5px;line-height:1.5;cursor:auto;max-height:9em;overflow:hidden}
+.bot-latest .upd-body{margin:0;font-size:var(--t-sm);line-height:1.5;cursor:auto;max-height:9em;overflow:hidden}
 .bot-latest .upd-body.open{max-height:none}
 .bot-latest .upd-body ul{padding-left:16px}.bot-latest .upd-body li{margin:1px 0}.bot-latest .upd-body p{margin:0 0 4px}
-.bot-latest .upd-body h1,.bot-latest .upd-body h2,.bot-latest .upd-body h3{font-size:12.5px}
+.bot-latest .upd-body h1,.bot-latest .upd-body h2,.bot-latest .upd-body h3{font-size:var(--t-sm)}
 /* Recurring: one line a routine, its name, how often, and when it runs next. */
 .bot-recurring-list{list-style:none;margin:0;padding:0}
-.bot-recurring-list li{display:flex;align-items:baseline;gap:8px;min-height:24px;padding:3px 0;font-size:13px;line-height:18px}
+.bot-recurring-list li{display:flex;align-items:baseline;gap:8px;min-height:24px;padding:3px 0;font-size:var(--t-base);line-height:18px}
 .bot-recurring-list .ttl{flex:0 1 auto;max-width:62%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bot-recurring-list .when{flex:1 1 0;min-width:0;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bot-recurring-list .when{flex:1 1 0;min-width:0;color:var(--muted);font-size:var(--t-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-recurring-list li.paused .ttl{color:var(--muted)}
-.bot-recurring-next{flex:none;font-size:12px;color:var(--muted)}
+.bot-recurring-next{flex:none;font-size:var(--t-sm);color:var(--muted)}
 /* The bot's tasks: one flat list, the state in words, the title, and the avatar of whoever holds it;
    no lines between rows */
 #pane-tasks .trow{border-bottom:0}
-#pane-tasks .trow :is(summary,.trow-head){padding:4px;margin:0 -4px;min-height:28px;font-size:13px;line-height:18px}
+#pane-tasks .trow :is(summary,.trow-head){padding:4px;margin:0 -4px;min-height:28px;font-size:var(--t-base);line-height:18px}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head){grid-template-columns:minmax(0,1fr) auto auto auto;grid-template-areas:"ttl pr status who";gap:0 8px;align-items:center}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pill,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tnum,#pane-tasks .trow[data-task-version] :is(summary,.trow-head) .tags{display:none!important}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .task-status{grid-area:status;display:inline-block;max-width:80px}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .who-av{grid-area:who;display:inline-flex}
 #pane-tasks .trow :is(summary,.trow-head) .who-av .av{width:18px!important;height:18px!important;font-size:8px!important}
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{grid-area:ttl;min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px}
-#pane-tasks .trow .tbody{padding:2px 0 10px 24px;font-size:12.5px}
+#pane-tasks .trow .tbody{padding:2px 0 10px 24px;font-size:var(--t-sm)}
 #main.bot-split-layout #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .ttl{display:block;white-space:nowrap;text-overflow:ellipsis}
 /* the top bar: the bot's name, its runtime mark and up to three tool icons on one line */
 .bot-nameline{display:flex;align-items:center;min-width:0}
@@ -125,11 +125,11 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   .bot-back,.bot-more-btn{display:none}   /* Chat · Tasks · More in the top line is the way around */
   .bot-top{flex-wrap:wrap;align-items:center;gap:6px 10px;margin-bottom:8px}
   .bot-ident{flex:1 1 0;max-width:none;gap:8px}
-  .bot-ident .av{width:28px!important;height:28px!important;font-size:12px!important}
-  .bot-ident h1{font-size:15px}
+  .bot-ident .av{width:28px!important;height:28px!important;font-size:var(--t-sm)!important}
+  .bot-ident h1{font-size:var(--t-lg)}
   .bot-top .bot-switch{display:flex;order:2;flex:none;gap:2px;padding:2px;border:1px solid var(--line);border-radius:9px;background:var(--surface2)}
   .bot-top>.bot-goal{order:3;flex:1 1 100%}
-  .bot-goal-set{padding:3px 10px;font-size:12.5px}
+  .bot-goal-set{padding:3px 10px;font-size:var(--t-sm)}
   body.mobile-composer-focus #main.bot-chat-layout .bot-top{display:none}
 }
 @media (max-width:760px){
@@ -144,7 +144,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   .bot-top .bot-switch{margin-left:auto;border:0;background:none;padding:0;gap:0}
   .bot-switch button{display:inline-flex;align-items:center;justify-content:center;width:38px;height:36px;padding:0;border-radius:8px}
   .bot-switch .bt-label{display:none}
-  .bot-switch .bt-icon{display:inline;font-size:22px}
+  .bot-switch .bt-icon{display:inline;font-size:20px}
   .bot-switch button.cur{background:var(--surface2);color:var(--accent)}
 }
 @media (max-width:760px){
@@ -177,16 +177,16 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   .bot-more-top .assignment-branches{margin-top:0}
   :is(#pane-more,#pane-docs) section.card{padding:12px 14px;margin-bottom:10px;border-radius:12px}
   :is(#pane-more,#pane-docs) section.card>header{margin-bottom:6px;align-items:center}
-  :is(#pane-more,#pane-docs) section.card>header h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-  :is(#pane-more,#pane-docs) section.card>header :is(.ghost,.linkish){margin-left:auto;font-size:12.5px;padding:3px 8px}
-  .more-all{display:block;margin:8px 0 0;font-size:12.5px;text-decoration:none}
+  :is(#pane-more,#pane-docs) section.card>header h2{font-size:var(--t-label);font-weight:600;text-transform:uppercase;letter-spacing:var(--track-caps);color:var(--muted)}
+  :is(#pane-more,#pane-docs) section.card>header :is(.ghost,.linkish){margin-left:auto;font-size:var(--t-base);padding:3px 8px}
+  .more-all{display:block;margin:8px 0 0;font-size:var(--t-sm);text-decoration:none}
   #bot-goals-card .bot-goal-row{padding:6px 0}
   #sess-turns{max-height:none}
   /* tables as one line a row, no column heads */
   :is(#v2-history,#bot-recent-runs,#bot-access-card) .scroll{overflow:visible}
   :is(#v2-history,#bot-recent-runs,#bot-access-card) :is(table,tbody){display:block;width:100%}
   :is(#v2-history,#bot-recent-runs,#bot-access-card) tr:first-child:has(th){display:none}
-  :is(#v2-history,#bot-recent-runs,#bot-access-card) tr{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:12.5px}
+  :is(#v2-history,#bot-recent-runs,#bot-access-card) tr{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:var(--t-sm)}
   :is(#v2-history,#bot-recent-runs,#bot-access-card) tr:nth-child(2){border-top:0}
   :is(#v2-history,#bot-recent-runs,#bot-access-card) td{display:block;padding:0;border:0;min-width:0}
   #v2-history td:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -197,10 +197,10 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
   #bot-recent-runs td:nth-child(6){order:4}
   #bot-access-card td:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   #bot-access-card td:nth-child(5){display:none}
-  #bot-access-card .acc-summary{font-size:12.5px;margin-bottom:6px}
+  #bot-access-card .acc-summary{font-size:var(--t-sm);margin-bottom:6px}
 }
 @media (max-width:760px){
   #pane-more>#bot-routines{position:relative}
   #bot-routines-list>.row:first-child{position:absolute;top:8px;right:14px}
-  #bot-routines-list>.row:first-child .ghost{font-size:12.5px;padding:3px 8px}
+  #bot-routines-list>.row:first-child .ghost{font-size:var(--t-base);padding:3px 8px}
 }

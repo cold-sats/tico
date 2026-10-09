@@ -5,7 +5,7 @@
 .tmodal-body.task-layout{display:grid;grid-template-columns:minmax(0,1fr) 284px;grid-template-areas:"main side" "chat side";column-gap:20px;align-items:start}
 .task-layout>.tmodal-main{grid-area:main;min-width:0}
 .task-layout>.task-chat{grid-area:chat;min-width:0}
-.task-side{grid-area:side;position:sticky;top:0;min-width:0;padding-left:16px;border-left:1px solid var(--line);font-size:12.5px}
+.task-side{grid-area:side;position:sticky;top:0;min-width:0;padding-left:16px;border-left:1px solid var(--line);font-size:var(--t-sm)}
 .task-rail{min-width:0}
 .task-rail:not([hidden]){border-top:1px solid var(--line);margin-top:4px}
 .task-rail .rail-sec{padding:6px 0 10px}
@@ -30,9 +30,9 @@
 .task-props{--prop-hover:color-mix(in srgb,var(--ink) 6%,transparent);padding:2px 0 8px}
 .props{display:flex;flex-direction:column}
 .prop{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;min-height:30px;gap:6px}
-.prop-k{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prop-k{font-size:var(--t-sm);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .prop-vwrap{position:relative;display:flex;align-items:center;gap:2px;min-width:0}
-.prop-v{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;height:26px;padding:0 6px;margin-left:-6px;border:0;border-radius:6px;background:none;color:var(--ink);font:500 12.5px/1 var(--sans);text-align:left;white-space:nowrap}
+.prop-v{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;height:26px;padding:0 6px;margin-left:-6px;border:0;border-radius:6px;background:none;color:var(--ink);font:500 var(--t-sm)/1 var(--sans);text-align:left;white-space:nowrap}
 button.prop-v{cursor:pointer}
 button.prop-v:hover,button.prop-v[aria-expanded=true]{background:var(--prop-hover)}
 .prop-v:focus-visible,.prop-x:focus-visible,.prop-add:focus-visible{outline:2px solid var(--accent);outline-offset:-1px}
@@ -43,7 +43,7 @@ button.prop-v:hover,button.prop-v[aria-expanded=true]{background:var(--prop-hove
 .prop-ic.late,.prop-txt.late{color:var(--fail)}
 .prop-x,.prop-add{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:5px;background:none;color:var(--muted);cursor:pointer}
 .prop-x{opacity:0}
-.prop-chip{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:100%;height:26px;padding:0 2px 0 0;font:500 12.5px/1 var(--sans);color:var(--ink);white-space:nowrap}
+.prop-chip{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:100%;height:26px;padding:0 2px 0 0;font:500 var(--t-sm)/1 var(--sans);color:var(--ink);white-space:nowrap}
 .prop-chip .prop-x{opacity:0}
 .prop-chip:hover .prop-x,.prop-chip .prop-x:focus-visible{opacity:1}
 .prop:hover .prop-x,.prop-x:focus-visible{opacity:1}
@@ -56,15 +56,15 @@ button.prop-v:hover,button.prop-v[aria-expanded=true]{background:var(--prop-hove
 .prop-tags:has(>.prop-v:first-child){margin-left:-6px}
 .prop-date{position:absolute;left:0;bottom:0;width:1px;height:1px;padding:0;border:0;opacity:0;pointer-events:none}
 .prop-date.shown{position:static;width:auto;height:26px;opacity:1;pointer-events:auto}
-.props-msg{font-size:12px;color:var(--fail);padding:4px 0 0;white-space:pre-line}
+.props-msg{font-size:var(--t-sm);color:var(--fail);padding:4px 0 0;white-space:pre-line}
 .props-msg:empty{display:none}
 .tl-menu .tl-mi.danger{color:var(--fail)}
 .tl-mi-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tl-mi-sub{margin-left:auto;padding-left:8px;flex:none;color:var(--muted);font-size:11.5px}
+.tl-mi-sub{margin-left:auto;padding-left:8px;flex:none;color:var(--muted);font-size:var(--t-sm)}
 .prop-pop{width:272px}
 @media (max-width:760px){
   .prop{grid-template-columns:96px minmax(0,1fr);min-height:44px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
-  .prop-v{height:40px;font-size:14px}
+  .prop-v{height:40px;font-size:var(--t-md)}
   .prop-x,.prop-add{width:36px;height:36px}
 }
 /* Code: repo · branch · ↑2 ↓1 · 3 files, or #212 title and its state chips */
@@ -75,29 +75,29 @@ a.code-main:hover .code-title,a.code-main:hover .code-repo{color:var(--accent);t
 .code-main:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 .code-repo{font-weight:600}
 .code-repo.unknown{font-weight:400;color:var(--muted)}
-.code-branch{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.code-branch{color:var(--muted);font-size:var(--t-sm);overflow:hidden;text-overflow:ellipsis;min-width:0}
 .code-dot{color:var(--muted)}
 .code-line .tnum{color:var(--muted)}
 .code-num{color:var(--muted);flex:none}
 .code-title{overflow:hidden;text-overflow:ellipsis;min-width:0}
-.code-state{flex:none;font-size:11px;color:var(--muted)}
+.code-state{flex:none;font-size:var(--t-xs);color:var(--muted)}
 .code-error{flex-basis:100%;min-width:0;overflow-wrap:anywhere}
 .code-line.gone .code-main{color:var(--muted)}
 .code-chips{display:inline-flex;gap:3px;flex:none;margin-left:auto}
-.code-chip{font-size:10.5px;line-height:15px;padding:0 5px;border-radius:8px;background:var(--idle-bg);color:var(--muted);white-space:nowrap}
+.code-chip{font-size:var(--t-xs);line-height:15px;padding:0 5px;border-radius:8px;background:var(--idle-bg);color:var(--muted);white-space:nowrap}
 .code-chip.ok{background:var(--ok-bg);color:var(--ok)}
 .code-chip.fail{background:var(--fail-bg);color:var(--fail)}
 .code-chip.waiting{background:var(--wait-bg);color:var(--wait)}
-.code-x{position:absolute;right:-4px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:24px;height:24px;border:0;background:none;padding:0;color:var(--muted);font-size:11px;cursor:pointer;opacity:0}
+.code-x{position:absolute;right:-4px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:24px;height:24px;border:0;background:none;padding:0;color:var(--muted);font-size:12px;cursor:pointer;opacity:0}
 .code-line:hover .code-x,.code-x:focus-visible{opacity:1}
 .code-x:hover{color:var(--fail)}
 @media (hover:none){.code-x{opacity:.6}}
 /* Subtasks: the roll-up line, then one row per child */
-.sub-sum{color:var(--muted);font-size:11.5px;margin:-2px 0 4px}
+.sub-sum{color:var(--muted);font-size:var(--t-sm);margin:-2px 0 4px}
 .sub-line{display:flex;align-items:center;gap:5px;min-height:24px}
 .sub-list .sub-list{margin-left:14px}
 .sub-chev,.sub-chev-pad{flex:none;width:12px}
-.sub-chev{display:grid;place-items:center;width:24px;height:24px;margin:0 -6px;border:0;background:none;padding:0;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;transition:transform .12s}
+.sub-chev{display:grid;place-items:center;width:24px;height:24px;margin:0 -6px;border:0;background:none;padding:0;color:var(--muted);cursor:pointer;font-size:12px;line-height:1;transition:transform var(--dur-fast) var(--ease)}
 .sub-chev.open{transform:rotate(90deg)}
 .sub-open{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;border:0;background:none;padding:2px 0;font:inherit;color:var(--ink);cursor:pointer;text-align:left}
 .sub-open:hover .sub-title{color:var(--accent)}
@@ -107,11 +107,11 @@ a.code-main:hover .code-title,a.code-main:hover .code-repo{color:var(--accent);t
 .sub-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .sub-row.finished>.sub-line .sub-title{color:var(--muted)}
 .sub-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;margin:4px 0 0}
-.sub-add input{width:100%;min-width:0;font-size:12.5px;padding:3px 6px}
-.sub-add select{width:auto;max-width:120px;font-size:12px;padding:3px 4px}
+.sub-add input{width:100%;min-width:0;font-size:var(--t-base);padding:3px 6px}
+.sub-add select{width:auto;max-width:120px;font-size:var(--t-sm);padding:3px 4px}
 .code-state.err{color:var(--fail)}
 /* One small badge for a task's pull requests: the worst state across them */
-.pr-badge{flex:none;display:inline-block;font-size:10px;font-weight:600;line-height:14px;padding:0 4px;border-radius:7px;background:var(--idle-bg);color:var(--muted);white-space:nowrap;letter-spacing:.01em}
+.pr-badge{flex:none;display:inline-block;font-size:var(--t-2xs);font-weight:600;line-height:14px;padding:0 4px;border-radius:7px;background:var(--idle-bg);color:var(--muted);white-space:nowrap;letter-spacing:.01em}
 .pr-badge.run{background:var(--run-bg);color:var(--run)}
 .pr-badge.ok{background:var(--ok-bg);color:var(--ok)}
 .pr-badge.fail{background:var(--fail-bg);color:var(--fail)}
@@ -119,6 +119,6 @@ a.code-main:hover .code-title,a.code-main:hover .code-repo{color:var(--accent);t
 #pane-tasks .trow[data-task-version] :is(summary,.trow-head) .pr-badge{grid-area:pr}
 
 .prop[data-prop-row="owner"] .prop-vwrap,.prop[data-prop-row="private"] .prop-vwrap{flex-wrap:wrap;gap:4px 8px}
-.prop-vwrap>small{flex-basis:100%;font-size:11px;color:var(--muted);line-height:1.4}
+.prop-vwrap>small{flex-basis:100%;font-size:var(--t-xs);color:var(--muted);line-height:1.4}
 .prop[data-prop-row="private"] label{display:inline-flex;align-items:center;gap:5px}
 .prop[data-prop-row="private"] .nav-icon{font-size:16px;width:16px;height:16px}
