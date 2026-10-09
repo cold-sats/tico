@@ -3,6 +3,7 @@
 import json
 
 from . import bot_access as A
+from . import read_cache
 from .store import H, P, Problem, encode
 
 
@@ -16,13 +17,21 @@ DOCS_ROOM = "docs"
 
 
 def roster(c):
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+    return read_cache.value(c, ("roster",), lambda: _roster(c))
+
+
+def _roster(c):
+    row = read_cache.metadata(c, "people")
     return P.load(json.loads(row[0])) if row else P.load({"people": H.humans(c)})
 
 
 def entries(c):
+    return read_cache.value(c, ("room_entries",), lambda: _entries(c))
+
+
+def _entries(c):
     result = {}
-    for row in c.execute("SELECT bot,config_json,owner_ids_json,description,reports_to,repo,thread_mode FROM bot_config"):
+    for row in read_cache.configs(c):
         config = json.loads(row["config_json"] or "{}")
         config.update({"description": row["description"] or "", "reports_to": row["reports_to"],
                        "repo": row["repo"] or ("emp-" + row["bot"])})
@@ -90,9 +99,10 @@ def personal_room(c, human_actor, bot="coo", subject="Private control room"):
             c.execute("UPDATE conversations SET scope='personal',owner_actor=?,room_key=? WHERE id=?",
                       (human_actor, bot, candidate["id"]))
             return H.conversation(c, candidate["id"])
+    # A person's own room opens even while the bot is paused: their message waits for it (hubdb.say).
     return H.open_conversation(c, human_actor, [human_actor, "bot:" + bot], kind="chat",
                                subject=subject, scope=PERSONAL,
-                               owner_actor=human_actor, room_key=bot)
+                               owner_actor=human_actor, room_key=bot, allow_held=H.is_human(human_actor))
 
 
 def sync_shared_room(c, auth, bot, actor=None, create=False):
@@ -129,7 +139,7 @@ def sync_shared_room(c, auth, bot, actor=None, create=False):
     opener = actor or next((p for p in participants if p.startswith("human:")), H.KEEPER)
     return H.open_conversation(c, opener, participants, kind="chat",
                                subject=(H.bot(c, bot) or {}).get("display_name", bot) + " shared room",
-                               scope=SHARED, room_key=bot)
+                               scope=SHARED, room_key=bot, allow_held=H.is_human(opener))
 
 
 def chat_room(c, auth, who, bot, subject=None):

@@ -88,10 +88,21 @@ async function v2Refresh() {
 // its Mac has been offline for ten minutes. Messages still save and run when it is back; this
 // only says why nothing is happening yet. A stopped run holds only its own request while other
 // work continues. Redrawn from the 30 s refresh, never its own poll.
-const PAUSED_WHY = {limited: 'usage limit', quarantined: 'paused after refused actions; Resume it under More'};
+const PAUSED_WHY = {limited: 'usage limit'};
+const clockTime = at => new Date(at).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
 function pausedNotice(slug) {
   const s = v2StatusOf(slug) || {};
-  const when = since => since ? ` since ${new Date(since).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}` : '';
+  const when = since => since ? ` since ${clockTime(since)}` : '';
+  if (s.bot_state === 'quarantined') {
+    // A refusal-count quarantine lifts itself after an hour; anything else waits for a person (backend/hubdb.py).
+    const q = s.quarantine || {}, e = S.emps.find(x => x.name === slug);
+    const resume = e && settingsCanManageBot(e) ? ' <button type="button" class="linkish" data-quarantine-resume>Resume now</button>' : '';
+    const at = q.since || s.since, paused = at ? ` paused at ${clockTime(at)}` : ' is paused';
+    const why = q.auto
+      ? `after repeated refused actions; it resumes by itself${q.resumes_at ? ` at ${clockTime(q.resumes_at)}` : ' within an hour'}`
+      : 'for review; a person who manages it must check and resume it';
+    return `${empName(slug)}${esc(paused)} ${esc(why)}. Your messages are saved and run when it's back.${resume}`;
+  }
   let why = PAUSED_WHY[s.state], since = s.since;
   if (s.state === 'paused' && /^Paused: over /.test(s.focus || '')) why = s.focus.replace(/^Paused: /, '');     // a spend limit (Usage)
   if (s.state === 'crashed')
@@ -130,6 +141,16 @@ function pausedRender() {
   const agent = text ? '' : agentNotice(V2C.slug);
   el.innerHTML = text || agent; el.hidden = !(text || agent);
   el.classList.toggle('agent', !text && !!agent && agentQuiet(V2C.slug));
+  const resume = el.querySelector('[data-quarantine-resume]'), slug = V2C.slug;
+  if (resume) resume.onclick = async () => {
+    resume.disabled = true;
+    try {
+      await post(`/v2/bots/${encodeURIComponent(slug)}/quarantine/clear`, {});
+      await v2Refresh();
+      pausedRender();
+      toast(`${empName(slug)} resumed`);
+    } catch (error) { resume.disabled = false; toast(error.message, true); }
+  };
 }
 // A bot over its spend limit (backend/usage_limits.py `over`): its status carries the limit while it holds new work.
 const overLimit = slug => v2StatusOf(slug)?.limit || null;

@@ -551,12 +551,31 @@ def _pooled(base):
 
         def changed(self, *args, **kwargs):
             self.tainted = True
+            if hasattr(self, "read_cache"):
+                self.read_cache.clear()
             return method(self, *args, **kwargs)
         return changed
 
     names = ("create_function", "create_aggregate", "create_window_function", "create_collation", "set_authorizer",
              "set_progress_handler", "set_trace_callback", "enable_load_extension", "setlimit", "executescript")
     body = {name: taint(name) for name in names if hasattr(base, name)}
+    def clear(self):
+        if hasattr(self, "read_cache"):
+            self.read_cache.clear()
+
+    def execute(self, statement, *args, **kwargs):
+        # Explicit transaction control starts a new snapshot even without row changes.
+        if (statement.lstrip().split(None, 1) or [""])[0].upper() in ("BEGIN", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE", "CREATE", "ALTER", "DROP"):
+            clear(self)
+        return base.execute(self, statement, *args, **kwargs)
+
+    def finish(name):
+        def completed(self, *args, **kwargs):
+            clear(self)
+            return getattr(base, name)(self, *args, **kwargs)
+        return completed
+
+    body.update(execute=execute, commit=finish("commit"), rollback=finish("rollback"))
     body["tainted"] = False
     body["pool_file"] = None
     body["tables_seen"] = {}    # {pool_file: tables seen to exist}, shared by this store's connections (hubdb._has_table)
@@ -1207,9 +1226,11 @@ class Store:
         if c is None:
             c = self.connect(factory=self.pooled, check_same_thread=False)
             c.pool_file = identity
+        c.read_cache = {}
         return c
 
     def _give(self, c):
+        c.read_cache.clear()
         # Only a connection left as it was handed out goes back: no open transaction, nothing per-caller installed.
         try:
             if c.in_transaction:

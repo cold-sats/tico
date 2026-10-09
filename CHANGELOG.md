@@ -8,6 +8,15 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- Settings > Bots is one line per bot: Model and Fallback show as text ("Claude Opus 5.5 · high") and open a small popover with harness, model and effort; computer and fallback read as text until hovered. Settings > Computers shows status as a dot, the bots as one line that opens Bots filtered to that computer, and moves Remove computer and Accepts members' bots into the row's ⋯ menu.
+- Overview is a floating island at dusk: soft glow on lamps, screens and robot faces, clouds, fireflies, wildflowers, stepping-stone paths with a delivery robot, and furnished floors (bookshelves, arcade cabinets, lamps). Opening a floor works like an elevator: it settles onto the ground while floors above lift away and floors below sink, with a sweeping camera; buildings stack up storey by storey when the page opens. Teammates blink, hop, look up and wave when tapped.
+
+### Changed
+- Overview: select any floor to see it from above, with name tags; ▲ ▼ move between floors. Bots are 80s robots whose screen face is their own icon, glowing; people are rounder and varied. A **Buildings / Tower** switch shows one building per computer or every computer as a floor of one tower. The 3D view loads faster: its scripts download in parallel and three.js is sent gzipped (~790 KB to ~200 KB).
+
+## [0.3.34] - 2026-10-08
+
+### Changed
 - Pull requests, release tags and deploys no longer move tasks. A PR on a task shows its state (open, merged, shipped); a person moves the task. ([#269](https://github.com/ticoteam/tico/pull/269))
 - A task's Private row is a plain checkbox; the "Company" label and help line are gone (hover for who can see it). ([#274](https://github.com/ticoteam/tico/pull/274))
 - On a task type with bot `work` access, a bot may close a task that is in a ready step, so a deploy bot can move shipped tickets to Done. Moving a task into ready stays with people. ([#271](https://github.com/ticoteam/tico/pull/271))
@@ -17,6 +26,9 @@ All notable changes to Tico are recorded here. The format follows
   **Connect an agent** show for anyone allowed to make a token, not only Admins; someone who still holds a token keeps the card. ([#273](https://github.com/ticoteam/tico/pull/273))
 
 ### Fixed
+- Task lists load faster: the chat list, a bot's Tasks tab, the Assistant page and a person's page ask the server only for the tasks they show, without bodies, and an unchanged list is answered "not modified" far more often. Single-task reads are faster, and an agent can read many tasks in one request. ([#279](https://github.com/ticoteam/tico/pull/279))
+- Fewer GitHub token requests: a bot whose temporary assignment is refused for a repository is remembered instead of retried, and the server reuses its GitHub reads within a request. ([#280](https://github.com/ticoteam/tico/pull/280))
+- Fleet status, Health and SQL requests do less repeated work: bot configuration is read once per request, status reads tasks for all bots at once, and concurrent audit writes share one commit. ([#282](https://github.com/ticoteam/tico/pull/282))
 - Decisions answer within about 8 seconds: the server tries TypeSafe once, and when it is slow or down the company's own model answers instead of a 503 after up to a minute. ([#275](https://github.com/ticoteam/tico/pull/275))
 - Clicking a meeting on the Meetings page opens it in the page; **Open in its own window** is a button in the meeting's top bar. ([#268](https://github.com/ticoteam/tico/pull/268))
 - Health's Task worktrees no longer warns about a checkout of a commit (detached HEAD), and a real failure names the step and cause. ([#276](https://github.com/ticoteam/tico/pull/276))

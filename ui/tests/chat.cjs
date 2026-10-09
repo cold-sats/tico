@@ -68,6 +68,15 @@ async function offlineRetry(browser) {
   await copy.tap();
   assert.equal(await page.evaluate(()=>window.copiedMessage),'Hello offline');
   assert.ok((await copy.boundingBox()).width>=40,'touch target remains visible and usable');
+  const clear=await page.evaluate(()=>{
+    const you=document.querySelector('.bubble.you');
+    you.insertAdjacentHTML('afterend',`<div class="bubble bot reply"><div class="md"><p>Merged, see <a href="#/x">the pull request</a></p></div>${chatCopyHTML('Merged')}</div>`);
+    const bubble=you.nextElementSibling, range=document.createRange();
+    range.selectNodeContents(bubble.querySelector('.md'));
+    const b=bubble.querySelector('.chat-message-copy').getBoundingClientRect();
+    return {coarse:matchMedia('(pointer:coarse)').matches,clear:[...range.getClientRects()].every(r=>r.bottom<=b.top+1||r.right<=b.left+1)};
+  });
+  assert.deepEqual(clear,{coarse:true,clear:true},'on touch the copy target covers no reply text, so a trailing link stays tappable');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no mobile overflow');
   console.log('chat offline retry and touch copy: ok');
 }

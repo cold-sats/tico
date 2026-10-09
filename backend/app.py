@@ -1507,6 +1507,7 @@ def create_app(settings=None):
         with_archived = (include_archived or "").lower() in ("1", "true", "yes")
         from .chat_goals import readable_active
         with store.read() as c:
+            privacy.snapshot(c)
             registry_roster, registry_entries = views.roster(c), views.entries(c, settings.github_owner)
             access = auth.bot_accesses(c, who)
             shown = []
@@ -2880,12 +2881,14 @@ def create_app(settings=None):
             if bot:
                 auth.target(c, who, bot, need="read")
                 from .views import since_time
-                return {"bot": bot, "status": status_line(c, who, bot, default),
-                        "history": [privacy.status(c, who, r) for r in H.status_history(c, bot, since=since_time(since))]}
+                inputs = privacy.status_inputs(c, [bot])[bot]
+                return {"bot": bot, "status": status_line(c, who, bot, default, inputs),
+                        "history": [privacy.status(c, who, r, **inputs) for r in H.status_history(c, bot, since=since_time(since))]}
             from .views import updating
             readable = auth.bot_accesses(c, who)
-            return {"bots": [status_line(c, who, s["bot"], default) for s in H.status_all(c)
-                             if readable.get(s["bot"], auth.FULL)["read"]],
+            statuses = [s for s in H.status_all(c) if readable.get(s["bot"], auth.FULL)["read"]]
+            inputs = privacy.status_inputs(c, [s["bot"] for s in statuses])
+            return {"bots": [status_line(c, who, s["bot"], default, inputs[s["bot"]]) for s in statuses],
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
 
@@ -3290,7 +3293,8 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             auth.require_read(c, who, bot)
-            return [privacy.status(c, who, row) for row in H.status_history(c, bot, since=views.since_time(since))]
+            inputs = privacy.status_inputs(c, [bot])[bot]
+            return [privacy.status(c, who, row, **inputs) for row in H.status_history(c, bot, since=views.since_time(since))]
 
     @app.get("/api/v2/bots/{bot}/turns")
     def turns(request: Request, bot: str, since: str | None = None):
@@ -4257,6 +4261,35 @@ def create_app(settings=None):
             if bundle is None:                       # cannot be bundled: the files, as they are
                 return FileResponse(settings.ui_dir / "index.html")
             return ui_reply(request, bundle.page, "text/html; charset=utf-8", bundle.page_etag)
+
+    # three.js is ~790 KB of text and StaticFiles sends it as is; the Overview waits on it. Gzipped once in
+    # memory it is ~200 KB.
+    three_dir, three_cache = settings.ui_dir / "vendor" / "three", {}
+
+    @app.api_route("/tico/ui/vendor/three/{name}", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/vendor/three/{name}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def ui_three(request: Request, name: str):
+        import gzip, hashlib
+        from .json_response import accepts_gzip
+        path = three_dir / name
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+\.js", name) or not path.is_file():
+            raise Problem("not_found", "Not found", 404)
+        stat = path.stat()
+        entry = three_cache.get(name)
+        if not entry or entry[0] != (stat.st_mtime_ns, stat.st_size):
+            raw = path.read_bytes()
+            tag = hashlib.sha1(raw).hexdigest()[:20]
+            entry = three_cache[name] = ((stat.st_mtime_ns, stat.st_size), raw, gzip.compress(raw, 6, mtime=0), tag)
+        _, raw, gz, tag = entry
+        zipped = accepts_gzip(request.headers)
+        etag = f'"{tag}{"-gz" if zipped else ""}"'
+        headers = {"ETag": etag, "Vary": "Accept-Encoding"}
+        if zipped:
+            headers["Content-Encoding"] = "gzip"
+        if etag in [t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")]:
+            return Response(status_code=304, headers=headers)
+        return Response((gz if zipped else raw) if request.method == "GET" else None,
+                        media_type="text/javascript; charset=utf-8", headers=headers)
 
     app.mount("/tico/ui", StaticFiles(directory=settings.ui_dir, html=True), name="ui-prefixed")
     app.mount("/", StaticFiles(directory=settings.ui_dir, html=True), name="ui")

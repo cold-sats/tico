@@ -142,6 +142,47 @@ function settingsChoiceCombo(e, kind) {
     ${manage ? '<button type="button" class="ghost" data-choice-apply disabled>Apply</button>' : ''}
   </div>`;
 }
+// In the bots table a model or fallback is one short line; its three pickers open in a popover under it.
+function settingsChoiceCell(e, kind) {
+  const fallback = kind === 'fallback', selected = fallback ? e.fallback : e;
+  const label = selected?.model ? settingsChoiceLabel(selected.harness || selected.runtime, selected.model, selected.reasoning_effort || selected.effort)
+    : fallback ? 'None' : settingsDefaultLabel(e);
+  const text = `<span class="sb-pick-text${selected?.model ? '' : ' muted'}">${esc(label)}</span>`;
+  if (!settingsCanManageBot(e)) return `<span class="sb-pick ro" title="${esc(label)}">${text}</span>`;
+  return `<button type="button" class="sb-pick" data-choice-open="${esc(e.name)}" data-kind="${kind}" aria-haspopup="dialog" aria-expanded="false"
+    aria-label="${fallback ? 'Fallback' : 'Model'} for ${esc(e.display_name || e.name)}: ${esc(label)}" title="${esc(label)}">${text}<span class="sb-pick-caret" aria-hidden="true"></span></button>`;
+}
+function settingsChoicePopover(anchor) {
+  let pop = $('#sb-choice-pop');
+  if (pop?.matches(':popover-open')) { const same = pop.anchor === anchor; pop.hidePopover(); if (same) return; }
+  const e = S.emps.find(row => row.name === anchor.dataset.choiceOpen);
+  if (!e) return;
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'sb-choice-pop'; pop.className = 'tl-pop sb-choice-pop'; pop.popover = 'auto';
+    pop.setAttribute('role', 'dialog');
+    pop.addEventListener('toggle', ev => {
+      if (ev.newState !== 'closed') return;
+      pop.anchor?.setAttribute('aria-expanded', 'false');
+      if (pop.anchor?.isConnected && (pop.contains(document.activeElement) || document.activeElement === document.body)) pop.anchor.focus();
+    });
+    document.body.append(pop);
+  }
+  pop.anchor = anchor;
+  const kind = anchor.dataset.kind;
+  pop.setAttribute('aria-label', `${kind === 'fallback' ? 'Fallback' : 'Model'} for ${e.display_name || e.name}`);
+  pop.innerHTML = `<div class="sb-choice-head">${kind === 'fallback' ? 'Fallback' : 'Model'} · ${esc(e.display_name || e.name)}</div>${settingsChoiceCombo(e, kind)}`;
+  const box = pop.querySelector('[data-bot-choice]');
+  box.querySelector('[data-choice-apply]')?.classList.replace('ghost', 'primary');
+  box.insertAdjacentHTML('beforeend', '<button type="button" class="ghost" data-choice-cancel>Cancel</button>');
+  box.querySelector('[data-choice-cancel]').onclick = () => pop.hidePopover();
+  // Apply closes the popover first: a model change continues in its own dialog.
+  settingsWireCombos(pop, async (target, value) => { pop.hidePopover(); await settingsPickChoice(target, value); });
+  pop.showPopover();
+  anchor.setAttribute('aria-expanded', 'true');
+  tasksMenuPlace(pop, anchor);
+  pop.querySelector('select:not(:disabled)')?.focus();
+}
 function settingsWireCombos(root, onPick = settingsPickChoice) {
   root.querySelectorAll('[data-bot-choice]').forEach(box => {
     const button = box.querySelector('[data-choice-apply]');
@@ -405,11 +446,11 @@ function renderSettingsBots() {
   const row = e => {
     const problem = settingsBotProblem(e);
     const badges = `${isBuiltInBot(e.name) ? '<span class="pill" data-built-in>Built-in</span>' : ''}${e.status && e.status !== 'active' ? `<span class="pill ${e.status === 'paused' ? 'waiting' : ''}">${esc(statusWord(e.status))}</span>` : ''}`;
-    const model = e.agent ? `<span class="muted" title="${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}">${esc(agentKind(e.agent))}</span>` : settingsChoiceCombo(e, 'model');
+    const model = e.agent ? `<span class="muted" title="${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}">${esc(agentKind(e.agent))}</span>` : settingsChoiceCell(e, 'model');
     return `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td>
       <td class="sb-cell-name"><div class="sb-bot">${avatar(e.name, 27, stateOf(e.name))}<div class="sb-text"><div class="sb-line"><a class="sb-name" href="#/bot/${esc(e.name)}">${shownName(e)}</a>${botDisplayName(e.name) !== (e.display_name || e.name) ? `<span class="mono muted">${esc(e.name)}</span>` : ''}${badges}</div>${e.team || problem ? `<small>${e.team ? esc(teamLabel(e.team)) : ''}${e.team && problem ? ' · ' : ''}${problem ? `<span class="sb-problem">${esc(problem)}</span>` : ''}</small>` : ''}</div></div></td>
       <td class="sb-cell-access">${settingsAccessCell(e)}</td><td class="sb-cell-model">${model}</td>
-      <td class="sb-cell-fallback">${e.agent ? '<span class="muted">-</span>' : settingsChoiceCombo(e, 'fallback')}</td>
+      <td class="sb-cell-fallback">${e.agent ? '<span class="muted">-</span>' : settingsChoiceCell(e, 'fallback')}</td>
       <td class="sb-cell-owners">${stack(e)}</td><td class="sb-cell-computer">${settingsMachineSelect(e)}</td>
       <td class="sb-cell-limit">${useLimitButton(e.name, e.display_name, SETTINGS_DATA.limits?.bots?.[e.name])}</td>
       <td class="settings-row-actions">${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-bot="${esc(e.name)}" aria-label="Edit ${esc(e.display_name)}">Edit</button>` : ''}</td></tr>`;
@@ -422,6 +463,8 @@ function renderSettingsBots() {
   el.onclick = event => {
     const restore = event.target.closest('[data-bot-restore]');
     if (restore) { void settingsRestoreBot(restore.dataset.botRestore, restore); return; }
+    const choice = event.target.closest('[data-choice-open]');
+    if (choice) { settingsChoicePopover(choice); return; }
     if (event.target.closest('[data-bulk-model]')) { settingsBulkModelDialog(); return; }
     if (event.target.closest('[data-bulk-clear]')) { SETTINGS_BOTS_VIEW.selected.clear(); renderSettingsBots(); return; }
     const cap = event.target.closest('[data-use-limit]');

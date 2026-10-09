@@ -97,8 +97,26 @@ p:empty{display:none}
 .settings-toolbar p{margin:0;color:var(--muted);font-size:13px}
 .settings-bots-table{table-layout:fixed;min-width:0}
 /* Room for a computer's name ("Ana's Mac mini"): the model and fallback give some of theirs. */
-.settings-bots-table th:nth-child(1){width:30px}.settings-bots-table th:nth-child(2){width:21%}.settings-bots-table th:nth-child(3){width:8%}.settings-bots-table th:nth-child(4){width:17%}.settings-bots-table th:nth-child(5){width:12%}.settings-bots-table th:nth-child(6){width:8%}.settings-bots-table th:nth-child(7){width:15%}.settings-bots-table th:nth-child(8){width:76px}.settings-bots-table th:nth-child(9){width:64px}
-.settings-bots-table td{vertical-align:middle;min-width:0;padding-right:var(--s2)}
+.settings-bots-table th:nth-child(1){width:30px}.settings-bots-table th:nth-child(2){width:22%}.settings-bots-table th:nth-child(3){width:7%}.settings-bots-table th:nth-child(4){width:19%}.settings-bots-table th:nth-child(5){width:14%}.settings-bots-table th:nth-child(6){width:8%}.settings-bots-table th:nth-child(7){width:15%}.settings-bots-table th:nth-child(8){width:76px}.settings-bots-table th:nth-child(9){width:56px}
+.settings-bots-table td{vertical-align:middle;min-width:0;padding-top:7px;padding-bottom:7px;padding-right:var(--s2)}
+/* Model, fallback and computer read as text until hovered; the model pickers open in a popover (.sb-choice-pop). */
+.sb-pick{display:flex;align-items:center;gap:4px;width:100%;max-width:100%;min-width:0;margin-left:-7px;padding:5px 7px;border:1px solid transparent;border-radius:6px;background:none;color:var(--ink);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.sb-pick:hover,.sb-pick[aria-expanded=true]{border-color:var(--line);background:var(--surface2)}
+.sb-pick.ro{cursor:default}.sb-pick.ro:hover{border-color:transparent;background:none}
+.sb-pick-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-pick-caret{flex:none;width:6px;height:6px;margin:0 2px 2px auto;border:solid var(--muted);border-width:0 1.5px 1.5px 0;transform:rotate(45deg);opacity:.6}
+.sb-pick:hover .sb-pick-caret,.sb-pick[aria-expanded=true] .sb-pick-caret{opacity:1}
+.settings-bots-table .settings-inline-select:not(:hover):not(:focus):not(:disabled){border-color:transparent;background-color:transparent}
+.settings-bots-table .settings-inline-select{margin-left:-7px;width:calc(100% + 7px)}
+.settings-bots-table .settings-inline-select:disabled{background:none;border-color:transparent;opacity:1;color:var(--ink);cursor:default}
+.tl-pop.sb-choice-pop{width:300px;padding:12px 14px 14px}
+@media (max-width:760px){.tl-pop.sb-choice-pop{width:100%;padding:14px 16px max(16px,env(safe-area-inset-bottom))}}
+.sb-choice-head{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-choice-pop .settings-choice{display:flex;flex-wrap:wrap;gap:8px}
+.sb-choice-pop .settings-model-choice{flex:1 0 100%;gap:8px}
+.sb-choice-pop .settings-choice>small{flex:1 0 100%}
+.sb-choice-pop .settings-choice>[data-choice-apply]{margin-top:4px;padding:6px 14px}
+.sb-choice-pop .settings-choice>[data-choice-cancel]{margin-top:4px}
 .settings-bots-table .settings-pick{padding-right:0}.settings-pick input{margin:0;cursor:pointer}.settings-pick input:disabled{cursor:not-allowed}
 .sb-bot{display:flex;align-items:center;gap:8px;min-width:0}
 .sb-bot>.av,.sb-bot>.avatar,.sb-bot>svg,.sb-bot>img{flex:none}
@@ -106,7 +124,8 @@ p:empty{display:none}
 .sb-line{display:flex;align-items:center;gap:6px;min-width:0}
 .sb-problem{color:var(--fail)}
 .sb-line .sb-name{min-width:6ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:600}
-.sb-line .pill{flex:none}
+.sb-line{overflow:hidden}
+.sb-line .pill{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-text small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-access{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sb-stack{display:inline-flex;align-items:center}
@@ -198,6 +217,11 @@ p:empty{display:none}
 .needs-you [data-list]{padding:0 16px 8px}.needs-you .row{display:flex;gap:8px;align-items:center;padding:0 16px 14px}
 #heartbeat-alert.muted{color:var(--muted)}
 .machine-runtime{display:flex;gap:5px;flex-wrap:wrap}
+.machine-status{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:13px}.machine-status .dot.ok{background:var(--ok)}
+.machine-bots{display:block;min-width:0;color:var(--ink);text-decoration:none}.machine-bots:hover strong{color:var(--accent)}
+.machine-bots .settings-cell-note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settings-machines td:nth-child(3){max-width:220px}
+.people-menu-check{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:5px;font-size:13.5px;white-space:nowrap;cursor:pointer}.people-menu-check:hover{background:var(--surface2)}
 .machine-runtime-item{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}.machine-rejected{flex-basis:100%;font-size:12px}
 .machine-signin{padding:1px 8px;font-size:11.5px}
 .machine-harnesses{display:flex;gap:5px 10px;flex-wrap:wrap;margin-top:6px}

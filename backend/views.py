@@ -19,6 +19,7 @@ from . import personal_tokens, rooms, team_rules, turns
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
 from pathlib import Path
 
+from . import read_cache
 from .store import H, P, Problem, bot_readiness, encode, message_page, readiness_document, repo_url
 from . import task_privacy as privacy
 
@@ -126,16 +127,23 @@ def team_services(c, who, auth):
 
 
 def roster(c):
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+    return read_cache.value(c, ("roster",), lambda: _roster(c))
+
+
+def _roster(c):
+    row = read_cache.metadata(c, "people")
     if row:
         return P.load(json.loads(row[0]))
     return P.load({"people": H.humans(c)})
 
 
 def entries(c, github_owner=""):
+    return read_cache.value(c, ("view_entries", github_owner), lambda: _entries(c, github_owner))
+
+
+def _entries(c, github_owner=""):
     result = {}
-    for row in c.execute("SELECT bot,config_json,owner_ids_json,description,reports_to,repo,thread_mode,"
-                         "onboarding_state FROM bot_config"):
+    for row in read_cache.configs(c):
         from .shared_bots import follow
         config = follow(c, row["bot"], json.loads(row["config_json"]))
         if row["onboarding_state"]:
@@ -264,7 +272,9 @@ def operation_issues(c, who, auth):
 
     offline = {}    # runner_id -> {label, since, bots: [display names], queued}
     readable = auth.bot_accesses(c, who)
-    for bot in H.bots(c):
+    bots = H.bots(c)
+    status_inputs = privacy.status_inputs(c, [b["slug"] for b in bots if readable.get(b["slug"], auth.FULL)["read"]])
+    for bot in bots:
         slug = bot["slug"]
         if not readable.get(slug, auth.FULL)["read"]:
             continue
@@ -280,7 +290,7 @@ def operation_issues(c, who, auth):
             continue
         location = machine(c, slug)
         mac_offline = bool(location.get("machine") and not location.get("online") and not location.get("agent"))
-        status = privacy.status(c, who, H.status(c, slug)) or {}
+        status = privacy.status(c, who, H.status(c, slug), **status_inputs[slug]) or {}
         if bot["state"] == "quarantined" or status.get("state") == "quarantined":
             add("bot", bot["display_name"] + " needs attention",
                 status.get("focus") or "The bot is " + (status.get("state") or bot["state"]),
@@ -618,11 +628,13 @@ def recent_bots(c, auth, who, since, limit, needs):
                 waiting.setdefault(H.actor_id(actor), []).append(item.get("title") or item.get("first_line") or "")
                 break
     out = []
-    for slug, last in sorted(seen.items(), key=lambda kv: kv[1], reverse=True)[:limit]:
+    recent = sorted(seen.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    status_inputs = privacy.status_inputs(c, [slug for slug, _ in recent if access.get(slug, auth.FULL)["read"]])
+    for slug, last in recent:
         bot = H.bot(c, slug) or {}
         # The bot's status is its activity: a person who may only write to it hears what it said
         # to them, not what it is doing.
-        status = (privacy.status(c, who, H.status(c, slug)) or {}) if access.get(slug, auth.FULL)["read"] else {}
+        status = (privacy.status(c, who, H.status(c, slug), **status_inputs[slug]) or {}) if access.get(slug, auth.FULL)["read"] else {}
         actor = H.bot_actor(slug)
         mine = next((m for m in c.execute("SELECT * FROM messages WHERE from_actor=? AND to_actor=? "
                     "ORDER BY created DESC", (me, actor)) if privacy.message_readable(c, privacy.actor(who), m)), None)
