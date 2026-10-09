@@ -215,8 +215,12 @@ p:empty{display:none}
 .model-login-status[data-state=failed]{color:var(--fail)}.model-login-status[data-state=signed_in]{color:var(--ok)}
 .model-login-body pre{max-height:200px;overflow:auto;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px;font-size:var(--t-sm)}
 .model-login-actions{display:flex;justify-content:flex-end;gap:8px;padding:8px 16px 16px}
-.machine-enroll{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
-.machine-enroll input{min-width:180px}
+/* one row on a desktop: owner, kind, name, then the button; every control 32px */
+.machine-enroll{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3);padding-top:var(--s3);border-top:1px solid var(--line)}
+.machine-enroll>select.settings-inline-select{flex:0 1 200px;max-width:none;padding:5px 28px 5px 9px;font-size:var(--t-base)}
+.machine-enroll>input{flex:1 1 180px;width:auto;min-width:180px}
+.machine-enroll>button{flex:none}
+@media (max-width:760px){.machine-enroll>select.settings-inline-select,.machine-enroll>input,.machine-enroll>button{flex:1 1 100%}.machine-enroll>select.settings-inline-select{padding-top:9px;padding-bottom:9px}.machine-enroll>button{min-height:40px}}
 .machine-enroll-status{flex-basis:100%;font-size:var(--t-sm);color:var(--muted);margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
 .machine-enroll-status:empty{display:none}.machine-enroll-status details{max-width:100%}.machine-enroll-status summary{cursor:pointer}
 .machine-command{display:flex;align-items:center;gap:6px;max-width:100%;margin-bottom:4px}

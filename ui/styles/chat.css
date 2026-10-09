@@ -181,7 +181,12 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .settings-agents-title{margin:var(--s3) 0 var(--s1);font-size:var(--t-md)}
 .agent-credential .agent-credential-body{display:flex;flex-direction:column;gap:var(--s2);max-width:720px}
 .agent-credential label{display:flex;flex-direction:column;gap:6px;font-size:var(--t-base)}.agent-credential code{white-space:pre-wrap;word-break:break-all;flex:1;padding:6px 8px;background:var(--surface2);border-radius:var(--radius)}
-.settings-token-form{margin-top:var(--s2);align-items:flex-end;flex-wrap:wrap;gap:var(--s2)}.settings-token-form label{display:flex;flex-direction:column;gap:4px;font-size:var(--t-base)}.settings-token-form input[type=number]{width:5em}
+/* one row on a desktop: Label [field]  Expires in [90] days  [New token], every control 32px; stacked on a phone */
+.settings-token-form{margin-top:var(--s3);align-items:center;flex-wrap:wrap;gap:var(--s2) var(--s4)}
+.settings-token-form label{display:flex;align-items:center;gap:var(--s2);font-size:var(--t-base);white-space:nowrap}
+.settings-token-form label:first-child{flex:0 1 320px;min-width:0}.settings-token-form input[name=label]{flex:1;min-width:120px}
+.settings-token-form input[type=number]{width:5em;flex:none}
+@media (max-width:760px){.settings-token-form{flex-direction:column;align-items:stretch}.settings-token-form label:first-child{flex:none}.settings-token-form button{width:100%;min-height:40px}}
 .agent-credential pre{white-space:pre-wrap;word-break:break-all;background:var(--surface2);padding:8px;border-radius:var(--radius);font-size:var(--t-sm)}
 .bfiles{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .fchip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;background:var(--bg);font-size:var(--t-sm)}
