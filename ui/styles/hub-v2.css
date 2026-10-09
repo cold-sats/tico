@@ -233,8 +233,12 @@
 @media(max-width:900px){.docs-heading{grid-template-columns:auto minmax(0,1fr) auto auto}.docs-heading .docs-search-field{grid-column:1/-1;grid-row:2;max-width:none}.docs-heading h1{grid-column:1}.docs-ask{grid-column:3;grid-row:1}.docs-actions{grid-column:4;grid-row:1}}
 @media(max-width:800px){#main.docs-layout{display:block;height:auto;max-height:none;overflow-y:auto;padding-bottom:60px}.docs-workspace{display:block;min-height:0}.docs-browser{overflow:visible;border-right:0;padding:0 0 24px}.docs-reader{overflow:visible;padding:0}.docs-workspace.has-selection:not(.searching) .docs-browser,.docs-workspace.has-selection.searching .docs-reader{display:none}.docs-workspace:not(.has-selection) .docs-reader{display:none}.docs-back{display:inline-flex;align-items:center;height:28px;margin:0 0 6px;color:var(--muted);font-size:13px;text-decoration:none}.docs-back:hover{color:var(--ink)}.docs-content{font-size:16px;line-height:1.6}.docs-content h2{font-size:18px}.docs-reader-head h2{font-size:20px}.docs-link-edit{opacity:1;position:static;align-self:center;background:none}.docs-editor-fields{grid-template-columns:1fr}.docs-history-body{grid-template-columns:1fr}.docs-history-list{border-right:0;border-bottom:1px solid var(--line);padding:0 0 8px;max-height:28vh}.docs-history-view{max-height:none}.docs-item{padding:8px 8px;font-size:15px}.docs-browser details>.docs-item{padding-left:22px}.docs-browser summary{padding:8px 6px 6px 2px;font-size:13px}.docs-link-main{padding:8px}.docs-link-text{font-size:15px}
   /* Reading on a phone: the doc takes the screen; search comes back with the list. */
-  #main.docs-reading:has(.docs-workspace:not(.searching)) .docs-search-field{display:none}
-  #main.docs-reading .docs-heading{margin-bottom:4px}}
+  /* Reading on a phone: one top row, back on the left and the doc's Edit and menu on the right; the page's own
+     buttons and search come back with the list. */
+  #main.docs-reading:has(.docs-workspace:not(.searching)) .docs-heading{display:none}
+  #main.docs-reading .docs-reader{position:relative}
+  #main.docs-reading .docs-back{height:32px;margin:0 0 8px;font-size:14px}
+  #main.docs-reading .docs-reader-head .docs-tools{position:absolute;top:0;right:0;padding:0}}
 @media(max-width:760px){#main.docs-layout{padding-bottom:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 12px)}}
 @media(max-width:500px){.docs-heading{gap:6px}.docs-ask{width:32px;height:32px;padding:0}.docs-ask-word{display:none}.docs-new{height:32px}.docs-settings{width:32px;height:32px}.docs-search-field input.docs-search{height:38px;font-size:16px}.docs-kbd{display:none}.docs-tool{height:32px}.docs-tool-icon{width:32px}.docs-editor input,.docs-textarea{font-size:16px}.docs-textarea{height:max(200px,38dvh)}.docs-editor-actions{flex-wrap:wrap;justify-content:flex-end}.docs-editor-actions input[name=note]{flex-basis:100%;height:38px}}
 

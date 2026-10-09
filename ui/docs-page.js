@@ -66,7 +66,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
       <a id="docs-archived" href="${docsHref('', archived ? {} : {archived: 1})}">${archived ? 'Active' : 'Archived'}</a></div>
     <p class="docs-feedback" id="docs-feedback" role="status" hidden></p>
     <div class="docs-workspace${selected ? ' has-selection' : ''}"><aside class="docs-browser" aria-label="Docs" id="docs-browser"><p class="docs-loading">Loading…</p></aside>
-    <article class="docs-reader" id="docs-reader">${selected ? `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">← Docs</a>` : ''}</article></div>`;
+    <article class="docs-reader" id="docs-reader">${selected ? `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">‹ Docs</a>` : ''}</article></div>`;
   const feedback = $('#docs-feedback');
   const say = message => { feedback.textContent = message || ''; feedback.hidden = !message; };
   const reload = () => { if (S.route.startsWith(DOCS)) pageCompanyDocs(); };
@@ -174,7 +174,10 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
 
   // ---------------------------------------------------------------- the reader
   const reader = $('#docs-reader');
-  const back = `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">← Docs</a>`;
+  reader.addEventListener('click', event => {
+    if (event.target.closest('.docs-back') && docsDirty() && !confirm('Discard your changes to this doc?')) event.preventDefault();
+  });
+  const back = `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">‹ Docs</a>`;
   // No doc open: the docs changed most recently, so the page opens on something to read.
   function drawLanding() {
     if (!docs.length && !linked.length) {
