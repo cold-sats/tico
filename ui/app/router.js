@@ -20,6 +20,9 @@ function route() {
   // rail keeps its own class (ui/docs-ask.js re-syncs it after the route).
   const main = $('#main');
   main.className = main.classList.contains('librarian-open') ? 'librarian-open' : '';
+  // A new page fades in (opacity only); a query change within the same page does not.
+  if (from && from.split('?')[0] !== S.route.split('?')[0] && main.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches)
+    main.animate({opacity: [0, 1]}, {duration: 120, easing: 'cubic-bezier(.2,0,0,1)'});
   document.body.classList.remove('task-peek-open');
   if (!(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) window.marketStop?.();
   taskChatStop(); $('#task-modal')?.close();
