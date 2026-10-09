@@ -306,7 +306,7 @@ async function pageBot(slug, tab) {
     ${keeper && v2StatusOf(slug)?.bot_state === 'quarantined' && settingsCanManageBot(e) ? `
     <section class="card" id="bot-quarantine"><header><h2>Paused</h2>
         <button class="primary" type="button" id="bot-quarantine-resume">Resume</button></header>
-      <p>${esc(v2StatusOf(slug)?.focus || 'Paused after refused actions.')}${/refused writes today$/.test(v2StatusOf(slug)?.focus || '') ? ' It resumes by itself within an hour.' : ''}</p>
+      <p>${esc(v2StatusOf(slug)?.focus || 'Paused after refused actions.')}${v2StatusOf(slug)?.quarantine?.resumes_at ? ` It resumes by itself at ${esc(clockTime(v2StatusOf(slug).quarantine.resumes_at))}.` : /(refused writes|repeated refusals|refusals) today$/.test(v2StatusOf(slug)?.focus || '') ? ' It resumes by itself within an hour.' : ''}</p>
       <p class="muted" id="bot-quarantine-result"></p>
     </section>` : ''}
     <section class="card" id="bot-updates-card"><header><h2>Updates</h2></header>

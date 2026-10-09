@@ -125,7 +125,8 @@ CAP_PER_HOUR = 20               # rule 3: messages in one conversation between b
 MAX_ASK_DEPTH = 3               # rule 3: A asks B asks C; C may not ask on
 UNSOLICITED_PER_DAY = int(os.environ.get("TICO_UNSOLICITED_PER_DAY", "10"))   # rule 4: per human, per bot, per UTC day
 REVIEW_AT = 3                   # rule 8: refusals in a day that open a review task
-QUARANTINE_AT = 10              # rule 8: refusals in a day that quarantine the bot
+QUARANTINE_AT = 10              # rule 8: repeated refusals in a day that quarantine the bot
+QUARANTINE_TOTAL_AT = 3 * QUARANTINE_AT   # rule 8: any refusals in a day, repeated or not (a loop over new targets)
 ESCAPE_QUARANTINE_AT = int(os.environ.get("TICO_ESCAPE_QUARANTINE_AT", "3"))   # rule 8: `escape` refusals in a day that quarantine it until a person clears it
 NOTICE_DAYS = 14                # how long a notice stays in the inbox
 
@@ -922,6 +923,9 @@ def migrate(conn, adopt_legacy=False):
     conn.execute("CREATE INDEX IF NOT EXISTS task_links_task ON task_links(task_id)")
     conn.execute("CREATE TABLE IF NOT EXISTS preferences(actor TEXT NOT NULL, key TEXT NOT NULL, "
                  "value_json TEXT NOT NULL, updated TEXT NOT NULL, PRIMARY KEY(actor, key))")
+    # Which messages could be about a task, so a task's page does not read its whole room (backend/message_links.py).
+    from . import message_links
+    message_links.ensure(conn)
     return len(MIGRATIONS)
 
 
@@ -1279,8 +1283,11 @@ def _escalate(conn, actor, rule, detail, severity, ts):
     lifted = _one(conn, "SELECT max(ts) AS ts FROM events WHERE action='quarantine.lifted' AND target=?",
                   (bot_actor(slug),))
     since = max(day, (lifted or {}).get("ts") or "")
-    count = conn.execute("SELECT COUNT(*) FROM refusals WHERE actor=? AND ts>=? AND rule<>'lint'",
-                         (actor, since)).fetchone()[0]
+    count, distinct = conn.execute("SELECT COUNT(*), COUNT(DISTINCT rule || char(31) || detail_json) FROM refusals "
+                                   "WHERE actor=? AND ts>=? AND rule<>'lint'", (actor, since)).fetchone()
+    # Only a refusal the bot has already had (same rule, same words) counts toward the quarantine: retrying a
+    # refused action is what the limit stops. A first try at something new that is refused is recorded, not counted.
+    repeats = count - distinct
     said = _clip(detail)
     reviewer = bot_actor(REVIEW_OWNER if slug == FLEET_MAINTAINER else FLEET_MAINTAINER)
     if slug == FLEET_MAINTAINER and (bot(conn, REVIEW_OWNER) or {}).get("state") in (None, "planned", "archived"):
@@ -1295,9 +1302,13 @@ def _escalate(conn, actor, rule, detail, severity, ts):
     # Keep the audit, internal repeated-failure review, and quarantine enforcement.
     escapes = conn.execute("SELECT COUNT(*) FROM refusals WHERE actor=? AND ts>=? AND severity='escape'",
                            (actor, since)).fetchone()[0]
-    if (severity == "escape" and escapes >= ESCAPE_QUARANTINE_AT) or count >= QUARANTINE_AT:
-        quarantine(conn, slug, f"{rule}: {said}" if severity == "escape"
-                   else f"{count} refused writes today")
+    if severity == "escape" and escapes >= ESCAPE_QUARANTINE_AT:
+        quarantine(conn, slug, f"{rule}: {said}")
+    elif repeats >= QUARANTINE_AT:
+        quarantine(conn, slug, f"{repeats} repeated refusals today")
+    elif count >= QUARANTINE_TOTAL_AT:
+        # The backstop: refusals that each name a new target are no repeats, but this many still mean a loop.
+        quarantine(conn, slug, f"{count} refusals today")
 
 
 def task_origin(conn, row):
@@ -1344,7 +1355,7 @@ def _review_task(conn, owner, title, body, origin=None):
 
 
 QUARANTINE_COOLDOWN_S = 3600
-COUNT_QUARANTINE = re.compile(r"\d+ refused writes today")
+COUNT_QUARANTINE = re.compile(r"\d+ (?:refused writes|repeated refusals|refusals) today")   # the first: before #287
 
 
 def quarantine_reason(conn, slug):
@@ -1450,7 +1461,10 @@ def resolve_actor(conn, value):
     return None
 
 
-def _reach(conn, actor, target, allow_planned=False):
+HELD_STATES = ("quarantined", "paused")
+
+
+def _reach(conn, actor, target, allow_planned=False, allow_held=False):
     """Rule 2: an active bot, or any human on the roster. Anything else is out of reach.
 
     `allow_planned` is onboarding's one exception: a bot that has been defined but has not
@@ -1463,7 +1477,7 @@ def _reach(conn, actor, target, allow_planned=False):
                classify(str(target), conn=conn))
     if is_bot(resolved):
         state = (bot(conn, actor_id(resolved)) or {}).get("state")
-        if state != "active" and not (allow_planned and state == "planned"):
+        if state != "active" and not (allow_planned and state == "planned") and not (allow_held and state in HELD_STATES):
             refuse(conn, actor, "reach", f"{actor_id(resolved)} is {state}, not active")
     return resolved
 
@@ -1537,14 +1551,14 @@ def sync_registry(conn, employees, people):
 
 # ----------------------------------------------------------------------------- conversations
 def open_conversation(conn, actor, participants, kind="chat", subject="", task_id=None,
-                      scope=None, owner_actor=None, room_key=None, allow_planned=False):
+                      scope=None, owner_actor=None, room_key=None, allow_planned=False, allow_held=False):
     """A thread between any set of bots and humans. Reach (rule 2) is checked per participant."""
     _writer(conn, actor)
     if kind not in CONVERSATION_KINDS:
         refuse(conn, actor, "kind", f"a conversation is {'|'.join(CONVERSATION_KINDS)}, not {kind}")
     people = []
     for p in participants or []:
-        resolved = p if resolve_actor(conn, p) == actor else _reach(conn, actor, p, allow_planned)
+        resolved = p if resolve_actor(conn, p) == actor else _reach(conn, actor, p, allow_planned, allow_held)
         if resolved not in people:
             people.append(resolved)
     if actor not in people:
@@ -1575,7 +1589,7 @@ def open_conversation(conn, actor, participants, kind="chat", subject="", task_i
     return conversation(conn, row["id"])
 
 
-def _pair_conversation(conn, actor, other, kind, subject=""):
+def _pair_conversation(conn, actor, other, kind, subject="", allow_held=False):
     """The live conversation of this kind between these two, opened if there is none."""
     want = {actor, other}
     for row in _rows(conn.execute(
@@ -1583,7 +1597,7 @@ def _pair_conversation(conn, actor, other, kind, subject=""):
             "ORDER BY COALESCE(last_message_at, created) DESC LIMIT 200", (kind,))):
         if set(_json(row["participants_json"], []) or []) == want:
             return conversation(conn, row["id"])
-    return open_conversation(conn, actor, [actor, other], kind=kind, subject=subject)
+    return open_conversation(conn, actor, [actor, other], kind=kind, subject=subject, allow_held=allow_held)
 
 
 def _opener(conn, conversation_id):
@@ -1611,7 +1625,9 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
     severity = classify(body, to_actor=resolve_actor(conn, to_actor), where="message", actor=actor, conn=conn)
     if severity == "escape" and not (actor == KEEPER and kind == "notice"):
         refuse(conn, actor, "escape", MESSAGE_ESCAPE, "escape")
-    target = _reach(conn, actor, to_actor)
+    # A person's message to a paused or quarantined bot is kept: runners claim only active bots' work
+    # (execution.claim), so it runs when the bot is back. A bot still cannot write to one (rule 2).
+    target = _reach(conn, actor, to_actor, allow_held=is_human(actor))
     refs = dict(refs or {})
 
     if is_bot(actor) and actor == target:
@@ -1623,7 +1639,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
             refuse(conn, actor, "not-found", f"no conversation {conversation_id}")
     else:
         conv = _pair_conversation(conn, actor, target,
-                                  {"ask": "ask", "notice": "notice"}.get(kind, "chat"))
+                                  {"ask": "ask", "notice": "notice"}.get(kind, "chat"), allow_held=is_human(actor))
 
     # rule 3: the loop caps
     if is_bot(actor) and is_bot(target):
@@ -2773,9 +2789,14 @@ def task_comments(conn, task_id, *, actor=None):
     if not row or not row.get("conversation_id"):
         return []
     conv = conversation(conn, row["conversation_id"])
-    out = []
-    for m in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=? AND deleted_at IS NULL "
-                                "ORDER BY created", (row["conversation_id"],))):
+    out, sql, args = [], "conversation_id=?", [row["conversation_id"]]
+    # In a bot's room, only the messages that name the task (backend/message_links.py), not the whole room.
+    from .message_links import named
+    ids = named(conn, task_id, row["conversation_id"])
+    if ids is not None:
+        sql, args = "+conversation_id=? AND id IN (SELECT value FROM json_each(?))", args + [_dump(sorted(ids))]
+    for m in _rows(conn.execute("SELECT * FROM messages WHERE " + sql + " AND deleted_at IS NULL "
+                                "ORDER BY created", args)):
         m["refs"] = _json(m.get("refs_json"), {}) or {}
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
             if actor is not None and not privacy.message_readable(conn, actor, m):

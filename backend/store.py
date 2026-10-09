@@ -12,6 +12,7 @@ import yaml
 
 from . import goals as G
 from . import hubdb as H
+from . import message_links
 from . import people as P
 from .harnesses import EXTERNAL_HARNESSES
 
@@ -1183,6 +1184,9 @@ class Store:
             except Exception:
                 c.rollback()
                 raise
+            # Every start, in short batches of their own: rows written since the last pass, including any an
+            # older server wrote after a rollback, get their task links (backend/message_links.py).
+            message_links.backfill(c)
         c.close()
 
     @contextmanager
@@ -1252,6 +1256,7 @@ class Store:
                 c.execute("BEGIN IMMEDIATE")
                 try:
                     yield c
+                    message_links.refresh_dirty(c)
                     c.commit()
                 except Exception:
                     c.rollback()
@@ -1267,6 +1272,7 @@ class Store:
             held = time.perf_counter()
             try:
                 yield c
+                message_links.refresh_dirty(c)
                 c.commit()
             except Exception:
                 c.rollback()

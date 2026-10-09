@@ -48,6 +48,8 @@ async function open(browser, viewport, options = {}, data = {}) {
   const errors = [], read = [];
   page.on('pageerror', error => errors.push(error.message));
   const {updates = [UPDATE], files = FILES} = data;
+  const cleared = [];
+  let status = data.status || {bot: 'cmo', state: 'running', task_id: 't1'};
   await page.route('**/*', route => {
     const url = new URL(route.request().url()), p = url.pathname, q = url.searchParams;
     const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
@@ -62,7 +64,8 @@ async function open(browser, viewport, options = {}, data = {}) {
     if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}]});
     if (p === '/api/employees') return json(bots);
     if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: [], schedules: bots[0].schedules.map(s => ({...s, employee: 'cmo'}))});
-    if (p === '/api/v2/status') return json({bots: [{bot: 'cmo', state: 'running', task_id: 't1'}]});
+    if (p === '/api/v2/status') return json({bots: [status]});
+    if (p === '/api/v2/bots/cmo/quarantine/clear') { cleared.push(p); status = {bot: 'cmo', state: 'idle', bot_state: 'active'}; return json({}); }
     if (p === '/api/v2/goals') return json({goals: [], chain: [], reports: [], company: []});
     if (p === '/api/v2/updates/read') { read.push(...JSON.parse(route.request().postData()).ids); return json({}); }
     if (p === '/api/v2/updates') return json({updates: q.get('bot') ? updates : [], missed: [], unread: 0, next_before: null, today: {}});
@@ -77,7 +80,7 @@ async function open(browser, viewport, options = {}, data = {}) {
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json({});
   });
-  return {page, errors, read, context};
+  return {page, errors, read, context, cleared};
 }
 
 const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pane-tasks>section.rail-sec')]
@@ -187,6 +190,39 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.deepEqual(errors, [], scheme + ': phone page errors');
       await context.close();
     }
-    console.log('bot page: Active, Updates, Files and Recurring; tools open under More; desktop and phone navigation');
+    for (const viewport of [{width: 1440, height: 900}, {width: 390, height: 844}]) {
+      // A quarantine from repeated refusals says when it lifts and offers Resume now to a manager; the message box stays.
+      const since = iso(-10 * 60e3), resumes = iso(50 * 60e3);
+      const held = {bot: 'cmo', state: 'quarantined', bot_state: 'quarantined', since, focus: '10 repeated refusals today',
+        quarantine: {since, auto: true, resumes_at: resumes}};
+      const {page, errors, context, cleared} = await open(browser, viewport, {}, {status: held});
+      await page.goto('https://tico-ui.test/#/bot/cmo');
+      const banner = page.locator('#conv-paused:not([hidden])');
+      await banner.waitFor();
+      const at = await page.evaluate(r => new Date(r).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}), resumes);
+      assert.match(await banner.innerText(), new RegExp(`resumes by itself at ${at.replace(/\s/g, '\\s')}`));
+      assert.match(await banner.innerText(), /Your messages are saved and run when it's back/);
+      assert.doesNotMatch(await banner.innerText(), /under More/);
+      if (shots) await page.screenshot({path: path.join(shots, `bot-quarantine-banner-${viewport.width}.png`)});
+      await banner.locator('[data-quarantine-resume]').click();
+      await page.locator('#conv-paused').waitFor({state: 'hidden'});
+      assert.deepEqual(cleared, ['/api/v2/bots/cmo/quarantine/clear']);
+      assert.deepEqual(errors, [], 'quarantine banner errors');
+      await context.close();
+    }
+    {
+      // Anything else (an escape) waits for a person: no time is promised.
+      const since = iso(-10 * 60e3);
+      const {page, errors, context} = await open(browser, {width: 1440, height: 900}, {}, {status: {bot: 'cmo', state: 'quarantined',
+        bot_state: 'quarantined', since, focus: 'escape: a secrets path', quarantine: {since, auto: false, resumes_at: null}}});
+      await page.goto('https://tico-ui.test/#/bot/cmo');
+      const banner = page.locator('#conv-paused:not([hidden])');
+      await banner.waitFor();
+      assert.match(await banner.innerText(), /a person who manages it must check and resume it/);
+      assert.doesNotMatch(await banner.innerText(), /resumes by itself/);
+      assert.deepEqual(errors, [], 'escape banner errors');
+      await context.close();
+    }
+    console.log('bot page: Active, Updates, Files and Recurring; tools open under More; desktop and phone navigation; quarantine banner says when it resumes, Resume now');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

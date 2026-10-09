@@ -1,7 +1,10 @@
 const $ = selector => document.querySelector(selector);
 const origin = location.origin;
 let model = null, scene = null, topology = '', revision = 0, disposed = false, failed = false;
-const preferences = {};
+// The renderer starts downloading before the team arrives; the page preloads it too.
+const renderer = import('./building.js'); renderer.catch(() => {});
+const preferences = {layout: 'campus'};
+try { if (localStorage.getItem('tico-overview-layout') === 'tower') preferences.layout = 'tower'; } catch {}
 const send = data => parent.postMessage(data, origin);
 function openMember(id) {
   if (model.groups.some(g => g.members.some(m => m.id === id && m.href))) send({type: 'tico-overview-open', id});
@@ -30,15 +33,17 @@ function controls() {
   $('#connection-status').hidden = model.fresh;
   $('#campus-company').textContent = model.company;
   const count = model.groups.filter(g => g.kind === 'computer').length;
-  $('#campus-summary').textContent = count + (count === 1 ? ' computer' : ' computers') + ' · One connected campus';
+  $('#campus-summary').textContent = count + (count === 1 ? ' computer' : ' computers') + (preferences.layout === 'tower' ? ' · One tower' : ' · One connected campus');
+  document.querySelectorAll('[data-layout]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.layout === preferences.layout)));
 }
-async function mount() {
+async function mount(quiet = false) {
   const seq = ++revision; scene?.dispose(); scene = null; failed = false; $('#world').replaceChildren();
-  controls(); $('#fallback').hidden = true; $('#loading').hidden = false; $('#loading').classList.remove('gone');
+  controls(); $('#fallback').hidden = true;
+  if (!quiet) { $('#loading').hidden = false; $('#loading').classList.remove('gone'); }
   delete document.body.dataset.sceneReady;
   if (!model.groups.length) { fallback('Your campus will come to life when you add computers and teammates.'); return; }
   try {
-    const {createBuilding} = await import('./building.js');
+    const {createBuilding} = await renderer;
     if (disposed || seq !== revision) return;
     scene = createBuilding(currentData(), preferences, openMember);
   } catch (error) {
@@ -54,6 +59,12 @@ function update(next) {
   if (shape !== topology) { topology = shape; mount(); }
   else { controls(); scene?.update(currentData()); if (failed) fallback('The 3D view is unavailable. Explore your team below.'); }
 }
+for (const button of document.querySelectorAll('[data-layout]')) button.onclick = () => {
+  if (!model || preferences.layout === button.dataset.layout) return;
+  preferences.layout = button.dataset.layout; preferences.floorId = null;
+  try { localStorage.setItem('tico-overview-layout', preferences.layout); } catch {}
+  mount(true);
+};
 function dispose() { disposed = true; revision++; scene?.dispose(); scene = null; }
 window.addEventListener('message', event => {
   if (event.source !== parent || event.origin !== origin || disposed) return;

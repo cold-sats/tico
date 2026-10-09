@@ -281,18 +281,20 @@ function renderSettingsMachines() {
     };
     const harnesses = Object.entries(machine.readiness?.harnesses || {}).filter(([, value]) => value.installed || value.wanted || value.state !== 'idle').map(harnessChip).join('');
     const failures = Object.values(machine.readiness?.bots || {}).filter(value => !value.ready).length;
-    const botLink = slug => `<a href="#/bot/${encodeURIComponent(slug)}/more">${esc(settingsBotName(slug))}</a>`;
     const bots = machine.bots || [];
-    const botList = bots.slice(0, 3).map(botLink).join(', ');
-    const moreBots = bots.length > 3 ? `<details data-machine-details="${esc(machine.id)}:bots"><summary>+${bots.length - 3} more bots</summary>${bots.slice(3).map(botLink).join(', ')}</details>` : '';
-
+    const botNames = bots.map(settingsBotName);
+    const status = machine.revoked_at ? ['failed', 'revoked'] : online ? ['ok', 'online'] : ['', 'offline'];
+    // Rarely used actions sit in the row's ⋯ menu, so each computer stays one compact row.
+    const admin = settingsIsAdmin(), mayRemove = !machine.revoked_at && (admin || machine.operator === S.me?.id);
+    const menu = [bots.length ? `<button type="button" role="menuitem" data-computer-bots="${esc(machine.id)}">Show bots</button>` : '',
+      !machine.revoked_at && admin ? `<label class="people-menu-check"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>` : '',
+      mayRemove ? `<button type="button" role="menuitem" class="danger-text" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''].join('');
     return `<tr class="machine-card"><td><strong>${esc(machine.label)}</strong><span class="settings-cell-note">${esc(machine.version || 'version not reported')}${machine.platform ? ` · ${esc(machine.platform)}` : ''}</span>${window.runnerUpdateHtml?.(machine.update, machine.version) || ''}</td>
-      <td data-label="Operator">${esc(settingsPersonName(machine.operator))}${machine.revoked_at ? '' : settingsIsAdmin()
-        ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>`
-        : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
-      <td data-label="Bots"><strong>${bots.length} bot${bots.length === 1 ? '' : 's'}</strong>${bots.length ? `<div class="settings-cell-note">${botList}${moreBots}<div><a href="#/settings" data-computer-reassign>Manage bot assignments</a></div></div>` : ''}${failures ? ` <span class="err">${failures} not ready</span>` : ''}</td>
+      <td data-label="Operator">${esc(settingsPersonName(machine.operator))}${!machine.revoked_at && machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
+      <td data-label="Bots">${bots.length ? `<a href="#/settings" class="machine-bots" data-computer-bots="${esc(machine.id)}" title="${esc(botNames.join(', '))}"><strong>${bots.length} bot${bots.length === 1 ? '' : 's'}</strong><span class="settings-cell-note">${esc(botNames.join(', '))}</span></a>` : '<span class="muted">No bots</span>'}${failures ? `<span class="settings-cell-note err">${failures} not ready</span>` : ''}</td>
       <td data-label="AI tools"><div class="machine-runtime" aria-label="AI tools on ${esc(machine.label)}">${tools || '<span class="muted">No AI tools reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Updates</summary><div class="machine-harnesses">${harnesses}</div></details>` : ''}</td>
-      <td data-label="Status">${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}${!machine.revoked_at && (settingsIsAdmin() || machine.operator === S.me?.id) ? `<button class="ghost" type="button" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''}</td></tr>`;
+      <td data-label="Status"><span class="machine-status"><span class="dot ${status[0]}" aria-hidden="true"></span>${status[1]}${machine.last_seen ? `<span class="muted"> · ${esc(ago(machine.last_seen))}</span>` : ''}</span></td>
+      <td class="settings-row-actions"><div class="people-cell-more">${menu ? `<button class="people-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More for ${esc(machine.label)}"><span class="nav-icon" aria-hidden="true">more_horiz</span></button><div class="people-menu" role="menu" hidden>${menu}</div>` : ''}</div></td></tr>`;
   }).join('');
   el.onchange = async event => {
     const box = event.target.closest('[data-member-bots]');
@@ -305,7 +307,20 @@ function renderSettingsMachines() {
     } catch (error) { toast(error.message, true); box.checked = !box.checked; box.disabled = false; }
   };
   el.onclick = async event => {
-    if (event.target.closest('[data-computer-reassign]')) { settingsShow('bots'); return; }
+    const more = event.target.closest('.people-more');
+    if (more) {
+      const menu = more.nextElementSibling, open = menu.hidden;
+      peopleCloseMenus(menu); menu.hidden = !open; more.setAttribute('aria-expanded', String(open));
+      // Fixed, so the table's sideways scroll box does not clip it.
+      if (open) { const r = more.getBoundingClientRect(); menu.style.position = 'fixed'; menu.style.top = `${Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)}px`; menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`; menu.style.right = 'auto'; }
+      return;
+    }
+    const shown = event.target.closest('[data-computer-bots]');
+    if (shown) {
+      event.preventDefault(); peopleCloseMenus();
+      SETTINGS_BOTS_VIEW.computer = shown.dataset.computerBots; settingsBotsRemember(); settingsShow('bots'); renderSettingsBots();
+      return;
+    }
     const login = event.target.closest('[data-machine-copy-login]');
     if (login) { void copyText(login.dataset.machineCopyLogin).then(() => toast('Command copied')); return; }
     const remove = event.target.closest('[data-computer-remove]');
@@ -332,8 +347,8 @@ function renderSettingsMachines() {
   const agents = (SETTINGS_DATA.agents || []).map(agent => `<tr class="machine-card" data-agent-row="${esc(agent.bot)}"><td><strong><a href="#/bot/${esc(agent.bot)}">${esc(agent.display_name || agent.bot)}</a></strong><span class="settings-cell-note">${esc(agentKind(agent))}${agent.profile ? ` · profile ${esc(agent.profile)}` : ''}${agent.version ? ` · ${esc(agent.version)}` : ''}${agent.platform ? ` · ${esc(agent.platform)}` : ''}</span></td>
       <td>${esc(settingsPersonName(S.emps.find(row => row.name === agent.bot)?.operator))}</td>
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
-      <td>${agent.revoked_at ? '<span class="pill fail">revoked</span>' : agent.online ? '<span class="pill ok">reporting in</span>' : '<span class="pill">not reporting</span>'}${agent.last_seen ? `<span class="settings-cell-note">${esc(ago(agent.last_seen))}</span>` : ''}</td></tr>`).join('');
-  const list = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>AI tools</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
+      <td><span class="machine-status"><span class="dot ${agent.revoked_at ? 'failed' : agent.online ? 'ok' : ''}" aria-hidden="true"></span>${agent.revoked_at ? 'revoked' : agent.online ? 'reporting in' : 'not reporting'}${agent.last_seen ? `<span class="muted"> · ${esc(ago(agent.last_seen))}</span>` : ''}</span></td></tr>`).join('');
+  const list = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>AI tools</th><th>Status</th><th aria-label="Actions"></th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
     ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Owner</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}`;
   // Only the list is redrawn; the Add computer form (and the code it shows) keeps what was typed.
   if (!el.querySelector('.machine-enroll')) el.innerHTML = `<div data-machines-list></div>

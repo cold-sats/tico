@@ -99,9 +99,10 @@ def personal_room(c, human_actor, bot="coo", subject="Private control room"):
             c.execute("UPDATE conversations SET scope='personal',owner_actor=?,room_key=? WHERE id=?",
                       (human_actor, bot, candidate["id"]))
             return H.conversation(c, candidate["id"])
+    # A person's own room opens even while the bot is paused: their message waits for it (hubdb.say).
     return H.open_conversation(c, human_actor, [human_actor, "bot:" + bot], kind="chat",
                                subject=subject, scope=PERSONAL,
-                               owner_actor=human_actor, room_key=bot)
+                               owner_actor=human_actor, room_key=bot, allow_held=H.is_human(human_actor))
 
 
 def sync_shared_room(c, auth, bot, actor=None, create=False):
@@ -138,7 +139,7 @@ def sync_shared_room(c, auth, bot, actor=None, create=False):
     opener = actor or next((p for p in participants if p.startswith("human:")), H.KEEPER)
     return H.open_conversation(c, opener, participants, kind="chat",
                                subject=(H.bot(c, bot) or {}).get("display_name", bot) + " shared room",
-                               scope=SHARED, room_key=bot)
+                               scope=SHARED, room_key=bot, allow_held=H.is_human(opener))
 
 
 def chat_room(c, auth, who, bot, subject=None):

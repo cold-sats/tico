@@ -15,8 +15,11 @@ from .store import Problem
 
 FIELDS = ("width", "height", "duration_ms", "poster_blob_id", "thumb_blob_id", "media_state")
 # Starts from the few pending rows (partial indexes in hubdb.migrate), never a scan of every blob: it runs every few seconds.
-PENDING = ("SELECT b.*,m.poster_blob_id FROM (SELECT blob_id FROM blob_media WHERE media_state='pending' "
-           "UNION SELECT blob_id FROM bot_file_versions WHERE media_state='pending') p JOIN blobs b ON b.id=p.blob_id "
+# INDEXED BY pins the partial pending indexes: with small or freshly analysed tables the planner may otherwise
+# scan the full (blob_id,media_state) index, which visits every version.
+PENDING = ("SELECT b.*,m.poster_blob_id FROM (SELECT blob_id FROM blob_media INDEXED BY blob_media_pending "
+           "WHERE media_state='pending' UNION SELECT blob_id FROM bot_file_versions INDEXED BY bot_file_versions_pending "
+           "WHERE media_state='pending') p JOIN blobs b ON b.id=p.blob_id "
            "LEFT JOIN blob_media m ON m.blob_id=b.id LEFT JOIN blob_media_retries r ON r.blob_id=b.id "
            "WHERE COALESCE(r.retry_at,0)<=? LIMIT 10")
 
