@@ -2,6 +2,7 @@
    The dialog shows what the model's own CLI prints: a link and a one-time code, or a link and a
    field for the code the sign-in page hands back. This page never sees the resulting credential;
    the CLI keeps it on the computer, and the chip flips when the computer reports it is ready. */
+'use strict';
 (function () {
   const RUNTIME_NAMES = {codex: 'Codex (ChatGPT)', claude: 'Claude Code'};
   const POLL_MS = 2000, STALLED_S = 30;

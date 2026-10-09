@@ -25,9 +25,10 @@ rebuilds when a listed file changes, so editing needs no step. index.html is the
 adds it to the bundle.
 
 A file that is not strict cannot share the bundle's one script (the bundle opens with `'use strict'` once), so
-start every `app/` file with it. `TICO_UI_BUNDLE=off` serves the files separately, as listed. The browser
+start every `app/` file and every feature file (`ui/*.js`) with it. `TICO_UI_BUNDLE=off` serves the files separately, as listed. The browser
 tests run the real bundler and serve the bundle by default; `TICO_UI_BUNDLE=off npm run test:ui` runs them on
-the separate files. Files outside the markers (`ui/*.js`, `vendor/`) load on their own.
+the separate files. The feature files (`ui/*.js`) are in the bundle too, ahead of `app/`; only `theme.js` (in the head, before
+the first paint) and `vendor/` load on their own.
 
 An open tab does not pick up a new release by itself. The config carries the release (`version`) and the served build
 (`ui_build`, the `?v=` of the two bundle tags joined by a dot); `app/notices.js` compares both with what the page loaded with, on the
@@ -51,7 +52,7 @@ Load order matters in two ways:
 - **Styles.** Later rules win at equal specificity, so `styles/*.css` keep the order they were cut in.
   `tokens.css` first, then base, then the areas.
 
-Every file in `app/` starts with `'use strict'`, as the old inline script did. Use absolute URLs
+Every file in `app/` and every feature file starts with `'use strict'`, as the old inline script did. Use absolute URLs
 (`/assets/...`) inside CSS: a stylesheet resolves relative URLs against its own path.
 
 ## Where things are

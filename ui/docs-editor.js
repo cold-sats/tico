@@ -1,6 +1,7 @@
 /* Docs: writing and the dialogs around it (docs/docs.md). The editor (a Markdown textarea and a preview
    toggle), the history panel with restore, the linked-doc dialog and the import dialog. Text a person or
    a bot wrote is only ever shown through safeMd (which sanitizes) or textContent, never as raw HTML. */
+'use strict';
 (function () {
   'use strict';
   const IMPORT_TYPES = '.md,.markdown,.txt,.html,.htm,.docx,.pdf';

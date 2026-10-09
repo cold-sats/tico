@@ -2,6 +2,7 @@
    assistant is the Assistant page (ui/app/assistant-page.js), the same thread and composer as a bot's chat.
    Anything with a side effect that matters arrives as a Confirm / Cancel card; only your click runs it.
    deps keeps this file free of the page's globals (get, post, esc, toast). */
+'use strict';
 (function () {
   const css = `
 .asst-card{align-self:flex-start;width:min(560px,100%);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:var(--surface)}

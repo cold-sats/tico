@@ -11,6 +11,7 @@
    Logos come from ui/tool-icons.js (Simple Icons, CC0, and Lobe Icons, MIT; see NOTICE), drawn in
    the theme's ink next to the name only to say which product it is. An agent without one is its
    first letters. Uses the page's helpers: get, post, esc, ago, toast, copyText, setDrawer. */
+'use strict';
 (function () {
   const POLL_MS = 3000, POLL_FOR_MS = 5 * 60 * 1000;
 

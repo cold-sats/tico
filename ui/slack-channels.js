@@ -1,5 +1,6 @@
 /* Tools > Slack channels: which channels bots may read and post in (docs/slack.md). An owner or an admin adds one,
    names the bots that read it, and says whether bots may post there. Bots' Slack reads follow this list. */
+'use strict';
 window.mountSlackChannels = async function (host) {
   if (!host) return;
   const text = value => { const s = document.createElement('span'); s.textContent = value ?? ''; return s.innerHTML; };

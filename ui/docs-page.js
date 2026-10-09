@@ -1,5 +1,6 @@
 /* The Docs page (docs/docs.md): internal docs, written or imported in Tico with history and locks,
    and linked docs, which are only links. Search covers both. Ask the Librarian is ui/docs-ask.js. */
+'use strict';
 let DOC_DATA = {docs: [], linked: []};
 let DOC_QUERY = '';
 let DOC_LOAD = 0;

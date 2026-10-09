@@ -2,6 +2,7 @@
    (docs/onboarding.md). Whether that line shows comes from GET /api/v2/setup/getting-started; the only thing
    kept per person is whether they saw the tour. The Market page's empty state (ui/market-page.js) is
    where the market is asked for. */
+'use strict';
 let GS = null;                     // the last answer, or null when the server has none to give
 let GS_LOAD = 0;
 
