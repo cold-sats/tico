@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- A bot's Tools list is one line per tool (icon, name, key values, status) that opens to its details, and two or more GitHub repositories share one line ("GitHub · N repositories", access added up) that opens to a short line each.
+
 ### Fixed
 - Granola imports recover from Granola's rate limits. A throttled sync no longer retries on a fixed short schedule that kept the quota exhausted; it backs off (5 minutes, doubling, up to 6 hours, or longer if Granola asks), waits in the sync only when Granola names a short wait, and fetches notes not yet imported before re-reading ones it already has.
 
