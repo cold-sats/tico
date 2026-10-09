@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- On a phone, Tasks is in the bottom bar (Team, Search, Tasks, Updates, More). Phone task rows are denser: titles wrap to two lines, a task's note shows under its title, and a lone subtask's 0/1 is hidden. A task waiting on you shows Waiting once, not twice (desktop too).
+
 ### Fixed
 - Granola imports recover from Granola's rate limits. A throttled sync no longer retries on a fixed short schedule that kept the quota exhausted; it backs off (5 minutes, doubling, up to 6 hours, or longer if Granola asks), waits in the sync only when Granola names a short wait, and fetches notes not yet imported before re-reading ones it already has.
 
