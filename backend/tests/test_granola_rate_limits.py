@@ -1,7 +1,7 @@
 """Notes imports preserve progress when Granola throttles real MCP response shapes."""
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -144,6 +144,10 @@ def test_repeated_throttling_backs_off_and_caps(api):
     provider.sync()
     meta = provider.service.load("human:ana")[1]
     assert round(meta["retry_after"] - provider.now) == G.RATE_LIMIT_MAX * 2, "a longer wait Granola names is kept"
+    provider.responses = [rate_limit(retry_after=str(30 * 86400))]
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert round(meta["retry_after"] - provider.now) == G.RETRY_AFTER_MAX, "an absurd named wait cannot park the import"
     provider.sync()
     meta = provider.service.load("human:ana")[1]
     assert meta["last_error"] is None and meta["failures"] == 0 and "retry_after" not in meta
@@ -162,3 +166,34 @@ def test_new_notes_are_fetched_before_imported_ones_are_revisited(api):
     meta = provider.service.load("human:ana")[1]
     assert set(new) <= set(provider.notes_calls[0][1]), "the first call spends the quota on notes not yet imported"
     assert meta["imported_count"] == 15 and meta["last_error"] == "rate_limited: get_meetings"
+
+
+class DatedNotes(NotesProvider):
+    def __init__(self, api, count):
+        self.dates = {}
+        super().__init__(api, count)
+
+    def handle(self, request):
+        if request.url.path == "/mcp" and json.loads(request.content).get("params", {}).get("name") == "list_meetings":
+            return httpx.Response(200, json={"result": {"structuredContent": {
+                "meetings": [{"id": nid, "created_at": self.dates[nid]} for nid in self.ids]}}})
+        return super().handle(request)
+
+
+def test_a_throttled_sync_never_checkpoints_past_an_imported_note_not_yet_revisited(api):
+    provider = DatedNotes(api, 12)
+    start = datetime.fromtimestamp(provider.now, timezone.utc)
+    provider.dates.update({nid: (start - timedelta(hours=60 - 5 * i)).isoformat() for i, nid in enumerate(provider.ids)})
+    provider.connect()
+    provider.sync()
+    provider.now += 7 * 86400                    # a week later: three new notes, then Granola throttles
+    later = datetime.fromtimestamp(provider.now, timezone.utc)
+    new = [str(uuid.UUID(int=100 + i)) for i in range(3)]
+    provider.dates.update({nid: (later - timedelta(hours=3 - i)).isoformat() for i, nid in enumerate(new)})
+    provider.ids = provider.ids + new
+    provider.responses = [None, rate_limit()]
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert meta["imported_count"] == 15, "the new notes came first"
+    # Imported notes were left unrevisited: the next sync's window must still reach the oldest of them.
+    assert datetime.fromisoformat(meta["cursor"]) - timedelta(hours=72) <= datetime.fromisoformat(provider.dates[provider.ids[7]])

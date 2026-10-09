@@ -28,6 +28,7 @@ AUTH = "https://mcp-auth.granola.ai"
 SCOPES = "openid profile email offline_access mcp"
 SCHEDULE = 25 * 60
 RATE_LIMIT_RETRY = 5 * 60
+RETRY_AFTER_MAX = 24 * 3600        # a provider-named wait longer than this is treated as this
 RATE_LIMIT_MAX = 6 * 3600          # repeated throttling backs off to this, unless Granola asks for longer
 RETRY_IN_SYNC = 60                 # a get_meetings throttle is waited out in the sync only when Granola says it is this short
 DEBOUNCE = 120
@@ -422,7 +423,7 @@ class GranolaMCP:
                 delay = parsedate_to_datetime(value).timestamp() - self.clock()
             except (TypeError, ValueError, OverflowError):
                 return None
-        return max(0, delay) if math.isfinite(delay) else None
+        return min(max(0, delay), RETRY_AFTER_MAX) if math.isfinite(delay) else None
 
     async def rpc(self, row, meta, secret, session, method, params=None, notification=False):
         if secret.get("expiry", 0) <= self.clock() + 30:
@@ -443,7 +444,7 @@ class GranolaMCP:
                 continue
             if response.status_code == 429:
                 delay = self.retry_delay(response)
-                if meetings or attempt == 3:
+                if meetings or attempt == 3 or (delay is not None and delay > RETRY_IN_SYNC):
                     raise GranolaError("rate_limited", retry_after=delay)
                 await self.sleep(delay if delay is not None else 2 ** (attempt + 1))
                 continue
@@ -847,6 +848,7 @@ class GranolaMCP:
                 # Notes not imported yet go first: re-reading the overlap window's imported notes (for a
                 # regenerated summary) must not spend a tight quota before new meetings arrive.
                 imported = await asyncio.to_thread(self.imported_ids, actor, ids)
+                by_date, done, position = list(ids), set(), 0
                 ids = [nid for nid in ids if nid not in imported] + [nid for nid in ids if nid in imported]
                 if len(ids) > 5000:
                     raise GranolaError("import_limit")
@@ -926,9 +928,13 @@ class GranolaMCP:
                             meta["skipped"] += 1
                             skipped_error = "bad_response: import_meeting"
                         await asyncio.to_thread(self.save, row, meta, secret)
-                    # IDs are processed by list date, so this checkpoint cannot pass an unprocessed batch.
-                    checkpoint = max(dates[nid] for nid in batch)
-                    if not meta.get("cursor") or checkpoint > datetime.fromisoformat(meta["cursor"]):
+                    # New notes go first, so the checkpoint is the last note in list-date order with every
+                    # earlier one processed: it never passes an imported note not yet revisited.
+                    done.update(batch)
+                    while position < len(by_date) and by_date[position] in done:
+                        position += 1
+                    checkpoint = dates[by_date[position - 1]] if position else None
+                    if checkpoint and (not meta.get("cursor") or checkpoint > datetime.fromisoformat(meta["cursor"])):
                         meta["cursor"] = checkpoint.isoformat()
                     await asyncio.to_thread(self.save, row, meta, secret)
                 if meta.get("state") == "needs_signin":
