@@ -1,12 +1,33 @@
-/* ui/styles/tokens.css — Font face, the gray ramp and the colour tokens for dark and light.
+/* ui/styles/tokens.css — Font face, the type scale, motion, the gray ramp and the colour tokens for dark and light.
    The cascade runs in the order index.html links these files; keep rules in order. */
-@font-face{font-family:"Material Symbols Outlined";font-style:normal;font-weight:200;font-display:block;src:url(/vendor/fonts/material-symbols-outlined.woff2) format("woff2")}
+/* swap, not block: text never waits on the icon font. Its ligature names ("dynamic_feed") stay hidden until the font
+   is in (html.icons-ready, set by ui/theme.js; see base.css), so they never flash as words. */
+@font-face{font-family:"Material Symbols Outlined";font-style:normal;font-weight:200;font-display:swap;src:url(/vendor/fonts/material-symbols-outlined.woff2) format("woff2")}
+/* Type. System UI only (SF Pro on a Mac): the UI loads nothing from the network. Dense: 13px text, 16px page titles.
+   Every font-size in styles/ is one of these; icon glyphs keep px (12-32), and a phone's text fields a literal 16px. */
+:root{
+  --t-2xs:10px;   /* filled chips and badges */
+  --t-xs:11px;    /* meta, counts, hints */
+  --t-sm:12px;    /* secondary text, tables' small print, code */
+  --t-base:13px;  /* body text, rows, buttons, fields */
+  --t-md:14px;    /* card titles, reading text */
+  --t-lg:16px;    /* page titles */
+  --t-xl:20px;    /* figures (KPI values), big titles */
+  --t-2xl:28px;   /* one-off display codes */
+  --lh-tight:1.25;--lh:1.45;--lh-read:1.6;
+  /* the one uppercase label: section heads, table heads, field keys */
+  /* long-form reading (Docs): its own small scale, larger than the UI's */
+  --prose:15px;--prose-h1:22px;--prose-h2:18px;--prose-h3:16px;--prose-title:24px;
+  --t-label:11px;--track-caps:.06em;
+  /* motion: short and decelerating; nothing animates layout */
+  --dur-fast:120ms;--dur:180ms;--ease:cubic-bezier(.2,0,0,1);--ease-out:cubic-bezier(0,0,.2,1);
+}
 /* Dark is the default. ui/theme.js sets <html data-theme> before the page paints: "dark" (also when nothing is
    saved), "light", or "system", which follows the OS. Light is the same nine steps in reverse order, so every rule
    names a step's role (--bg, --surface, --line...) and never a theme. */
 :root{
-  /* one neutral gray ramp, g0 the page and g8 the text */
-  --g0:#121417;--g1:#191c20;--g2:#20242a;--g3:#2a2f36;--g4:#363c45;--g5:#5b6470;--g6:#8a93a0;--g7:#b6bec9;--g8:#e6e9ee;
+  /* one neutral gray ramp, g0 the page and g8 the text; g6 (--muted) keeps 4.5:1 on every surface up to g3, in both themes */
+  --g0:#121417;--g1:#191c20;--g2:#20242a;--g3:#2a2f36;--g4:#363c45;--g5:#5b6470;--g6:#9199a6;--g7:#b6bec9;--g8:#e6e9ee;
   --bg:var(--g0);--surface:var(--g1);--surface2:var(--g2);--line:var(--g3);--muted:var(--g6);--ink:var(--g8);
   --hover:var(--g3);
   /* the chosen segment of a switch, a step above its track (--surface2) */
@@ -22,18 +43,18 @@
   --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:var(--g2);
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   /* The conversation: one centred column this wide at most, in slightly larger type with roomier lines. */
-  --read-width:800px;--read-size:13.5px;--read-leading:1.7;
+  --read-width:800px;--read-size:var(--t-md);--read-leading:1.65;
   color-scheme:dark;
 }
 :root[data-theme="light"]{
-  --g0:#ffffff;--g1:#f5f6f8;--g2:#eceef1;--g3:#e0e3e8;--g4:#cdd2d9;--g5:#9aa2ad;--g6:#5f6874;--g7:#3d444d;--g8:#16191d;
+  --g0:#ffffff;--g1:#f5f6f8;--g2:#eceef1;--g3:#e0e3e8;--g4:#cdd2d9;--g5:#9aa2ad;--g6:#5a636f;--g7:#3d444d;--g8:#16191d;
   --bubble:#e5e8ec;--raised:var(--g0);
   --accent:#0f6e56;--accent-ink:#ffffff;
   --run:#2b6cb0;--wait:#b7791f;--fail:#c53030;--idle:#9aa5b1;--ok:#2f855a;
   --run-bg:#e6f0fb;--wait-bg:#fbf1dc;--fail-bg:#fde8e8;--ok-bg:#e3f4ea;
   color-scheme:light}
 @media (prefers-color-scheme:light){:root[data-theme="system"]{
-  --g0:#ffffff;--g1:#f5f6f8;--g2:#eceef1;--g3:#e0e3e8;--g4:#cdd2d9;--g5:#9aa2ad;--g6:#5f6874;--g7:#3d444d;--g8:#16191d;
+  --g0:#ffffff;--g1:#f5f6f8;--g2:#eceef1;--g3:#e0e3e8;--g4:#cdd2d9;--g5:#9aa2ad;--g6:#5a636f;--g7:#3d444d;--g8:#16191d;
   --bubble:#e5e8ec;--raised:var(--g0);
   --accent:#0f6e56;--accent-ink:#ffffff;
   --run:#2b6cb0;--wait:#b7791f;--fail:#c53030;--idle:#9aa5b1;--ok:#2f855a;

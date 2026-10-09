@@ -1,6 +1,7 @@
 /* Settings > Humans > Sync with directory: pull humans from Google Workspace or Microsoft Entra ID, or
    accept them over SCIM (docs/people.md). Every sync is previewed first; the credentials never
    reach the browser after they are saved. */
+'use strict';
 window.mountDirectorySync = async function (host, onChange) {
   if (!host) return;
   const text = value => { const s = document.createElement('span'); s.textContent = value ?? ''; return s.innerHTML; };

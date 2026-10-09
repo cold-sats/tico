@@ -239,6 +239,20 @@ USAGE = {"coo": ("claude-opus-5", "anthropic", "subscription"), "botops": ("clau
          "inbox": ("gpt-6-luna", "openai", "api"), "content": ("claude-fable-5-1", "anthropic", "api"),
          "librarian": ("gpt-6-sol", "openai", "subscription")}
 
+# The support bot's status over the last day and a half, oldest first, so its Status history has rows:
+# (hours ago, state, focus, why).
+STATUS_STEPS = [
+    (31, "running", "Morning ticket triage", "routine"),
+    (30, "waiting_human", "Refund over $200 needs a decision", "asked Ana"),
+    (26, "idle", "Queue clear", "turn finished"),
+    (8, "running", "Drafting replies for three tickets", "message from Ana"),
+    (7.5, "waiting_bot", "Refund policy wording from BotOps", "handed off"),
+    (5.2, "running", "Morning ticket triage", "routine"),
+    (4.8, "idle", "Queue clear", "turn finished"),
+    (1.6, "running", "Drafting replies for three tickets", "message from Ana"),
+    (1.3, "blocked", "Refund limit not set", "needs a decision"),
+]
+
 FOCUS = {"support": "Drafting ticket replies", "sales": "Waiting on an approval", "content": "Launch post review",
          "botops": "Refund policy wording", "inbox": "Sorting today's mail", "coo": "Routing requests",
          "librarian": "Watching Northwind"}
@@ -286,9 +300,9 @@ MEETINGS = [
          ("Ben", "Yes, I will send the list tomorrow."),
      ],
      "items": [
-         ("task", "Decide the refund limit Support can approve alone", {"owner": "ana", "priority": "p1"},
+         ("task", "Decide the refund limit Support can approve alone", {"owner": "human:ana", "priority": "p1"},
           "I think two hundred is right. Below that Support just refunds, above it asks me.", 105000),
-         ("task", "List which support questions become help articles", {"owner": "ben", "priority": "p2"},
+         ("task", "List which support questions become help articles", {"owner": "human:ben", "priority": "p2"},
           "Ben, can you list which questions become help articles?", 235000),
          ("doc", "Add the refund limit to the refund policy", {"document": "Refund policy", "change": "Add the limit and who decides above it.", "why": "The limit was agreed in the ops sync."},
           "Below that Support just refunds, above it asks me.", 110000),
@@ -296,8 +310,10 @@ MEETINGS = [
                                                                    "current": "The export button is inside the more menu.", "expected": "A visible Export button on the project list."},
           "The CSV export confuses people. Three tickets last week.", 200000),
      ],
+     "push": ["Decide the refund limit Support can approve alone", "Make the CSV export easier to find"],
      "comments": [("human:ben", "I will send the list of help article questions tomorrow morning.", 240000)]},
-    {"days": 3.1, "title": "Brightline renewal call with Dana Reyes", "source": "zoom", "external_id": "zoom-brightline-1",
+    {"days": 3.1, "title": "Brightline renewal call with Dana Reyes", "source": "granola", "external_id": "granola-brightline-1",
+     "send_to": "sales", "send_status": "doing",
      "participants": [{"name": "Ana Rivera", "email": "ana@acme.example"}, {"name": "Dana Reyes", "email": "dana.reyes@brightline.example"}],
      "notes": "## Summary\n\n- Brightline uses Acme for 22 seats and wants to renew for a year.\n- Dana asked about the CSV export and a mobile app.\n- Ana offered a walk-through of the export.\n",
      "turns": [
@@ -312,7 +328,7 @@ MEETINGS = [
          ("Ana", "It will. I will send the renewal on Thursday."),
      ],
      "items": [
-         ("task", "Send Brightline the renewal for one year at the current price", {"owner": "ana", "priority": "p1"},
+         ("task", "Send Brightline the renewal for one year at the current price", {"owner": "human:ana", "priority": "p1"},
           "It will. I will send the renewal on Thursday.", 420000),
          ("feature", "Offer a mobile app to studios", {"side": "B/F", "area": "Mobile", "bug": False,
                                                             "current": "There is no mobile app.", "expected": "A simple client-facing app."},
@@ -330,7 +346,23 @@ MEETINGS = [
          ("Ben", "Done. I will add both to the support docs this afternoon."),
      ],
      "items": [], "comments": []},
+    {"days": 0.08, "title": "Northwind switch-over call", "source": "granola", "external_id": "granola-northwind-1",
+     "review": "pending",
+     "participants": [{"name": "Ana Rivera", "email": "ana@acme.example"}, {"name": "Sam Ito", "email": "sam.ito@northwind.example"}],
+     "notes": "## Summary\n\n- Northwind's studio team wants to move 14 seats to Acme next quarter.\n- They need a bulk import of their projects and SSO.\n- Ana will send a migration plan by Friday.\n",
+     "turns": [
+         ("Sam", "We are ready to move the studio team over, fourteen seats, next quarter."),
+         ("Ana", "Great. What would make the move easy for you?"),
+         ("Sam", "A bulk import of our projects, and single sign-on. Our IT team will not approve it without SSO."),
+         ("Ana", "Bulk import works today from a CSV. SSO is on our list; I will check the timing."),
+         ("Sam", "If you can send a plan by Friday I can take it to our budget meeting."),
+         ("Ana", "You will have it by Friday."),
+     ],
+     "items": [], "comments": []},
 ]
+
+# Ana's own Granola account, connected and synced a few minutes before the demo opens (no tokens: the demo never calls Granola).
+GRANOLA = {"email": "ana@acme.example", "minutes_ago": 4, "imported_count": 2}
 
 COMPANIES = [
     {"id": "company/self", "name": "Acme", "type": "company", "tier": None, "aliases": ["Acme", "acme.example"],

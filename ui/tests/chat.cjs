@@ -64,13 +64,17 @@ async function offlineRetry(browser) {
   assert.deepEqual(errors,[]);
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {configurable:true,
     value:{writeText:async text => {window.copiedMessage=text;}}}));
-  const copy=page.locator('.bubble.you').getByRole('button',{name:'Copy message',exact:true});
+  // On touch no copy button floats in the thread; a tap on the message shows it, on its own line under the words.
+  const you=page.locator('.bubble.you');
+  const copy=you.getByRole('button',{name:'Copy message',exact:true});
+  assert.equal(await copy.isVisible(),false,'hidden until the message is tapped');
+  await you.tap();
   await copy.tap();
   assert.equal(await page.evaluate(()=>window.copiedMessage),'Hello offline');
-  assert.ok((await copy.boundingBox()).width>=40,'touch target remains visible and usable');
+  assert.ok((await copy.boundingBox()).width>=40,'touch target remains usable');
   const clear=await page.evaluate(()=>{
     const you=document.querySelector('.bubble.you');
-    you.insertAdjacentHTML('afterend',`<div class="bubble bot reply"><div class="md"><p>Merged, see <a href="#/x">the pull request</a></p></div>${chatCopyHTML('Merged')}</div>`);
+    you.insertAdjacentHTML('afterend',`<div class="bubble bot reply acts"><div class="md"><p>Merged, see <a href="#/x">the pull request</a></p></div>${chatCopyHTML('Merged')}</div>`);
     const bubble=you.nextElementSibling, range=document.createRange();
     range.selectNodeContents(bubble.querySelector('.md'));
     const b=bubble.querySelector('.chat-message-copy').getBoundingClientRect();
@@ -174,9 +178,9 @@ async function liveReply(browser) {
   assert.equal(await page.locator('.chat-message-actions img').count(),0,'copy data cannot inject markup');
   const position=await liveCopy.evaluate(button=>{
     const b=button.getBoundingClientRect(), bubble=button.closest('.bubble').getBoundingClientRect();
-    return {right:b.right<=bubble.right,bottom:b.bottom<=bubble.bottom,nearRight:bubble.right-b.right<30};
+    return {beside:b.left>=bubble.right-1,bottom:Math.abs(b.bottom-bubble.bottom)<2,near:b.left-bubble.right<10};
   });
-  assert.deepEqual(position,{right:true,bottom:true,nearRight:true},'copy sits inside bottom right of the bubble');
+  assert.deepEqual(position,{beside:true,bottom:true,near:true},'copy sits just past the bubble\'s bottom right, off the words');
   await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('Denied');};});
   await liveCopy.click();
   await page.getByText('Could not copy the message',{exact:true}).waitFor();

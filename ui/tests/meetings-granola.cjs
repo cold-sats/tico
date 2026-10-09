@@ -1,7 +1,7 @@
-// The viewer's own Granola account on the Meetings page (ui/app/meetings-granola.js): Connect Granola shows a short
-// code and an Open Granola link, polls the connect status every `interval` seconds until connected, expired or
-// denied; a connected account syncs once when the page opens and the list refreshes; Sync and Disconnect sit in a
-// … menu; a signed-out account offers "Sign in to Granola again"; the API-key importer stays one link away.
+// The viewer's own Granola account on the Meetings page (ui/app/meetings-granola.js): Connect Granola opens a dialog
+// with a short code and an Open Granola link, polls the connect status every `interval` seconds until connected,
+// expired or denied; a connected account syncs once when the page opens and the list refreshes; Sync now sits on the
+// row and Disconnect in a … menu; a signed-out account offers "Sign in again"; the API-key importer is a dialog link.
 // Fixtures only, no network. GRANOLA_SHOTS=<dir> also saves screenshots.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -113,19 +113,19 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       await connect.waitFor();
       assert.equal(await connect.innerText(), 'Connect Granola');
       assert.equal(await lineText(page), 'Granola');
-      assert.equal(await page.locator('#mg-row .mg-key').innerText(), 'Use a Granola API key instead (Business/Enterprise)');
+      assert.equal(await page.locator('#mg-row .mg-key').count(), 0, 'the key link lives in the dialog');
       assert.equal(count(w, 'sync'), 0, 'no sync when not connected');
       await page.locator('.meet-row').first().waitFor();
       await connect.click();
-      await page.locator('#mg-code').waitFor();
+      await page.locator('#mg-dialog #mg-code').waitFor();
       await page.clock.fastForward(30);
       assert.equal(await page.locator('#mg-code').innerText(), 'WDJB-MJHT');
-      assert.equal(await page.locator('#mg-row [data-g=open]').getAttribute('href'), CODE.verification_uri_complete);
-      assert.equal(await page.locator('#mg-row [data-g=open]').getAttribute('target'), '_blank');
+      assert.equal(await page.locator('#mg-dialog [data-g=open]').getAttribute('href'), CODE.verification_uri_complete);
+      assert.equal(await page.locator('#mg-dialog [data-g=open]').getAttribute('target'), '_blank');
+      assert.equal(await page.locator('#mg-dialog .mg-key').innerText(), 'Use an API key');
       assert.equal(await page.evaluate(() => document.activeElement?.dataset.g), 'open', 'focus moves to Open Granola');
       assert.equal(await page.locator('#mg-live').getAttribute('aria-live'), 'polite');
       await page.waitForFunction(() => /Enter it in Granola/.test(document.querySelector('#mg-live')?.textContent || ''));
-      assert.equal(await page.locator('#mg-row .mg-key').count(), 0, 'no key link while the code shows');
       await shot(page, `granola-code-${scheme}`);
       await page.clock.fastForward(CODE.interval * 1000 - 31);
       assert.equal(count(w, 'poll'), 0, 'the server interval is respected');
@@ -138,8 +138,9 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       await page.waitForFunction(() => /Granola connected/.test(document.querySelector('#mg-live')?.textContent || ''));
       await until(() => count(w, 'sync') === 1, 'a new connection syncs once');
       assert.equal(count(w, 'connect'), 1);
-      assert.match(await lineText(page), /^Granola · ana@acme\.example · (Syncing…|not synced yet|synced .+) · \d+ notes?$/);
+      assert.match(await lineText(page), /^Granola · ana@acme\.example · (Syncing…|Not synced yet|Synced .+) · \d+ notes?$/);
       assert.equal(await page.locator('#mg-code').count(), 0);
+      assert.equal(await page.locator('#mg-dialog[open]').count(), 0, 'the dialog closes once connected');
       const polls = count(w, 'poll');
       await page.clock.fastForward(15000);
       assert.equal(count(w, 'poll'), polls, 'polling stops once connected');
@@ -187,28 +188,26 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       assert.equal(count(w, 'sync'), 1, 'one sync when the page opens');
       assert.deepEqual(await page.locator('.meet-row .note-title').allInnerTexts(), ['Pricing review', 'Renewal call with Dana']);
       await page.waitForFunction(() => /42 notes/.test(document.querySelector('#mg-row .mg-line')?.textContent || ''));
-      assert.equal(await lineText(page), 'Granola · ana@acme.example · synced 3m ago · 42 notes · 2 skipped');
+      assert.equal(await lineText(page), 'Granola · ana@acme.example · Synced 3m ago · 42 notes · 2 skipped');
       assert.equal(await page.locator('#mg-row .mg-skip').getAttribute('title'), '2 notes from Granola could not be imported');
       const polled = count(w, 'status');
       await page.clock.fastForward(15000);
       assert.equal(count(w, 'status'), polled, 'polling stops once the sync is done');
-      assert.equal(await page.locator('#mg-row .mg-sub').innerText(), 'Free plan: notes from the last 30 days');
+      assert.equal(await page.locator('#mg-row .mg-line > span[title^="Free plan"]').innerText(), '42 notes');
       assert.equal(await page.locator('#mg-row [data-g=connect]').count(), 0);
-      assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 0, 'Granola shows once: its row, not a tile too');
+      assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 1, 'Add source still lists Granola');
+      assert.equal(await page.locator('[data-meet-tiles] [data-msrc=granola]').count(), 0, 'the big tiles leave Granola to its row');
       await shot(page, `granola-connected-${scheme}`);
       // The … menu: keyboard opens it on its first item; Escape closes it back on the button.
       const more = page.locator('#mg-row [data-g=more]');
       assert.equal(await more.getAttribute('aria-expanded'), 'false');
       await more.focus(); await page.keyboard.press('Enter');
       assert.equal(await more.getAttribute('aria-expanded'), 'true');
-      assert.equal(await page.evaluate(() => document.activeElement?.dataset.g), 'sync');
-      await page.keyboard.press('ArrowDown');
       assert.equal(await page.evaluate(() => document.activeElement?.dataset.g), 'disconnect');
       await page.keyboard.press('Escape');
       assert.equal(await page.locator('#mg-menu').isHidden(), true);
       assert.equal(await page.evaluate(() => document.activeElement?.dataset.g), 'more');
-      await more.click();
-      await page.locator('#mg-menu [data-g=sync]').click();
+      await page.locator('#mg-row [data-g=sync]').click();
       await until(() => count(w, 'sync') === 2, 'Sync asks again');
       await page.waitForFunction(() => /Syncing…/.test(document.querySelector('#mg-row .mg-line')?.textContent || ''));
       await more.click();
@@ -226,7 +225,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       ({page, errors, context} = await open(browser, desk, w, scheme));
       const again = page.locator('#mg-row [data-g=connect]');
       await again.waitFor();
-      assert.equal(await again.innerText(), 'Sign in to Granola again');
+      assert.equal(await again.innerText(), 'Sign in again');
       assert.equal(await lineText(page), 'Granola · ana@acme.example · Signed out');
       assert.equal(await page.locator('#mg-row .mg-sub').count(), 0, 'no free plan line on a paid plan');
       assert.equal(await page.locator('#mg-row .mg-err').innerText(), 'Granola needs sign-in again');
@@ -237,7 +236,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
       await again.click();
       await page.locator('#mg-code').waitFor();
       assert.equal(count(w, 'connect'), 1);
-      await page.locator('#mg-row [data-g=cancel]').click();
+      await page.locator('#mg-dialog footer [data-g=cancel]').click();
       assert.equal(await page.locator('#mg-code').count(), 0);
       await page.clock.fastForward(15000);
       assert.equal(count(w, 'poll'), 0, 'cancel stops the device-code timer');
@@ -248,12 +247,13 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     // ---- the API-key importer stays reachable for the owner
     let w = world();
     let {page, errors, context} = await open(browser, desk, w);
-    await page.locator('#mg-row .mg-key').click();
-    await page.locator('dialog[aria-label="Connect Granola"] form[data-importer=granola]').waitFor();
-    await page.keyboard.press('Escape');
-    // the row is the one way in: no Granola tile in the strip beside it
-    assert.equal(await page.locator('#meet-sources [data-msrc=granola]').count(), 0);
     await page.locator('#mg-row [data-g=connect]').click();
+    await page.locator('#mg-dialog .mg-key').click();
+    await page.locator('dialog.import-modal[aria-label="Connect Granola"] form[data-importer=granola]').waitFor();
+    await page.keyboard.press('Escape');
+    // Add source > Granola opens the same sign-in as the row
+    await page.locator('#meet-sources .meet-src-btn').click();
+    await page.locator('#meet-sources [data-msrc=granola]').click();
     await page.locator('#mg-code').waitFor();
     assert.deepEqual(errors, []);
     await context.close();
@@ -262,8 +262,11 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     w = world({role: 'member'});
     ({page, errors, context} = await open(browser, desk, w));
     await page.locator('#mg-row [data-g=connect]').waitFor();
-    assert.equal(await page.locator('#mg-row .mg-key').count(), 0);
     assert.equal(await page.locator('#mg-row [data-g=connect]').isDisabled(), false);
+    await page.locator('#mg-row [data-g=connect]').click();
+    await page.locator('#mg-code').waitFor();
+    assert.equal(await page.locator('#mg-dialog .mg-key').count(), 0);
+    await page.locator('#mg-dialog footer [data-g=cancel]').click();
     assert.equal(await page.locator('#meet-sources [data-msrc=zoom]').isDisabled(), true);
     await context.close();
 
@@ -272,6 +275,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     ({page, errors, context} = await open(browser, desk, w));
     await page.locator('.meet-row').first().waitFor();
     await page.waitForFunction(() => document.querySelector('#meet-granola')?.hidden === true);
+    await page.locator('#meet-sources .meet-src-btn').click();
     await page.locator('#meet-sources [data-msrc=granola]').click();
     await page.locator('dialog[aria-label="Connect Granola"]').waitFor();
     await context.close();
@@ -281,8 +285,8 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
     ({page, errors, context} = await open(browser, desk, w));
     await page.locator('#mg-row [data-g=connect]').click();
     await page.locator('#mg-code').waitFor();
-    assert.equal(await page.locator('#mg-row a').count(), 0, 'no link');
-    assert.equal(await page.locator('#mg-row .mg-host').innerText(), 'granola.example.net');
+    assert.equal(await page.locator('#mg-dialog a').count(), 0, 'no link');
+    assert.equal(await page.locator('#mg-dialog .mg-host').innerText(), 'granola.example.net');
     assert.deepEqual(errors, []);
     await context.close();
 
@@ -305,7 +309,7 @@ const shot = async (page, name) => { if (shots) await page.screenshot({path: pat
         await page.locator('#mg-row [data-g=connect]').click();
         await page.locator('#mg-code').waitFor();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${device}-${scheme}: code fits`);
-        const box = await page.locator('#mg-row [data-g=open]').boundingBox();
+        const box = await page.locator('#mg-dialog [data-g=open]').boundingBox();
         assert(box && box.x + box.width <= viewport.width, 'Open Granola is on screen');
         await shot(page, `granola-${device}-code-${scheme}`);
         w.granola = {...ON, email: 'ana.longname@acme-example-company.example'};

@@ -300,6 +300,16 @@ document.addEventListener('click', async ev => {
   try { await copyText(button.dataset.chatCopy); toast('Message copied'); }
   catch { toast('Could not copy the message', true); }
 });
+// On touch there is no hover: a tap on a message shows its copy button under it, and a tap elsewhere hides it.
+// A tap on a link, button or fold, or one that ends a text selection, does what it always did.
+const CHAT_TOUCH = window.matchMedia('(pointer: coarse)');
+document.addEventListener('click', ev => {
+  if (!CHAT_TOUCH.matches) return;
+  const bubble = ev.target.closest('.bubble');
+  const keep = bubble && (ev.target.closest('a,button,summary,input,textarea,select,details') || String(getSelection?.() || ''));
+  for (const el of document.querySelectorAll('.bubble.acts')) if (el !== bubble) el.classList.remove('acts');
+  if (bubble && !keep && bubble.querySelector(':scope>.chat-message-actions')) bubble.classList.toggle('acts');
+});
 // Tico Live was retired; the lines it left in rooms (refs.live) read as plain messages.
 function v2MessageHTML(m) {
   // A Confirm card a bot left for you (BotOps: adding a person, a role, a shared credential): filled in from the action.

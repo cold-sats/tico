@@ -3,6 +3,7 @@
    Everything shown is what the server computed (GET /api/v2/goals/tree, /kpis/{id}, /goals/needs-you,
    /bots/{bot}/kpis): a colour is never derived here, and a KPI with no fresh data says so instead of a number.
    pageGoals and the goal editor (goalFormHtml, bindGoalForm) are in ui/app/goals.js. */
+'use strict';
 
 const KPI_LABEL = {green: 'On track', yellow: 'At risk', red: 'Off track', gray: 'No fresh data', none: 'No target'};
 const KPI_QUALITY = {estimate: 'estimate', partial: 'partial'};

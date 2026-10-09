@@ -1,5 +1,6 @@
 /* The Docs page (docs/docs.md): internal docs, written or imported in Tico with history and locks,
    and linked docs, which are only links. Search covers both. Ask the Librarian is ui/docs-ask.js. */
+'use strict';
 let DOC_DATA = {docs: [], linked: []};
 let DOC_QUERY = '';
 let DOC_LOAD = 0;
@@ -27,6 +28,22 @@ async function docsLoadAll(archived = false) {
   return {docs, linked};
 }
 
+// A menu of actions in a popover, placed under the button that opens it.
+function docsMenu(menu, button) {
+  menu.addEventListener('toggle', event => {
+    button.setAttribute('aria-expanded', String(event.newState === 'open'));
+    if (event.newState !== 'open') return;
+    const rect = button.getBoundingClientRect();
+    menu.style.top = `${Math.min(rect.bottom + 4, innerHeight - menu.offsetHeight - 12)}px`;
+    menu.style.left = `${Math.max(12, Math.min(rect.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 12))}px`;
+  });
+  menu.addEventListener('click', event => { if (event.target.closest('button,a')) menu.hidePopover(); });
+}
+// The list is drawn from the last load at once, so opening a doc does not blank it; a fresh load follows.
+let DOC_CACHE_KEY = '';
+// An editor with unsaved text asks before a click in the list leaves it.
+const docsDirty = () => $('form.docs-editor')?.dataset.dirty === '1';
+
 window.pageCompanyDocs = async function pageCompanyDocs() {
   $('#main').classList.add('docs-layout');
   if ($('#docs-browser')) DOC_BROWSER_SCROLL = $('#docs-browser').scrollTop;
@@ -39,41 +56,40 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   const admin = docsIsAdmin(), archived = params.get('archived') === '1';
   const mineId = S.me?.id ? 'human:' + S.me.id : '';
   const current = () => load === DOC_LOAD && S.route.startsWith(DOCS);
+  $('#main').classList.toggle('docs-reading', !!selected);
 
   $('#main').innerHTML = `<div class="docs-heading"><h1>Docs</h1>
-    <div class="docs-search-field"><span class="nav-icon" aria-hidden="true">search</span><input id="docs-search" class="docs-search" type="search" aria-label="Search docs" placeholder="Search internal and linked docs…" value="${esc(DOC_QUERY)}" autocomplete="off"></div>
-    <button class="primary docs-ask" id="docs-ask" type="button" data-librarian-open aria-label="Ask the Librarian"><span class="nav-icon" aria-hidden="true">auto_awesome</span><span class="docs-ask-word">Ask the Librarian</span></button>
-    <div class="docs-actions"><a class="docs-new" href="${docsHref('', archived ? {} : {archived: 1})}">${archived ? 'Active' : 'Archived'}</a><a class="docs-new" id="docs-new" href="${docsHref('new')}" role="button">New doc</a>
+    <div class="docs-search-field"><span class="nav-icon" aria-hidden="true">search</span><input id="docs-search" class="docs-search" type="search" aria-label="Search docs" placeholder="Search docs" value="${esc(DOC_QUERY)}" autocomplete="off"><kbd class="docs-kbd" aria-hidden="true">/</kbd></div>
+    <button class="docs-ask" id="docs-ask" type="button" data-librarian-open aria-label="Ask the Librarian" title="Ask the Librarian"><span class="nav-icon" aria-hidden="true">auto_awesome</span><span class="docs-ask-word">Ask the Librarian</span></button>
+    <div class="docs-actions"><a class="docs-new" id="docs-new" href="${docsHref('new')}" role="button">New doc</a>
       <button class="docs-settings" id="docs-more" type="button" popovertarget="docs-menu" aria-label="More" aria-expanded="false" title="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button></div></div>
-    <div id="docs-menu" popover aria-label="Docs actions"><button id="docs-import" type="button">Import a file…</button><button id="docs-link" type="button">Add a link…</button></div>
+    <div id="docs-menu" class="docs-pop" popover aria-label="Docs actions"><button id="docs-import" type="button">Import a file…</button><button id="docs-link" type="button">Add a link…</button>
+      <a id="docs-archived" href="${docsHref('', archived ? {} : {archived: 1})}">${archived ? 'Active' : 'Archived'}</a></div>
     <p class="docs-feedback" id="docs-feedback" role="status" hidden></p>
-    <div class="docs-workspace${selected ? ' has-selection' : ''}"><aside class="docs-browser" aria-label="Docs" id="docs-browser"><div class="empty">Loading docs…</div></aside>
-    <article class="docs-reader" id="docs-reader">${selected ? `<a class="docs-back" href="${docsHref()}">← Back to docs</a>` : ''}</article></div>`;
-  const feedback = $('#docs-feedback'), menu = $('#docs-menu'), more = $('#docs-more');
+    <div class="docs-workspace${selected ? ' has-selection' : ''}"><aside class="docs-browser" aria-label="Docs" id="docs-browser"><p class="docs-loading">Loading…</p></aside>
+    <article class="docs-reader" id="docs-reader">${selected ? `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">‹ Docs</a>` : ''}</article></div>`;
+  const feedback = $('#docs-feedback');
   const say = message => { feedback.textContent = message || ''; feedback.hidden = !message; };
   const reload = () => { if (S.route.startsWith(DOCS)) pageCompanyDocs(); };
-  menu.addEventListener('toggle', event => {
-    more.setAttribute('aria-expanded', String(event.newState === 'open'));
-    if (event.newState === 'open') {
-      const rect = more.getBoundingClientRect();
-      menu.style.top = `${Math.min(rect.bottom + 6, innerHeight - menu.offsetHeight - 12)}px`;
-      menu.style.left = `${Math.max(12, Math.min(rect.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 12))}px`;
-    }
-  });
+  docsMenu($('#docs-menu'), $('#docs-more'));
   const openImport = () => DocsEditor.importDialog({onDone: doc => { location.hash = docsHref(doc.id); }});
   const openLink = link => DocsEditor.linkDialog({link, onDone: reload});
-  $('#docs-import').onclick = () => { menu.hidePopover(); openImport(); };
-  $('#docs-link').onclick = () => { menu.hidePopover(); openLink(null); };
+  $('#docs-import').onclick = () => openImport();
+  $('#docs-link').onclick = () => openLink(null);
   // The Librarian's panel (ui/docs-ask.js) registers this; without it the button says so.
   $('#docs-ask').onclick = () => {
     if (typeof window.openDocsAsk === 'function') window.openDocsAsk();
     else say('The Librarian is not available on this install yet.');
   };
 
-  try { DOC_DATA = await docsLoadAll(archived); }
-  catch (error) { if (current()) { say('Could not load docs: ' + error.message); $('#docs-browser').innerHTML = ''; } return; }
-  if (!current()) return;
-  const {docs, linked} = DOC_DATA;
+  const cacheKey = archived ? 'archived' : 'active';
+  const fresh = docsLoadAll(archived);
+  if (DOC_CACHE_KEY !== cacheKey) {
+    try { DOC_DATA = await fresh; DOC_CACHE_KEY = cacheKey; }
+    catch (error) { if (current()) { say('Could not load docs: ' + error.message); $('#docs-browser').innerHTML = ''; } return; }
+    if (!current()) return;
+  }
+  let {docs, linked} = DOC_DATA;
   const browser = $('#docs-browser');
   if (params.get('import') === '1') { history.replaceState(null, '', location.pathname + location.search + docsHref()); openImport(); }
 
@@ -84,8 +100,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
     const kind = DocsSearch.kind(link.kind);
     return `<div class="docs-link"><a class="docs-link-main" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer" title="Opens ${esc(link.url)}">
         <span class="docs-kind" data-kind="${esc(link.kind)}">${kind.icon}</span>
-        <span class="docs-link-text"><strong>${esc(link.title)}</strong><small>${esc(link.host)} · ${esc(kind.label)}</small>${link.description ? `<span>${esc(link.description)}</span>` : ''}</span>
-        <span class="docs-ext" aria-hidden="true">↗</span></a>
+        <span class="docs-link-text"><strong>${esc(link.title)}<span class="docs-ext" aria-hidden="true">↗</span></strong><small>${esc(link.host)} · ${esc(kind.label)}</small>${link.description ? `<span>${esc(link.description)}</span>` : ''}</span></a>
       ${canEditLink(link) ? `<button class="docs-link-edit" type="button" data-link-edit="${esc(link.id)}" aria-label="Edit ${esc(link.title)}">Edit</button>` : ''}</div>`;
   };
   const renderList = () => {
@@ -96,17 +111,16 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
       ? [...(folders.get('') || []).map(docItem),
          ...dirs.map(dir => `<details open data-docs-folder="${esc(dir)}"><summary title="${esc(dir)}">${esc(docsFolderWords(dir))} <span class="muted">${folders.get(dir).length}</span></summary>${folders.get(dir).map(docItem).join('')}</details>`)].join('')
       : `<div class="docs-empty-note"><p>No docs yet.</p>
-          <div class="docs-empty-actions"><a class="docs-new" href="${docsHref('new')}" role="button">Write a doc</a><button class="ghost" type="button" data-docs-import>Import a file</button></div></div>`;
+          <div class="docs-empty-actions"><a class="docs-new" href="${docsHref('new')}" role="button">Write a doc</a><button class="docs-new" type="button" data-docs-import>Import a file</button></div></div>`;
     const links = linked.length ? linked.map(linkRow).join('')
-      : `<div class="docs-empty-note"><p>Point Tico at where your other docs live: a help site, a Drive folder, a Notion page or a repository. Tico stores only the link.</p>
-          <div class="docs-empty-actions"><button class="ghost" type="button" data-docs-link>Add a link</button></div></div>`;
+      : `<div class="docs-empty-note"><p>Link a help site, a Drive folder, a Notion page or a repository. Tico stores only the link.</p></div>`;
     browser.innerHTML = `<section class="docs-section" aria-labelledby="docs-h-internal"><header class="docs-section-head"><h2 id="docs-h-internal">${archived ? 'Archived docs' : 'Internal docs'} <span class="muted">${docs.length}</span></h2>
 </header>${internal}</section>
-      <section class="docs-section" aria-labelledby="docs-h-linked"><header class="docs-section-head"><h2 id="docs-h-linked">Linked docs <span class="muted">${linked.length}</span></h2>
-        <button class="docs-mini" type="button" data-docs-link aria-label="Add a link">+ Add link</button></header>${links}</section>`;
+      ${archived ? '' : `<section class="docs-section" aria-labelledby="docs-h-linked"><header class="docs-section-head"><h2 id="docs-h-linked">Linked docs <span class="muted">${linked.length}</span></h2>
+        <button class="docs-mini" type="button" data-docs-link aria-label="Add a link">+ Add link</button></header>${links}</section>`}`;
     browser.querySelectorAll('details[data-docs-folder]').forEach(el => {
       const key = 'docs.collapse.' + el.dataset.docsFolder;
-      try { el.open = localStorage.getItem(key) !== '1'; } catch { /* the folder stays open */ }
+      try { el.open = localStorage.getItem(key) !== '1' || !!el.querySelector('.selected'); } catch { /* the folder stays open */ }
       el.ontoggle = () => { try { localStorage.setItem(key, el.open ? '0' : '1'); } catch { /* not remembered */ } };
     });
   };
@@ -128,11 +142,15 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
       .catch(error => { if (current()) say('Search failed: ' + error.message); });
   };
   browser.onclick = event => {
+    const item = event.target.closest('a.docs-item');
+    if (item && docsDirty() && !confirm('Discard your changes to this doc?')) { event.preventDefault(); return; }
     if (event.target.closest('[data-docs-import]')) openImport();
     const add = event.target.closest('[data-docs-link]'); if (add) openLink(null);
     const edit = event.target.closest('[data-link-edit]');
     if (edit) openLink(linked.find(l => l.id === edit.dataset.linkEdit));
-    if (event.target.closest('.docs-item')) DOC_BROWSER_SCROLL = browser.scrollTop;
+    if (item) DOC_BROWSER_SCROLL = browser.scrollTop;
+    // A phone shows the list or the doc, not both: a result opened there leaves the search behind.
+    if (item?.classList.contains('docs-result') && !item.target && matchMedia('(max-width: 800px)').matches) DOC_QUERY = '';
   };
   browser.onscroll = () => { if (!DOC_QUERY.trim()) DOC_BROWSER_SCROLL = browser.scrollTop; };
   let timer = 0;
@@ -140,26 +158,49 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   search.oninput = () => { DOC_QUERY = search.value; clearTimeout(timer); timer = setTimeout(showBrowser, 180); };
   search.onkeydown = event => {
     if (event.key === 'Enter') { clearTimeout(timer); const first = browser.querySelector('.docs-result'); if (first) first.click(); else showBrowser(); }
-    if (event.key === 'Escape') { DOC_QUERY = ''; search.value = ''; showBrowser(); }
+    if (event.key === 'Escape') { DOC_QUERY = ''; search.value = ''; showBrowser(); search.blur(); }
+    if (event.key === 'ArrowDown') { const first = browser.querySelector('.docs-result, .docs-item'); if (first) { event.preventDefault(); first.focus(); } }
   };
   showBrowser();
+  // Swap in the fresh load when it differs from what was drawn.
+  if (fresh) fresh.then(data => {
+    DOC_CACHE_KEY = cacheKey;
+    const changed = JSON.stringify(data) !== JSON.stringify(DOC_DATA);
+    DOC_DATA = data;
+    if (!changed || !current()) return;
+    ({docs, linked} = data);
+    if (!DocsSearch.terms(DOC_QUERY).length) { const top = browser.scrollTop; renderList(); browser.scrollTop = top; }
+    if (!selected) drawLanding();
+  }, () => { /* the cached list stays */ });
 
   // ---------------------------------------------------------------- the reader
   const reader = $('#docs-reader');
-  const back = `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">← Back to docs</a>`;
-  if (!selected) {
-    reader.innerHTML = docs.length || linked.length
-      ? '<div class="docs-welcome"><p class="muted">Pick a doc, or search.</p></div>'
-      : '<div class="docs-welcome"><h2>Your team\'s docs, in one place</h2><p class="muted">Write what your team and your bots should know, import files, and link the docs that live elsewhere. Search covers all of it.</p></div>';
-    return;
+  reader.addEventListener('click', event => {
+    if (event.target.closest('.docs-back') && docsDirty() && !confirm('Discard your changes to this doc?')) event.preventDefault();
+  });
+  const back = `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">‹ Docs</a>`;
+  // No doc open: the docs changed most recently, so the page opens on something to read.
+  function drawLanding() {
+    if (!docs.length && !linked.length) {
+      reader.innerHTML = '<div class="docs-welcome"><h2>No docs yet</h2><p class="muted">Write what your team and your bots should know, import files, or link docs that live elsewhere.</p></div>';
+      return;
+    }
+    const recent = [...docs].sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || ''))).slice(0, 12);
+    reader.innerHTML = `<div class="docs-welcome docs-recent"><h2 class="docs-recent-head">${archived ? 'Archived' : 'Recent'}</h2>${recent.map(d =>
+      `<a class="docs-recent-row" href="${docsHref(d.id, archived ? {archived: 1} : {})}"><span class="docs-recent-title">${esc(d.title)}</span>
+        <span class="docs-recent-folder">${esc(docsFolderWords(docsDir(d.path)))}</span>
+        <span class="docs-recent-when" title="${esc(fmt(d.updated))}">${esc(ago(d.updated))}${d.updated_by_name ? ' · ' + esc(d.updated_by_name) : ''}</span></a>`).join('')
+      || '<p class="muted">Nothing here.</p>'}</div>`;
   }
+  if (!selected) { drawLanding(); return; }
   if (creating) {
     const folder = params.get('folder') || '';
-    reader.innerHTML = back + '<header class="docs-reader-head"><div class="docs-reader-title"><h2>New doc</h2></div></header>';
+    reader.innerHTML = back + '<header class="docs-reader-head docs-edit-head"><div class="docs-reader-title"><h2>New doc</h2></div></header>';
     reader.append(DocsEditor.editor({folder, onSaved: doc => { location.hash = docsHref(doc.id); }, onCancel: () => { location.hash = docsHref(); }}));
     reader.querySelector('input[name=title]').focus();
     return;
   }
+  reader.insertAdjacentHTML('beforeend', '<p class="docs-loading">Loading…</p>');
   let doc;
   try { doc = (await get('/v2/docs/' + encodeURIComponent(selected))).doc; }
   catch (error) {
@@ -169,23 +210,27 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   }
   if (!current()) return;
   const canChange = admin || !doc.locked;
+  const crumb = `<p class="muted docs-crumb" title="${esc(doc.path)}">${esc(docsFolderWords(docsDir(doc.path)))}</p>`;
   const meta = `Version ${doc.version} · Updated ${esc(ago(doc.updated))} by ${esc(doc.updated_by_name || doc.updated_by)}`;
   if (editing && canChange) {
-    reader.innerHTML = back + `<header class="docs-reader-head"><div class="docs-reader-title"><p class="muted docs-crumb" title="${esc(doc.path)}">${esc(docsFolderWords(docsDir(doc.path)))}</p><h2>Edit ${esc(doc.title)}</h2><p class="muted">${meta}</p></div></header>`;
+    reader.innerHTML = back + `<header class="docs-reader-head docs-edit-head"><div class="docs-reader-title">${crumb}<h2>Edit</h2><p class="docs-meta">${meta}</p></div></header>`;
     reader.append(DocsEditor.editor({doc, onSaved: saved => { location.hash = docsHref(saved.id); }, onCancel: () => { location.hash = docsHref(doc.id); },
       onReload: () => { location.hash = docsHref(doc.id); }}));
+    reader.querySelector('textarea').focus({preventScroll: true});
     return;
   }
-  reader.innerHTML = `${back}<header class="docs-reader-head"><div class="docs-reader-title"><p class="muted docs-crumb" title="${esc(doc.path)}">${esc(docsFolderWords(docsDir(doc.path)))}</p>
+  reader.innerHTML = `${back}<div class="docs-article"><div class="docs-main"><header class="docs-reader-head"><div class="docs-reader-title">${crumb}
       <h2>${esc(doc.title)}${doc.locked ? ` <span class="docs-lock-badge">${DocsSearch.LOCK}Locked</span>` : ''}</h2>
-      <p class="muted" title="${esc(fmt(doc.updated))}">${meta}</p></div>
-      <div class="docs-tools"><a class="docs-tool primary-tool" id="doc-edit" role="button" href="${docsHref(doc.id, {edit: 1})}"${canChange ? '' : ' aria-disabled="true" tabindex="-1" title="Locked: only an owner or bot administrator can change this doc"'}>Edit</a>
-        <button class="docs-tool" id="doc-history" type="button">History</button>
-        ${admin ? `<button class="docs-tool" id="doc-lock" type="button" aria-pressed="${doc.locked}">${doc.locked ? 'Unlock' : 'Lock'}</button>` : ''}
-        ${canChange ? `<button class="docs-tool docs-danger" id="doc-archive" type="button">${doc.archived ? 'Restore' : 'Archive'}</button>` : ''}</div></header>
-    ${doc.locked ? `<p class="hint docs-locked-note">${canChange ? 'This doc is locked: only owners and bot administrators can change it.' : 'This doc is locked. Only an owner or bot administrator can change it.'}</p>` : ''}
-    <div class="md docs-content">${doc.body.trim() ? safeMd(doc.body, {documentImages: true}) : '<p class="muted">This doc is empty. Choose Edit to write it.</p>'}</div>`;
-  $('#docs-reader').scrollTop = 0;
+      <p class="docs-meta" title="${esc(fmt(doc.updated))}">${meta}</p></div>
+      <div class="docs-tools"><a class="docs-tool" id="doc-edit" role="button" href="${docsHref(doc.id, {edit: 1})}"${canChange ? ' title="Edit (e)"' : ' aria-disabled="true" tabindex="-1" title="Locked: only an owner or bot administrator can change this doc"'}>Edit</a>
+        <button class="docs-tool docs-tool-icon" id="doc-more" type="button" popovertarget="doc-menu" aria-label="More" aria-expanded="false" title="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button></div></header>
+    <div id="doc-menu" class="docs-pop" popover aria-label="Doc actions"><button id="doc-history" type="button">History</button>
+      ${admin ? `<button id="doc-lock" type="button" aria-pressed="${doc.locked}">${doc.locked ? 'Unlock' : 'Lock'}</button>` : ''}
+      ${canChange ? `<button class="docs-danger" id="doc-archive" type="button">${doc.archived ? 'Restore' : 'Archive'}</button>` : ''}</div>
+    ${doc.locked ? `<p class="hint docs-locked-note">${canChange ? 'Locked: only owners and bot administrators can change it.' : 'Locked. Only an owner or bot administrator can change it.'}</p>` : ''}
+    <div class="md docs-content">${doc.body.trim() ? safeMd(doc.body, {documentImages: true}) : '<p class="muted">This doc is empty. Choose Edit to write it.</p>'}</div></div></div>`;
+  reader.scrollTop = 0;
+  docsMenu($('#doc-menu'), $('#doc-more'));
   const editLink = $('#doc-edit');
   if (!canChange) editLink.onclick = event => event.preventDefault();
   $('#doc-history').onclick = () => DocsEditor.history(doc, {canRestore: canChange, onRestored: saved => { location.hash === docsHref(saved.id) ? reload() : location.hash = docsHref(saved.id); }});
@@ -220,9 +265,34 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   });
   const outline = headings.filter(h => h.tagName !== 'H1');
   if (outline.length > 2) {
-    const toc = document.createElement('details'); toc.className = 'docs-toc'; toc.open = true;
-    toc.innerHTML = '<summary>On this page</summary>' + outline.map(h => `<a href="${docsHref(doc.id, {section: h.id})}" class="toc-${h.tagName.toLowerCase()}">${esc(h.textContent)}</a>`).join('');
-    content.before(toc);
+    // Beside the text when the reader is wide enough (styles/hub-v2.css); folded above it otherwise.
+    const toc = document.createElement('details'); toc.className = 'docs-toc';
+    toc.innerHTML = '<summary>On this page</summary><nav aria-label="On this page">' + outline.map(h => `<a href="${docsHref(doc.id, {section: h.id})}" data-section="${esc(h.id)}" class="toc-${h.tagName.toLowerCase()}">${esc(h.textContent)}</a>`).join('') + '</nav>';
+    reader.querySelector('.docs-article').append(toc);
+    const side = () => getComputedStyle(toc).position === 'sticky';
+    toc.open = side();
+    // The rail opening or closing changes the room: the contents move beside the text or fold above it.
+    let wasSide = side();
+    const watch = new ResizeObserver(() => { if (!toc.isConnected) { watch.disconnect(); return; } const now = side(); if (now !== wasSide) { wasSide = now; toc.open = now; } });
+    watch.observe(reader);
+    toc.querySelector('summary').onclick = event => { if (side()) event.preventDefault(); };
+    // In place: the hash stays the doc's, and the heading scrolls into view.
+    toc.querySelector('nav').onclick = event => {
+      const a = event.target.closest('a[data-section]'); if (!a) return;
+      event.preventDefault();
+      headings.find(h => h.id === a.dataset.section)?.scrollIntoView({block: 'start', behavior: 'smooth'});
+      history.replaceState(null, '', location.pathname + location.search + a.getAttribute('href'));
+    };
+    // The section being read is marked in the list.
+    const links = new Map([...toc.querySelectorAll('a[data-section]')].map(a => [a.dataset.section, a]));
+    const mark = () => {
+      const top = reader.getBoundingClientRect().top + 80;
+      let at = outline[0];
+      for (const h of outline) { if (h.getBoundingClientRect().top <= top) at = h; else break; }
+      links.forEach((a, id) => a.classList.toggle('current', id === at?.id));
+    };
+    reader.addEventListener('scroll', mark, {passive: true});
+    mark();
   }
   const section = params.get('section');
   if (section) requestAnimationFrame(() => headings.find(h => h.id === section)?.scrollIntoView({block: 'start'}));
@@ -237,6 +307,14 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
     if (target) { a.setAttribute('href', docsHref(target.id, fragment ? {section: decodeURIComponent(fragment)} : {})); a.removeAttribute('target'); }
   });
 };
+// "/" searches the docs, and "e" edits the open doc, when focus is not in a field.
+document.addEventListener('keydown', event => {
+  if (typeof S === 'undefined' || !S.route?.startsWith(DOCS) || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+  const el = event.target;
+  if (el?.closest?.('input,textarea,select,[contenteditable=""],[contenteditable=true],dialog,[data-docs-ask]')) return;
+  if (event.key === '/') { const field = $('#docs-search'); if (field) { event.preventDefault(); field.focus(); field.select(); } }
+  if (event.key === 'e') { const edit = $('#doc-edit'); if (edit && edit.getAttribute('aria-disabled') !== 'true') { event.preventDefault(); location.hash = edit.getAttribute('href'); } }
+});
 window.addEventListener('tico-docs-changed', () => { if (typeof S !== 'undefined' && S.route?.startsWith(DOCS)) window.pageCompanyDocs(); });
 
 function docsArchiveUndo(doc) {

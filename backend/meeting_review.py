@@ -2,7 +2,7 @@
 from typing import Literal
 
 from fastapi import Request
-from pydantic import StrictBool
+from pydantic import Field, StrictBool
 
 from . import media, meetings, models as M
 from .store import H, Problem, encode
@@ -12,6 +12,8 @@ from .views import human_only
 class Review(M.Contract):
     action: Literal['approve', 'dismiss', 'restore']
     private: StrictBool | None = None
+    # A bot to hand the meeting to once it is shared, as Send does ("auto" routes it).
+    send_to: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class ReviewMany(M.Contract):
@@ -42,9 +44,11 @@ def install_meeting_review(app, store, auth, mutate):
             raise Problem('review', 'Only a pending meeting can be dismissed', 409)
         return record
 
-    def apply(c, who, rid, action, private=None):
+    def apply(c, who, rid, action, private=None, send_to=None):
         record = validate(c, who, rid, action)
         meta = record['metadata']
+        if action == 'approve' and send_to and meta['review_state'] == 'pending':
+            meta['review_send_to'] = send_to
         target = {'approve': 'live', 'dismiss': 'dismissed', 'restore': 'pending'}[action]
         if meta['review_state'] == target:
             return media.view(c, who, rid)
@@ -130,7 +134,7 @@ def install_meeting_review(app, store, auth, mutate):
 
     @app.post('/api/v2/meetings/{id}/review')
     def review_one(request: Request, id: str, body: Review):
-        return mutate(request, body, lambda c: apply(c, request.state.identity, id, body.action, body.private))
+        return mutate(request, body, lambda c: apply(c, request.state.identity, id, body.action, body.private, body.send_to))
 
     @app.get('/api/v2/meetings/{id}')
     def detail(request: Request, id: str):

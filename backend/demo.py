@@ -175,6 +175,11 @@ def install(app, auth, settings):
     from . import market
     market.complete = lambda question, excerpts: ""
 
+    # The seeded Granola account holds no token and nothing leaves this computer: a sync answers "recent".
+    async def granola_recent(who, interval=0):
+        return {"state": "recent", "last_sync": app.state.granola.status(who)["last_sync"]}
+    app.state.granola.trigger = granola_recent
+
     def problem(status, code, detail):
         return JSONResponse({"error": {"code": code, "detail": detail, "retryable": False}}, status_code=status)
 

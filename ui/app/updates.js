@@ -85,14 +85,25 @@ function pageUpdates() {
   updRender(state);
   void updLoad(state);
 }
-async function updLoad(state, more = false) {
-  const request = ++state.loadSeq;
-  const mutation = state.mutationSeq;
+function updFeedPath(state, more = false) {
   const q = new URLSearchParams({kind: state.kind, limit: '40'});
   if (state.mine) q.set('mine', 'true');           // the count and the feed agree with My bots
   if (state.view === 'archive') q.set('archive', 'true');
   if (more && state.data?.next_before) q.set('before', state.data.next_before);
-  const r = await v2Get('/v2/updates?' + q);
+  return '/v2/updates?' + q;
+}
+// Startup asks for the feed beside the roster when Updates is the page it opens on, a round trip sooner (boot.js).
+function updPrefetch() {
+  if (!(location.hash === UPDATES || location.hash.startsWith(UPDATES + '?'))) return;
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  let mine = true;
+  try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
+  getPrefetch(updFeedPath({kind: params.get('kind') === 'weekly' ? 'weekly' : 'daily', mine, view: params.get('view') === 'archive' ? 'archive' : 'inbox'}));
+}
+async function updLoad(state, more = false) {
+  const request = ++state.loadSeq;
+  const mutation = state.mutationSeq;
+  const r = await v2Get(updFeedPath(state, more));
   if (UPD !== state || request !== state.loadSeq || mutation !== state.mutationSeq) return;
   state.loading = false;
   if (!r) { if (!state.data) $('#upd-feed').innerHTML = '<div class="empty">Could not load the updates yet; trying again…</div>'; setTimeout(() => UPD === state && updLoad(state, more), 4000); return; }
@@ -489,8 +500,7 @@ async function botUpdatesCardLoad(slug) {
   if (!$('#bot-updates') || BOT?.slug !== slug) return;
   if (!r) { host.innerHTML = '<div class="empty">Could not load.</div>'; return; }
   host.innerHTML = ['daily', 'weekly'].map(k => `<label class="upd-switch"><input type="checkbox" data-upd-set="${k}"${r[k] ? ' checked' : ''}>
-      <span>${k === 'daily' ? 'Daily update' : 'Friday week in review'}</span></label>`).join('')
-    + `<a class="linkish" href="${UPDATES}">See updates</a>`;
+      <span>${k === 'daily' ? 'Daily update' : 'Friday week in review'}</span></label>`).join('');   // "See updates" is in the card's header
   host.onchange = async ev => {
     const box = ev.target.closest('[data-upd-set]'); if (!box) return;
     try { await post(`/v2/bots/${encodeURIComponent(slug)}/updates`, {[box.dataset.updSet]: box.checked}); toast('Saved'); }

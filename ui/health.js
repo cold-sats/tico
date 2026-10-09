@@ -1,6 +1,7 @@
 /* Settings > Health: what needs attention right now (backend/health.py). Everything shown is what
    GET /api/v2/health computed; the only local state is which page is open. The attention dot sits on
    the way into Settings, never in the main navigation. */
+'use strict';
 let HL = null;
 let HL_LOAD = 0;
 let HL_METRICS = null;   // owners and admins: the last hour from the flight recorder (GET /api/v2/system/metrics)

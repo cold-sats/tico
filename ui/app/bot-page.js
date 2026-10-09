@@ -309,7 +309,7 @@ async function pageBot(slug, tab) {
       <p>${esc(v2StatusOf(slug)?.focus || 'Paused after refused actions.')}${v2StatusOf(slug)?.quarantine?.resumes_at ? ` It resumes by itself at ${esc(clockTime(v2StatusOf(slug).quarantine.resumes_at))}.` : /(refused writes|repeated refusals|refusals) today$/.test(v2StatusOf(slug)?.focus || '') ? ' It resumes by itself within an hour.' : ''}</p>
       <p class="muted" id="bot-quarantine-result"></p>
     </section>` : ''}
-    <section class="card" id="bot-updates-card"><header><h2>Updates</h2></header>
+    <section class="card" id="bot-updates-card"><header><h2>Updates</h2><a class="linkish" href="${UPDATES}">See updates</a></header>
       <div id="bot-updates"><div class="empty">Loading…</div></div></section>
     <section class="card" id="bot-goals-card"><header><h2>Goals</h2>
         <button class="linkish" type="button" id="bot-goals-add">Add goal</button></header>
@@ -319,7 +319,8 @@ async function pageBot(slug, tab) {
     <section class="card" id="bot-access-card"><header><h2>Access</h2></header>
       ${accessTable(e)}</section>
 
-    <section class="card" id="bot-routines"><header><h2>Routines</h2></header>
+    <section class="card" id="bot-routines"><header><h2>Routines</h2>${routineMayEdit({bot: slug}) ? `
+        <button class="linkish" type="button" data-new-routine="${esc(slug)}">New routine</button>` : ''}</header>
       <div id="bot-routines-list">${botRoutinesHTML(e, slug)}</div>
     </section>
 
@@ -427,7 +428,7 @@ async function pageBot(slug, tab) {
 const BOT_WIDE = window.matchMedia('(min-width: 1100px)');
 // On a phone the top line is back, the bot and its tabs, nothing else. More is the rest, condensed: the Goals
 // card first, then an alert, Learnings, branches and temporary assignments (moved here from beside the name,
-// and back on a wider screen), then the cards in groups, each long list cut to its first three rows.
+// and back on a wider screen), then the cards in groups.
 const BOT_PHONE = window.matchMedia('(max-width: 760px)');
 const BOT_TAB_ICONS = {chat: 'chat_bubble', tasks: 'task_alt', history: 'dynamic_feed', more: 'menu'};
 function placeBotHead() {
@@ -438,27 +439,30 @@ function placeBotHead() {
   if (learn?.parentElement === host) $('#bot-tool-strip').before(learn);
   for (const el of [...rest, alert]) if (el?.parentElement === host) top.querySelector('.botid').append(el);
 }
-// The lists in More that a phone cuts to three: [host, rows, keep the newest last]. Each fills in its own time,
-// so one observer cuts whatever has arrived; "Show all" undoes it for that list until the page is redrawn.
+// The lists in More cut to their three newest rows on every width: [host, rows, keep the newest last]. Each
+// fills in its own time, so one observer cuts whatever has arrived; "Show more" undoes it for that list until
+// the page is redrawn, and "Show less" cuts it again.
 const MORE_LISTS = [['#bot-tools', '.bt-item'], ['#bot-routines-list', '.rlist>*'], ['#bot-access-card .scroll', 'tr:not(:first-child)'],
-  ['#v2-history', 'tr:not(:first-child)'], ['#bot-recent-runs', 'tr:not(:first-child)'], ['#sess-turns', ':scope>*', true]];
+  ['#v2-history', '.sh-row'], ['#bot-recent-runs', 'tr:not(:first-child)'], ['#sess-turns', ':scope>*', true]];
 const MORE_KEEP = 3;
 function moreClamp() {
   const pane = $('#pane-more'); if (!pane) return;
   for (const [q, rows, newest] of MORE_LISTS) {
     const host = pane.querySelector(q); if (!host) continue;
     const items = [...host.querySelectorAll(rows)];
-    const cut = BOT_PHONE.matches && !host.dataset.all && items.length > MORE_KEEP + 1;   // never hide just one
+    const long = items.length > MORE_KEEP + 1;   // never hide just one
+    const cut = long && !host.dataset.all;
     items.forEach((el, i) => el.classList.toggle('more-cut', cut && (newest ? i < items.length - MORE_KEEP : i >= MORE_KEEP)));
     let btn = host.nextElementSibling?.matches('.more-all') ? host.nextElementSibling : null;
-    if (!cut) { btn?.remove(); continue; }
-    const label = `Show all ${items.length}`;
+    if (!long) { btn?.remove(); continue; }
+    const label = cut ? 'Show more' : 'Show less';
     if (!btn) {
-      btn = Object.assign(document.createElement('button'), {type: 'button', className: 'linkish more-all'});
-      btn.onclick = () => { host.dataset.all = '1'; moreClamp(); };
+      btn = Object.assign(document.createElement('button'), {type: 'button', className: 'more-all'});
+      btn.onclick = () => { if (host.dataset.all) delete host.dataset.all; else host.dataset.all = '1'; moreClamp(); };
       host.after(btn);
     }
     if (btn.textContent !== label) btn.textContent = label;
+    btn.setAttribute('aria-expanded', String(!cut));
   }
 }
 function moreClampWatch() {
@@ -466,7 +470,7 @@ function moreClampWatch() {
   new MutationObserver(moreClamp).observe(pane, {childList: true, subtree: true});
   moreClamp();
 }
-BOT_PHONE.addEventListener('change', () => { placeBotHead(); moreClamp(); });
+BOT_PHONE.addEventListener('change', placeBotHead);
 function showBotTab(tab) {
   if (!BOT || !$('#btabs')) return;
   const wantSession = tab === 'session';                         // the old tab, now a card in More

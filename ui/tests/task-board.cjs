@@ -178,7 +178,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.goto('http://tico-ui.test/#/tasks');
     await initialTasksRequest;
     try {
-      await page.getByText('Loading tasks…', {exact: true}).waitFor();
+      await page.locator('#main .skel[aria-busy="true"]').waitFor();
     } finally {
       releaseInitialTasks();
     }

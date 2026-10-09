@@ -1,4 +1,5 @@
 /* Explicit telemetry only. No DOM content, URLs, request bodies or error messages cross this boundary. */
+'use strict';
 (function (root) {
   'use strict';
   const ENVIRONMENTS = new Set(['development', 'test', 'staging', 'production']);

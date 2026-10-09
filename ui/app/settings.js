@@ -55,22 +55,22 @@ function pageSettings() {
         </div>
       </div></section></div>` : ''}
     <div class="settings-pane" id="settings-devices" role="tabpanel">
-      <section class="card"><div id="set-machines"><div class="empty">Loading…</div></div></section>
-      ${settingsCanMakeTokens() || S.me?.has_tokens ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
+      <section class="card"><div id="set-machines">${skelRows(3, {card: true, dot: false})}</div></section>
+      ${settingsCanMakeTokens() || S.me?.has_tokens ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens">${skelRows(3, {card: true, dot: false})}</div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
-      <section class="card"><header><h2>Bots</h2>${settingsCanCreateBots() ? '<div class="row"><button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from template</button></div>' : ''}</header><div id="set-bots"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>Bots</h2>${settingsCanCreateBots() ? '<div class="row"><button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from template</button></div>' : ''}</header><div id="set-bots">${skelRows(3, {card: true, dot: false})}</div></section>
     </div>
-    <div class="settings-pane" id="settings-repos" role="tabpanel" hidden><section class="card repos-card" id="set-repos"><div class="empty">Loading…</div></section></div>
+    <div class="settings-pane" id="settings-repos" role="tabpanel" hidden><section class="card repos-card" id="set-repos">${skelRows(3, {card: true, dot: false})}</section></div>
     <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div>
-      <section class="card"><header><h2>Services</h2></header><div id="set-services"><div class="empty">Loading…</div></div></section></div>
-    ${settingsIsAdmin() ? '<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people"><div class="empty">Loading…</div></div></div>' : ''}
+      <section class="card"><header><h2>Services</h2></header><div id="set-services">${skelRows(3, {card: true, dot: false})}</div></section></div>
+    ${settingsIsAdmin() ? `<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people">${skelRows(3, {card: true, dot: false})}</div></div>` : ''}
     <div class="settings-pane" id="settings-providers" role="tabpanel" hidden>
       <section class="card subs-card" id="settings-subs" aria-labelledby="settings-subs-h" hidden><header><h2 id="settings-subs-h">Subscriptions</h2></header><div id="set-subs"></div></section>
-      <section class="card"><header><h2>AI providers</h2></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>AI providers</h2></header><div id="set-providers">${skelRows(3, {card: true, dot: false})}</div></section>
     </div>
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
-      <section class="card"><header><h2>Routines</h2></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>Routines</h2></header><div id="set-recurring">${skelRows(3, {card: true, dot: false})}</div></section>
     </div>
     <div class="settings-pane" id="settings-assistant-pane" role="tabpanel" hidden>
       <section class="card"><header><h2>${esc(assistantName())}</h2></header>
@@ -88,8 +88,8 @@ function pageSettings() {
       <div id="settings-types"></div>
       <section class="card"><header><h2>Task tags</h2></header><div id="settings-tags"></div></section>
     </div>
-    <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
-    ${S.me?.role === 'owner' ? '<div class="settings-pane" id="settings-privacy" role="tabpanel" hidden><section class="card"><header><h2>Privacy</h2></header><div id="set-privacy"><div class="empty">Loading…</div></div></section></div>' : ''}
+    <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history">${skelRows(3, {card: true, dot: false})}</div></section></div>
+    ${S.me?.role === 'owner' ? `<div class="settings-pane" id="settings-privacy" role="tabpanel" hidden><section class="card"><header><h2>Privacy</h2></header><div id="set-privacy">${skelRows(3, {card: true, dot: false})}</div></section></div>` : ''}
     <dialog class="tmodal" id="people-dialog" aria-label="Humans"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>

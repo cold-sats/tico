@@ -45,10 +45,10 @@ function routineBlockHTML(r, opts = {}) {
     <div class="rocc" hidden></div>
   </div>`;
 }
+// The bot's routines under More; "New routine" sits in the card's header (bot-page.js).
 function botRoutinesHTML(e, slug) {
-  const add = routineMayEdit({bot: slug}) ? ` <button class="ghost" type="button" data-new-routine="${esc(slug)}">New routine</button>` : '';
-  if (!e.schedules?.length) return `<div class="empty">No routines yet.${add}</div>`;
-  return `${add ? `<div class="row" style="justify-content:flex-end">${add}</div>` : ''}<div class="rlist">${e.schedules.map(s => {
+  if (!e.schedules?.length) return '<div class="empty">No routines yet.</div>';
+  return `<div class="rlist">${e.schedules.map(s => {
     const st = (S.status?.schedules || []).find(x => (s.id ? x.id === s.id : x.employee === slug && x.title === s.title)) || {};
     const r = {...s, ...st, employee: slug, active: st.active != null ? st.active : s.active};
     return routineBlockHTML(r, {hideBot: true});

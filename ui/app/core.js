@@ -30,6 +30,11 @@ const MESSAGING = '#/messaging';       // selected Message bot: setup, schedules
 // Bot notices still flow through /api/v2/messages?unread=1. People read mail on #/mail, not live Gmail.
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// A shaped placeholder for a list that is still loading (styles/skeleton.css): `n` rows of uneven width, so the page
+// keeps its layout and does not jump when the rows arrive. `card` drops the dividers for a list inside a card.
+const SKEL_W = [62, 44, 71, 53, 38, 66, 49, 57];
+const skelRows = (n = 5, {card = false, dot = true} = {}) => `<div class="skel${card ? ' skel-card' : ''}" aria-busy="true" aria-label="Loading">${
+  Array.from({length: n}, (_, i) => `<div class="skel-row">${dot ? '<span class="skel-dot"></span>' : ''}<span class="skel-bar" style="width:${SKEL_W[i % SKEL_W.length]}%"></span><span class="skel-bar skel-end"></span></div>`).join('')}</div>`;
 // A person is typing in `el`: a text field has focus or holds something other than its default. A poll or
 // a same-route redraw must leave such a form alone (checkboxes and selects save when changed, so they do not count).
 const formBusy = el => !!el && [...el.querySelectorAll('textarea, input:not([type=checkbox], [type=radio], [type=hidden], [type=button], [type=submit])')]

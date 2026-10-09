@@ -15,6 +15,7 @@
    turned into the Docs page route here and nowhere else (docHref). Its text is bot text: it only ever
    reaches the page through safeMd, the sanitizing renderer, never as raw HTML. Globals used from
    ui/app: get, post, esc, safeMd, API, toast. */
+'use strict';
 (function () {
   const css = `
 .dask-backdrop{position:fixed;inset:0;z-index:1500;background:rgba(10,14,18,.4)}
@@ -22,28 +23,28 @@
 html.demo .dask{top:var(--demo-h)}
 @keyframes dask-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.dask{animation:none}.dask-think i{animation:none}}
-.dask-head{display:flex;align-items:center;gap:6px;min-height:57px;padding:10px 8px 10px 14px;border-bottom:1px solid var(--line)}
-.dask-head .nav-icon{font-size:20px;color:var(--accent)}
-.dask-head h2{font-size:15px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dask-head{display:flex;align-items:center;gap:6px;min-height:44px;padding:6px 6px 6px 14px;border-bottom:1px solid var(--line)}
+.dask-head .nav-icon{font-size:16px;color:var(--accent)}
+.dask-head h2{font-size:13.5px;font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dask-head small{display:block;color:var(--muted);font-size:12px;font-weight:400}
 .dask-head .spacer{flex:1}
-.dask-new{font-size:12.5px;padding:4px 10px;white-space:nowrap}
-.dask-close{display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;background:none;border:0;border-radius:6px;padding:0 6px;font-size:16px;cursor:pointer;color:var(--muted)}
-.dask-close .nav-icon{font-size:20px;color:inherit}
+.dask-new{font-size:12px;padding:3px 8px;white-space:nowrap;color:var(--muted)}.dask-new:hover{color:var(--ink)}
+.dask-close{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;background:none;border:0;border-radius:6px;padding:0 6px;font-size:16px;cursor:pointer;color:var(--muted)}
+.dask-close .nav-icon{font-size:18px;color:inherit}
 .dask-close:focus-visible,.dask-new:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .dask-close:hover{background:var(--surface2);color:var(--ink)}
-.dask-history{flex:none;border-bottom:1px solid var(--line);padding:8px 16px;font-size:12px}
+.dask-history{flex:none;border-bottom:1px solid var(--line);padding:6px 14px;font-size:12px}
 .dask-history summary{cursor:pointer;color:var(--muted)}
 .dask-history-list{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;margin-top:8px}
 .dask-history-list button{display:flex;gap:8px;align-items:center;text-align:left;width:100%;font-size:12px}
 .dask-history-list button span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dask-history-list time{flex:none;color:var(--muted);font-size:11px}
 .dask-history-list p{margin:0;color:var(--muted)}
-.dask-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
+.dask-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:14px;font-size:13.5px}
 .dask-empty{color:var(--muted);font-size:13.5px}
 .dask-empty a{white-space:nowrap}
-.dask-hints{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.dask-hints button{font-size:12.5px}
+.dask-hints{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin-top:2px}
+.dask-hints button{font-size:12.5px;padding:4px 10px;border-radius:14px;color:var(--g7);text-align:left}.dask-hints button:hover{color:var(--ink)}
 .dask-body>section{display:flex;flex-direction:column;gap:8px}
 .dask-q{align-self:flex-end;max-width:92%;background:var(--surface2);border:1px solid var(--line);border-radius:10px;border-bottom-right-radius:3px;padding:8px 12px;overflow-wrap:anywhere;white-space:pre-wrap}
 .dask-label{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 6px}
@@ -67,28 +68,30 @@ html.demo .dask{top:var(--demo-h)}
 .dask-think i:nth-child(3){animation-delay:.15s}.dask-think i:nth-child(4){animation-delay:.3s}
 @keyframes dask-dot{0%,80%,100%{opacity:.25}40%{opacity:1}}
 .dask-err{color:var(--fail);font-size:13px}
-.dask-form{display:flex;gap:8px;align-items:flex-end;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface)}
-.dask-form textarea{flex:1 1 auto;min-width:0;min-height:44px;max-height:160px;resize:vertical;font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.dask-form{display:flex;gap:6px;align-items:flex-end;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface)}
+.dask-form textarea{flex:1 1 auto;min-width:0;min-height:36px;max-height:160px;resize:vertical;font-size:13.5px;line-height:1.4;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
 .dask-form textarea:focus{outline:2px solid var(--accent);outline-offset:0}
-.dask-form .primary{min-height:44px}
+.dask-form .primary{min-height:36px;padding:0 14px}
 .dask-off{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
 .dask-cites{display:flex;flex-wrap:wrap;gap:4px 6px;margin:2px 0 0}
 .dask-cites a.dask-cite{display:inline-block;font-size:12px;line-height:1.35;padding:0 7px;border-radius:10px;border:1px solid var(--line);background:var(--bg);text-decoration:none;color:var(--accent)}
 .dask-cites a.dask-cite:hover{background:var(--surface2)}
 @media (max-width:760px){
   .dask{inset:0;width:auto;border-left:0;box-shadow:none;height:100dvh}
+  .dask-form textarea{font-size:16px;min-height:44px}.dask-form .primary{min-height:44px}
   html.demo .dask{height:calc(100dvh - var(--demo-h))}
   .dask-backdrop{display:none}
 }
 /* Desktop: a rail beside the page, which gives up its room on the right. */
 @media(min-width:761px){
-  #main.librarian-open{--librarian-width:clamp(300px,26vw,360px);margin-right:var(--librarian-width);max-width:min(1180px,calc(100% - var(--librarian-width)))}
+  :root{--librarian-w:clamp(280px,24vw,340px)}
+  #main.librarian-open{--librarian-width:var(--librarian-w);margin-right:var(--librarian-width);max-width:min(1180px,calc(100% - var(--librarian-width)))}
   #main.librarian-open.market-layout{max-width:calc(100% - var(--librarian-width))}
   #main.librarian-open [data-librarian-open]{display:none}
   #main.librarian-open .docs-heading{grid-template-columns:auto minmax(180px,1fr) auto}
-  #main.librarian-open .docs-workspace{grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:20px}
-  .dask{width:clamp(300px,26vw,360px);box-shadow:none;animation:none}
-  body:has(#main.librarian-open) .toast{right:calc(clamp(300px,26vw,360px) + 20px)}
+  #main.librarian-open .docs-workspace{grid-template-columns:minmax(200px,240px) minmax(0,1fr)}
+  .dask{width:var(--librarian-w);box-shadow:none;animation:none}
+  body:has(#main.librarian-open) .toast{right:calc(var(--librarian-w) + 20px)}
 }
 /* The market's three columns need room the rail takes: under 1600px the graph moves below the note. */
 @media(min-width:761px) and (max-width:1599px){
@@ -102,7 +105,7 @@ html.demo .dask{top:var(--demo-h)}
   #main.librarian-open .docs-actions{flex-wrap:wrap;max-width:100%}
   #main.librarian-open .docs-workspace{display:block;overflow:auto}
   #main.librarian-open .docs-browser{border-right:0;padding-right:0}
-  #main.librarian-open .docs-reader{overflow:visible}
+  #main.librarian-open .docs-reader{overflow:visible;padding:0}
   #main.librarian-open .docs-workspace.has-selection:not(.searching) .docs-browser,
   #main.librarian-open .docs-workspace.has-selection.searching .docs-reader,
   #main.librarian-open .docs-workspace:not(.has-selection) .docs-reader{display:none}

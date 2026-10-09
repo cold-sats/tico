@@ -1,26 +1,26 @@
 /* Task stats dialog (ui/app/task-stats.js) */
 .task-stats{width:min(820px,calc(100vw - 32px))}
 .task-stats .flow-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 16px 4px}
-.task-stats .flow-filters select{font-size:12.5px;flex:1 1 120px;min-width:0;max-width:none}
+.task-stats .flow-filters select{font-size:var(--t-base);flex:1 1 120px;min-width:0;max-width:none}
 .flow-days{display:flex;gap:2px}
-.flow-days button{padding:4px 10px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:13px;cursor:pointer}
+.flow-days button{padding:4px 10px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:var(--t-base);cursor:pointer}
 .flow-days button.cur{background:var(--surface2);color:var(--ink)}
 .flow-tiles{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 14px}
 .flow-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:86px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--ink);cursor:pointer;text-align:left}
 .flow-tile:hover{background:var(--surface2)}
 .flow-tile.cur{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-.flow-tile-n{font-size:20px;font-weight:600;line-height:1.1}
-.flow-tile-l{font-size:12px;color:var(--muted)}
-.flow-chart-head{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;margin-bottom:4px}
+.flow-tile-n{font-size:var(--t-xl);font-weight:600;line-height:1.1}
+.flow-tile-l{font-size:var(--t-sm);color:var(--muted)}
+.flow-chart-head{display:flex;justify-content:space-between;gap:8px;font-size:var(--t-sm);margin-bottom:4px}
 .flow-chart{display:block;width:100%;height:auto}
 .flow-grid{stroke:var(--line);stroke-width:1}
-.flow-axis{fill:var(--muted);font-size:10.5px;font-family:var(--sans)}
+.flow-axis{fill:var(--muted);font-size:var(--t-xs);font-family:var(--sans)}
 .flow-bar{fill:var(--accent)}
 .flow-hit{fill:transparent}
 .flow-col:hover .flow-hit{fill:color-mix(in srgb,var(--ink) 6%,transparent)}
 .flow-tables{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
-.flow-tables h3{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 6px}
-.flow-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.flow-tables h3{font-size:var(--t-sm);font-weight:600;color:var(--muted);margin:0 0 6px}
+.flow-table{width:100%;border-collapse:collapse;font-size:var(--t-sm)}
 .flow-table th{font-weight:500;color:var(--muted);text-align:right;padding:3px 6px;border-bottom:1px solid var(--line)}
 .flow-table td{padding:4px 6px;text-align:right;border-bottom:1px solid var(--line)}
 .flow-table th:first-child,.flow-table td:first-child{text-align:left}

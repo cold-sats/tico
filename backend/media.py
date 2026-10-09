@@ -292,13 +292,14 @@ def outbox(c, rid):
     """Doc updates, tasks and feature requests still on this meeting — the structured outcomes."""
     groups = {"doc": [], "task": [], "feature": []}
     try:
-        rows = c.execute("SELECT section,text,status FROM meeting_items WHERE meeting_id=? "
+        rows = c.execute("SELECT id,section,text,status,result_ref FROM meeting_items WHERE meeting_id=? "
                          "AND status!='dismissed' AND section IN ('doc','task','feature') "
                          "ORDER BY created", (rid,)).fetchall()
     except Exception:
         return groups
     for row in rows:
-        groups[row["section"]].append({"text": row["text"], "status": row["status"]})
+        groups[row["section"]].append({"id": row["id"], "text": row["text"], "status": row["status"],
+                                       "result_ref": row["result_ref"]})
     return groups
 
 
