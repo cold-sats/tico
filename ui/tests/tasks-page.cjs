@@ -618,8 +618,9 @@ async function properties(browser) {
   // Blockers, and every other relation but the parent, are in Related, by kind.
   assert.deepEqual(await peek.locator('.task-related .trel').evaluateAll(gs => gs.map(g => [g.querySelector('.trel-k').textContent,
     [...g.querySelectorAll('.tlink .linkish')].map(b => b.textContent.trim())])), [['Blocked by', ['Doing Add idempotency keys to the payments API']]]);
-  // The header: status · owner · position · age · … · ✕. No unexplained arrows.
-  assert.equal(await peek.locator('.tmodal-head button').count(), 2);
+  // The header: status · owner · position · age · Done/Close (here Close: a bot owns it) · … · ✕. No unexplained arrows.
+  assert.equal(await peek.locator('.tmodal-head button:not([data-task-finish])').count(), 2);
+  assert.deepEqual(await peek.locator('.tmodal-head [data-task-finish]').evaluateAll(bs => bs.map(b => b.dataset.taskFinish)), ['close']);
   assert.match(await peek.locator('.tmodal-head .peek-pos').innerText(), /^\d+ \/ \d+$/);
   assert.match(await peek.locator('.tmeta').innerText(), /^Added by you · /);
   const top = await props.boundingBox(), main = await peek.locator('.tmodal-main').boundingBox();

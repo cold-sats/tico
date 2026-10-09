@@ -36,6 +36,41 @@ const {open} = require('./tasks-page.cjs');
     await viewer.page.locator('#task-peek [data-task-more]').click();
     assert.equal(await viewer.page.getByRole('menuitem', {name: 'Close task', exact: true}).count(), 1, 'a requester can accept without mover rights');
     await viewer.page.close();
-    console.log('Done explicit closure: detail, peek, bulk and requester rights passed');
+    // The header's Done (the owner) and Close (as the "…" menu allows): one tap, no reason asked, and the window closes.
+    for (const viewport of [{width: 1440, height: 900}, {width: 390, height: 844}]) {
+      const v = await open(browser, {viewport, hash: '#/tasks'});
+      const head = v.page.locator('#task-modal .tmodal-head');
+      const show = async id => { await v.page.evaluate(id => taskModalShow(TASKS_ST.tasks.find(t => t.id === id)), id); await head.waitFor(); };
+      const finish = async (id, kind) => {
+        await show(id);
+        const fits = await head.evaluate(h => [...h.querySelectorAll('button')].every(b => b.getBoundingClientRect().right <= innerWidth));
+        assert.ok(fits, `the header fits ${viewport.width}px`);
+        await head.locator(`[data-task-finish="${kind}"]`).click();
+        await v.page.waitForFunction(() => !document.querySelector('#task-modal').open);
+        assert.equal(await v.page.locator('dialog.task-outcome').count(), 0, 'no reason is asked');
+        return v.posts.filter(p => p.p === `/api/v2/tasks/${id}`).at(-1).body;
+      };
+      await show('t-news');                       // a bot owns it, Ana asked: Close, no Done
+      assert.equal(await head.locator('[data-task-finish="done"]').count(), 0, 'Done is the owner\'s');
+      assert.deepEqual(await finish('t-news', 'close'), {version: 3, close: true});
+      assert.deepEqual(await finish('t-deck', 'done'), {version: 3, status: 'done'});
+      assert.deepEqual(await finish('t-access', 'close'), {version: 3, close: true}, 'a bot\'s request closes without a note');
+      // Done on a bot's request asks what was decided (the bot's answer); cancel keeps the task open, and the note goes with Done.
+      await show('t-copy');
+      await head.locator('[data-task-finish="done"]').click();
+      const box = v.page.locator('dialog.task-outcome');
+      await box.locator('textarea').waitFor();
+      await box.locator('[data-cancel]').click();
+      assert.equal(await v.page.locator('#task-modal').evaluate(el => el.open), true, 'cancel keeps the task open');
+      assert.equal(v.posts.filter(p => p.p === '/api/v2/tasks/t-copy').length, 0, 'cancel saves nothing');
+      await head.locator('[data-task-finish="done"]').click();
+      await box.locator('textarea').fill('Go with headline B.');
+      await box.locator('button[type=submit]').click();
+      await v.page.waitForFunction(() => !document.querySelector('#task-modal').open);
+      assert.deepEqual(v.posts.filter(p => p.p === '/api/v2/tasks/t-copy').at(-1).body, {version: 3, status: 'done', note: 'Go with headline B.'});
+      assert.deepEqual(v.errors, []);
+      await v.page.close();
+    }
+    console.log('Done explicit closure: detail, peek, bulk, requester rights and header Done/Close passed');
   } finally { await browser.close(); }
 })().catch(e => {console.error(e); process.exit(1);});
