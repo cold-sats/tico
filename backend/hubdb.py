@@ -923,6 +923,9 @@ def migrate(conn, adopt_legacy=False):
     conn.execute("CREATE INDEX IF NOT EXISTS task_links_task ON task_links(task_id)")
     conn.execute("CREATE TABLE IF NOT EXISTS preferences(actor TEXT NOT NULL, key TEXT NOT NULL, "
                  "value_json TEXT NOT NULL, updated TEXT NOT NULL, PRIMARY KEY(actor, key))")
+    # Which messages could be about a task, so a task's page does not read its whole room (backend/message_links.py).
+    from . import message_links
+    message_links.ensure(conn)
     return len(MIGRATIONS)
 
 
@@ -2786,9 +2789,14 @@ def task_comments(conn, task_id, *, actor=None):
     if not row or not row.get("conversation_id"):
         return []
     conv = conversation(conn, row["conversation_id"])
-    out = []
-    for m in _rows(conn.execute("SELECT * FROM messages WHERE conversation_id=? AND deleted_at IS NULL "
-                                "ORDER BY created", (row["conversation_id"],))):
+    out, sql, args = [], "conversation_id=?", [row["conversation_id"]]
+    # In a bot's room, only the messages that name the task (backend/message_links.py), not the whole room.
+    from .message_links import named
+    ids = named(conn, task_id, row["conversation_id"])
+    if ids is not None:
+        sql, args = "+conversation_id=? AND id IN (SELECT value FROM json_each(?))", args + [_dump(sorted(ids))]
+    for m in _rows(conn.execute("SELECT * FROM messages WHERE " + sql + " AND deleted_at IS NULL "
+                                "ORDER BY created", args)):
         m["refs"] = _json(m.get("refs_json"), {}) or {}
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
             if actor is not None and not privacy.message_readable(conn, actor, m):
