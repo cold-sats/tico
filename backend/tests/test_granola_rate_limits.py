@@ -86,21 +86,20 @@ def test_text_before_xml_is_ignored(raw, expected):
     assert GranolaMCP.xml_content(raw) == expected
 
 
-def test_four_rate_limits_stop_without_skipping_or_advancing_cursor(api, caplog):
+def test_a_rate_limit_without_a_wait_stops_at_once_without_skipping_or_advancing_cursor(api, caplog):
     kind = "tool"
     provider = NotesProvider(api)
     provider.connect()
     saved = provider.service.load("human:ana")
     saved[1].update(cursor="2026-10-01T00:00:00+00:00", skipped=7, imported_count=4, last_sync="previous")
     provider.service.save(*saved)
-    provider.responses = [rate_limit(kind, "Rate limit exceeded fake-provider-sensitive") for _ in range(4)]
+    provider.responses = [rate_limit(kind, "Rate limit exceeded fake-provider-sensitive")]
     provider.sync()
     meta = provider.service.load("human:ana")[1]
     assert meta["last_error"] == "rate_limited: get_meetings"
     assert meta["cursor"] == saved[1]["cursor"] and meta["skipped"] == 0
     assert meta["imported_count"] == 4 and meta["last_sync"] == "previous" and meta["state"] == "connected"
-    assert len(provider.notes_calls) == 4 and all(ids == provider.ids for _, ids in provider.notes_calls)
-    assert [b[0] - a[0] for a, b in zip(provider.notes_calls, provider.notes_calls[1:])] == [15, 30, 60]
+    assert len(provider.notes_calls) == 1, "no guessed retries spending the same exhausted quota"
     assert "fake-provider-sensitive" not in caplog.text and "fake-provider-sensitive" not in json.dumps(meta)
     provider.sync()
     assert provider.service.load("human:ana")[1]["last_error"] is None
@@ -109,7 +108,7 @@ def test_four_rate_limits_stop_without_skipping_or_advancing_cursor(api, caplog)
 def test_completed_batch_checkpoint_survives_a_rate_limit_and_resumes(api):
     provider = NotesProvider(api, 20)
     provider.connect()
-    provider.responses = [None] + [rate_limit() for _ in range(4)]
+    provider.responses = [None, rate_limit()]
     provider.sync()
     meta = provider.service.load("human:ana")[1]
     assert meta["imported_count"] == 10 and meta["cursor"] and not meta.get("last_sync")
@@ -118,3 +117,48 @@ def test_completed_batch_checkpoint_survives_a_rate_limit_and_resumes(api):
     provider.sync()
     meta = provider.service.load("human:ana")[1]
     assert meta["imported_count"] == 20 and meta["last_sync"] and meta["last_error"] is None
+
+
+def test_a_short_named_wait_is_waited_out_in_the_sync(api):
+    provider = NotesProvider(api)
+    provider.connect()
+    provider.responses = [rate_limit("http", retry_after="20")]
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert meta["last_error"] is None and meta["imported_count"] == 2
+    assert [b[0] - a[0] for a, b in zip(provider.notes_calls, provider.notes_calls[1:])] == [20]
+
+
+def test_repeated_throttling_backs_off_and_caps(api):
+    from backend import granola_mcp as G
+    provider = NotesProvider(api)
+    provider.connect()
+    delays = []
+    for _ in range(9):
+        provider.responses = [rate_limit()]
+        provider.sync()
+        meta = provider.service.load("human:ana")[1]
+        delays.append(round(meta["retry_after"] - provider.now))
+    assert delays == [300, 600, 1200, 2400, 4800, 9600, 19200, G.RATE_LIMIT_MAX, G.RATE_LIMIT_MAX]
+    provider.responses = [rate_limit(retry_after=str(G.RATE_LIMIT_MAX * 2))]
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert round(meta["retry_after"] - provider.now) == G.RATE_LIMIT_MAX * 2, "a longer wait Granola names is kept"
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert meta["last_error"] is None and meta["failures"] == 0 and "retry_after" not in meta
+
+
+def test_new_notes_are_fetched_before_imported_ones_are_revisited(api):
+    provider = NotesProvider(api, 12)
+    provider.connect()
+    provider.sync()
+    assert provider.service.load("human:ana")[1]["imported_count"] == 12
+    new = [str(uuid.UUID(int=100 + i)) for i in range(3)]
+    provider.ids = provider.ids + new           # later notes, listed after the overlap window's imported ones
+    provider.notes_calls.clear()
+    provider.responses = [None, rate_limit()]
+    provider.sync()
+    meta = provider.service.load("human:ana")[1]
+    assert set(new) <= set(provider.notes_calls[0][1]), "the first call spends the quota on notes not yet imported"
+    assert meta["imported_count"] == 15 and meta["last_error"] == "rate_limited: get_meetings"
