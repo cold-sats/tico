@@ -21,7 +21,9 @@ const {html, uiFile} = require('./support/page.cjs');
   await page.route('**/*', route => {
     const request = route.request(), p = new URL(request.url()).pathname;
     const json = body => route.fulfill({contentType:'application/json',body:JSON.stringify(body)});
-    if (request.method() !== 'GET') writes.push(p);
+    // Opening a bot page saves the recently-viewed list (sidebar.js, after 800 ms); that is the page's own
+    // preference, not a credential or a message, and whether it lands before the end depends on load.
+    if (request.method() !== 'GET' && !p.startsWith('/api/v2/preferences/')) writes.push(p);
     if (p === '/') return route.fulfill({contentType:'text/html',body:html});
     if (p.startsWith('/tico/ui/')) {
       const file = uiFile(p.slice('/tico/ui/'.length));

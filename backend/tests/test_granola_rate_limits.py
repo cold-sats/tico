@@ -197,3 +197,31 @@ def test_a_throttled_sync_never_checkpoints_past_an_imported_note_not_yet_revisi
     assert meta["imported_count"] == 15, "the new notes came first"
     # Imported notes were left unrevisited: the next sync's window must still reach the oldest of them.
     assert datetime.fromisoformat(meta["cursor"]) - timedelta(hours=72) <= datetime.fromisoformat(provider.dates[provider.ids[7]])
+
+
+class ThrottledList(NotesProvider):
+    """The first list_meetings call is a 429 naming `wait` seconds."""
+    def __init__(self, api, wait):
+        self.wait, self.listed = wait, 0
+        super().__init__(api)
+
+    def handle(self, request):
+        if request.url.path == "/mcp" and json.loads(request.content).get("params", {}).get("name") == "list_meetings":
+            self.listed += 1
+            if self.listed == 1:
+                return httpx.Response(429, json={"error": "slow down"}, headers={"Retry-After": self.wait})
+        return super().handle(request)
+
+
+def test_a_long_named_wait_ends_the_sync_and_a_short_one_is_waited_out(api):
+    long = ThrottledList(api, "3600")
+    long.connect()
+    long.sync()
+    meta = long.service.load("human:ana")[1]
+    assert long.listed == 1 and max(long.sleeps, default=0) < 60, "an hour is not slept inside the sync"
+    assert meta["last_error"] == "rate_limited: list_meetings" and round(meta["retry_after"] - long.now) == 3600
+    short = ThrottledList(api, "20")
+    short.connect()
+    short.sync()
+    meta = short.service.load("human:ana")[1]
+    assert short.listed == 2 and 20 in short.sleeps and meta["last_error"] is None
