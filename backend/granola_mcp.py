@@ -28,6 +28,9 @@ AUTH = "https://mcp-auth.granola.ai"
 SCOPES = "openid profile email offline_access mcp"
 SCHEDULE = 25 * 60
 RATE_LIMIT_RETRY = 5 * 60
+RETRY_AFTER_MAX = 24 * 3600        # a provider-named wait longer than this is treated as this
+RATE_LIMIT_MAX = 6 * 3600          # repeated throttling backs off to this, unless Granola asks for longer
+RETRY_IN_SYNC = 60                 # a get_meetings throttle is waited out in the sync only when Granola says it is this short
 DEBOUNCE = 120
 GET_MEETINGS_INTERVAL = 6
 log = logging.getLogger(__name__)
@@ -420,7 +423,7 @@ class GranolaMCP:
                 delay = parsedate_to_datetime(value).timestamp() - self.clock()
             except (TypeError, ValueError, OverflowError):
                 return None
-        return max(0, delay) if math.isfinite(delay) else None
+        return min(max(0, delay), RETRY_AFTER_MAX) if math.isfinite(delay) else None
 
     async def rpc(self, row, meta, secret, session, method, params=None, notification=False):
         if secret.get("expiry", 0) <= self.clock() + 30:
@@ -441,7 +444,7 @@ class GranolaMCP:
                 continue
             if response.status_code == 429:
                 delay = self.retry_delay(response)
-                if meetings or attempt == 3:
+                if meetings or attempt == 3 or (delay is not None and delay > RETRY_IN_SYNC):
                     raise GranolaError("rate_limited", retry_after=delay)
                 await self.sleep(delay if delay is not None else 2 ** (attempt + 1))
                 continue
@@ -645,9 +648,12 @@ class GranolaMCP:
                 return self.content(await self.rpc(row, meta, secret, session, "tools/call", params),
                                     allow_text=tool["name"] == "get_meeting_transcript")
             except GranolaError as exc:
-                if tool["name"] != "get_meetings" or exc.code != "rate_limited" or attempt == 3:
+                # Waiting is worth it only when Granola names a short wait; a guessed retry spends the same
+                # quota that is exhausted, so it fails the sync and the next one backs off instead.
+                if (tool["name"] != "get_meetings" or exc.code != "rate_limited" or attempt == 3
+                        or exc.retry_after is None or exc.retry_after > RETRY_IN_SYNC):
                     raise
-                await self.sleep(exc.retry_after if exc.retry_after is not None else 15 * 2 ** attempt)
+                await self.sleep(exc.retry_after)
 
     @staticmethod
     def account_details(result):
@@ -723,6 +729,18 @@ class GranolaMCP:
                              started_at=started.isoformat() if started else None, participants=participants,
                              notes=str(summary).strip()[:200_000], transcript=transcript,
                              media_url=https_url(note.get("web_url"))) if summary or transcript else None
+
+    def imported_ids(self, actor, ids):
+        """Which of these Granola notes this person already has as a meeting."""
+        keys = [f"{actor}:{nid}" for nid in ids]
+        found = set()
+        with self.store.read() as c:
+            for start in range(0, len(keys), 500):
+                chunk = keys[start:start + 500]
+                found.update(r[0] for r in c.execute(
+                    "SELECT external_id FROM recording_source_refs WHERE source='granola' AND resource_type='meeting' "
+                    "AND external_id IN (%s)" % ",".join("?" * len(chunk)), chunk))
+        return {key[len(actor) + 1:] for key in found}
 
     async def sync(self, actor):
         async with self.lock(actor):
@@ -827,6 +845,11 @@ class GranolaMCP:
                         meta["skipped"] += 1
                         skipped_error = "bad_response: list_meetings"
                 ids = sorted(dict.fromkeys(ids), key=dates.get)
+                # Notes not imported yet go first: re-reading the overlap window's imported notes (for a
+                # regenerated summary) must not spend a tight quota before new meetings arrive.
+                imported = await asyncio.to_thread(self.imported_ids, actor, ids)
+                by_date, done, position = list(ids), set(), 0
+                ids = [nid for nid in ids if nid not in imported] + [nid for nid in ids if nid in imported]
                 if len(ids) > 5000:
                     raise GranolaError("import_limit")
                 id_properties = (tools["get_meetings"].get("inputSchema") or {}).get("properties", {})
@@ -905,9 +928,13 @@ class GranolaMCP:
                             meta["skipped"] += 1
                             skipped_error = "bad_response: import_meeting"
                         await asyncio.to_thread(self.save, row, meta, secret)
-                    # IDs are processed by list date, so this checkpoint cannot pass an unprocessed batch.
-                    checkpoint = max(dates[nid] for nid in batch)
-                    if not meta.get("cursor") or checkpoint > datetime.fromisoformat(meta["cursor"]):
+                    # New notes go first, so the checkpoint is the last note in list-date order with every
+                    # earlier one processed: it never passes an imported note not yet revisited.
+                    done.update(batch)
+                    while position < len(by_date) and by_date[position] in done:
+                        position += 1
+                    checkpoint = dates[by_date[position - 1]] if position else None
+                    if checkpoint and (not meta.get("cursor") or checkpoint > datetime.fromisoformat(meta["cursor"])):
                         meta["cursor"] = checkpoint.isoformat()
                     await asyncio.to_thread(self.save, row, meta, secret)
                 if meta.get("state") == "needs_signin":
@@ -924,9 +951,11 @@ class GranolaMCP:
                 if exc.code == "needs_signin":
                     return
                 meta["last_error"] = failure
-                meta["failures"] = min(meta.get("failures", 0) + 1, 4)
-                delay = (max(RATE_LIMIT_RETRY, exc.retry_after or 0) if exc.code == "rate_limited"
-                         else SCHEDULE * 2 ** (meta["failures"] - 1))
+                limited = exc.code == "rate_limited"
+                meta["failures"] = min(meta.get("failures", 0) + 1, 8 if limited else 4)
+                # Throttling backs off too: retrying every few minutes keeps a sliding quota exhausted.
+                delay = (max(exc.retry_after or 0, min(RATE_LIMIT_MAX, RATE_LIMIT_RETRY * 2 ** (meta["failures"] - 1)))
+                         if limited else SCHEDULE * 2 ** (min(meta["failures"], 4) - 1))
                 meta["retry_after"] = self.clock() + delay
             except Exception:
                 # In particular never persist validation errors containing provider data.
