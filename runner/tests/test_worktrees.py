@@ -233,6 +233,38 @@ def test_computer_heartbeat_actions_use_scoped_token_and_wait_for_idle(trees):
         manager.close()
 
 
+@pytest.mark.slow
+def test_a_restore_reported_to_a_server_without_checkout_records_falls_back_once(trees):
+    """A new runner, an older server: the restore is recorded as that server knew it, not retried forever."""
+    workspace, base, remote, row, client = trees
+    W.command(client, 'add', 'org/product')
+    saved = {**row, 'task_status': 'closed', 'bot_state': 'active'}
+    client.get.side_effect = lambda route: ({'worktrees': [saved]} if route.endswith('/worktrees')
+                                            else {'repositories': [{**row, 'access': 'write'}]})
+    client.post.return_value = {'token': 'synthetic-worktree-token'}
+    refused = []
+
+    def old_server(route, body):
+        new = [k for k in ('checkout_state', 'expected_head', 'checkout_target', 'expected_base') if k in body]
+        if new:
+            refused.append(body)
+            raise APIError('validation', f'body.{new[0]}: Extra inputs are not permitted', 422)
+        saved.update(body)
+    client.patch.side_effect = old_server
+    manager = W.Worktrees(workspace, client, idle=lambda: True)
+    try:
+        manager.sync([{**row, 'action': 'remove'}])
+        assert saved['state'] == 'removed'
+        saved['task_status'] = 'open'
+        manager.sync([{**row, 'action': 'restore'}])
+        assert len(refused) == 1 and saved['state'] == 'present' and saved['setup_pending'] is True
+        assert (workspace / row['path']).exists() and not manager.errors
+        # Any other refusal is not mistaken for an older server.
+        assert not W._server_lacks_checkout_fields(APIError('validation', 'body.state: Input should be pending', 422))
+    finally:
+        manager.close()
+
+
 def test_actions_arriving_during_poll_are_queued(light):
     import threading
     workspace, base, remote, row, client = light

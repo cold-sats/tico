@@ -685,6 +685,14 @@ def command(client, operation, value, task=None):
         raise
 
 
+def _server_lacks_checkout_fields(exc):
+    """Only a server from before checkout records, refusing their fields as unknown (422)."""
+    detail = str(getattr(exc, 'detail', exc)).lower()
+    return (getattr(exc, 'status', None) == 422
+            and any(name in detail for name in ('checkout_state', 'expected_head', 'checkout_target', 'expected_base'))
+            and any(marker in detail for marker in ('extra', 'unknown field', 'unexpected field', 'not permitted')))
+
+
 def checked_branch(branch):
     if not isinstance(branch, str) or not branch or len(branch) > 200 or branch.startswith('-'):
         raise ValueError('Invalid or oversized worktree branch')
@@ -1134,13 +1142,23 @@ class Worktrees:
                 if restore_pending:
                     expected_head, checkout_target, expected_base = _record_restored_checkout(
                         self.workspace, row, repo, env)
-                self.client.patch(f'tasks/{row["task_id"]}/links/{row["id"]}',
-                                  {'state': 'pending' if restore_pending else state,
-                                   'cleanup': action['action'] == 'remove', 'setup_pending': restore_pending,
-                                   **({'checkout_state': 'checkout_ready', 'expected_head': expected_head,
-                                       'checkout_target': checkout_target, 'expected_base': expected_base}
-                                      if restore_pending else {}),
-                                   **{k: action_row[k] for k in ('snapshot_skipped', 'restore_source') if k in action_row}})
+                kept = {k: action_row[k] for k in ('snapshot_skipped', 'restore_source') if k in action_row}
+                try:
+                    self.client.patch(f'tasks/{row["task_id"]}/links/{row["id"]}',
+                                      {'state': 'pending' if restore_pending else state,
+                                       'cleanup': action['action'] == 'remove', 'setup_pending': restore_pending,
+                                       **({'checkout_state': 'checkout_ready', 'expected_head': expected_head,
+                                           'checkout_target': checkout_target, 'expected_base': expected_base}
+                                          if restore_pending else {}),
+                                       **kept})
+                except APIError as exc:
+                    if not (restore_pending and _server_lacks_checkout_fields(exc)):
+                        raise
+                    # A server from before checkout records refuses their fields: report the restore as it
+                    # knew it, present with setup pending, rather than retrying a body it will always refuse.
+                    self.client.patch(f'tasks/{row["task_id"]}/links/{row["id"]}',
+                                      {'state': state, 'cleanup': False, 'setup_pending': True, **kept})
+                    restore_pending = False
                 row['state'] = 'pending' if restore_pending else state
                 if restore_pending:
                     detail = _detail(row)
