@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.39] - 2026-10-10
+
 ### Added
 - **Market batch import.** `hub market import <file.jsonl>` (`POST /api/v2/market/import`) applies a verified batch of entities and edges, one JSON object per line with its evidence, for the Librarian and the owner. A failing line is rolled back on its own and reported; `--dry-run` reports and keeps nothing. A batch takes at most 2000 non-blank lines (`413 too_many_lines` names the cap), so one import can't hold the database for long; split larger files.
 - Muse (Meta) links like Dots: `hub_external_sync` with `provider` `muse` puts your one Muse under you on the team chart, with its history, and hands it what you write to it in Tico. See docs/external-agent-sync.md#muse.
