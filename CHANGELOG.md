@@ -8,6 +8,16 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Replay: watch what happened over a stretch of time.** Replay (in the account menu, `#/replay`) plays back a window, Today,
+  Yesterday, the last 7 days or a custom start and end, as a task board whose cards appear and move between To do, Doing, Waiting
+  and Done, an activity feed where chats, task comments and runs come in and bot replies type out, and bot faces that show who is
+  running. Play and pause, 1× to 600×, Skip quiet (on by default: idle stretches pass in about a second and a half), a scrubber
+  with activity ticks, and Space, ←/→ and 1–4 on the keyboard. Present hides the app around it and fades the controls while it
+  plays. The range, the team, bot or person it covers and the speed ride in the link (`#/replay?from=…&to=…&bot=…&speed=60`).
+  Nothing new is recorded: it reads the history Tico keeps, through `GET /api/v2/replay?from=&to=[&bot=|&person=|&team=]`
+  (at most 31 days and 5000 items, with `truncated` and `next`), which shows each person or bot only what the task list, chats,
+  runs and statuses already show them. `hub replay show` (MCP `hub_replay_show`) returns the same items as JSON, the last
+  24 hours by default, for a bot writing a recap.
 - **The Librarian researches for you and adds what it finds to a doc or the market.** **Research** in a doc's **More** menu, and
   (for the owner) on any market page or entry, asks for what to find and, on a doc with headings, which section. The Librarian searches the web,
   adds the findings to that one place with a link after every fact, and leaves the rest of the page as it was. Its note on the task

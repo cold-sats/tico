@@ -34,6 +34,7 @@ function route() {
   if (S.route !== DECIDE) decideStop();     // its waiting answer goes now
   convStop(); meetStop(); onbStop(); TASKS_ST?.layoutAbort?.abort(); TASKS_ST = null; // page-local work never outlives its page
   if (S.route !== '#/usage') USE = null;
+  if (!S.route.startsWith('#/replay')) replayStop();
   if (UPD && !(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
@@ -86,6 +87,7 @@ function route() {
   else if (S.route === '#/runs') pageRuns();
   else if (S.route === LEARNINGS || S.route.startsWith(LEARNINGS + '?')) pageLearnings();
   else if (S.route === '#/usage') pageUsage();
+  else if (S.route === '#/replay' || S.route.startsWith('#/replay?')) pageReplay();
   else location.hash = UPDATES;         // unknown or empty routes land on Updates, home
   window.syncLibrarianRail?.();
   $('#main').scrollTop = 0;
