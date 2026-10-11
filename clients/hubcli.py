@@ -70,6 +70,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            Assistant only: ask the person to confirm a side effect (an
                                            approval, anything outside the company, spend, settings,
                                            archive/delete, activating a bot); it runs only on their click
+    hub replay show [--from ISO] [--to ISO] [--bot B|--person P|--team T]
+                                           what happened in a window (default the last 24 hours), as you may see it
     hub goal list [--owner me|X] [--all]   what you are for: your goals in order, the chain above
                                            them, and your reports' goals; --all is every goal
     hub goal show <id>                     the goal, its KPIs (target, colour), tasks, check-ins, history
@@ -846,6 +848,15 @@ def parser():
     s.add_argument("id")
     s.set_defaults(fn="task run")
 
+    replay = sub.add_parser("replay", help="what happened in a window, as you may see it").add_subparsers(dest="sub")
+    s = replay.add_parser("show", help="what happened in a window, in time order, as you may see it (JSON)")
+    s.add_argument("--from", dest="from", help="start, ISO 8601 with a zone (default 24 hours before --to)")
+    s.add_argument("--to", help="end (default now); at most 31 days after --from")
+    scope = s.add_mutually_exclusive_group()
+    scope.add_argument("--bot", help="only what involves this bot")
+    scope.add_argument("--person", help="only what involves this person")
+    scope.add_argument("--team", help="only what involves this team")
+    s.set_defaults(fn="replay show")
     goal = sub.add_parser("goal", help="goals: list yours, show one, set one, set its colour, edit it").add_subparsers(dest="sub")
     s = goal.add_parser("list", help="what you are for: your goals, the chain above them, your reports' goals")
     s.add_argument("--owner", help="someone else's: a bot slug or a person id")

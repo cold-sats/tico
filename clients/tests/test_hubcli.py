@@ -22,7 +22,7 @@ import pytest
 from clients import hubcli
 
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
-SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "chat", "assistant", "tag", "task", "goal", "kpi",
+SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "chat", "assistant", "tag", "task", "replay", "goal", "kpi",
                "proposal", "market", "listening", "tool", "routine", "approval", "brief", "mcp", "needs-you", "run", "team", "health",
                "changelog", "update", "grokbot", "external", "calendar", "sql", "db", "classify", "decision", "template", "bot", "repo", "skill", "agent", "human", "group", "api", "computer",
                "credential", "slack", "support", "service-key"]

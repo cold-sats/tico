@@ -119,7 +119,7 @@ def run(args, who=None):
         return via_tool(client, args)
     if fn in ("task child create", "task tree"):
         return via_tool(client, args)
-    if args.cmd == "chat":
+    if args.cmd in ("chat", "replay"):
         return via_tool(client, args)
     if args.cmd in ("api", "computer", "credential", "support", "health") or fn == "message redact":
         return botops_tools(client, args)

@@ -3092,6 +3092,33 @@ def docs_fetch(api, args):
         return {"error": exc.code, "detail": exc.message, "retryable": exc.code in ("timeout", "network", "dns")}
 
 
+REPLAY_WINDOW = {
+    "from": _s("Start, ISO 8601 with a zone (2026-10-10T00:00:00Z); default 24 hours before `to`"),
+    "to": _s("End, ISO 8601 with a zone; default now. At most 31 days after `from`"),
+    "bot": _s("Only what involves this bot (a slug you may Read)"),
+    "person": _s("Only what involves this person (a person id)"),
+    "team": _s("Only what involves this team and the teams under it (a team id)")}
+
+
+def _replay(api, args):
+    from datetime import datetime, timedelta, timezone
+    end = args.get("to") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    start = args.get("from")
+    if not start:
+        at = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        start = (at - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return api.get("replay", **{"from": start, "to": end, "bot": args.get("bot"), "person": args.get("person"),
+                                "team": args.get("team")})
+
+
+@tool("hub_replay_show", "What happened in a window, in time order, as you may see it: tasks made and moved, chat "
+      "messages and task comments, runs and what they said, bot status changes, goal colours. The input for a recap. "
+      "Returns {from, to, items: [{at, kind, who, task, text, ...}], truncated, next, start: {tasks, bots}, names}; "
+      "`names` maps every actor shown to a display name.", REPLAY_WINDOW)
+def replay_show(api, args):
+    return _replay(api, args)
+
+
 # `hub` commands with no tool: they write the Mac's own workspace (`clients/catalog.py`), which
 # the hub cannot reach, so BotOps runs them in a shell. Everything else is in both doors.
 # `hub_db` runs where the database credential is, on the runner; the server's MCP endpoint
