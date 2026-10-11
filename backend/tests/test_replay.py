@@ -2,11 +2,12 @@
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
+from backend import replay
 from backend.store import H
 from backend.tests.test_api import api, get, post  # noqa: F401
 
 
-def test_replay_is_ordered_and_never_shows_a_viewer_more_than_they_can_see(api):
+def test_replay_is_ordered_and_never_shows_a_viewer_more_than_they_can_see(api, monkeypatch):
     started = datetime.now(timezone.utc) - timedelta(minutes=1)
     store = api.app.state.store
     with store.transaction() as c:
@@ -44,3 +45,9 @@ def test_replay_is_ordered_and_never_shows_a_viewer_more_than_they_can_see(api):
     assert not any(i.get("bot") == "inbox" or i.get("who") == "bot:inbox" for i in cara["items"])
     assert secret["id"] not in str(cara) and mail["id"] not in str(cara)
     get(api, "replay?" + span + "&bot=inbox", token="cara-test", expected=404)
+
+    # Cut short, a replay ends before where any source stopped, and `next` continues from there.
+    monkeypatch.setattr(replay, "LIMIT", 2)
+    short = get(api, "replay?" + span, token="cara-test")
+    assert short["truncated"] and short["items"] and all(i["at"] < short["next"] for i in short["items"])
+

@@ -71,6 +71,7 @@ function pageReplay() {
     <div id="rp-player">${skelRows(4, {card: true})}</div>
   </div>`;
   const main = $('#main');
+  main.classList.add('replay-layout');
   main.querySelector('.use-seg').onclick = ev => {
     const b = ev.target.closest('[data-rp-range]'); if (!b) return;
     state.range = b.dataset.rpRange;
@@ -95,11 +96,15 @@ function pageReplay() {
   replayLoad(state);
 }
 
+// Presenting hides the page's bar, so its button moves into the player's transport bar and fades with it.
 function replayPresent(state, on) {
   state.presenting = on;
   document.body.classList.toggle('rp-presenting', on);
-  $('#rp-present')?.setAttribute('aria-pressed', String(on));
+  const button = $('#rp-present'); if (!button) return;
+  button.setAttribute('aria-pressed', String(on));
   $('#rp-player')?.classList.toggle('rp-fade', on);
+  const bar = $('#rp-player .rp-bar');
+  if (on && bar) bar.appendChild(button); else $('#main .rp-actions')?.appendChild(button);
 }
 
 async function replayLoad(state) {
@@ -119,14 +124,24 @@ async function replayLoad(state) {
   const note = $('#rp-note');
   note.hidden = !data.truncated && !!data.items.length;
   note.textContent = !data.items.length ? 'Nothing happened in this range' : data.truncated ? `First ${data.items.length.toLocaleString()} events, up to ${fmt(data.next)}` : '';
-  const root = $('#rp-player'); root.innerHTML = '';
+  const root = $('#rp-player');
+  $('#main .rp-actions').appendChild($('#rp-present'));    // it may sit in the old player's bar
+  root.innerHTML = '';
   state.player = window.TicoReplay.mount(root, data, {
     speed: state.speed, face: replayFace,
-    name: a => (actorPerson(a) && actorPerson(a) !== S.me?.id && data.names?.[a]) || actorLabel(a) || a,
+    name: replayName(data),
     onChange: s => { if (s.speed !== state.speed) { state.speed = s.speed; replaySync(state); } },
   });
-  root.classList.toggle('rp-fade', state.presenting);
+  replayPresent(state, state.presenting);
 }
+
+// Real names throughout, the viewer's own too: a replay is watched and recorded, so "You" would read wrong.
+const replayName = data => a => {
+  const slug = actorSlug(a), pid = actorPerson(a);
+  if (slug) return botDisplayName(slug);
+  if (pid) return data.names?.[a] || (S.people || []).find(p => p.id === pid)?.name || personDisplay(pid);
+  return a === 'keeper' ? assistantName() : String(a || '');
+};
 
 // The app's own faces: a bot's blob in the replayed state (never the live one), a person's photo or initials.
 function replayFace(actor, size, state) {
@@ -135,6 +150,6 @@ function replayFace(actor, size, state) {
     const html = botAvatar(slug, size, state === 'running' ? 'running' : '');
     return state === 'running' ? html : html.replace(/ morph"/, '"').replace(/<animate [^>]*\/>/, '').replace(/ style="--d0:[^"]*"/, '');
   }
-  if (pid) return personAvatar((S.people || []).find(p => p.id === pid) || {id: pid, name: actorLabel(actor)}, size);
-  return personCircle(actorLabel(actor) || '?', size);
+  if (pid) return personAvatar((S.people || []).find(p => p.id === pid) || {id: pid, name: personDisplay(pid)}, size);
+  return personCircle(replayName({})(actor) || '?', size);
 }

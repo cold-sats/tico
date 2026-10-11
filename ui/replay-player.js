@@ -101,7 +101,14 @@ function ticoReplayPlayer() {
         if (it.task) touch(it.task.id);
       } else if (it.kind === 'run.finished') {
         if (bot) { const b = st.bots.get(bot) || {}; st.bots.set(bot, {...b, state: b.state === 'running' ? 'idle' : b.state}); st.dirty.bots = true; }
-        if (it.text) say({kind: 'run', who: it.who, task: it.task, text: it.text, type: true, failed: it.exit && it.exit !== 'completed' && it.exit !== '0', ms: it.ms}, animate);
+        // A run is one short line: what the bot said in chat is the content, so a summary that repeats it is left out.
+        const failed = it.exit && it.exit !== 'completed' && it.exit !== '0';
+        const flat = t => String(t || '').replace(/\s+/g, ' ').trim();
+        const summary = flat(it.text), head = summary.slice(0, 80);
+        const said = summary && st.feed.slice(-30).some(e => e.kind === 'msg' && e.who === it.who && flat(e.text).startsWith(head));
+        const note = said || !summary ? '' : summary.length > 140 ? summary.slice(0, 139).trimEnd() + '…' : summary;
+        say({kind: 'line', who: it.who, html: (failed ? 'had a run fail' : 'finished a run') + (it.task ? ` on <b>${escape(it.task.title)}</b>` : ''),
+             text: note, ms: it.ms}, animate);
       } else if (it.kind === 'bot.status') {
         if (bot) { st.bots.set(bot, {state: it.state, focus: it.text || ''}); st.dirty.bots = true; }
       } else if (it.kind === 'goal.status') {
@@ -152,11 +159,20 @@ function ticoReplayPlayer() {
       const typing = e === st.typing ? '<span class="rp-caret" aria-hidden="true"></span>' : '';
       const when = `<span class="rp-when tnum">${fmtTime(e.ms)}</span>`;
       if (e.kind === 'line') return `<div class="rp-line">${faceOf(e.who, 18)}<span class="rp-line-text"><b>${escape(name(e.who))}</b> ${e.html}${e.text ? `<span class="rp-line-note">${escape(e.text)}</span>` : ''}</span>${when}</div>`;
-      const head = `<b>${escape(name(e.who))}</b>${e.kind === 'run' ? ' · run' : e.to && !e.task ? ` → ${escape(name(e.to))}` : ''}${e.task ? ` · <span class="rp-task">${escape(e.task.title)}</span>` : ''}`;
-      return `<div class="rp-msg${e.type ? ' bot' : ' you'}${e.failed ? ' failed' : ''}">${faceOf(e.who, 22)}<div class="rp-msg-body"><div class="rp-msg-head">${head}${when}</div><div class="rp-msg-text">${escape(text)}${typing}</div></div></div>`;
+      const head = `<b>${escape(name(e.who))}</b>${e.to && !e.task ? ` → ${escape(name(e.to))}` : ''}${e.task ? ` · <span class="rp-task">${escape(e.task.title)}</span>` : ''}`;
+      return `<div class="rp-msg${e.type ? ' bot' : ' you'}">${faceOf(e.who, 22)}<div class="rp-msg-body"><div class="rp-msg-head">${head}${when}</div><div class="rp-msg-text">${escape(text)}${typing}</div></div></div>`;
     }
+    // A light divider wherever the day changes, so a range of several days never reads out of order.
+    const dayOf = ms => new Date(ms).toDateString();
+    const several = dayOf(from) !== dayOf(to - 1);
     function paintFeed() {
-      els.feed.innerHTML = st.feed.map(entryHTML).join('') || '<p class="rp-empty">Nothing yet</p>';
+      let day = '';
+      els.feed.innerHTML = st.feed.map((e, i) => {
+        const d = dayOf(e.ms), divider = d !== day && (i > 0 || several)
+          ? `<div class="rp-day">${escape(new Date(e.ms).toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'}))}</div>` : '';
+        day = d;
+        return divider + entryHTML(e);
+      }).join('') || '<p class="rp-empty">Nothing yet</p>';
       els.feed.scrollTop = els.feed.scrollHeight;
     }
     function paintTyping() {

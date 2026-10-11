@@ -102,6 +102,9 @@ def install(app, store, auth):
             return {"id": row["id"], "title": row["title"]} if row else None
 
         sources = []
+        # Where each source stopped early. Items at or after the earliest of these may be missing from that source,
+        # so the answer ends just before it and `next` starts there: continuing from `next` skips nothing.
+        caps = []
 
         # Tasks made in the window, then their status and owner changes.
         created = []
@@ -111,6 +114,7 @@ def install(app, store, auth):
             if within(row["owner"], row["requester"]):
                 created.append(dict(row))
             if len(created) > LIMIT:
+                caps.append(created[-1]["created"])
                 break
         changes, seen = [], 0
         marks = ",".join("?" * len(TASK_FIELDS))
@@ -128,6 +132,8 @@ def install(app, store, auth):
                     continue        # the status a task is made with: its task.created says it
                 if task and within(task["owner"], task["requester"], event["actor"]):
                     changes.append((dict(event), task))
+        if len(changes) > LIMIT:
+            caps.append(changes[-1][0]["ts"])
         first_status = {}
         for event, task in changes:
             if event["field"] == "status":
@@ -176,6 +182,7 @@ def install(app, store, auth):
                 items.append(item)
                 count += 1
                 if count > LIMIT:
+                    caps.append(row["created"])
                     break
         sources.append(items)
 
@@ -204,6 +211,7 @@ def install(app, store, auth):
                         "text": clip_text(turn["summary"], 600)}
                 items.append(done)
             if len(items) > LIMIT:
+                caps.append(turn["started"])
                 break
         sources.append(items)
 
@@ -215,6 +223,8 @@ def install(app, store, auth):
             rows = H._rows(c.execute("SELECT bot,state,focus,task_id,since FROM bot_status_history WHERE bot=? "
                                      "AND since>=? AND since<? ORDER BY since LIMIT ?", (slug, first, last, LIMIT + 1)))
             current = H._one(c, "SELECT bot,state,focus,task_id,since FROM bot_status WHERE bot=?", (slug,))
+            if len(rows) > LIMIT:
+                caps.append(rows[-1]["since"])
             if current and first <= (current["since"] or "") < last:
                 rows.append(current)
             before = H._one(c, "SELECT bot,state,focus,task_id,since FROM bot_status_history WHERE bot=? AND since<? "
@@ -245,8 +255,11 @@ def install(app, store, auth):
         sources.append(items)
 
         merged = sorted((item for source in sources for item in source), key=lambda item: item["at"])
-        truncated = len(merged) > LIMIT
-        merged = merged[:LIMIT]
+        if len(merged) > LIMIT:
+            caps.append(merged[LIMIT]["at"])
+        cutoff = min(caps) if caps else None
+        if cutoff:
+            merged = [item for item in merged if item["at"] < cutoff]
 
         # The board as it stood at `from`: tasks open then, each in the status it had.
         candidates = {}
@@ -284,13 +297,13 @@ def install(app, store, auth):
             elif actor.startswith("human:"):
                 names[actor] = (people.get(ident) or H.human(c, ident) or {}).get("name") or ident
         return {"from": first, "to": last, "scope": f"{kind}:{ident}" if kind else "", "items": merged,
-                "truncated": truncated, "next": merged[-1]["at"] if truncated and merged else None,
+                "truncated": bool(cutoff), "next": cutoff,
                 "start": {"tasks": board, "bots": start_states}, "names": names}
 
     @app.get("/api/v2/replay")
     def replay(request: Request, bot: str | None = None, person: str | None = None, team: str | None = None):
-        """Time-ordered history items for `from`..`to` (at most MAX_DAYS, LIMIT items; `truncated` and `next`
-        say where to continue), the board and bot states at `from`, and the names of everyone shown."""
+        """Time-ordered history items for `from`..`to` (at most MAX_DAYS, LIMIT items; when `truncated`,
+        `next` is the `from` that continues with nothing skipped), the board and bot states at `from`, and the names of everyone shown."""
         who = request.state.identity
         auth.domain(who)        # a person or a bot, each with its own rights; never a runner's credential
         with store.read_transaction() as c:
