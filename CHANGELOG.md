@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.40] - 2026-10-11
+
 ### Added
 - **Replay: watch what happened over a stretch of time.** Replay (in the account menu, `#/replay`) plays back a window, Today,
   Yesterday, the last 7 days or a custom start and end, as a task board whose cards appear and move between To do, Doing, Waiting
