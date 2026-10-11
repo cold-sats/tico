@@ -610,6 +610,44 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
+@tool("hub_task_question", "Put one decision to a person as its own task, in one call: a pick between 2 to 6 "
+      "options (an option may carry an image or file) or, with no options, Yes / No. The task is yours and waits on "
+      "them; their answer wakes you and you mark it done. One decision per task; write the question so it makes "
+      "sense on its own.",
+      {"question": _s("The question, readable with no other context", maxLength=300),
+       "on": _s("The person who decides: their id"),
+       "options": {"type": "array", "minItems": 2, "maxItems": 6, "description": "The choices; omit for Yes / No",
+                   "items": {"type": "object", "additionalProperties": False, "required": ["label"], "properties": {
+                       "label": _s("A short label", maxLength=60),
+                       "description": _s("One line more about it", maxLength=200),
+                       "path": _s("A local image or file shown with this option (on the computer that runs you)")}}},
+       "title": _s("Task title; defaults to the question"),
+       "body": _s("What the decision is for; defaults to the question"),
+       "parent": _s("Parent task id, when this decision is part of a bigger task"),
+       "private": {"type": "boolean", "description": "Only you and the person may read it"}},
+      required=("question", "on"), writes=True)
+def task_question(api, args):
+    options = [dict(o) for o in args.get("options") or []]
+    for item in args.get("option") or []:            # the CLI's --option LABEL[=FILE], repeatable
+        label, _, path = str(item).partition("=")
+        options.append({"label": label.strip(), **({"path": path.strip()} if path.strip() else {})})
+    if options and not 2 <= len(options) <= 6:
+        raise ValueError("A question has 2 to 6 options, or none for Yes / No")
+    if any(o.get("path") for o in options) and not hasattr(api, "post_multipart"):
+        raise ValueError("Option files are read on the computer that runs you: use hub task question there")
+    for option in options:
+        path = option.pop("path", None)
+        if path:                                     # read before anything is sent: one write or none
+            from . import bot_files as BF
+            local, _ = BF.local_file(BF.checkout_root(), path)
+            option["file"] = {"name": Path(path).name, "content_base64": base64.b64encode(local.read_bytes()).decode()}
+    body = {"question": args["question"], "on": args["on"], "options": options}
+    for field in ("title", "body", "parent", "private"):
+        if args.get(field) is not None:
+            body[field] = args[field]
+    return api.post("task-questions", body, key=_key(args))
+
+
 @tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, who is on it by role, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes. "
       "Done stays Done, including tasks you requested for yourself; closing is a separate decision.",

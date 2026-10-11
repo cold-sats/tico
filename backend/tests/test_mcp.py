@@ -1,10 +1,12 @@
 """The hub's MCP door: same tools as the `hub` CLI, same rules, no privileged path."""
 
+import base64
+import hashlib
 import json
 
 import pytest
 
-from backend.tests.test_api import api, get, headers, post, runner, setup_attempt  # noqa: F401
+from backend.tests.test_api import api, get, headers, post, restrict, runner, setup_attempt  # noqa: F401
 from clients import hubcli, hubtools
 
 
@@ -167,3 +169,40 @@ def test_malformed_mcp_params_are_json_rpc_errors(api, method, params):
     response = api.post("/api/v2/mcp", json={"jsonrpc": "2.0", "id": 7, "method": method, "params": params},
                         headers=headers())
     assert response.status_code == 200 and response.json()["error"]["code"] == -32602
+
+
+def test_a_bot_puts_one_decision_to_a_person_in_one_call(api):
+    _, _, attempt = setup_attempt(api)
+    ask = {"question": "Ship the September brief today?", "on": "ana", "operation_id": "q-1"}
+    err, out = call(api, "hub_task_question", ask, token=attempt["token"])
+    assert not err, out
+    err, again = call(api, "hub_task_question", ask, token=attempt["token"])
+    assert not err and again["task"]["id"] == out["task"]["id"], "a retry is the same question"
+    # A question the person could not read is refused whole: no task is left behind.
+    err, refused = call(api, "hub_task_question", {"question": "Sign the settlement today?", "on": "ben", "private": True},
+                        token=attempt["token"])
+    assert err and refused["error"] == "privacy"
+    # Nor to a person who may not read this bot's work: the question would reach them, the task would not.
+    with api.app.state.store.transaction() as c:
+        restrict(c, "ops", people=["ana"])
+    err, hidden = call(api, "hub_task_question", {"question": "Renew the vendor contract today?", "on": "cara"},
+                       token=attempt["token"])
+    assert err and hidden["error"] == "privacy"
+    # With a file, the same refusal comes before any bytes are stored.
+    png = base64.b64encode(b"\x89PNG never stored").decode()
+    picture = {"question": "Which banner?", "on": "cara", "options": [
+        {"label": "A", "file": {"name": "a.png", "content_base64": png}}, {"label": "B"}]}
+    r = api.post("/api/v2/task-questions", json=picture, headers=headers(attempt["token"]))
+    assert r.status_code == 403 and not any(api.app.state.blobs.directory.rglob(hashlib.sha256(b"\x89PNG never stored").hexdigest()))
+    r = api.post("/api/v2/task-questions", json={**picture, "on": "ana"}, headers=headers(attempt["token"], "pic-1"))
+    assert r.status_code == 200 and r.json()["question"]["ask"]["questions"][0]["options"][0]["file"]
+    again = api.post("/api/v2/task-questions", json={**picture, "on": "ana"}, headers=headers(attempt["token"], "pic-1"))
+    assert again.status_code == 200 and again.json()["task"]["id"] == r.json()["task"]["id"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM tasks WHERE title LIKE 'Sign the settlement%' "
+                         "OR title LIKE 'Renew the vendor%'").fetchone()[0] == 0
+    made = out["task"]
+    assert (made["owner"], made["requester"], made["status"], made["waiting_on"]) == ("bot:ops", "bot:ops", "waiting", "human:ana")
+    assert [o["label"] for o in out["question"]["ask"]["questions"][0]["options"]] == ["Yes", "No"]
+    item = next(i for i in get(api, "needs-you")["items"] if i["id"] == made["id"])
+    assert item["kind"] == "question" and item["ask"]["from_actor"] == "bot:ops"
