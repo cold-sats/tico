@@ -3126,7 +3126,7 @@ class Runner:
                 host.start()
                 settings = host_settings(execution_path, model=config.get("model"),
                                          effort=config.get("reasoning_effort"), env=env, slug=bot,
-                                         shared=is_shared(config),
+                                         shared=is_shared(config), compact_at=config.get("compact_at"),
                                          mcp_servers=self.mcp_for_run(attempt, execution_path, env, config.get("runtime"),
                                                                       config.get("harness"), diagnose))
                 resumed = False
@@ -3234,6 +3234,7 @@ class Runner:
                     host.start()
                     settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
                                              effort=hop["reasoning_effort"], env=hop_env, slug=bot,
+                                             compact_at=config.get("compact_at"),
                                              mcp_servers=self.mcp_for_run(attempt, execution_path, hop_env, hop["runtime"],
                                                                           hop["harness"], diagnose))
                     thread = host.start_thread(bot, settings)
