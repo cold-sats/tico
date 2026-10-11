@@ -123,6 +123,15 @@ def validate_product_repo_name(name):
     return name
 
 
+KEY_FILE = "github-app.key"
+MISSING_KEY = ("The GitHub App key file (github-app.key) is missing from the data volume: restore it from the backup "
+               "made with this database (docs/install.md, Backups and restore)")
+LOST_KEY = ("The key for the saved GitHub App and directory sync secrets (github-app.key) is missing from the data volume, "
+            "so they cannot be opened. Restore it from the backup (credential-key/github-app.key) and restart; or, if no "
+            "backup has it, confirm replacing it (POST /api/v2/github/app/replace-lost-key, or replace_lost_key on the "
+            "directory save) to drop those secrets and enter them again.")
+
+
 class GitHubApp:
     """The stored app, its at-rest encryption, and installation-token minting."""
 
@@ -149,21 +158,66 @@ class GitHubApp:
             c.executescript(SCHEMA)
 
     # -- secret storage ---------------------------------------------------------------------
-    def _key(self, c):
+    def key_file(self):
+        """The local key file: backed up beside credential.key (backend/replication.py), since a restored database
+        without it cannot open the app's secrets or the directory sync credentials."""
+        return Path(self.settings.db_path).parent / KEY_FILE
+
+    def _sealed_elsewhere(self, c, replacing):
+        """Whether anything but what this save replaces is sealed with the local key: a GitHub App row, or directory sync
+        credentials of another source. `replacing` is "app" or "directory:<source>"."""
+        if replacing != "app" and c.execute("SELECT 1 FROM github_app WHERE id='app'").fetchone():
+            return True
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='directory_credentials'").fetchone():
+            return False
+        source = replacing.split(":", 1)[1] if replacing.startswith("directory:") else None
+        return bool(c.execute("SELECT 1 FROM directory_credentials WHERE source IS NOT ?", (source,)).fetchone())
+
+    def _key(self, c, create=True, replacing="app"):
         """The vault's KMS-wrapped key when the deployment has one; otherwise a local key file kept
-        beside the database, so a copy of the database alone does not carry the app's private key."""
+        beside the database, so a copy of the database alone does not carry the app's private key.
+        Only a save makes the file: a read with it missing returns None, so a restore that lost it is not
+        papered over by a new key that opens nothing. A save makes one only when nothing else is sealed with the
+        missing key: a new key would leave that unreadable, and the backup copy of the old key is what opens it."""
         if self.settings.credential_kms_key and self.vault is not None:
             return self.vault.cipher.key(c)
-        path = Path(self.settings.db_path).parent / "github-app.key"
+        path = self.key_file()
         if not path.exists():
+            if not create:
+                return None
+            if self._sealed_elsewhere(c, replacing):
+                raise Problem("github_key_missing", LOST_KEY, 409)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as out:
                 out.write(os.urandom(32))
         return path.read_bytes()
 
-    def secret_key(self, c):
+    def key_lost(self, c):
+        """No local key file, and secrets sealed with the one that was there: nothing here can open them again."""
+        if self.settings.credential_kms_key and self.vault is not None:
+            return False
+        return not self.key_file().exists() and self._sealed_elsewhere(c, "")
+
+    def replace_lost_key(self, c, actor):
+        """The owner's confirmed way out when no copy of github-app.key exists anywhere: drop what only that key opens
+        (the GitHub App row and every directory source's credentials), so the next save makes a new key. Does nothing
+        while the key is there. A copy the backup held is kept there as credential-key/github-app.key.replaced-<time>."""
+        if not self.key_lost(c):
+            return False
+        app = self.row(c)
+        sources = [r["source"] for r in c.execute("SELECT source FROM directory_credentials")] if c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='directory_credentials'").fetchone() else []
+        if app:
+            self.forget(c)
+        if sources:
+            c.execute("DELETE FROM directory_credentials")
+        H.event(c, actor, "github.lost_key_replaced", app["slug"] if app else "",
+                {"github_app": bool(app), "directory_sources": sources})
+        return True
+
+    def secret_key(self, c, create=True, replacing=""):
         """The same at-rest key, for other stored secrets (directory sync credentials)."""
-        return self._key(c)
+        return self._key(c, create, replacing)
 
     def save(self, c, actor, org, administration, conversion):
         secrets_blob = json.dumps({"pem": conversion["pem"], "webhook_secret": conversion.get("webhook_secret") or "",
@@ -186,8 +240,11 @@ class GitHubApp:
             return self.row(c)
 
     def private_key(self, c, row):
+        key = self._key(c, create=False)
+        if key is None:
+            raise Problem("github_unavailable", MISSING_KEY, 503)
         try:
-            blob = AESGCM(self._key(c)).decrypt(row["nonce"], row["ciphertext"], b"tico-github-app:v1")
+            blob = AESGCM(key).decrypt(row["nonce"], row["ciphertext"], b"tico-github-app:v1")
             return json.loads(blob)["pem"]
         except Exception:
             raise Problem("github_unavailable", "The stored GitHub App key could not be decrypted", 503) from None
@@ -198,7 +255,7 @@ class GitHubApp:
             if not row:
                 return ""
             try:
-                blob = AESGCM(self._key(c)).decrypt(row["nonce"], row["ciphertext"], b"tico-github-app:v1")
+                blob = AESGCM(self._key(c, create=False)).decrypt(row["nonce"], row["ciphertext"], b"tico-github-app:v1")
                 return json.loads(blob).get("webhook_secret") or ""
             except Exception:
                 return ""
@@ -847,6 +904,11 @@ def install_github_app(app, settings, store):
             raise Problem("github_org", "Enter the GitHub organization's name (letters, digits and hyphens)", 422)
         if service.row():
             raise Problem("github_connected", "GitHub is already connected; disconnect it first to start over", 409)
+        # Before GitHub makes an app: one it could never be saved for (the key that seals other secrets is lost) is refused
+        # here. This GET never drops anything; the owner's confirmed POST replace-lost-key does.
+        with store.read() as c:
+            if service.key_lost(c):
+                raise Problem("github_key_missing", LOST_KEY, 409)
         nonce = secrets.token_urlsafe(24)
         with store.transaction() as c:
             c.execute("DELETE FROM github_app_states WHERE created<?", (time.time() - STATE_TTL,))
@@ -860,6 +922,14 @@ def install_github_app(app, settings, store):
                     "<script>document.getElementById('f').submit()</script>")
             return HTMLResponse(page, headers={"Cache-Control": "no-store"})
         return {"action": action, "manifest": body, "state": nonce}
+
+    @app.post("/api/v2/github/app/replace-lost-key")
+    def replace_lost_key(request: Request):
+        """The owner confirmed it: github-app.key is lost with no copy, so drop the GitHub App and directory sync
+        secrets only it opened. Not proposable: a person clicks it themselves."""
+        who = owner(request)
+        with store.transaction() as c:
+            return {"replaced": service.replace_lost_key(c, who.actor)}
 
     @app.get("/api/v2/github/app/callback")
     def callback(request: Request, code: str = "", state: str = ""):

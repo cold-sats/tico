@@ -18,7 +18,7 @@ from backend import hubdb as H
 from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
-from backend.store import encode
+from backend.store import Problem, encode
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PEM = KEY.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
@@ -773,3 +773,65 @@ def test_botops_token_writes_every_bot_in_its_own_run_the_persons_bots_for_them_
     with api.app_state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id='a2'")
     assert turn_token(api, "botops").json()["repositories"] == ["Acme/emp-botops"]
+
+
+def lose_key(api, *sources):
+    """Seal directory credentials for `sources` with github-app.key, then lose the file with no copy anywhere."""
+    state = api.app_state
+    with state.store.transaction() as c:
+        for source in sources:
+            state.directory.put_credentials(c, "human:ana", source, {"client_secret": source + "-synthetic"}, source)
+    state.github_app.key_file().unlink()
+
+
+def directory_put(api, **more):
+    revision = api.get("/api/v2/directory", headers=auth()).json()["revision"]
+    body = {"source": "entra", "filter": {}, "expected_revision": revision,
+            "credentials": {"tenant": "t", "client_id": "c", "client_secret": "entra-new"}, **more}
+    return api.put("/api/v2/directory", json=body, headers={**auth(), "Idempotency-Key": str(uuid.uuid4())})
+
+
+def test_a_lost_github_app_key_is_replaced_only_when_the_owner_confirms(api, gh):
+    connect(api)
+    lose_key(api, "entra")
+    assert api.post("/api/v2/github/app/disconnect", headers=auth()).status_code == 200
+    state = api.app_state
+    for params in ({}, {"replace_lost_key": "true"}):       # a GET, even a link carrying the flag, never drops anything
+        refused = api.get("/api/v2/github/app/manifest", params={"org": "Acme", **params}, headers=auth())
+        assert refused.status_code == 409 and "replace-lost-key" in refused.text
+        with state.store.read() as c:
+            assert c.execute("SELECT count(*) FROM directory_credentials").fetchone()[0] == 1
+    assert api.post("/api/v2/github/app/replace-lost-key", headers=auth("person-test")).status_code == 403
+    assert api.post("/api/v2/github/app/replace-lost-key", headers=auth()).json() == {"replaced": True}
+    connect(api)
+    with state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM directory_credentials").fetchone()[0] == 0   # to be entered again
+        assert state.github_app.private_key(c, state.github_app.row(c))
+        (event,) = c.execute("SELECT detail_json FROM events WHERE action='github.lost_key_replaced'").fetchall()
+    assert json.loads(event[0]) == {"github_app": False, "directory_sources": ["entra"]}
+
+
+def test_two_directory_sources_sealed_with_a_lost_key_do_not_deadlock(api, gh):
+    lose_key(api, "google", "entra")
+    refused = directory_put(api)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "github_key_missing", refused.text
+    assert directory_put(api, replace_lost_key=True).status_code == 200, "the confirmed save goes through"
+    state = api.app_state
+    with state.store.read() as c:
+        assert [r[0] for r in c.execute("SELECT source FROM directory_credentials")] == ["entra"]
+        assert state.directory.credentials(c, "entra")["client_secret"] == "entra-new"
+    # With the key present the flag drops nothing.
+    assert directory_put(api, replace_lost_key=True).status_code == 200
+    with state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM events WHERE action='github.lost_key_replaced'").fetchone()[0] == 1
+
+
+def test_a_proposal_cannot_carry_the_lost_key_replacement():
+    """PUT /api/v2/directory is a route BotOps may propose; replacing the lost key is a person's own confirm, not a card's."""
+    from types import SimpleNamespace
+
+    from backend import assistant
+    settings = SimpleNamespace(assistant_bot="assistant")
+    body = {"source": "entra", "replace_lost_key": True}
+    with pytest.raises(Problem, match="person directly"):
+        assistant.create_proposal(None, settings, None, None, "botops", "Save Entra", "PUT", "/api/v2/directory", body)
