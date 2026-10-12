@@ -187,6 +187,7 @@ def create_app(settings=None):
         scheduler_task = asyncio.create_task(schedule_loop()) if timers else None
         directory_task = asyncio.create_task(directory_loop()) if timers else None
         granola_task = asyncio.create_task(app.state.granola.loop(stop)) if timers else None
+        docs_task = asyncio.create_task(app.state.doc_sources.loop(stop)) if timers and not settings.demo else None
         # A demo runs no scheduler: nothing fires, and nothing waits for a bot that will never run.
         import threading
         copy_stop = threading.Event()
@@ -200,6 +201,7 @@ def create_app(settings=None):
             yield
         finally:
             stop.set()
+            app.state.doc_sources.stop.set()
             copy_stop.set()
             app.state.file_metadata.stop.set()
             app.state.file_metadata.wake.set()
@@ -215,6 +217,8 @@ def create_app(settings=None):
                 await timing_task
             except asyncio.CancelledError:
                 pass
+            if docs_task:
+                await docs_task
             if scheduler_task:
                 await scheduler_task
             if directory_task:

@@ -650,6 +650,8 @@ class Store:
             c.executescript(_learnings.SCHEMA)
             from . import docs as _docs
             _docs.ensure_schema(c, self.settings)
+            from . import doc_sources as _doc_sources
+            _doc_sources.ensure_schema(c)
             from . import bot_tools as _bot_tools
             c.executescript(_bot_tools.SCHEMA)
             from . import mail_settings as _mail_settings
