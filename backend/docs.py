@@ -699,6 +699,8 @@ class Docs:
     def find_internal(self, c, tokens, limit):
         out = []
         weights = manual.query_weights(tokens)
+        # All candidate titles use one glossary snapshot, rather than restatting every manual file per row.
+        glossary = manual.pages().get('glossary', {}).get('body', '')
         sql, params = "SELECT id,path,title,body FROM docs WHERE archived=0", ()
         if has_fts(c):
             expression = " OR ".join('"' + manual._stem(token) + '"*' for token in tokens)
@@ -710,7 +712,7 @@ class Docs:
             if not best:
                 continue
             score, section = best
-            title_tokens = [t for t in manual.query_words(row["title"]) if t not in ("team", "docs", "doc")]
+            title_tokens = [t for t in manual.query_words(row["title"], glossary) if t not in ("team", "docs", "doc")]
             named = bool(title_tokens) and all(t in tokens for t in title_tokens)
             named = named or all(t in tokens for t in manual._words(row["path"]))
             if named:

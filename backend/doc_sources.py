@@ -505,8 +505,9 @@ class Sources:
                     return
             tree = self.inventory(get, commit['commit']['tree']['sha'])
             inventory, skipped = self.selection(tree, source)
-            # Missing scopes are failures, not proof that previously indexed files were deleted.
-            if source['path'] and not any(r['path'] == source['path'] or r['path'].startswith(source['path'] + '/') for r in tree):
+            # An initial typo is a failure. A complete tree can prove a previously indexed scope disappeared.
+            if source['path'] and not source['active_snapshot'] and not any(
+                    r['path'] == source['path'] or r['path'].startswith(source['path'] + '/') for r in tree):
                 raise FetchFailure('scope_not_found', INTERVAL)
             job.update(snapshot_id=secrets.token_hex(16), inventory_json=encode(inventory), skipped=skipped)
             with self.store.transaction() as c:
