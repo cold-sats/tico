@@ -36,6 +36,13 @@ All notable changes to Tico are recorded here. The format follows
   request; any other field in the payload gets a row of its own, and a publish without its text says only a hash of it is included.
   The exact payload, content hash included, folds under Exact payload, and any approval's raw JSON now wraps. Payload text is never
   read as HTML.
+- **Decide leads a waiting card with what you're asked to do, not the bot's working note.** A task a bot set waiting on you showed
+  the bot's status note as the card's message, often a blob of task ids and shorthand. The card now leads with, in order, an open
+  question to you on the task, the last thing a bot said to you on it, or the task's request; the status note folds under a muted
+  "Latest note". When there is none of these, the card says "<Bot> set this waiting on you without saying what it needs" with a
+  Comment to ask button. Setting a task waiting on a person (`hub task update --status waiting --on <person>`) now warns the bot,
+  as the title lint does, when the note has no ask, carries ids, or reads as working notes rather than one plain sentence to that
+  person (`TICO_STYLE_LINT=refuse` refuses it instead); the bot template says the same.
 
 ## [0.3.40] - 2026-10-11
 
