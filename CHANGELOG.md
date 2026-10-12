@@ -14,6 +14,7 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 - **Chat goals no longer loop on waiting or on goals that can't be met.** The harness's goal now also counts "the only work left is waiting on someone or something else" as done for now: the bot says "Waiting on: <what>" and stops, and the goal shows Paused. A goal sent back to work 30 times (100 Codex continuation turns) with no person writing in between is paused and cleared in the harness, and the bot's reply says so with the last reason. This also stops a Claude Code goal that outlived its chat from looping in the bot's other runs. Codex's `blocked` shows as Paused.
+- **Search shows a temporary bot's flag, not its markup.** A temporary bot appeared in search as `<span class="proj" …>⚑</span>Name`; it now shows the flag and its name, and typing "temp" finds the temporary bots.
 
 ## [0.3.40] - 2026-10-11
 
