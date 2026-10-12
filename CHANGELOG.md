@@ -11,6 +11,13 @@ All notable changes to Tico are recorded here. The format follows
 - **Compact at, per bot.** The bot editor's Compact at (150k, 250k the default, 400k, 600k or 1M tokens) sets how full a bot's conversation
   gets before it is compacted, instead of the model's whole window: Claude Code gets `--autocompact` on every turn (when its `--help` lists it)
   and Codex `model_auto_compact_token_limit`. Changing it keeps the bot's session.
+
+### Fixed
+- **Chat goals no longer loop on waiting or on goals that can't be met.** The harness's goal now also counts "the only work left is waiting on someone or something else" as done for now: the bot says "Waiting on: <what>" and stops, and the goal shows Paused. A goal sent back to work 30 times (100 Codex continuation turns) with no person writing in between is paused and cleared in the harness, and the bot's reply says so with the last reason. This also stops a Claude Code goal that outlived its chat from looping in the bot's other runs. Codex's `blocked` shows as Paused.
+
+## [0.3.40] - 2026-10-11
+
+### Added
 - **Replay: watch what happened over a stretch of time.** Replay (in the account menu, `#/replay`) plays back a window, Today,
   Yesterday, the last 7 days or a custom start and end, as a task board whose cards appear and move between To do, Doing, Waiting
   and Done, an activity feed where chats, task comments and runs come in and bot replies type out, and bot faces that show who is
@@ -34,7 +41,6 @@ All notable changes to Tico are recorded here. The format follows
 - **Slack routing and the market ask count against a daily cap and are audited.** Routing a Slack message is one `judge.call` by the sender (`via: slack`, never the text), counted against their daily decision cap once per message however many tries it took; over the cap the message goes to the Assistant (or BotOps) with `routed_by: budget`, and when neither is running the person is told in the thread. Each try is one short TypeSafe attempt instead of three long ones on top of the gateway's own minute-by-minute retry. `POST /api/v2/market/ask` records a `market.ask` event per Gemini call (never the question), answers 429 `budget` over the person's daily cap, and answers from the pulled rows without calling Gemini in rehearsal.
 
 ### Fixed
-- **Chat goals no longer loop on waiting or on goals that can't be met.** The harness's goal now also counts "the only work left is waiting on someone or something else" as done for now: the bot says "Waiting on: <what>" and stops, and the goal shows Paused. A goal sent back to work 30 times (100 Codex continuation turns) with no person writing in between is paused and cleared in the harness, and the bot's reply says so with the last reason. This also stops a Claude Code goal that outlived its chat from looping in the bot's other runs. Codex's `blocked` shows as Paused.
 - **GitHub token requests no longer slow the server down.** A turn's git and gh commands reuse the GitHub token the turn already holds until it has ten minutes left, and a computer reuses the server's answer for up to five minutes, instead of asking the server once per git command. On the server, requests for the same token share one call to GitHub, minting no longer waits for the database write lock, and a GitHub that does not answer fails within seconds rather than holding a request for 15–30. Scopes and refusals are unchanged.
 - **Task lists, task pages, Status and runner claims are faster on a large database.** A task list counted each task's subtasks by checking every visible task against the page (1.5 s at 30,000 tasks) and closed its database connection afterwards, so the next read paid to open a new one; subtask summaries no longer scan every task on the server image's SQLite; a runner's claim and the queue tidy-up start from their bots' queued jobs, not from every notice ever sent; and a bot's status reads only its live and private tasks.
 - **A background job that finds its ask already exists no longer shows as failing in Health.** A duplicate refusal inside a background row (`background:<kind>:<id>`, such as `wake_stalled`) now counts as done: no error row and no "needs attention" item. Rows an older server wrote for a duplicate are removed by the hourly sweep.
