@@ -51,9 +51,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub file import s3://bucket/key [--title T] [--task ID]  copy an object with this computer's credentials
     hub file list [--bot X] [--limit N]    what is on the page, newest activity first
     hub doc list [--prefix sales/]         the company's internal docs by path
-    hub doc read <id|path|manual:name>     one doc in full, with its version; manual:<name> is a Tico manual page
+    hub doc read <id|path|external:id|manual:name>  one doc in full, with its revision and provenance
     hub doc search "<words>" [--manual] [--market]
-                                           internal and linked docs, best first, then the Tico manual (--manual:
+                                           internal and external docs, linked metadata and the Tico manual (--manual:
                                            only it; --market: also the market's notes, entities and evidence)
     hub doc write <path> --title T (--body-file F | stdin) [--note N]
                                            create or replace a doc; every write is a version
@@ -597,7 +597,7 @@ def parser():
     s.add_argument("--title")
     s.add_argument("--task")
     s.set_defaults(fn="file import")
-    docs = sub.add_parser("doc", help="the team's docs: read, search and write internal docs, list linked ones, ask the Librarian").add_subparsers(dest="sub")
+    docs = sub.add_parser("doc", help="read and search team docs and external sources, write internal docs, ask the Librarian").add_subparsers(dest="sub")
     s = docs.add_parser("archive", help="archive an internal Doc with your rights")
     s.add_argument("ref")
     s.set_defaults(fn="doc archive")
@@ -605,10 +605,11 @@ def parser():
     s.add_argument("--prefix", help="only paths starting with this, e.g. sales/")
     s.add_argument("--limit", type=int)
     s.set_defaults(fn="doc list")
-    s = docs.add_parser("read", help="one internal doc in full")
-    s.add_argument("ref", help="a doc id or a path; manual:<name> for a page of the Tico manual")
+    s = docs.add_parser("read", help="one internal or indexed external doc in full")
+    s.add_argument("ref", help="a doc id/path, external:<id>, or manual:<name>")
+    s.add_argument("--revision", help="external commit returned by search")
     s.set_defaults(fn="doc read")
-    s = docs.add_parser("search", help="search internal and linked docs, then the Tico manual")
+    s = docs.add_parser("search", help="search internal, indexed external and linked docs, then the Tico manual")
     s.add_argument("q")
     s.add_argument("--limit", type=int)
     s.add_argument("--manual", dest="collection", action="store_const", const="manual",
@@ -617,6 +618,7 @@ def parser():
                    help="only team docs")
     s.add_argument("--market", action="store_true", default=None,
                    help="also the market's notes, entities and evidence")
+    s.add_argument("--source-id", help="only this external source")
     s.set_defaults(fn="doc search")
     s = docs.add_parser("write", help="create or replace an internal doc at a path")
     s.add_argument("path")
