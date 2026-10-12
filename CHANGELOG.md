@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Add teammates from Team.** The plus beside Team offers a section, bot or human according to your permissions.
+  Bots come from the existing template picker or an editable, unsent BotOps request for a custom bot or help with an
+  existing folder or GitHub repository. Humans need an email and optional name; no invitation email is sent.
 - **Compact at, per bot.** The bot editor's Compact at (150k, 250k the default, 400k, 600k or 1M tokens) sets how full a bot's conversation
   gets before it is compacted, instead of the model's whole window: Claude Code gets `--autocompact` on every turn (when its `--help` lists it)
   and Codex `model_auto_compact_token_limit`. Changing it keeps the bot's session.
