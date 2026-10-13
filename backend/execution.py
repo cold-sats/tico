@@ -168,10 +168,6 @@ def bot_repository(c, settings, bot, rows=None, app=None):
     else:
         found = rows(bot)
         config = _json(found["config_json"]) if found else {}
-    # Assignment instances clone the source repository into a private machine-local tree.
-    # They must never receive the source's scoped GitHub token or publish task work to its trunk.
-    if config.get("assignment_branch"):
-        return ""
     bot = source_of(config) or bot
     config = rows(bot) if rows is not None else c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
     app = app[0] if app is not None else _github_app(c)
@@ -464,27 +460,13 @@ class Execution:
         load(sorted({source_of(_json(r["config_json"])) for r in configs.values()} - {""} - set(configs)))
         app, creators = (_github_app(c),), {}
         for row in rows:
-            row_config = json.loads(row["config_json"] or "{}")
-            assignment_info = None
-            if row_config.get("assignment_branch"):
-                active = c.execute("SELECT id,phase,runner_id,task_id,revision,checkpoint_json FROM assignment_branches WHERE bot=?",
-                                   (row["bot"],)).fetchone()
-                capabilities = set(H._json(runner["capabilities_json"], []) or [])
-                if (not active or active["runner_id"] != who.runner_id
-                        or active["phase"] in ("archived", "cancelled")
-                        or "assignment_instances_v1" not in capabilities):
-                    continue
-                assignment_info = {"id": active["id"], "phase": active["phase"], "task_id": active["task_id"],
-                                  "revision": active["revision"],
-                                  "checkpoint": H._json(active["checkpoint_json"], {}) or {}}
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'], configs.get(row['bot']), creators)
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
             result.append({**dict(row), 'computer_label': runner['label'], 'profile': effective(c, row['bot'], subscription_context)[0],
                            'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']), configs.get)),
                            'repository': bot_repository(c, self.store.settings, row['bot'], configs.get, app),
-                           'mail_agent': bool(P.inbox_person(row['bot'], people)),
-                           **({'assignment': assignment_info} if assignment_info else {})})
+                           'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
 
     def assign(self, c, who, bot, body):
@@ -672,26 +654,6 @@ class Execution:
                     continue
             except (ValueError, TypeError):
                 continue
-            if config.get("assignment_branch"):
-                assignment = c.execute("SELECT phase,task_id FROM assignment_branches WHERE bot=?", (bot,)).fetchone()
-                if ("assignment_instances_v1" not in runner_capabilities or not assignment
-                        or assignment["phase"] not in ("preparing", "working")):
-                    continue
-                has_linked_task = False
-                for queued in c.execute("SELECT m.*,cv.task_id AS conversation_task FROM jobs j JOIN messages m ON m.id=j.message_id "
-                                        "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.bot=? AND j.state='queued'",
-                                        (bot,)).fetchall():
-                    if H.message_task_id(queued, {"task_id": queued["conversation_task"]}) == assignment["task_id"]:
-                        has_linked_task = True
-                        break
-                if not has_linked_task:
-                    continue
-            if config.get("assignment_branch"):
-                assignment = c.execute("SELECT phase FROM assignment_branches WHERE bot=?", (bot,)).fetchone()
-                # Waiting, paused, interrupted and archived actors keep their identity and data,
-                # but cannot take work until an authorized lifecycle transition resumes them.
-                if not assignment or assignment["phase"] not in ("preparing", "working"):
-                    continue
             profile = effective(c, bot, subscription_context)[0]
             if profile:
                 if not metadata(c, "computer-profiles:" + runner["id"]).get("reported"):
@@ -743,10 +705,6 @@ class Execution:
             conversation = H.conversation(c, message["conversation_id"])
             if (row["bot"], job_lane(row["bot"], followed[row["bot"]], message, conversation, lanes)) in busy:
                 continue
-            assignment = c.execute("SELECT task_id FROM assignment_branches WHERE bot=?", (row["bot"],)).fetchone()
-            if assignment:
-                if H.message_task_id(message, conversation) != assignment["task_id"]:
-                    continue
             return row
         return None
 
@@ -1138,12 +1096,6 @@ class Execution:
                   (H.now(), body.thread_id, aid))
         c.execute("UPDATE turns SET thread_id=? WHERE id=?", (body.thread_id, aid))
         c.execute("UPDATE jobs SET state='running' WHERE id=?", (row["job_id"],))
-        branch = c.execute("SELECT id,phase FROM assignment_branches WHERE bot=?", (row["bot"],)).fetchone()
-        if branch and branch["phase"] == "preparing":
-            c.execute("UPDATE assignment_branches SET phase='working',revision=revision+1,updated=? WHERE id=?",
-                      (H.now(), branch["id"]))
-            c.execute("INSERT INTO assignment_branch_events VALUES(?,?,?,?,?,?)",
-                      (H.new_id(), branch["id"], H.KEEPER, "working", encode({"reason": "first turn started"}), H.now()))
         from .shared_bots import follow
         config = follow(c, row["bot"], json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
         runtime, model = providers.bot_choice(c, self.store.settings, config)

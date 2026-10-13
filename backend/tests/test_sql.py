@@ -225,10 +225,6 @@ def test_materialized_visibility_matches_the_predicate_and_never_survives_a_requ
         c.execute("INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)",
                   ('tree-1', 'human:cara', 'human:ana', c.execute('SELECT id FROM messages LIMIT 1').fetchone()[0],
                    H.shift(H.now(), seconds=3600)))
-        c.execute("INSERT INTO assignment_branches(id,source_bot,assignment_key,generation,bot,task_id,allocator,runner_id,"
-                  "display_name,phase,request_hash,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                  ('synthetic-assignment', 'ops', 'fixture', 1, 'doc-updater', 'tree-0', 'human:ana',
-                   world['machine']['runner_id'], 'Synthetic branch', 'working', 'fixture', H.now(), H.now()))
     callers = [Identity('human:ana', 'owner'), Identity('human:ben', 'human'),
                Identity('human:cara', 'human'), Identity('bot:ops', 'bot'), Identity('bot:doc-updater', 'bot'),
                replace(Identity('human:ana', 'owner'), task_actor='bot:ops')]

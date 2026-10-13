@@ -63,6 +63,7 @@ def copies(c, source):
         return []
     return [row["bot"] for row in c.execute("SELECT bot,config_json FROM bot_config ORDER BY bot")
             if source_of(_json(row["config_json"])) == source
+            # A retired temporary assignment (#420) also names its role in shared_from; it is no branch.
             and not _json(row["config_json"]).get("assignment_branch")]
 
 
@@ -156,33 +157,13 @@ def check_runner(c, bot, runner_id, source=None):
     config = declared(c, bot)
     original = source_of(config)
     source = source or original or bot
-    assignment = c.execute("SELECT source_bot,phase,runner_id FROM assignment_branches WHERE bot=?", (bot,)).fetchone() \
-        if H._has_table(c, "assignment_branches") else None
-    runner = c.execute("SELECT capabilities_json FROM runners WHERE id=? AND revoked_at IS NULL", (runner_id,)).fetchone()
-    capabilities = set(_json(runner["capabilities_json"]) if runner else ())
-    if assignment and assignment["runner_id"] != runner_id:
-        raise Problem("assignment_runner", "A temporary assignment stays on the source role's original computer", 409)
-    if assignment and "assignment_instances_v1" not in capabilities:
-        raise Problem("runner_capability", "This computer no longer advertises isolated assignment support", 409)
-    allowed_assignment = bool(assignment and assignment["source_bot"] == original
-                             and assignment["runner_id"] == runner_id
-                             and assignment["phase"] in ("preparing", "working")
-                             and "assignment_instances_v1" in capabilities)
     for row in c.execute("SELECT a.bot,bc.config_json FROM assignments a JOIN bot_config bc ON bc.bot=a.bot "
                          "WHERE a.runner_id=? AND a.bot<>?", (runner_id, bot)):
         other_config = _json(row["config_json"])
-        other_assignment = (c.execute("SELECT source_bot FROM assignment_branches WHERE bot=?", (row["bot"],)).fetchone()
-                            if H._has_table(c, "assignment_branches") else None)
-        shared_assignment_pair = bool("assignment_instances_v1" in capabilities and (
-            allowed_assignment and other_assignment and other_assignment["source_bot"] == assignment["source_bot"]
-            or assignment and assignment["source_bot"] == row["bot"]
-            or other_assignment and other_assignment["source_bot"] == bot))
-        if shared_assignment_pair:
-            continue
         if row["bot"] == source or source_of(other_config) == source:
             raise Problem("shared_runner", "That computer already runs the original or a branch of it. Choose another computer.", 409)
 
-    if original and not allowed_assignment:
+    if original:
         runner = c.execute("SELECT operator FROM runners WHERE id=?", (runner_id,)).fetchone()
         person = H.actor_id(config.get("reports_to") or "")
         if runner and runner["operator"] != person:
@@ -227,10 +208,6 @@ def route(c, actor, target):
 
 def cascade_archive(c, actor, source):
     """Keep branches' assignments and work intact so restoring the original resumes them."""
-    if H._has_table(c, "assignment_branches") and c.execute(
-            "SELECT 1 FROM assignment_branches WHERE source_bot=? AND phase NOT IN ('archived','cancelled') LIMIT 1",
-            (source,)).fetchone():
-        raise Problem("assignment_active", "Archive or cancel this role's temporary assignments before archiving its source", 409)
     for slug in copies(c, source):
         state = H.bot(c, slug)["state"]
         if state == "archived":
@@ -278,3 +255,26 @@ def install(app, store, auth, mutate, settings_admin, execution):
             return {"original": source, "shared": bool(declared(c, source).get("shared")),
                     "branches": [settings_admin.definition(c, slug) for slug in copies(c, source)
                                  if auth.bot_access(c, who, slug)["read"]]}
+
+
+def retire_assignments(c):
+    """Temporary task assignments are retired (#420); task sessions replaced them. Their actors are
+    archived and taken off their computers, queued turns cancelled, and open tasks go back to the role
+    they came from. The rows and the assignment_branch* tables stay as history. Idempotent."""
+    marks = ",".join("?" * len(H.ACTIVE_STATUSES))
+    for row in c.execute("SELECT bc.bot,bc.config_json,b.state FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
+                         "WHERE bc.config_json LIKE '%assignment_branch%'").fetchall():
+        config = _json(row["config_json"])
+        if not config.get("assignment_branch"):
+            continue
+        bot = row["bot"]
+        if row["state"] != "archived" or config.get("status") != "archived":
+            config["status"] = "archived"
+            c.execute("UPDATE bots SET state='archived' WHERE slug=?", (bot,))
+            c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(config), bot))
+        c.execute("DELETE FROM assignments WHERE bot=?", (bot,))
+        c.execute("UPDATE jobs SET state='cancelled' WHERE bot=? AND state='queued'", (bot,))
+        source = H.bot(c, str(config.get("shared_from") or ""))
+        if source and source["state"] != "archived":
+            c.execute(f"UPDATE tasks SET owner=?,updated=? WHERE owner=? AND status IN ({marks})",
+                      ("bot:" + source["slug"], H.now(), "bot:" + bot, *H.ACTIVE_STATUSES))
