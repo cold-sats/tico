@@ -23077,6 +23077,9 @@
           "numbered": {
             "type": "boolean"
           },
+          "steps_only": {
+            "type": "boolean"
+          },
           "created": {
             "type": "string"
           },
@@ -23109,6 +23112,7 @@
           "name",
           "numbered",
           "steps",
+          "steps_only",
           "updated"
         ],
         "additionalProperties": true
@@ -23147,6 +23151,11 @@
           "numbered": {
             "type": "boolean",
             "title": "Numbered",
+            "default": false
+          },
+          "steps_only": {
+            "type": "boolean",
+            "title": "Steps Only",
             "default": false
           }
         },
@@ -23239,6 +23248,17 @@
               }
             ],
             "title": "Numbered"
+          },
+          "steps_only": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps Only"
           }
         },
         "additionalProperties": false,

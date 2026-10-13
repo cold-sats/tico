@@ -278,6 +278,8 @@ def run(args, who=None):
                 body["bots"] = args.bots
             if args.numbered is not None:
                 body["numbered"] = args.numbered
+            if getattr(args, "steps_only", None) is not None:
+                body["steps_only"] = args.steps_only
             return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
         if sub == "types":
             if args.delete:

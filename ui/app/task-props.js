@@ -307,8 +307,9 @@ function taskPropsBind(d, task, change) {
     items.push({text: 'Copy link', run: async () => {
       try { await navigator.clipboard.writeText(`${location.origin}/#/task/${encodeURIComponent(task.id)}`); toast('Link copied'); } catch { toast('Could not copy the link', true); }
     }});
-    if (!r.live && r.reopen) items.push({text: 'Reopen', run: () => save('status', {status: 'open'})});
-    if (task.status !== 'closed' && (r.mover || r.party)) items.push({text: 'Close task', danger: true, run: () => save('status', {close: true})});
+    const stepsOnly = pipelineStepsOnly(task);
+    if (!r.live && r.reopen && !stepsOnly) items.push({text: 'Reopen', run: () => save('status', {status: 'open'})});
+    if (task.status !== 'closed' && (r.mover || r.party) && !stepsOnly) items.push({text: 'Close task', danger: true, run: () => save('status', {close: true})});
     propMenu(d, more, {label: 'Task', items: items.map(it => ({...it, html: `<span>${esc(it.text)}</span>`})), onPick: it => it.run()});
   };
 }

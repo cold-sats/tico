@@ -154,6 +154,13 @@ The digits alone are not read as a number, since a cut-short id can look the sam
 
 Numbers range from 1 to 999999999; an exhausted sequence refuses a new number without creating a task.
 
+A mover can also make a custom type **steps only**: its tasks change status only by moving to a step.
+Closing, declining, reopening or finishing one directly (`close`, or a `status` that differs from the
+current one without a `step`) is refused (`422 kind`) for every person and bot, and the web app
+offers no Done, Close or Reopen on them. A task that should not be on the board is deleted instead.
+Filing a task onto the type and the keeper's own automation are unaffected. Without it, a bare status
+lands the task in the first step with that status, which on a board is rarely the one anyone meant.
+
 A task also has a place within its step, `step_rank`, lower first, apart from `rank`, its place in
 its owner's queue. A task that enters a step, when it is created or its step, type or status
 changes, goes to the end of the step, or to the top when it is created with `top`. The people on
@@ -170,7 +177,7 @@ hub task update <task-id> --title "(B/F) Account page: improve the copy"
 hub task update <task-id> --status review
 hub task update <task-id> --type General
 hub task update <task-id> --step ""
-hub task type update "Dev ticket" --numbered
+hub task type update "Dev ticket" --numbered --steps-only
 hub task create --owner ben --title "(B/F) Fix the account page" --type "Dev ticket" --number 18945
 hub task show '#18945'
 hub task update '#18945' --step "On deck" --step-rank 2.5
@@ -180,7 +187,7 @@ hub task list --type "Dev ticket" --sort step
 `hub_task_types` lists types and ordered steps. `hub_task_create` and `hub_task_update` accept
 `type` and `step`, as ids or names, and `number`; `hub_task_update` also takes `step_rank` and `title`, and
 `hub_task_list` takes `type`, `step` and `sort`. Movers manage definitions with `hub_task_type_create`,
-`hub_task_type_update` and `hub_task_type_delete` (with `numbered`), or `hub task type create|update|delete`.
+`hub_task_type_update` and `hub_task_type_delete` (with `numbered` and `steps_only`), or `hub task type create|update|delete`.
 
 For example, put this JSON array in `steps.json`:
 
@@ -197,7 +204,7 @@ explicit positions are provided. Omitted steps are removed; new steps omit `id`.
 
 `GET/POST /api/v2/task-types` list and create types. `GET/POST /api/v2/task-types/{id}` read and
 update one. `DELETE /api/v2/task-types/{id}`, or `POST /api/v2/task-types/{id}/delete`, deletes an
-unused type. Create and update accept `numbered`; updates accept `name` and a replacement `steps`
+unused type. Create and update accept `numbered` and `steps_only`; updates accept `name` and a replacement `steps`
 array, retaining existing step ids. All writes use the existing Idempotency-Key contract. Task
 create and update accept `type`, `step` and `number`, and update accepts `step_rank` and `title`; task answers
 include `type_id`, `step_id`, a `type` object, a `step` object (null when unmapped), `number` and

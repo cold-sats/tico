@@ -38,7 +38,7 @@ The operation groups below are generated from the committed spec's tags. After r
 | Needs you | What is waiting on the signed-in person: questions, tasks, approvals. |
 | Meetings | Recorded meetings. |
 | Files | What a bot creates, revises or delivers, listed on its page ([guide](files.md)). |
-| Docs | The team's docs ([guide](docs.md)): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both. |
+| Docs | The team's docs ([guide](docs.md)): internal docs written or imported in Tico, with history and locks; external sources, including indexed public GitHub docs; and search across them. |
 | Assistant | The signed-in person's own private Assistant chat ([guide](assistant.md)): ask, and confirm what it proposes. |
 | Goals | What every person and bot is for ([guide](goals-and-kpis.md)): goals with a colour the Goal Manager works out from their KPIs, unless a person set one; check-ins in the owner's words; proposals the owner confirms. |
 | KPIs | Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, evidence and a quality, never edited; a correction supersedes the old one. |

@@ -5,6 +5,8 @@ let TASK_TYPES_LOADING = null;
 const PIPELINE_STATUSES = ['open', 'doing', 'waiting', 'review', 'ready', 'done', 'closed', 'declined'];
 const pipelineTypeId = task => task.type_id || task.type?.id || 'general';
 const pipelineType = task => TASK_TYPES.find(type => type.id === pipelineTypeId(task));
+// A steps-only type's tasks change status only by a step move: no Done, Close or Reopen of their own.
+const pipelineStepsOnly = task => !!pipelineType(task)?.steps_only;
 const pipelineSelectedType = state => TASK_TYPES.find(type => type.id === state?.type);
 const pipelineActionStatus = (task, body) => body.status || pipelineType(task)?.steps.find(step => step.id === body.step)?.status;
 const pipelineStepName = id => TASK_TYPES.flatMap(type => type.steps).find(step => step.id === id)?.name || id;

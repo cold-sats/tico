@@ -493,7 +493,7 @@ SCHEMAS = {
     "Conversation": obj({"id": "s", "kind": "s", "subject": "s", "participants": items({"type": "string"}),
                          "created": "s", "last_message_at": "s", "closed_at": "n"}),
     "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "position": "i", "status": "s"}),
-    "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
+    "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "steps_only": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
                     bots={"type": ["string", "null"], "enum": ["read", "work", None],
                           "description": "What every bot may do with the type's tasks beyond its own: read "
                                          "(read, comment, file subtasks) or work (also change them); null keeps "

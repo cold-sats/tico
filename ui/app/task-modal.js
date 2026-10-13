@@ -505,8 +505,8 @@ function hubModalHTML(t, it, opts = {}) {
   const pos = opts.peek ? taskPeekPos(t.id) : '';
   // Done for the owner; Close as the "…" menu allows it (who may move tasks, or the task's parties)
   const rights = taskPropRights(t);
-  const canDone = !finished && t.status !== 'done' && !!myActor() && myActor() === t.owner;
-  const canClose = t.status !== 'closed' && (rights.mover || rights.party);
+  const canDone = !finished && t.status !== 'done' && !!myActor() && myActor() === t.owner && !pipelineStepsOnly(t);
+  const canClose = t.status !== 'closed' && (rights.mover || rights.party) && !pipelineStepsOnly(t);
   return `<div class="tmodal-head"><span class="pill tstatus">${esc(statusWord)}</span>${blockers.length && !finished
       ? `<span class="tchip-blocked" title="Blocked by ${esc(blockers.map(b => b.title).join(', '))}">blocked</span>` : ''}
       <span class="tmodal-owner">${actorFace(t.owner, 18)}<span class="who">${esc(actorLabel(t.owner))}</span></span>

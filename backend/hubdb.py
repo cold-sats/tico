@@ -936,6 +936,8 @@ def migrate(conn, adopt_legacy=False):
     add_column(conn, "messages", "deleted_at", "TEXT")
     # An ask that a later ask by the same bot on the same task, or the task's end, made moot (supersede_asks).
     add_column(conn, "messages", "superseded_at", "TEXT")
+    # A type whose tasks change status only by moving between its steps (`_task_state`).
+    add_column(conn, "task_types", "steps_only", "INTEGER NOT NULL DEFAULT 0")
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -2085,6 +2087,7 @@ def type_get(conn, value):
                (value, value, value))
     if row:
         row["numbered"] = bool(row.get("numbered"))
+        row["steps_only"] = bool(row.get("steps_only"))
         row["steps"] = _rows(conn.execute("SELECT * FROM task_steps WHERE type_id=? ORDER BY position,id", (row["id"],)))
     return row
 
@@ -2094,6 +2097,7 @@ def type_list(conn):
     steps = _rows(conn.execute("SELECT * FROM task_steps ORDER BY position,id"))
     for row in rows:
         row["numbered"] = bool(row.get("numbered"))
+        row["steps_only"] = bool(row.get("steps_only"))
         row["steps"] = [step for step in steps if step["type_id"] == row["id"]]
     return rows
 
@@ -2308,20 +2312,20 @@ def _type_steps(conn, actor, type_id, steps):
                      "name=excluded.name,position=excluded.position,status=excluded.status", row)
 
 
-def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     bots = _type_bots(conn, actor, bots)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,bots,numbered,created,updated) VALUES(?,?,?,?,?,?)",
-                 (ident, name, bots, int(bool(numbered)), ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,bots,numbered,steps_only,created,updated) VALUES(?,?,?,?,?,?,?)",
+                 (ident, name, bots, int(bool(numbered)), int(bool(steps_only)), ts, ts))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, steps_only=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -2333,6 +2337,8 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=No
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
     if numbered is not None:
         conn.execute("UPDATE task_types SET numbered=? WHERE id=?", (int(bool(numbered)), row["id"]))
+    if steps_only is not None:
+        conn.execute("UPDATE task_types SET steps_only=? WHERE id=?", (int(bool(steps_only)), row["id"]))
     if steps is not None:
         _type_steps(conn, actor, row["id"], steps)
     if bots is not None:
@@ -2378,6 +2384,13 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
     if effective not in TASK_STATUSES:
         refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
+    # On a steps-only type the steps are the only states: a bare status (close, decline, reopen, done)
+    # would land the task in whichever step shares it. Filing onto the type and the keeper's own
+    # automation still set one.
+    if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
+            and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]):
+        refuse(conn, actor, "kind", f"A {typ['name']} task changes status only by moving it to a step, "
+                                    "not by closing, declining, reopening or finishing it; move it, or delete it")
     return typ["id"], chosen["id"] if chosen else None, effective
 
 

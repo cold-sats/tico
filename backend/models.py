@@ -182,6 +182,7 @@ class TaskTypeCreate(Contract):
     steps: list[TaskStepInput] = Field(default_factory=list)
     bots: TypeBots | None = None
     numbered: bool = False
+    steps_only: bool = False
 
 
 class TaskTypeUpdate(Contract):
@@ -189,6 +190,7 @@ class TaskTypeUpdate(Contract):
     steps: list[TaskStepInput] | None = None
     bots: TypeBots | None = None
     numbered: bool | None = None
+    steps_only: bool | None = None
 
 
 class QuestionOption(Contract):
