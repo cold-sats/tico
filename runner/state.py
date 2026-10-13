@@ -6,27 +6,16 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from clients import sessions
+from clients.sessions import BOT_THREAD  # noqa: F401  (runner/service.py imports it from here)
+
 from . import isolation
 
 
-# The default provider thread. BotOps isolates jobs by default; other bots can
-# opt into the same isolation with session: task.
-BOT_THREAD = "bot"
-
-
 def session_key(config, attempt):
-    """The provider thread this turn continues. BotOps and bots set to `session: task` get one
-    per task, so a review never carries every earlier review into each call; a wake about the
-    same task (a stalled nudge, a reconcile, a reply) resumes it. A wake with no task keys on
-    its conversation, so a person's follow-up still lands where the first answer was."""
-    mode = (config or {}).get("session") or ("task" if attempt.get("bot") == "botops" else "bot")
-    if mode != "task":
-        return BOT_THREAD
-    task = (attempt.get("task") or {}).get("id")
-    if task:
-        return "task:" + task
-    conversation = (attempt.get("conversation") or {}).get("id")
-    return "conversation:" + conversation if conversation else BOT_THREAD
+    """The provider thread this turn continues (clients/sessions.py), read from a claimed attempt."""
+    return sessions.session_key(config, attempt.get("bot"), (attempt.get("task") or {}).get("id"),
+                                (attempt.get("conversation") or {}).get("id"))
 
 
 class State:

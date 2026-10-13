@@ -876,7 +876,7 @@ class Heartbeat(Contract):
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=32)
-    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1"]] = Field(default_factory=list, max_length=20)
+    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1"]] = Field(default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1426,7 +1426,10 @@ class Recruit(Contract):
 
 
 class Claim(Contract):
+    # Bots the runner takes no work for at all (maintenance, or a runner without lanes that is busy).
     busy_bots: list[ID] | None = Field(default=None, max_length=32)
+    # Lanes the runner is already running, each "bot|lane" (clients/sessions.py lane), when it runs lanes.
+    busy_lanes: list[Annotated[str, Field(min_length=3, max_length=256)]] | None = Field(default=None, max_length=256)
     bot: ID | None = None
     # The runner puts next-run tasks in its prompt. One that does not say so is never handed
     # any, so they wait for it rather than being marked carried and never read.
