@@ -1137,6 +1137,7 @@ class Execution:
                   "thread_id=excluded.thread_id,runner_id=excluded.runner_id,updated=excluded.updated",
                   (row["bot"], runtime, model, body.thread_id, who.runner_id, H.now()))
         msg = c.execute("SELECT message_id FROM jobs WHERE id=?", (row["job_id"],)).fetchone()[0]
+        H.task_session_started(c, row["bot"], row["lane"], msg, body.thread_id, runtime)
         H.mark_delivered(c, H.KEEPER, msg)
         H.status_set(c, H.KEEPER, row["bot"], state="running", focus="Responding to queued work",
                      task_id=H.message_task_id(H.message(c, msg)) or "")

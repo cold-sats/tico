@@ -40,6 +40,10 @@ function fixtures() {
       pr('p2', 214, 'Price rounding', {checks: 'pending', mergeable: 'conflict'}),
       pr('p3', 198, 'Cart badge', {state: 'merged'}),
       {id: 'd1', kind: 'doc', url: 'https://docs.example.com/checkout', title: 'Checkout spec', state: 'open'},
+      // Session rows as backend/hubdb.py writes them: a linked one (url session:<value>), then the owning bot's primary.
+      {id: 's2', kind: 'session', url: 'session:codex resume 019a2b', title: 'codex 019a2b', detail_json: JSON.stringify({primary: false, harness: 'codex', thread_id: '019a2b'})},
+      {id: 's0', kind: 'session', url: 'session:api/thread-old', title: 'api', detail_json: JSON.stringify({primary: false, harness: 'codex', thread_id: 'thread-old', bot: 'api'})},
+      {id: 's1', kind: 'session', url: 'session:eng/thread-abc', title: 'eng', detail_json: JSON.stringify({primary: true, harness: 'claude', thread_id: 'thread-abc', bot: 'eng'})},
     ]});
   const kid = (id, title, status, owner, pr_state = null, children = []) => ({id, title, status, owner, pr_state, children});
   const tree = [kid('k1', 'Summary step on web', 'review', 'bot:eng', 'failing', [kid('k1a', 'Copy for the summary', 'done', 'human:sam', 'merged')]),
@@ -115,6 +119,13 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
     const tree = p.match(/^\/api\/v2\/tasks\/([^/]+)\/tree$/);
     // As backend/hubdb.py task_tree answers: the direct children, each with its own nested children.
     if (tree) return json(tree[1] === 't-checkout' ? data.tree : []);
+    const links = p.match(/^\/api\/v2\/tasks\/([^/]+)\/links$/);
+    if (links && method === 'POST') {
+      const body = req.postDataJSON(); writes.push({method, p, body});
+      const t = data.tasks.find(x => x.id === links[1]);
+      t.links.push({id: 's' + t.links.length, kind: body.kind || 'url', url: 'session:' + body.url, title: body.url, detail_json: '{"primary":false}'});
+      return json({links: t.links});
+    }
     const link = p.match(/^\/api\/v2\/tasks\/([^/]+)\/links\/([^/]+)$/);
     if (link && method === 'DELETE') {
       writes.push({method, p});
@@ -198,6 +209,22 @@ async function desktop(browser) {
   assert.equal(await rail.locator('.code-line.pr a').first().getAttribute('target'), '_blank');
   assert.equal(await modal.locator('.tlinks a', {hasText: 'Checkout spec'}).count(), 1, 'a doc link stays in Links & files');
   assert.equal(await modal.locator('.tlinks a', {hasText: 'Checkout summary step'}).count(), 0, 'a PR is not listed twice');
+  // Sessions: the owning bot's primary first (its resume command to copy, no ✕), then linked ones; none under Links.
+  const sessions = modal.locator('.task-sessions .tlink');
+  assert.equal(await sessions.count(), 3);
+  assert.match(await sessions.first().innerText(), /Engineer · claude/);
+  assert.match(await sessions.first().locator('[data-copy-session]').getAttribute('data-copy-session'), /&& claude --resume thread-abc$/);
+  assert.equal(await sessions.first().locator('[data-drop-link]').count(), 0);
+  assert.equal(await sessions.nth(1).locator('[data-copy-session]').getAttribute('data-copy-session'), 'codex resume 019a2b');
+  // An earlier owner's session keeps its full resume command.
+  assert.match(await sessions.nth(2).locator('[data-copy-session]').getAttribute('data-copy-session'), /emp-api && codex resume thread-old$/);
+  assert.equal(await modal.locator('.task-links .tlink').count(), 1, 'Links keeps only the doc');
+  await modal.locator('[data-session-add]').click();
+  const sessionInput = modal.locator('[data-modal-session] input');
+  await sessionInput.fill('claude --resume 4f1e'); await sessionInput.press('Enter');
+  await sessions.nth(3).waitFor();
+  assert.deepEqual(writes.at(-1), {method: 'POST', p: '/api/v2/tasks/t-checkout/links', body: {url: 'claude --resume 4f1e', kind: 'session'}});
+  if (SHOTS) { fs.mkdirSync(SHOTS, {recursive: true}); await modal.locator('.task-sessions').screenshot({path: path.join(SHOTS, 'task-sessions-dark.png')}); }
   // Subtasks: the roll-up, one level, PR badges, expand a child.
   assert.equal(await rail.locator('.sub-sum').innerText(), '4 of 10 done · 7 PRs merged');
   assert.equal(await rail.locator('.sub-sum .sub-bar > i').evaluate(i => i.style.width), '40%', 'a thin bar beside it');

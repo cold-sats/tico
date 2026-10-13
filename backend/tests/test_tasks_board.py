@@ -1,6 +1,7 @@
 """The tasks board: queues in rank order, two lanes,
 labels, blocked-by, links, comments that wake or wait, movers, and plain-English titles."""
 
+import json
 import uuid
 
 import pytest
@@ -561,6 +562,11 @@ def test_people_can_change_visible_task_links_but_bots_need_task_rights(api):
     post(api, path, {'url': 'https://example.com/plan'}, token=token, expected=403)
     link = post(api, path, {'url': 'https://example.com/work'})['links'][-1]
     post(api, path, {'remove': link['id']}, token=token, expected=403)
+    # A session link follows the same rights: any person who sees the task, a bot only with task rights.
+    post(api, path, {'url': 'codex resume abc123', 'kind': 'session'}, token=token, expected=403)
+    session = post(api, path, {'url': 'codex resume abc123', 'kind': 'session'}, token='priya-test')['links'][-1]
+    assert (session['kind'], session['url']) == ('session', 'session:codex resume abc123')
+    assert json.loads(session['detail_json']) == {'primary': False, 'harness': 'codex', 'thread_id': 'abc123'}
     # The owning bot and an ancestor party retain their task rights.
     parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Track linked work', 'body': 'x'})
     child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build linked work', 'body': 'x', 'relations': [{'task': parent['id'], 'kind': 'parent'}]})

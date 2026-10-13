@@ -292,6 +292,9 @@ class TaskLink(Contract):
     url: str | None = Field(default=None, max_length=2000)
     title: str | None = Field(default=None, max_length=200)
     remove: ID | None = None
+    # Only a session link is asked for by kind: its value may be a resume command, not a URL. Tico sets
+    # which session is primary; a client never does.
+    kind: Literal["session"] | None = None
 
 
 class TaskRelation(Contract):

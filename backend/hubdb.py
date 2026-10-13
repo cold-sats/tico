@@ -114,7 +114,7 @@ LANE_TEAMS = ("product", "engineering")     # store.py's one-time lane migration
 # registry/people.yaml, so adding a mover is a roster edit. The environment owner always may.
 MOVER_TEAMS = ("leadership", "product", "engineering")
 MOVER_FIELDS = ("lane", "labels")   # what only a mover changes (a parent or blocker: task_relations)
-LINK_KINDS = ("pr", "issue", "url", "doc", "worktree")
+LINK_KINDS = ("pr", "issue", "url", "doc", "worktree", "session")
 TITLE_LINT = os.environ.get("TICO_TITLE_LINT", "warn")     # warn | refuse | off
 # Rule 7's writing checks on an item for a person and the shape of an update: warned about with
 # the write accepted, refused only when TICO_STYLE_LINT=refuse. Bots lost whole runs rewriting
@@ -2735,6 +2735,8 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
         refuse(conn, actor, "not-found", f"no task {task_id}")
     _task_link_allowed(conn, actor, row, mover, kind or link_kind(str(url or "")))
     url = str(url or "").strip()
+    if kind == "session":
+        return _task_session_link(conn, actor, task_id, url, title)
     if not re.match(r"^https?://\S+$", url):
         refuse(conn, actor, "kind", "a link is an http(s) URL")
     kind = kind or link_kind(url)
@@ -2764,6 +2766,83 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
     conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
     event(conn, actor, "task.link", task_id, {"url": url, "kind": kind})
     return link
+
+
+# A harness's resume command, optionally after the `cd` into the bot's folder that botResumeCommand writes.
+RESUME_COMMAND = re.compile(r"^(?:cd \S+ && )?(claude|codex|gemini|grok|pi|cursor-agent|antigravity)"
+                            r"\s+(?:--resume|resume|-r)\s+([\w.:-]+)$")
+
+
+def _session_detail(link):
+    try:
+        return json.loads(link.get("detail_json") or "{}")
+    except ValueError:
+        return {}
+
+
+def _task_session_link(conn, actor, task_id, value, title):
+    """An alternate session someone tracks on a task: a Bot Desk thread (http), a resume command, an Orca
+    reference. Tracking only: task chat goes to the owning bot, never here. A value that is not a page is
+    stored as `session:<value>` so nothing that opens a link's url treats it as one."""
+    if not value or len(value) > 500 or any(ord(ch) < 32 for ch in value):
+        refuse(conn, actor, "kind", "a session link is one line: a URL, a resume command or a reference")
+    url = value if re.match(r"^https?://\S+$", value) else "session:" + value
+    have = _one(conn, "SELECT * FROM task_links WHERE task_id=? AND url=?", (task_id, url))
+    if have:
+        return have
+    resume = RESUME_COMMAND.match(value)
+    detail = {"primary": False, **({"harness": resume.group(1), "thread_id": resume.group(2)} if resume else {})}
+    title = str(title or "").strip() or (urlsplit(value).netloc if url == value else
+                                         f"{resume.group(1)} {resume.group(2)[:8]}" if resume else value[:60])
+    link = {"id": new_id(), "task_id": task_id, "url": url, "title": title[:200], "added_by": actor,
+            "created": now(), "detail_json": json.dumps(detail)}
+    conn.execute("INSERT INTO task_links (id, task_id, kind, url, title, added_by, created, detail_json, updated) "
+                 "VALUES (:id, :task_id, 'session', :url, :title, :added_by, :created, :detail_json, :created)", link)
+    _task_event(conn, task_id, actor, "link", None, url, title)
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
+    event(conn, actor, "task.link", task_id, {"url": url, "kind": "session"})
+    return _one(conn, "SELECT * FROM task_links WHERE id=?", (link["id"],))
+
+
+def _demote_sessions(conn, task_id, owner=None):
+    """At most one primary session per task: the owning bot's (`owner` is the task's owner, `bot:<slug>`).
+    Another owner's stays as an alternate."""
+    for link in _rows(conn.execute("SELECT * FROM task_links WHERE task_id=? AND kind='session'", (task_id,))):
+        detail = _session_detail(link)
+        if detail.get("primary") and "bot:" + str(detail.get("bot")) != owner:
+            detail["primary"] = False
+            conn.execute("UPDATE task_links SET detail_json=?,updated=? WHERE id=?", (json.dumps(detail), now(), link["id"]))
+
+
+def task_session_started(conn, bot, lane, message_id, thread_id, runtime):
+    """Record the owning bot's task session as the task's primary session when its turn starts. Only a
+    turn in the task's own lane (`task:<id>`, set at claim from the config the runner keyed its session
+    on) is one: a bot's shared thread carries every other conversation too, so it is nobody's task session."""
+    msg = message(conn, message_id) if message_id else None
+    task_id = msg and message_task_id(msg, conversation(conn, msg["conversation_id"]))
+    row = task(conn, task_id) if task_id else None
+    if not thread_id or not row or lane != "task:" + task_id or row["owner"] != "bot:" + bot:
+        return
+    url = f"session:{bot}/{thread_id}"
+    detail = json.dumps({"primary": True, "harness": runtime, "thread_id": thread_id, "bot": bot})
+    links = _rows(conn.execute("SELECT * FROM task_links WHERE task_id=? AND kind='session'", (task_id,)))
+    # The row this thread already has, else the bot's primary from an earlier thread (a reset, a
+    # compaction), which this one replaces in place.
+    target = (next((link for link in links if link["url"] == url), None)
+              or next((link for link in links if _session_detail(link).get("primary")
+                       and _session_detail(link).get("bot") == bot), None))
+    if target and (target["url"], target.get("detail_json")) != (url, detail):
+        conn.execute("UPDATE task_links SET url=?,title=?,detail_json=?,updated=? WHERE id=?",
+                     (url, bot, detail, now(), target["id"]))
+    elif not target:
+        target = {"id": new_id()}
+        conn.execute("INSERT INTO task_links (id, task_id, kind, url, title, added_by, created, detail_json, updated) "
+                     "VALUES (?,?,'session',?,?,?,?,?,?)", (target["id"], task_id, url, bot, KEEPER, now(), detail, now()))
+    # At most one primary: every other session on the task is an alternate now.
+    for link in links:
+        if link["id"] != target["id"] and _session_detail(link).get("primary"):
+            other = {**_session_detail(link), "primary": False}
+            conn.execute("UPDATE task_links SET detail_json=?,updated=? WHERE id=?", (json.dumps(other), now(), link["id"]))
 
 
 def _task_link_allowed(conn, actor, row, mover=None, kind=None):
@@ -3584,6 +3663,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         if private_tasks_default(conn, new_owner):
             sets.append("private=1")
         if is_bot(row['owner']) and 'detail_json' in {r[1] for r in conn.execute('PRAGMA table_info(task_links)')}:
+            _demote_sessions(conn, task_id, owner=new_owner)
             for link in task_links(conn, task_id):
                 if link['kind'] == 'worktree':
                     detail = json.loads(link.get('detail_json') or '{}')
