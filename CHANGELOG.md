@@ -30,6 +30,7 @@ All notable changes to Tico are recorded here. The format follows
 - **A Decide card's bot opens the bot.** Tapping the bot's name or face at the top of a card opens that bot, as its entry in the side rail does. The card's own buttons aren't touched. A card from a person has no link.
 
 ### Changed
+- **A bot can hold 30 task worktrees, up from 10.** The computer's 5 GB free-disk floor can stop it sooner. Nothing is removed to make room: at the limit, creation names the oldest idle worktrees to clean up first.
 - **A person's comment wakes the bot that filed a task only when it's meant for it, and an @mention reaches the person.** On a task a bot filed and a person owns, a person's comment wakes that bot only when it @mentions the bot (`@ops`, or its name) or the task waits on that person; any other comment reaches the bot on its next turn. A comment on a task a bot owns, or on a task with no bot on it, wakes as before. A person @mentioned in a comment gets it as a question, which puts the task in their Needs you.
 
 ### Fixed
