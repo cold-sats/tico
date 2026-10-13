@@ -101,6 +101,21 @@ def test_a_deleted_task_comes_back_whole_and_keeps_its_number(api):
         assert restore_tasks(c, [ticket["id"]])["missing"] == [ticket["id"]]
 
 
+def test_a_task_with_attached_files_deletes_hides_them_and_restores_them(api):
+    api.app.state.store.settings.assistant_bot = "ops"      # a person's upload is filed under the assistant
+    ticket = post(api, "tasks", {"owner": "priya", "title": "Try the coworkers flow", "body": "x"}, token="ben-test")
+    attached = post(api, f"tasks/{ticket['id']}/files", {"name": "report.md", "text": "# Report"}, token="ben-test")
+    url = f"/api/v2/files/{attached['file_id']}"
+    assert api.get(url, headers=headers("priya-test")).content == b"# Report"
+    assert post(api, f"tasks/{ticket['id']}/delete", {}, token="ben-test") == {"deleted": ticket["id"]}
+    # While its task is in the trash nobody may open the file, not even who attached it.
+    for token in ("ben-test", "priya-test", "ana-test"):
+        assert api.get(url, headers=headers(token)).status_code == 404
+    post(api, f"tasks/{ticket['id']}/restore", {}, token="ben-test")
+    assert api.get(url, headers=headers("priya-test")).content == b"# Report"
+    assert [f["name"] for f in get(api, f"tasks/{ticket['id']}/files", token="ben-test")["files"]] == ["report.md"]
+
+
 def test_a_bulk_delete_and_restore_keeps_links_inside_the_list(api):
     from backend.task_delete import restore_tasks
     store = api.app.state.store

@@ -2778,7 +2778,7 @@ def create_app(settings=None):
     @app.post("/api/v2/tasks/{tid}/delete")
     def task_delete(request: Request, tid: str, body: M.Empty):
         """A person deletes a task made by mistake: its human requester, or anyone who may move any
-        task. Bots and delegated sessions close instead. A task carrying work (a bot turn, a file,
+        task. Bots and delegated sessions close instead. A task carrying work (a bot turn, a bot's own file,
         an approval, a subtask) is refused, so deleting never takes away what someone did. The task
         goes to the trash, from which it can be restored."""
         who = request.state.identity

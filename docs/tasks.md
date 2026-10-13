@@ -537,8 +537,9 @@ unset, and the answer says which. Whoever deleted the task, its requester, or an
 task can restore it.
 
 A task carrying work is refused (`409 has_work`, close it instead), so deleting never touches what
-someone did: a bot turn, a job, an approval, a file, a routine occurrence, a meeting delivery, or a
-subtask. The audit log keeps `task.deleted`, `task.restored` and `task.purged` events with who did it
+someone did: a bot turn, a job, an approval, a bot's own file, a routine occurrence, a meeting
+delivery, or a subtask. Files attached to the task or its comments are not work: they go with the
+task, no one can open them while it is in the trash, and a restore brings them back. The audit log keeps `task.deleted`, `task.restored` and `task.purged` events with who did it
 and the task's title.
 
 To delete many at once, such as a bulk import run twice, the owner runs the offline command on the
