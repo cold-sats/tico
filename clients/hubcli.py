@@ -24,6 +24,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task create --owner <bot|human> --title "..." [--body "..."|--body-file f] [--due D] [--parent ID]
                     [--goal ID] [--dry-run] the checks a create would fail, nothing written
                     [--next-run]           for a bot: no wake; its next run carries the task
+                                           blocked on a person? --owner <person> --parent <your task>
     hub task ask <id> "<question>"
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
                                            one decision as its own task, waiting on them; none for Yes / No
@@ -1433,6 +1434,8 @@ def parser():
     s.add_argument("--repo", help="its GitHub repository: <org>/bot-<slug>")
     s.add_argument("--status", choices=("active", "paused", "planned"))
     s.add_argument("--session", choices=("bot", "task"), help="one provider session per bot or per task")
+    s.add_argument("--subtask-session", choices=("parent", "own"),
+                   help="parent (default): a subtask continues its parent task's session; own: its own session")
     s.add_argument("--shared", action=argparse.BooleanOptionalAction, default=None, help="allow branches")
     s.set_defaults(fn="bot update")
     s = bot.add_parser("check", help="what preflight would still refuse about that repository")

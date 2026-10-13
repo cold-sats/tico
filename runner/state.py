@@ -12,15 +12,22 @@ from clients.sessions import BOT_THREAD  # noqa: F401  (runner/service.py import
 from . import isolation
 
 
+def session_task(attempt):
+    """The task a claimed turn keys its session on: the server's `session_task_id` (a subtask continues its
+    parent's session, backend/hubdb.py session_root), else the task itself."""
+    task = attempt.get("task") or {}
+    return task.get("session_task_id") or task.get("id")
+
+
 def session_key(config, attempt):
     """The provider thread this turn continues (clients/sessions.py), read from a claimed attempt."""
-    return sessions.session_key(config, attempt.get("bot"), (attempt.get("task") or {}).get("id"),
+    return sessions.session_key(config, attempt.get("bot"), session_task(attempt),
                                 (attempt.get("conversation") or {}).get("id"))
 
 
 def lane(config, attempt):
     """The lane this turn runs in: the server's word when it sent one, else worked out the same way."""
-    return attempt.get("lane") or sessions.lane(config, attempt.get("bot"), (attempt.get("task") or {}).get("id"),
+    return attempt.get("lane") or sessions.lane(config, attempt.get("bot"), session_task(attempt),
                                                 (attempt.get("conversation") or {}).get("id"))
 
 

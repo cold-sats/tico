@@ -246,14 +246,19 @@ class Rule5Tasks(HubCase):
             {"id": "pick", "header": "", "question": "Which image?", "options": [{"label": "A"}, {"label": "B"}],
              "multi": False, "other": True}], "who": ANA})
         H.task_update(self.conn, ANA, row["id"], status="done", note="Use B.")
-        for bot in (CMO, SEO, COO, ANALYTICS):
+        for bot in (CMO, SEO, COO):
             told = self.finished(row, bot)
             self.assertEqual(len(told), 1, bot)
             self.assertIn("Use B.", told[0]["body"])
         self.assertFalse(self.finished(row, ANA))
+        # The parent's bot hears it once, on the parent, where its session continues.
+        self.assertFalse(self.finished(row, ANALYTICS))
+        [on_parent] = [m for m in H.messages(self.conn, parent["conversation_id"])
+                       if m["to_actor"] == ANALYTICS and "Subtask done: Pick the hero image" in m["body"]]
+        self.assertIn("Use B.", on_parent["body"])
         quiet = {m["to_actor"]: bool(json.loads(m["refs_json"]).get("quiet")) for m in H.messages(self.conn, row["conversation_id"])
                  if m["body"].startswith("Finished:")}
-        self.assertEqual(quiet, {CMO: True, SEO: False, COO: False, ANALYTICS: False}, "tasks-only bots hear it quietly")
+        self.assertEqual(quiet, {CMO: True, SEO: False, COO: False}, "tasks-only bots hear it quietly")
         # A private task tells only its parties: the parent's owner cannot read it.
         secret = H.task_create(self.conn, ANA, "Review the settlement", "Read it.", SEO, parent_id=parent["id"], private=True)
         H.task_update(self.conn, ANA, secret["id"], status="done", note="Signed.")

@@ -481,11 +481,11 @@ def test_three_level_tree_requester_rules_cycles_and_last_child_wake(api):
     relate(api, parent['id'], leaf['id'], 'parent', expected=422)
     leaf = post(api, 'tasks/' + leaf['id'], {'version': leaf['version'], 'close': True})
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM messages WHERE body LIKE 'All subtasks done%'").fetchone()[0] == 1
     child = post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'})
     assert get(api, 'tasks/' + parent['id'])['task']['children_summary']['done'] == 2
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == 2
+        assert c.execute("SELECT count(*) FROM messages WHERE body LIKE 'All subtasks done%'").fetchone()[0] == 2
     other = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the next feature', 'body': 'x'})
     child = relate(api, child['id'], other['id'], 'parent')
     assert get(api, 'tasks/' + parent['id'] + '/tree') == []

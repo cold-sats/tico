@@ -2823,14 +2823,54 @@ def _demote_sessions(conn, task_id, owner=None):
             conn.execute("UPDATE task_links SET detail_json=?,updated=? WHERE id=?", (json.dumps(detail), now(), link["id"]))
 
 
+# How far up a session root is looked for: deeper trees are rare, and the cap bounds the walk.
+SESSION_ROOT_DEPTH = 20
+
+
+def session_root(conn, bot, task_id, config=None):
+    """The task whose session a bot's turn on `task_id` continues. A subtask does not get a session of its
+    own: the walk goes up through parents the same bot owns and stops at the topmost, so a bot working a
+    subtask it filed under its own task (or a person's subtask under it) continues that task's session.
+    A parent with another owner, or one whose readers differ, ends the walk: a bot-owned subtask under a
+    person's task is its own root, and a session never carries one task's words to people who cannot read it.
+    `subtask_session: own` in the bot's config keeps every subtask its own session (clients/sessions.py)."""
+    if not task_id or (config or {}).get("subtask_session") == "own":
+        return task_id
+    root, seen = task_id, {task_id}
+    current = _one(conn, "SELECT id,owner,requester,private FROM tasks WHERE id=?", (task_id,))
+    for _ in range(SESSION_ROOT_DEPTH):
+        parent_id = TR.parent_of(conn, root) if current else None
+        if not parent_id or parent_id in seen:
+            break
+        parent = _one(conn, "SELECT id,owner,requester,private FROM tasks WHERE id=?", (parent_id,))
+        if not parent or parent["owner"] != "bot:" + bot or not _same_readers(conn, current, parent):
+            break
+        seen.add(parent_id)
+        root, current = parent_id, parent
+    return root
+
+
+def _same_readers(conn, one, other):
+    """Whether two tasks may share a session: both public, or both private with every party of each able to
+    read the other, so nothing one session turn says reaches a reader of either task who could not read both."""
+    if task_private(conn, one) != task_private(conn, other):
+        return False
+    return not task_private(conn, one) or all(
+        task_private_readable(conn, who, b) for a, b in ((one, other), (other, one))
+        for who in (a["owner"], a["requester"]) if who)
+
+
 def task_session_started(conn, bot, lane, message_id, thread_id, runtime):
     """Record the owning bot's task session as the task's primary session when its turn starts. Only a
-    turn in the task's own lane (`task:<id>`, set at claim from the config the runner keyed its session
-    on) is one: a bot's shared thread carries every other conversation too, so it is nobody's task session."""
+    turn in a task's own lane (`task:<id>`, set at claim from the config the runner keyed its session
+    on) is one: a bot's shared thread carries every other conversation too, so it is nobody's task session.
+    A subtask's turn runs in its session root's lane (`session_root`), so the link goes on that root: the
+    lane set at claim decides, even if the subtask moved since; a lane naming another bot's task links nothing."""
     msg = message(conn, message_id) if message_id else None
-    task_id = msg and message_task_id(msg, conversation(conn, msg["conversation_id"]))
-    row = task(conn, task_id) if task_id else None
-    if not thread_id or not row or lane != "task:" + task_id or row["owner"] != "bot:" + bot:
+    turn_task = msg and message_task_id(msg, conversation(conn, msg["conversation_id"]))
+    task_id = (lane or "")[len("task:"):] if (lane or "").startswith("task:") else None
+    row = task(conn, task_id) if turn_task and task_id else None
+    if not thread_id or not row or row["owner"] != "bot:" + bot:
         return
     url = f"session:{bot}/{thread_id}"
     detail = json.dumps({"primary": True, "harness": runtime, "thread_id": thread_id, "bot": bot})
@@ -3007,9 +3047,9 @@ def task_tree(conn, task_id, visible_ids=None):
     return roots
 
 
-def _parent_finished(conn, row, previous, actor=None, parent=None):
+def _parent_finished(conn, row, previous, actor=None, parent=None, told=None):
     """Wake each ancestor whose subtasks are now all finished. `parent` names the parent when the
-    task has just left it."""
+    task has just left it; `told` is a bot `_subtask_wake` already woke on it."""
     if task_private(conn, row):
         return
     terminal = ("done", "closed", "declined")
@@ -3020,8 +3060,37 @@ def _parent_finished(conn, row, previous, actor=None, parent=None):
         parent = task(conn, parent_id)
         if not parent or children_summary(conn, parent_id)["open"]:
             break
-        if parent["status"] not in terminal and parent["owner"] != actor:
+        if parent["status"] not in terminal and parent["owner"] != actor and not (
+                parent_id == first and told and parent["owner"] == told):
             _wake(conn, parent, parent["owner"], "All subtasks done")
+
+
+def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
+    """A person finished, declined or closed a subtask under a bot's open task: wake that bot on the parent,
+    where a bot files what it is blocked on (docs/tasks.md), so its turn continues the parent's session
+    (session_root). Returns the bot woken, else None; callers leave it out of their own notices on the subtask.
+    A wake still queued for this subtask is not repeated. A quiet update leaves its note out, as on the subtask."""
+    terminal = ("done", "closed", "declined")
+    if not is_human(actor) or previous in terminal or row["status"] not in terminal:
+        return None
+    parent = task(conn, TR.parent_of(conn, row["id"]) or "")
+    if not parent or not is_bot(parent["owner"]) or parent["status"] in terminal:
+        return None
+    bot = parent["owner"]
+    if not bot_reads_task(conn, bot, parent) or not task_private_readable(conn, bot, row):
+        return None
+    if task_private(conn, row) and (not task_private(conn, parent) or not all(
+            task_private_readable(conn, who, row) for who in (parent["owner"], parent["requester"]) if who)):
+        return None                         # a private subtask's words stay off a thread more people read
+    if _has_table(conn, "jobs") and _one(
+            conn, "SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot=? AND j.state='queued' "
+            "AND json_extract(m.refs_json,'$.subtask')=? LIMIT 1", (actor_id(bot), row["id"])):
+        return bot
+    said = {"done": "Subtask done", "declined": "Subtask declined"}.get(row["status"], "Subtask closed")
+    # The parent's "All subtasks done" (_parent_finished) rides on this one notice, not a second wake.
+    last = "" if children_summary(conn, parent["id"])["open"] else "All subtasks done\n"
+    _wake(conn, parent, bot, f"{last}{said}: {row['title']}" + (f"\n{note}" if note and not quiet else ""), refs={"subtask": row["id"]})
+    return bot
 
 
 def _private_followups(conn, task_id):
@@ -3754,6 +3823,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                              or _owed_the_news(conn, after)))
     if note is not None and not notify_requester and not quiet:
         _mirror_task_note(conn, actor, after, note)
+    # A person finishing a subtask under a bot's task: the bot hears it once, on the parent.
+    subtask_told = None if closing_step else _subtask_wake(conn, actor, after, row["status"], note, quiet)
+    if subtask_told == after["requester"]:
+        notify_requester = False
     if status == "done":
         _unblock(conn, after)
     # A decline always goes back: nobody is doing the work, which is news whoever asked for it.
@@ -3788,7 +3861,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         # question on it, and the parent's owner. Each once, never whoever tapped; tasks-only bots quietly,
         # and only bots that may read the task (_wake).
         parent = task(conn, TR.parent_of(conn, task_id) or "")
-        told = {actor, KEEPER} | ({after["requester"]} if notify_requester else set())
+        told = {actor, KEEPER, subtask_told} | ({after["requester"]} if notify_requester else set())
         for who in dict.fromkeys([after["requester"], after["owner"], *askers, (parent or {}).get("owner")]):
             if not who or who in told or not is_bot(who) or not bot_reads_task(conn, who, after):
                 continue
@@ -3804,7 +3877,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _wake(conn, after, after["owner"], f"Open: {after['title']}")
     recount(conn, [after["owner"], after["requester"], row["owner"]])   # the old owner too, on a handoff
     if not closing_step:
-        _parent_finished(conn, after, row["status"], actor)
+        _parent_finished(conn, after, row["status"], actor, told=subtask_told)
     return {**after, "warnings": plain} if plain else after
 
 
@@ -3879,13 +3952,16 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
     # A next-run task closed before any run carried it is a cancel: the bot never saw it, so
     # there is nothing to tell it and no run to spend telling it.
     accepted = quiet or accepted or next_run_waiting(conn, row)
+    # A person closing a subtask under a bot's task: the bot hears it once, on the parent.
+    subtask_told = _subtask_wake(conn, actor, after, row["status"], note, quiet)
     told = [who for who in dict.fromkeys([after["owner"], after["requester"]]) if who != actor]
     for who in told:   # everyone but whoever tapped
-        _wake(conn, after, who, said, quiet_bots=True, quiet=accepted)
+        if who != subtask_told:
+            _wake(conn, after, who, said, quiet_bots=True, quiet=accepted)
     parent = task(conn, TR.parent_of(conn, after["id"]) or "")
-    if parent and parent["owner"] != actor and parent["owner"] not in told:
+    if parent and parent["owner"] != actor and parent["owner"] not in told and parent["owner"] != subtask_told:
         _wake(conn, after, parent["owner"], f"Child closed: {after['title']}", quiet_bots=True, quiet=True)
-    _parent_finished(conn, after, row["status"], actor)
+    _parent_finished(conn, after, row["status"], actor, told=subtask_told)
     _recount(conn, after["owner"])
     _recount(conn, after["requester"])
     return after

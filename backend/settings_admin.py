@@ -189,6 +189,7 @@ class SettingsAdmin:
                 "effort": effective.get("reasoning_effort") or row["effort"],
                 "compact_at": compact_at(effective),
                 "session": effective.get("session"),
+                "subtask_session": effective.get("subtask_session"),
                 "harness": resolve_harness(effective, effective.get("runtime") or row.get("runtime")),
                 "fallback": normalize_fallback(effective.get("fallback"))}
 
@@ -526,6 +527,12 @@ class SettingsAdmin:
                 declared["session"] = body.session
             else:
                 declared.pop("session", None)
+        if "subtask_session" in body.model_fields_set:
+            # Cleared means the default: a subtask continues its parent's session (hubdb.session_root).
+            if body.subtask_session:
+                declared["subtask_session"] = body.subtask_session
+            else:
+                declared.pop("subtask_session", None)
         if "shared" in body.model_fields_set:
             declared["shared"] = bool(body.shared)
         if "template" in body.model_fields_set:

@@ -312,6 +312,24 @@ a thread URL, a `claude --resume <id>` or `codex resume <id>` command, or anothe
 (`hub task link <id> <value> --session`, `hub_task_link` with `kind: session`, or Sessions + on the task).
 They are for tracking only: task chat and comments always go to the owning bot.
 
+A subtask does not get a session of its own. A turn on a task runs in its **session root**: Tico walks up the
+parents the same bot owns (up to 20) and takes the topmost, so the bot's turns on a subtask continue its parent's
+session, in the parent's lane and worktree, one at a time with the parent's turns. A parent owned by someone else, or
+one with different readers (one task private and the other not, or two private tasks whose people cannot each read
+both), ends the walk, so a bot's subtask under a person's task is its own root. The primary session, the Copy session
+ID and the checkpoint all live on the root, and a fresh session on a subtask starts from the root's checkpoint; a
+subtask shows no session.
+`subtask_session: own` on a bot (`hub bot update <slug> --subtask-session own`, `hub_bot_update`, or the bot
+definition API) keeps every subtask its own session; unset or `parent` is the default. A runner from before this
+change keys every task, subtasks included, on its own session, and Tico gives it lanes the same way.
+
+When a bot's task is blocked on a person's approval or input, the bot files a subtask for them under it
+(`hub task create --owner <person> --parent <task> ...`, or `hub task question ... --parent <task>` for a pick or
+Yes / No) rather than a new top-level task. When the person marks it done, declines or closes it, the bot is woken
+once on the parent and picks up in the parent's session (a private subtask that not everyone on the parent may read
+tells the bot on the subtask instead). A quick question stays `hub task ask` on the task, and a
+send or publish that needs a yes stays `hub approval request`.
+
 ## Related tasks
 
 Every link between two tasks is a relation, read `<task> <kind> <other>`:
