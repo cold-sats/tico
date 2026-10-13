@@ -802,24 +802,25 @@ def fleet_snapshot(c, auth, identity, task_view):
             # A bot the person may only send requests to: its name and that it exists, not its work.
             bots.append({"slug": slug, "name": row["display_name"], "state": row["state"], "focus": "",
                          "task_id": None, "online": None, "ready": None, "queued": None,
-                         "active_attempt": None})
+                         "active_attempt": None, "active_attempts": 0})
             continue
         # Fleet only exposes focus/task identity, so counters/approval scans are unnecessary.
         source = {k: v for k, v in statuses.get(slug, {}).items() if k not in ("open_tasks", "needs_human")}
         status = privacy.status(c, principal, source, tasks=bot_tasks.get(slug, [])) or {}
         location = machine(c, slug)
-        attempt = c.execute(
+        # A bot with task lanes can have several turns out; the newest is the one shown, beside the count.
+        active = [a for a in c.execute(
             "SELECT id,state,started,lease_until FROM attempts WHERE bot=? "
-            "AND state IN ('leased','running') AND lease_until>? ORDER BY created DESC LIMIT 1",
-            (slug, H.now())).fetchone()
-        if attempt and not index.attempt(attempt["id"]):
-            attempt = None
+            "AND state IN ('leased','running') AND lease_until>? ORDER BY created DESC",
+            (slug, H.now())).fetchall() if index.attempt(a["id"])]
+        attempt = active[0] if active else None
         bots.append({"slug": slug, "name": row["display_name"],
                      "state": status.get("state") or row["state"],
                      "focus": status.get("focus") or "", "task_id": status.get("task_id"),
                      "online": location["online"], "ready": location["ready"],
                      "queued": queued.get(slug, 0),
-                     "active_attempt": dict(attempt) if attempt else None})
+                     "active_attempt": dict(attempt) if attempt else None,
+                     "active_attempts": len(active)})
     tasks = []
     for row in H.tasks(c, status=H.ACTIVE_STATUSES + ("declined",), visible=auth.task_sql(c, principal)):
         actors = (row["owner"], row["requester"])

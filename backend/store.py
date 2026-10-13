@@ -187,8 +187,6 @@ CREATE TABLE IF NOT EXISTS attempts(
  token_hash TEXT NOT NULL UNIQUE, state TEXT NOT NULL, lease_until TEXT NOT NULL,
  created TEXT NOT NULL, started TEXT, finished TEXT, thread_id TEXT,
  result_json TEXT, final_text TEXT, last_seq INTEGER NOT NULL DEFAULT 0);
-CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt_per_bot ON attempts(bot)
- WHERE state IN ('leased','running');
 CREATE TABLE IF NOT EXISTS attempt_events(
  id INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id TEXT NOT NULL REFERENCES attempts(id),
  seq INTEGER NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created TEXT NOT NULL,
@@ -1142,6 +1140,15 @@ class Store:
                 # Who asked a running turn to stop (backend/execution.py stop); the runner reads it on its next
                 # lease renewal. Unversioned like the key scope: an older release never reads the column.
                 H.add_column(c, "attempts", "stop_requested", "TEXT")
+                # An attempt's lane (clients/sessions.py lane): a task-keyed turn runs in its own lane beside
+                # the bot's other tasks, everything else in `main`. At most one active attempt per bot and lane;
+                # an existing row and an older runner's turn are `main`, so a bot without lanes stays serial.
+                # Unversioned like stop_requested; an older release must be drained before it runs again,
+                # since its per-bot index cannot be built over two active attempts.
+                H.add_column(c, "attempts", "lane", "TEXT NOT NULL DEFAULT 'main'")
+                c.execute("DROP INDEX IF EXISTS one_active_attempt_per_bot")
+                c.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt_per_lane ON attempts(bot,lane) "
+                          "WHERE state IN ('leased','running')")
                 # The change log live events are read from (backend/events.py); idempotent.
                 from .events import ensure as ensure_changes
                 ensure_changes(c)

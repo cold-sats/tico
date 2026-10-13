@@ -182,8 +182,8 @@ def mark_prompts(c, messages):
     carries neither. When that run was started by another bot's message ("From Dots: ..."), the chat
     folds it with the other side traffic instead of showing it as the bot talking to you. `prompted_by`
     is only the kind of sender ("bot", "keeper" or "person"), never who or what they wrote, and a run
-    that took in any person's message counts as the person's. Runs never overlap for one bot
-    (one_active_attempt_per_bot), so the run is the one whose time span holds the message.
+    that took in any person's message counts as the person's. A bot's runs overlap only across task
+    lanes (one_active_attempt_per_lane), so the run is the latest one whose time span holds the message.
     """
     loose = [m for m in messages if str(m.get("from_actor", "")).startswith("bot:")
              and str(m.get("to_actor", "")).startswith("human:") and m.get("kind") in ("say", "notice")
