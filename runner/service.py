@@ -22,7 +22,7 @@ from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import container_probe, credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, tool_probes, usage
 from . import redact as redact_mod
-from . import goals, memory_history, repositories, runner_events, task_sessions, worktrees, safe_git, subscription_usage
+from . import goals, memory_history, repo_rules, repositories, runner_events, task_sessions, worktrees, safe_git, subscription_usage
 from .release_update import Follower
 from .login import POLL_S as LOGIN_POLL_S, Logins
 from .hosts.base import HostError, SteerRefused, is_auth_rejected, rejection_reason, settings as host_settings
@@ -2792,6 +2792,10 @@ class Runner:
                              "responsible human; keeper cannot answer questions. Finish a "
                              "diagnostic task when its diagnosis is complete, even if the repair is waiting. These "
                              "rules replace any older rule that treats all bot-requested tasks as records to ignore.")
+        # Below the bot's own lines, so a repo's rules shape how code is written there and nothing more. A resumed
+        # thread already has them unless they changed (runner/repo_rules.py).
+        if attempt.get("_repo_rules") and (not resumed or attempt.get("_repo_rules_changed")):
+            lines.append(attempt["_repo_rules"])
         def speaker(msg):
             # Who really said a room line: a person's committed batch is labelled as such.
             actor = str(msg.get("from_actor") or "")
@@ -3081,6 +3085,7 @@ class Runner:
 
         checkout_lock = self.worktrees.bot_lock(bot)
         session_path, session_problem = None, ""
+        worktree_dirs, rules_digest = [], ""
         try:
             try:
                 hold(self.worktrees.lane_lock(bot, lane))
@@ -3160,6 +3165,9 @@ class Runner:
                         conv += ":worktree"
                 started_at = redact_mod.head(execution_path) if redactor else ""
                 memory_before = redact_mod.head(execution_path)
+                # The task's set-up worktrees join its session, and their repos' rules join its prompt.
+                worktree_dirs = repo_rules.resolve(self.config["projects_dir"], attempt.get("worktrees"))
+                attempt["_repo_rules"], rules_digest = repo_rules.block(worktree_dirs)
                 # A bot keeps one thread and stays on it; this machine alone remembers which.
                 # When the conversation fills the model's window the runtime compacts it, which
                 # is what a long-lived assistant does; nothing here ends a thread that still works.
@@ -3328,6 +3336,7 @@ class Runner:
                 settings = host_settings(execution_path, model=config.get("model"),
                                          effort=config.get("reasoning_effort"), env=env, slug=bot,
                                          shared=is_shared(config), compact_at=config.get("compact_at"),
+                                         add_dirs=[str(path) for _, path in worktree_dirs],
                                          mcp_servers=self.mcp_for_run(attempt, execution_path, env, config.get("runtime"),
                                                                       config.get("harness"), diagnose))
                 resumed = False
@@ -3346,6 +3355,8 @@ class Runner:
                 # Acknowledge before execution. Any later crash is explicitly uncertain.
                 self.client.post(f"attempts/{aid}/started", {"thread_id": thread}, key=f"started:{aid}")
                 self.state.phase(aid, "running")
+                # A resumed thread already holds the repo rules unless they changed since it was given them.
+                attempt["_repo_rules_changed"] = bool(rules_digest) and self.state.repo_rules(thread) != rules_digest
                 prompt = self.prompt(attempt, after=self.state.cursor(thread) if resumed else None,
                                       resumed=resumed)
                 refs = (attempt.get("message") or {}).get("refs") or {}
@@ -3377,6 +3388,8 @@ class Runner:
                             time.sleep(0.5)
                 else:
                     turn = start_turn()
+                if rules_digest:
+                    self.state.repo_rules(thread, rules_digest)
                 outcome, reply, tokens, limited, retryable = drive(host, thread, turn)
                 self.state.save_session(bot, conv, runtime, host.session_id(thread))
                 # A runtime that cannot sign itself in is as unavailable as one out of quota:
@@ -3436,6 +3449,7 @@ class Runner:
                     settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
                                              effort=hop["reasoning_effort"], env=hop_env, slug=bot,
                                              compact_at=config.get("compact_at"),
+                                             add_dirs=[str(path) for _, path in worktree_dirs],
                                              mcp_servers=self.mcp_for_run(attempt, execution_path, hop_env, hop["runtime"],
                                                                           hop["harness"], diagnose))
                     thread = host.start_thread(bot, settings)
