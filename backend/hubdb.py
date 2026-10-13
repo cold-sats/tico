@@ -946,6 +946,9 @@ def migrate(conn, adopt_legacy=False):
     add_column(conn, "tasks", "checkpoint_at", "TEXT")
     add_column(conn, "tasks", "checkpoint_by", "TEXT")
     add_column(conn, "tasks", "stale_asked_at", "TEXT")
+    # Set once a turn in the task's own session took in another private task: that session may
+    # carry it from then on, so no later turn's reply becomes the checkpoint (execution.complete).
+    add_column(conn, "tasks", "checkpoint_blocked", "INTEGER NOT NULL DEFAULT 0")
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")

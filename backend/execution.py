@@ -1417,7 +1417,19 @@ class Execution:
                       tokens_out=body.tokens_out, summary=split_runner_notices(body.text)[0][:2000],
                       usage=self.run_usage(c, row, body))
         checkpoint_task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
-        if body.outcome == "completed" and body.text and checkpoint_task and checkpoint_safe(c, aid, checkpoint_task):
+        if checkpoint_task:
+            bot_config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
+            own = sessions.session_key(json.loads(bot_config[0]) if bot_config else {}, row["bot"],
+                                       checkpoint_task["id"], conv["id"]) == "task:" + checkpoint_task["id"]
+            # Only a turn in the task's own session leaves a checkpoint: a shared bot thread carries
+            # other tasks. And a session that once took in another private task may carry it in every
+            # later turn, even one that does not, so that task never gets a checkpoint again.
+            if not own or checkpoint_task.get("checkpoint_blocked"):
+                checkpoint_task = None
+            elif not checkpoint_safe(c, aid, checkpoint_task):
+                c.execute("UPDATE tasks SET checkpoint_blocked=1 WHERE id=?", (checkpoint_task["id"],))
+                checkpoint_task = None
+        if body.outcome == "completed" and body.text and checkpoint_task:
             # Where the task stood after this turn: a later turn that cannot resume this session
             # starts from it (runner prompt). It is not the task's activity, so `updated` stays.
             c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=?,checkpoint_by=? WHERE id=?",

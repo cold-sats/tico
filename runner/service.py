@@ -2188,7 +2188,7 @@ class Runner:
             if stale:
                 lines.append(stale)
         if attempt.get("task"):
-            task = {k: v for k, v in attempt["task"].items() if k not in ("checkpoint", "checkpoint_at", "checkpoint_by")}
+            task = {k: v for k, v in attempt["task"].items() if k not in ("checkpoint", "checkpoint_at", "checkpoint_by", "checkpoint_blocked")}
             lines.append("Assigned task:\n" + json.dumps(task, ensure_ascii=False))
             if not resumed and attempt["task"].get("checkpoint"):
                 # A fresh session has none of the task's past turns; the hub's checkpoint is where they left it.
