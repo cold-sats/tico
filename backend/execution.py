@@ -27,6 +27,7 @@ SILENT_KINDS = {"error", "diagnostic", "status"}
 NO_EFFECT_TRIES = 3
 PRE_START_TRIES = 10        # lapsed leases before start: a broken computer must not retry forever
 NO_EFFECT_WITHIN = 120       # seconds from start; a longer silent run may have used unreported tools
+CHECKPOINT_CHARS = 1500      # a task's checkpoint: the last turn's reply, enough to pick the work back up
 # A deploy drains every bot while it waits for runs to finish (at most 30 minutes) and then
 # activates. A drain it left behind for longer than this is a leak, not a deploy in progress.
 DEPLOY_DRAIN_MAX = 3600
@@ -227,6 +228,17 @@ def split_runner_notices(text):
     while len(parts) > 1 and RUNNER_NOTICE.fullmatch(parts[-1].strip()):
         notices.insert(0, parts.pop().strip())
     return "\n\n".join(parts), notices
+
+
+def checkpoint_safe(c, aid, task):
+    """Whether this run's reply may be kept on `task` as its checkpoint: everyone who reads the task
+    may read every other private task the run took in, the rule a posted reply follows."""
+    private = [other for other in (H.task(c, tid) for tid in privacy.attempt_tasks(c, aid) if tid != task["id"])
+               if other and H.task_private(c, other)]
+    if not private:
+        return True
+    return H.task_private(c, task) and all(H.task_private_readable(c, actor, other)
+                                           for other in private for actor in (task["owner"], task["requester"]))
 
 
 class Execution:
@@ -1447,6 +1459,13 @@ class Execution:
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, tokens_in=body.tokens_in,
                       tokens_out=body.tokens_out, summary=split_runner_notices(body.text)[0][:2000],
                       usage=self.run_usage(c, row, body))
+        checkpoint_task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
+        if body.outcome == "completed" and body.text and checkpoint_task and checkpoint_safe(c, aid, checkpoint_task):
+            # Where the task stood after this turn: a later turn that cannot resume this session
+            # starts from it (runner prompt). It is not the task's activity, so `updated` stays.
+            c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=?,checkpoint_by=? WHERE id=?",
+                      (split_runner_notices(body.text)[0].strip()[:CHECKPOINT_CHARS], H.now(), actor,
+                       checkpoint_task["id"]))
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})

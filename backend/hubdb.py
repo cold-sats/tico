@@ -940,6 +940,12 @@ def migrate(conn, adopt_legacy=False):
     add_column(conn, "messages", "deleted_at", "TEXT")
     # An ask that a later ask by the same bot on the same task, or the task's end, made moot (supersede_asks).
     add_column(conn, "messages", "superseded_at", "TEXT")
+    # Where a task stood after its last completed turn (execution.complete), so a fresh session picks
+    # it up from there; and when it was last asked "Still wanted?" (backend/still_wanted.py).
+    add_column(conn, "tasks", "checkpoint", "TEXT")
+    add_column(conn, "tasks", "checkpoint_at", "TEXT")
+    add_column(conn, "tasks", "checkpoint_by", "TEXT")
+    add_column(conn, "tasks", "stale_asked_at", "TEXT")
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")

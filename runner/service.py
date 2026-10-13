@@ -2767,7 +2767,12 @@ class Runner:
             if stale:
                 lines.append(stale)
         if attempt.get("task"):
-            lines.append("Assigned task:\n" + json.dumps(attempt["task"], ensure_ascii=False))
+            task = {k: v for k, v in attempt["task"].items() if k not in ("checkpoint", "checkpoint_at", "checkpoint_by")}
+            lines.append("Assigned task:\n" + json.dumps(task, ensure_ascii=False))
+            if not resumed and attempt["task"].get("checkpoint"):
+                # A fresh session has none of the task's past turns; the hub's checkpoint is where they left it.
+                lines.append(f"Where this task stood after its last turn ({attempt['task'].get('checkpoint_at')}):\n"
+                             + attempt["task"]["checkpoint"])
             lines.append("Check this task’s worktree links before code work. If detail_json has setup_pending=true, "
                          "run `hub task worktree setup <repo>` in this turn; restored worktrees need setup.")
             requester = str((attempt["task"] or {}).get("requester") or "")
