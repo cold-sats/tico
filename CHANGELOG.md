@@ -7,11 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.41] - 2026-10-13
+
 ### Added
 - **Paused tasks pick back up, idle ones get asked.** Each completed turn leaves a short checkpoint on its task, and a fresh session on that task starts from it. A task idle for 7 days gets one **Still wanted?** (Keep or Close) to its person; nothing closes without their answer. See [Tasks](docs/tasks.md#picking-work-back-up).
 - **Copy session ID from a task's ⋯ menu.** On a task with a primary session, the menu copies that session's id, for resuming or restoring it by hand.
 - **Tasks show their sessions.** The owning bot's task session is primary, with its resume command to copy; people and bots can link other sessions to track (a thread URL or a resume command; Sessions + on the task, `hub task link --session`). Task chat still goes only to the owning bot. See [Tasks](docs/tasks.md).
-- **A bot works on several tasks at once.** A bot with a session per task (BotOps, or `session: task`) runs turns on different
+- **A bot works on several tasks at once.** Every bot (unless set to `session: bot`) runs turns on different
   tasks side by side on its computer, each in its own git worktree of the bot's repository (`sessions/bot-<slug>/<task>` in the
   workspace, branch `tico-session/<task>`); chat and the bot's own thread still take turns in its main folder. At the end of a turn
   the runner commits what it left in memory/ and knowledge/, stamps the turn's commits with `Tico-Run:`, rebases them onto the
