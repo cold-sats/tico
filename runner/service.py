@@ -371,19 +371,20 @@ def clone_shared(path, config, env=None, timeout=120):
     if not url:
         return "The original repository's address is unknown"
     env = safe_git.environment(env)
-    commands = [[*safe_git.PREFIX, "clone", "--quiet", url, str(path)]]
-    for command in commands:
-        try:
-            result = isolation.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                                   env=env, timeout=timeout)
-            if result.returncode == 0:
-                return ""
-            problem = (result.stderr.strip().splitlines() or [f"exit {result.returncode}"])[-1][:200]
-        except (OSError, subprocess.SubprocessError) as exc:
-            problem = type(exc).__name__
-        # Never overwrite leftovers from a failed clone.
-        if path.exists() and (not path.is_dir() or any(path.iterdir())):
-            break
+    fresh = not path.exists() or not any(path.iterdir())      # nothing in it is anyone's yet
+    try:
+        result = isolation.run([*safe_git.PREFIX, "clone", "--quiet", url, str(path)], capture_output=True, text=True,
+                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+        if result.returncode == 0:
+            return ""
+        from .redact import env_secrets, git_failure
+        problem = git_failure(result.stderr, env_secrets(env), limit=240) or f"exit {result.returncode}"
+    except subprocess.TimeoutExpired:
+        problem = f"git clone timed out after {timeout} seconds; a large repository or a slow network needs longer"
+    except (OSError, subprocess.SubprocessError) as exc:
+        problem = type(exc).__name__
+    # A folder this clone made holds nothing but the failed clone; one that was already there is left as it is.
+    git_credentials.discard_partial(path, fresh)
     return problem
 
 
@@ -1113,7 +1114,7 @@ class Runner:
                 self.github_token_legacy_purpose = True
                 granted = git_credentials.hub_token(self.client, {"bot": bot})
         except APIError as exc:
-            problem = str(exc.detail or exc.code)[:400]
+            problem = git_credentials.token_problem(exc, str((entry or {}).get("repository") or ""))[:400]
             if exc.status == 409 and exc.code == "assignment_repository" and key is not None:
                 refused[bot] = (key, problem)
             return None, problem
@@ -1729,7 +1730,7 @@ class Runner:
             try:
                 git_credentials.apply(env, self.client, row["bot"], self.config_path if not credentials else None,
                                       credentials.path if credentials else None)
-                if env.get("GIT_CONFIG_VALUE_1") == git_credentials.FAILED_HELPER:
+                if git_credentials.is_failed_helper(env.get("GIT_CONFIG_VALUE_1")):
                     continue                # never fall back to another login when scoped access failed
                 if self.push(path, env, catch_up_remote=False):
                     pushed.add(path)
