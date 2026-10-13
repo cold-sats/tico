@@ -64,3 +64,13 @@ def test_keep_restarts_the_clock_and_close_closes(api):
         assert kept_row["status"] == "open" and kept_row["updated"] > kept_row["stale_asked_at"]
         assert closed_row["status"] == "closed" and closed_row["closed_by"] == "human:ana"
         assert still_wanted.idle_tasks(c) == []
+
+
+def test_only_the_person_asked_decides_still_wanted():
+    from types import SimpleNamespace
+    ask = {"from_actor": H.KEEPER, "to_actor": "human:ana", "refs": {"still_wanted": True}}
+    close = SimpleNamespace(dismiss=False, answers={"still_wanted": ["Close"]})
+    assert still_wanted.choice(ask, close, "human:ana") == "Close"
+    # The bot on the task, or another person who may comment, answers without closing it.
+    assert still_wanted.choice(ask, close, "bot:ops") is None
+    assert still_wanted.choice(ask, close, "human:ben") is None

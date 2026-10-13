@@ -268,6 +268,11 @@ def retire_assignments(c):
         if not config.get("assignment_branch"):
             continue
         bot = row["bot"]
+        # A turn still leased or running could not hand in its result once the actor is archived and off
+        # its computer; leave this one as it is and retire it at a later startup, once the turn settles.
+        if c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') LIMIT 1",
+                     (bot,)).fetchone():
+            continue
         if row["state"] != "archived" or config.get("status") != "archived":
             config["status"] = "archived"
             c.execute("UPDATE bots SET state='archived' WHERE slug=?", (bot,))
@@ -275,6 +280,19 @@ def retire_assignments(c):
         c.execute("DELETE FROM assignments WHERE bot=?", (bot,))
         c.execute("UPDATE jobs SET state='cancelled' WHERE bot=? AND state='queued'", (bot,))
         source = H.bot(c, str(config.get("shared_from") or ""))
-        if source and source["state"] != "archived":
-            c.execute(f"UPDATE tasks SET owner=?,updated=? WHERE owner=? AND status IN ({marks})",
-                      ("bot:" + source["slug"], H.now(), "bot:" + bot, *H.ACTIVE_STATUSES))
+        if not source or source["state"] == "archived":
+            continue
+        owner = "bot:" + source["slug"]
+        for task_id, title in c.execute(f"SELECT id,title FROM tasks WHERE owner=? AND status IN ({marks})",
+                                        ("bot:" + bot, *H.ACTIVE_STATUSES)).fetchall():
+            # The normal handoff queues the role's turn and notice, so a `doing` task does not sit idle.
+            # Only an active role can be handed a task; otherwise (or if refused) the owner is set
+            # directly and the role told the same way, to pick up when it runs again.
+            if source["state"] == "active":
+                try:
+                    H.task_update(c, H.KEEPER, task_id, owner=owner, note="Back from a retired temporary assignment.")
+                    continue
+                except H.Refused:
+                    pass
+            c.execute("UPDATE tasks SET owner=?,updated=? WHERE id=?", (owner, H.now(), task_id))
+            H._wake(c, H.task(c, task_id), owner, f"Open: {title}")

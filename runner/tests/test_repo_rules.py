@@ -2,6 +2,7 @@
 import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from runner import repo_rules
@@ -40,3 +41,22 @@ class RepoRules(unittest.TestCase):
             self.assertLessEqual(text.count("x"), repo_rules.CAP)
             self.assertEqual(repo_rules.block(dirs)[1], digest)
             self.assertEqual(repo_rules.block([]), ("", ""))
+
+    def test_a_huge_rules_file_is_read_only_up_to_the_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "AGENTS.md").write_text("y" * (repo_rules.CAP * 4))
+            sizes, real_open = [], open
+
+            class Spy:
+                def __init__(self, f): self.f = f
+                def __enter__(self): return self
+                def __exit__(self, *a): self.f.close()
+                def read(self, n=-1):
+                    sizes.append(n)
+                    return self.f.read(n)
+
+            with unittest.mock.patch("builtins.open", lambda *a, **k: Spy(real_open(*a, **k))):
+                text, _ = repo_rules.block([("acme/app", root)])
+            self.assertEqual(sizes, [repo_rules.CAP + 1])
+            self.assertIn("[cut: the rest is in the file]", text)

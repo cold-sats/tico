@@ -3150,7 +3150,7 @@ class Runner:
             if self._checkout and checkout.get("behind") and getattr(self, "_update_note", None):
                 self._checkout = {**self._checkout, "blocked": self._update_note}
         body = {"version": RUNNER_VERSION, "platform": sys.platform,
-                "capabilities": ["task_lanes_v1"] if time.monotonic() >= getattr(self, "_task_lanes_after", 0) else [],
+                "capabilities": ["task_lanes_v2"] if time.monotonic() >= getattr(self, "_task_lanes_after", 0) else [],
                 "capacity": self.capacity, "readiness": self.readiness(candidates, checks, runtimes),
                 "mail_agent_instructions": self.mail_agent_instructions(assignments),
                 "agent_instructions": agent_instructions,
@@ -3245,9 +3245,9 @@ class Runner:
                         for state in profile.get("runtimes", {}).values():
                             state.pop("weekly", None)
                     continue  # Older servers keep receiving the existing sign-in report.
-                if exc.status == 422 and "capabilities" in detail and "task_lanes_v1" in body.get("capabilities", []):
+                if exc.status == 422 and "capabilities" in detail and "task_lanes_v2" in body.get("capabilities", []):
                     # A server from before task lanes knows the other capabilities; only the new one goes.
-                    body["capabilities"].remove("task_lanes_v1")
+                    body["capabilities"].remove("task_lanes_v2")
                     self._task_lanes_after = time.monotonic() + 600
                     continue
                 root_fields = ("worktrees", "profiles", "repositories", "capabilities")

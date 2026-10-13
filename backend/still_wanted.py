@@ -80,9 +80,11 @@ def is_ask(asked):
     return bool(asked and asked.get("from_actor") == H.KEEPER and refs.get("still_wanted"))
 
 
-def choice(asked, answer):
-    """Keep, Close or None (dismissed, or answered only in words) for an answer to a still-wanted ask."""
-    if not is_ask(asked) or answer.dismiss:
+def choice(asked, answer, actor):
+    """Keep, Close or None (dismissed, or answered only in words) for an answer to a still-wanted ask.
+    Only the person it was put to decides: anyone else who may comment (the bot that filed the task
+    included) answers it as an ordinary answer, with no Keep or Close effect."""
+    if not is_ask(asked) or answer.dismiss or not (H.is_human(actor) and actor == asked.get("to_actor")):
         return None
     labels = answer.answers.get(QUESTION_ID) or []
     return labels[0] if labels and labels[0] in (KEEP, CLOSE) else None

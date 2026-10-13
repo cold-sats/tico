@@ -49,18 +49,19 @@ def block(dirs):
     (by its real path), and the whole is cut at CAP."""
     parts, seen, used = [], set(), 0
     for repo, path in dirs:
+        room = CAP - used
+        if room <= 0:
+            break
         root = Path(path).resolve()
         real = _rules_file(root)
         if not real or real in seen:
             continue
         seen.add(real)
         try:
-            data = real.read_bytes()
+            with open(real, "rb") as f:
+                data = f.read(room + 1)      # never the whole of a huge file; one byte more says it was cut
         except OSError:
             continue
-        room = CAP - used
-        if room <= 0:
-            break
         cut = len(data) > room
         text = data[:room].decode("utf-8", "ignore").strip()
         used += min(len(data), room)

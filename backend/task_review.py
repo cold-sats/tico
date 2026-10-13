@@ -178,7 +178,7 @@ def answer_task(c, auth, who, task_id, body, wake):
         text += " " + body.other
     value = {"target": target, "answers": body.answers, "other": body.other, "dismiss": body.dismiss,
              "by": who.actor, "at": H.now()}
-    picked = still_wanted.choice(asked, body)
+    picked = still_wanted.choice(asked, body, who.actor)
     if picked == still_wanted.CLOSE:
         wake = False                 # the close itself tells the bot; the answer need not start a run too
     msg = H.task_comment(c, who.actor, task_id, text, wake=wake,

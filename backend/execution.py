@@ -43,8 +43,11 @@ CONTACT_EVERY = 10
 
 
 # A runner that advertises this runs a bot's task-keyed turns in their own lanes, side by side;
-# for any other runner every turn is in the main lane, one at a time per bot.
-LANES = "task_lanes_v1"
+# for any other runner every turn is in the main lane, one at a time per bot. `task_lanes_v1` was
+# advertised by unreleased main-built runners whose session key treats an unset `session` as the
+# bot thread, so the task-session default would give their lanes one shared provider thread: it
+# is still accepted but means no lanes, and those runners run serially.
+LANES = "task_lanes_v2"
 
 
 def lanes_on(runner):
@@ -227,14 +230,13 @@ def split_runner_notices(text):
 
 
 def checkpoint_safe(c, aid, task):
-    """Whether this run's reply may be kept on `task` as its checkpoint: everyone who reads the task
-    may read every other private task the run took in, the rule a posted reply follows."""
-    private = [other for other in (H.task(c, tid) for tid in privacy.attempt_tasks(c, aid) if tid != task["id"])
-               if other and H.task_private(c, other)]
-    if not private:
-        return True
-    return H.task_private(c, task) and all(H.task_private_readable(c, actor, other)
-                                           for other in private for actor in (task["owner"], task["requester"]))
+    """Whether this run's reply may be kept on `task` as its checkpoint: only when the run took in no
+    other private task. Stricter than a posted reply's rule: a checkpoint keeps no record of what it
+    drew on, so another task's private details in it would leak once `task` is published or
+    reassigned. When it is not safe the task's earlier checkpoint stays as it was: it predates this
+    run, so it holds nothing from these other tasks, and a stale starting point beats none."""
+    return not any(other and H.task_private(c, other)
+                   for other in (H.task(c, tid) for tid in privacy.attempt_tasks(c, aid) if tid != task["id"]))
 
 
 class Execution:

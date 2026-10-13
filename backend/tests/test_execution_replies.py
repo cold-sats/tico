@@ -170,7 +170,7 @@ def test_a_task_session_becomes_the_tasks_one_primary_session_and_a_shared_threa
 
     def turn(task, thread):
         post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {"ops": True},
-                                        "capabilities": ["task_lanes_v1"]}, token=r["token"])
+                                        "capabilities": ["task_lanes_v2"]}, token=r["token"])
         attempt = claim(api, r)
         post(api, f"attempts/{attempt['id']}/started", {"thread_id": thread}, r["token"])
         finish(api, r, attempt)
