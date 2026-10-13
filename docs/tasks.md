@@ -282,6 +282,14 @@ changes always wake the owner, including requests from those identities.
 A merged PR becomes Shipped once the running release includes its merge commit; the task stays
 where it is. PRs in another repository stay Merged.
 
+Sessions show who is working a task. The primary session is the owning bot's task session, recorded
+by Tico when its turn starts in the task's own lane (bots set to `session: task`, and BotOps, on a runner
+that runs lanes); a bot's shared thread is never one. A task has at most one primary: a newer thread or a
+new owner's session replaces it, and the old one stays as an alternate. Anyone with link rights can add other sessions to track:
+a thread URL, a `claude --resume <id>` or `codex resume <id>` command, or another reference
+(`hub task link <id> <value> --session`, `hub_task_link` with `kind: session`, or Sessions + on the task).
+They are for tracking only: task chat and comments always go to the owning bot.
+
 ## Related tasks
 
 Every link between two tasks is a relation, read `<task> <kind> <other>`:

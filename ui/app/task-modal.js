@@ -198,6 +198,24 @@ function taskModalBind(d, task, full = false) {
       if (linkCurrent() && data.task) taskModalShow(data.task, d);
     } catch (e) { toast(e.message, true); }
   };
+  // Sessions: + opens one input for a URL or a resume command, sent as a session link.
+  const session = $('[data-modal-session]', d);
+  const addSession = $('[data-session-add]', d);
+  if (addSession && session) {
+    addSession.onclick = () => { session.hidden = !session.hidden; if (!session.hidden) session.querySelector('input').focus(); };
+    session.querySelector('input').onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); session.hidden = true; addSession.focus(); } };
+    session.onsubmit = async ev => {
+      ev.preventDefault();
+      const url = session.querySelector('input').value.trim(); if (!url) return;
+      try {
+        await post(`/v2/tasks/${encodeURIComponent(task.id)}/links`, {url, kind: 'session'});
+        const data = await get(`/v2/tasks/${encodeURIComponent(task.id)}`);
+        if (linkCurrent() && data.task) taskModalShow(data.task, d);
+      } catch (e) { toast(e.message, true); }
+    };
+  }
+  d.querySelectorAll('[data-copy-session]').forEach(b => b.onclick = () =>
+    void copyText(b.dataset.copySession).then(() => toast('Copied'), () => toast('Could not copy', true)));
   d.querySelectorAll('[data-drop-link]').forEach(b => b.onclick = async () => {
     try {
       await post(`/v2/tasks/${encodeURIComponent(task.id)}/links`, {remove: b.dataset.dropLink});
@@ -225,6 +243,35 @@ function taskModalBind(d, task, full = false) {
   d.querySelectorAll('[data-open-task]').forEach(b => b.onclick = ev => { ev.preventDefault(); void taskModalOpen(b.dataset.openTask, d); });
 }
 // The kinds the Related section adds, and the groups it shows: [kind, direction, label].
+// Sessions working the task: the owning bot's (primary; Tico records it) first, then ones people linked to
+// track. Tracking only: task chat goes to the owning bot, never to a linked session.
+const SESSION_COPY = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6.5" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 4V2.5a1 1 0 0 0-1-1H2.5a1 1 0 0 0-1 1V7a1 1 0 0 0 1 1H4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
+function taskSessions(t) {
+  return (t.links || []).filter(l => l.kind === 'session').map(l => {
+    let d = {}; try { d = JSON.parse(l.detail_json || '{}'); } catch {}
+    return {...l, d, value: String(l.url || '').replace(/^session:/, '')};
+  }).sort((a, b) => (b.d.primary ? 1 : 0) - (a.d.primary ? 1 : 0));
+}
+function taskSessionsHTML(t) {
+  const copy = (value, what) => `<button type="button" class="tcopy" data-copy-session="${esc(value)}" aria-label="Copy ${esc(what)}" title="Copy ${esc(what)}">${SESSION_COPY}</button>`;
+  const drop = myActor() ? l => `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove session">×</button>` : () => '';
+  const rows = taskSessions(t).map(l => {
+    // A bot's session (the primary, or an earlier owner's) copies its full resume command, folder included.
+    if (l.d.bot) {
+      const who = 'bot:' + l.d.bot;
+      const cmd = l.d.thread_id ? botResumeCommand(l.d.harness, l.d.thread_id, l.d.bot) : '';
+      return `<span class="tlink session${l.d.primary ? ' primary" title="Primary' : ''}">${actorFace(who, 14)}<span>${esc(actorLabel(who))}${l.d.harness ? ` · ${esc(l.d.harness)}` : ''}</span>${cmd ? copy(cmd, 'resume command') : ''}${l.d.primary ? '' : drop(l)}</span>`;
+    }
+    const label = esc(l.title || l.value);
+    return /^https?:\/\//.test(l.url)
+      ? `<span class="tlink session"><a href="${esc(l.url)}" target="_blank" rel="noopener">${label}</a>${drop(l)}</span>`
+      : `<span class="tlink session"><span title="${esc(l.value)}">${label}</span>${copy(l.value, 'session')}${drop(l)}</span>`;
+  });
+  return `<section class="tsec task-sessions"><h3 class="rail-h">Sessions<button type="button" class="prop-add" data-session-add aria-label="Add a session" title="Add a session">${TL_ICON.plus}</button></h3>
+    ${rows.length ? `<div class="tlinks">${rows.join('')}</div>` : ''}
+    <form class="inline task-link-add" data-modal-session hidden><input type="text" autocomplete="off" spellcheck="false" placeholder="URL or resume command" aria-label="Add a session"></form></section>`;
+}
+
 const TASK_REL_ADD = [['related', 'Related'], ['blocked_by', 'Blocked by'], ['blocks', 'Blocks'], ['duplicate_of', 'Duplicate of'], ['follow_up', 'Follow-up of']];
 const TASK_REL_GROUPS = [['blocks', 'in', 'Blocked by'], ['blocks', 'out', 'Blocks'], ['related', 'both', 'Related'], ['duplicate_of', 'out', 'Duplicate of'],
   ['duplicate_of', 'in', 'Duplicated by'], ['follow_up', 'out', 'Follow-up of'], ['follow_up', 'in', 'Follow-ups']];
@@ -501,7 +548,7 @@ function hubModalHTML(t, it, opts = {}) {
   const note = String(t.note || '');
   const statusWord = taskStatusLabel(t);
   const mover = canMove();
-  const links = (t.links || []).filter(l => l.kind !== 'pr' && l.kind !== 'worktree');   // those are Code, in the rail
+  const links = (t.links || []).filter(l => !['pr', 'worktree', 'session'].includes(l.kind));   // Code is in the rail; Sessions below
   const pos = opts.peek ? taskPeekPos(t.id) : '';
   // Done for the owner; Close as the "…" menu allows it (who may move tasks, or the task's parties)
   const rights = taskPropRights(t);
@@ -529,6 +576,7 @@ function hubModalHTML(t, it, opts = {}) {
       <section class="tsec task-links"><h3 class="rail-h">Links<button type="button" class="prop-add" data-link-add aria-label="Add a link" title="Add a link">${TL_ICON.plus}</button></h3>
         ${links.length ? `<div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}</div>` : ''}
         <form class="inline task-link-add" data-modal-link hidden><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" aria-label="Add a link"></form></section>
+      ${taskSessionsHTML(t)}
       ${t.relations ? taskRelHTML(t) : ''}
       <section class="tsec task-files" data-task-files aria-label="Files" hidden></section>
       </div>

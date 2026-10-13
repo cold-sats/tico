@@ -831,11 +831,18 @@ def task_label(api, args):
 
 
 @tool("hub_task_link", "Attach a link to a task: the pull request you opened (this is what moves a "
-      "product task to In review and on to Shipped), an issue, a document, a page.",
-      {"id": TASK_ID, "url": _s("The URL"), "title": _s("A short name; a pull request needs none"), "on_behalf_of": ASKED},
+      "product task to In review and on to Shipped), an issue, a document, a page. `kind: session` links "
+      "another session working the task (a thread URL, a resume command); it is tracked only, task chat "
+      "goes to the owning bot.",
+      {"id": TASK_ID, "url": _s("The URL; for a session also a resume command or a reference"),
+       "title": _s("A short name; a pull request needs none"),
+       "kind": {"type": "string", "enum": ["session"], "description": "session: another session on this task"},
+       "on_behalf_of": ASKED},
       required=("id", "url"), writes=True)
 def task_link(api, args):
-    return _asked(api, args).post(f"tasks/{args['id']}/links", {"url": args["url"], "title": args.get("title")}, key=_key(args))
+    return _asked(api, args).post(f"tasks/{args['id']}/links", {"url": args["url"], "title": args.get("title"),
+                                                               **({"kind": "session"} if args.get("kind") == "session" else {})},
+                                  key=_key(args))
 
 
 @tool("hub_task_relate", "Relate another task to this one, read as `id kind task`: parent (task is its "
