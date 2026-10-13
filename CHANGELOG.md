@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Subtasks continue their parent task's session.** A bot's turn on a subtask runs in the session, lane and worktree of the topmost parent it also owns, and that root carries the primary session and checkpoint. A bot blocked on a person files a subtask for them under its task, and is woken on the parent when they finish it. `subtask_session: own` keeps the old one-session-per-subtask behavior. See [Tasks](docs/tasks.md#subtasks-and-prs).
+
 ## [0.3.41] - 2026-10-13
 
 ### Added

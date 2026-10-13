@@ -49,17 +49,33 @@ CONTACT_EVERY = 10
 # is still accepted but means no lanes, and those runners run serially.
 LANES = "task_lanes_v2"
 
+# A runner that advertises this keys a task turn's session and worktree on the claimed task's
+# `session_task_id` (H.session_root: a subtask continues its parent's session). Any other runner keys
+# on the task itself, so for it the server keeps every task, subtasks included, its own lane and session.
+ROOTS = "session_roots_v1"
+
 
 def lanes_on(runner):
     return LANES in set(H._json(runner["capabilities_json"], []) or []) if runner else False
 
 
-def job_lane(bot, config, message, conversation, lanes):
+def roots_on(runner):
+    return ROOTS in set(H._json(runner["capabilities_json"], []) or []) if runner else False
+
+
+def session_task_id(c, bot, config, task_id, roots):
+    """The task a turn on `task_id` keys its session and lane on: its session root for a runner that reads
+    `session_task_id`, the task itself for any other."""
+    return H.session_root(c, bot, task_id, config) if roots and task_id else task_id
+
+
+def job_lane(c, bot, config, message, conversation, lanes, roots=False):
     """The lane a queued message would run in (clients/sessions.py), `main` for a runner without lanes.
-    `config` is the bot's followed config, the one its runner keys sessions on."""
+    `config` is the bot's followed config, the one its runner keys sessions on. A subtask's turn runs in
+    its session root's lane, so it and its parent's turns take turns in one session."""
     if not lanes:
         return sessions.MAIN_LANE
-    return sessions.lane(config, bot, H.message_task_id(message, conversation),
+    return sessions.lane(config, bot, session_task_id(c, bot, config, H.message_task_id(message, conversation), roots),
                          conversation["id"] if conversation else None)
 
 
@@ -625,6 +641,7 @@ class Execution:
         """The queued job this runner would be given next, or None. Reads only."""
         runner_capabilities = set(H._json(runner["capabilities_json"], []) or [])
         lanes = LANES in runner_capabilities
+        roots = ROOTS in runner_capabilities
         # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
         # without lanes runs one turn per bot, so any active attempt takes the whole bot.
         busy = {(r["bot"], r["lane"]) for r in c.execute(
@@ -705,7 +722,7 @@ class Execution:
             if not privacy.message_readable(c, "bot:" + row["bot"], message):
                 continue
             conversation = H.conversation(c, message["conversation_id"])
-            if (row["bot"], job_lane(row["bot"], followed[row["bot"]], message, conversation, lanes)) in busy:
+            if (row["bot"], job_lane(c, row["bot"], followed[row["bot"]], message, conversation, lanes, roots)) in busy:
                 continue
             return row
         return None
@@ -845,7 +862,8 @@ class Execution:
         from .shared_bots import follow
         followed = follow(c, row["bot"], json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
-        lane = job_lane(row["bot"], followed, msg, conv, lanes_on(runner))
+        roots = roots_on(runner)
+        lane = job_lane(c, row["bot"], followed, msg, conv, lanes_on(runner), roots)
         token = secrets.token_urlsafe(32)
         until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)
         turn = H.turn_start(c, H.KEEPER, row["bot"], trigger="task" if task else msg["kind"],
@@ -885,6 +903,15 @@ class Execution:
                     return False
             from .task_relations import for_prompt
             task = {**task, "relations": for_prompt(c, task["id"], lambda other: bool(other) and readable(other))}
+            if roots:
+                # The task whose session and worktree this turn continues (H.session_root); the runner keys on it.
+                task["session_task_id"] = session_task_id(c, row["bot"], followed, task["id"], roots)
+                root = H.task(c, task["session_task_id"]) if task["session_task_id"] != task["id"] else None
+                if root and readable(root):
+                    # The checkpoint lives on the root: a fresh session starts from where the root stood.
+                    kept = root.get("checkpoint") if not root.get("checkpoint_blocked") else None
+                    task.update({"checkpoint": kept, "checkpoint_at": root.get("checkpoint_at") if kept else None,
+                                 "checkpoint_by": root.get("checkpoint_by") if kept else None})
         recovery = c.execute("SELECT * FROM job_recovery WHERE job_id=? AND attempt_id=? AND decision='resume'",
                              (row['id'],row['attempt_id'])).fetchone()
         if recovery:
@@ -1125,7 +1152,8 @@ class Execution:
             return {"messages": []}
         origin = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
         origin_task = H.message_task_id(origin, H.conversation(c, origin["conversation_id"]))
-        lanes = lanes_on(c.execute("SELECT capabilities_json FROM runners WHERE id=?", (attempt["runner_id"],)).fetchone())
+        capabilities = c.execute("SELECT capabilities_json FROM runners WHERE id=?", (attempt["runner_id"],)).fetchone()
+        lanes, roots = lanes_on(capabilities), roots_on(capabilities)
         if lanes:
             from .shared_bots import follow
             followed = follow(c, attempt["bot"], json.loads(
@@ -1150,8 +1178,8 @@ class Execution:
             incoming_task = H.message_task_id(H.message(c, row["id"]), incoming_conversation)
             if incoming_task and incoming_task != origin_task and row["kind"] == "notice":
                 continue                    # a new task gets its own run, even in the same bot room
-            if lanes and job_lane(attempt["bot"], followed, H.message(c, row["id"]), incoming_conversation,
-                                  lanes) != attempt["lane"]:
+            if lanes and job_lane(c, attempt["bot"], followed, H.message(c, row["id"]), incoming_conversation,
+                                  lanes, roots) != attempt["lane"]:
                 continue                    # another lane's work is that lane's turn, never folded into this one
             if any(tid != origin_task and H.task_private(c, H.task(c, tid))
                    for tid in privacy.message_tasks(c, row, include_run=False)):
@@ -1416,14 +1444,24 @@ class Execution:
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, tokens_in=body.tokens_in,
                       tokens_out=body.tokens_out, summary=split_runner_notices(body.text)[0][:2000],
                       usage=self.run_usage(c, row, body))
-        checkpoint_task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
+        # The checkpoint goes on the task whose session the turn ran in: a subtask's turn runs in its session
+        # root's lane (`task:<root>`, set at claim), so it checkpoints that root, never the subtask, even if
+        # the subtask moved during the turn. A lane naming a task this bot does not own checkpoints nothing.
+        turn_task_id = H.message_task_id(msg, conv)
+        lane_task = row["lane"][len("task:"):] if turn_task_id and str(row["lane"] or "").startswith("task:") else ""
+        if lane_task and lane_task != turn_task_id:
+            root = H.task(c, lane_task)
+            checkpoint_task = root if root and root["owner"] == "bot:" + row["bot"] else None
+        else:
+            checkpoint_task = H.task(c, turn_task_id) if turn_task_id else None
         if checkpoint_task:
             bot_config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
             own = sessions.session_key(json.loads(bot_config[0]) if bot_config else {}, row["bot"],
                                        checkpoint_task["id"], conv["id"]) == "task:" + checkpoint_task["id"]
             # Only a turn in the task's own session leaves a checkpoint: a shared bot thread carries
             # other tasks. And a session that once took in another private task may carry it in every
-            # later turn, even one that does not, so that task never gets a checkpoint again.
+            # later turn, even one that does not, so that task never gets a checkpoint again (a private
+            # subtask worked in its root's session counts as another task here).
             if not own or checkpoint_task.get("checkpoint_blocked"):
                 checkpoint_task = None
             elif not checkpoint_safe(c, aid, checkpoint_task):

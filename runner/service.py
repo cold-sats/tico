@@ -29,7 +29,7 @@ from .hosts.base import HostError, SteerRefused, is_auth_rejected, rejection_rea
 from .hosts.cursor import MODELS as CURSOR_HOST_MODELS
 from .hosts.pi import MODELS as PI_HOST_MODELS
 from .outage import RECENT, Outage, describe, log
-from .state import BOT_THREAD, State, lane as turn_lane, session_key
+from .state import BOT_THREAD, State, lane as turn_lane, session_key, session_task
 from .warm import WarmSessions
 from .watchers import PARKED_STATES, Watchers
 from .profiles import SubscriptionUnavailable
@@ -2199,6 +2199,11 @@ class Runner:
             requester = str((attempt["task"] or {}).get("requester") or "")
             if requester:
                 lines.append(f"This task was requested by {requester}.")
+            lines.append("If this task is blocked on a person's approval or input, file a subtask for them under it "
+                         "(`hub task create --owner <person> --parent <this task id> ...`, or `hub task question ... "
+                         "--parent <this task id>` for a pick or Yes / No), not a new top-level task: when they finish it "
+                         "you are woken on this task, in this task's session. A quick question stays `hub task ask` on this "
+                         "task; a send or publish that needs a yes stays `hub approval request`.")
             if attempt["bot"] == "botops":
                 lines.append("Work on the assigned task id above, with its requester and scope. A task from a bot or "
                              "keeper is assigned work within your bot-maintenance role, using only the requester's "
@@ -2448,8 +2453,9 @@ class Runner:
         return task_sessions.task_of(lane)
 
     def task_closed(self, attempt):
-        """Whether the turn's task is finished, read with the turn's own token before its result is sent."""
-        task = (attempt.get("task") or {}).get("id")
+        """Whether the task the turn's session is keyed on is finished, read with the turn's own token before its
+        result is sent: a subtask's turn runs in its parent's worktree, which goes only when the parent is done."""
+        task = session_task(attempt)
         if not task or not attempt.get("token"):
             return False
         try:
@@ -3150,7 +3156,8 @@ class Runner:
             if self._checkout and checkout.get("behind") and getattr(self, "_update_note", None):
                 self._checkout = {**self._checkout, "blocked": self._update_note}
         body = {"version": RUNNER_VERSION, "platform": sys.platform,
-                "capabilities": ["task_lanes_v2"] if time.monotonic() >= getattr(self, "_task_lanes_after", 0) else [],
+                "capabilities": (["task_lanes_v2"] if time.monotonic() >= getattr(self, "_task_lanes_after", 0) else [])
+                                + (["session_roots_v1"] if time.monotonic() >= getattr(self, "_session_roots_after", 0) else []),
                 "capacity": self.capacity, "readiness": self.readiness(candidates, checks, runtimes),
                 "mail_agent_instructions": self.mail_agent_instructions(assignments),
                 "agent_instructions": agent_instructions,
@@ -3245,6 +3252,11 @@ class Runner:
                         for state in profile.get("runtimes", {}).values():
                             state.pop("weekly", None)
                     continue  # Older servers keep receiving the existing sign-in report.
+                if exc.status == 422 and "capabilities" in detail and "session_roots_v1" in body.get("capabilities", []):
+                    # A server from before session roots never sends `session_task_id`; only the new one goes.
+                    body["capabilities"].remove("session_roots_v1")
+                    self._session_roots_after = time.monotonic() + 600
+                    continue
                 if exc.status == 422 and "capabilities" in detail and "task_lanes_v2" in body.get("capabilities", []):
                     # A server from before task lanes knows the other capabilities; only the new one goes.
                     body["capabilities"].remove("task_lanes_v2")
