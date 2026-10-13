@@ -949,6 +949,7 @@ class Execution:
         parked = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         from .chat_goals import current
         from .subscriptions import effective
+        from . import worktrees
         return {"attempt": {"chat_goal": current(c, conv["id"]), "routine": routine, "id": aid,
                             "profile": effective(c, row["bot"])[0],
                             "computer_label": runner["label"],
@@ -962,6 +963,8 @@ class Execution:
                             "generation": row["generation"], "lease_until": until,
                             "lease_seconds": self.store.settings.lease_seconds, "token": token,
                             "message": msg, "conversation": conv, "task": task,
+                            # The task's set-up worktrees on this computer, added to its session (runner/service.py).
+                            "worktrees": worktrees.attached(c, task["id"], who.runner_id, row["bot"]) if task else [],
                             "history": history, "config": config, "principal": principal}}
 
     def attempt(self, c, who, aid, active=True, final=False):

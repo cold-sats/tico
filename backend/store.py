@@ -1229,6 +1229,12 @@ class Store:
                                                     (FILE_MIGRATION,)).fetchone()[0]))
                     again = [r[0] for r in c.execute("SELECT slug FROM bots") if r[0] not in done]
                     c.execute("INSERT INTO registry_metadata VALUES(?,?)", (HUB_MIGRATION, encode(again)))
+                # Every task is its own session by default now (clients/sessions.py). Older servers wrote
+                # `session: bot` into every bot as the default, so clear it once; a later explicit `bot` stays.
+                if not c.execute("SELECT 1 FROM registry_metadata WHERE key='task_session_default'").fetchone():
+                    c.execute("UPDATE bot_config SET config_json=json_remove(config_json,'$.session') "
+                              "WHERE json_valid(config_json) AND json_extract(config_json,'$.session')='bot'")
+                    c.execute("INSERT INTO registry_metadata VALUES('task_session_default','true')")
                 _docs.refresh_generated_docs(c)
                 record = c.execute("SELECT value_json FROM registry_metadata WHERE key='onboarding'").fetchone()
                 if record:

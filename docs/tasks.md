@@ -283,8 +283,9 @@ A merged PR becomes Shipped once the running release includes its merge commit; 
 where it is. PRs in another repository stay Merged.
 
 Sessions show who is working a task. The primary session is the owning bot's task session, recorded
-by Tico when its turn starts in the task's own lane (bots set to `session: task`, and BotOps, on a runner
-that runs lanes); a bot's shared thread is never one. A task has at most one primary: a newer thread or a
+by Tico when its turn starts in the task's own lane (every bot by default, unless set to `session: bot`, on a runner
+that runs lanes); a bot's shared thread is never one. The task's set-up worktrees on that computer are added to
+its session, with each repo's AGENTS.md (else CLAUDE.md) in the prompt as rules for writing code there. A task has at most one primary: a newer thread or a
 new owner's session replaces it, and the old one stays as an alternate. Anyone with link rights can add other sessions to track:
 a thread URL, a `claude --resume <id>` or `codex resume <id>` command, or another reference
 (`hub task link <id> <value> --session`, `hub_task_link` with `kind: session`, or Sessions + on the task).
