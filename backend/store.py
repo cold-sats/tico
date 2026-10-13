@@ -152,27 +152,6 @@ CREATE TABLE IF NOT EXISTS oidc_codes(
 CREATE TABLE IF NOT EXISTS assignments(
  bot TEXT PRIMARY KEY REFERENCES bots(slug), runner_id TEXT NOT NULL REFERENCES runners(id),
  generation INTEGER NOT NULL, updated TEXT NOT NULL, updated_by TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS assignment_branches(
- id TEXT PRIMARY KEY, source_bot TEXT NOT NULL REFERENCES bots(slug), assignment_key TEXT NOT NULL,
- generation INTEGER NOT NULL CHECK(generation>=1), bot TEXT NOT NULL UNIQUE REFERENCES bots(slug),
- task_id TEXT NOT NULL REFERENCES tasks(id), allocator TEXT NOT NULL, runner_id TEXT NOT NULL REFERENCES runners(id),
- display_name TEXT NOT NULL, phase TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
- request_hash TEXT NOT NULL, checkpoint_json TEXT NOT NULL DEFAULT '{}', receipts_json TEXT NOT NULL DEFAULT '{}',
- created TEXT NOT NULL, updated TEXT NOT NULL, archived_at TEXT,
- UNIQUE(source_bot,assignment_key,generation));
-CREATE UNIQUE INDEX IF NOT EXISTS assignment_branch_live_task ON assignment_branches(source_bot,task_id)
- WHERE phase NOT IN ('archived','cancelled');
-CREATE INDEX IF NOT EXISTS assignment_branch_source_phase ON assignment_branches(source_bot,phase,created);
-CREATE TABLE IF NOT EXISTS assignment_branch_events(
- id TEXT PRIMARY KEY, assignment_id TEXT NOT NULL REFERENCES assignment_branches(id),
- actor TEXT NOT NULL, action TEXT NOT NULL, detail_json TEXT NOT NULL DEFAULT '{}', created TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS assignment_branch_events_by_assignment ON assignment_branch_events(assignment_id,created);
-CREATE TABLE IF NOT EXISTS assignment_branch_cleanup(
- assignment_id TEXT PRIMARY KEY REFERENCES assignment_branches(id), runner_id TEXT NOT NULL REFERENCES runners(id),
- state TEXT NOT NULL CHECK(state IN ('requested','blocked','complete')), requested_by TEXT NOT NULL,
- requested TEXT NOT NULL, updated TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', completed TEXT,
- attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt>=1));
-CREATE INDEX IF NOT EXISTS assignment_branch_cleanup_pending ON assignment_branch_cleanup(runner_id,state,updated);
 CREATE TABLE IF NOT EXISTS jobs(
  id TEXT PRIMARY KEY, message_id TEXT NOT NULL UNIQUE REFERENCES messages(id),
  bot TEXT NOT NULL REFERENCES bots(slug), state TEXT NOT NULL DEFAULT 'queued',
@@ -1131,6 +1110,10 @@ class Store:
                 # trigger below, so it never takes a migration number another change needs.
                 from .task_delete import ensure as ensure_task_trash
                 ensure_task_trash(c)
+                # Temporary task assignments are retired (#420): their actors are archived and off every computer,
+                # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
+                from .shared_bots import retire_assignments
+                retire_assignments(c)
                 # A service key's scope (backend/service_keys.py); every older key files tasks. Unversioned like
                 # the trash: an older release reads the table as before and never sees the column.
                 H.add_column(c, "service_keys", "scope", "TEXT NOT NULL DEFAULT 'tasks'")

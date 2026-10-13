@@ -80,3 +80,14 @@ def test_a_usage_limit_in_one_lane_holds_the_bot_when_another_lane_finishes(api)
     with api.app.state.store.read() as c:
         assert H.status(c, "ops")["state"] == "limited"
     assert claim(api, machine) is None, "the limited lane's job waits out the cooldown"
+
+
+def test_an_older_runner_advertising_retired_assignment_capabilities_still_heartbeats_and_claims(api):
+    """Temporary assignments are gone (#420); a runner from before still names them in its heartbeat."""
+    machine = runner(api)
+    assign(api, machine, "ops")
+    post(api, "runners/heartbeat", {"version": "old", "platform": "test", "readiness": {"ops": True},
+                                    "capabilities": ["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1"]},
+         token=machine["token"])
+    post(api, "chat/ops", {"text": "Still there?"})
+    assert claim(api, machine)["bot"] == "ops"

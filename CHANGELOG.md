@@ -82,6 +82,9 @@ All notable changes to Tico are recorded here. The format follows
   pending."); `status: doing` and `owner: bot:cmo` are still flagged.
 - **Whoever files a subtask is its requester.** A person who files a subtask under someone else's task now shows as asking for it and gets its completion notice; before, it took the parent's requester. The parent's requester still hears when the parent finishes.
 
+### Removed
+- **Temporary task assignments.** Per-task bot sessions replace them: the section on a bot's page, the API routes, `hub bot assignment` commands and MCP tools are gone. Existing assignment bots are archived, their open tasks go back to the bot they came from, and their history stays. An older runner still connects. ([#420](https://github.com/ticoteam/tico/issues/420))
+
 ## [0.3.40] - 2026-10-11
 
 ### Added
