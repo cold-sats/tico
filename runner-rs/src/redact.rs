@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
@@ -79,7 +80,7 @@ struct Built {
 
 fn build(secrets: &[String]) -> Built {
     let mut vals: Vec<String> = values(secrets).into_iter().collect();
-    vals.sort_by(|a, b| b.len().cmp(&a.len()));
+    vals.sort_by_key(|v| std::cmp::Reverse(v.len()));
     let mut forms = BTreeSet::new();
     for v in &vals {
         forms.extend(variants(v));
@@ -413,7 +414,7 @@ pub fn git_failure(stderr: &str, secrets: &[String], limit: usize) -> String {
 
 /// git with the clean environment `runner/safe_git.py` uses: no global or system config.
 pub fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new("git")
+    let out = crate::isolation::std_command("git")
         .args(crate::safegit::args(root))
         .args(args)
         .env_clear()
@@ -453,6 +454,7 @@ pub fn for_turn(env: &[(String, String)], vault_values: &[String]) -> Option<Arc
 }
 
 fn active() -> &'static Mutex<Vec<(String, Arc<Redactor>)>> {
+    #[allow(clippy::type_complexity)]
     static ACTIVE: OnceLock<Mutex<Vec<(String, Arc<Redactor>)>>> = OnceLock::new();
     ACTIVE.get_or_init(|| Mutex::new(Vec::new()))
 }

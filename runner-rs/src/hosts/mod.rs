@@ -117,13 +117,15 @@ pub struct Settings {
     #[allow(dead_code)] // the hub MCP server and Codex read the bot from the environment
     pub slug: String,
     pub compact_at: Value,
+    /// The bot's own MCP servers from bot.yaml, this harness's transports only (crate::perbot::mcp_for_run).
+    pub mcp_servers: Vec<Value>,
 }
 
 const HUB_MCP_ENV: &[&str] = &["HUB_API_URL", "HUB_TOKEN", "HUB_BOT", "HUB_EMPLOYEE", "HUB_DIR"];
 
 /// The hub as a stdio MCP server for one turn (`hub_mcp_server`), or None outside a turn.
 pub fn hub_mcp_server(env: &Env) -> Option<Value> {
-    if env.get("HUB_API_URL").map_or(true, |v| v.is_empty()) || env.get("HUB_TOKEN").map_or(true, |v| v.is_empty()) {
+    if env.get("HUB_API_URL").is_none_or(|v| v.is_empty()) || env.get("HUB_TOKEN").is_none_or(|v| v.is_empty()) {
         return None;
     }
     let mut vars = Map::new();

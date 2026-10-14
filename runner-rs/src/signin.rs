@@ -155,7 +155,7 @@ impl SignIn {
             tried.insert(attempt, Instant::now());
         }
         use tokio::io::AsyncWriteExt;
-        let child = tokio::process::Command::new(executable)
+        let child = crate::isolation::command(executable)
             .args(["login", "--with-api-key"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

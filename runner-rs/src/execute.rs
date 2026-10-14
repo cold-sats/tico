@@ -162,7 +162,7 @@ fn git_env(turn: &Env) -> Env {
 
 /// Runner git in a checkout: no hooks, no fsmonitor, no optional locks (safe_git.prefix).
 async fn git(path: &Path, env: &Env, args: &[&str], timeout_s: u64) -> Option<(bool, String, String)> {
-    let mut cmd = tokio::process::Command::new("git");
+    let mut cmd = crate::isolation::command("git");
     cmd.args(crate::safegit::args(path)).args(args).env_clear().envs(env).stdin(std::process::Stdio::null()).kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(timeout_s), cmd.output()).await.ok()?.ok()?;
     Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into()))
@@ -339,7 +339,7 @@ pub async fn publish_history(path: &Path, repository: &str, env: &Env) -> (&'sta
                 if shallow == "false" {
                     for name in &names {
                         let sha = remote[name].clone();
-                        let code = tokio::process::Command::new("git")
+                        let code = crate::isolation::command("git")
                             .args(crate::safegit::args(path))
                             .args(["merge-base", &sha, "HEAD"])
                             .env_clear()
@@ -640,6 +640,14 @@ impl Runner {
     }
 
     /// publish_history with the turn's token, logged when it changes (service.py publish).
+    /// After a completed turn: its reports and artifacts as Tico files, and its memory commits.
+    async fn after_completed(&self, attempt: &Value, path: &Path, pushed: bool, skipped: &[String], memory_before: &str) {
+        let bot = text_of(&attempt["bot"]);
+        crate::files_publish::after_turn(&self.state, &self.client, attempt, path, pushed, skipped).await;
+        let shared = !text_of(&attempt["config"]["shared_from"]).is_empty();
+        crate::memory_history::report(&self.state, &self.client, &bot, path, &text_of(&attempt["id"]), memory_before, !shared).await;
+    }
+
     async fn publish(&self, bot: &str, path: &Path, env: &Env) -> (&'static str, String) {
         let repository = env.get(crate::gitcred::REPOSITORY_KEY).cloned().unwrap_or_default();
         if repository.is_empty() {
@@ -694,6 +702,7 @@ impl Runner {
         let mut drove = Drove { outcome: "interrupted".into(), reply: String::new(), tokens: json!({}), limited: false, retryable: false };
         let mut redactor: Option<Arc<Redactor>> = None;
         let mut started_at = String::new();
+        let mut memory_before = String::new();
         let mut meter = Meter::default();
         let mut carried: BTreeMap<String, Value> = BTreeMap::new();
         let mut auth_rejected: Option<String> = None;
@@ -715,10 +724,6 @@ impl Runner {
                     break g;
                 }
             };
-            if let Some(line) = crate::runner::local_refusal() {
-                // Never run a bot as the supervisor user when it is meant to run as another one.
-                return Err(Fail::runtime(format!("Not started: {line}")));
-            }
             if truthy(refs.get("goal_action")) || truthy(refs.get("command")) {
                 // Settled as failed with the reason, not run half-way: goals and harness commands need the Python runner.
                 let what = if truthy(refs.get("goal_action")) { "goal controls" } else { "harness commands" };
@@ -736,6 +741,7 @@ impl Runner {
             env = crate::env::environment(&ctx, &attempt, &mut vault).await.map_err(Fail::runtime)?;
             let socket_path = self.socket.as_ref().map(|s| {
                 s.register(&token, &bot);
+                s.set_mailboxes(&token, crate::mail_key::mailboxes(&attempt));
                 s.path.clone()
             });
             if let Some(p) = &socket_path {
@@ -762,8 +768,9 @@ impl Runner {
             if published == "failed" && detail.contains("unrelated history") {
                 return Err(Fail::runtime(format!("this computer's copy of {bot} shares no history with GitHub ({detail}); no turn runs on it")));
             }
+            memory_before = redact::head(&execution_path);
             if redactor.is_some() {
-                started_at = redact::head(&execution_path);
+                started_at = memory_before.clone();
             }
             if attempt["chat_goal"].is_object() {
                 self.diagnose(&aid, "This computer's runner does not work goals natively yet; the turn runs from its prompt alone");
@@ -790,6 +797,13 @@ impl Runner {
                 env: env.clone(),
                 slug: bot.clone(),
                 compact_at: config.get("compact_at").cloned().unwrap_or(Value::Null),
+                mcp_servers: {
+                    let (servers, problems) = crate::perbot::mcp_for_run(&execution_path, &env, &vault.names, &runtime, &text_of(&config["harness"]));
+                    for line in problems {
+                        self.diagnose(&aid, &line);
+                    }
+                    servers
+                },
             };
             let mut resumed = false;
             if let Some(prev) = &previous {
@@ -866,6 +880,7 @@ impl Runner {
         }
         let mut reply = std::mem::take(&mut drove.reply);
         let mut committed_secret = false;
+        let mut skipped: Vec<String> = vec![];
         if let Some(r) = &redactor {
             reply = r.scrub_text(&reply);
             if host.is_some() {
@@ -890,6 +905,10 @@ impl Runner {
                     let line = format!("left out of the commit: {name} ({})", reasons[&name]);
                     reply = if reply.is_empty() { line } else { format!("{reply}\n\n{line}") };
                 }
+                skipped = tree.left_out.iter().map(|p| {
+                    let path = PathBuf::from(p);
+                    path.strip_prefix(&execution_path).unwrap_or(&path).display().to_string()
+                }).collect();
                 if tree.committed {
                     committed_secret = true;
                     let line = "not pushed: a commit made this turn contains a secret";
@@ -955,6 +974,9 @@ impl Runner {
                             log(&format!("Tico runner: {name} has {ahead} unpushed commits and push failed ({error}); leaving it for a person"));
                         }
                         self.publish(&bot, &execution_path, &env).await;
+                        self.after_completed(&attempt, &execution_path, error.is_empty(), &skipped, &memory_before).await;
+                    } else if drove.outcome == "completed" && host.is_some() {
+                        self.after_completed(&attempt, &execution_path, false, &skipped, &memory_before).await;
                     }
                     Ok(())
                 }

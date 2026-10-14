@@ -214,3 +214,35 @@ def test_a_runner_killed_mid_turn_files_the_turn_as_interrupted_when_it_restarts
     assert done["result"]["outcome"] == "interrupted"
     assert done["result"]["text"] == "Runner restarted during execution"
     assert msg["conversation_id"]
+
+
+def test_a_declared_watcher_runs_without_a_model_and_its_event_opens_a_task(api, computer):
+    repo = Path(computer.config).parent.parent / "projects" / "bot-ops"
+    (repo / "software").mkdir()
+    (repo / "software" / "watch.py").write_text(
+        "import os\n"
+        "print('tico-event {\"op\": \"task\", \"key\": \"acme:1\", \"title\": \"Acme ticket\", \"body\": \"From HQ\"}')\n"
+        "print('hub token: ' + ('yes' if os.environ.get('HUB_TOKEN') else 'no'))\n")
+    with (repo / "bot.yaml").open("a") as manifest:
+        manifest.write("watchers:\n  - name: acme-hq\n    run: software/watch.py\n    every: 1m\n")
+    computer.start()
+
+    def ran():
+        with api.app.state.store.read() as c:
+            return c.execute("SELECT exit_code, events, output FROM watcher_runs WHERE bot='ops' AND name='acme-hq'").fetchone()
+    exit_code, events, output = until(ran, "the watcher's report", timeout=60)
+    assert (exit_code, events, output) == (0, 1, "hub token: no")
+    with api.app.state.store.read() as c:
+        task = c.execute("SELECT t.title FROM watcher_items w JOIN tasks t ON t.id=w.task_id WHERE w.bot='ops' AND w.key='acme:1'").fetchone()
+    assert task[0] == "Acme ticket"
+
+
+def test_a_completed_turn_publishes_the_bots_report_as_a_tico_file(api, computer):
+    computer.start()
+    msg = post(api, "chat/ops", {"text": "Please PUBLISH the report"})
+    until(lambda: reply_to(api, msg["conversation_id"]), "the bot's reply")
+
+    def published():
+        with api.app.state.store.read() as c:
+            return [tuple(r) for r in c.execute("SELECT title, kind FROM bot_files WHERE bot='ops'")]
+    assert until(published, "the published file") == [("acme.md", "document")]

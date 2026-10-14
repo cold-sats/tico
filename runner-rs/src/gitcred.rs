@@ -129,25 +129,44 @@ pub fn select_token(granted: &Value, repository: Option<&str>) -> String {
 
 struct Registered {
     bot: String,
+    /// The mailboxes the hub named for this attempt (crate::mail_key::answer).
+    mailboxes: std::collections::BTreeSet<String>,
     issued: Vec<String>,
     redactor: Option<Arc<Redactor>>,
 }
 
 pub struct CredentialSocket {
     pub path: PathBuf,
-    dir: PathBuf,
+    dir: Option<PathBuf>,
     attempts: Arc<Mutex<HashMap<String, Registered>>>,
 }
 
 impl CredentialSocket {
     /// Listen in a private temporary directory, as `credential_socket.serve` does without isolation.
+    /// Under isolation (or with TICO_RUNNER_CRED_SOCKET) it is a fixed path the bot user owns.
     pub fn serve(client: Client, cache: Arc<TokenCache>) -> std::io::Result<CredentialSocket> {
-        let dir = PathBuf::from("/tmp").join(format!("tico-credentials-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::create_dir(&dir)?;
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-        let path = dir.join("credential.sock");
+        let named = std::env::var("TICO_RUNNER_CRED_SOCKET").ok().filter(|p| !p.is_empty());
+        let (dir, path) = match named {
+            None if !crate::isolation::enabled() => {
+                let dir = PathBuf::from("/tmp").join(format!("tico-credentials-{}", uuid::Uuid::new_v4().simple()));
+                std::fs::create_dir(&dir)?;
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+                let path = dir.join("credential.sock");
+                (Some(dir), path)
+            }
+            named => {
+                let path = PathBuf::from(named.unwrap_or_else(|| "/run/tico-runner/git-credential.sock".into()));
+                if let Some(parent) = path.parent() {
+                    use std::os::unix::fs::DirBuilderExt;
+                    std::fs::DirBuilder::new().recursive(true).mode(0o755).create(parent)?;
+                }
+                let _ = std::fs::remove_file(&path);
+                (None, path)
+            }
+        };
         let listener = tokio::net::UnixListener::bind(&path)?;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        crate::isolation::chown(&path);
         let attempts: Arc<Mutex<HashMap<String, Registered>>> = Arc::new(Mutex::new(HashMap::new()));
         let shared = attempts.clone();
         tokio::spawn(async move {
@@ -171,7 +190,14 @@ impl CredentialSocket {
     }
 
     pub fn register(&self, attempt_token: &str, bot: &str) {
-        self.attempts.lock().unwrap().insert(attempt_token.into(), Registered { bot: bot.into(), issued: vec![], redactor: None });
+        self.attempts.lock().unwrap().insert(attempt_token.into(), Registered { bot: bot.into(), mailboxes: Default::default(), issued: vec![], redactor: None });
+    }
+
+    /// The mailboxes this attempt may ask a mail token for.
+    pub fn set_mailboxes(&self, attempt_token: &str, mailboxes: std::collections::BTreeSet<String>) {
+        if let Some(r) = self.attempts.lock().unwrap().get_mut(attempt_token) {
+            r.mailboxes = mailboxes;
+        }
     }
 
     pub fn set_redactor(&self, attempt_token: &str, redactor: Arc<Redactor>) {
@@ -189,7 +215,9 @@ impl CredentialSocket {
 impl Drop for CredentialSocket {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
-        let _ = std::fs::remove_dir(&self.dir);
+        if let Some(dir) = &self.dir {
+            let _ = std::fs::remove_dir(dir);
+        }
     }
 }
 
@@ -198,10 +226,10 @@ async fn answer(attempts: &Mutex<HashMap<String, Registered>>, client: &Client, 
     let Some(token) = asked.get("token").and_then(|t| t.as_str()).filter(|t| !t.is_empty()) else {
         return json!({"error": if asked.is_object() { "unknown attempt" } else { "bad request" }});
     };
-    let bot = attempts.lock().unwrap().get(token).map(|r| r.bot.clone());
-    let Some(bot) = bot else { return json!({"error": "unknown attempt"}) };
-    if asked.get("mail").is_some() {
-        return json!({"error": "no mail access"});
+    let known = attempts.lock().unwrap().get(token).map(|r| (r.bot.clone(), r.mailboxes.clone()));
+    let Some((bot, mailboxes)) = known else { return json!({"error": "unknown attempt"}) };
+    if let Some(mail) = asked.get("mail") {
+        return crate::mail_key::answer(&mailboxes, mail).await;
     }
     let repository = match asked.get("repository") {
         None | Some(Value::Null) => None,
@@ -227,7 +255,7 @@ async fn answer(attempts: &Mutex<HashMap<String, Registered>>, client: &Client, 
     let mut map = attempts.lock().unwrap();
     let Some(entry) = map.get_mut(token) else { return json!({"error": "unknown attempt"}) };
     match &entry.redactor {
-        Some(r) => r.add(&[granted.clone()]),
+        Some(r) => r.add(std::slice::from_ref(&granted)),
         None => entry.issued.push(granted.clone()),
     }
     json!({"token": granted})
@@ -295,6 +323,10 @@ pub fn shim_dir(state_dir: &Path) -> Option<PathBuf> {
     let gh = dir.join("gh");
     let exe = std::env::current_exe().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
+    // Under isolation the bot user runs it, through a state directory it may only traverse.
+    if crate::isolation::enabled() {
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+    }
     if std::fs::read_link(&gh).ok().as_deref() != Some(exe.as_path()) {
         let _ = std::fs::remove_file(&gh);
         std::os::unix::fs::symlink(&exe, &gh).ok()?;
@@ -461,7 +493,7 @@ pub fn git_credential_main(socket: Option<String>) -> i32 {
     let token = credential(socket.as_deref(), repo.as_deref());
     if token.is_empty() {
         eprintln!("Tico runner: no GitHub App token for this repository; check Settings > Tools > GitHub");
-        print!("quit=true\n");
+        println!("quit=true");
     } else {
         print!("username=x-access-token\npassword={token}\n");
     }

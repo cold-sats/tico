@@ -58,6 +58,10 @@ def main():
             while os.getppid() == parent:
                 time.sleep(0.1)
             return
+        if "PUBLISH" in text:                    # a deliverable the runner publishes as a Tico file
+            os.makedirs("reports", exist_ok=True)
+            with open(os.path.join("reports", "acme.md"), "w") as report:
+                report.write("# Acme report\n")
         reply = "Acme reply."
         if os.environ.get("ACME_API_KEY"):
             reply += " The key is " + os.environ["ACME_API_KEY"]

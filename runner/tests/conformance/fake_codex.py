@@ -29,7 +29,7 @@ def main():
         return
     if sys.argv[1:2] != ["app-server"]:
         sys.exit(2)
-    threads, turns, parent = 0, 0, os.getppid()
+    threads, turns, parent, cwd = 0, 0, os.getppid(), {}
     for line in sys.stdin:
         try:
             msg = json.loads(line)
@@ -41,6 +41,7 @@ def main():
         if method in ("thread/start", "thread/resume"):
             threads += 1
             thread = params.get("threadId") or "acme-thread-%d-%d" % (os.getpid(), threads)
+            cwd[thread] = params.get("cwd") or os.getcwd()
             record({"harness": "codex", "method": method, "thread": thread})
             send({"id": rid, "result": {"thread": {"id": thread}}})
         elif method == "turn/start":
@@ -58,6 +59,10 @@ def main():
                 while os.getppid() == parent:
                     time.sleep(0.1)
                 return
+            if "PUBLISH" in text:                # a deliverable the runner publishes as a Tico file
+                os.makedirs(os.path.join(cwd.get(thread, os.getcwd()), "reports"), exist_ok=True)
+                with open(os.path.join(cwd.get(thread, os.getcwd()), "reports", "acme.md"), "w") as report:
+                    report.write("# Acme report\n")
             reply = "Acme reply."
             if os.environ.get("ACME_API_KEY"):
                 reply += " The key is " + os.environ["ACME_API_KEY"]

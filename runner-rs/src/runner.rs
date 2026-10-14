@@ -52,6 +52,8 @@ pub struct Runner {
     published: Mutex<HashMap<String, Option<(i128, u64)>>>,
     beat: Mutex<Option<(String, Instant)>>,
     restart: AtomicBool,
+    /// What each bot's bot.yaml adds: tools, MCP servers, watchers, memory history (crate::perbot).
+    pub perbot: crate::perbot::PerBot,
 }
 
 pub fn platform() -> &'static str {
@@ -109,6 +111,7 @@ impl Runner {
             published: Mutex::new(HashMap::new()),
             beat: Mutex::new(None),
             restart: AtomicBool::new(false),
+            perbot: crate::perbot::PerBot::default(),
         }
     }
 
@@ -172,6 +175,7 @@ impl Runner {
 
     /// Results a restart or an outage left on this computer, sent before anything new.
     pub async fn recover_output(&self) {
+        crate::files_publish::drain(&self.state, &self.client).await; // files a restart or an outage left queued
         let rows = match self.state.unfinished() {
             Ok(rows) => rows,
             Err(e) => return log(&format!("Tico runner: could not read saved results ({e}); will retry")),
@@ -218,6 +222,10 @@ impl Runner {
         if full {
             let assignments = self.client.get("runners/assignments").await?;
             *self.assignments.lock().unwrap() = assignments.as_array().cloned().unwrap_or_default();
+            // The variables each bot is granted, so readiness counts a hub-held credential as present.
+            if let Ok(grants) = self.client.get("runner-credential-grants").await {
+                *self.perbot.credential_names.lock().unwrap() = grants["bots"].as_object().cloned().unwrap_or_default();
+            }
         }
         let assignments = self.assignments.lock().unwrap().clone();
         let mut by_bot: std::collections::BTreeMap<String, Value> = Default::default();
@@ -227,15 +235,20 @@ impl Runner {
         let candidates: Vec<Value> = by_bot.into_values().collect();
         let runtimes = readiness::runtime_report(&self.sign_in, &self.client, &assignments).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
-        let checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
+        let mut checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
+        self.perbot.decorate(&self.config, &mut checks, &candidates);
         let published = self.published.lock().unwrap().clone();
         let (agent_instructions, versions) = readiness::changed_agent_instructions(&self.config, &assignments, &published);
+        let mut readiness_doc = readiness::document(&runtimes, &checks, &self.state.directory);
+        if crate::mail_key::status(&self.config) == Some("exposed") {
+            readiness_doc["mail_key"] = json!("exposed"); // Health warns while bots can read the company's mail key
+        }
         let body = json!({
             "version": RUNNER_VERSION,
             "platform": platform(),
             "capabilities": ["session_roots_v1"],
             "capacity": self.capacity,
-            "readiness": readiness::document(&runtimes, &checks, &self.state.directory),
+            "readiness": readiness_doc,
             "mail_agent_instructions": {},
             "agent_instructions": agent_instructions,
         });
@@ -262,18 +275,13 @@ impl Runner {
         }
         let _ = std::fs::write(dir.join("runtimes.json"), Value::Object(runtimes).to_string());
         self.recover_output().await;
+        for bot in self.perbot.memory_due(&self.config, &assignments) {
+            let path = readiness::local_path(&self.config, &bot);
+            crate::memory_history::report(&self.state, &self.client, &bot, &path, "", "", false).await;
+        }
         Ok(())
     }
 
-}
-
-/// Why this computer cannot run on this runner whatever its bots are, checked before anything reaches the
-/// network: bots run as another user (TICO_RUNNER_BOT_UID), which this runner does not do. `execute` checks it
-/// again, so a turn never starts as the supervisor user even if startup let it through.
-pub fn local_refusal() -> Option<String> {
-    std::env::var("TICO_RUNNER_BOT_UID")
-        .is_ok_and(|v| !v.is_empty())
-        .then(|| "this computer runs bots as another user (TICO_RUNNER_BOT_UID), which needs the Python runner".to_string())
 }
 
 impl Runner {
@@ -471,6 +479,15 @@ impl Runner {
         if self.restart.load(Ordering::SeqCst) {
             return Ok(()); // a person asked for a restart: no new work, the running turns finish
         }
+        // Programs bots declare in `watchers:` (crate::watchers); a failure is logged and never stops the runner.
+        let assignments = self.assignments.lock().unwrap().clone();
+        let ctx = crate::watchers::Ctx {
+            client: self.client.clone(),
+            url: self.config.url(),
+            projects_dir: self.config.projects_dir(),
+            state_dir: self.state.directory.clone(),
+        };
+        self.perbot.watchers.tick(&self.config, &assignments, ctx);
         while workers.len() < self.capacity && clock.claim_due(&self.events) {
             let result = self.claim_next().await?;
             let attempt = result.get("attempt").cloned().filter(|a| a.is_object());

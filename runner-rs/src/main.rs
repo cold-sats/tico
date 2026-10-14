@@ -4,19 +4,30 @@
 
 mod client;
 mod config;
+mod declared_access;
 mod env;
 mod events;
 mod execute;
+mod files_publish;
 mod gitcred;
 mod hosts;
+mod isolation;
 mod lock;
+mod mail_key;
+mod manifest;
+mod memory_history;
+mod mcp;
+mod op;
+mod perbot;
 mod prompt;
 mod readiness;
 mod redact;
 mod runner;
 mod safegit;
+mod sidejobs;
 mod signin;
 mod state;
+mod watchers;
 mod util;
 
 use std::path::PathBuf;
@@ -92,17 +103,20 @@ async fn start(command: Command, config: config::Config) -> i32 {
             }
         };
     }
+    // After a re-enrollment, the protected mail key follows this operator's previous registration once.
+    mail_key::carry_protected(&config);
     let state_dir = config.state_dir();
     if let Err(e) = std::fs::create_dir_all(&state_dir) {
         fail(&format!("cannot create {}: {e}", state_dir.display()));
     }
     let _lock = lock::acquire(&state_dir.join("runner.lock")).unwrap_or_else(|e| fail(&e));
     let state = state::State::open(&state_dir).unwrap_or_else(|e| fail(&e));
-    if let Some(line) = runner::local_refusal() {
-        util::log(&format!("Tico runner: {line}; this runner does not do that yet"));
-        util::log("Tico runner: not starting: run this computer on the Python runner (python -m runner run)");
-        return 3;
+    if isolation::enabled() {
+        // Sign-ins a person ran as root (`docker exec`) go to the bot user, who runs the harnesses.
+        let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+        isolation::adopt(&[".codex", ".claude", ".claude.json", ".gemini", ".config"].map(|p| home.join(p)));
     }
+    mail_key::init(&config); // an inbox bot's turn asks the credential socket for its mailbox's token
     let mut service = runner::Runner::new(config, client.clone(), state);
     match service.refusals().await {
         Ok(lines) if !lines.is_empty() => {
@@ -131,6 +145,12 @@ async fn start(command: Command, config: config::Config) -> i32 {
         stopper.events.wake.notify_one();
     });
     util::log(&format!("Tico runner {} (rust) started for {}", runner::RUNNER_VERSION, service.config.runner_id()));
+    // No launchd here (TICO_SIDE_JOBS=1): the runner also supervises importers, close-calls and connectors.
+    let side = sidejobs::start(&service.config);
     service.run().await;
+    if let Some((task, stop)) = side {
+        stop.notify_one();
+        let _ = task.await;
+    }
     0
 }

@@ -9,9 +9,9 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -41,7 +41,7 @@ pub fn version_tuple(text: &str) -> Option<(u64, u64, u64)> {
 
 /// `claude --version` (or `--help`); "" when it cannot be read.
 pub async fn installed_version(cmd: &[String], flag: &str) -> String {
-    let run = Command::new(&cmd[0]).args(&cmd[1..]).arg(flag).stdin(Stdio::null()).kill_on_drop(true).output();
+    let run = crate::isolation::command(&cmd[0]).args(&cmd[1..]).arg(flag).stdin(Stdio::null()).kill_on_drop(true).output();
     match tokio::time::timeout(Duration::from_secs(5), run).await {
         Ok(Ok(out)) if out.status.success() => {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -158,6 +158,7 @@ struct Shared {
 pub struct ClaudeHost(Arc<Shared>);
 
 fn cache() -> &'static Mutex<HashMap<(Vec<String>, &'static str), bool>> {
+    #[allow(clippy::type_complexity)]
     static C: OnceLock<Mutex<HashMap<(Vec<String>, &'static str), bool>>> = OnceLock::new();
     C.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -255,7 +256,7 @@ impl ClaudeHost {
         let mut argv = self.0.cmd.clone();
         argv.push("-p".into());
         argv.extend(STREAM_ARGS.iter().map(|s| s.to_string()));
-        let mut servers = Map::new();
+        let mut servers = crate::mcp::claude_config(&t.settings.mcp_servers);
         if let Some(hub) = hub_mcp_server(&t.settings.env) {
             servers.insert("hub".into(), hub);
         }
@@ -288,7 +289,7 @@ impl ClaudeHost {
         let path = std::env::temp_dir().join(format!("tico-claude-stderr-{}", uuid::Uuid::new_v4().simple()));
         let stderr = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
         let _ = std::fs::remove_file(&path);
-        let mut command = Command::new(&argv[0]);
+        let mut command = crate::isolation::command(&argv[0]);
         command
             .args(&argv[1..])
             .stdin(Stdio::piped())
@@ -298,7 +299,7 @@ impl ClaudeHost {
         if !t.settings.env.is_empty() {
             let mut env = t.settings.env.clone();
             // The login and the session files live under HOME; a trimmed environment must keep it.
-            if env.get("HOME").map_or(true, |h| h.is_empty()) {
+            if env.get("HOME").is_none_or(|h| h.is_empty()) {
                 if let Ok(home) = std::env::var("HOME") {
                     env.insert("HOME".into(), home);
                 }
@@ -665,7 +666,7 @@ impl ClaudeHost {
 
     pub fn interrupt(&self, _thread_id: &str, turn_id: &str) {
         let mut inner = self.inner();
-        if !inner.turn.as_ref().is_some_and(|(_, t)| t == turn_id) {
+        if inner.turn.as_ref().is_none_or(|(_, t)| t != turn_id) {
             return; // already over; nothing to stop
         }
         inner.interrupted.insert(turn_id.into());
