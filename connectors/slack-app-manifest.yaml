@@ -19,6 +19,7 @@
 #   mpim:history          read group DMs the bot is in              (inbox)
 #   mpim:read             list group DMs                            (inbox)
 #   app_mentions:read     receive @Tico mentions in joined channels (gateway app_mention)
+#   files:read            open files people share, e.g. screenshots (file --id, url_private)
 # Events arrive over Socket Mode (an outbound websocket held by tico-slack-gateway.service on
 # the server; no public receiver, no signing secret): `app_mention` in any channel the app is
 # in, `message.im` for DMs to it, and `message.channels` / `message.groups` for everything
@@ -66,6 +67,7 @@ oauth_config:
       - mpim:history
       - mpim:read
       - app_mentions:read
+      - files:read
 
 settings:
   org_deploy_enabled: false

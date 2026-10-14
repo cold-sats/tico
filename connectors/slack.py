@@ -8,6 +8,7 @@
   connectors/slack.py join --channel C0000000002
   connectors/slack.py dm --as doc-updater --to someone@example.com --text 'the pricing doc is live'
   connectors/slack.py inbox --since 24h --format md --mark
+  connectors/slack.py file --as qa-triage --id F0123ABCD --out ./slack-files
 
 One Slack app serves the whole company. The token is `SLACK_BOT_TOKEN` in the run's environment
 (the runner loads it from <projects>/secrets/_shared.env). Install: see connectors/README.md.
@@ -37,6 +38,10 @@ DMs are gated the same way, plus one more rule: a bot may only DM a company huma
     (`owner` plus `allowed`) - the list of humans who may use the hub
   - bots and deactivated accounts are refused; a DM to several people opens a group DM
   - text over 4000 characters is refused, and every accepted DM is audited with kind "dm"
+
+Files people share (a screenshot in a DM or a channel) show as `[file F...] name` in `history`, `inbox` and
+a routed Slack message. `file --id F...` downloads one with the bot token (the app needs `files:read`), only
+from a channel the bot may read or a DM when its DMs are not off, and only from Slack's own file host.
 
 Nothing in Slack wakes a bot. People DM the bot; `inbox` is how a run reads those DMs.
 
@@ -70,6 +75,7 @@ DIRECTORY_CACHE = PROJECTS / "runtime" / "slack-user-directory.json"
 INBOX_FILE = PROJECTS / "runtime" / "slack-inbox.json"
 USER_CACHE_TTL = 24 * 3600
 MAX_POST_CHARS = 4000
+MAX_FILE_BYTES = 50 * 1024 * 1024
 DEFAULT_TZ = "America/Los_Angeles"
 API = "https://slack.com/api/"
 SECRETS_HINT = "<projects>/secrets/_shared.env"
@@ -143,6 +149,23 @@ def _request(url, data, headers, timeout):
             return r.status, dict(r.headers), r.read()
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers or {}), e.read()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None                                     # the 30x comes back as itself
+
+
+def _download(url, headers, timeout, limit):
+    """A file's bytes from url_private. Redirects are not followed: Slack answers a token without
+    files:read with a redirect to its sign-in page, and the token must not travel to another host.
+    Tests replace this."""
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return r.status, dict(r.headers), r.read(limit + 1)
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers or {}), b""
 
 
 def token_or_die():
@@ -484,6 +507,55 @@ def check_history_scope(manifest, slug, refs, channels=None):
                           f"Its Slack channels are: {names}. An owner or admin can add it as a reader "
                           f"(Settings > Tools > Slack, or ask BotOps).")
     return entry
+
+
+def file_conversations(info):
+    """The channels and DMs a Slack file was shared in, from files.info."""
+    shares = info.get("shares") or {}
+    channels = set(info.get("channels") or []) | set(info.get("groups") or [])
+    channels |= set((shares.get("public") or {}).keys()) | set((shares.get("private") or {}).keys())
+    ims = {c for c in channels | set(info.get("ims") or []) if str(c).startswith("D")}
+    return sorted(channels - ims), sorted(ims)
+
+
+def check_file_scope(manifest, slug, info, channels=None):
+    """A file is readable where its message is: a channel the bot may read, or a DM when DMs are not off."""
+    entry = slack_access(manifest, slug)
+    can = [str(c).lower() for c in (entry.get("can") or [])]
+    if "read" not in can:
+        raise Refused(f"{slug} may {', '.join(can) or 'do nothing'} on Slack, not read files.",
+                      "Add `read` to the Slack entry's `can:` in bot.yaml; that is the owner's call.")
+    shared, ims = file_conversations(info)
+    if ims and entry.get("dms") is not False:
+        return entry
+    if shared and entry.get("channels") is None:
+        return entry
+    registry = None
+    for cid in shared:
+        try:
+            if registry is None:
+                registry = channels if channels is not None else load_channels()
+            return check_history_scope(manifest, slug, [cid], registry)
+        except Refused:
+            continue
+    raise Refused(f"{slug} may not read file {info.get('id') or '?'}.",
+                  "It was not shared in a channel this bot may read"
+                  + (" or in a DM it may read." if ims or entry.get("dms") is False else "."))
+
+
+def check_file_url(url):
+    """The bot token is only ever sent to Slack's own file host."""
+    parts = urllib.parse.urlsplit(str(url or ""))
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not (host == "slack.com" or host.endswith(".slack.com")):
+        raise Refused(f"Not a Slack file address: {url or '(none)'}",
+                      "Only files hosted by Slack (url_private) are downloaded with the bot token.")
+    return url
+
+
+def file_name(info):
+    name = Path(str(info.get("name") or "").replace("\\", "/")).name.strip()
+    return name if name not in ("", ".", "..") else str(info.get("id") or "slack-file")
 
 
 def check_inbox_scope(manifest, slug):
@@ -908,6 +980,12 @@ def fetch_history(channel_id, start, end, threads, users, team_url, tz):
     return out
 
 
+def file_lines(m):
+    """One `[file F...] name` line per file on a message; `file --id` downloads it."""
+    return [f"[file {f.get('id')}] {f.get('name') or f.get('title') or 'file'}"
+            for f in (m.get("files") or []) if isinstance(f, dict) and f.get("id")]
+
+
 def shape(m, channel_id, users, team_url, tz, thread_ts=None):
     ts = m.get("ts", "0")
     when = datetime.fromtimestamp(float(ts), tz)
@@ -918,8 +996,8 @@ def shape(m, channel_id, users, team_url, tz, thread_ts=None):
         extra = humanize(att.get("text") or att.get("fallback") or "", users)
         if extra:
             text += ("\n" if text else "") + "[attachment] " + extra
-    for f in (m.get("files") or []):
-        text += ("\n" if text else "") + f"[file] {f.get('name', 'file')}"
+    for line in file_lines(m):
+        text += ("\n" if text else "") + line
     return {"ts": ts, "time": when.strftime("%Y-%m-%d %H:%M"), "author": author, "text": text,
             "user": m.get("user"), "reply_count": int(m.get("reply_count") or 0),
             "permalink": permalink(team_url, channel_id, ts, thread_ts), "replies": []}
@@ -1080,7 +1158,7 @@ def cmd_inbox(args):
                          "user": m.get("user"),
                          "author": u.get("display") or m.get("user") or "unknown",
                          "email": u.get("email", ""),
-                         "text": humanize(m.get("text"), display),
+                         "text": "\n".join([humanize(m.get("text"), display)] + file_lines(m)).strip(),
                          "thread_ts": m.get("thread_ts") or m["ts"],
                          "permalink": permalink(team_url, cid, m["ts"], m.get("thread_ts"))})
         sections.append({"id": cid, "kind": "im" if conv.get("is_im") else "mpim",
@@ -1092,6 +1170,45 @@ def cmd_inbox(args):
                           "marked": bool(args.mark), "conversations": sections}, indent=2))
     else:
         print(render_inbox_md(sections, args.tz), end="")
+    return 0
+
+
+def cmd_file(args):
+    """Download a file a person shared: files.info (files:read), then url_private with the bot token."""
+    slug = (args.as_slug or bot_from_env()).strip()
+    manifest = load_manifest(slug) if slug else None
+    if slug:
+        slack_access(manifest, slug)
+    info = call("files.info", {"file": args.id.strip()}).get("file") or {}
+    if slug:
+        check_file_scope(manifest, slug, info)
+    url = check_file_url(info.get("url_private_download") or info.get("url_private"))
+    if int(info.get("size") or 0) > MAX_FILE_BYTES:
+        raise Refused(f"File {args.id} is {info.get('size')} bytes, over the {MAX_FILE_BYTES} byte limit.")
+    out = Path(args.out).expanduser()
+    if out.is_dir() or str(args.out).endswith(("/", os.sep)):
+        out = out / file_name(info)
+    status, hdrs, raw = _download(url, {"Authorization": "Bearer " + token_or_die(), "User-Agent": "tico-slack/1"},
+                                  60, MAX_FILE_BYTES)
+    kind = next((str(v) for k, v in hdrs.items() if k.lower() == "content-type"), "")
+    if 300 <= status < 400 or (status == 200 and kind.startswith("text/html")
+                               and not str(info.get("mimetype") or "").startswith("text/html")):
+        raise Failure(f"Slack sent its sign-in page instead of file {args.id}.",
+                      "The Slack app needs the files:read bot scope: add it at api.slack.com/apps > OAuth & "
+                      "Permissions (connectors/slack-app-manifest.yaml has it), reinstall the app, then update "
+                      f"SLACK_BOT_TOKEN in {SECRETS_HINT}.")
+    if status != 200:
+        raise Failure(f"Slack file download failed: HTTP {status}")
+    if len(raw) > MAX_FILE_BYTES:
+        raise Refused(f"File {args.id} is over the {MAX_FILE_BYTES} byte limit.")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(raw)
+    row = {"ok": True, "id": info.get("id"), "name": info.get("name"), "mimetype": info.get("mimetype"),
+           "bytes": len(raw), "path": str(out)}
+    if args.json:
+        print(json.dumps(row, indent=2))
+    else:
+        print(f"saved {info.get('name') or args.id} ({row['mimetype'] or 'unknown type'}, {len(raw)} bytes) to {out}")
     return 0
 
 
@@ -1166,6 +1283,13 @@ def build_parser():
                    help="advance the watermark so the next run only sees newer messages")
     i.add_argument("--state", default=str(INBOX_FILE), help=argparse.SUPPRESS)
     i.set_defaults(func=cmd_inbox)
+
+    f = common(sub.add_parser("file", help="download a file someone shared (a screenshot, a log)"))
+    f.add_argument("--as", dest="as_slug", default=None,
+                   help="employee slug; defaults to HUB_BOT in a hosted run")
+    f.add_argument("--id", required=True, help="the file id, F..., from a `[file F...]` line")
+    f.add_argument("--out", default=".", help="a file path, or a folder to save it in under its own name")
+    f.set_defaults(func=cmd_file)
 
     j = common(sub.add_parser("join", help="join a public channel"))
     j.add_argument("--channel", required=True)

@@ -39,7 +39,7 @@ def test_manifest_matches_the_code_and_the_yaml():
     assert manifest["settings"]["socket_mode_enabled"] is True
     # Every scope the connector CLI names in its own source is requested.
     import re
-    named = set(re.findall(r"\b(?:channels|groups|im|mpim|users|chat|app_mentions):[a-z.]+\b",
+    named = set(re.findall(r"\b(?:channels|groups|im|mpim|users|chat|app_mentions|files):[a-z.]+\b",
                            (ROOT / "connectors" / "slack.py").read_text()))
     assert {s for s in named if s in scopes or s.endswith((":history", ":read", ":write"))} <= scopes
 

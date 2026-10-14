@@ -119,10 +119,15 @@ class FakeSlack(unittest.TestCase):
         self.employee("doc-updater", ["read", "post"])
         self.employee("reader", ["read"])
         slack.audit = lambda *a, **k: self.audited.append((a, k))
+        access = Path(self.tmp.name) / "hub-access.yaml"        # the company list, never the checkout's own
+        access.write_text("owner: ana@acme.example\nallowed: [cara@acme.example]\n")
+        self.real_hub_access = slack.load_hub_access
+        slack.load_hub_access = lambda path=access: self.real_hub_access(path)
 
     def tearDown(self):
         slack._request, slack.PROJECTS, slack.audit = (self.real_request, self.real_projects,
                                                        self.real_audit)
+        slack.load_hub_access = self.real_hub_access
         os.environ.pop("SLACK_BOT_TOKEN", None)
         if self.old_token is not None:
             os.environ["SLACK_BOT_TOKEN"] = self.old_token
@@ -270,6 +275,78 @@ class ChannelList(FakeSlack):
         self.assertEqual(rc, 2)
         self.assertEqual(len(calls), 1)                               # conversations.info, then it stopped
         self.assertEqual(self.audited, [])
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+SHOT = {"id": "F0SHOT1", "name": "checkout-error.png", "mimetype": "image/png", "size": len(PNG),
+        "url_private": "https://files.slack.com/files-pri/T1-F0SHOT1/checkout-error.png",
+        "url_private_download": "https://files.slack.com/files-pri/T1-F0SHOT1/download/checkout-error.png",
+        "channels": [], "groups": [], "ims": ["D0123"]}
+
+
+class FileDownload(FakeSlack):
+    """`file --id` reads files.info, then fetches url_private with the bot token, as files:read allows."""
+
+    def setUp(self):
+        super().setUp()
+        self.real_download, self.fetched = slack._download, []
+        self.served = (200, {"Content-Type": "image/png"}, PNG)
+        slack._download = lambda url, headers, timeout, limit: (self.fetched.append((url, headers)), self.served)[1]
+        self.out = Path(self.tmp.name) / "slack-files"
+
+    def tearDown(self):
+        slack._download = self.real_download
+        super().tearDown()
+
+    def fetch(self, info=SHOT, slug="reader"):
+        return self.run_cli(["file", "--as", slug, "--id", info["id"], "--out", str(self.out) + "/", "--json"],
+                            [(200, {}, {"ok": True, "file": info})])
+
+    def test_a_screenshot_shared_in_a_dm_is_saved_with_the_bot_token(self):
+        rc, out, calls = self.fetch()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(calls[0]["url"], slack.API + "files.info?file=F0SHOT1")
+        url, headers = self.fetched[0]
+        self.assertEqual(url, SHOT["url_private_download"])
+        self.assertEqual(headers["Authorization"], "Bearer xoxb-test")
+        saved = Path(json.loads(out)["path"])
+        self.assertEqual((saved.name, saved.read_bytes()), ("checkout-error.png", PNG))
+
+    def test_without_files_read_the_bot_is_told_to_add_the_scope_and_nothing_is_saved(self):
+        rc, out, _ = self.run_cli(["file", "--as", "reader", "--id", "F0SHOT1", "--out", str(self.out), "--json"],
+                                  [(200, {}, {"ok": False, "error": "missing_scope", "needed": "files:read",
+                                              "provided": "chat:write"})])
+        self.assertEqual(rc, 1)
+        self.assertIn("files:read", json.loads(out)["hint"])
+        self.assertEqual(self.fetched, [])
+        # A token that lost the scope gets Slack's sign-in page, by redirect or as HTML: never saved as the file.
+        for served in ((302, {"Location": "https://acme.slack.com/?redir=/files-pri/x"}, b""),
+                       (200, {"Content-Type": "text/html; charset=utf-8"}, b"<html>sign in</html>")):
+            self.served = served
+            rc, out, _ = self.fetch()
+            self.assertEqual(rc, 1, out)
+            self.assertIn("files:read", json.loads(out)["hint"])
+            self.assertFalse(self.out.exists())
+
+    def test_the_token_goes_only_to_slack_and_only_for_files_the_bot_may_read(self):
+        for url in ("http://files.slack.com/x.png", "https://files.slack.com.evil.example/x.png",
+                    "https://evil.example/files.slack.com/x.png", ""):
+            rc, out, _ = self.fetch({**SHOT, "url_private": url, "url_private_download": None})
+            self.assertEqual(rc, 2, url)
+        self.assertEqual(self.fetched, [])
+        manifest = {"tools": [{"service": "slack", "can": ["read"], "channels": ["C0000000010"], "dms": False}]}
+        rows = [{"id": "C0000000010", "name": "qa", "readers": []}, {"id": "C0000000011", "name": "hr", "readers": []}]
+        slack.check_file_scope(manifest, "qa-bot", {**SHOT, "ims": [], "channels": ["C0000000010"]}, rows)
+        for elsewhere in ({**SHOT, "ims": [], "channels": ["C0000000011"]}, SHOT, {**SHOT, "ims": []}):
+            with self.assertRaises(slack.Refused):
+                slack.check_file_scope(manifest, "qa-bot", elsewhere, rows)
+        with self.assertRaises(slack.Refused):
+            slack.check_file_scope({"tools": [{"service": "slack", "can": ["post"]}]}, "poster", SHOT, rows)
+
+    def test_history_and_inbox_name_each_file_by_id(self):
+        row = slack.shape({"ts": "1756742400.000100", "user": "U9", "text": "see this", "files": [SHOT]},
+                          "C1", {"U9": "Cara"}, "https://acme.slack.com", slack.zone(TZ))
+        self.assertEqual(row["text"], "see this\n[file F0SHOT1] checkout-error.png")
 
 
 if __name__ == "__main__":
