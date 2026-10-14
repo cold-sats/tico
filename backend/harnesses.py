@@ -27,6 +27,8 @@ HARNESS_CATALOG = (
     {"id": "muse", "label": "muse", "runtime": "muse", "external": True},
 )
 HARNESS_BY_ID = {row["id"]: row for row in HARNESS_CATALOG}
+# External agents a person syncs in (backend/external_sync.py): they read only their own chat, never a task.
+SYNCED_HARNESSES = ("grokbot", "dots", "muse")
 EXTERNAL_HARNESSES = tuple(row["id"] for row in HARNESS_CATALOG if row.get("external"))
 
 

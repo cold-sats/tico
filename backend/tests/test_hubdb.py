@@ -670,6 +670,27 @@ class WaitingWithDependency(HubCase):
         secret = H.task_create(self.conn, CMO, 'Review the payroll export', '', CMO, private=True)
         self.refused('private', H.task_update, self.conn, CMO, secret['id'], status='waiting', waiting_on='ben')
 
+    def test_a_parent_its_subtask_and_the_persons_own_task_waiting_on_one_thing_are_one_card_and_wake_together(self):
+        told = lambda bot, words: self.conn.execute("SELECT count(*) FROM messages WHERE to_actor=? AND body LIKE ?",
+                                                    (bot, f"%{words}%")).fetchone()[0]
+        mine = H.task_create(self.conn, CMO, 'Approve the ad budget', '', ANA, private=False)
+        parent = H.task_create(self.conn, ANA, 'Launch the ads', '', CMO, private=False)
+        child = H.task_create(self.conn, CMO, 'Set up the ad account', '', SEO, parent_id=parent['id'], private=False)
+        TR.relate(self.conn, CMO, parent['id'], mine['id'], 'blocked_by')
+        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note='Approve the budget.')
+        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note='Approve the budget.')
+        needs = H.needs_you(self.conn, 'ana')
+        self.assertEqual(([t['id'] for t in needs['tasks']], needs['waiting']), ([mine['id']], []))
+        H.task_update(self.conn, ANA, mine['id'], status='done', note='Approved.')
+        self.assertEqual([H.task(self.conn, t['id'])['waiting_on'] for t in (parent, child)], [None, None])
+        self.assertEqual((told(CMO, 'Unblocked: Launch the ads'), told(SEO, 'acted on "Launch the ads"')), (1, 1))
+        # With no task of hers, the parent is the one card; her answer there wakes the subtask too.
+        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note='Pick the launch day.')
+        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note='Pick the launch day.')
+        self.assertEqual([t['id'] for t in H.needs_you(self.conn, 'ana')['waiting']], [parent['id']])
+        H.task_comment(self.conn, ANA, parent['id'], 'Monday')
+        self.assertEqual((H.task(self.conn, child['id'])['waiting_on'], told(SEO, 'acted on')), (None, 2))
+
     def test_a_waiting_note_for_a_person_is_linted_as_their_ask(self):
         lints = lambda tid: [e[0] for e in self.conn.execute(
             "SELECT new FROM task_events WHERE task_id=? AND field='lint' ORDER BY ts", (tid,))]

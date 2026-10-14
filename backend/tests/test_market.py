@@ -1,6 +1,7 @@
 """The shared market graph: seed, read, report, the Librarian curates."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -260,3 +261,25 @@ def test_graph_and_entity_pages_are_bounded_and_focus_works_beyond_the_first_pag
     get(api, 'market/graph?limit=301', expected=422)
     get(api, 'market/entities?limit=501', expected=422)
     assert len(get(api, 'market/entities')['entities']) == 16
+
+
+def test_the_daily_curate_pass_is_skipped_when_it_has_nothing_to_read(api):
+    """No new insight and no Listening for the Librarian on a weekday: no task. An insight brings it back."""
+    from backend.scheduler import Scheduler
+    _librarian(api)
+    store = api.app.state.store
+    with store.transaction() as c:
+        M.ensure_curator(c)
+        c.execute("UPDATE schedules SET next_due=? WHERE bot='librarian' AND routine_key='curate-the-market'",
+                  ("2026-10-12T00:00:00.000000Z",))
+    tick = lambda at: Scheduler(store, api.app.state.execution).tick(at)
+    tick(datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc))            # Tuesday, 05:00 in Los Angeles
+    with store.read() as c:
+        assert not c.execute("SELECT 1 FROM tasks WHERE owner='bot:librarian'").fetchone()
+        assert c.execute("SELECT outcome FROM schedule_occurrences").fetchone()[0] == "skipped"
+    with store.transaction() as c:
+        c.execute("INSERT INTO market_insights(id,reported_by,reported_at,kind) VALUES('i1','bot:ops',?,'pricing')",
+                  (H.now(),))
+    tick(datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc))
+    with store.read() as c:
+        assert c.execute("SELECT title FROM tasks WHERE owner='bot:librarian'").fetchone()[0] == "Curate the market"

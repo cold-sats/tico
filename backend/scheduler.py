@@ -9,6 +9,7 @@ from croniter import croniter
 from . import goals as G
 from . import placement
 from .batch_work import isolated
+from .harnesses import SYNCED_HARNESSES
 from .statuses import PARKED_SQL
 from .store import H, encode, sweep_idempotency, sweep_mail
 
@@ -51,6 +52,9 @@ class Scheduler:
                              "AND s.event_name IS NULL "
                              "AND NOT EXISTS(SELECT 1 FROM bot_config bc WHERE bc.bot=s.bot "
                              "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
+                             # a bot synced in from another platform never sees a task (hubdb._takes_tasks)
+                             "AND NOT EXISTS(SELECT 1 FROM bot_config xc WHERE xc.bot=s.bot "
+                             "AND json_extract(xc.config_json,'$.harness') IN ('" + "','".join(SYNCED_HARNESSES) + "')) "
                              # a starter bot runs nothing on its own until it says its setup is done
                              "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot "
                              "AND pc.onboarding_state IN " + PARKED_SQL + ")").fetchall()   # `on:` routines fire from routines.emit
@@ -80,7 +84,7 @@ class Scheduler:
                                            (row["id"], when)).fetchone()
                         if not exists:
                             from . import routines
-                            existing = routines.latest_task(c, row["id"])
+                            existing, skip = routines.latest_task(c, row["id"]), None
                             if existing:
                                 tid, outcome = existing["id"], "coalesced_into_existing_task"
                                 # An absorbed occurrence still wakes the owner, or an open task
@@ -92,13 +96,16 @@ class Scheduler:
                                           "absorbed into this open task; continue it or mark it done.",
                                           kind="notice", conversation_id=H.task(c, tid)["conversation_id"],
                                           refs={"task": tid, "wake": "occurrence"})
+                            elif skip := routines.no_input(c, self.store.settings, row, occurrence):
+                                tid, outcome = None, "skipped"
                             else:
                                 task = routines.open_task(c, self.execution.auth, row, row["title"],
                                                           row["playbook"] or routines.DEFAULT_TEXT, stamp(at))
                                 tid, outcome = task["id"], "created"
                                 created = tid
                             c.execute("INSERT INTO schedule_occurrences VALUES(?,?,?,?)", (row["id"], when, tid, outcome))
-                            H.event(c, H.KEEPER, "schedule.occurrence", row["id"], {"occurrence": when, "task": tid, "outcome": outcome})
+                            H.event(c, H.KEEPER, "schedule.occurrence", row["id"], {
+                                "occurrence": when, "task": tid, "outcome": outcome, **({"reason": skip} if skip else {})})
                         following = next_due(row["cron"], at, row["timezone"])
                         c.execute("UPDATE schedules SET last_fired=?,next_due=? WHERE id=?", (when, stamp(following), row["id"]))
                     if created:

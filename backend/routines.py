@@ -157,6 +157,15 @@ def latest_task(c, sid):
                      "ORDER BY o.occurrence DESC LIMIT 1", (sid,)).fetchone()
 
 
+def no_input(c, settings, schedule, local):
+    """Why a built-in routine's run would have nothing to work on, or None: such a run is skipped rather than
+    opening a task its bot can only close."""
+    from . import market
+    if schedule["bot"] == market.CURATOR.split(":", 1)[1] and schedule["routine_key"] == "curate-the-market":
+        return market.nothing_to_curate(c, settings, local)
+    return None
+
+
 def open_task(c, auth, schedule, heading, body, now):
     owner = "bot:" + schedule["bot"]
     conversation_id = None
