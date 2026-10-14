@@ -252,3 +252,22 @@ def test_a_private_run_cannot_put_its_work_to_someone_outside_it(api):
     assert err and refused["error"] == "privacy", refused
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM tasks WHERE title LIKE 'Move the design team%'").fetchone()[0] == 0
+
+
+def test_a_question_asked_from_a_run_on_the_bots_own_task_is_filed_under_it(api):
+    """One question, one card: no second top-level task just to ask. The bot's task stays the bot's."""
+    r = runner(api, "ana")
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    work = post(api, "tasks", {"owner": "ops", "title": "Assess the vendor agent", "body": "Is it worth a test?"})
+    attempt = claim(api, r)
+    asked = api.post("/api/v2/task-questions", json={"question": "Run the vendor trial once?", "on": "ana"},
+                     headers=headers(attempt["token"], "under-own-task"))
+    assert asked.status_code == 200, asked.text
+    made = asked.json()["task"]
+    with api.app.state.store.read() as c:
+        from backend import hubdb as H, task_relations as TR
+        assert TR.parent_of(c, made["id"]) == work["id"]
+        assert H.task(c, work["id"])["owner"] == "bot:ops"
+    cards = [i["id"] for i in get(api, "needs-you")["items"]]
+    assert made["id"] in cards and work["id"] not in cards
