@@ -116,6 +116,16 @@ def test_a_task_with_attached_files_deletes_hides_them_and_restores_them(api):
     assert [f["name"] for f in get(api, f"tasks/{ticket['id']}/files", token="ben-test")["files"]] == ["report.md"]
 
 
+def test_a_task_file_a_bot_made_refuses_the_delete(api):
+    # The bot's turn is on a chat, not this task: its file alone is the work.
+    report = post(api, "tasks", {"owner": "priya", "title": "Draft the report", "body": "x", "private": False}, token="ben-test")
+    made = api.post("/api/v2/files/uploads", json={"name": "draft.md", "text": "# Draft", "task": report["id"]},
+                    headers=headers(bot_token(api)))
+    assert made.status_code == 200, made.text
+    r = api.post(f"/api/v2/tasks/{report['id']}/delete", json={}, headers=headers("ben-test"))
+    assert r.status_code == 409 and r.json()["error"]["code"] == "has_work"
+
+
 def test_a_bulk_delete_and_restore_keeps_links_inside_the_list(api):
     from backend.task_delete import restore_tasks
     store = api.app.state.store

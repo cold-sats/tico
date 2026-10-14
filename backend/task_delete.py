@@ -34,10 +34,14 @@ TASK_ROWS = ("task_events", "task_links", "task_tags", "task_delegations", "task
 # Rows that are work done on the task: any one of them refuses the run.
 TASK_WORK = ("turns", "approvals", "bot_tool_requests", "meeting_deliveries", "schedule_occurrences",
              "watcher_items")
-# A file attached to the task itself (scope `task:<id>`) is not work; any other file touched on the task is.
+# A file a person attached to the task itself (scope `task:<id>`) is not work; any other file touched on the task is.
 FILE_WORK = (("bot_files", "SELECT count(*) FROM bot_files WHERE task_id IN ({}) AND scope <> 'task:' || task_id"),
              ("bot_file_activity", "SELECT count(*) FROM bot_file_activity a WHERE a.task_id IN ({}) AND NOT EXISTS "
-                                   "(SELECT 1 FROM bot_files f WHERE f.id=a.file_id AND f.scope='task:' || a.task_id)"))
+                                   "(SELECT 1 FROM bot_files f WHERE f.id=a.file_id AND f.scope='task:' || a.task_id)"),
+             # A task file a bot made (from a run, or as itself) is work even though it sits on the task.
+             ("bot_file_versions", "SELECT count(*) FROM bot_files f WHERE f.task_id IN ({}) AND f.scope='task:' || f.task_id "
+                                   "AND EXISTS (SELECT 1 FROM bot_file_versions v WHERE v.file_id=f.id "
+                                   "AND (v.attempt_id IS NOT NULL OR v.actor LIKE 'bot:%'))"))
 MESSAGE_WORK = ("turns", "jobs", "attempt_inputs", "approvals", "credential_requests",
                 "bot_transition_checkpoints", "batches")
 CONVERSATION_WORK = ("attempt_conversations", "session_epochs", "assistant_actions", "chat_goals",
@@ -156,7 +160,7 @@ def delete_tasks(c, ids, apply=False, actor=None):
         if n := _count(c, table, "task_id", ids):
             refusals[f"{table}.task_id"] = n
     for table, sql in FILE_WORK:
-        if _has(c, table, "task_id") and (n := sum(_column(c, sql, ids))):
+        if _has(c, "bot_files", "task_id") and (n := sum(_column(c, sql, ids))):
             refusals[f"{table}.task_id"] = n
     for table in MESSAGE_WORK:
         if n := _count(c, table, "message_id", messages):
