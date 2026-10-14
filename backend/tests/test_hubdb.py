@@ -386,6 +386,14 @@ class Rule4Unsolicited(HubCase):
         reply = H.say(self.conn, CMO, ANA, "84.", conversation_id=chat)
         self.assertNotIn("unsolicited", json.loads(reply["refs_json"]))
 
+    def test_a_bot_writing_in_a_chat_it_opened_is_unsolicited_even_after_a_new_task_notice(self):
+        chat = H.open_conversation(self.conn, CMO, [CMO, ANA], kind="chat")["id"]
+        H.task_create(self.conn, ANA, "Draft the report", "Write a report", CMO, lint=False, conversation_id=chat)
+        senders = [r[0] for r in self.conn.execute("SELECT from_actor FROM messages WHERE conversation_id=?", (chat,))]
+        self.assertEqual(senders, [H.KEEPER], "only the task's notice is in the chat")
+        sent = H.say(self.conn, CMO, ANA, "Pick the launch date, or tell me to hold.", conversation_id=chat)
+        self.assertTrue(json.loads(sent["refs_json"]).get("unsolicited"), "the bot opened it, so the person asked nothing")
+
 # ----------------------------------------------------------------------------- rule 8
 class Rule8Counting(HubCase):
     def refuse_reach(self, n, actor=CMO):
