@@ -1628,6 +1628,11 @@ class HarnessAction(Contract):
     action: Literal["update", "pin", "unpin"]
 
 
+class HarnessChoice(Contract):
+    harness: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]*$", max_length=60)]
+    enabled: bool
+
+
 class HarnessActionReport(Contract):
     state: Literal["running", "done", "failed"]
     message: str = Field(default="", max_length=500)
