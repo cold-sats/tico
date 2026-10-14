@@ -607,6 +607,21 @@ class GitHubApp:
         except Problem:
             return "unknown", None
 
+    def repository_history(self, repository):
+        """Whether GitHub's `repository` holds any commit: True, False (empty or missing), or None when it cannot
+        be learned. A repository `hub bot create` made is empty until the computer that built the bot publishes it."""
+        if not repository or not self.row():
+            return None
+        try:
+            wide, _ = self.mint(None, {"metadata": "read", "contents": "read"})
+            r = self._call("GET", f"/repos/{repository}/commits", params={"per_page": 1},
+                           headers={"Authorization": "Bearer " + wide})
+        except Problem:
+            return None
+        if r.status_code < 300:
+            return bool(r.json())
+        return False if r.status_code in (404, 409) else None      # 409: "Git Repository is empty"
+
     def create_repo(self, slug, template, empty=False):
         row = self.row()
         if not row:
@@ -1149,6 +1164,10 @@ def install_github_app(app, settings, store):
             raise Problem("github_repo", "An empty repository has no template; give one or the other", 422)
         if not SLUG.match(slug) or not re.match(r"^[\w.-]+/[\w.-]+$", template):
             raise Problem("github_repo", "Use a lowercase bot name (letters, digits, hyphens) and an owner/name template", 422)
+        from . import built_on
+        # BotOps builds in its turn's workspace: the bot's first placement goes there (backend/built_on.py). Only
+        # BotOps's own build is recorded, and only once GitHub made the repository or waits on the permission.
+        builder = who.runner_id if who.role == "bot" and H.actor_id(who.actor) == BOTOPS else ""
         try:
             result = service.create_repo(slug, template, empty=body.empty)
         except Problem as problem:
@@ -1159,6 +1178,8 @@ def install_github_app(app, settings, store):
             from .repo_waits import raise_item
             with store.transaction() as c:
                 bot = H.bot(c, slug)
+                if builder:
+                    built_on.remember(c, slug, builder)
                 if bot and bot.get("state") != "archived" and service.row(c):
                     found = raise_item(c, slug, service.row(c), fixer(c), "" if body.empty else template)
                     problem.extra = {**problem.extra, "needs_you_task": found["task_id"]}
@@ -1166,6 +1187,8 @@ def install_github_app(app, settings, store):
                                        "build and finishes on its own once either is done.")
             raise
         with store.transaction() as c:
+            if builder:
+                built_on.remember(c, slug, builder)
             H.event(c, who.actor, "github.repo_created", result["repository"],
                     {"empty": True} if body.empty else {"template": template})
         return result

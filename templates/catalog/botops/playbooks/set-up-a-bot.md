@@ -113,9 +113,10 @@ up some other way, create it with:
 
 Do not push it yourself: the bot publishes its own history. The bot's repository link (Settings, Bots) has to be `<org>/bot-<slug>`
 (a bare `bot-<slug>` also resolves to the connected organization). Its owner sets it there, or you set it
-for the human who asked in chat with `hub bot update <slug>` (it takes their rights); say so in the task note. On the bot's next turn Tico sets `origin` to that
-repository and publishes the history with the bot's own token, and never forces: if the repository
-already holds different history it stops and Health says so. You do not push other bots'
+for the human who asked in chat with `hub bot update <slug>` (it takes their rights); say so in the task note. The bot's
+first placement is your computer, where its history is: the runner there sets `origin` to that repository and
+publishes the history with the bot's own token, and never forces: if the repository already holds different
+history it stops and Health says so. Once GitHub has it, the bot can move to any computer. You do not push other bots'
 repositories. If `hub bot create` failed with `github_permission_missing`, a person must act: the app
 was not given permission to create repositories. Do not work around it or retry (AGENT.md rule 11). Finish
 steps 3 to 5 in the local repository anyway, then say plainly in the task note that the bot waits for its
