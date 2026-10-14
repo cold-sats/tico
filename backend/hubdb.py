@@ -1840,7 +1840,8 @@ def _pair_conversation(conn, actor, other, kind, subject="", allow_held=False):
 
 
 def _opener(conn, conversation_id):
-    """Who started this conversation: the first message's sender, else whoever opened it.
+    """Who started this conversation: the first message's sender, else whoever opened it, which may be
+    the person even when only notices are in the room.
 
     The keeper's notices do not count: a "New task" notice can land first in a person's chat with a
     bot, and the person's own message after it is what the bot answers."""
