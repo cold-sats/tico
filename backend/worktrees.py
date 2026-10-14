@@ -20,6 +20,19 @@ CLOSED = ('done', 'closed', 'declined')
 PR_FINISHED = ('merged', 'closed', 'shipped')
 RESTORE_PROGRESS = ('attached_pending', 'initializing', 'checkout_ready', 'setup_running',
                     'setup_failed', 'ready', 'legacy_present', 'unverified')
+# How far a modern checkout has got. A computer builds its heartbeat report from the record it read on an
+# earlier pass, so a report can echo a state the record has since moved past; it never moves a record back.
+CHECKOUT_PROGRESS = {'queued': 0, 'attached_pending': 0, 'initializing': 1, 'checkout_ready': 2,
+                     'setup_running': 3, 'setup_failed': 3, 'ready': 4}
+IDENTITY = ('expected_head', 'checkout_target', 'expected_base')
+
+
+def stale_checkout_report(detail, reported_state):
+    current = detail.get('checkout_state')
+    if current == 'ready' and reported_state == 'unverified':
+        return all(detail.get(key) for key in IDENTITY)
+    return (current in CHECKOUT_PROGRESS and reported_state in CHECKOUT_PROGRESS
+            and CHECKOUT_PROGRESS[reported_state] < CHECKOUT_PROGRESS[current])
 
 
 def restore_requested(row, detail):
@@ -235,15 +248,18 @@ def heartbeat(c, who, reports, capable, default_org=""):
                     detail[key] = True
         if report.state == 'removed' and detail.get('cleanup_requested'):
             detail['removed_by'] = 'cleanup'
+        stale = stale_checkout_report(detail, report.checkout_state)
         reported = report.model_dump(exclude_none=True,
-                                     exclude={'link_id', 'state', 'branch', 'checkout_state'})
+                                     exclude={'link_id', 'state', 'branch', 'checkout_state',
+                                              *(IDENTITY if stale else ())})
         detail.update(reported)
         legacy_present = (report.state == 'present' and report.checkout_state == 'legacy_present'
                           and not detail.get('setup_pending')
                           and (row['state'] == 'present' and detail.get('checkout_state') in (None, 'legacy_present')
                                or row['state'] == 'unknown' and detail.get('checkout_state') == 'legacy_present'
                                or _demoted_legacy_report(row, detail)))
-        if report.checkout_state is not None and (report.checkout_state != 'legacy_present' or legacy_present):
+        if (report.checkout_state is not None and not stale
+                and (report.checkout_state != 'legacy_present' or legacy_present)):
             detail['checkout_state'] = report.checkout_state
         checkout_state = detail.get('checkout_state')
         completion_proven = ((checkout_state == 'ready' and bool(detail.get('expected_head'))
@@ -254,6 +270,7 @@ def heartbeat(c, who, reports, capable, default_org=""):
         state = ('removed' if report.state == 'removed' else
                  report.state if legacy_passthrough else
                  'pending' if not completion_proven else
+                 row['state'] if stale and report.state == 'pending' else
                  'pending' if row['state'] == 'pending' and report.state == 'present' and report.checkout_state not in ('ready', 'legacy_present') else
                  'pending' if row['state'] == 'pending' and row['repo'] and report.state == 'missing' else report.state)
         detail['current_branch'] = report.branch

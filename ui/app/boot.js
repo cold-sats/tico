@@ -50,7 +50,6 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
     if (TASKS_ST && isTasksRoute(S.route)) tasksRender(TASKS_ST);
   });
   if (S.me?.cloud) void updUnreadRefresh();
-  nativeHandler('windowMode')?.postMessage('state');
   // Tasks, bot status and Needs you arrive as they change (ui/app/live.js). The issues, the roster, computers and
   // Updates are not on that stream: they still refresh, every 30 s while the stream is down and every 2 minutes
   // while it is up. A tab in the background does not poll; coming back to a stale tab refreshes it at once.
