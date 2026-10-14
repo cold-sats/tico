@@ -30,6 +30,8 @@ function needsV2Item(it, folded, showName = true) {
     </summary>
     <div class="req-body">
       <div class="req-title">${esc(title)}</div>
+      ${it.ask_missing ? `<div class="req-context"><b>${esc(`Waiting for ${actorLabel(it.owner) || 'its bot'} to explain`)}</b></div>`
+        : it.person_ask ? `<div class="req-context"><b>${esc(plainActors(it.person_ask))}</b></div>` : ''}
       ${it.body ? `<div class="req-context"><div class="md">${safeMd(taskBody(it))}</div></div>`
                 : line ? `<div class="req-context">${esc(line)}</div>` : ''}
       ${payload}
