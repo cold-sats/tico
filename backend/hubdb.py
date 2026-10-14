@@ -1824,6 +1824,20 @@ def _reach(conn, actor, target, allow_planned=False, allow_held=False):
     return resolved
 
 
+def _takes_tasks(conn, actor, target):
+    """A bot a person syncs in from another platform reads only its chat with them, so a task for it would
+    sit open with nobody to work it: it is refused with what to do instead."""
+    if not is_bot(target) or not _has_table(conn, "bot_config"):
+        return
+    from .harnesses import SYNCED_HARNESSES, resolve_harness
+    row = _one(conn, "SELECT b.display_name,bc.config_json FROM bots b JOIN bot_config bc ON bc.bot=b.slug "
+                     "WHERE b.slug=?", (actor_id(target),))
+    if row and resolve_harness(_json(row["config_json"], {}) or {}) in SYNCED_HARNESSES:
+        name = row["display_name"] or actor_id(target)
+        refuse(conn, actor, "external-bot", f"{name} works on another platform and only syncs its chat here, so it "
+               "never sees tasks. Write to it in its chat, or give this task to a bot that runs in Tico.")
+
+
 # ----------------------------------------------------------------------------- registry sync
 def default_human(conn):
     """Who an unaddressed human item goes to: the roster's `default_user`, else its first
@@ -3615,6 +3629,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     from .shared_bots import route
     owner = route(conn, actor, owner)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
+    _takes_tasks(conn, actor, target)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     # Whoever files a subtask asked for it: it shows them as asking and their notices reach them.
     requester = actor
@@ -3944,6 +3959,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
+        _takes_tasks(conn, actor, new_owner)
         if private_tasks_default(conn, new_owner):
             sets.append("private=1")
         if is_bot(row['owner']) and 'detail_json' in {r[1] for r in conn.execute('PRAGMA table_info(task_links)')}:
@@ -4897,10 +4913,46 @@ def _hold_for_setup(conn, row):
     return True
 
 
+def _is_diagnostic(conn, row):
+    """A task the hub filed to find why other work is stuck or keeps stopping."""
+    if row["requester"] != KEEPER or not str(row["title"]).startswith("Find why "):
+        return False
+    return bool(conn.execute("SELECT 1 FROM events WHERE action='task.stall_escalated' "
+                             "AND json_extract(detail_json,'$.recovery_task')=? LIMIT 1", (row["id"],)).fetchone()
+                or "'s runs keep stopping" in row["title"] or "'s task stays stuck: " in row["title"])
+
+
+def _no_diagnosis(conn, row, count):
+    """Why a stuck task gets no diagnostic, or None when BotOps takes one. A diagnostic about a diagnostic
+    finds nothing new, and a person cannot repair a bot's runs: neither is filed."""
+    if _is_diagnostic(conn, row):
+        return f"this diagnostic did not move after {count} wake-ups today"
+    repair_bot = bot(conn, FLEET_MAINTAINER)
+    if row["owner"] == bot_actor(FLEET_MAINTAINER):
+        return f"BotOps's own task did not move after {count} wake-ups today, and BotOps cannot diagnose itself"
+    if not repair_bot or repair_bot["state"] != "active":
+        state = repair_bot["state"] if repair_bot else "not on this team"
+        return f"{actor_id(row['owner'])} did not move it after {count} wake-ups today, and BotOps is {state}"
+    return None
+
+
+def _settle_undiagnosed(conn, row, cause):
+    """Work the hub filed for itself closes with the cause; anyone else's task stays open and its requester is
+    told the cause, at most once a day while it stays stuck."""
+    if row["requester"] == KEEPER:
+        task_close(conn, KEEPER, row["id"], f"Closed by the stall check: {cause}.", quiet=True)
+    elif _actor_exists(conn, row["requester"]):
+        _wake(conn, row, row["requester"], f"Stuck: {row['title']}. {cause[0].upper()}{cause[1:]}. "
+              "Reassign it, run it, or close it.", {"wake": "stuck_cause"})
+    event(conn, KEEPER, "task.stall_escalated", row["id"],
+          {"bot": actor_id(row["owner"]), "recovery_task": None, "owner": None, "cause": cause})
+
+
 def wake_stalled(conn, at=None):
     """Wake the owner of each stalled task (at most once per STALL_REPEAT_MINUTES, STALL_WAKES_PER_DAY
-    a day); past that, one diagnostic per stuck task. BotOps cannot be its own last resort:
-    its stalled work, or work it cannot take while unavailable, goes to a human. A bot still in setup
+    a day); past that, one diagnostic per stuck task, for BotOps. No diagnostic is filed about another
+    diagnostic or sent to a person: when BotOps cannot take one, the stuck task carries the cause instead
+    (_settle_undiagnosed). A bot still in setup
     is not woken: its task says why once and its setup goes to a person (_hold_for_setup).
 
     Spot checks share the path, its events and its cap: a task with a recent session and no progress
@@ -4939,14 +4991,12 @@ def wake_stalled(conn, at=None):
             if count >= STALL_WAKES_PER_DAY:
                 if not conn.execute("SELECT 1 FROM events WHERE action='task.stall_escalated' AND target=? AND ts>?",
                                     (row["id"], shift(at, seconds=-86400))).fetchone():
-                    repair_bot = bot(conn, "botops")
-                    if row["owner"] != "bot:botops" and repair_bot and repair_bot["state"] == "active":
-                        owner = "bot:botops"
-                    else:
-                        owner = (row["requester"] if is_human(row["requester"]) and _actor_exists(conn, row["requester"])
-                                 else human_actor(default_human(conn)))
-                        if not _actor_exists(conn, owner):
-                            continue
+                    cause = _no_diagnosis(conn, row, count)
+                    if cause:
+                        _settle_undiagnosed(conn, row, cause)
+                        escalated.append(row["id"])
+                        continue
+                    owner = bot_actor(FLEET_MAINTAINER)
                     # Identity comes from the source event, not the human-facing title: even
                     # equally named tasks have separate diagnoses. Reuse unresolved work later.
                     previous = _one(conn, "SELECT detail_json FROM events WHERE action='task.stall_escalated' "
