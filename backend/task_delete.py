@@ -13,6 +13,7 @@ attachment rows go into the trash, a task file stays where it is (no one may ope
 is gone, since its visibility is the task's) and its append-only activity stays as history. Its relations to other tasks (task_relations, from either end) go into the trash with it, and a
 restore puts back each one whose other task still exists. The audit log keeps one `task.deleted` (and `task.restored`, `task.purged`) event per task.
 Purging is offline and separate; a purged task keeps only its trash row's number, so no new task takes it.
+A purge cannot remove a task's files, so it reports them: how many, their versions and bytes, and their ids.
 """
 
 import json
@@ -361,19 +362,38 @@ def restore_tasks(c, ids, actor=None):
     return {"restored": [e["task_id"] for e in entries], "unlinked": unlinked, "skipped": skipped}
 
 
+def _files_left(c, tid):
+    """The files attached to a deleted task, which a purge leaves behind: their versions and activity
+    are append-only and their bytes may be shared with other files, so they stay, unreadable for good."""
+    if not _has(c, "bot_files", "scope"):
+        return {"ids": [], "versions": 0, "bytes": 0}
+    scope = "task:" + tid
+    ids = [r[0] for r in c.execute("SELECT id FROM bot_files WHERE scope=? ORDER BY id", (scope,))]
+    versions, size = c.execute("SELECT count(*), COALESCE(SUM(size),0) FROM bot_file_versions "
+                               "WHERE file_id IN (SELECT id FROM bot_files WHERE scope=?)", (scope,)).fetchone()
+    return {"ids": ids, "versions": versions, "bytes": size}
+
+
 def purge_trash(c, older_than_days, apply=False, actor=None):
     """Remove for good what has been in the trash longer than `older_than_days`. Lists it unless apply.
-    The trash row stays as a bare tombstone (number, title, who and when) so its number is never reused."""
+    The trash row stays as a bare tombstone (number, title, who and when) so its number is never reused.
+    The report and each `task.purged` event name the task files left behind (`files_left`)."""
     ensure(c)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     rows = [dict(r) for r in c.execute("SELECT task_id, title, deleted_at, deleted_by FROM task_trash "
                                        "WHERE purged_at IS NULL AND deleted_at < ? ORDER BY deleted_at", (cutoff,))]
-    report = {"tasks": len(rows), "older_than": cutoff, "applied": False}
+    left = {r["task_id"]: _files_left(c, r["task_id"]) for r in rows}
+    report = {"tasks": len(rows), "older_than": cutoff, "applied": False,
+              "files_left": {"files": sum(len(f["ids"]) for f in left.values()),
+                             "versions": sum(f["versions"] for f in left.values()),
+                             "bytes": sum(f["bytes"] for f in left.values()),
+                             "ids": [i for f in left.values() for i in f["ids"]]}}
     if not apply or not rows:
         return report
     now = H.now()
     for r in rows:
         c.execute("UPDATE task_trash SET rows_json='{}', purged_at=? WHERE task_id=?", (now, r["task_id"]))
-        H.event(c, actor or H.KEEPER, "task.purged", r["task_id"], {"title": r["title"], "deleted_at": r["deleted_at"]})
+        H.event(c, actor or H.KEEPER, "task.purged", r["task_id"], {"title": r["title"], "deleted_at": r["deleted_at"],
+                                                                    "files_left": left[r["task_id"]]["ids"]})
     report["applied"] = True
     return report

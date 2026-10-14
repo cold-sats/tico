@@ -116,6 +116,26 @@ def test_a_task_with_attached_files_deletes_hides_them_and_restores_them(api):
     assert [f["name"] for f in get(api, f"tasks/{ticket['id']}/files", token="ben-test")["files"]] == ["report.md"]
 
 
+def test_purging_a_deleted_task_reports_the_files_it_leaves_behind(api):
+    import json
+    from backend.task_delete import purge_trash
+    store = api.app.state.store
+    store.settings.assistant_bot = "ops"
+    wrong = post(api, "tasks", {"owner": "priya", "title": "Send the contract", "body": "x"}, token="ben-test")
+    attached = post(api, f"tasks/{wrong['id']}/files", {"name": "contract.md", "text": "# Wrong one"}, token="ben-test")
+    post(api, f"tasks/{wrong['id']}/delete", {}, token="ben-test")
+    with store.transaction() as c:
+        c.execute("UPDATE task_trash SET deleted_at='2020-01-01T00:00:00.000000Z'")
+        listed = purge_trash(c, 30)
+        assert listed["files_left"] == {"files": 1, "versions": 1, "bytes": len(b"# Wrong one"),
+                                        "ids": [attached["file_id"]]}
+        assert purge_trash(c, 30, apply=True)["files_left"] == listed["files_left"]
+        detail = c.execute("SELECT detail_json FROM events WHERE action='task.purged' AND target=?",
+                           (wrong["id"],)).fetchone()[0]
+        assert json.loads(detail)["files_left"] == [attached["file_id"]]
+    assert api.get(f"/api/v2/files/{attached['file_id']}", headers=headers("ben-test")).status_code == 404
+
+
 def test_a_task_file_a_bot_made_refuses_the_delete(api):
     # The bot's turn is on a chat, not this task: its file alone is the work.
     report = post(api, "tasks", {"owner": "priya", "title": "Draft the report", "body": "x", "private": False}, token="ben-test")
