@@ -277,9 +277,20 @@ def test_the_daily_curate_pass_is_skipped_when_it_has_nothing_to_read(api):
     with store.read() as c:
         assert not c.execute("SELECT 1 FROM tasks WHERE owner='bot:librarian'").fetchone()
         assert c.execute("SELECT outcome FROM schedule_occurrences").fetchone()[0] == "skipped"
+    runs = get(api, "routines/librarian:curate-the-market/occurrences")["occurrences"]
+    assert [(r["outcome"], r["task_id"], "Listening" in r["reason"]) for r in runs] == [("skipped", None, True)]
     with store.transaction() as c:
         c.execute("INSERT INTO market_insights(id,reported_by,reported_at,kind) VALUES('i1','bot:ops',?,'pricing')",
                   (H.now(),))
     tick(datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc))
     with store.read() as c:
         assert c.execute("SELECT title FROM tasks WHERE owner='bot:librarian'").fetchone()[0] == "Curate the market"
+    # A team that rewrote the routine's text gave it other work: it runs with nothing new to curate.
+    with store.transaction() as c:
+        c.execute("UPDATE market_insights SET status='applied'")
+        c.execute("UPDATE tasks SET status='done' WHERE owner='bot:librarian'")
+        c.execute("UPDATE schedules SET playbook='Curate the market, then tidy the glossary.' "
+                  "WHERE routine_key='curate-the-market'")
+    tick(datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc))
+    with store.read() as c:
+        assert c.execute("SELECT count(*) FROM tasks WHERE owner='bot:librarian'").fetchone()[0] == 2

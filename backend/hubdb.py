@@ -2835,8 +2835,20 @@ def _unblock(conn, done_task):
         conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (row["id"],))
         if row["status"] in ACTIVE_STATUSES and not TR.blocker_ids(conn, row["id"]):
             _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} is finished.")
-        if is_human(done_task["owner"]):
+        if is_human(done_task["owner"]) and _same_ask(row, done_task):
             _release_waiting(conn, row, done_task["owner"])
+
+
+def _ask_words(text):
+    return " ".join(str(text or "").split()).casefold()
+
+
+def _same_ask(waiting, card):
+    """Whether a task waiting on a person asks them the same thing as `card`: it has no ask of its own, or its
+    waiting note is the card's note or, for the person's own task, the body's opening paragraph. needs_you shows
+    such a task as the card's, and acting on the card releases it; any other ask keeps its own card."""
+    mine = _ask_words(waiting.get("note"))
+    return not mine or mine in (_ask_words(card.get("note")), _ask_words(str(card.get("body") or "").split("\n\n")[0]))
 
 
 def _release_waiting(conn, row, person):
@@ -2849,6 +2861,8 @@ def _release_waiting(conn, row, person):
         _recount(conn, row["owner"])
     for child in _rows(conn.execute("SELECT * FROM tasks WHERE id IN (" + TR.CHILD_IDS + ") "
                                     "AND status='waiting' AND waiting_on=?", (row["id"], person))):
+        if not _same_ask(child, row):
+            continue
         conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (child["id"],))
         _task_event(conn, child["id"], KEEPER, "waiting_on", person, None, "")
         where = f" on \"{row['title']}\"" if bot_reads_task(conn, child["owner"], row) else " on the parent task"
@@ -5804,14 +5818,9 @@ def needs_you(conn, who):
     # wakes them all. A task with an ask of its own keeps its own card.
     cards = {t["id"]: t for t in asked + owned + waiting}
     waits = {t["id"] for t in waiting}
-    words = lambda text: " ".join(str(text or "").split()).casefold()
-    def same_ask(t, card):
-        # The card's ask is its waiting note, or for a task of theirs the body's opening paragraph.
-        mine = words(t.get("note"))
-        return not mine or mine in (words(card.get("note")), words(str(card.get("body") or "").split("\n\n")[0]))
     waited = [t for t in waiting
-              if not ((parent := TR.parent_of(conn, t["id"])) in waits and same_ask(t, cards[parent]))
-              and not any(b in seen and same_ask(t, cards[b]) for b in TR.blocker_ids(conn, t["id"]))]
+              if not ((parent := TR.parent_of(conn, t["id"])) in waits and _same_ask(t, cards[parent]))
+              and not any(b in seen and _same_ask(t, cards[b]) for b in TR.blocker_ids(conn, t["id"]))]
     return {"actor": actor,
             "tasks": asked + owned,
             "waiting": waited,
