@@ -548,7 +548,8 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                 choices.append(choice)
             from .task_review import check_ask
             ask = check_ask(c, tid, M.ReviewAsk(questions=[M.ReviewQuestion(
-                id="decision", header="", question=question, options=choices)], who=person), auth, who)
+                id="decision", header="", question=question, options=choices)], who=person,
+                if_no_answer=body.if_no_answer), auth, who)
             said = H.task_comment(c, who.actor, tid, question, ask=ask)
             H.task_update(c, who.actor, tid, status="waiting", waiting_on=person, note=question)
             return {"task": H.task(c, tid),

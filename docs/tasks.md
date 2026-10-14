@@ -131,6 +131,20 @@ Decide. **Keep** restarts the clock; **Close** closes the task as theirs with a 
 closes without the answer, and the task is asked again only after new activity and another idle
 week (`stale_asked_at`).
 
+### When nobody answers a bot's ask
+
+A bot's question may say what it will do if nobody answers (`hub task question ... --if-no-answer "Yes"
+--default-kind reversible [--by <date>]`; MCP `if_no_answer: {do, kind, by}`), and the card says it: "If you don't
+answer by Fri, Oct 16, Writer goes ahead: Yes". When that step is reversible and internal and the person has said
+nothing by then (its `by`, else the team's days, 3 by default), Tico answers for them with "No answer from Ana by
+Oct 16, so Writer goes ahead with what it said it would do: Yes", which wakes the bot with that choice. A send,
+spending money or a delete never goes ahead without an answer: the card says the bot waits. The owner turns this off,
+or changes the days, in Settings > Humans (**Bots go ahead on their recommendation**).
+
+An ask to a person with no word from them in 14 days expires: the bot goes ahead on its default when the rule above
+allows it, or is told to drop the work or ask again. A task a bot handed a person (they own it, the bot asked for it)
+that they have not touched in 14 days closes the same way, and the bot hears why. Hourly, `backend/ask_deadlines.py`.
+
 ## Snoozing a task
 
 **Snooze** sets a task aside until a date: it tells its bot or person that nobody plans to get to it

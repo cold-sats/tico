@@ -220,7 +220,16 @@ function decidePickHTML(st, c) {
     ? `<ul class="dc-descs">${q.options.map(o => `<li><b>${esc(o.label)}</b>${desc(o)}</li>`).join('')}</ul>` : '';
   else opts = `<div class="dc-tiles">${q.options.map((o, i) =>
     `<button type="button" class="dc-tile${o.file ? ' pic' : ''}" data-dc="pick" data-i="${i}">${o.file ? decidePicture(st, c, o) : ''}<span class="dc-tl"><b class="tnum">${i + 1}</b><span class="dc-l">${esc(o.label)}</span></span>${desc(o)}</button>`).join('')}</div>`;
-  return `<p class="dc-q">${esc(q.question)}</p>${context}${opts}`;
+  return `<p class="dc-q">${esc(q.question)}</p>${context}${decideDefault(c)}${opts}`;
+}
+// What the bot does if nobody answers (backend/ask_deadlines.py): on its own by a date, or only with an answer.
+function decideDefault(c) {
+  const ask = c.it.ask, d = ask?.refs?.if_no_answer;
+  if (!d?.do) return '';
+  const bot = actorLabel(ask.from_actor), at = ask.goes_ahead_at ? new Date(ask.goes_ahead_at) : null;
+  const when = at && !isNaN(at) ? at.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'}) : '';
+  return `<p class="dc-ctx dc-default">${esc(when ? `If you don't answer by ${when}, ${bot} goes ahead: ${d.do}`
+    : `${bot} recommends: ${d.do}. It waits for your answer.`)}</p>`;
 }
 const DEC_APPROVAL_Q = {send: 'Send this email?', spend: 'Approve this spend?', publish: 'Publish this?', merge: 'Merge this?',
   support: 'Send this to Tico support?'};

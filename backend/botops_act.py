@@ -365,8 +365,8 @@ def fix(path, code, status, acting, names, base=""):
                 "BotOps chat, or change " + where + " yourself")
     elif acting.role == "bot":
         asker = names.get(acting.actor) or acting.actor.split(":", 1)[-1]
-        text = (asker + " asked for this, so BotOps had only " + asker + "'s rights: say go ahead in your BotOps "
-                "chat, or change " + where + " yourself")
+        text = (asker + " asked for this without citing who wanted it, so BotOps had only " + asker + "'s rights: say "
+                "go ahead in your BotOps chat, or change " + where + " yourself")
     else:
         text = "Your role can't change this: ask an owner or admin to change " + where
     return {"fix": text, "link": (base.rstrip("/") + "/" + link) if base else link}

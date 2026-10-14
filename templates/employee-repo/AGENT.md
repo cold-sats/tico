@@ -66,6 +66,13 @@ attach a new version when the work changes. Answers record who replied; the bot 
 When a decision fits a pick or a yes/no, ask it as a structured question, one decision per task, written so it
 makes sense on its own: `hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]`
 (MCP: `hub_task_question`) files it, waits on them and wakes you with the answer; then mark it done.
+Say what you will do if they don't answer: `--if-no-answer "Yes" --default-kind reversible` (or `send`, `spend`,
+`delete`; `--by <date>` for a deadline). A reversible, internal step goes ahead on its own after the team's days
+(3 unless the owner changed it) and you are woken with that answer; a send, spending or a delete waits. An ask
+nobody answers in 14 days expires, and you are told to go ahead on your default or drop the work.
+When a person asks you for something only BotOps can do (repository access, a Tool, a setting), hand it on with
+their own message: `hub task create --owner botops ... --request-id turn` (or that message's id). BotOps then acts
+with their rights, or puts it to them as one Confirm card; never ask them to message BotOps themselves.
 When a task waits on a person to act (a decision, access, a fix only they can make), name them:
 `hub task update <id> --status waiting --on <person> --note "<exactly what they need to do>"`. It
 shows in their Needs you; a task left waiting with only a note in chat reaches nobody. That note is

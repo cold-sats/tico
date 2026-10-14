@@ -1,0 +1,84 @@
+"""A bot's ask to a person goes ahead on the bot's default when it is safe to, and expires after two weeks."""
+from backend.tests.test_api import api, headers, post  # noqa: F401  (fixture)
+from backend import ask_deadlines, team_rules
+from backend.store import H
+
+
+def _ask(c, title, default=None, days=0):
+    """Ops asks Ana a Yes / No question on its own task, set waiting on her, `days` ago."""
+    task = H.task_create(c, "bot:ops", title, "x", "bot:ops", lint=False)
+    ask = {"questions": [{"id": "decision", "header": "", "question": title,
+                          "options": [{"label": "Yes"}, {"label": "No"}], "multi": False, "other": True}],
+           "who": "human:ana", **({"if_no_answer": default} if default else {})}
+    said = H.task_comment(c, "bot:ops", task["id"], title, ask=ask)
+    H.task_update(c, "bot:ops", task["id"], status="waiting", waiting_on="human:ana", note=title)
+    then = H.shift(H.now(), days=-days)
+    c.execute("UPDATE messages SET created=? WHERE id=?", (then, said["id"]))
+    c.execute("UPDATE task_events SET ts=? WHERE task_id=?", (then, task["id"]))
+    c.execute("UPDATE tasks SET created=? WHERE id=?", (then, task["id"]))
+    return task, said
+
+
+def _answer(c, said):
+    return c.execute("SELECT * FROM messages WHERE in_reply_to=? AND kind='answer'", (said["id"],)).fetchone()
+
+
+def test_a_reversible_default_goes_ahead_after_the_teams_days_and_a_send_waits(api):
+    with api.app.state.store.transaction() as c:
+        safe, safe_ask = _ask(c, "Archive the old draft?", {"do": "Yes", "kind": "reversible"}, days=4)
+        send, send_ask = _ask(c, "Email the vendor?", {"do": "Yes", "kind": "send"}, days=4)
+        fresh, fresh_ask = _ask(c, "Rename the board?", {"do": "Yes", "kind": "reversible"}, days=1)
+        done = ask_deadlines.sweep(c)
+    assert done["went_ahead"] == [safe_ask["id"]]
+    with api.app.state.store.read() as c:
+        answer = _answer(c, safe_ask)
+        assert answer["from_actor"] == H.KEEPER and answer["to_actor"] == "bot:ops"
+        assert "goes ahead" in answer["body"] and H._json(answer["refs_json"], {})["answer"]["answers"] == {"decision": ["Yes"]}
+        assert H.task(c, safe["id"])["waiting_on"] is None
+        assert c.execute("SELECT 1 FROM jobs WHERE message_id=?", (answer["id"],)).fetchone()   # Ops wakes on it
+        assert _answer(c, send_ask) is None and _answer(c, fresh_ask) is None
+        assert H.task(c, send["id"])["waiting_on"] == "human:ana"
+
+    # The owner turns it off: nothing goes ahead on its own.
+    with api.app.state.store.transaction() as c:
+        team_rules.save(c, "human:ana", {"bots_go_ahead": False})
+        _, later = _ask(c, "Move the card?", {"do": "Yes", "kind": "reversible"}, days=5)
+        assert ask_deadlines.sweep(c)["went_ahead"] == []
+
+
+def test_an_ask_unanswered_for_two_weeks_expires_and_a_task_handed_to_a_person_closes(api):
+    with api.app.state.store.transaction() as c:
+        _, old = _ask(c, "Which logo do we use?", days=15)
+        _, spoken = _ask(c, "Which font do we use?", days=15)
+        c.execute("UPDATE messages SET created=? WHERE id=?", (H.shift(H.now(), days=-15), spoken["id"]))
+        handed = H.task_create(c, "bot:ops", "Sign the venue form", "x", "human:ana", lint=False)
+        touched = H.task_create(c, "bot:ops", "Pick the venue", "x", "human:ana", lint=False)
+        for row in (handed, touched):
+            c.execute("UPDATE tasks SET created=? WHERE id=?", (H.shift(H.now(), days=-15), row["id"]))
+            c.execute("UPDATE task_events SET ts=? WHERE task_id=?", (H.shift(H.now(), days=-15), row["id"]))
+        H.task_comment(c, "human:ana", touched["id"], "Still looking, give me a few days")
+        H.task_comment(c, "human:ana", H.message_task_id(spoken), "Thinking about it")
+        done = ask_deadlines.sweep(c)
+    assert done["expired"] == [old["id"]] and done["closed"] == [handed["id"]]
+    with api.app.state.store.read() as c:
+        assert "Drop the work" in _answer(c, old)["body"]
+        closed = H.task(c, handed["id"])
+        assert closed["status"] == "closed" and "expired" in closed["note"]
+        assert H.task(c, touched["id"])["status"] == "open"
+
+
+def test_a_bot_puts_its_default_on_a_question_and_a_past_deadline_is_refused(api):
+    from backend.tests.test_api import setup_attempt
+    from backend.tests.test_mcp import call
+    _, _, attempt = setup_attempt(api)
+    err, out = call(api, "hub_task_question", {"question": "Archive the September drafts?", "on": "ana",
+                    "if_no_answer": {"do": "Yes", "kind": "reversible", "by": "2099-01-02T09:00:00-08:00"}},
+                    token=attempt["token"])
+    assert not err, out
+    with api.app.state.store.read() as c:
+        refs = H.message(c, out["question"]["id"])["refs"]
+    assert refs["if_no_answer"] == {"do": "Yes", "kind": "reversible", "by": "2099-01-02T17:00:00.000000Z"}
+    err, out = call(api, "hub_task_question", {"question": "Archive the August drafts?", "on": "ana",
+                    "if_no_answer": {"do": "Yes", "kind": "reversible", "by": "2020-01-01T00:00:00Z"}},
+                    token=attempt["token"])
+    assert err and "already past" in str(out)
