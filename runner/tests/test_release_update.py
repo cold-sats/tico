@@ -437,3 +437,26 @@ def test_a_disk_failure_retries_as_soon_as_space_frees(repos, monkeypatch, docke
     free[0] = 200
     f.poll()
     assert f.pending == "0.2.0"
+
+
+def test_a_rolled_back_server_refusing_the_commit_still_gets_the_rest():
+    from clients.tico import APIError
+    from runner.service import Runner
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def post(self, path, body):
+            self.bodies.append(dict(body, readiness=dict(body["readiness"])))
+            if "commit" in body:
+                raise APIError("validation", "body.commit: Extra inputs are not permitted", status=422)
+            return {}
+
+    runner = Runner.__new__(Runner)
+    runner.client = Client()
+    body = {"version": "t", "platform": "t", "capabilities": [], "commit": "a" * 40,
+            "readiness": {"bots": {}, "runtimes": {}, "worktrees": [], "disk": {}, "harnesses": {}}}
+    runner._report_heartbeat(body)
+    assert len(runner.client.bodies) == 2 and "commit" not in runner.client.bodies[-1]
+    assert set(runner.client.bodies[-1]["readiness"]) == {"bots", "runtimes", "worktrees", "disk", "harnesses"}

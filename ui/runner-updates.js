@@ -3,7 +3,7 @@
    Health and Settings > Computers both draw it. An outdated computer (behind the server's release, or on no
    release at all) carries an Outdated badge whatever its state says. */
 'use strict';
-// `version`: what the computer itself reported; with one, "Version not reported" would contradict it, so an unknown state
+// `version`: what the computer itself reported; with one, "Release not reported" would contradict it, so an unknown state
 // that is not outdated says nothing.
 window.runnerUpdateHtml = function runnerUpdateHtml(update, version) {
   if (!update || !update.state || (update.state === 'unknown' && version && !update.outdated)) return '';
@@ -28,7 +28,7 @@ window.runnerOutdatedBanner = function runnerOutdatedBanner(machines, me, name) 
   if (!stale.length) return '';
   const server = stale[0].update.server_release;
   const mine = stale.filter(machine => machine.operator === me);
-  const list = stale.map(machine => `${esc(machine.label)} (${esc(machine.update.release || 'release unknown')}${machine.operator === me ? '' : `, ${esc(name(machine.operator))}'s`})`).join(', ');
+  const list = stale.map(machine => `${esc(machine.label)} (${esc(machine.update.release || 'release unknown')}${machine.operator === me ? '' : machine.operator ? `, ${esc(name(machine.operator))}'s` : ', no owner'})`).join(', ');
   const ask = mine.length ? ` ${mine.length === 1 ? 'Yours updates' : 'Yours update'} by itself between turns; when it stays behind, its row says why.` : ' Their owners update them.';
   return `<div class="machine-outdated-banner" role="status" data-runner-outdated-banner>${stale.length === 1 ? 'A computer runs' : `${stale.length} computers run`} older code than this server (Tico ${esc(server)}): ${list}.${ask}</div>`;
 };

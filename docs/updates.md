@@ -70,7 +70,7 @@ health check and automatic rollback described below.
   | Updating | switching now; it takes no new work meanwhile |
   | Needs update | older than the server but still accepted. It updates when no run is going, or it says why it cannot (pinned, local changes, no updater, no supervisor) next to the last update error |
   | Incompatible (bots paused) | older than the minimum. It takes no work, and says why, instead of failing runs. Its queued work waits and runs after it updates |
-  | Version not reported | a computer that predates this, or a development build. It is never paused |
+  | Release not reported | a computer that predates this, or a development build. It is never paused |
 
 - A server that is a development build (no release) has nothing to compare, so computers keep following `main` as
   before and Settings > Health shows no version line. A computer talking to a server from before this existed does the same.

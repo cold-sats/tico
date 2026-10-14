@@ -85,3 +85,40 @@ def test_heartbeat_stores_release_and_commit_and_nudges_the_owner_once_per_serve
     report(api, r, "0.2.5")
     assert len(notices()) == 2 and "0.4.0" in notices()[1]
 
+
+
+def ben_notices(api):
+    with api.app.state.store.read() as c:
+        return [row["body"] for row in c.execute(
+            "SELECT body FROM messages WHERE to_actor='human:ben' AND kind='notice' ORDER BY created")]
+
+
+def behind_for_two_hours(api, r):
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runner_versions SET outdated_since=? WHERE runner_id=?",
+                  (runner_versions.H.shift(runner_versions.H.now(), seconds=-7200), r["runner_id"]))
+
+
+def test_a_new_server_release_restarts_the_wait_before_a_nudge(api, monkeypatch):
+    r = runner(api, operator="ben", label="Ben's Mac")
+    report(api, r, "0.2.5")
+    behind_for_two_hours(api, r)
+    report(api, r, "0.2.5")
+    assert len(ben_notices(api)) == 1
+    monkeypatch.setenv("TICO_VERSION", "0.4.0")                 # it gets its hour to take this one by itself too
+    report(api, r, "0.2.5")
+    assert len(ben_notices(api)) == 1
+    behind_for_two_hours(api, r)
+    report(api, r, "0.2.5")
+    assert len(ben_notices(api)) == 2 and "0.4.0" in ben_notices(api)[1]
+
+
+def test_a_pinned_computer_shows_outdated_but_its_owner_is_not_nudged(api):
+    r = runner(api, operator="ben", label="Ben's Mac")
+    pinned = {"state": "pinned", "target": "0.3.0", "error": "pinned to this release; the server runs 0.3.0"}
+    report(api, r, "0.2.5", update=pinned)
+    behind_for_two_hours(api, r)
+    report(api, r, "0.2.5", update=pinned)
+    assert ben_notices(api) == []
+    machine = next(m for m in get(api, "operations", token="ben-test")["computers"] if m["id"] == r["runner_id"])
+    assert machine["update"]["outdated"] is True and machine["update"]["update_state"] == "pinned"
