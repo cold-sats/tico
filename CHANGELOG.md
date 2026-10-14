@@ -32,6 +32,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 - **A bot's unpushed commits rebase when the runner catches up on its own.** On a Docker runner, the catch-up after a refused push and the shared-branch sync ran git with no identity, so the rebase failed with "unable to auto-detect email address" and the commits stayed unpushed. On the Tico Team box this left BotOps's memory 2 commits ahead and 3 behind. These rebases now commit as the bot when its turn set one, and as Tico otherwise.
+- **A runner's event stream no longer drops on a busy server.** A quiet stream's keepalive waited for the computer's
+  contact write, and with the database busy that took up to 30 s, so the runner's 45 s read timeout tripped and the stream
+  dropped with `TimeoutError` (behind Cloudflare, about every 15 to 20 minutes). Keepalives on runner and page streams now go
+  out every 15 s whatever the database is doing, even while other computers' changes keep the stream busy, and the runner
+  waits 90 s before calling a stream lost. `TICO_STREAM_KEEPALIVE_SECONDS` (5 to 50) changes the interval.
 - **An idle computer no longer burns CPU on archived bots.** A runner tried to set up every assigned bot on each
   readiness pass, archived ones included, and re-read the whole bot catalog each time; with 22 archived test bots
   whose repositories were gone, the Tico Team mail runner used most of a core while idle and kept the server busy.

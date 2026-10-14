@@ -152,6 +152,29 @@ def test_a_server_without_the_stream_is_polled_as_before():
     assert r.client.gets == ["runner-credential-imports"] * 2
 
 
+def test_the_stream_reader_ignores_keepalive_comments_and_waits_longer_than_the_server_is_quiet():
+    lines = [b"retry: 1000\n", b"\n", b": keepalive\n", b"\n", b"event: runner\n", b": keepalive\n",
+             b"id: 9\n", b'data: {"seq": 9, "kind": "work"}\n', b"\n"]
+    opened = []
+
+    class Response(list):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class Opener:
+        def open(self, request, timeout):
+            opened.append(timeout)
+            return Response(lines)
+
+    client = mock.Mock(url="https://tico.acme.example", token="t", opener=Opener())
+    got = [item for item in RE.connect(client) if item[0] != "keepalive"]
+    assert got == [("runner", "9", {"seq": 9, "kind": "work"})]
+    assert opened[0] >= 50 * 1.5                     # the longest keepalive interval the server allows, with room
+
+
 def test_an_unset_capacity_runs_five_turns_per_core_as_memory_allows_and_a_set_one_is_kept():
     from unittest import mock
     from runner import service

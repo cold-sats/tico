@@ -44,7 +44,7 @@ KEEP_HOURS = 24           # a client away longer than this reads in full
 FALLBACK_SECONDS = 1.5    # the shared look for changes another process wrote
 RUNNER_FALLBACK_SECONDS = 5  # the same for computers' streams: work another process queued waits this long at most
 LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
-KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts
+KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts; TICO_STREAM_KEEPALIVE_SECONDS replaces it
 GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
 GATHER_CHAT_SECONDS = 0.25  # a stream following a conversation: its messages and run output stay prompt
 LEAD_SECONDS = 0.02       # a ring after a quiet window waits only this long, for the rest of its request's writes
@@ -842,6 +842,34 @@ def _list(value, name):
     return tuple(dict.fromkeys(items))
 
 
+def keepalive_seconds(store):
+    return getattr(store.settings, "stream_keepalive_seconds", None) or KEEPALIVE_SECONDS
+
+
+class Beat:
+    """A quiet stream's keepalive and the check that rides on it (a lapsed sign-in, a revoked computer,
+    contact). The check runs beside the keepalive, never before it: a write waits up to the database's
+    30 s busy timeout for the lock, and a keepalive held behind it outlasts the runner's read timeout,
+    so the stream drops on a busy server. A check that refuses ends the stream on the loop's next pass."""
+
+    def __init__(self, check):
+        self.check, self.pending = check, None
+
+    def refused(self):
+        """True once the last check ended in Problem; any other failure is retried at the next beat."""
+        task = self.pending
+        if task is None or not task.done():
+            return False
+        self.pending = None
+        return not task.cancelled() and isinstance(task.exception(), Problem)
+
+    def start(self):
+        if self.pending is None:
+            self.pending = asyncio.ensure_future(asyncio.to_thread(self.check))
+            # Retrieved here so a check still running when the stream ends never logs as unhandled.
+            self.pending.add_done_callback(lambda task: task.cancelled() or task.exception())
+
+
 def install(app, store, auth, task_views, task_view):
     doorbell = bell(store)
 
@@ -883,6 +911,7 @@ def install(app, store, auth, task_views, task_view):
         async def generate():
             nonlocal cursor
             leave = doorbell.reader(store)
+            every, beat = keepalive_seconds(store), Beat(check)
             try:
                 yield "retry: 1000\n\n"
                 yield _frame(None, "ready", {"seq": now_seq, "after": cursor, "topics": list(wanted)})
@@ -920,16 +949,15 @@ def install(app, store, auth, task_views, task_view):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         return
-                    wait = min(remaining, max(0.0, KEEPALIVE_SECONDS - (time.monotonic() - quiet_since)))
+                    if beat.refused():
+                        yield "event: expired\ndata: {}\n\n"
+                        return
+                    wait = min(remaining, max(0.0, every - (time.monotonic() - quiet_since)))
                     if await doorbell.wait(generation, wait):
                         await asyncio.sleep(gathered(GATHER_CHAT_SECONDS if conversations else GATHER_SECONDS, read_at))
-                        continue
-                    if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
-                        try:
-                            await asyncio.to_thread(check)
-                        except Problem:
-                            yield "event: expired\ndata: {}\n\n"
-                            return
+                    # Due whether or not the bell rang: rings for changes this viewer may not see send nothing.
+                    if time.monotonic() - quiet_since >= every:
+                        beat.start()
                         yield ": keepalive\n\n"
                         quiet_since = time.monotonic()
             finally:
@@ -995,7 +1023,7 @@ def install_runner(app, store, execution):
 
         def touch():
             # Contact, and the same check of the computer's row as every read: last_seen moves while the
-            # stream is open, and a revoked computer's stream ends within KEEPALIVE_SECONDS.
+            # stream is open, and a revoked computer's stream ends within two keepalives.
             with store.transaction() as c:
                 execution.contact(c, who)
 
@@ -1016,12 +1044,13 @@ def install_runner(app, store, execution):
         async def generate():
             nonlocal cursor
             leave = doorbell.reader(store)
+            every, beat = keepalive_seconds(store), Beat(touch)
             try:
                 yield "retry: 1000\n\n"
                 yield _frame(None, "ready", {"seq": now_seq, "after": cursor,
                                              "release": runner_versions.desired().get("version", "")})
                 deadline = time.monotonic() + LIFETIME_SECONDS
-                # Contact is due every KEEPALIVE_SECONDS whatever is sent, so last_seen never lapses.
+                # Contact is due every keepalive whatever is sent, so last_seen never lapses.
                 quiet_since = time.monotonic()
                 due = after is not None          # a resume catches up first
                 read_at = 0.0
@@ -1049,16 +1078,15 @@ def install_runner(app, store, execution):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         return
-                    wait = min(remaining, max(0.0, KEEPALIVE_SECONDS - (time.monotonic() - quiet_since)))
+                    if beat.refused():
+                        yield "event: expired\ndata: {}\n\n"
+                        return
+                    wait = min(remaining, max(0.0, every - (time.monotonic() - quiet_since)))
                     if await doorbell.wait(generation, wait):
                         await asyncio.sleep(gathered(RUNNER_GATHER_SECONDS, read_at))
-                        continue
-                    if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
-                        try:
-                            await asyncio.to_thread(touch)
-                        except Problem:
-                            yield "event: expired\ndata: {}\n\n"
-                            return
+                    # Due whether or not the bell rang: other computers' changes ring it and send this one nothing.
+                    if time.monotonic() - quiet_since >= every:
+                        beat.start()
                         yield ": keepalive\n\n"
                         quiet_since = time.monotonic()
             finally:
