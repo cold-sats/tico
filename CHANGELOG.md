@@ -8,6 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A goal's "Waiting on" note is no longer cut short at a quote mark (it used to show half a sentence ending in a backslash), the goal's judge now reads waiting as an alternative to finishing rather than a second requirement, and a task the bot already marked done shows its goal as met instead of paused.
 - A bot's task parked as waiting with only a note (nothing recorded to wait on) now warns the bot when it parks it, even on a task a person asked for, and goes back to open after two hours instead of a day; a future due date still holds it. The stall wake now tells the bot to file a subtask for whoever must act instead of parking on a note.
 
 ## [0.3.42] - 2026-10-13
