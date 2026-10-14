@@ -29,7 +29,6 @@ DRAIN_BATCH = 20
 GIVE_UP_AFTER = 20                     # retryable failures in a row before the file is marked not synced
 UPLOAD_TIMEOUT = 120
 _drain_lock = threading.Lock()
-_refusals_logged = set()               # (bot, path, reason): a refused file is logged once, not every turn
 
 TABLES = """
 CREATE TABLE IF NOT EXISTS file_outbox(
@@ -38,6 +37,8 @@ CREATE TABLE IF NOT EXISTS file_outbox(
   tries INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS file_published(
   bot TEXT NOT NULL, rel TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(bot, rel));
+CREATE TABLE IF NOT EXISTS file_refused(
+  bot TEXT NOT NULL, rel TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(bot, rel, reason));
 """
 
 
@@ -58,8 +59,9 @@ def _employee_yaml(root):
         return {}
 
 
-def candidates(root, folders):
-    """([(relative path, refused-reason or "")], newest first) under the publish folders."""
+def candidates(root, folders, seen=frozenset()):
+    """([(relative path, refused-reason or "")]) under the publish folders: paths not in `seen` first, then newest
+    first."""
     root = Path(root).resolve()
     found = []
     for folder in folders:
@@ -78,13 +80,24 @@ def candidates(root, folders):
                     continue
                 rel = entry.relative_to(root).as_posix()
                 if entry.is_symlink():
-                    found.append((rel, "is a symbolic link"))
+                    found.append((_mtime(entry), rel, "is a symbolic link"))
                 elif entry.is_dir():
                     if depth < MAX_DEPTH:
                         stack.append((entry, depth + 1))
                 else:
-                    found.append((rel, ""))
-    return found[:MAX_PER_TURN * 5]
+                    found.append((_mtime(entry), rel, ""))
+    # The cut keeps the work per turn bounded. A fresh checkout gives every committed file the same time, so
+    # files this bot never published or refused go first or an older unpublished report would never make the
+    # cut; then newest first, so an edit made during the turn does.
+    found.sort(key=lambda item: (item[1] in seen, -item[0], item[1]))
+    return [(rel, why) for _, rel, why in found[:MAX_PER_TURN * 5]]
+
+
+def _mtime(entry):
+    try:
+        return entry.lstat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def prepare(state, bot, attempt_id, root, config, pushed=False, skip=()):
@@ -93,7 +106,9 @@ def prepare(state, bot, attempt_id, root, config, pushed=False, skip=()):
     queued = refused = 0
     with state.connect() as c:
         c.executescript(TABLES)
-    for rel, why in candidates(root, folders_for(config, root)):
+        seen = {rel for (rel,) in c.execute("SELECT rel FROM file_published WHERE bot=? UNION "
+                                            "SELECT rel FROM file_refused WHERE bot=?", (bot, bot))}
+    for rel, why in candidates(root, folders_for(config, root), seen):
         try:
             if rel in skip:
                 raise BF.Refused("holds a secret")
@@ -104,15 +119,17 @@ def prepare(state, bot, attempt_id, root, config, pushed=False, skip=()):
                 digest = hashlib.file_digest(source, "sha256").hexdigest()
         except (BF.Refused, OSError) as exc:
             refused += 1
-            if (bot, rel, str(exc)) not in _refusals_logged:
-                if len(_refusals_logged) > 10000:
-                    _refusals_logged.clear()
-                _refusals_logged.add((bot, rel, str(exc)))
+            # Logged once per file and reason, remembered on disk so a restart does not log every refusal again.
+            with state.connect() as c:
+                first = c.execute("INSERT OR IGNORE INTO file_refused VALUES(?,?,?)", (bot, rel, str(exc))).rowcount
+            if first:
                 log(f"Tico runner: {bot}: not publishing {rel}: {exc}")
             continue
         key = f"file:{bot}:{BF.sha256(rel.encode())[:16]}:{digest[:32]}"
         commit = BF.pushed_commit(root, rel) if pushed else ""
         with state.connect() as c:
+            # Accepted now: a later refusal of this file is news again.
+            c.execute("DELETE FROM file_refused WHERE bot=? AND rel=?", (bot, rel))
             same = c.execute("SELECT 1 FROM file_published WHERE bot=? AND rel=? AND digest=?", (bot, rel, digest)).fetchone()
             if same or c.execute("SELECT 1 FROM file_outbox WHERE key=?", (key,)).fetchone():
                 continue
