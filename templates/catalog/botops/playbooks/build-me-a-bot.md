@@ -17,11 +17,12 @@ not waiting on it. The human reads one message at the end.
 
 1. **Register it, first.** Do not ask for a slug, a repository, sources, outputs or limits: pick them from the
    request (`playbooks/set-up-a-bot.md` §1, AGENT.md Defaults, not questions) and create the bot now:
-   `hub bot create --record-only <slug> --name "<Display>" --description "<one line>"`. They become
+   `hub bot create --record-only --name "<Display>" --description "<one line>"`. Tico picks the slug from the
+   name (adding -2 when it is taken, archived bots included) and prints it; use that slug from here on. They become
    an owner. If they may not add bots, or are at their limit, say exactly that and stop.
-   Check archived bots too. If the slug is taken, pick a fresh one; never restore the old bot for
-   a new-bot request. Preserve this request's description, Instructions and limits throughout the build.
-2. **Build it.** Follow `playbooks/set-up-a-bot.md` from step 2: repository from the closest template,
+   Never restore an old bot for a new-bot request. Preserve this request's description, Instructions and limits throughout the build.
+2. **Build it.** Follow `playbooks/set-up-a-bot.md` from step 2, passing the slug step 1 printed
+   (`hub bot create <slug> --template <template> --name "<Display>"`): repository from the closest template,
    real instructions, `hub bot check <slug>` clean, committed. Read `hub bot create`'s exit status and the
    repository state it reports before going on: a non-zero exit or a refusal is not a built bot. A
    `retryable: false` refusal (`github_permission_missing`, `repository_missing`) stops the build: ask the

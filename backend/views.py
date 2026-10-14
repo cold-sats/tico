@@ -573,6 +573,9 @@ def conversation_snapshot(c, cid, who=None, settings=None):
 SOURCE_RANK = {"bot": 0, "self": 1, "mail": 2}
 # A bot's task set waiting on the person blocks that bot just as its question does.
 KIND_RANK = {"approval": 0, "question": 1, "ask": 1, "waiting": 1, "declined": 2, "task": 3, "report": 4}
+# A card whose bot has not yet said plainly what it needs (`ask_missing`) waits at the very bottom: there is nothing
+# for the person to do on it until the bot restates it (backend/restate_asks.py asks it to).
+UNEXPLAINED_RANK = 5
 
 
 def needs_source(actor):
@@ -636,11 +639,28 @@ def checkout_issue(add, row, busy=0):
         restart_issue(add, row, busy)
 
 
-def needs_order(source_actor, kind, created, rank=None):
+def needs_order(source_actor, kind, created, rank=None, ask_missing=False):
     """Needs you is the person's queue: what blocks a bot
-    first (an approval, a question), then declined work, then their own tasks in rank order.
-    Who sent it no longer orders it; the rank does."""
-    return (KIND_RANK.get(kind, 9), rank if rank is not None else float("inf"), str(created or ""))
+    first (an approval, a question), then declined work, then their own tasks in rank order, and last a card
+    still waiting for its bot to explain what it needs. Who sent it no longer orders it; the rank does."""
+    return (UNEXPLAINED_RANK if ask_missing else KIND_RANK.get(kind, 9), rank if rank is not None else float("inf"),
+            str(created or ""))
+
+
+def person_ask(row, kind, me, ask):
+    """(the plain ask a bot put to `me` on this task, whether it is missing), read only, for the card to lead with
+    and to sort by. A task a bot set waiting on me asks in its waiting note, one given to me by a bot in its body's
+    first paragraph, each when it passes H.lint_person_ask. A waiting card has its ask missing when neither that
+    nor an open question to me asks; a task a person asked for, or a question card, never does."""
+    if kind == "waiting" and H.is_bot(row.get("owner")):
+        text = str(row.get("note") or "").strip()
+        if H.lint_person_ask(text):
+            return "", not (ask and ask.get("to_actor") == me)
+        return text, False
+    if row.get("owner") == me and H.is_bot(row.get("requester")):
+        text = H.person_ask_of_body(row.get("body"), row.get("title"))
+        return ("" if H.lint_person_ask(text) else text), False
+    return "", False
 
 
 def _clip(text, n=280):
@@ -754,6 +774,7 @@ def needs_items(c, auth, who, task_view, older=None):
                     "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
                     "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
                     "first_line": (row.get("body") or "").split("\n")[0]}
+            item["person_ask"], item["ask_missing"] = person_ask(row, item["kind"], who.actor, ask)
             if (item["kind"] == "question" and row["owner"] != who.actor and H.ask_older(ask)
                     and not any(a["to_actor"] == who.actor and not H.ask_older(a) for a in open_asks)):
                 ask["older"] = True
@@ -792,7 +813,7 @@ def needs_items(c, auth, who, task_view, older=None):
             items.append(item)
     return sorted(items, key=lambda x: needs_order(
         x["requester"] if x["kind"] == "approval" else (x.get("ask") or {}).get("from_actor") or x.get("origin_actor") or x.get("requester"),
-        x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None))
+        x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None, bool(x.get("ask_missing"))))
 
 
 FLEET_CACHE_S = 15
