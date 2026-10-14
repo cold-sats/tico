@@ -14,7 +14,8 @@ An approval nobody decided is withdrawn when it is no longer needed, and you are
 its task is closed, declined or marked done; when you ask again for the same thing (a re-cut, a
 redraft) with `--supersedes <id>`, or on the same task for the same `url`, recipient and subject,
 pull request or spend; and after 14 days undecided. A withdrawn approval can't be decided or spent.
-Ask again if it is still needed.
+Ask again if it is still needed. A task that has ended takes no new approval, and `--supersedes`
+can't replace an approval that was already approved and not yet spent.
 
 A `publish` payload names the `url` and the `content_sha256` of what will be published. If it also
 carries the `text` the person reads, that text must be exactly what will be published:

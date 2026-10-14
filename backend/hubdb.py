@@ -5223,6 +5223,10 @@ APPROVAL_TARGET = {"publish": ("url",), "send": ("to", "subject"), "merge": ("re
 def approval_target(kind, payload):
     keys = APPROVAL_TARGET.get(kind)
     values = [(payload or {}).get(k) for k in keys or ()]
+    if kind == "send" and values and values[0]:
+        # "a@x" and ["A@x"] are the same recipients.
+        to = values[0] if isinstance(values[0], list) else [values[0]]
+        values[0] = sorted(str(v).strip().lower() for v in to)
     return json.dumps(values, sort_keys=True, default=str) if keys and all(v not in (None, "", []) for v in values) \
         else None
 
@@ -5234,8 +5238,9 @@ def approval_withdraw(conn, approval_id, note):
     row = approval(conn, approval_id)
     if not row or row["decision"]:
         return None
-    conn.execute("UPDATE approvals SET decision='withdrawn', decided_by=?, decided_at=? WHERE id=? AND decision IS NULL",
-                 (KEEPER, now(), approval_id))
+    if not conn.execute("UPDATE approvals SET decision='withdrawn', decided_by=?, decided_at=? "
+                        "WHERE id=? AND decision IS NULL", (KEEPER, now(), approval_id)).rowcount:
+        return None
     event(conn, KEEPER, "approval.withdraw", approval_id, {"decision": "withdrawn", "note": note})
     conv = conversation(conn, (message(conn, row["message_id"]) or {}).get("conversation_id")) \
         if row.get("message_id") else None
@@ -5281,9 +5286,16 @@ def approval_request(conn, actor, kind, payload, task_id=None, supersedes=None):
         named = approval(conn, supersedes)
         if not named or named["requested_by"] != actor:
             refuse(conn, actor, "not-found", f"you have no approval {supersedes} to replace")
+        if named["decision"] == "approved" and not named["consumed_at"]:
+            # Withdrawing only the undecided would leave the old yes spendable next to the new ask.
+            refuse(conn, actor, "lint", f"{supersedes} is already approved and not spent; use it, or ask on its "
+                   "own without --supersedes")
     owner = None
     if task_id:
         row = task(conn, task_id)
+        if row and row["status"] in TASK_ENDED:
+            # It would only be withdrawn: nothing acts on an ended task's approvals.
+            refuse(conn, actor, "lint", f"task {task_id} is {row['status']}; reopen it or ask on an open task")
         if row and is_human(row["owner"]):
             owner = row["owner"]
     if kind == "support" and is_human(actor):

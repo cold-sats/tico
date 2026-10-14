@@ -48,10 +48,18 @@ class Withdrawn(HubCase):
         self.assertEqual(approval_expiry.sweep(self.conn, later)["stale"], [appr["id"]])
         self.assertEqual(H.approval_request(self.conn, CMO, "merge", MERGE)["decision"], None)
 
-    def test_an_ask_left_open_on_a_task_that_already_ended_leaves_needs_you(self):
-        row = H.task_create(self.conn, ANA, "Pick a launch date", "Which week?", CMO, lint=False)
-        ask = H.task_ask(self.conn, CMO, row["id"], "Which week works, the 3rd or the 10th?")
-        # A task that ended before asks were superseded on its end: only the sweep catches its open ask.
-        self.conn.execute("UPDATE tasks SET status='closed' WHERE id=?", (row["id"],))
-        self.assertEqual(approval_expiry.sweep(self.conn)["asks"], [ask["id"]])
-        self.assertTrue(H.message(self.conn, ask["id"])["superseded_at"])
+    def test_the_sweep_clears_what_tasks_that_ended_earlier_left_open_but_a_done_task_keeps_its_review(self):
+        notes = H.task_create(self.conn, ANA, "Write the notes", "Draft them.", CMO, lint=False)
+        appr = H.approval_request(self.conn, CMO, "merge", MERGE, task_id=notes["id"])
+        plain = H.task_ask(self.conn, CMO, notes["id"], "Should the notes cover the beta too?")
+        site = H.task_create(self.conn, ANA, "Fix the site", "Fix it.", CMO, lint=False)
+        review = H.task_comment(self.conn, CMO, site["id"], "Is this ready?", ask={"questions": [
+            {"id": "ok", "header": "Review", "question": "Is this ready?", "options": [{"label": "Yes"}, {"label": "No"}]}]})
+        # Ended before this change shipped: nothing withdrew or superseded anything then. Separate tasks, because a
+        # newer ask from the same bot to the same person already replaces the plain one.
+        self.conn.execute("UPDATE tasks SET status='done' WHERE id IN (?,?)", (notes["id"], site["id"]))
+        out = approval_expiry.sweep(self.conn)
+        self.assertEqual((out["ended"], out["asks"]), ([appr["id"]], [plain["id"]]))
+        self.assertIsNone(H.message(self.conn, review["id"])["superseded_at"])
+        # A task that has ended takes no new approval: nothing would act on it.
+        self.refused("lint", H.approval_request, self.conn, CMO, "merge", {**MERGE, "pr": 99}, task_id=notes["id"])

@@ -658,7 +658,7 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
                                                           "body_sha256": "e" * 64, "mailbox": "work"}, task)["id"]
         quoted = H.approval_request(c, "bot:ops", "spend", {"amount": 1, "account": "card＂; amount: ‟9„",
                                                             "what": "x"}, task)["id"]
-        files = H.approval_request(c, "bot:ops", "send", {"to": ["boss@acme.example"], "cc": [], "subject": "Q3",
+        files = H.approval_request(c, "bot:ops", "send", {"to": ["boss@acme.example"], "cc": [], "subject": "Q3 summary",
                                                           "body_sha256": "d" * 64, "mailbox": "work", "draft": "d1",
                                                           "attachments": [
                                                               {"name": "q3-summary.pdf", "size": 1200, "sha256": "a" * 64,
