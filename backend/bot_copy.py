@@ -20,7 +20,7 @@ from fastapi import Request
 
 from clients import botcopy
 from . import models as M
-from . import providers
+from . import built_on, providers
 from .credentials import administrator, ask_admin_detail, effective_grant
 from .github_app import TURN_PERMISSIONS, repo_of
 from .harnesses import EXTERNAL_HARNESSES, resolve_harness
@@ -151,9 +151,15 @@ def install(app, store, auth, mutate, settings_admin, place_now):
                                           _declared(c, bot))
             placed = None
             if body.computer:
+                # The copy's history is made after this, in BotOps's workspace, so only BotOps's computer holds it until
+                # GitHub does: record that, and a computer other than it is refused (backend/built_on.py). Today's
+                # `hub bot copy` places after the build instead; this keeps an older BotOps from stranding the copy.
+                botops = c.execute("SELECT runner_id FROM assignments WHERE bot='botops'").fetchone()
+                if who.via == "botops" and botops:
+                    built_on.remember(c, slug, botops["runner_id"])
                 c.execute("SAVEPOINT copy_place")
                 try:
-                    placed = place_now(c, who, slug, body.computer)
+                    placed = place_now(c, who, slug, body.computer, False)
                 except Problem as exc:
                     c.execute("ROLLBACK TO copy_place")
                     placed = {"placed": False, "problem": exc.detail}
