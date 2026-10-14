@@ -13,6 +13,10 @@ All notable changes to Tico are recorded here. The format follows
 ### Fixed
 - **Slack file downloads cope with long or odd names and keep to a private folder.** `connectors/slack.py file` cuts a shared file's name to 200 bytes and drops control characters, so a long name or one with a NUL byte no longer crashes the download; a name the file system still refuses is a clear failure that saves nothing. The default folder is now the user's own `slack-files-<uid>` under the temp folder, made private, and one another local user owns (or a link) is refused. The `saved` line prints on one line. See [Slack](integrations/slack.md).
 - **BotOps can work a task another bot gave it.** On its own task BotOps now adds the task's worktree with its own repository access and files a question or subtask for a person without borrowing anyone's rights, whoever asked for the task. A person's comment on a task a bot asked BotOps for no longer stops the run: BotOps keeps that bot's rights, and what needs the person's comes to them as a Confirm card in their BotOps chat. A worktree refused for missing access says an owner or admin gives it in Settings > Repositories. See [Permissions](docs/permissions.md).
+- **Bots on a Docker runner work on several tasks at once again.** The folder a task's worktree goes in was made by
+  the runner's own user, so `git` (run as the bot user) couldn't add the worktree; every task turn fell back to the
+  bot's checkout and waited for the bot's other turns, so a quick chat waited behind a long task. The folder is now
+  the bot user's, including ones an older runner made.
 
 ## [0.3.43] - 2026-10-14
 
