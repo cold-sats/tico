@@ -43,7 +43,10 @@ The words Tico uses, and what each replaces.
 - **Message**, **Comment**, **Note**: a message is chat. A comment is on a task. A note is quiet, for a bot's next run ([leave work for the next run](using-tico.md#leave-work-for-the-next-run)).
 - **Decision**: the typed-question model that classifies and decides.
 - **Handoff**: delegating work by opening a child task and setting the parent to waiting.
-- **Session**: the model conversation a bot is resuming. Disposable.
+- **Session**: one model conversation a bot resumes (a Claude Code or Codex thread). A bot has several ([Sessions](sessions.md)).
+- **Main chat**: a bot's chat on its page, and its session. It sees task work only as one-line reports.
+- **Task session**: the session for one task a bot owns, with its own room (thread) and worktree. Subtasks continue it by default.
+- **Checkpoint**: a task's last turn reply, which a fresh session on the task starts from.
 - **state.md**: a bot's own note of what it is doing and what to pick up next.
 
 ## Knowledge

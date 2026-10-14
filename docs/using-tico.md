@@ -26,6 +26,8 @@ Tasks are one tab each.
 
 **How do I ask a bot a question?**
 Open the bot's page and use its **Chat** tab; the reply comes back into the same conversation.
+Work on a task happens in that task's own thread: tap the task's row in the chat to follow it or write to it.
+The chat itself gets one line when the task starts, is blocked, done, declined or stuck ([Sessions](sessions.md)).
 For anything across the team, ask your own external agent: **Connect an external agent** (the plug button beside
 your email) gives it a token and Tico's MCP ([Connect an external agent](connect-an-agent.md)).
 

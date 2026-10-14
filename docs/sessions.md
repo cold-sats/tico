@@ -1,0 +1,111 @@
+# Sessions
+
+A **session** is one model conversation a bot resumes: a Claude Code or Codex thread on its computer.
+A bot has more than one. Its main chat is one session, and every task it owns is another.
+This page explains how they fit together. [Tasks](tasks.md#subtasks-and-prs) has the exact rules.
+
+## The main chat and task sessions
+
+- **Main chat**: the bot's chat on its page. Its session reads only main-chat messages and short task reports.
+- **Task session**: each task the bot owns. It has its own room (the task's thread), its own git worktree of the
+  bot's repository, and a primary session link on the task.
+
+Task traffic never enters two context windows. What you say in a task stays in that task's session, and what you
+say in the main chat stays in the main one.
+
+When you ask a bot for something in chat and it files a task, the work moves to the task's room. The chat gets one
+quiet line, "Started task: <title>". Tap that line, or any task row in the bot chat, to open the task's thread.
+Messages you write there go to that task's session.
+
+## Reports in the main chat
+
+The main chat hears where each task got to in one quiet line: **started**, **blocked**, **done**, **declined** or
+**stuck**, with the start of the note. These lines start no run. The main session reads them the next time
+something wakes it. The same state is not reported twice in a row, and a private task is reported only where every
+reader of the chat may read it.
+
+## Subtasks
+
+A subtask continues its parent's session by default: same room, same worktree, same checkpoint. The bot's turns on
+the parent and its subtasks take turns. A subtask whose parent belongs to someone else, or has different readers,
+starts its own session.
+
+When a bot is blocked on a person, it files a subtask for that person under its task. When the person finishes,
+declines or closes it, the bot wakes on the parent, in the same session, and picks up where it stopped.
+
+Set `subtask_session: own` to give every subtask its own session instead.
+
+## Checkpoints and resume
+
+Each turn on a task leaves a **checkpoint**: the turn's final reply, kept on the task. If a task's session can't be
+resumed (a new computer, a cleared thread), the next turn starts a fresh session from that checkpoint.
+
+Nothing closes on its own. A task with no activity for 7 days gets one **Still wanted?** question, with **Keep** and
+**Close**, to the person who asked for it (or the person who owns it). See [Picking work back up](tasks.md#picking-work-back-up).
+
+## Spot checks
+
+Tico watches running tasks. A task with no progress for 30 minutes gets a status check in its session: checkpoint,
+or mark it blocked or done. Thirty minutes later, still with no progress, the main chat gets a **stuck** line and the
+requester gets a question in Needs you. These count toward the stalled-task limit of three a day; after that,
+BotOps gets a task to find out why ([Work that is waiting](tasks.md#work-that-is-waiting)).
+
+## Task goals
+
+With `task_goal: on`, a bot works each task it owns as a goal: keep going until the task's title and acceptance
+criteria hold, then mark it done. On Claude Code and Codex this is the harness's native goal (`/goal`, Codex goals),
+set in the task's room; other harnesses get it as a line in the prompt. A met goal marks the task done. A paused or
+stopped goal leaves the task open, with a **blocked** or **stuck** line in the main chat.
+
+A `goal:on` or `goal:off` label on a task overrides the bot's setting. A person who clears or edits the goal in the
+task's room takes it over, and Tico leaves it alone after that. Goals in chat work the same way:
+see [Chat goals](chat-goals.md).
+
+## Many tasks at once
+
+A bot works its tasks at the same time, each in its own session and worktree. The computer decides how many turns it
+runs at once from its size (`capacity` in [runner.json](environments.md#runnerjson)). Turns on the same task, and
+in the main chat, still take turns.
+
+Each task session has a git worktree at `sessions/bot-<slug>/<task>` on branch `tico-session/<task>`. A bot can hold
+up to 30 worktrees, or fewer when the computer gets under 5 GB free. Nothing is removed to make room: at the limit
+the bot, or a person, cleans one up first. A task's worktree goes when the task is finished.
+See [Task worktrees](worktrees.md) for code worktrees and cleanup.
+
+## Linked sessions
+
+You can link other sessions to a task to track them: a Bot Desk or Orca thread URL, a `claude --resume <id>` or
+`codex resume <id>` command. Use **Sessions +** on the task or `hub task link <task> <value> --session`. Linked
+sessions are for tracking only. Task chat and comments always go to the owning bot's primary session.
+
+The task's ⋯ menu has **Copy session ID** for the primary session, to resume it by hand.
+
+## Settings
+
+| Setting | Values | What it does |
+|---|---|---|
+| `session` | unset (default), `task`, `bot` | Unset: each task is its own session and chat shares one. `task`: each chat conversation also gets its own (BotOps). `bot`: one session for everything. |
+| `subtask_session` | `parent` (default), `own` | Whether a subtask continues its parent's session or gets its own. |
+| `task_goal` | `off` (default), `on` | Work each task as a native goal until it is met. |
+| `goal:on`, `goal:off` | task labels | Override `task_goal` for one task. |
+
+Set them with `hub bot update <slug> --session task`, `--subtask-session own` or `--task-goal on`, or `hub_bot_update`.
+
+## FAQ
+
+**Why didn't my main chat see what I said in a task?**
+Each task has its own session. The main chat sees only a one-line report when the task starts, is blocked, done,
+declined or stuck. To give the task more to go on, write in the task's thread.
+
+**Can a bot work on two of my tasks at once?**
+Yes. Each task runs in its own session and worktree, side by side. Two messages on the same task take turns.
+
+**What happens when a bot needs something from me?**
+It files a subtask for you under its task, which shows in your Needs you. When you finish it, the bot wakes on the
+original task and continues in the same session.
+
+**A task's session was lost. Does the bot start over?**
+No. The next turn starts a fresh session from the task's last checkpoint.
+
+**Where did temporary assignments go?**
+They were removed in 0.3.41. Per-task sessions do the same job: give the bot the task, and it gets its own session.

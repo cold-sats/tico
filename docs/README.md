@@ -28,6 +28,7 @@ Use `releases/download/vX.Y.Z/install.sh` to pin a release. For a shared server,
 ## Team member: use it every day
 
 - [Use Tico](using-tico.md): your team's address, tasks, chats, results and Needs you.
+- [Sessions](sessions.md): each task a bot owns is its own session, apart from its main chat.
 - [Desktop app](desktop.md), [Your Assistant](assistant.md) and [External agents](connect-an-agent.md).
 - Knowledge and results: [Docs](docs.md), [Librarian](librarian.md), [Files](files.md), [Meetings](meetings.md), [Listening](listening.md).
 - [Goals and KPIs](goals-and-kpis.md), [Humans](people.md), [Groups](org-chart.md) and [Access](permissions.md).
@@ -36,7 +37,8 @@ Use `releases/download/vX.Y.Z/install.sh` to pin a release. For a shared server,
 ## Developer or computer operator
 
 - [Register a computer](install.md#add-computers-to-run-your-bots), [Harnesses](harnesses.md) and [Environments](environments.md).
-- [Build a bot](creating-bots.md), [Routines](routines.md), [Agent context](agent-context.md) and [Watchers](watchers.md).
+- [Build a bot](creating-bots.md), [Routines](routines.md), [Agent context](agent-context.md), [Watchers](watchers.md),
+  [Sessions](sessions.md) and [Task worktrees](worktrees.md).
 - [API](api.md), [Custom frontend](custom-frontend.md), [Listening API](listening.md#save-decide-and-resolve),
   [Needs you batches](needs-you-batches.md) and [Service keys](service-keys.md), for another system that files tasks.
 - External agents: [Common setup](connect-an-agent.md), [Hermes](hermes-agents.md), [OpenClaw](openclaw-agents.md), [Grok Bot and Dots](external-agent-sync.md).
