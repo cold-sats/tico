@@ -3201,10 +3201,10 @@ class Runner:
                 continue
             try:
                 self.flush(row["id"])
-                if row["completion"]:
-                    completion = json.loads(row["completion"])
-                else:
-                    completion = self.state.finish(row["id"], {"outcome": "interrupted", "text": "Runner restarted during execution"})
+                # The snapshot is stale by now: a turn that finished meanwhile keeps the result it saved.
+                completion = self.state.settled(row["id"], "Runner restarted during execution")
+                if completion is None:
+                    continue
                 self.complete(row["id"], completion)
                 self.state.phase(row["id"], "synced")
             except APIError as exc:

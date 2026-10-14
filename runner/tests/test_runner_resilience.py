@@ -154,6 +154,16 @@ class Execution(unittest.TestCase):
         self.assertIn("RuntimeError", client.completion()["text"], "the error, not a runner restart, is the reason given")
         self.assertEqual(runner.state.unfinished(), [])
 
+    def test_recovery_keeps_a_result_saved_after_its_snapshot(self):
+        client = FakeClient()
+        runner = self.runner(client)
+        runner.state.record(attempt())
+        stale = runner.state.unfinished()
+        runner.state.finish("att-1", {"outcome": "completed", "text": "the real reply"})
+        with mock.patch.object(runner.state, "unfinished", return_value=stale):
+            runner.recover_output()
+        self.assertEqual(client.completion()["text"], "the real reply")
+
     def test_a_turn_outlives_a_cloud_outage_longer_than_its_lease(self):
         client = FakeClient(renew_error=CLOUDFLARE)
         runner = self.runner(client)
