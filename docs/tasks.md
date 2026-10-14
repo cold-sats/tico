@@ -60,26 +60,35 @@ hub task update <task> --status waiting --note "Needs the build environment"
 ```
 
 When the task waits on a person to act instead (a decision, access, a host only they can fix),
-name them with `--on` and say exactly what they need to do in the note:
+name them with `--on` and say plainly what you need in the note:
 
 ```sh
-hub task update <task> --status waiting --on ana --note "Restart the build host; it refuses SSH"
+hub task update <task> --status waiting --on ana --note "Restart the build host? It refuses SSH, and I'll rerun the deploy after."
 ```
 
-The task is then in that person's **Needs you** and their batch as one item, its title and that
-note, and the bot counts toward `needs_human` on its status. When the person comments on the task
-(or says done or answers in a batch) the bot wakes and the task leaves their list; the bot sets it
-waiting on them again if it still needs something. Only the bot that owns the task names the
-person. A new status, note or owner clears `--on` unless the same update names the person again,
-and `--on ""` clears it by hand. A private task can only wait on a person who can read it, and a
-task made private stops waiting on anyone who cannot.
+Tico turns that into one small subtask owned by the person: its title is the ask (its question, when it has one),
+its body is the note, and Decide shows it with Yes and No when it asks a yes-or-no question. The bot's task stays the
+bot's: it is Waiting, blocked on that subtask, with the note "Blocked on Ana: <the ask>", and it is not itself a card
+in Ana's **Needs you**. The update returns the subtask as `asked_in`. When Ana marks it done or declines it (Yes or
+No on her card), the task opens again with "Ana answered: <what she said>" as its note and the bot is woken once on
+it. Nobody asks her again whether she answered.
 
-The person reads that note as your request, so write it to them: one plain sentence, no task or
-message ids, no status. The update warns (as the title lint does) when the note is missing and no
-open question to them asks instead, carries an id, or runs past two sentences or 40 words; with
-`TICO_STYLE_LINT=refuse` it is refused. Decide leads the card with an open question to the person,
-then what a bot last said to them on the task, then the task's request, and folds the note under
-"Latest note".
+One question, one card. If this rule already filed that person a card in the task's tree (its root and everything
+under it), no second card is made: the task is blocked on the existing one, and a different ask is added to it as a
+comment. Only such cards are joined, never another task the person was given, and never across privacy: a private
+task's ask gets its own private card, one per task, which its later asks join. A bot's own open question to the person under the task (`hub task
+question`) is the card too. `hub task question` asked from a run on one of the bot's own tasks is filed under that
+task when no `--parent` is given. The answer follows the blocker link, so a progress note the bot adds while it waits
+doesn't lose it, and a declined card no longer blocks the task. The note says the person answered only when they
+finished the card; when someone else closed it, it names who did.
+
+The note must be a plain ask: one or two sentences, at most 40 words, with no ids, hashes, file paths, `s3://` links
+or tool names. Without one the update is refused, saying what failed. A task with an open structured question to
+the person (`hub task question`) is already the card: it waits on them as itself, and its note is only warned
+about. Only the bot that owns the task names the person, and a private task can only ask a person who can read it.
+
+Bot tasks that were waiting on a person before this rule are moved to it within the hour when their note is a plain
+ask; the rest stay last in the person's Needs you while their bot is asked once to restate the ask.
 
 A bot may do this for its own task, including a task it requested itself. The blocker must exist
 and be accessible; a finished blocker does not justify waiting. An unanswered question, an open
@@ -185,7 +194,8 @@ the separate completion and closing events.
 
 A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the
 task's comment box (or the note box on a Decide card) and not yet sent goes with Done as the
-outcome. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
+outcome. Done on several selected tasks at once sends no comment: an unsent one stays in its
+task's box. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
 comment on the next line when there is one. When a bot needs a specific answer it asks a yes/no
 or choice question instead.
 
@@ -690,8 +700,9 @@ unset, and the answer says which. Whoever deleted the task, its requester, or an
 task can restore it.
 
 A task carrying work is refused (`409 has_work`, close it instead), so deleting never touches what
-someone did: a bot turn, a job, an approval, a file, a routine occurrence, a meeting delivery, or a
-subtask. The audit log keeps `task.deleted`, `task.restored` and `task.purged` events with who did it
+someone did: a bot turn, a job, an approval, a bot's own file, a routine occurrence, a meeting
+delivery, or a subtask. Files attached to the task or its comments are not work: they go with the
+task, no one can open them while it is in the trash, and a restore brings them back. The audit log keeps `task.deleted`, `task.restored` and `task.purged` events with who did it
 and the task's title.
 
 To delete many at once, such as a bulk import run twice, the owner runs the offline command on the

@@ -27,8 +27,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            blocked on a person? --owner <person> --parent <your task>
                                            for a person, the body's first paragraph is the ask (as --note below)
     hub task ask <id> "<question>"
+    hub task update <id> --status waiting --on <person> --note "<plain ask>"
+                                           ask a person on your task: one small subtask for them, yours stays blocked
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
-                                           one decision as its own task, waiting on them; none for Yes / No
+                                           one decision under your task, waiting on them; none for Yes / No
                     [--if-no-answer "Yes" --default-kind reversible|send|spend|delete] [--by D]
                                            what you do if they don't answer: a reversible step goes ahead
                                            after the team's days (3); asks expire after 14 days

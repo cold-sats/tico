@@ -262,28 +262,21 @@ def classify(method, path, body=None, rules=None, to_bot=None):
     return None
 
 
-# Who may do what, and what it costs: a request a bot carried for a person (app.py carried_request) never changes these
-# with the person's rights. BotOps tries them with the bot's own, and a refusal becomes the person's Confirm card.
-ACCESS = _routes(
-    ("POST", rf"bots/{_S}/(access|owners|co-owners|tools|agent-credential|agent-credential/revoke|definition|model|"
-             rf"fallback|go-live|quarantine/clear|restore|repository-read-token)"),
-    ("POST", rf"bots/{_S}/tools/{_S}/(delete|update)"), ("DELETE", rf"bots/{_S}/tools/{_S}"),
-    ("PUT", rf"bots/{_S}/(access|repositories|github-repos)"), ("PUT", rf"repositories/{_S}/{_S}"),
-    ("PUT", "repositories/settings"), ("PUT", "subscriptions"),
-    ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
-    ("POST", r"access/(people|humans)"), ("POST", rf"access/(people|humans)/{_S}"), ("PUT", r"access/rules"),
-    ("POST", r"groups"), ("PATCH", rf"groups/{_S}"), ("DELETE", rf"groups/{_S}"),
-    ("POST", r"slack/channels"), ("POST", r"slack/channels/(remove|import)"),
-    ("POST", rf"credentials/{_S}/grants"), ("DELETE", rf"credentials/{_S}"),
-    ("POST", r"agents/pairings/(approve|decline)"),
-    ("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),
+# What a request a bot carried for a person (app.py carried_request) does with the person's rights: their own work
+# items, never who may do what or what it costs. Everything else runs with the asking bot's rights, and a refusal
+# becomes the person's Confirm card. An allow-list, so a new route lends nothing until it is added here.
+CARRIED = _routes(
+    ("POST", r"tasks"), ("POST", r"tasks/dry-run"), ("POST", rf"tasks/{_S}"), ("POST", rf"tasks/{_S}/(comments|links|ask)"),
+    ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
+    ("POST", r"goals"), ("POST", rf"goals/{_S}"), ("POST", rf"goals/{_S}/(status|checkins|kpis)"),
+    ("POST", rf"goals/{_S}/kpis/{_S}"), ("POST", r"kpis"), ("POST", rf"kpis/{_S}"), ("POST", rf"kpis/{_S}/readings"),
 )
 
 
-def access_change(method, path):
-    """A change to who may do what, or to spending: never made with rights a bot's hand-off lent."""
+def carried_lends(method, path):
+    """Whether a carried request makes this call with the person's rights (CARRIED)."""
     path, method = normalize(path), str(method).upper()
-    return bool(path) and (admin_only(method, path) or any(m == method and p.fullmatch(path) for m, p in ACCESS))
+    return bool(path) and any(m == method and p.fullmatch(path) for m, p in CARRIED)
 
 
 def admin_only(method, path):

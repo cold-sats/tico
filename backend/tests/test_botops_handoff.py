@@ -1,5 +1,7 @@
 """A person asks another bot for something only BotOps can do: the bot hands it on with the person's own message, and
 BotOps acts as them; a hand-off that lends nothing reaches the person as a Confirm card, not a refusal."""
+import re
+
 from fastapi import Request
 
 from backend.tests.test_api import api, assign, claim, get, headers, post, ready  # noqa: F401  (fixture)
@@ -7,11 +9,12 @@ from backend.tests.test_member_bots import botops, finish  # noqa: F401  (fixtur
 from backend.store import H
 
 
-def _identity_route(api):
+def _identity_route(api, path="/api/v2/qa-handoff-identity", method="GET"):
+    """A route at `path` that answers with whose rights the call ran with, ahead of any real route there."""
     def identity(request: Request):
         who = request.state.identity
         return {"actor": who.actor, "role": who.role}
-    api.app.add_api_route("/api/v2/qa-handoff-identity", identity, methods=["GET"])
+    api.app.add_api_route(path, identity, methods=[method])
     api.app.router.routes.insert(0, api.app.router.routes.pop())
 
 
@@ -27,7 +30,9 @@ def _hand_off(api, machine, cite, said="Give yourself read access to the acme si
     return task, claim(api, machine, "botops")
 
 
-def test_a_bot_hands_botops_the_persons_own_request_and_botops_acts_as_them(api, botops):
+def test_a_bot_hands_botops_the_persons_own_request_and_botops_acts_as_them(api, botops, monkeypatch):
+    from backend import botops_act
+    monkeypatch.setattr(botops_act, "CARRIED", botops_act.CARRIED + [("GET", re.compile("/api/v2/qa-handoff-identity"))])
     assign(api, botops, "ops")
     ready(api, botops, ["botops", "ops"])
     _identity_route(api)
@@ -91,3 +96,21 @@ def test_a_cited_message_never_raises_access_with_the_persons_rights(api, botops
     with api.app.state.store.read() as c:
         assert c.execute("SELECT owner FROM assistant_actions WHERE id=?",
                          (tried.json()["action"]["id"],)).fetchone()["owner"] == "human:ana"
+
+
+def test_a_carried_request_lends_only_for_work_items_never_settings_or_bots(api, botops):
+    """Undoing a settings change could give Ops back access Ana took away; copying, moving or switching a bot could
+    reach other computers and credentials. A carried request makes none of them with her rights: only tasks, docs and
+    goals (botops_act.CARRIED)."""
+    assign(api, botops, "ops")
+    ready(api, botops, ["botops", "ops"])
+    guarded = ["/api/v2/settings/history/h1/undo", "/api/v2/bots/ops/copy", "/api/v2/bots/ops/placement",
+               "/api/v2/settings/transitions/t1/apply-without-checkpoint"]
+    for path in guarded + ["/api/v2/tasks/qa-handoff"]:
+        _identity_route(api, path, "POST")
+    _, attempt = _hand_off(api, botops, "turn", said="Thanks, that's all for today")
+    for path in guarded:
+        tried = api.post(path, json={}, headers=headers(attempt["token"]))
+        assert (tried.json()["actor"], tried.json()["role"]) == ("bot:ops", "bot"), path
+    tried = api.post("/api/v2/tasks/qa-handoff", json={}, headers=headers(attempt["token"]))
+    assert (tried.json()["actor"], tried.json()["role"]) == ("human:ana", "owner")

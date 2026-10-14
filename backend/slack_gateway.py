@@ -108,7 +108,7 @@ MAX_BOTS = 60
 # Scopes and events the manifest carries for the gateway. Missing ones are reported at start-up,
 # never guessed around: the reinstall is a person's step (connectors/README.md).
 NEEDED_SCOPES = ("app_mentions:read", "im:history", "channels:history", "groups:history", "chat:write",
-                 "chat:write.customize", "users:read", "users:read.email")
+                 "chat:write.customize", "users:read", "users:read.email", "files:read")
 CUSTOMIZE_SCOPE = "chat:write.customize"
 MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
 USER_RE = MENTION_RE
@@ -328,7 +328,7 @@ def event_from(payload, bot_user_id):
         return None, "bot_or_subtype"
     if not event.get("user") or not event.get("channel") or not event.get("ts"):
         return None, "shape"
-    text = str(event.get("text") or "").strip()
+    text = "\n".join([str(event.get("text") or "").strip()] + file_lines(event)).strip()
     if not text and not event.get("files"):
         return None, "empty"
     im = kind == "message" or str(event["channel"]).startswith("D")
@@ -343,12 +343,20 @@ def event_from(payload, bot_user_id):
             "text": (text or "(a file with no text)")[:TEXT_CHARS]}, None
 
 
+def file_lines(message):
+    """One `[file F...] name` line per shared file; a bot opens it with `connectors/slack.py file --id`."""
+    one_line = lambda value: " ".join(str(value or "").split())     # a name never fakes a second line
+    return [f"[file {one_line(f.get('id'))}] {one_line(f.get('name') or f.get('title')) or 'file'}"
+            for f in (message.get("files") or []) if isinstance(f, dict) and f.get("id")]
+
+
 def message_text(message):
     """What a message says, for a person reading it later: its text, else what its attachments
-    or blocks carry (alert feeds post with an empty `text` and everything in an attachment)."""
+    or blocks carry (alert feeds post with an empty `text` and everything in an attachment),
+    then a line per file shared with it."""
     text = str(message.get("text") or "").strip()
     if text:
-        return text
+        return "\n".join([text] + file_lines(message))
     parts = []
     for att in message.get("attachments") or []:
         for key in ("pretext", "title", "text", "fallback"):
@@ -357,6 +365,7 @@ def message_text(message):
                 parts.append(value)
                 if key == "fallback":
                     break
+    parts += file_lines(message)
     if not parts and message.get("files"):
         parts.append("(a file with no text)")
     return "\n".join(parts)
@@ -499,7 +508,8 @@ class Gateway:
         self.customize = not scopes or CUSTOMIZE_SCOPE in scopes
         if missing:
             LOG.warning("Slack app %s lacks scopes %s; reinstall it from connectors/slack-app-manifest.yaml "
-                        "(mentions need app_mentions:read; replies show as Tico without %s)",
+                        "(mentions need app_mentions:read; replies show as Tico without %s; "
+                        "bots cannot open shared files without files:read)",
                         app, ",".join(missing), CUSTOMIZE_SCOPE)
         if self.judge is None:
             LOG.warning("No decision model (TypeSafe key or a provider API key): every message routes to %s until one is configured",

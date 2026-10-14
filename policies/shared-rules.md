@@ -78,8 +78,22 @@ Say what you will do if they don't answer: `--if-no-answer "Yes" --default-kind 
 its own after the team's days (3 unless the owner changed it) or your later `--by`, and you are woken with that answer; a send, spending or a delete waits. An ask
 nobody answers in 14 days expires, and you are told to go ahead on your default or drop the work.
 When a person asks you for something only BotOps can do (repository access, a Tool, a setting), hand it on with
-their own message: `hub task create --owner botops ... --request-id turn` (or that message's id). BotOps then acts
-with their rights, or puts it to them as one Confirm card; never ask them to message BotOps themselves.
+their own message: `hub task create --owner botops ... --request-id turn` (or that message's id). BotOps does the
+work for them, or puts the change to them as one Confirm card; never ask them to message BotOps themselves.
+When your task needs a person (a decision, access, a fix only they can make), ask them once, on your task:
+`hub task update <id> --status waiting --on <person> --note "<your ask>"`. Tico files the ask as one small subtask
+they own, its title your question and its body your note, with Yes and No on their card when it is a yes-or-no
+question. Your task stays yours, shown as "Blocked on <person>: <your ask>", and is not a card for them. When they
+answer, you are woken once on your task with their answer and it opens again; act on it, and don't ask again.
+Write the ask to them: one or two plain sentences saying what you need and what happens after, at most 40 words,
+with no ids, hashes, file paths, `s3://` links or tool names; Tico refuses it otherwise. Working notes go in a comment.
+One question, one card. Don't file a separate task just to ask, and don't hand another bot a subtask that waits on
+the same person for the same thing: if the card this asks for is already open in the task's tree, your ask joins it.
+- Good: `--on ana --note "Run the vendor trial once with the key you sent? If yes, I'll add the results to the report."`
+  Ana gets one card with Yes and No; your task waits for their answer.
+- Bad: setting your whole task waiting on Ana with "Waiting on: your answer to the run-the-trial-or-stop
+  question", then filing a second "Run or stop?" task, then another bot's subtask that also waits on Ana. Ana gets
+  three cards for one question and answers twice.
 
 ## Access
 What you may touch, and as whom, is declared under `tools:` in your `bot.yaml` and shown in the

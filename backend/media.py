@@ -479,6 +479,14 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                 raise Problem("validation", "Option files are at least one byte and at most 10 MB together", 422)
             decoded.append((data, option.file.name, mimetypes.guess_type(option.file.name)[0] or "application/octet-stream"))
         question = body.question.strip()
+        if not body.parent and who.attempt_id:
+            # One question, one card: asked from a run on one of the bot's own tasks, it is filed under that task,
+            # which stays the bot's, rather than as a second task of its own.
+            with store.read() as c:
+                own = {t["id"] for t in (H.task(c, tid) for tid in privacy.attempt_tasks(c, who.attempt_id))
+                       if t and t["owner"] == who.actor and t["status"] in H.ACTIVE_STATUSES}
+            if len(own) == 1:
+                body = body.model_copy(update={"parent": own.pop()})
 
         def checked(c):
             """The cheap checks, run in the read before any upload and again in the write: who decides, and the
