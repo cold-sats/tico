@@ -337,10 +337,11 @@ def test_a_report_built_from_an_older_record_never_moves_it_forward_either(prepa
     with api.app_state.store.read() as c:
         read_before = c.execute('SELECT updated FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0]
     # Re-queued after the computer read it, the way adding a removed worktree again does.
+    requeued = H.now()
     with api.app_state.store.transaction() as c:
         c.execute("UPDATE task_links SET state='pending',detail_json=?,updated=? WHERE id=?",
-                  (json.dumps({'owner': 'bot:cmo', 'checkout_state': 'queued', 'setup_pending': True}),
-                   H.now(), link['link_id']))
+                  (json.dumps({'owner': 'bot:cmo', 'checkout_state': 'queued', 'setup_pending': True,
+                               'record_changed': requeued}), requeued, link['link_id']))
 
     def beat(**report):
         body = {'version': '0.3.43', 'platform': 'test', 'readiness': {'schema_version': 1, 'worktrees': True},
@@ -359,9 +360,16 @@ def test_a_report_built_from_an_older_record_never_moves_it_forward_either(prepa
                                   dirty_files=4, record_updated=read_before)
     assert state == 'pending' and detail['checkout_state'] == 'queued' and detail['setup_pending'] is True
     assert 'expected_head' not in detail and 'record_updated' not in detail and detail['dirty_files'] == 4
-    # A report built from the current record still moves it on.
-    state, detail, _ = beat(state='pending', checkout_state='initializing', record_updated=updated)
+    # A report read after the re-queue still moves it on, though the last heartbeat wrote the row since.
+    assert updated > requeued
+    state, detail, _ = beat(state='pending', checkout_state='initializing', dirty_files=5, record_updated=requeued)
     assert state == 'pending' and detail['checkout_state'] == 'initializing'
+    # A stale 'present' doesn't promote a finished record the computer last reported pending.
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='pending' WHERE id=?", (link['link_id'],))
+    state, detail, _ = beat(state='present', checkout_state='ready', record_updated=requeued)
+    assert state == 'pending' and detail['checkout_state'] == 'ready'
 
 
 def test_an_older_runner_can_still_add_a_worktree_and_finish_its_setup(prepared):

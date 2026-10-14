@@ -248,9 +248,11 @@ def heartbeat(c, who, reports, capable, default_org=""):
                     detail[key] = True
         if report.state == 'removed' and detail.get('cleanup_requested'):
             detail['removed_by'] = 'cleanup'
-        # A stamped report is stale when the record changed after the computer read it; an unstamped one
-        # (an older computer) only when it would move the checkout back.
-        stale = (report.record_updated < (row['updated'] or '') if report.record_updated is not None
+        # A stamped report is stale when the record was added, attached, re-queued or patched after the
+        # computer read it; heartbeat writes don't count, or a busy worktree's reports would always be stale.
+        # An unstamped one (an older computer) is stale only when it would move the checkout back.
+        stale = (report.record_updated < (detail.get('record_changed') or row['updated'] or '')
+                 if report.record_updated is not None
                  else stale_checkout_report(detail, report.checkout_state))
         reported = report.model_dump(exclude_none=True,
                                      exclude={'link_id', 'state', 'branch', 'checkout_state', 'record_updated',
@@ -427,8 +429,9 @@ def install(app, store, auth, mutate):
             detail.pop('expected_head', None)
             detail.pop('checkout_target', None)
             detail.pop('expected_base', None)
+            now = detail['record_changed'] = H.now()
             c.execute("UPDATE task_links SET state='pending',computer_id=?,detail_json=?,updated=? WHERE id=?",
-                      (assigned['id'], json.dumps(detail), H.now(), existing['id']))
+                      (assigned['id'], json.dumps(detail), now, existing['id']))
             return {'link_id': existing['id'], 'branch': existing['branch'], 'path': existing['path'],
                     'state': 'pending',
                     'checkout_state': 'attached_pending' if attaching else 'queued',
@@ -439,11 +442,12 @@ def install(app, store, auth, mutate):
         if branch is not None and (not re.fullmatch(r'[A-Za-z0-9_./-]+', branch) or branch.startswith('-') or '..' in branch or '@{' in branch or branch.endswith(('/', '.', '.lock')) or '//' in branch):
             raise Problem('worktree_branch', 'Invalid worktree branch', 422)
         link = uuid.uuid4().hex
+        now = H.now()
         c.execute("INSERT INTO task_links(id,task_id,kind,url,title,state,added_by,created,repo,branch,computer_id,path,updated) VALUES(?,?,'worktree',?,?,'pending',?,?,?,?,?,?,?)",
-                  (link, task['id'], 'worktree:' + link, repo or 'Worktree', who.actor, H.now(), repo, branch, assigned['id'], path, H.now()))
+                  (link, task['id'], 'worktree:' + link, repo or 'Worktree', who.actor, now, repo, branch, assigned['id'], path, now))
         c.execute('UPDATE task_links SET detail_json=? WHERE id=?',
                   (json.dumps({'owner': task['owner'], 'checkout_state': 'attached_pending' if attaching else 'queued',
-                               'setup_pending': not attaching}), link))
+                               'setup_pending': not attaching, 'record_changed': now}), link))
         return {'link_id': link, 'branch': branch, 'path': path, 'state': 'pending',
                 'checkout_state': 'attached_pending' if attaching else 'queued', 'setup_pending': not attaching,
                 'expected_head': None, 'checkout_target': None, 'expected_base': None}
@@ -542,6 +546,7 @@ def install(app, store, auth, mutate):
                 if getattr(body, key) is not None:
                     detail[key] = getattr(body, key)
             fields = body.model_dump(exclude_none=True, exclude={'cleanup', 'setup_pending', 'checkout_state', 'expected_head', 'checkout_target', 'expected_base', 'skipped_files', 'snapshot_skipped', 'restore_source'})
+            now = detail['record_changed'] = H.now()
             fields['detail_json'] = json.dumps(detail)
             if 'path' in fields:
                 fields['path'] = relative(fields['path'])
@@ -549,7 +554,7 @@ def install(app, store, auth, mutate):
                     raise Problem('worktree_path', 'Attach a new worktree to change its path', 409)
             if 'branch' in fields and fields['branch'] != link['branch']:
                 raise Problem('worktree_branch', 'Attach a new worktree to change its branch', 409)
-            fields['updated'] = H.now()
+            fields['updated'] = now
             c.execute('UPDATE task_links SET ' + ','.join(k + '=?' for k in fields) + ' WHERE id=?', (*fields.values(), link_id))
             return dict(c.execute('SELECT * FROM task_links WHERE id=?', (link_id,)).fetchone())
         return mutate(request, body, work)
