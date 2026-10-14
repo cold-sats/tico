@@ -68,14 +68,19 @@ direct, and a task, message or comment involving a bot is a card again. An assis
 lease is live.
 
 **What you ask for in your chat, it does.** When you tell it to close, finish, decline, reopen, reassign, comment on or
-link a task ("close those three", "mark the launch done"), it does it as you, with no card. The write cites your
+link a task ("close those three", "mark the launch done"), decline an approval put to you ("decline the old publish
+batches, they're from before the reset") or answer a bot's question to you in your words ("tell Ops Oct 8"), it does it
+as you, with no card. The write cites your
 message (`X-Tico-On-Behalf-Of`: the message's id, or `turn` for the one that started the run; `hub task
-close|update|comment|link|label --on-behalf-of turn`), and the server checks that message: yours, typed in your own
+close|update|comment|link|label`, `hub approval decline` and `hub question answer`, each `--on-behalf-of turn`), and the
+server checks that message: yours, typed in your own
 Assistant chat (not written by a bot or the Assistant, not another chat), and no more than 30 minutes old. Otherwise it
 answers `403 on_behalf_of` and the assistant proposes instead. Your own rights are the ceiling: what you could not do
-yourself it cannot do for you. Only these task routes count (`POST /api/v2/tasks/{id}`, `.../comments`, `.../links`);
-an approval, running a task now, a message to another human and everything below stay a card whatever you said, and
-with **Assistant acts without asking** off they are cards again. The record shows you as the actor, `via` assistant,
+yourself it cannot do for you. Only these routes count (`POST /api/v2/tasks/{id}`, `.../comments`, `.../links`,
+`POST /api/v2/approvals/{id}` with `"decision": "declined"`, `POST /api/v2/messages/{id}/answer`), and only for an
+approval or question addressed to you: someone else's is a `403` whatever you said. A decline is undone by the bot asking
+again. Approving, running a task now, a message to another human and everything below stay a card whatever you said, and
+with **Assistant acts without asking** off they are all cards again. The record shows you as the actor, `via` assistant,
 and the audit event's `delegation` names the message (`{"for": "human:<you>", "cited": "<message id>", "run": "asked"}`).
 
 The Computer fetches the Assistant's own granted credentials to start the run, including on older versions of Tico.
@@ -90,8 +95,8 @@ on an allowlist can be proposed (never tokens, sign-in, runner enrollment, this 
 the path must be plain (`/api/v2/...` without `//`, `..`, `%` or `\`), and exactly that path runs. Only the status and an
 error's detail are kept of the result, never the answer's body.
 
-**Anything with a side effect that matters is proposed, and only your click runs it:** approving or declining a Needs-you
-item (a send, spend, publish or merge approval, even if you ask for it in chat), task actions you did not clearly ask for,
+**Anything with a side effect that matters is proposed, and only your click runs it:** approving a Needs-you item (a send,
+spend, publish or merge approval, even if you ask for it in chat), declines and task actions you did not clearly ask for,
 sending anything outside the team or to another human, spending, changing humans, access or settings, archiving or
 deleting, activating a bot. The assistant calls `hub assistant propose` (`hub_assistant_propose`, `POST /api/v2/assistant/actions`)
 with the exact API operation. That leaves a **pending action** and a Confirm / Cancel card in your chat. The server
@@ -101,10 +106,20 @@ records `assistant.action.confirmed` and the operation's own events via assistan
 task's `version` is given the one the task has (a change in between is still a `409`), and `{"status": "closed"}`
 is taken as the close it means (`close: true`), so such a card runs, including one stored before this rule.
 
-**Many at once is one card.** Several task actions (closing twenty stale tasks) are one bulk card, never twenty:
-`POST /api/v2/assistant/actions` with path `/api/v2/assistant/batch` and body `{"actions": [{"method": "POST", "path":
-"/api/v2/tasks/<id>", "body": {...}}, ...]}`, 1 to 100 task changes, comments or links and nothing else (`422`). The
-card lists one line per task. One **Confirm** runs each step in order through its own route, as you; a step that fails
+**Many at once is one card.** Clearing your Needs you (closing twenty stale tasks, declining eleven old publish batches,
+answering a bot) is one bulk card, never one each: `POST /api/v2/assistant/actions` with path `/api/v2/assistant/batch`
+and body `{"actions": [{"method": "POST", "path": "/api/v2/tasks/<id>", "body": {...}}, ...]}`, 1 to 100 task changes,
+comments or links, approval decisions (`/api/v2/approvals/<id>`, `{"decision": "declined", "note": "<reason>"}`) and
+answers to bots' questions (`/api/v2/messages/<id>/answer`), and nothing else (`422`). An approval or question that was
+not put to you is refused (`403`), so a card never lists anyone else's. The card first sums the steps up by what they do
+and how old the items are ("Decline 11 publish approvals, over a month old", with the reason when the group shares one),
+then lists one line per item: the task, or the approval's kind, requester, amount or target and age, or the question and
+your answer.
+
+**Approving is yours.** A card may carry approvals (`"decision": "approved"`) only when your message in this chat names
+it (approve, merge, publish, send, spend, pay): otherwise the server refuses the card (`403 approve_not_asked`), so "clear
+my queue" declines, answers and closes but never approves. The approvals are on the card with everything else, each with
+its amount and target, and nothing runs until you click. One **Confirm** runs each step in order through its own route, as you; a step that fails
 does not stop the rest, and the result lists every step's status (`result.items`) with the failures summed up in
 `result.error` ("2 of 20 did not go through: ..."). It is `failed` only when none went through. The bot cannot confirm or cancel
 (`403`; a confirm run carries a credential made at click time, bound to the stored method and path, valid for two minutes and then failed), a personal API token cannot either, another human sees `404`, and an unconfirmed proposal expires after
@@ -136,4 +151,5 @@ Names come with ids (`from_name`, `owner_name`, and an `actors` map), as elsewhe
 
 Its instructions are `templates/catalog/assistant/AGENT.md` and `playbooks/assistant-chat.md`: how Tico is organised,
 how to route work to the right bot, to answer briefly with links, never to act beyond you, to do the task actions you
-ask for, and to propose (never do) anything else with a side effect, several at once on one card. They live in the bot's repository; edit them there or through BotOps.
+ask for (declines and answers included), to propose (never do) approving and anything else with a side effect, several
+at once on one card, and to report what it did and what is left. They live in the bot's repository; edit them there or through BotOps.

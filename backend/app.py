@@ -436,16 +436,19 @@ def create_app(settings=None):
                                                  request.state.identity.actor,
                                                  lambda tid, shared: assistant_owns(tid, request.state.identity.actor, shared),
                                                  assistant_direct(), assistant_to_bot)):
-                    # A task change, comment or link the person asked for in their own Assistant chat: the turn cites
-                    # their message and it runs as them, recorded via assistant for that message (backend/assistant.py).
+                    # A task change, comment or link, a decline or an answer the person asked for in their own Assistant
+                    # chat: the turn cites their message and it runs as them, recorded via assistant for that message
+                    # (backend/assistant.py).
                     asked = request.headers.get(botops_act.HEADER)
                     if not (asked and request.state.identity.via == "assistant" and assistant_direct()
-                            and assistant_instructed(request.method, request.url.path)):
+                            and assistant_instructed(request.method, request.url.path,
+                                                     getattr(request, "_body", b""))):
                         raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
-                                      "own. A task change, comment or link the person clearly asked for in this chat runs "
-                                      "when you cite their message (`--on-behalf-of turn`). Otherwise propose it with "
-                                      "`hub assistant propose` (or POST /api/v2/assistant/actions), several task actions on "
-                                      "one card (path /api/v2/assistant/batch); the person confirms it in "
+                                      "own. A task change, comment or link, declining an approval or answering a bot's "
+                                      "question that the person clearly asked for in this chat runs when you cite their "
+                                      "message (`--on-behalf-of turn`). Otherwise propose it with `hub assistant propose` "
+                                      "(or POST /api/v2/assistant/actions), several actions on one card (path "
+                                      "/api/v2/assistant/batch); approving is only ever a card. The person confirms it in "
                                       + settings.app_name, 403)
                     with store.read() as c:
                         delegation_reset = H.DELEGATION.set(assistant_instruction(c, request.state.identity, asked))
