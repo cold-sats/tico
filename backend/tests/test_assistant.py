@@ -318,8 +318,13 @@ def test_the_assistants_tools_cite_the_message_for_it(api):
             return self.call("POST", path, body or {}, key)
     with api.app.state.store.transaction() as c:
         launch = H.task_create(c, "human:ben", "Plan the launch", "For ops.", "bot:ops")
-    r, attempt = assistant_turn(api, "ben-test", "Close the launch task")
+        mine = H.task_create(c, "human:ben", "Run the launch", "Ben decides its sends.", "human:ben")["id"]
+        spend = H.approval_request(c, "bot:ops", "spend", {"amount": 500, "account": "card", "what": "Ads"}, mine)["id"]
+    r, attempt = assistant_turn(api, "ben-test", "Close the launch task and decline the ad spend")
     turn = Turn(attempt["token"])
+    declined = hubtools.BY_NAME["hub_approval_decline"]["fn"](turn, {"id": spend, "note": "Not now", "on_behalf_of": "turn"})
+    assert declined["decision"] == "declined" and declined["decided_by"] == "human:ben"
+    assert {"hub_approval_decline", "hub_question_answer"} <= {t["name"] for t in hubtools.listing(kind="assistant")}
     with pytest.raises(APIError) as refused:
         hubtools.BY_NAME["hub_task_close"]["fn"](turn, {"id": launch["id"]})
     assert refused.value.code == "confirm_required"
@@ -410,13 +415,13 @@ def test_a_group_of_task_actions_is_one_card_and_one_click(api):
     steps.append({"path": f"/api/v2/tasks/{secret['id']}", "body": {"close": True}})       # not his to close
     action = post(api, "assistant/actions", {"summary": "Close your 25 old tasks", "path": assistant.BATCH_PATH,
                                              "body": {"actions": steps}}, token=token)["action"]
-    assert action["description"] == "26 task actions, on one Confirm" and len(action["diff"]) == 26
-    assert "Old task 0" in action["diff"][0]["field"] and "close: True" in action["diff"][0]["new"]
+    assert action["description"] == "26 task actions, on one Confirm" and len(action["diff"]) == 27
+    assert action["diff"][0] == {"field": "Close 26 tasks, under a week old", "new": "each listed below", "group": True}
+    assert "Old task 0" in action["diff"][1]["field"] and "close: True" in action["diff"][1]["new"]
     pending = get(api, "assistant", "ben-test")["pending"]
     assert [p["id"] for p in pending] == [action["id"]]                                  # one card, not 26
-    # Only task actions go on a bulk card: an approval, running a task now or anything else is refused.
-    for odd in ({"path": "/api/v2/approvals/" + approval, "body": {"decision": "approved"}},
-                {"path": f"/api/v2/tasks/{tasks[0]['id']}/run-now", "body": {}},
+    # Running a task now or anything else is refused on a bulk card.
+    for odd in ({"path": f"/api/v2/tasks/{tasks[0]['id']}/run-now", "body": {}},
                 {"path": "/api/v2/messages", "body": {"to": "human:ana", "text": "Hi"}}):
         post(api, "assistant/actions", {"summary": "Sneak", "path": assistant.BATCH_PATH,
                                         "body": {"actions": [steps[0], odd]}}, token=token, expected=422)
@@ -431,6 +436,95 @@ def test_a_group_of_task_actions_is_one_card_and_one_click(api):
         assert H.approval(c, approval)["decision"] is None
         assert c.execute("SELECT count(*) FROM task_events WHERE field='status' AND new='closed' AND actor='human:ben' "
                          "AND via='assistant'").fetchone()[0] == 25
+
+
+def needs_you_queue(api):
+    """Ben's Needs you: old publish batches, a merge and a spend for him to decide, a bot's question to him, and an
+    approval and a question for Ana that his Assistant must never touch."""
+    as_member(api, "ben@acme.example")
+    with api.app.state.store.transaction() as c:
+        mine = H.task_create(c, "human:ben", "Run the launch", "Ben decides its sends.", "human:ben")["id"]
+        old = [H.approval_request(c, "bot:ops", "publish", {"url": f"https://acme.example/post-{i}",
+                                                             "content_sha256": str(i) * 64}, mine)["id"] for i in range(3)]
+        c.execute("UPDATE approvals SET created=? WHERE id IN (?,?,?)", (H.shift(H.now(), days=-40), *old))
+        merge = H.approval_request(c, "bot:ops", "merge", {"repo": "acme/site", "pr": 12}, mine)["id"]
+        spend = H.approval_request(c, "bot:ops", "spend", {"amount": 500, "account": "card", "what": "Ads"}, mine)["id"]
+        hers = H.approval_request(c, "bot:ops", "publish", {"url": "https://acme.example/ana", "content_sha256": "f" * 64})["id"]
+        ask = H.say(c, "bot:ops", "human:ben", "Launch on Oct 1 or Oct 8?", kind="ask")["id"]
+        her_ask = H.say(c, "bot:ops", "human:ana", "Which logo?", kind="ask")["id"]
+    return {"old": old, "merge": merge, "spend": spend, "hers": hers, "ask": ask, "her_ask": her_ask}
+
+
+def decision(api, aid):
+    with api.app.state.store.read() as c:
+        return H.approval(c, aid)["decision"]
+
+
+def test_clear_my_queue_declines_and_answers_in_bulk_and_never_approves(api):
+    q = needs_you_queue(api)
+    r, attempt = assistant_turn(api, "ben-test", "Clear my queue, close at least 50 of these, the old stuff can go")
+    token = attempt["token"]
+    approve = {"decision": "approved"}
+    # A vague request never approves: not directly, and not even on a card.
+    refused = asked(api, "approvals/" + q["merge"], approve, token, "turn", expected=403)
+    assert refused["error"]["code"] == "confirm_required"
+    refused = post(api, "assistant/actions", {"summary": "Approve the merge", "path": "/api/v2/approvals/" + q["merge"],
+                                              "body": approve}, token=token, expected=403)
+    assert refused["error"]["code"] == "approve_not_asked"
+    # Ana's approval and question never go on his card.
+    decline = {"decision": "declined", "note": "Before the reset"}
+    steps = [{"path": "/api/v2/approvals/" + aid, "body": decline} for aid in q["old"]]
+    steps.append({"path": f"/api/v2/messages/{q['ask']}/answer", "body": {"text": "Oct 8"}})
+    for theirs in ({"path": "/api/v2/approvals/" + q["hers"], "body": decline},
+                   {"path": f"/api/v2/messages/{q['her_ask']}/answer", "body": {"text": "The blue one"}}):
+        post(api, "assistant/actions", {"summary": "Clear", "path": assistant.BATCH_PATH,
+                                        "body": {"actions": [*steps, theirs]}}, token=token, expected=403)
+    # Declining and answering what he asked for: one card, grouped by kind and age, every item listed.
+    card = post(api, "assistant/actions", {"summary": "3 old publish batches from before the reset: decline; answer Ops",
+                                           "path": assistant.BATCH_PATH, "body": {"actions": steps}}, token=token)["action"]
+    assert card["description"] == "4 actions, on one Confirm: 3 approval decisions, 1 answer"
+    assert card["diff"][0] == {"field": "Decline 3 publish approvals, over a month old", "new": "reason: Before the reset",
+                               "group": True}
+    assert card["diff"][1]["field"] == "Answer 1 bot question, under a week old"
+    assert "post-0" in card["diff"][2]["field"] and "40 days old" in card["diff"][2]["field"]
+    assert "Oct 8" in card["diff"][-1]["field"]
+    assert all(decision(api, aid) is None for aid in q["old"])                     # nothing ran yet
+    done = post(api, f"assistant/actions/{card['id']}/confirm", {}, token="ben-test")["action"]
+    assert done["status"] == "done" and not done["result"]["error"], done["result"]
+    assert [decision(api, aid) for aid in q["old"]] == ["declined"] * 3
+    # One he asked for runs directly when the turn cites his message, as him, via the assistant.
+    asked(api, "approvals/" + q["spend"], {"decision": "declined", "note": "Not this month"}, token, "turn")
+    assert decision(api, q["spend"]) == "declined"
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT actor,detail_json FROM events WHERE action='approval.decide' AND target=?",
+                        (q["spend"],)).fetchone()
+        assert row["actor"] == "human:ben" and H._json(row["detail_json"], {})["via"] == "assistant"
+        answers = dict(c.execute("SELECT in_reply_to,from_actor FROM messages WHERE kind='answer'").fetchall())
+        assert answers.get(q["ask"]) == "human:ben" and q["her_ask"] not in answers
+    # Others' items stay as they were, whatever is cited.
+    asked(api, "approvals/" + q["hers"], decline, token, "turn", expected=403)
+    asked(api, f"messages/{q['her_ask']}/answer", {"text": "Blue"}, token, "turn", expected=403)
+    assert decision(api, q["hers"]) is None and decision(api, q["merge"]) is None
+
+
+def test_an_approval_the_person_names_goes_on_one_card_and_runs_only_on_their_click(api):
+    q = needs_you_queue(api)
+    r, attempt = assistant_turn(api, "ben-test", "Approve the site merge and the $500 ad spend")
+    token = attempt["token"]
+    refused = asked(api, "approvals/" + q["merge"], {"decision": "approved"}, token, "turn", expected=403)
+    assert refused["error"]["code"] == "confirm_required"                             # never directly
+    steps = [{"path": "/api/v2/approvals/" + aid, "body": {"decision": "approved"}} for aid in (q["merge"], q["spend"])]
+    card = post(api, "assistant/actions", {"summary": "Approve the site merge and the ad spend",
+                                           "path": assistant.BATCH_PATH, "body": {"actions": steps}}, token=token)["action"]
+    lines = [d["field"] for d in card["diff"]]
+    assert "Approve 1 merge approval, under a week old" in lines and "Approve 1 spend approval, under a week old" in lines
+    assert any("pr: 12; repo: acme/site" in line for line in lines) and any("amount: 500" in line for line in lines)
+    post(api, f"assistant/actions/{card['id']}/confirm", {}, token=token, expected=403)       # never the bot's click
+    assert decision(api, q["merge"]) is None and decision(api, q["spend"]) is None
+    done = post(api, f"assistant/actions/{card['id']}/confirm", {}, token="ben-test")["action"]
+    assert done["status"] == "done" and not done["result"]["error"], done["result"]
+    assert decision(api, q["merge"]) == decision(api, q["spend"]) == "approved"
+    assert decision(api, q["hers"]) is None
 
 
 def test_a_close_card_without_the_tasks_version_still_runs(api):

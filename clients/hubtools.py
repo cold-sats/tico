@@ -322,15 +322,22 @@ def ask_wait(api, pending, wait, args):
     return result
 
 
-@tool("hub_question_answer", "Answer a question another bot asked you.",
+# The Assistant, citing the person's message for something they asked for (`_asked`).
+ASKED = _s("Assistant: the person asked for exactly this in their own Assistant chat: `turn` (their message that started "
+           "this run) or that message's id. Leave it out when they did not clearly ask, and propose instead")
+
+
+@tool("hub_question_answer", "Answer a question another bot asked you. The Assistant answers a bot's question to its "
+      "person in the person's own words, citing the message where they gave it (on_behalf_of).",
       {"message_id": _s("The ask's message id"),
        "text": _s("Your answer"),
        "unknown": {"type": "boolean", "default": False,
-                   "description": "True when you cannot answer; `text` then says what you would need"}},
+                   "description": "True when you cannot answer; `text` then says what you would need"},
+       "on_behalf_of": ASKED},
       required=("message_id", "text"), writes=True)
 def answer(api, args):
-    return api.post(f"messages/{args['message_id']}/answer",
-                    {"text": args["text"], "unknown": bool(args.get("unknown"))}, key=_key(args))
+    return _asked(api, args).post(f"messages/{args['message_id']}/answer",
+                                  {"text": args["text"], "unknown": bool(args.get("unknown"))}, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- meetings
@@ -648,11 +655,6 @@ def task_question(api, args):
         if args.get(field) is not None:
             body[field] = args[field]
     return api.post("task-questions", body, key=_key(args))
-
-
-# The Assistant, citing the person's message for a task action they asked for (`_asked`).
-ASKED = _s("Assistant: the person asked for exactly this in their own Assistant chat: `turn` (their message that started "
-           "this run) or that message's id. Leave it out when they did not clearly ask, and propose instead")
 
 
 @tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, who is on it by role, or what blocks it. "
@@ -2470,6 +2472,16 @@ def approval_show(api, args):
     return api.get("approvals/" + args["id"])
 
 
+@tool("hub_approval_decline", "Decline an approval addressed to you (a send, spend, publish or merge), with a short reason "
+      "the requesting bot reads. A declined item can be asked for again. The Assistant declines what its person asked it to "
+      "in their chat, citing that message (on_behalf_of); approving is never a tool: it is their click on a card.",
+      {"id": _s("Approval id"), "note": _s("Why, in a few words: the requesting bot reads it"), "on_behalf_of": ASKED},
+      required=("id",), writes=True)
+def approval_decline(api, args):
+    return _asked(api, args).post("approvals/" + args["id"], {"decision": "declined", "note": args.get("note") or ""},
+                                  key=_key(args))
+
+
 # ----------------------------------------------------------------------------- status, activity
 @tool("hub_bot_status_set", "One factual line about what you are doing now.",
       {"focus": _s("What you are working on"),
@@ -2715,12 +2727,15 @@ def ack(api, args):
 
 # ----------------------------------------------------------------------------- the Assistant
 @tool("hub_assistant_propose", "Assistant only: ask the person you are acting for to confirm something with "
-      "side effects that matter: approving or declining a Needs-you item, anything that leaves the team, "
+      "side effects that matter: approving a Needs-you item, anything that leaves the team, "
       "spending, changing people, access or settings, archiving or deleting, activating a bot. Give the exact "
       "API operation; it is shown to them as a Confirm / Cancel card and runs only when they click, as them. "
-      "Several task changes, comments or links go on ONE card, never one card each: path /api/v2/assistant/batch, "
-      "body {\"actions\": [{\"path\": \"/api/v2/tasks/<id>\", \"body\": {\"close\": true}}, ...]} (up to 100). "
-      "A task action the person clearly asked for needs no card: pass on_behalf_of to the task tool instead. "
+      "Several actions go on ONE card, never one card each: path /api/v2/assistant/batch, body {\"actions\": "
+      "[{\"path\": \"/api/v2/tasks/<id>\", \"body\": {\"close\": true}}, {\"path\": \"/api/v2/approvals/<id>\", "
+      "\"body\": {\"decision\": \"declined\", \"note\": \"<reason>\"}}, {\"path\": \"/api/v2/messages/<id>/answer\", "
+      "\"body\": {\"text\": \"<their words>\"}}, ...]} (up to 100). Approving goes on a card only when the person's "
+      "message names it (approve, merge, publish, send, spend); 'clear my queue' never approves. "
+      "A task action, decline or answer the person clearly asked for needs no card: pass on_behalf_of to that tool instead. "
       "Nothing here runs until they confirm.",
       {"summary": _s("One plain sentence saying what will happen if they confirm"),
        "method": {"enum": ["POST", "PUT", "PATCH", "DELETE"], "default": "POST"},
@@ -3182,7 +3197,7 @@ REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
 ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
-                    "hub_task_close", "hub_task_link",
+                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_question_answer",
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
@@ -3203,6 +3218,7 @@ AUDIENCE = {
                                    "hub_meeting_pending", "hub_meeting_approve", "hub_meeting_dismiss", "hub_meeting_restore")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
+    "hub_approval_decline": HUMANS_AND_ASSISTANT,         # only a person decides an approval
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,
     # Humans only (views.human_only and the batch routes refuse a bot); a bot's own posts are the other way round.
     "hub_brief": HUMANS_AND_ASSISTANT, "hub_bot_recent": HUMANS_AND_ASSISTANT,

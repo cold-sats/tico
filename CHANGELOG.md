@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Your Assistant clears your Needs you when you ask.** "Clear my queue" used to get a list back, and the Assistant could close tasks but told you to decline every approval and answer every question yourself, one card each, at most 20. Now it declines approvals put to you (with a reason the bot reads), answers bots' questions in your words and closes what you asked, directly when you named it or on one card for many. The card sums the items up by kind and age ("Decline 11 publish approvals, over a month old") and lists each one with its amount or target. Approving (merge, publish, spend, send) is still only your click on a card, and the Assistant may only put an approve on one when your message names it; someone else's approvals and questions are never on your card. New `hub approval decline` and `--on-behalf-of` on `hub question answer`. See [The Assistant](docs/assistant.md).
+
 ### Fixed
 - A goal's "Waiting on" note is no longer cut short at a quote mark (it used to show half a sentence ending in a backslash), the goal's judge now reads waiting as an alternative to finishing rather than a second requirement, and a task the bot already marked done shows its goal as met instead of paused.
 - A bot's task parked as waiting with only a note (nothing recorded to wait on) now warns the bot when it parks it, even on a task a person asked for, and goes back to open after two hours instead of a day; a future due date still holds it. The stall wake now tells the bot to file a subtask for whoever must act instead of parking on a note.
