@@ -38,6 +38,7 @@ All notable changes to Tico are recorded here. The format follows
   dropped with `TimeoutError` (behind Cloudflare, about every 15 to 20 minutes). Keepalives on runner and page streams now go
   out every 15 s whatever the database is doing, even while other computers' changes keep the stream busy, and the runner
   waits 90 s before calling a stream lost. `TICO_STREAM_KEEPALIVE_SECONDS` (5 to 50) changes the interval.
+- **A private task's worktree no longer fails a computer's readiness check.** The heartbeat refused with 403 "This response contains a task you can no longer read" whenever it carried a cleanup or restore for a private task's worktree, because a computer is never a task participant. Each worktree action is now read as the bot hosted on that computer that owns the worktree; a checkout or restore neither can read is left out and counted (`worktree_actions_skipped`), and the runner logs "readiness skipped N worktree action(s)" when that count changes; the skipped task's id and title are not sent. A removal always reaches the computer holding the worktree, so a private checkout never stays on disk, and the computer's report on its own worktree is no longer refused.
 - **An idle computer no longer burns CPU on archived bots.** A runner tried to set up every assigned bot on each
   readiness pass, archived ones included, and re-read the whole bot catalog each time; with 22 archived test bots
   whose repositories were gone, the Tico Team mail runner used most of a core while idle and kept the server busy.

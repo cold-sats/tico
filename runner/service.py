@@ -3443,6 +3443,12 @@ class Runner:
             beat = self.report_heartbeat(body)
         self._beat_printed, self._beat_sent = printed, time.monotonic()
         actions = (beat or {}).get("worktree_actions", [])
+        skipped = (beat or {}).get("worktree_actions_skipped", 0)
+        if skipped != self.__dict__.get("_worktree_actions_skipped", 0):
+            # Said when the count changes, not on every heartbeat.
+            if skipped:
+                log(f"Tico runner: readiness skipped {skipped} worktree action(s) for tasks this computer's bots can no longer read")
+            self._worktree_actions_skipped = skipped
         if hasattr(self, "worktrees") and (full or actions):
             self.worktrees.poll(actions)
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
