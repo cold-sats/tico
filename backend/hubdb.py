@@ -1409,13 +1409,22 @@ def lint_approval(kind, payload):
     return problems
 
 
+URL_SPECIAL = ("http", "https", "ws", "wss", "ftp", "file")
+
+
 def url_authority(url):
-    """The part of a url between "//" and the path, where user@ would go; "" when there is none. A backslash counts as
-    part of it, as browsers read one there as "/", so "https://a\\@b" is refused rather than guessed at."""
-    try:
-        return urlsplit(re.sub(r"\s", "", str(url or ""))).netloc
-    except ValueError:
-        return str(url)
+    """The part of a url where user@ would go, read as a browser reads it; "" when there is none. After a web scheme a
+    browser skips any run of "/" and "\\", or none ("https:a@b" is user a at host b); with no scheme, a leading pair of
+    them makes the link leave the app for another host. A backslash later counts as part of it, so "https://a\\@b" is
+    refused rather than guessed at."""
+    text = re.sub(r"[\s\x00-\x1f]", "", str(url or ""))
+    m = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):", text)
+    rest = text[m.end():] if m else text
+    if m and m.group(1).lower() not in URL_SPECIAL and not rest.startswith("//"):
+        return ""
+    if not m and not re.match(r"[/\\]{2}", rest):
+        return ""
+    return re.split(r"[/?#]", rest.lstrip("/\\"), maxsplit=1)[0]
 
 
 def lint_support(payload):

@@ -334,13 +334,18 @@ class Rule6Approvals(HubCase):
         digest = hashlib.sha256(b"Launch notes").hexdigest()
         for url in ("https://acme.example" + "a" * 400 + "@evil.example/post", "https://ana@evil.example",
                     "https://acme.example:pw@evil.example/", "//acme.example@evil.example", "https://acme.example\\@evil.example",
-                    "https://acme.example\t@evil.example", "HTTPS://acme.example%2F@evil.example", "https://[::1@evil.example"):
+                    "https://acme.example\t@evil.example", "HTTPS://acme.example%2F@evil.example", "https://[::1@evil.example",
+                    # A browser skips any run of / and \ after a web scheme, or none, and a leading pair leaves the app.
+                    "https:\\\\acme.example@evil.example", "https:/acme.example@evil.example", "https:acme.example@evil.example",
+                    "https:///acme.example@evil.example", "https:\\/acme.example@evil.example", "HtTp:acme.example@evil.example",
+                    "ws:acme.example@evil.example", "\\\\acme.example@evil.example", "/\\acme.example@evil.example"):
             e = self.refused("lint", H.approval_request, self.conn, CMO, "publish", {"url": url, "content_sha256": digest})
             self.assertEqual("url must not carry a user name (user@host); give the plain address", e.detail)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM approvals").fetchone()[0], 0)
         # An @ in the path, query or fragment names nobody's account on the host.
         for url in ("https://medium.example/@acme/launch", "https://acme.example/share?to=ana@acme.example",
-                    "https://acme.example/#@team", "hq-ticket:TK-0000AAAA"):
+                    "https://acme.example/#@team", "hq-ticket:TK-0000AAAA", "mailto:ana@acme.example",
+                    "/team@acme/notes"):
             self.assertEqual(H.approval_request(self.conn, CMO, "publish", {"url": url, "content_sha256": digest})["kind"],
                              "publish")
 
