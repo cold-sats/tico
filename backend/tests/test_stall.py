@@ -171,16 +171,20 @@ def test_a_bot_still_in_setup_holds_work_from_bots_in_sight_and_is_not_busy_for_
     assert refused.status_code >= 400 and "hasn't finished its setup" in refused.text
     with store.transaction() as c:
         c.execute("UPDATE tasks SET requester='bot:ops' WHERE id=?", (task["id"],))   # a bot asked for it
-        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 1
+        secret = H.task_create(c, "human:cara", "Review the salary bands", "Only for Cara.", "bot:finance", private=True)
+        assert not H.task_private_readable(c, "human:ana", H.task(c, secret["id"]))
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 2
         aged(c, task["id"], 6)
         assert [r["id"] for r in H.stalled_tasks(c)] == [task["id"]], "a job that never starts is not busy"
         assert H.wake_stalled(c)["held"] == [task["id"]]
         assert wakes(c, task["id"]) == 0
-        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 2
         told = c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:ops' AND refs_json LIKE '%setup_held%'").fetchone()[0]
         assert told == 1, "the bot that asked is told why"
         reminder = [t for t in H.needs_you(c, "ana")["tasks"] if t["title"].startswith("Finish setting up finance")]
         assert len(reminder) == 1 and task["id"] in reminder[0]["body"]
+        assert "salary" not in reminder[0]["body"] and secret["id"] not in reminder[0]["body"]
+        assert "1 you can't see" in reminder[0]["body"], "a private task is only counted"
         aged(c, task["id"], 60)
         assert H.wake_stalled(c)["held"] == [], "once per task"
     post(api, "bots/finance/onboarded", {})

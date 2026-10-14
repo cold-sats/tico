@@ -1078,6 +1078,7 @@ def archive_bot(c, actor, bot, successor="", revoke_agent=True):
     for slug in entries:
         c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, loaded), slug))
     H.event(c, actor, "bot.archived", bot, {"successor": successor or None, "heir": heir, "previous": previous})
+    H.setup_finished(c, bot, archived=True)
     result = {"bot": bot, "status": "archived", "successor": successor or None}
     from .agents import external_harness, revoke_credential, row as agent_row
     harness = external_harness(c, bot)

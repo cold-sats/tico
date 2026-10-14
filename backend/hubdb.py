@@ -4565,12 +4565,13 @@ def _open_setup_reminder(conn, slug):
     return found if found and found["status"] in ACTIVE_STATUSES else None
 
 
-def setup_finished(conn, slug):
-    """A bot's setup is done (onboarding.onboarded): its held work starts, so its reminder is done too."""
+def setup_finished(conn, slug, archived=False):
+    """A bot's setup is done (onboarding.onboarded), or the bot is archived: its reminder is done too."""
     found = _open_setup_reminder(conn, slug)
     if found:
+        name = (bot(conn, slug) or {}).get("display_name") or slug
         task_update(conn, KEEPER, found["id"], status="done",
-                    note=f"{(bot(conn, slug) or {}).get('display_name') or slug} finished its setup; its work starts now.")
+                    note=f"{name} was archived." if archived else f"{name} finished its setup; its work starts now.")
 
 
 def _setup_reminder(conn, slug):
@@ -4582,9 +4583,15 @@ def _setup_reminder(conn, slug):
     if not person:
         return None
     name = (bot(conn, slug) or {}).get("display_name") or slug
-    held = _rows(conn.execute("SELECT id,title FROM tasks WHERE owner=? AND status IN ('open','doing') ORDER BY created",
+    held = _rows(conn.execute("SELECT * FROM tasks WHERE owner=? AND status IN ('open','doing') ORDER BY created",
                               (bot_actor(slug),)))
-    lines = "\n".join(f"- {t['title'][:120]} ({t['id']})" for t in held[:10])
+    # The person is shown only the tasks they may read; the rest are a count.
+    seen = [t for t in held if task_private_readable(conn, person, t)]
+    lines = "\n".join(f"- {t['title'][:120]} ({t['id']})" for t in seen[:10])
+    if len(held) > len(seen[:10]):
+        unseen = len(held) - len(seen)
+        lines += (f"\n- and {len(held) - len(seen[:10])} more"
+                  + (f" ({unseen} you can't see)" if unseen else ""))
     reminder = task_create(conn, KEEPER, f"Finish setting up {name}: work sent to it is not starting"[:150],
                            f"{name} hasn't finished its first setup, so tasks and messages from bots and Tico stay "
                            f"queued and never start. Open its chat and finish its setup (hub bot go-live {slug}), or "
@@ -4602,13 +4609,14 @@ def _hold_for_setup(conn, row):
         return False
     why = setup_hold(conn, row["owner"])
     reminder = _setup_reminder(conn, actor_id(row["owner"]))
+    if not reminder:        # nobody to finish its setup yet: try again on a later sweep
+        return False
     task_comment(conn, KEEPER, row["id"], f"Not started: {why}", wake=False)
     asker = row["requester"]
     if is_bot(asker) and asker != row["owner"] and actor_id(asker) not in parked_bots(conn):
         _wake(conn, row, asker, f"Your task for {actor_id(row['owner'])} is not starting: {why} "
                                 "Move it to another bot if it can't wait.", {"setup_held": True})
-    event(conn, KEEPER, "task.setup_held", row["id"], {"bot": actor_id(row["owner"]),
-                                                       "reminder": reminder["id"] if reminder else None})
+    event(conn, KEEPER, "task.setup_held", row["id"], {"bot": actor_id(row["owner"]), "reminder": reminder["id"]})
     return True
 
 
