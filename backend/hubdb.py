@@ -1397,6 +1397,9 @@ def lint_approval(kind, payload):
     if kind == "publish" and digest not in (None, "") and not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
         # Every publisher compares against hashlib's hexdigest(), so any other shape could never publish.
         problems.append("content_sha256 must be 64 lower-case hex characters")
+    if kind == "publish" and "@" in url_authority(payload.get("url")):
+        # A card cuts a long field, so "https://trusted.example…@other.example" could hide the real host.
+        problems.append("url must not carry a user name (user@host); give the plain address")
     if kind == "support":
         problems += lint_support(payload)
     if kind == "merge" and "merge needs pr" in problems:
@@ -1404,6 +1407,24 @@ def lint_approval(kind, payload):
         problems[problems.index("merge needs pr")] = ("merge needs pr (the pull request number); for a change "
                                                       "with no pull request, file a decision task for the person instead")
     return problems
+
+
+URL_SPECIAL = ("http", "https", "ws", "wss", "ftp", "file")
+
+
+def url_authority(url):
+    """The part of a url where user@ would go, read as a browser reads it; "" when there is none. After a web scheme a
+    browser skips any run of "/" and "\\", or none ("https:a@b" is user a at host b); with no scheme, a leading pair of
+    them makes the link leave the app for another host. A backslash later counts as part of it, so "https://a\\@b" is
+    refused rather than guessed at."""
+    text = re.sub(r"[\s\x00-\x1f]", "", str(url or ""))
+    m = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):", text)
+    rest = text[m.end():] if m else text
+    if m and m.group(1).lower() not in URL_SPECIAL and not rest.startswith("//"):
+        return ""
+    if not m and not re.match(r"[/\\]{2}", rest):
+        return ""
+    return re.split(r"[/?#]", rest.lstrip("/\\"), maxsplit=1)[0]
 
 
 def lint_support(payload):
