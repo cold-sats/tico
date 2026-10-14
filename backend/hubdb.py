@@ -2620,6 +2620,8 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
             # A finished task's open questions to people are moot. Done keeps its structured questions: that is how
             # a done task asks for acceptance of what it delivered.
             supersede_asks(conn, row["id"], plain_only=effective == "done")
+            # ...and so is a yes it was waiting for: nothing will act on it now.
+            withdraw_task_approvals(conn, row["id"], f"Its task was {TASK_ENDED[effective]}.")
     return effective
 
 
@@ -2888,7 +2890,7 @@ def _unblock(conn, done_task, told=()):
 
 
 def _answered(conn, actor, task_id, card, told=None):
-    """`card`, an ask this rule filed (ask_card) that a bot's task is blocked on, is done or declined by `actor`: the
+    """`card`, an ask this rule filed (ask_card) that a bot's task is blocked on, is done, declined or closed by `actor`: the
     task's note becomes the answer, it opens again when nothing else holds it, it no longer waits on a declined card,
     and its bot is woken on it once, unless `told` (_subtask_wake) already woke it there. The note names the person
     as answering only when they finished the card, so a bot closing it never puts its words in their mouth. Returns
@@ -2900,9 +2902,13 @@ def _answered(conn, actor, task_id, card, told=None):
     if task_private(conn, card) and not task_private(conn, row):
         return False
     name = person_name(conn, person)
-    said = str(card.get("note") or "").strip() or ("Done." if card["status"] == "done" else "Declined.")
-    who = f"{name} answered" if actor == person else f"{person_name(conn, actor)} closed the ask to {name}"
-    note = f"{who}: {said}"
+    said = str(card.get("note") or "").strip() or {"done": "Done.", "declined": "Declined."}.get(card["status"], "")
+    closer = "Tico" if actor == KEEPER else person_name(conn, actor)   # the keeper closes an ask that expired
+    if card["status"] == "closed":
+        who = f"{name} closed the ask" if actor == person else f"{closer} closed the ask to {name}"
+    else:
+        who = f"{name} answered" if actor == person else f"{closer} closed the ask to {name}"
+    note = f"{who}: {said}" if said else f"{who}."
     if card["status"] != "done":
         TR.remove_blocker(conn, KEEPER, row["id"], card["id"], keeper_note=f"answered: {card['title']}")
     if row["status"] == "waiting" and not waiting_for(conn, row):
@@ -2910,7 +2916,7 @@ def _answered(conn, actor, task_id, card, told=None):
     conn.execute("UPDATE tasks SET note=?, version=version+1 WHERE id=?", (note, row["id"]))
     _task_event(conn, row["id"], KEEPER, "note", row.get("note"), note, "")
     if row["owner"] != told or TR.parent_of(conn, card["id"]) != row["id"]:
-        _wake(conn, row, row["owner"], f"{who}: {card['title']}\n{said}", refs={"subtask": card["id"]})
+        _wake(conn, row, row["owner"], f"{who}: {card['title']}" + (f"\n{said}" if said else ""), refs={"subtask": card["id"]})
     return True
 
 
@@ -4279,7 +4285,13 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
         _task_event(conn, task_id, KEEPER, "children", None, "Still open: " + "; ".join(still_open), "")
     event(conn, actor, "task.close", task_id, {"note": note, **({"still_open": still_open} if still_open else {})})
     after = task(conn, task_id)
-    _unblock(conn, after)
+    # A person closing a subtask under a bot's task: the bot hears it once, on the parent.
+    subtask_told = _subtask_wake(conn, actor, after, row["status"], note, quiet)
+    # Closing an open ask card (_ask_in_subtask) settles the ask like a decline: each task blocked on it opens again.
+    answered = set()
+    if row["status"] not in ("done", "declined"):
+        answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, actor, tid, after, subtask_told)}
+    _unblock(conn, after, told=answered)
     said = (f"Closed: {after['title']}" + (f"\n{note}" if note else "")
             + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""))
     # Closing work that was already done, with nothing said, is acceptance: news, not work. It
@@ -4292,8 +4304,6 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
     # A next-run task closed before any run carried it is a cancel: the bot never saw it, so
     # there is nothing to tell it and no run to spend telling it.
     accepted = quiet or accepted or next_run_waiting(conn, row)
-    # A person closing a subtask under a bot's task: the bot hears it once, on the parent.
-    subtask_told = _subtask_wake(conn, actor, after, row["status"], note, quiet)
     # The asking side closing what the owning bot already finished (done, or handed over for review) tells
     # the bot nothing it needs: no wake. A close note that says something new still reaches it, quietly.
     finished = (is_bot(after["owner"]) and row["status"] in ("done", "review")
@@ -5211,8 +5221,56 @@ def _wake(conn, task_row, target, body, refs=None, quiet_bots=False, quiet=False
 
 
 # ----------------------------------------------------------------------------- approvals
-def approval_request(conn, actor, kind, payload, task_id=None):
-    """Rule 6. One exact payload, one open request per payload, a human decides, spent once."""
+APPROVAL_STALE_DAYS = 14       # an undecided approval older than this is withdrawn (approval_expiry.sweep)
+TASK_ENDED = {"done": "marked done", "closed": "closed", "declined": "declined"}
+# What an approval acts on. A newer request on the same task for the same target replaces the older one; a bot may
+# rightly have several open on one task (three posts to publish), so a different target is a separate decision.
+APPROVAL_TARGET = {"publish": ("url",), "send": ("to", "subject"), "merge": ("repo", "pr"), "spend": ("account", "what")}
+
+
+def approval_target(kind, payload):
+    keys = APPROVAL_TARGET.get(kind)
+    values = [(payload or {}).get(k) for k in keys or ()]
+    if kind == "send" and values and values[0]:
+        # "a@x" and ["A@x"] are the same recipients.
+        to = values[0] if isinstance(values[0], list) else [values[0]]
+        values[0] = sorted(str(v).strip().lower() for v in to)
+    return json.dumps(values, sort_keys=True, default=str) if keys and all(v not in (None, "", []) for v in values) \
+        else None
+
+
+def approval_withdraw(conn, approval_id, note):
+    """An undecided approval nobody needs any more leaves the person's queue as `withdrawn`: its task ended, a newer
+    request replaced it, or nobody decided it in APPROVAL_STALE_DAYS. Only the keeper withdraws, so a withdrawal is
+    never mistaken for a person's no; the bot that asked hears once, quietly, and may ask again."""
+    row = approval(conn, approval_id)
+    if not row or row["decision"]:
+        return None
+    if not conn.execute("UPDATE approvals SET decision='withdrawn', decided_by=?, decided_at=? "
+                        "WHERE id=? AND decision IS NULL", (KEEPER, now(), approval_id)).rowcount:
+        return None
+    event(conn, KEEPER, "approval.withdraw", approval_id, {"decision": "withdrawn", "note": note})
+    conv = conversation(conn, (message(conn, row["message_id"]) or {}).get("conversation_id")) \
+        if row.get("message_id") else None
+    if conv and _actor_exists(conn, row["requested_by"]):
+        _write_message(conn, KEEPER, row["requested_by"], f"Withdrawn: your {row['kind']} approval. {note}",
+                       conv, "notice", {"approval": approval_id, "quiet": True}, None, None)
+    _recount(conn, row["requested_by"])
+    return approval(conn, approval_id)
+
+
+def withdraw_task_approvals(conn, task_id, note):
+    """Withdraw every undecided approval on a task that ended."""
+    return [aid for (aid,) in conn.execute("SELECT id FROM approvals WHERE task_id=? AND decision IS NULL "
+                                           "ORDER BY created", (task_id,)).fetchall()
+            if approval_withdraw(conn, aid, note)]
+
+
+def approval_request(conn, actor, kind, payload, task_id=None, supersedes=None):
+    """Rule 6. One exact payload, one open request per payload, a human decides, spent once.
+
+    A request replaces the asker's older undecided one it names (`supersedes`), and any it has open on the same task
+    for the same target (APPROVAL_TARGET): a re-cut release or a redrafted email is the same decision, asked again."""
     _writer(conn, actor)
     if kind not in APPROVAL_KINDS:
         refuse(conn, actor, "kind", f"an approval is {'|'.join(APPROVAL_KINDS)}, not {kind}")
@@ -5232,9 +5290,20 @@ def approval_request(conn, actor, kind, payload, task_id=None):
     dup = _one(conn, "SELECT id FROM approvals WHERE payload_hash=? AND decision IS NULL", (digest,))
     if dup:
         refuse(conn, actor, "duplicate", f"{dup['id']} already asks for exactly this")
+    if supersedes:
+        named = approval(conn, supersedes)
+        if not named or named["requested_by"] != actor:
+            refuse(conn, actor, "not-found", f"you have no approval {supersedes} to replace")
+        if named["decision"] == "approved" and not named["consumed_at"]:
+            # Withdrawing only the undecided would leave the old yes spendable next to the new ask.
+            refuse(conn, actor, "lint", f"{supersedes} is already approved and not spent; use it, or ask on its "
+                   "own without --supersedes")
     owner = None
     if task_id:
         row = task(conn, task_id)
+        if row and row["status"] in TASK_ENDED:
+            # It would only be withdrawn: nothing acts on an ended task's approvals.
+            refuse(conn, actor, "lint", f"task {task_id} is {row['status']}; reopen it or ask on an open task")
         if row and is_human(row["owner"]):
             owner = row["owner"]
     if kind == "support" and is_human(actor):
@@ -5258,6 +5327,15 @@ def approval_request(conn, actor, kind, payload, task_id=None):
     conn.execute("UPDATE messages SET refs_json=? WHERE id=?",
                  (_dump({"approval": row["id"], "task": task_id}), msg["id"]))
     event(conn, actor, "approval.request", row["id"], {"kind": kind, "to": owner})
+    replaced = {supersedes} if supersedes else set()
+    target = approval_target(kind, payload)
+    if task_id and target and is_bot(actor):
+        replaced |= {r["id"] for r in conn.execute(
+            "SELECT id, payload_json FROM approvals WHERE task_id=? AND kind=? AND requested_by=? AND decision IS NULL "
+            "AND id<>?", (task_id, kind, actor, row["id"])).fetchall()
+            if approval_target(kind, _json(r["payload_json"], {})) == target}
+    for aid in sorted(replaced):
+        approval_withdraw(conn, aid, f"Replaced by {row['id']}.")
     _recount(conn, actor)
     return approval(conn, row["id"])
 

@@ -165,6 +165,9 @@ def create_app(settings=None):
                     # A bot waiting for its GitHub repository finishes once a person has made it or granted the permission.
                     from . import repo_waits
                     await asyncio.to_thread(repo_waits.tick, app.state.github_app)
+                    # A task waiting for room for a worktree whose freeing event was lost (backend/worktree_waits.py).
+                    from . import worktree_waits
+                    await asyncio.to_thread(worktree_waits.tick, store, settings.github_owner)
                 except Exception as exc:
                     telemetry.capture("scheduler", exc)
                     import logging
@@ -854,6 +857,8 @@ def create_app(settings=None):
             value["attachments"] = [brief(r) for r in c.execute(
                 "SELECT b.* FROM blobs b JOIN task_assets a ON a.blob_id=b.id WHERE a.task_id=?", (row["id"],))]
             value["links"] = H.task_links(c, row["id"])
+            from .worktree_waits import for_task as worktree_waits_for
+            value["worktree_waits"] = worktree_waits_for(c, row["id"])
             value["children_summary"] = H.children_summary(c, row["id"], visible_sql)
             value["pr_state"] = H.pr_state(value["links"])
             if parts is None:
@@ -2986,7 +2991,8 @@ def create_app(settings=None):
             auth.domain(who)
             if body.task_id:
                 auth.task(c, who, body.task_id)
-            return H.approval_request(c, who.actor, body.kind, body.payload, body.task_id)
+            return H.approval_request(c, who.actor, body.kind, body.payload, body.task_id,
+                                      supersedes=body.supersedes_approval)
         return mutate(request, body, work)
 
     @app.get("/api/v2/approvals/{aid}")
@@ -2995,12 +3001,13 @@ def create_app(settings=None):
             row = auth.approval(c, request.state.identity, aid)
             privacy.require_payload(c, request.state.identity, row)
             privacy.require_message(c, request.state.identity, H.message(c, row["message_id"]))
-            # Its history: asked, decided (by whom, and for whom when the person's Assistant decided), undone, spent.
+            # Its history: asked, decided (by whom, and for whom when the person's Assistant decided), undone, withdrawn,
+            # spent.
             history = [{"ts": e["ts"], "actor": e["actor"], "action": e["action"].removeprefix("approval."),
                         **{k: v for k, v in (H._json(e["detail_json"], {}) or {}).items()
                            if k in ("decision", "note", "via", "was", "kind")}}
                        for e in c.execute("SELECT ts,actor,action,detail_json FROM events WHERE target=? AND action IN "
-                                          "('approval.request','approval.decide','approval.undo','approval.consume') "
+                                          "('approval.request','approval.decide','approval.undo','approval.withdraw','approval.consume') "
                                           "ORDER BY ts", (aid,))]
             return {**row, "history": history}
 
@@ -3195,6 +3202,7 @@ def create_app(settings=None):
                                   "so it lends no one's rights; they can move it to BotOps themselves or ask in their "
                                   "BotOps chat", 403)
                 requester = handed
+            others_comment = False
             if task and initial:
                 refs = initial.get("refs") or {}
                 relayed = any(refs.get(key) for key in ("via", "assistant", "slack", "routing"))
@@ -3207,7 +3215,12 @@ def create_app(settings=None):
                 if refs.get("comment") and not relayed and handed is not None and initial["from_actor"] == task["requester"]:
                     raise Problem("on_behalf_of", "A bot gave this task to BotOps, so your comment doesn't lend your rights; "
                                   "move it to BotOps yourself or ask in your BotOps chat", 403)
-                if refs.get("comment") or relayed:
+                if (refs.get("comment") and not relayed and H.is_bot(requester) and H.is_human(initial["from_actor"])
+                        and task["owner"] == who.actor and open_task(task)):
+                    # A person's comment on a task a bot asked BotOps for lends nothing: BotOps keeps that bot's rights,
+                    # and what they can't do becomes a Confirm card for the person who commented (confirm_for_carried).
+                    others_comment = True
+                elif refs.get("comment") or relayed:
                     raise Problem("on_behalf_of", "Only the task's requester's own comment lends their rights; "
                                   "other comments and routed messages lend nothing", 403)
             if initial and (task or str(requester).startswith("bot:")) and requester != H.KEEPER:
@@ -3221,6 +3234,8 @@ def create_app(settings=None):
                 if (H.bot(c, H.actor_id(requester)) or {}).get("state") != "active":
                     raise Problem("forbidden", "The requesting bot is no longer active", 403)
                 person = lending_carried(c, task, requester) if carry else None
+                if person and others_comment and person["person"] != initial["from_actor"]:
+                    person = None           # someone else's comment never lends the carried person's rights
                 if person:
                     # The bot handed on a person's own request (carried_request): BotOps acts as that person.
                     H.VIA.set("botops")
@@ -3396,7 +3411,13 @@ def create_app(settings=None):
                              (who.attempt_id,)).fetchone()
             start = H.message(c, turn["message_id"]) if turn else None
             task = H.task(c, H.message_task_id(start) or "") if start else None
-            found = carried(c, task, acting.actor) if task and task["requester"] == acting.actor else None
+            said = (start or {}).get("refs") or {}
+            commented = (task and task["requester"] == acting.actor and task["owner"] == who.actor
+                         and said.get("comment") and H.is_human(start["from_actor"])
+                         and not any(said.get(k) for k in ("via", "assistant", "slack", "routing")))
+            # The person whose comment started this run asked, ahead of whoever the bot's hand-off named.
+            found = ({"person": start["from_actor"]} if commented
+                     else carried(c, task, acting.actor) if task and task["requester"] == acting.actor else None)
             if (not found and task and H.is_human(task["requester"]) and task["owner"] == who.actor
                     and handed_over(c, task, who.actor) == acting.actor):
                 found = {"person": task["requester"]}      # the bot gave BotOps a task this person asked for
@@ -3409,8 +3430,10 @@ def create_app(settings=None):
             if botops_act.admin_only(request.method, path) and person.role != "owner" and not auth.bot_admin(person):
                 return None
             asker = (H.bot(c, H.actor_id(acting.actor)) or {}).get("name") or H.actor_id(acting.actor)
+            summary = (("BotOps needs your OK to do this on " + asker + "'s task: ") if commented
+                       else (asker + " asked BotOps for this for you: ")) + task["title"]
             return propose_card(c, person, request.method, path, {k: v for k, v in body.items() if k != "on_behalf_of"},
-                                (asker + " asked BotOps for this for you: " + task["title"])[:300])
+                                summary[:300])
 
     def followed_task(c, ref):
         """The task `ref` names (its id, or an unambiguous prefix of eight or more), or None when it names none."""
@@ -3471,14 +3494,31 @@ def create_app(settings=None):
     def botops_owns_task(path, body=None):
         """A note, comment or status on a task BotOps owns is BotOps' own work: it needs no one's rights and is BotOps'
         words, so it is never recorded as the person who asked (their rights still apply to everyone else's tasks).
-        Closing is the exception: only the requester or a human closes, so a close keeps the person's rights."""
-        found = re.fullmatch(r"/api/v2/tasks/([^/]+)(?:/(?:comments|ask|links))?", path)
-        if not found or (isinstance(body, dict) and body.get("close")):
-            return False
-        with store.read() as c:
+        Closing is the exception: only the requester or a human closes, so a close keeps the person's rights.
+        Its own task's worktrees are its own work too: the route checks the owning bot's repository access, which no
+        one's rights change. So is a question or a subtask for a person under its own task (one ask, one card): the
+        ask grants nothing by itself, whoever asked for the task."""
+        body = body if isinstance(body, dict) else {}
+        if path == "/api/v2/task-questions":
+            return True                     # always the bot's own task, put to the person (media.task_question)
+        person = None
+        if path in ("/api/v2/tasks", "/api/v2/tasks/dry-run"):
+            person = body.get("owner")
+            ref = next((r.get("task") for r in body.get("relations") or []
+                        if isinstance(r, dict) and r.get("kind") == "parent"), None)
+            # Only a plain ask: no roles, goals, links or other relations reached with BotOps' rights for whoever asked.
+            if (not ref or not person or len(body.get("relations") or []) != 1
+                    or set(body) - {"title", "body", "owner", "relations", "due", "private", "on_behalf_of"}):
+                return False
+        else:
+            found = re.fullmatch(r"/api/v2/tasks/([^/]+)(?:/(?:comments|ask|links|worktrees(?:/attach)?))?", path)
+            if not found or body.get("close"):
+                return False
             ref = found.group(1)
-            row = c.execute("SELECT owner FROM tasks WHERE id=? OR (length(?)>=8 AND id LIKE ? || '%') LIMIT 1",
-                            (ref, ref, ref)).fetchone()
+        with store.read() as c:
+            row = followed_task(c, ref)
+            if person is not None and not H.is_human(H.resolve_actor(c, person) or ""):
+                return False
         return bool(row and row["owner"] == "bot:" + BOTOPS)
 
     def act_for_requester(request, ref):

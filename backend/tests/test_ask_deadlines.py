@@ -69,6 +69,18 @@ def test_an_ask_unanswered_for_two_weeks_expires_and_a_task_handed_to_a_person_c
         assert H.task(c, touched["id"])["status"] == "open"
         assert H.task(c, later["id"])["status"] == "open"          # due later: not expired
 
+    # An ask card (a bot's task blocked on its person subtask) that expires opens the bot's task again, from Tico.
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, "bot:ops", "Book the venue", "x", "bot:ops", private=False)
+        card = H.task_update(c, "bot:ops", task["id"], status="waiting", waiting_on="human:ana",
+                             note="Approve the venue for Friday? If yes, I will book it.")["asked_in"]
+        c.execute("UPDATE tasks SET created=? WHERE id=?", (H.shift(H.now(), days=-15), card["id"]))
+        c.execute("UPDATE task_events SET ts=? WHERE task_id=?", (H.shift(H.now(), days=-15), card["id"]))
+        assert ask_deadlines.sweep(c)["closed"] == [card["id"]]
+        back = H.task(c, task["id"])
+        assert back["status"] == "open" and back["note"].startswith(
+            f"Tico closed the ask to {H.person_name(c, 'human:ana')}: No answer from")
+
     # A go-ahead date after day 14 is refused when asked; here one is set anyway: at day 14 the ask expires with
     # nothing done, rather than going ahead early.
     with api.app.state.store.transaction() as c:

@@ -263,17 +263,21 @@ impl ClaudeHost {
         if let Some(hub) = hub_mcp_server(&t.settings.env) {
             servers.insert("hub".into(), hub);
         }
+        // Only the hub, the bot's declared servers and the bot repo's own `.mcp.json`, for every bot:
+        // `--strict-mcp-config` keeps out the operator's own servers (~/.claude.json, user settings, plugins,
+        // claude.ai connectors) (hosts/claude.py _argv).
         if t.settings.shared {
-            argv.extend(["--setting-sources".into(), "project,local".into(), "--strict-mcp-config".into()]);
-            let project = std::fs::read_to_string(std::path::Path::new(&t.settings.cwd).join(".mcp.json"))
-                .ok()
-                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-                .and_then(|v| v.get("mcpServers").and_then(Value::as_object).cloned())
-                .unwrap_or_default();
-            let mut merged = project;
-            merged.extend(servers);
-            servers = merged;
+            argv.extend(["--setting-sources".into(), "project,local".into()]);
         }
+        argv.push("--strict-mcp-config".into());
+        let project = std::fs::read_to_string(std::path::Path::new(&t.settings.cwd).join(".mcp.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .and_then(|v| v.get("mcpServers").and_then(Value::as_object).cloned())
+            .unwrap_or_default();
+        let mut merged = project;
+        merged.extend(servers);
+        servers = merged;
         if !servers.is_empty() {
             argv.push("--mcp-config".into());
             argv.push(py_dumps(&json!({"mcpServers": servers})));
@@ -314,16 +318,7 @@ impl ClaudeHost {
             .stdout(Stdio::piped())
             .stderr(Stdio::from(stderr.try_clone()?))
             .current_dir(&t.settings.cwd);
-        if !t.settings.env.is_empty() {
-            let mut env = t.settings.env.clone();
-            // The login and the session files live under HOME; a trimmed environment must keep it.
-            if env.get("HOME").is_none_or(|h| h.is_empty()) {
-                if let Ok(home) = std::env::var("HOME") {
-                    env.insert("HOME".into(), home);
-                }
-            }
-            command.env_clear().envs(env);
-        }
+        command.env_clear().envs(turn_env(&t.settings));
         Ok((command.spawn()?, stderr))
     }
 
@@ -787,6 +782,24 @@ pub fn error_text(result: Option<&Value>, rc: i32, stderr: &str) -> String {
     format!("claude exited {rc}")
 }
 
+/// The turn's environment (hosts/claude.py _env): the given one, else this process's; a bot with branches keeps
+/// no auto memory, and no turn loads the claude.ai connectors.
+fn turn_env(settings: &Settings) -> crate::env::Env {
+    let mut env: crate::env::Env = if settings.env.is_empty() { std::env::vars().collect() } else { settings.env.clone() };
+    if settings.shared {
+        env.insert("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into());
+    }
+    // Belt and braces: `--strict-mcp-config` already skips the claude.ai connectors.
+    env.insert("ENABLE_CLAUDEAI_MCP_SERVERS".into(), "false".into());
+    // The login and the session files live under HOME; a trimmed environment must keep it.
+    if env.get("HOME").is_none_or(|h| h.is_empty()) {
+        if let Ok(home) = std::env::var("HOME") {
+            env.insert("HOME".into(), home);
+        }
+    }
+    env
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,6 +848,30 @@ mod tests {
             let argv = host.argv(&thread, &host.inner().threads[&thread].clone(), None);
             assert_eq!(&argv[argv.len() - 2..], &["--resume".to_string(), sid]);
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_turn_gets_only_hub_declared_and_project_mcp_servers() {
+        let dir = std::env::temp_dir().join(format!("claude-mcp-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".mcp.json"), r#"{"mcpServers": {"repo": {"command": "x"}, "hub": {"command": "stale"}}}"#).unwrap();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let host = ClaudeHost::new("acme", vec!["claude".into()], tx);
+        let mut settings = Settings { cwd: dir.display().to_string(), ..Default::default() };
+        for (k, v) in [("HUB_API_URL", "http://hub.invalid"), ("HUB_TOKEN", "t"), ("HUB_BOT", "acme")] {
+            settings.env.insert(k.into(), v.into());
+        }
+        let thread = host.start_thread(&settings);
+        let argv = host.argv(&thread, &host.inner().threads[&thread].clone(), None);
+        assert!(argv.contains(&"--strict-mcp-config".to_string()) && !argv.contains(&"--setting-sources".to_string()));
+        let config: Value = serde_json::from_str(&argv[argv.iter().position(|a| a == "--mcp-config").unwrap() + 1]).unwrap();
+        assert_eq!(config["mcpServers"]["repo"]["command"], "x");
+        assert_ne!(config["mcpServers"]["hub"]["command"], "stale");
+        let env = turn_env(&settings);
+        assert_eq!(env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false");
+        assert!(!env.contains_key("CLAUDE_CODE_DISABLE_AUTO_MEMORY"));
+        assert_eq!(turn_env(&Settings { shared: true, ..settings })["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
