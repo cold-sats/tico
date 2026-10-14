@@ -434,7 +434,7 @@ def sync_shared(path, env=None, timeout=45):
     path = Path(path)
     if not (path / ".git").exists():
         return "the checkout is missing"
-    env = safe_git.environment(env)
+    env = safe_git.committing_environment(env)
     def git(*args, timeout=15):
         return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
@@ -555,7 +555,7 @@ def catch_up(path, env=None, timeout=45):
     was, and the conflicting files are named for a person. Runs only under the bot's own turn lock,
     since it moves the working tree."""
     path = Path(path)
-    env = safe_git.environment(env)
+    env = safe_git.committing_environment(env)
     def git(*args, timeout=15):
         return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
