@@ -1525,6 +1525,11 @@ class BotGoLive(Contract):
     routines: list[RoutineExpectation] | None = None
 
 
+class TaskSnooze(Contract):
+    # An ISO-8601 date (the start of that day in the team's zone) or a date-time (backend/task_snooze.py).
+    until: str = Field(min_length=10, max_length=40)
+
+
 class Empty(Contract):
     pass
 

@@ -17,7 +17,25 @@ function taskPropRights(t) {
   const me = myActor(), mover = canMove();
   const party = !!me && [t.owner, t.requester, taskRequester(t)].includes(me);
   const live = !taskFinished(t);
-  return {mover, party, live, edit: (mover || party) && live, links: mover && live, reopen: mover || party};
+  const onTask = !!me && Object.values(t.roles || {}).some(actors => actors.includes(me));
+  return {mover, party, live, edit: (mover || party) && live, links: mover && live, reopen: mover || party,
+    snooze: live && (mover || party || onTask)};
+}
+// Snooze choices: the start of that day, local time (backend/task_snooze.py).
+function snoozeItems() {
+  const day = n => { const at = new Date(); at.setHours(0, 0, 0, 0); at.setDate(at.getDate() + n); return at; };
+  const monday = (8 - new Date().getDay()) % 7 || 7;
+  return [['Tomorrow', day(1)], ['Next week', day(monday)], ['In two weeks', day(14)], ['In a month', day(30)]].map(([text, at]) =>
+    ({value: at.toISOString(), text, html: `<span>${esc(text)}</span><span class="tl-mi-sub">${esc(at.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'}))}</span>`}));
+}
+function snoozeMenu(d, anchor, save) {
+  propMenu(d, anchor, {label: 'Snooze until', items: snoozeItems(), entry: 'A date, like 2026-11-02', none: 'Type a date, then Enter',
+    onPick: it => void save('snooze', {snooze: it.value}),
+    onEntry: v => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim()), at = m && new Date(+m[1], +m[2] - 1, +m[3]);
+      if (!at || at.getDate() !== +m[3] || at <= new Date()) { toast('Pick a date in the future, like 2026-11-02', true); return; }
+      void save('snooze', {snooze: at.toISOString()});
+    }});
 }
 function taskPropsHTML(t, opts = {}) {
   const r = taskPropRights(t);
@@ -314,6 +332,8 @@ function taskPropsBind(d, task, change) {
     if (primary) items.push({text: 'Copy session ID', run: async () => {
       try { await navigator.clipboard.writeText(primary.thread_id); toast('Session ID copied'); } catch { toast('Could not copy the session ID', true); }
     }});
+    if (r.snooze) items.push(taskSnoozed(task) ? {text: 'Unsnooze', run: () => save('snooze', {unsnooze: true})}
+      : {text: 'Snooze…', run: () => setTimeout(() => snoozeMenu(d, more, save))});
     if (!r.live && r.reopen) items.push({text: 'Reopen', run: () => save('status', {status: 'open'})});
     if (task.status !== 'closed' && (r.mover || r.party)) items.push({text: 'Close task', danger: true, run: () => save('status', {close: true})});
     propMenu(d, more, {label: 'Task', items: items.map(it => ({...it, html: `<span>${esc(it.text)}</span>`})), onPick: it => it.run()});

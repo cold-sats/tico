@@ -177,6 +177,7 @@ function taskItems(state, view = state.view) {
     if (!taskPassesFilters(it.task, state.filters || {})) return false;
     if (!taskPipelineMatches(it.task, state)) return false;
     if (state.q && !taskMatches(it, state.q)) return false;
+    if (taskSnoozed(it.task) !== (view === 'snoozed')) return false;
     if (view === 'board' && pipelineSelectedType(state)) return true;
     if (view === 'done') return it.col === 'done';
     if (it.col === 'done') return false;
@@ -189,7 +190,7 @@ function tasksCounts(state) {
   if (state.loading) return {};
   const active = taskItems(state, 'list');
   return {foryou: active.filter(it => taskNeedsViewer(it.task)).length + looseAsks().length + pendingApprovals().length, list: active.length,
-    recurring: typeof routineItems === 'function' ? routineItems(state).length : 0};
+    snoozed: taskItems(state, 'snoozed').length, recurring: typeof routineItems === 'function' ? routineItems(state).length : 0};
 }
 
 // ---- options a chip can take, from what is loaded (and whatever the address already asks for)
@@ -352,7 +353,7 @@ function tasksListHTML(items, state) {
   const asks = state.view === 'foryou' && !state.q && !tasksActiveFilterCount(state) ? approvalsHTML() + looseAsksHTML() : '';
   if (!items.length && asks) return `<div class="tl">${asks}</div>`;
   if (!items.length) {
-    const emptyWhat = state.view === 'foryou' ? 'Nothing needs you.'
+    const emptyWhat = state.view === 'foryou' ? 'Nothing needs you.' : state.view === 'snoozed' ? 'Nothing snoozed.'
       : done ? state.doneNext != null ? 'No matching finished tasks on this page.' : 'Nothing finished yet.' : 'Nothing open.';
     const empty = tasksEmptyHTML(state, emptyWhat);
     // Done is paged before type and chip filters are applied. An empty page can still have older rows to scan.
@@ -397,7 +398,8 @@ function tasksDoneHTML(items, state) {
 // so a load never closes a menu or takes the focus off a chip.
 function tasksTabsHTML(state) {
   const counts = tasksCounts(state);
-  return TASK_VIEWS.map(([k, label]) => {
+  // Snoozed is a tab only while something is snoozed (or it is the open view).
+  return TASK_VIEWS.filter(([k]) => k !== 'snoozed' || counts.snoozed || state.view === 'snoozed').map(([k, label]) => {
     const on = k === state.view, n = counts[k];
     return `<button type="button" role="tab" id="task-tab-${k}" data-view="${k}" aria-selected="${on}" aria-controls="task-body" tabindex="${on ? 0 : -1}"${n != null ? ` aria-label="${esc(label)}, ${n}"` : ''}>${esc(label)}${n != null ? `<span class="cnt tnum${k === 'foryou' && n ? ' hot' : ''}" aria-hidden="true">${n}</span>` : ''}</button>`;
   }).join('');

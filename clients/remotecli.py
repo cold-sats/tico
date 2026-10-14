@@ -330,7 +330,7 @@ def run(args, who=None):
             return client.get("tasks/" + ids[0])
         if sub == "run":
             return post(f"tasks/{args.id}/run-now", {})
-        if sub == "list":
+        if sub in ("list", "snooze", "unsnooze"):
             return via_tool(client, args)
         if sub == "ask":
             return post(f"tasks/{args.id}/ask", {"text": args.text})
