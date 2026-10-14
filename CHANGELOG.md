@@ -40,6 +40,13 @@ All notable changes to Tico are recorded here. The format follows
 ### Added
 - **A Rust runner, opt in per computer.** `tico-runner` is a Rust port of the runner. The Python runner stays the default. Set `"engine": "rust"` in `runner.json` or `TICO_RUNNER_ENGINE=rust` to try it on one computer; remove the setting to go back. Anything it can't do yet (a bot on grok, pi or cursor, for one) hands back to Python, and so does any start-up problem.
 - **Muse Code is a harness.** Enable the Meta provider and bots can run on Meta's coding CLI (`muse`, model Muse Spark 1.3), signed in with a Meta account (device code, from Settings) or `META_API_KEY`. Runs resume their session after a restart and reach the hub and the bot's remote MCP servers, never the operator's own Muse servers. Each subscription profile has its own Muse sign-in. Meta's Llama stays on OpenRouter. See [Harnesses](docs/harnesses.md).
+- **A bot whose plan runs out keeps working on another provider.** When a turn hits a usage or spend limit and the bot
+  names no fallback of its own, the runner runs that turn once on another of the company's providers that is signed in on the
+  same computer (Codex when Claude is limited, and the reverse), with that provider's default model. A bot with its own fallback
+  keeps it; with no ready provider the turn is limited as before. The owner can turn it off in **Settings > AI providers**
+  (`auto_fallback` on `PUT /api/v2/providers`). Overview says "N bots running on fallback since HH:MM, X limited"
+  (`GET /api/v2/health` `on_fallback`, `limited`). "Monthly spend limit" now counts as a usage limit: on Oct 13 those turns failed
+  outright instead of waiting.
 - **Bots can check a workflow run's result.** A bot's GitHub token now reads Actions (workflow runs and their logs) in every repository it can read, so a bot that watches a deploy reads `gh run list` / `gh run view` itself instead of asking a person. It can't start, rerun or cancel a run. New GitHub Apps ask for Actions read; **an existing App needs Actions: Read-only added on its GitHub settings page and accepted on the installation**, and until then tokens are issued without it as before. See [GitHub App](docs/github-app.md#permissions-and-why).
 - **Attachments can be allowed for one mailbox.** `mailboxes.<address>.allow_attachments: true` in `registry/mail-policy.yaml` lets bots attach files to drafts from that mailbox only (Legal's, say) while `defaults.allow_attachments` stays off for the rest; `false` turns one off when the default is on. `mail draft discard <draft-id>` removes an unsent draft the bot made (the older `mail discard` still works). See [Mail](docs/mail.md).
 

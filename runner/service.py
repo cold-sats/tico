@@ -163,6 +163,26 @@ def configured_fallback(config):
             or (config or {}).get("reasoning_effort")}
 
 
+def default_fallback(config, choices, ready, profile=""):
+    """Where a turn goes when the bot's own subscription hit its limit and it names no fallback:
+    the first of the company's providers (`choices`, from GET /api/v2/config `fallback_models`)
+    on another runtime that `ready(runtime, profile)` says is signed in here. None when the bot
+    named a fallback (its own choice stands), turned it off (`fallback: {off: true}`), or no
+    other runtime is ready, so the turn is limited as before."""
+    config = config or {}
+    fallback = config.get("fallback")
+    if isinstance(fallback, dict) and (fallback.get("off") or fallback.get("harness")):
+        return None
+    for row in choices or ():
+        runtime, model = str(row.get("runtime") or ""), str(row.get("model") or "")
+        if not runtime or not model or runtime == config.get("runtime") or not ready(runtime, profile):
+            continue
+        harness = str(row.get("harness") or runtime)
+        return {"harness": harness, "runtime": FALLBACK_RUNTIME.get(harness, runtime), "model": model,
+                "reasoning_effort": config.get("reasoning_effort"), "default": True}
+    return None
+
+
 def uses_gemini_cli(config):
     """True when primary or fallback harness is the Gemini CLI (needs GEMINI_API_KEY)."""
     config = config or {}
@@ -2645,6 +2665,7 @@ class Runner:
         persistent = config.get("harness") == "antigravity" and config.get("runtime") == "gemini"
         conv, runtime = None, None
         reply, outcome, tokens, limited, retryable, fallback = "", "interrupted", {}, False, False, None
+        primary_limited = False
         unavailable, base_env, execution_path, drive = False, None, None, None
         auth_rejected = {}
         subscription_unavailable = None
@@ -3086,7 +3107,17 @@ class Runner:
             native_control = bool(((attempt.get("message") or {}).get("refs") or {}).get("command") or
                                   (attempt.get("chat_goal") or {}).get("status") == "active")
             hop = configured_fallback(config) if unavailable and not native_control else None
+            if not hop and limited and not native_control:
+                # Out of quota with no fallback of its own: another provider signed in on this computer
+                # runs the turn once (Settings > AI providers can turn this off for the company).
+                hop = default_fallback(config, self.default_fallbacks(), self.fallback_ready,
+                                       attempt.get("profile") or "")
+            # Only a server that sent `fallback_models` knows the field (an older one refuses unknown fields).
+            hit_limit = limited
+            primary_limited = bool(hop and limited and hop.get("default"))
             if hop and drive and base_env is not None:
+                if aid in self.attempt_runtimes:
+                    self.attempt_runtimes[aid].add(hop["runtime"])
                 if conv and runtime and thread:
                     self.state.forget_session(bot, conv, runtime, thread)
                 try:
@@ -3111,7 +3142,9 @@ class Runner:
                     hop_env = profile.environment(hop["runtime"], base_env) if profile else base_env
                     env = hop_env
                     self.state.append(aid, "diagnostic",
-                                      {"text": f"{primary} unavailable; running this turn on {fallback}"})
+                                      {"text": f"{primary} " + ("hit its usage limit" if hit_limit else "unavailable")
+                                       + f"; running this turn on {fallback}"
+                                       + (" (no fallback set; another provider signed in here)" if hop.get("default") else "")})
                     host = self.host_factory(hop_attempt, hop_env)
                     host.start()
                     settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
@@ -3211,6 +3244,7 @@ class Runner:
                                                 **({"limited": True} if limited else {}),
                                                 **({"retryable": True} if retryable and not limited else {}),
                                                 **({"fallback": fallback} if fallback else {}),
+                                                **({"primary_limited": True} if fallback and primary_limited else {}),
                                                 **({"subscription_unavailable": subscription_unavailable} if subscription_unavailable else {}),
                                                 **({"auth_rejected": {"runtime": auth_rejected["runtime"],
                                                                       "reason": rejection_reason(auth_rejected["reason"])}}
@@ -3852,13 +3886,42 @@ class Runner:
         asked (`fetch` false: a pass the event stream said nothing for)."""
         if fetch and time.monotonic() - getattr(self, "_default_runtime_at", -60) >= 60:
             try:
-                value = (self.client.get("config") or {}).get("default_runtime")
+                answer = self.client.get("config") or {}
+                value = answer.get("default_runtime")
                 if isinstance(value, str):
                     self._default_runtime = value
                     self._default_runtime_at = time.monotonic()
+                    # An older server sends none: no default fallback, as before.
+                    models = answer.get("fallback_models")
+                    self._fallback_models = [row for row in models if isinstance(row, dict)] if isinstance(models, list) else []
             except Exception:
                 pass
         return getattr(self, "_default_runtime", "")
+
+    def default_fallbacks(self):
+        """The company's fallback models, one per provider in its order. Read with the default runtime (at most once a
+        minute): a computer with bots never asks for that otherwise."""
+        self.default_runtime()
+        return list(getattr(self, "_fallback_models", []))
+
+    def fallback_ready(self, runtime, profile=""):
+        """Whether `runtime` can take a turn here now: installed, signed in (on `profile` when the bot is
+        pinned to one), not refused and not turned off here by the owner. Read from the last readiness report,
+        never probed mid-turn."""
+        tools = getattr(self, "tools", None)
+        manifest = tools.harness_for_runtime(runtime) if tools is not None else None
+        if manifest is not None and (getattr(tools, "choices", None) or {}).get(manifest.id) is False:
+            return False      # the owner's "off" here holds even while a copy on PATH still answers
+        row = (getattr(self, "runtime_rows", None) or {}).get(runtime) or {}
+        if profile:
+            row = (row.get("profiles") or {}).get(profile)
+            if not row:
+                return False      # nobody has checked this subscription's sign-in for that runtime
+        # A runtime signed in by a key in the environment is left out: a turn's environment carries only its
+        # own runtime's keys. Codex turns a key into a login, so it needs none.
+        return bool(row.get("installed") and row.get("authenticated") == "ready"
+                    and not self.rejection(runtime, profile)
+                    and (runtime == "codex" or not self.headless_secret(runtime)[0]))
 
     def poll_logins(self):
         """Browser sign-ins are best effort: a failed poll is tried again, never a runner outage. One under
