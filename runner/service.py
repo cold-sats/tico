@@ -2778,7 +2778,7 @@ class Runner:
                             tracked, session_problem = worktree()
                     if session_problem:
                         # Without a worktree of its own the task's turn waits for the main checkout like any other.
-                        log(f"Tico runner: {bot}: task {session_task} runs in the bot's checkout ({session_problem})")
+                        log(f"Tico runner: {bot}: task {session_task} runs in the bot's checkout ({session_problem})", diagnostic=True)
                         session_path = None
                         if checkout_lock not in held:
                             hold_checkout()
@@ -3443,6 +3443,12 @@ class Runner:
             beat = self.report_heartbeat(body)
         self._beat_printed, self._beat_sent = printed, time.monotonic()
         actions = (beat or {}).get("worktree_actions", [])
+        skipped = (beat or {}).get("worktree_actions_skipped", 0)
+        if skipped != self.__dict__.get("_worktree_actions_skipped", 0):
+            # Said when the count changes, not on every heartbeat.
+            if skipped:
+                log(f"Tico runner: readiness skipped {skipped} worktree action(s) for tasks this computer's bots can no longer read")
+            self._worktree_actions_skipped = skipped
         if hasattr(self, "worktrees") and (full or actions):
             self.worktrees.poll(actions)
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
@@ -3667,9 +3673,13 @@ class Runner:
             self.maintenance = None
         if self.maintenance is None:
             # Readiness is worked out every 15 s as before; the server reads behind it run on the stream's word.
-            if self.wants("config", None):
-                self._providers_at = float("-inf")     # the company's providers changed: read them now
-            full = self.wants("sync", 15)
+            changed = self.wants("config", None)
+            if changed:
+                # The company's providers changed: read them, and the default runtime a computer with no bots
+                # installs, in a full pass now.
+                self._providers_at = float("-inf")
+                self._default_runtime_at = float("-inf")
+            full = self.wants("sync", 15) or changed
             forced = self.wants("heartbeat", None)
             if full or forced or time.monotonic() - self.last_heartbeat >= 15:
                 self.maintenance = self.maintenance_pool.submit(self.maintain, full, forced)

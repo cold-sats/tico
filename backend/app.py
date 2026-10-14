@@ -754,6 +754,9 @@ def create_app(settings=None):
                 raise Problem("routine", "Only an existing timed routine can run now", 422)
             if schedule["enabled"] != 1 or (H.bot(c, bot) or {}).get("state") != "active":
                 raise Problem("routine", "Resume the routine and bot before running it", 409)
+            setup = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (bot,)).fetchone()
+            if setup and is_parked(setup["onboarding_state"]):
+                raise Problem("routine", "Finish the bot's setup before running its routines", 409)
             current = routines.latest_task(c, schedule_id)
             if current and current["status"] in ("open", "doing", "waiting", "review", "ready"):
                 raise Problem("routine", "This routine already has unfinished work", 409)
@@ -2233,6 +2236,20 @@ def create_app(settings=None):
                 raise Problem("not_found", "Message not found", 404)
             auth.conversation(c, who, msg["conversation_id"])
             return H.answer(c, who.actor, mid, body.text, unknown=body.unknown)
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/needs-you/recommended")
+    def take_recommendation(request: Request, body: M.TakeRecommendation):
+        """One tap on "Do what you recommend": answers the bot's ask with its recommendation and closes the card."""
+        who = request.state.identity
+        views.human_only(who)
+        def work(c):
+            asked = H.message(c, body.ask)
+            if not asked or asked["kind"] != "ask":
+                raise Problem("not_found", "Question not found", 404)
+            auth.conversation(c, who, asked["conversation_id"])
+            privacy.require_message(c, who, asked)
+            return views.take_recommendation(c, auth, who, asked, body.version)
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks")
@@ -4823,6 +4840,8 @@ def create_app(settings=None):
     install_support(app, store, settings, census)
     from .watchers import install as install_watchers
     install_watchers(app, store, auth, execution, mutate)
+    from .health_monitor import install as install_health_monitor
+    install_health_monitor(app, store, auth, mutate, onboarding, settings_admin, settings)
     from .route_renames import install as install_route_renames
     install_route_renames(app)           # after every route: the new spellings canonical, the old ones deprecated
 
