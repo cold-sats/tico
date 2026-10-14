@@ -46,6 +46,18 @@ async function settingsSetCompact(select) {
     toast(error.message, true);
   } finally { if (select.isConnected) select.disabled = false; }
 }
+// The slug the server would pick for this name (clients/catalog.py slug_from_name), shown under Advanced.
+function slugFromName(name) {
+  const words = String(name || '').normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().match(/[a-z0-9]+/g) || [];
+  let slug = '';
+  for (const word of words) {
+    const joined = slug ? `${slug}-${word}` : word;
+    if (joined.length > 40) break;
+    slug = joined;
+  }
+  return slug || (words[0] || '').slice(0, 40);
+}
+
 function settingsEditBot(slug = '') {
   const editing = !!slug, e = editing ? S.emps.find(row => row.name === slug) : null;
   const dialog = $('#bot-editor');
@@ -71,13 +83,15 @@ function settingsEditBot(slug = '') {
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-editor-title">${editing ? `Edit ${esc(e.display_name)}` : 'Add bot'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bot-close aria-label="Close">✕</button></div>
     <div class="bot-editor-body">
       <div class="bot-editor-grid">
-        <label>Bot slug<input name="slug" type="text" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : 'required'}></label>
-        <label>Display name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
+        <label class="bot-editor-wide">Name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
         <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
         <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. Humans are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
-        <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `bot-${slug}` : ''))}" placeholder="bot-release-captain" maxlength="200" required></label>
+        <details class="bot-editor-wide" data-bot-advanced><summary>Advanced</summary><div class="bot-editor-grid">
+          <label>Slug<input name="slug" type="text" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : ''}><small>${editing ? 'Its id in commands and paths.' : 'Picked from the name. Tico adds -2 when it is taken.'}</small></label>
+          <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `bot-${slug}` : ''))}" placeholder="bot-release-captain" maxlength="200" ${editing ? 'required' : ''}></label>
+        </div></details>
         ${editing ? '<fieldset class="bot-editor-wide brepo" data-bot-repos hidden></fieldset>' : ''}
         <label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}> Allow branches</label>
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
@@ -141,10 +155,19 @@ function settingsEditBot(slug = '') {
     } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; remove.disabled = false; }
   };
   if (!editing) {
-    const slugInput = form.elements.slug, repo = form.elements.repo;
+    // Nobody types a slug: it follows the name, and the server picks a free one (adding -2, -3) unless edited here.
+    const slugInput = form.elements.slug, repo = form.elements.repo, name = form.elements.display_name;
     let repoEdited = false, operatorEdited = false;
-    repo.addEventListener('input', () => { repoEdited = true; });
-    slugInput.addEventListener('input', () => { if (!repoEdited) repo.value = slugInput.value ? `bot-${slugInput.value}` : ''; });
+    repo.addEventListener('input', () => { repoEdited = true; repo.dataset.edited = '1'; });
+    slugInput.addEventListener('input', () => {
+      slugInput.dataset.edited = '1';
+      if (!repoEdited) repo.value = slugInput.value ? `bot-${slugInput.value}` : '';
+    });
+    name.addEventListener('input', () => {
+      if (slugInput.dataset.edited) return;
+      slugInput.value = slugFromName(name.value);
+      if (!repoEdited) repo.value = slugInput.value ? `bot-${slugInput.value}` : '';
+    });
     form.elements.operator.addEventListener('change', () => { operatorEdited = true; });
     form.elements.reports_to.addEventListener('change', event => {
       const parent = S.emps.find(row => row.name === event.target.value);
@@ -188,9 +211,10 @@ function settingsEditBot(slug = '') {
       } else {
         const choice = settingsChoiceFromValue(form.elements.model_effort.value);
         if (!choice.harness || !choice.model || !choice.effort) throw new Error('Choose a harness, model and effort.');
-        added = await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,
+        const slugChosen = form.elements.slug.dataset.edited && form.elements.slug.value;
+        added = await post('/v2/bots', {...(slugChosen ? {slug: slugChosen} : {}), display_name: form.elements.display_name.value,
           description: form.elements.description.value, reports_to: form.elements.reports_to.value || null,
-          status: form.elements.status.value, repo: form.elements.repo.value,
+          status: form.elements.status.value, ...(slugChosen || form.elements.repo.dataset.edited ? {repo: form.elements.repo.value} : {}),
           private_tasks_default: form.elements.private_tasks_default.checked,
           thread_mode: form.elements.thread_mode.value, shared: form.elements.shared.checked, model: choice.model, effort: choice.effort,
           harness: choice.harness, operator: form.elements.operator.value || S.me?.id,

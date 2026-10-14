@@ -156,8 +156,8 @@ cron turn the tools are found through OpenClaw's `tool_search` and called with `
 
 ## In Tico
 
-An OpenClaw bot is an external bot like a Hermes one: model **OpenClaw/its own model** (`hub bot create <slug>
---record-only --model openclaw`), harness `openclaw`, no computer, one standing credential, a heartbeat every
+An OpenClaw bot is an external bot like a Hermes one: model **OpenClaw/its own model** (`hub bot create
+--record-only --name "<Name>" --model openclaw`), harness `openclaw`, no computer, one standing credential, a heartbeat every
 minute (offline after 180 s), and no runs or usage, because nothing is dispatched. A message to it waits until
 the agent reads it. Everything else, including the troubleshooting table and the credential rules, is as in
 [Hermes agents](hermes-agents.md).

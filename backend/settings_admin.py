@@ -224,8 +224,19 @@ class SettingsAdmin:
         mode, access = manifest.get("repo_access_mode"), manifest.get("repo_all_access", "read")
         return {"repo_access_mode": mode, "repo_all_access": access} if mode in ("own", "all") and access in ("read", "write") else {}
 
+    def pick_slug(self, c, name):
+        """A free slug from the bot's name: never one in use, archived or reserved for the company's own bots."""
+        from clients.catalog import free_slug
+        return free_slug(name, lambda slug: bool(H.bot(c, slug)) or self.auth.system_bot(slug) or slug == "coo")
+
+    def template_name(self, template):
+        from .onboarding import read_cards
+        return next((card["name"] for card in read_cards(self.settings) if card["template"] == template), template)
+
     def create_bot(self, c, who, body):
         self.validate_template(body.template)
+        if not body.slug:
+            body = body.model_copy(update={"slug": self.pick_slug(c, body.display_name)})
         if body.template and "shared" not in body.model_fields_set:
             from .onboarding import read_cards
             card = next((card for card in read_cards(self.settings) if card["template"] == body.template), {})
@@ -341,6 +352,11 @@ class SettingsAdmin:
         Idempotent for the bot's own owners; a slug someone else holds is a 409. The model is the company's
         default until the bot's owner picks one."""
         self.validate_template(body.template)
+        if not body.slug:
+            name = body.display_name or (self.template_name(body.template) if body.template else "")
+            if not name.strip():
+                raise Problem("display_name", "Give the bot a name, or a template to take its name from", 422)
+            body = body.model_copy(update={"slug": self.pick_slug(c, name), "display_name": name})
         existing = H.bot(c, body.slug)
         if existing:
             if existing["state"] != "archived" and self.auth.bot_manager(c, who, body.slug):

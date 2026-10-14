@@ -1862,16 +1862,17 @@ def audience(value):
       "stays within their limit of active bots. Safe to repeat for a bot they already own. `hub bot create --template T` "
       "also builds its repository on this computer. Starters build on their assigned Computer; custom templates get "
       "a BotOps setup_task_id to watch with hub_task_show. Set build false for only the record; BotOps defaults to only the record.",
-      {"slug": _s("The new bot's slug, like jira-manager"), "name": _s("What people call it"),
+      {"slug": _s("Leave out: Tico picks it from the name. Only to keep a slug already chosen"),
+       "name": _s("What people call it; the template's name by default"),
        "description": _s("What it does"), "reports_to": _s("A bot slug, or human:<id>; the requester by default"),
        "template": _s("A template from hub_template_list, if it is built from one"),
        "build": {"type": "boolean", "description": "Build from the template (human default: true; BotOps: false)"},
        "instructions": _s("Reviewed Instructions overriding the template; requested description and limits still apply"),
        "title_prefix": _s("Prefix for a generated setup task's title"),
        "model": _s("`hermes` for a bot run by a Hermes profile (it gets a credential, not a computer); leave out for the Team default")},
-      required=("slug",), writes=True)
+      writes=True)
 def bot_register(api, args):
-    body = {"slug": args["slug"], "display_name": args.get("name") or "", "description": args.get("description") or "",
+    body = {**({"slug": args["slug"]} if args.get("slug") else {}), "display_name": args.get("name") or "", "description": args.get("description") or "",
             "reports_to": args.get("reports_to") or None, "template": args.get("template") or "",
             **{k: args[k] for k in ("instructions", "title_prefix") if k in args},
             **({"model": args["model"]} if args.get("model") else {}), **_for_person(api)}
