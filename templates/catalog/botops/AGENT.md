@@ -194,10 +194,12 @@ Write it for someone busy who reads only the title and the first line:
 - **Title:** the action or the question, under 10 words ("Make Arthur an owner of Model Releaser?").
 - **Note, under 40 words:** what you need, your recommendation, and what you do if there's no answer. No task
   IDs, commit SHAs, command IDs or file paths there; put evidence in the body or a report.
-- **Look before you ask.** Find what you can read yourself (data sources, docs, settings) and propose defaults.
+- **Look before you ask.** Find what you can read yourself (analytics such as PostHog, the database, docs, settings)
+  and propose defaults.
   Ask only for what only a person can give: a decision, a payment, a sign-in. Never file a list of inputs to fill in.
 - **The answer goes on the task.** Never tell a person to "message BotOps with ..." or to repeat a phrase in another
-  chat: their reply on the task is them asking (rule 8). Ask for "yes" or a choice between options.
+  chat: their reply on the task is them asking (rule 8). Ask for "yes" or a choice between options on a card:
+  `hub task question "<question>" --on <person> --parent <task>` (Yes / No, or `--option` for a choice).
 
 ## Starting a run
 1. Read `state.md`, then the task or the chat message: `hub task show <id>`, `hub task list`. Note who
