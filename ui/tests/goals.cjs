@@ -147,13 +147,24 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     await page.locator('[data-gm-thread]', {hasText:'Earlier update 23'}).waitFor();
     const thread=page.locator('[data-gm-thread]');
     assert.equal(await thread.evaluate(el=>el.scrollHeight>el.clientHeight),true,'long conversations scroll inside the rail');
-    await thread.evaluate(el=>{el.scrollTop=0;});
+    // Scroll up as a reader does (a wheel), once the thread's layout has settled: a scrollTop set by script reads as
+    // content changing size, which keeps the thread pinned to its newest line.
+    const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await page.evaluate(() => document.fonts.ready);
+    await frames();
+    const box = await thread.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, -5000);
+    await page.waitForFunction(el => !stickScroll(el).atBottom, await thread.elementHandle(), {timeout: t(4000)});
+    await frames();
+    const readingAt = await thread.evaluate(el => el.scrollTop);
+    assert.ok(await thread.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight > 100), 'scrolled up to older messages');
     gmExtra.push({id:'new-update',from_actor:'bot:goal-manager',body:'Incoming update'});
     await until(() => liveStreams.length, 'the live stream is open');
     await liveStreams.splice(0).at(-1).fulfill({contentType: 'text/event-stream',
       body: 'id: 7\nevent: messages\ndata: ' + JSON.stringify({seq: 7, id: 'new-update', conversation_id: 'gm-chat'}) + '\n\n'});
     await page.locator('[data-gm-thread]', {hasText:'Incoming update'}).waitFor({timeout:t(12000)});
-    assert.equal(await thread.evaluate(el=>el.scrollTop),0,'an incoming reply does not move older messages being read');
+    assert.equal(await thread.evaluate(el=>el.scrollTop),readingAt,'an incoming reply does not move older messages being read');
     gmExtra = [];
     gmLive = true;
     await page.reload();
