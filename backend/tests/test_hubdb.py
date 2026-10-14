@@ -802,44 +802,6 @@ class WaitingWithDependency(HubCase):
         # The one with no plain ask stays for its bot to restate (backend/restate_asks.py).
         self.assertEqual(H.task(self.conn, unclear['id'])['waiting_on'], ANA)
 
-    def test_tasks_waiting_on_a_person_for_one_thing_are_one_card_and_wake_together_but_another_ask_keeps_its_own(self):
-        told = lambda bot, words: self.conn.execute("SELECT count(*) FROM messages WHERE to_actor=? AND body LIKE ?",
-                                                    (bot, f"%{words}%")).fetchone()[0]
-        budget = 'Can I spend $500 on the ads? If yes, I launch them today.'
-        mine = H.task_create(self.conn, CMO, 'Approve the ad budget', budget, ANA, private=False)
-        parent = H.task_create(self.conn, ANA, 'Launch the ads', '', CMO, private=False)
-        child = H.task_create(self.conn, CMO, 'Set up the ad account', '', SEO, parent_id=parent['id'], private=False)
-        TR.relate(self.conn, CMO, parent['id'], mine['id'], 'blocked_by')
-        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note=budget)
-        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note=budget)
-        # A subtask under her own task that asks something else is not hidden behind it.
-        other = H.task_create(self.conn, CMO, 'Book the venue', '', SEO, parent_id=mine['id'], private=False)
-        H.task_update(self.conn, SEO, other['id'], status='waiting', waiting_on='ana',
-                      note='Can I pay the $4,000 venue deposit? If yes, I book it today.')
-        card = H.task_create(self.conn, ANA, 'Pick the card', '', SEO, private=False)
-        TR.relate(self.conn, SEO, card['id'], mine['id'], 'blocked_by')
-        H.task_update(self.conn, SEO, card['id'], status='waiting', waiting_on='ana',
-                      note='Which card should I use? I pay once you say.')
-        needs = H.needs_you(self.conn, 'ana')
-        self.assertEqual(([t['id'] for t in needs['tasks']], [t['id'] for t in needs['waiting']]),
-                         ([mine['id']], [other['id'], card['id']]))
-        H.task_update(self.conn, ANA, mine['id'], status='done', note='Approved.')
-        self.assertEqual([H.task(self.conn, t['id'])['waiting_on'] for t in (parent, child)], [None, None])
-        self.assertEqual((told(CMO, 'Unblocked: Launch the ads'), told(SEO, 'acted on "Launch the ads"')), (1, 1))
-        self.assertEqual([H.task(self.conn, t['id'])['waiting_on'] for t in (other, card)], [ANA, ANA])
-        # With no task of hers, the parent is the one card; her answer there wakes the subtask too.
-        day = 'Can we launch on Monday? If yes, I schedule it.'
-        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note=day)
-        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note=day)
-        self.assertEqual([t['id'] for t in H.needs_you(self.conn, 'ana')['waiting']], [parent['id'], other['id'], card['id']])
-        deposit = H.task_create(self.conn, CMO, 'Pay the venue deposit', '', SEO, parent_id=parent['id'], private=False)
-        H.task_update(self.conn, SEO, deposit['id'], status='waiting', waiting_on='ana',
-                      note='Can I pay the $4,000 deposit? If yes, I pay it today.')
-        H.task_comment(self.conn, ANA, parent['id'], 'Monday')
-        self.assertEqual((H.task(self.conn, child['id'])['waiting_on'], told(SEO, 'acted on')), (None, 2))
-        # Answering the card leaves the tasks that ask her something else waiting, on their own cards.
-        self.assertEqual([H.task(self.conn, t['id'])['waiting_on'] for t in (deposit, other)], [ANA, ANA])
-
     def test_a_plain_ask_passes_and_shorthand_does_not(self):
         # Abbreviations, initials, a year after a few letters, a standard's number and a product name are plain words.
         for ask in ["Can we meet at 3 p.m. on Friday? If yes, I will book the room.",

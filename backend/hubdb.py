@@ -2861,41 +2861,6 @@ def _unblock(conn, done_task, told=()):
         conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (row["id"],))
         if row["status"] in ACTIVE_STATUSES and not TR.blocker_ids(conn, row["id"]) and row["id"] not in told:
             _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} is finished.")
-        if is_human(done_task["owner"]) and _same_ask(row, done_task):
-            _release_waiting(conn, row, done_task["owner"])
-
-
-def _ask_words(text):
-    return " ".join(str(text or "").split()).casefold()
-
-
-def _same_ask(waiting, card):
-    """Whether a task waiting on a person asks them the same thing as `card`: it has no ask of its own, or its
-    waiting note is the card's note or, for the person's own task, the body's opening paragraph. needs_you shows
-    such a task as the card's, and acting on the card releases it; any other ask keeps its own card."""
-    mine = _ask_words(waiting.get("note"))
-    return not mine or mine in (_ask_words(card.get("note")), _ask_words(str(card.get("body") or "").split("\n\n")[0]))
-
-
-def _release_waiting(conn, row, person):
-    """The person a task waited on has acted. It leaves their Needs you, and so do its subtasks that waited
-    on them for the same thing (shown to them as this one card, needs_you): each subtask's bot is woken.
-    The task's own bot hears it from the caller."""
-    if row.get("waiting_on") == person:
-        conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (row["id"],))
-        _task_event(conn, row["id"], KEEPER, "waiting_on", person, None, "")
-        _recount(conn, row["owner"])
-    for child in _rows(conn.execute("SELECT * FROM tasks WHERE id IN (" + TR.CHILD_IDS + ") "
-                                    "AND status='waiting' AND waiting_on=?", (row["id"], person))):
-        if not _same_ask(child, row):
-            continue
-        conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (child["id"],))
-        _task_event(conn, child["id"], KEEPER, "waiting_on", person, None, "")
-        where = f" on \"{row['title']}\"" if bot_reads_task(conn, child["owner"], row) else " on the parent task"
-        who = (human(conn, person) or {}).get("name") or actor_id(person)
-        _wake(conn, child, child["owner"], f"{who} acted{where}, which this task waited on. "
-              "Check it and carry on.")
-        _recount(conn, child["owner"])
 
 
 def _answered(conn, actor, task_id, card, told=None):
@@ -3387,8 +3352,6 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
         # Needs you. The bot sets it waiting on them again if it still needs something.
         conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (task_id,))
         _task_event(conn, task_id, actor, "waiting_on", actor, None, "")
-    if row["status"] == "waiting" and row.get("waiting_on") == actor:
-        _release_waiting(conn, {**row, "waiting_on": None}, actor)
     if ask or row.get("waiting_on") == actor:
         _recount(conn, row["owner"])
     if wake and is_bot(target) and is_human(actor):
@@ -5963,16 +5926,8 @@ def needs_you(conn, who):
     asked = [t for t in tasks_asked_of(conn, actor) if t["id"] not in seen and not TS.snoozed(t)]
     seen |= {t["id"] for t in asked}
     # A bot's task set waiting on this person: one concrete ask, its title and waiting note.
-    waiting = [t for t in _rows(conn.execute("SELECT * FROM tasks WHERE status='waiting' AND waiting_on=? "
-                                             "ORDER BY created", (actor,))) if t["id"] not in seen and not TS.snoozed(t)]
-    # One card per blocker: a task waiting on this person for the same thing as a card already listed (its
-    # parent waits on them too, or their own task blocks it) is that card's, and finishing or answering the card
-    # wakes them all. A task with an ask of its own keeps its own card.
-    cards = {t["id"]: t for t in asked + owned + waiting}
-    waits = {t["id"] for t in waiting}
-    waited = [t for t in waiting
-              if not ((parent := TR.parent_of(conn, t["id"])) in waits and _same_ask(t, cards[parent]))
-              and not any(b in seen and _same_ask(t, cards[b]) for b in TR.blocker_ids(conn, t["id"]))]
+    waited = [t for t in _rows(conn.execute("SELECT * FROM tasks WHERE status='waiting' AND waiting_on=? "
+                                            "ORDER BY created", (actor,))) if t["id"] not in seen and not TS.snoozed(t)]
     return {"actor": actor,
             "tasks": asked + owned,
             "waiting": waited,
