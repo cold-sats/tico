@@ -59,12 +59,13 @@ def test_idle_claims_do_not_take_the_write_lock_and_never_starve_leases(api):
         runners.append(r)
         post(api, "jobs/claim", {"next_run": True}, token=r["token"])      # first contact stamps last_seen
     store = api.app.state.store
-    # Another writer holds the lock for a second; an idle claim answers at once anyway.
+    # Another writer holds the lock; an idle claim answers anyway. A claim that wrote would wait out the 30 s busy
+    # timeout, so the bound sits far from it and from a loaded machine's ordinary slowness.
     with store.read() as holder:
         holder.execute("BEGIN IMMEDIATE")
         started = time.monotonic()
         assert post(api, "jobs/claim", {"next_run": True}, token=runners[0]["token"]) == {"attempt": None}
-        assert time.monotonic() - started < 1
+        assert time.monotonic() - started < 10
         assert post(api, "jobs/claim", {"busy_bots": ["unknown-bot"]}, token=runners[0]["token"]) == {"attempt": None}
         holder.execute("ROLLBACK")
     post(api, "chat/ops", {"text": "Anything today?"})
