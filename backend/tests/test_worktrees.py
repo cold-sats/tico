@@ -330,6 +330,40 @@ def test_a_heartbeat_built_before_checkout_finished_never_moves_it_back(prepared
     assert state == 'present' and detail['checkout_state'] == 'ready' and detail['dirty_files'] == 3
 
 
+def test_a_report_built_from_an_older_record_never_moves_it_forward_either(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+    with api.app_state.store.read() as c:
+        read_before = c.execute('SELECT updated FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0]
+    # Re-queued after the computer read it, the way adding a removed worktree again does.
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='pending',detail_json=?,updated=? WHERE id=?",
+                  (json.dumps({'owner': 'bot:cmo', 'checkout_state': 'queued', 'setup_pending': True}),
+                   H.now(), link['link_id']))
+
+    def beat(**report):
+        body = {'version': '0.3.43', 'platform': 'test', 'readiness': {'schema_version': 1, 'worktrees': True},
+                'worktrees': [{'link_id': link['link_id'], 'branch': link['branch'], 'repo': 'Acme/product',
+                               **report}]}
+        response = post(api, 'runners/heartbeat', body, 'runner-test')
+        assert response.status_code == 200, response.text
+        assert response.json()['worktree_record_stamp'] is True
+        with api.app_state.store.read() as c:
+            saved = c.execute('SELECT state,detail_json,updated FROM task_links WHERE id=?',
+                              (link['link_id'],)).fetchone()
+        return saved['state'], json.loads(saved['detail_json']), saved['updated']
+
+    state, detail, updated = beat(state='present', checkout_state='ready', expected_head='a' * 40,
+                                  checkout_target='refs/heads/tico/test', expected_base='b' * 64,
+                                  dirty_files=4, record_updated=read_before)
+    assert state == 'pending' and detail['checkout_state'] == 'queued' and detail['setup_pending'] is True
+    assert 'expected_head' not in detail and 'record_updated' not in detail and detail['dirty_files'] == 4
+    # A report built from the current record still moves it on.
+    state, detail, _ = beat(state='pending', checkout_state='initializing', record_updated=updated)
+    assert state == 'pending' and detail['checkout_state'] == 'initializing'
+
+
 def test_an_older_runner_can_still_add_a_worktree_and_finish_its_setup(prepared):
     """A 0.3.34 runner adds as the bot, reports present with only its path, then setup_pending True and False."""
     api, tid, _ = prepared

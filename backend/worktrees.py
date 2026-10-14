@@ -248,9 +248,12 @@ def heartbeat(c, who, reports, capable, default_org=""):
                     detail[key] = True
         if report.state == 'removed' and detail.get('cleanup_requested'):
             detail['removed_by'] = 'cleanup'
-        stale = stale_checkout_report(detail, report.checkout_state)
+        # A stamped report is stale when the record changed after the computer read it; an unstamped one
+        # (an older computer) only when it would move the checkout back.
+        stale = (report.record_updated < (row['updated'] or '') if report.record_updated is not None
+                 else stale_checkout_report(detail, report.checkout_state))
         reported = report.model_dump(exclude_none=True,
-                                     exclude={'link_id', 'state', 'branch', 'checkout_state',
+                                     exclude={'link_id', 'state', 'branch', 'checkout_state', 'record_updated',
                                               *(IDENTITY if stale else ())})
         detail.update(reported)
         legacy_present = (report.state == 'present' and report.checkout_state == 'legacy_present'
@@ -270,7 +273,7 @@ def heartbeat(c, who, reports, capable, default_org=""):
         state = ('removed' if report.state == 'removed' else
                  report.state if legacy_passthrough else
                  'pending' if not completion_proven else
-                 row['state'] if stale and report.state == 'pending' else
+                 row['state'] if stale and report.state in ('pending', 'present') else
                  'pending' if row['state'] == 'pending' and report.state == 'present' and report.checkout_state not in ('ready', 'legacy_present') else
                  'pending' if row['state'] == 'pending' and row['repo'] and report.state == 'missing' else report.state)
         detail['current_branch'] = report.branch
