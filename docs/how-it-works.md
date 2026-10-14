@@ -357,9 +357,10 @@ A bot receiving an ordinary message that asks for a reply sends that reply expli
 `hub message send`. Humans' chat replies and ask-message answers are delivered automatically.
 
 A bot answers an ask with `hub question answer <message-id>` (`hub_question_answer`) only from a run
-that can see the ask's conversation: the discussion of a task it owns or is delegated, or a
-conversation its current turn was handed. A bot's own asks to a person are the exception and are
-reachable from any of its runs. From any other run the answer is refused with "This conversation
+that can see the ask's conversation: the discussion of a task it can read (one it owns, requested
+or is delegated), or a conversation its current turn was handed. The exception is an ask between
+the bot and a single person that is not on a task, whichever side asked: it is reachable from any
+of the bot's runs. From any other run the answer is refused with "This conversation
 is outside the current execution context", and the ask stays open. There are two ways on:
 
 1. Pass the information without resolving the ask: `hub message send <asking-bot> "<answer>"
