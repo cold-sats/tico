@@ -21,6 +21,12 @@ All notable changes to Tico are recorded here. The format follows
   asking" (on by default) skips the Needs you card. `hub health-monitor findings` and `hub health-monitor report`. See
   [Health Monitor](docs/health-monitor.md).
 
+### Changed
+- **A bot can't ask a person a question on a task that has ended.** On a task that is closed, declined or done, a new question from a bot to a person (`hub task ask`, a task comment that asks, or a message sent as an ask) is refused with "reopen it or ask on an open task"; a done task still asks for acceptance with its review questions.
+
+### Fixed
+- **Pausing a bot pauses its routines.** Pausing a bot now closes the timed routine runs it had not started, with the note "Bot paused before this routine ran", so they don't pile up and all run at once on resume. A person's own tasks for the bot, a person's Run now, event (`on:`) runs (a meeting's notes are announced only once) and runs handed to another bot stay queued. Each routine keeps its own on/off switch, so resuming the bot brings back exactly the routines that were on. A bot still in setup gets no timed runs and Run now is refused until setup is done; its event runs wait for it. The routines list says "paused with the bot", and the API has a new `held_by_bot` field (`paused`, `needs_setup`, ...) that names what holds an enabled routine.
+
 ## [0.3.45] - 2026-10-14
 
 **Upgrade:** an existing GitHub App needs **Actions: Read-only** added on its GitHub settings page and accepted on the installation before bots can read workflow results. Until then, tokens are issued as before. See [GitHub App](docs/github-app.md).
@@ -50,8 +56,7 @@ All notable changes to Tico are recorded here. The format follows
   recipient and subject, pull request or spend), and after 14 days undecided. The bot hears once, without a run, and
   may ask again. An hourly sweep also clears approvals and questions to people still open on tasks that ended earlier.
   The Release Manager asks for a release by its release page, so a re-cut replaces the first ask. A task that has
-  ended takes no new approval, and no new question from a bot to a person (`hub task ask`,
-  a task comment that asks, or a message sent as an ask); a done task still asks for acceptance with its review questions.
+  ended takes no new approval.
 - **A bot at its worktree limit ends its turn and is woken when its worktree is ready.** When a bot's turn asks for a task worktree while the bot already holds 30, Tico records that the task waits for one and `hub task worktree add` says so and exits with status 3: the bot ends its turn instead of waiting, so its finished worktrees can free themselves. When a place frees, Tico reserves the worktree (checking access, owner and computer again), the bot's computer checks it out and runs setup while the bot is idle, and Tico wakes the task once, in its own session, naming the ready worktree; a failed checkout or setup wakes it once with the reason. Finishing the task, a new owner or stopping the turn ends the wait. The task and Health show "Waiting for a worktree" with its age. The limit is unchanged, nothing is removed to make room, and a computer from before this release gets the old answer. See [Task worktrees](docs/worktrees.md).
 - **Computers run more turns at once by default.** A runner without a set `capacity` now runs 5 turns per CPU core
   (as memory allows, 3 per GB; at least 4, at most 64) instead of about 1 per core. Turns mostly wait on the model
@@ -66,7 +71,6 @@ All notable changes to Tico are recorded here. The format follows
   out every 15 s whatever the database is doing, even while other computers' changes keep the stream busy, and the runner
   waits 90 s before calling a stream lost. `TICO_STREAM_KEEPALIVE_SECONDS` (5 to 50) changes the interval.
 - **A private task's worktree no longer fails a computer's readiness check.** The heartbeat refused with 403 "This response contains a task you can no longer read" whenever it carried a cleanup or restore for a private task's worktree, because a computer is never a task participant. Each worktree action is now read as the bot hosted on that computer that owns the worktree; a checkout or restore neither can read is left out and counted (`worktree_actions_skipped`), and the runner logs "readiness skipped N worktree action(s)" when that count changes; the skipped task's id and title are not sent. A removal always reaches the computer holding the worktree, so a private checkout never stays on disk, and the computer's report on its own worktree is no longer refused.
-- **Pausing a bot pauses its routines.** Pausing a bot now closes the timed routine runs it had not started, with the note "Bot paused before this routine ran", so they don't pile up and all run at once on resume. A person's own tasks for the bot, a person's Run now, event (`on:`) runs (a meeting's notes are announced only once) and runs handed to another bot stay queued. Each routine keeps its own on/off switch, so resuming the bot brings back exactly the routines that were on. A bot still in setup gets no timed runs and Run now is refused until setup is done; its event runs wait for it. The routines list says "paused with the bot", and the API has a new `held_by_bot` field (`paused`, `needs_setup`, ...) that names what holds an enabled routine.
 - **An idle computer no longer burns CPU on archived bots.** A runner tried to set up every assigned bot on each
   readiness pass, archived ones included, and re-read the whole bot catalog each time; with 22 archived test bots
   whose repositories were gone, the Tico Team mail runner used most of a core while idle and kept the server busy.
