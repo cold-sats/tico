@@ -681,7 +681,8 @@ class WaitingWithDependency(HubCase):
                     "Approve the FY2026 budget? If yes, I send it to finance.",
                     "Move the site to ES2022? If yes, I ship it Monday.",
                     "Start the ISO27001 audit? If yes, I book the auditor.",
-                    "Build the site with Node.js? If yes, I start today."]:
+                    "Build the site with Node.js? If yes, I start today.",
+                    "Approve the trial (it ends Oct. 20)? If yes, I sign up."]:
             self.assertEqual(H.lint_person_ask(ask), [], ask)
         for ask, failed in [("Approve it. I send it. Then I book it.", "3 sentences"),
                             ("Approve PO-1234? If yes, I pay it.", 'id or hash: "PO-1234"'),
