@@ -520,6 +520,21 @@ class Pushing(unittest.TestCase):
         self.assertIn("Tico-Run: att-1", messages)
         self.assertIn("Tico-Run: att-2", messages)
 
+    def test_the_task_folder_is_the_bot_users_before_git_adds_the_worktree(self):
+        # Under isolation git runs as the bot user; a sessions/bot-<slug> folder the supervisor made (mode 755)
+        # refused it, so every task turn fell back to the checkout and the bot's turns ran one at a time.
+        from runner import isolation, task_sessions
+        path = Path(self.tmp.name) / "sessions" / "bot-coo" / "t7"
+        path.parent.mkdir(parents=True)
+        order = []
+        real = task_sessions._git
+        with mock.patch.dict(os.environ, self.env), \
+                mock.patch.object(isolation, "chown", side_effect=lambda p, **kw: order.append(("chown", Path(p)))), \
+                mock.patch.object(task_sessions, "_git", side_effect=lambda *a, **kw: (
+                    order.append(("add", a[0])) if "add" in a[:3] and "worktree" in a[:3] else None) or real(*a, **kw)):
+            self.assertEqual(task_sessions.ensure(self.repo, path, "t7", self.env)[1], "")
+        self.assertLess(order.index(("chown", path.parent)), next(i for i, o in enumerate(order) if o[0] == "add"))
+
     def test_a_task_worktree_keeps_an_unpushed_merge_and_stays_until_it_is_on_the_remote(self):
         from runner import task_sessions
         path = Path(self.tmp.name) / "sessions" / "bot-coo" / "t9"
