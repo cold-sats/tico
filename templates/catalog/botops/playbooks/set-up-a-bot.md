@@ -25,7 +25,8 @@ If any of those is missing, choose it and go on (AGENT.md, Defaults, not questio
 - **Slug:** never ask anyone for one, and leave it out of `hub bot create`: Tico picks it from the name (else the
   template's name), lowercase with hyphens ("Bleacher Report Manager" is `bleacher-report-manager`), adds -2, -3
   when it is taken or reserved, and prints it. Use the printed slug from then on and name it in the report. Pass a
-  slug only when the task already names one (a bot registered before its build).
+  slug only when the bot is already registered: the task names one, or you registered it with `--record-only`
+  earlier in this run (build-me-a-bot step 1). Leaving it out then makes a second bot with -2.
 - **Display name:** the name they used; otherwise a short name for the job.
 - **Template:** the closest one to the job.
 - **Repository owner:** the GitHub organization they named, otherwise the connected one.
@@ -34,7 +35,7 @@ Name every choice you made in the task note, so the owner can correct it.
 
 ## 2. Create the repository
 
-    hub bot create --template <template> --name "<Display>"        # add the task's slug when it names one
+    hub bot create --template <template> --name "<Display>"        # add the slug when the bot is already registered (§1)
 
 That prints the slug it picked and materialises `$HUB_WORKSPACE/bot-<slug>` from the template, fills the team's names
 into the placeholders, writes `knowledge/company.md` from the setup answers, and seeds the

@@ -663,11 +663,13 @@ def local_slug(client, args, workspace):
     from clients.manifest import OLD_REPO_PREFIX, REPO_PREFIX
     card = catalog.card(args.template) or {}
     try:
-        known = {b.get("slug") or b.get("name") for b in client.get("bots")}
+        known = {b.get("slug") or b.get("name") for b in client.get("bots", include_archived="1")}
     except (APIError, AttributeError, TypeError):
         known = set()
-    return catalog.free_slug(args.name or card.get("name") or args.template, lambda slug: slug in known or any(
-        (workspace / (prefix + slug)).exists() for prefix in (REPO_PREFIX, OLD_REPO_PREFIX)))
+    reserved = ("assistant", "botops", "librarian", "goal-manager", "coo")
+    return catalog.free_slug(args.name or card.get("name") or args.template, lambda slug: (
+        slug in known or slug in reserved
+        or any((workspace / (prefix + slug)).exists() for prefix in (REPO_PREFIX, OLD_REPO_PREFIX))))
 
 
 def github_repository(client, slug, path):

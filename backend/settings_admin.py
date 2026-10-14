@@ -5,6 +5,8 @@ import json
 import re
 from types import SimpleNamespace
 
+from clients.catalog import free_slug, slug_from_name
+
 from . import access as Access
 from . import message_bots as MessageBots
 from . import bot_access as BA
@@ -224,10 +226,10 @@ class SettingsAdmin:
         mode, access = manifest.get("repo_access_mode"), manifest.get("repo_all_access", "read")
         return {"repo_access_mode": mode, "repo_all_access": access} if mode in ("own", "all") and access in ("read", "write") else {}
 
-    def pick_slug(self, c, name):
+    def pick_slug(self, c, name, fallback="bot"):
         """A free slug from the bot's name: never one in use, archived or reserved for the company's own bots."""
-        from clients.catalog import free_slug
-        return free_slug(name, lambda slug: bool(H.bot(c, slug)) or self.auth.system_bot(slug) or slug == "coo")
+        return free_slug(name, lambda slug: bool(H.bot(c, slug)) or self.auth.system_bot(slug) or slug == "coo",
+                         fallback)
 
     def template_name(self, template):
         from .onboarding import read_cards
@@ -356,7 +358,9 @@ class SettingsAdmin:
             name = body.display_name or (self.template_name(body.template) if body.template else "")
             if not name.strip():
                 raise Problem("display_name", "Give the bot a name, or a template to take its name from", 422)
-            body = body.model_copy(update={"slug": self.pick_slug(c, name), "display_name": name})
+            # A name with no Latin letters falls back to the template's name before plain "bot".
+            fallback = (slug_from_name(self.template_name(body.template)) if body.template else "") or "bot"
+            body = body.model_copy(update={"slug": self.pick_slug(c, name, fallback), "display_name": name})
         existing = H.bot(c, body.slug)
         if existing:
             if existing["state"] != "archived" and self.auth.bot_manager(c, who, body.slug):
