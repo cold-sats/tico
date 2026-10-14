@@ -93,6 +93,8 @@ body.night{background:radial-gradient(120% 90% at 50% 18%,#21474d 0%,#163338 45%
 #replay-clock{flex:none;font-size:12px;font-variant-numeric:tabular-nums;min-width:96px}
 #replay-range{flex:1;min-width:60px;accent-color:#7fd9c0}
 #replay-speeds{display:flex;gap:2px}
+.replay-transport{display:flex;gap:10px;align-items:center;flex:1;min-width:0}
+#replay-live{margin-left:auto}
 #replay-speeds button{background:transparent;border:0;color:var(--muted);padding:0 8px}
 #replay-speeds button[aria-pressed=true]{background:#3c7466;color:#f4f1df}
 @media(prefers-reduced-motion:reduce){#replay-captions li.fresh{animation:none}}

@@ -93,7 +93,7 @@ async function showReplay(message) {
   replay?.destroy();
   $('#replay-bar').hidden = false;
   replay = createReplay($('#replay'), message.data, {names: message.names || {}, words: message.words || {}, reduced: reducedMotion,
-    scene: () => scene, onState: () => scene?.update(currentData()), done: stopReplay});
+    scene: () => scene, onState: () => scene?.update(currentData())});
   scene?.update(currentData());
   replay.play();
 }
@@ -103,13 +103,15 @@ function stopReplay() {
   if (model) { controls(); scene?.update(currentData()); }
 }
 $('#replay-toggle').onclick = () => replaying ? stopReplay() : startReplay();
+// Back to live works while loading and after an error too, before any replay exists.
+$('#replay-live').onclick = stopReplay;
 function dispose() { disposed = true; revision++; replay?.destroy(); replay = null; scene?.dispose(); scene = null; }
 window.addEventListener('message', event => {
   if (event.source !== parent || event.origin !== origin || disposed) return;
   if (event.data?.type === 'tico-overview-data') update(event.data.model);
   if (event.data?.type === 'tico-overview-dispose') dispose();
   if (event.data?.type === 'tico-overview-replay-data') showReplay(event.data);
-  if (event.data?.type === 'tico-overview-replay-error' && replaying) $('#replay-note').textContent = event.data.message || 'The replay could not be loaded.';
+  if (event.data?.type === 'tico-overview-replay-error' && replaying) $('#replay-note').textContent = 'The replay could not be loaded.';
 });
 window.addEventListener('pagehide', dispose);
 window.addEventListener('overview-context-lost', () => { failed = true; fallback('The 3D view was interrupted. Your team is still accessible below.'); });

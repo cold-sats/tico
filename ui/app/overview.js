@@ -99,7 +99,7 @@ async function overviewReplayLoad(state) {
   const post = message => { if (OVERVIEW_PAGE === state) state.frame.contentWindow?.postMessage(message, location.origin); };
   let data;
   try { data = await get('/v2/replay?' + new URLSearchParams({from: from.toISOString(), to: to.toISOString()})); }
-  catch (e) { post({type: 'tico-overview-replay-error', message: e.message || 'The replay could not be loaded.'}); return; }
+  catch { post({type: 'tico-overview-replay-error'}); return; }
   const nameOf = replayName(data), names = {};
   const actors = (data.items || []).flatMap(it => [it.who, it.to, it.owner, it.kind === 'task.owner' ? it.new : null, it.bot ? 'bot:' + it.bot : null])
     .concat(Object.keys(data.start?.bots || {}).map(slug => 'bot:' + slug));
@@ -109,7 +109,7 @@ async function overviewReplayLoad(state) {
     text: it.kind === 'chat.message' || it.kind === 'task.comment' ? String(it.text || '').slice(0, 160) : undefined});
   const start = {bots: Object.fromEntries(Object.entries(data.start?.bots || {}).map(([slug, b]) => [slug, {state: b.state}]))};
   post({type: 'tico-overview-replay-data', names, words: V2_WORD,
-    data: {from: data.from, to: data.to, truncated: !!data.truncated, items: (data.items || []).map(slim), start}});
+    data: {from: data.from, to: data.to, truncated: !!data.truncated, next: data.next || null, items: (data.items || []).map(slim), start}});
 }
 function overviewRefresh() {
   const state = OVERVIEW_PAGE; if (!state) return;

@@ -19,7 +19,8 @@ const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return
 // The state machine, without any page: what each bot was doing at a moment, and what each item says.
 export function replayTimeline(data, names = {}) {
   const items = (data.items || []).map(it => ({...it, ms: Date.parse(it.at)})).filter(it => Number.isFinite(it.ms)).sort((a, b) => a.ms - b.ms);
-  const from = Date.parse(data.from), to = Date.parse(data.to);
+  // A cut-short day ends at its cutoff: nothing after it was read, so the desks would only look frozen.
+  const from = Date.parse(data.from), to = Date.parse(data.truncated && data.next ? data.next : data.to);
   const name = a => names[a] || String(a || '').replace(/^(bot|human):/, '');
   const botOf = it => it.bot || (String(it.who || '').startsWith('bot:') ? it.who.slice(4) : '');
   let bots = new Map(), next = 0, t = from;
@@ -63,8 +64,8 @@ export function replayTimeline(data, names = {}) {
 }
 
 // The controls and clock. `scene()` is the current renderer (it is rebuilt when the team changes shape),
-// `onState()` is called when any desk changes, and `done()` when the viewer returns to live.
-export function createReplay(root, data, {names = {}, words = {}, scene, onState, done, reduced}) {
+// and `onState()` is called when any desk changes.
+export function createReplay(root, data, {names = {}, words = {}, scene, onState, reduced}) {
   const line = replayTimeline(data, names);
   const {from, to, items} = line;
   const st = {playing: false, speed: 600, raf: 0, last: 0, captions: []};
@@ -75,7 +76,7 @@ export function createReplay(root, data, {names = {}, words = {}, scene, onState
   els.speeds.innerHTML = SPEEDS.map(s => `<button type="button" data-speed="${s}">${s}×</button>`).join('');
   els.note.hidden = !data.truncated && items.length > 0;
   els.note.textContent = !items.length ? 'Nothing happened in the last 24 hours that you can see.'
-    : data.truncated ? `Showing the first ${items.length.toLocaleString()} events.` : '';
+    : data.truncated ? `This replay stops at ${clock(to)}: the day had more than it can show.` : '';
 
   function captionsFrom(passed, animate) {
     for (const it of passed) {
@@ -127,8 +128,7 @@ export function createReplay(root, data, {names = {}, words = {}, scene, onState
   function pause() { st.playing = false; cancelAnimationFrame(st.raf); bar(); }
   els.play.onclick = () => st.playing ? pause() : play();
   els.speeds.onclick = ev => { const b = ev.target.closest('[data-speed]'); if (b) { st.speed = +b.dataset.speed; bar(); } };
-  els.range.oninput = () => { const at = from + (+els.range.value / 1000) * (to - from), was = st.playing; pause(); seek(at); if (was) play(); };
-  els.live.onclick = () => done();
+  els.range.oninput = () => { const at = from + (+els.range.value / 1000) * (to - from), was = st.playing; pause(); seek(at); if (was && line.t < to) play(); };
 
   seek(from);
   return {

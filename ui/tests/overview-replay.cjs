@@ -17,7 +17,7 @@ const SCENE = `export function createBuilding(data) {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const page = await browser.newPage({viewport: {width: 1280, height: 860}, serviceWorkers: 'block'});
-    const errors = [], replays = [];
+    const errors = [], replays = [], mode = {fail: false, cut: false};
     page.on('pageerror', e => errors.push(e.message));
     const bot = (name, over) => ({name, display_name: name.toUpperCase(), host: 'keeper', status: 'active', operator: 'ana', can_chat: true,
       machine: {runner_id: 'alpha', label: 'Garden Mac'}, my_access: {see: true, read: true}, ...over});
@@ -43,8 +43,9 @@ const SCENE = `export function createBuilding(data) {
       if (p === '/api/v2/replay') {
         const from = Date.parse(url.searchParams.get('from')), to = Date.parse(url.searchParams.get('to'));
         replays.push({from, to});
+        if (mode.fail) return json({error: 'SECRET SERVER DETAIL'}, 500);
         const at = hours => new Date(from + hours * 3600e3).toISOString();
-        return json({from: url.searchParams.get('from'), to: url.searchParams.get('to'), truncated: false, next: null,
+        return json({from: url.searchParams.get('from'), to: url.searchParams.get('to'), truncated: mode.cut, next: mode.cut ? at(2.5) : null,
           start: {tasks: [], bots: {writer: {state: 'idle', focus: 'SECRET FOCUS'}, editor: {state: 'idle', focus: ''}}},
           names: {'bot:writer': 'WRITER', 'bot:editor': 'EDITOR'},
           items: [
@@ -102,6 +103,23 @@ const SCENE = `export function createBuilding(data) {
     assert(await frame.locator('#replay').isHidden());
     assert.equal(deskOf((await rec()).data, 'bot:editor').state, 'running');
     assert.equal(await frame.locator('#replay-toggle').getAttribute('aria-pressed'), 'false');
+
+    // A cut-short day ends at its cutoff instead of playing on with frozen desks.
+    mode.cut = true;
+    await frame.locator('#replay-toggle').click();
+    await frame.locator('#replay-note', {hasText: 'This replay stops at'}).waitFor();
+    await frame.locator('#replay-range').evaluate(el => { el.value = '1000'; el.dispatchEvent(new Event('input')); });
+    assert.equal(deskOf((await rec()).data, 'bot:writer').state, 'running', 'the end is the cutoff, mid-run');
+    await frame.locator('#replay-live').click();
+
+    // A load error says so plainly and Back to live still leads out.
+    mode.fail = true;
+    await frame.locator('#replay-toggle').click();
+    await frame.locator('#replay-note', {hasText: 'The replay could not be loaded.'}).waitFor();
+    assert(!(await frame.locator('#replay').innerText()).includes('SECRET'));
+    await frame.locator('#replay-live').click();
+    assert(await frame.locator('#replay').isHidden());
+    assert(await frame.locator('#replay-toggle').isVisible());
     assert.deepEqual(errors, []);
     console.log('Overview replay: 24-hour window, bot-to-bot link, replayed desks, private text and return to live passed');
   } finally { await browser.close(); }
