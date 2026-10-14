@@ -474,20 +474,16 @@ def run_copy(api, person, args, workspace=None):
             return made                              # a card waiting for the person's click, or whatever the server said
         built = build_copy(root, original, made["slug"], made.get("display_name") or "", bool(args.get("with_memory")), theirs)
     published = publish(api, made["slug"])
-    return {**made, **built, **published, **place(person, made["slug"], args.get("computer"), published)}
+    return {**made, **built, **published, **place(person, made["slug"], args.get("computer"))}
 
 
-def place(person, slug, computer, published):
-    """`--computer`: placed only now, after `publish` recorded this computer as the one holding the history, so a computer
-    other than this one is refused with the command to use (backend/app.py place_now `history_elsewhere`). Not published,
-    the history is only here and nothing records that, so it is not placed at all."""
+def place(person, slug, computer):
+    """`--computer`: placed only now, after the files are made. The copy route recorded this computer as the one holding the
+    history, so the server places it here and refuses another computer with the one to use until GitHub has it (backend/app.py
+    place_now `history_elsewhere`)."""
     from clients.tico import APIError
     if not computer:
         return {}
-    if not published.get("published"):
-        return {"placement": {"placed": False, "problem": f"Not placed on {computer}: {slug}'s repository is only on the computer "
-                              f"BotOps runs on, not on GitHub, so {computer} could not get it. Put it on BotOps's computer (`hub bot place "
-                              f"{slug} --computer \"<the computer BotOps runs on>\"`), or connect GitHub and copy again"}}
     try:
         return {"placement": person.post(f"bots/{slug}/place", {"computer": computer})}
     except APIError as exc:
