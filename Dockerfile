@@ -87,9 +87,10 @@ RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
 # links against the same glibc. Only its sources are copied, so a change elsewhere reuses this layer.
 FROM rust:1.90-slim-bookworm@sha256:64232e656c058f4468e8d024e990acff04f0fd5a5c0a88a574dc37773d7325c9 AS runner-bin
 WORKDIR /src/runner-rs
-COPY runner-rs/Cargo.toml runner-rs/Cargo.lock ./
+COPY runner-rs/Cargo.toml runner-rs/Cargo.lock runner-rs/build.rs ./
 COPY runner-rs/src ./src
-# The harness manifests are compiled in (harness_tools.rs BUILT_IN), from ../runner/harnesses.
+# The harness manifests are compiled in (harness_tools.rs BUILT_IN), from ../runner/harnesses, and are part of
+# the source fingerprint (build.rs) that runner/engine.py checks against /opt/tico.
 COPY runner/harnesses /src/runner/harnesses
 COPY LICENSE /src/LICENSE
 RUN cargo build --release --locked && install -D -m 0755 target/release/tico-runner /out/tico-runner

@@ -331,9 +331,14 @@ fn run_session(s: Arc<Session>, runner: Arc<Runner>, config: Config, lifetime: D
         Some(p) => p.environment(&s.runtime, &process),
         None => process,
     };
+    if s.runtime == "musecode" {
+        // Bot turns read Muse's login from Tico's own Muse folder, never the operator's.
+        env.insert("XDG_CONFIG_HOME".into(), crate::hosts::musecode::config_home(profile.as_ref()).display().to_string());
+    }
     // The person opens the link on their own screen, not on this machine.
     env.insert("BROWSER".into(), "true".into());
     env.insert("NO_COLOR".into(), "1".into());
+    env.extend(crate::harness_tools::env_for(&s.runtime));
     let (mut child, read_fd, writer) = match spawn(&exe, &login.command, &env, login.terminal) {
         Ok(x) => x,
         Err(e) => return fail("failed", &format!("The sign-in command could not start ({:?})", e.kind())),
@@ -459,7 +464,8 @@ impl Logins {
             s.finish("failed", &format!("Browser sign-in is not available for {}", s.runtime), runner, &default);
         } else if self.sessions.values().any(|o| o.live() && o.runtime == s.runtime && o.profile == s.profile) {
             s.finish("failed", &format!("Another sign-in is already running for {}", s.runtime), runner, &default);
-        } else if named.as_ref().is_some_and(|p| p.share_operator) {
+        } else if named.as_ref().is_some_and(|p| p.share_operator) && s.runtime != "musecode" {
+            // Muse bots never use the operator's Muse login, so a shared profile still signs in to Tico's own.
             s.finish("failed", &format!("Profile {} shares the operator's own logins; sign in normally", s.profile), runner, &default);
         } else {
             if !s.profile.is_empty() && named.is_none() {

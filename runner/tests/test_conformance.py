@@ -98,8 +98,6 @@ class Computer:
                 subprocess.run(["git", *args], check=True, env=git_env, capture_output=True)
         home, bin_dir = tmp_path / "home", tmp_path / "bin"
         (home / ".codex").mkdir(parents=True)
-        (home / ".config" / "muse").mkdir(parents=True)
-        (home / ".config" / "muse" / "auth.json").write_text("{}")     # a Meta-account login, as `muse login` leaves
         bin_dir.mkdir()
         self.log_path = tmp_path / "harness.jsonl"
         for name in ("claude", "codex", "gemini", "agy", "muse"):
@@ -110,6 +108,10 @@ class Computer:
             wrapper.chmod(0o755)
         self.config = tmp_path / "config" / "runner.json"
         self.config.parent.mkdir()
+        # A Meta-account login, as signing in from Tico leaves it: in the runner's own Muse folder, never ~/.config.
+        muse = self.config.parent / f"state-{self.registration['runner_id']}" / "musecode" / "config" / "muse"
+        muse.mkdir(parents=True)
+        (muse / "auth.json").write_text("{}")
         self.config.write_text(json.dumps({"url": live, "token": self.registration["token"],
                                            "runner_id": self.registration["runner_id"],
                                            "projects_dir": str(tmp_path / "projects"), **(registration or {})}))

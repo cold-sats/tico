@@ -3,9 +3,10 @@
 TICO_RUNNER_ENGINE=rust (the environment wins, so TICO_RUNNER_ENGINE=python turns it off for one start).
 
 The binary is $TICO_RUNNER_BIN (the Docker image's), else this checkout's runner-rs/target/release/tico-runner,
-and only one whose `--version` is this checkout's RUNNER_VERSION; the checkout's own build must also be newer
-than its sources. A missing or stale build is rebuilt once with cargo when cargo is on PATH, behind a lock so
-two runners never build together. Anything that goes wrong is one log line and the Python runner carries on,
+and only one whose `--version` is this checkout's RUNNER_VERSION and whose `--build-id` is this checkout's
+source fingerprint (`source_id`, stamped in by runner-rs/build.rs), so a checkout that moved on while the
+binary stayed put is never run. A missing or stale build is rebuilt once with cargo when cargo is on PATH,
+behind a lock so two runners never build together. Anything that goes wrong is one log line and the Python runner carries on,
 so a computer never goes down over the switch, and rollback is removing the setting.
 
 The Rust runner gets TICO_RUNNER_PYTHON_ARGV: a computer it cannot run yet (a bot on a runtime it does not
@@ -13,6 +14,7 @@ drive) execs back into this Python runner with TICO_RUNNER_ENGINE=python instead
 """
 
 import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -33,30 +35,49 @@ def wanted(config, env):
     return str((config or {}).get("engine") or "").strip().lower() == "rust"
 
 
-def version_of(binary):
+def _ask(binary, flag):
+    """The last word `binary flag` prints, or "" when it fails (a binary from before --build-id fails)."""
     try:
-        out = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=10)
+        out = subprocess.run([str(binary), flag], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return ""
     words = out.stdout.split() if out.returncode == 0 else []
     return words[-1] if words else ""
 
 
-def _newest_source(root):
-    crate = root / "runner-rs"
-    paths = [crate / "Cargo.toml", crate / "Cargo.lock", *(crate / "src").rglob("*.rs")]
-    return max((p.stat().st_mtime for p in paths if p.is_file()), default=0.0)
+def version_of(binary):
+    return _ask(binary, "--version")
 
 
-def current(binary, root, own):
-    """Why `binary` cannot run this checkout, or "" when it can."""
+def source_id(root):
+    """The source fingerprint runner-rs/build.rs stamps into the binary, or "" when this tree has no runner-rs:
+    the first 16 hex digits of the SHA-256 of `path \0 length \0 bytes` for every file of runner-rs/build.rs,
+    Cargo.toml, Cargo.lock, runner-rs/src/** and runner/harnesses/*.toml, sorted by path from `root`."""
+    root = Path(root)
+    if not (root / "runner-rs" / "src").is_dir():
+        return ""
+    paths = [root / "runner-rs" / name for name in ("build.rs", "Cargo.toml", "Cargo.lock")]
+    paths += [p for p in (root / "runner-rs" / "src").rglob("*")]
+    paths += list((root / "runner" / "harnesses").glob("*.toml"))
+    digest = hashlib.sha256()
+    for name, path in sorted((p.relative_to(root).as_posix(), p) for p in paths if p.is_file()):
+        data = path.read_bytes()
+        digest.update(f"{name}\0{len(data)}\0".encode())
+        digest.update(data)
+    return digest.hexdigest()[:16]
+
+
+def current(binary, root):
+    """Why `binary` cannot run this checkout, or "" when it can. The fingerprint applies to $TICO_RUNNER_BIN too:
+    the image builds it from the tree it ships, so there it always matches."""
     if not binary.is_file() or not os.access(binary, os.X_OK):
         return f"{binary} is missing"
     found = version_of(binary)
     if found != RUNNER_VERSION:
         return f"{binary} is version {found or 'unknown'}, this checkout is {RUNNER_VERSION}"
-    if own and binary.stat().st_mtime < _newest_source(root):
-        return f"{binary} is older than runner-rs/src"
+    wanted = source_id(root)
+    if wanted and _ask(binary, "--build-id") != wanted:
+        return f"{binary} was built from other runner-rs sources"
     return ""
 
 
@@ -69,7 +90,7 @@ def build(root, env):
     (crate / "target").mkdir(parents=True, exist_ok=True)
     with open(crate / "target" / "tico-runner-build.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if not current(crate / "target" / "release" / "tico-runner", root, own=True):
+        if not current(crate / "target" / "release" / "tico-runner", root):
             return True                      # another runner built it while this one waited
         log("Tico runner: building the Rust runner (cargo build --release); this takes a few minutes once")
         try:
@@ -91,14 +112,14 @@ def choose(config, env, root=ROOT, building=build):
     given = str(env.get("TICO_RUNNER_BIN") or "").strip()
     if given:
         binary = Path(given)
-        problem = current(binary, root, own=False)
+        problem = current(binary, root)
         if not problem:
             return binary
         log(f"Tico runner: engine is rust but {problem}; trying this checkout's build")
     binary = root / "runner-rs" / "target" / "release" / "tico-runner"
-    problem = current(binary, root, own=True)
+    problem = current(binary, root)
     if problem and building(root, env):
-        problem = current(binary, root, own=True)
+        problem = current(binary, root)
     if problem:
         log(f"Tico runner: engine is rust but {problem}; running the Python runner")
         return None

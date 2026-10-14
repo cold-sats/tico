@@ -358,18 +358,10 @@ pub mod fixtures {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../runner/tests/fixtures").join(harness)
     }
 
-    /// (fixture path, the events the Python host makes of it), for every fixture of `harness`, plus the ones in
-    /// runner-rs/testdata/<harness>/: recordings whose Python host fix has not landed yet (they move to the
-    /// shared folder with it).
+    /// (fixture path, the events the Python host makes of it), for every fixture of `harness`.
     pub fn cases(harness: &str) -> Vec<(PathBuf, Vec<Value>)> {
         let mut out = vec![];
-        let waiting = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata").join(harness);
-        let mut paths: Vec<PathBuf> = [dir(harness), waiting]
-            .iter()
-            .filter_map(|d| std::fs::read_dir(d).ok())
-            .flatten()
-            .map(|e| e.unwrap().path())
-            .collect();
+        let mut paths: Vec<PathBuf> = std::fs::read_dir(dir(harness)).unwrap().map(|e| e.unwrap().path()).collect();
         paths.sort();
         for p in paths.into_iter().filter(|p| p.extension().is_some_and(|e| e == "jsonl")) {
             let expected: Value = serde_json::from_str(&std::fs::read_to_string(p.with_extension("expected.json")).unwrap()).unwrap();

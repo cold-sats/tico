@@ -81,9 +81,15 @@ impl SignIn {
             .unwrap_or_default();
         secrets.sort();
         files.extend(secrets);
+        files.push(crate::hosts::musecode::config_home(None).join("muse").join("auth.json"));
         if let Some(p) = profile {
             seen.push(format!("{}:{}", p.directory.display(), p.share_operator));
-            files = vec![p.directory.join("codex/auth.json"), p.directory.join("claude/.claude.json"), p.directory.join("claude/.claude/.credentials.json")];
+            files = vec![
+                p.directory.join("codex/auth.json"),
+                p.directory.join("claude/.claude.json"),
+                p.directory.join("claude/.claude/.credentials.json"),
+                p.directory.join("musecode/muse/auth.json"),
+            ];
         }
         for path in files {
             if let Ok(m) = std::fs::metadata(&path) {

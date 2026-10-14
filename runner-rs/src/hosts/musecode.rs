@@ -168,6 +168,53 @@ pub fn signed_in(path: &Path) -> Option<bool> {
     }
 }
 
+static STATE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// The runner's state directory, set once at start, so readiness and profiles find Tico's own Muse folder.
+pub fn set_state_dir(dir: &Path) {
+    let _ = STATE_DIR.set(dir.to_path_buf());
+}
+
+/// Muse Code's XDG_CONFIG_HOME for bot turns, sign-in and readiness (service.muse_config_home): a subscription
+/// profile's own folder, else the runner's. Never the operator's ~/.config, whose Muse MCP servers would load
+/// in every bot turn.
+pub fn config_home(profile: Option<&crate::profiles::Profile>) -> PathBuf {
+    if let Some(home) = profile.and_then(|p| p.home("musecode")) {
+        return home;
+    }
+    let state = STATE_DIR.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("tico-runner-state"));
+    crate::isolation::bot_state(&state).join("musecode").join("config")
+}
+
+/// Make `home` (XDG_CONFIG_HOME) ready for a bot turn: `muse/` exists and its settings name no MCP servers, so
+/// none but this run's own load. The folder is Tico's own, never a person's.
+pub fn prepare_config(home: &Path) -> Result<PathBuf, HostError> {
+    let directory = crate::isolation::mkdir(&home.join("muse"), 0o700).map_err(|e| failed(format!("Muse settings folder: {e}")))?;
+    let path = directory.join("settings.json");
+    let stored = match std::fs::read_to_string(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(directory),
+        Err(e) => return Err(failed(format!("Muse settings are not readable: {e}"))),
+        Ok(text) => serde_json::from_str::<Value>(&text).ok(),
+    };
+    let cleaned = match stored {
+        Some(Value::Object(m)) if !m.contains_key("mcpServers") && !m.contains_key("mcp_servers") => return Ok(directory),
+        Some(Value::Object(mut m)) => {
+            m.remove("mcpServers");
+            m.remove("mcp_servers");
+            Value::Object(m)
+        }
+        _ => json!({"schema_version": 1}), // Muse refuses a broken file anyway; this one is ours to rewrite
+    };
+    let temporary = directory.join(format!(".settings-{}.json", uuid::Uuid::new_v4().simple()));
+    let written = std::fs::write(&temporary, serde_json::to_string_pretty(&cleaned).unwrap_or_default()).and_then(|_| {
+        crate::isolation::chown(&temporary);
+        std::fs::rename(&temporary, &path)
+    });
+    let _ = std::fs::remove_file(&temporary);
+    written.map_err(|e| failed(format!("Muse settings could not be written: {e}")))?;
+    Ok(directory)
+}
+
 /// Where Muse keeps its Meta-account login for this environment: MUSE_AUTH_PATH, else the XDG config dir.
 pub fn auth_file(env: &Env) -> PathBuf {
     if let Some(p) = env.get("MUSE_AUTH_PATH").filter(|p| !p.is_empty()) {
@@ -207,6 +254,8 @@ struct Shared {
     /// `echo` is Muse's offline provider (tests and smoke runs); it takes no model or effort.
     provider: Option<String>,
     state_dir: PathBuf,
+    /// Muse's XDG_CONFIG_HOME for every turn (see `config_home`): never the operator's.
+    config_home: PathBuf,
     tx: Events,
     inner: Mutex<Inner>,
 }
@@ -215,8 +264,14 @@ struct Shared {
 pub struct MuseCodeHost(Arc<Shared>);
 
 impl MuseCodeHost {
+    #[cfg(test)]
     pub fn new(bot: &str, cmd: Vec<String>, provider: Option<String>, state_dir: PathBuf, tx: Events) -> MuseCodeHost {
-        MuseCodeHost(Arc::new(Shared { bot: bot.into(), cmd, provider, state_dir, tx, inner: Mutex::new(Inner::default()) }))
+        let config_home = state_dir.join("config");
+        Self::on_config(bot, cmd, provider, state_dir, config_home, tx)
+    }
+
+    pub fn on_config(bot: &str, cmd: Vec<String>, provider: Option<String>, state_dir: PathBuf, config_home: PathBuf, tx: Events) -> MuseCodeHost {
+        MuseCodeHost(Arc::new(Shared { bot: bot.into(), cmd, provider, state_dir, config_home, tx, inner: Mutex::new(Inner::default()) }))
     }
 
     fn inner(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -283,14 +338,16 @@ impl MuseCodeHost {
         argv
     }
 
-    /// The turn's environment (this process's when the settings carry none), HOME kept, QUIET and the MCP variables.
-    pub fn env(settings: &Settings) -> Env {
+    /// The turn's environment (this process's when the settings carry none), HOME kept, Tico's own Muse folder,
+    /// QUIET and the MCP variables.
+    pub fn env(&self, settings: &Settings) -> Env {
         let mut env = if settings.env.is_empty() { std::env::vars().collect() } else { settings.env.clone() };
         if env.get("HOME").is_none_or(|h| h.is_empty()) {
             if let Ok(home) = std::env::var("HOME") {
                 env.insert("HOME".into(), home);
             }
         }
+        env.insert("XDG_CONFIG_HOME".into(), self.0.config_home.display().to_string());
         env.extend(QUIET.iter().map(|(k, v)| (k.to_string(), v.to_string())));
         env.extend(mcp_overrides(settings).1);
         env
@@ -319,6 +376,7 @@ impl MuseCodeHost {
                 return Err(failed("muse host already has a turn running"));
             }
             let settings = inner.threads.get(thread_id).cloned().ok_or_else(|| failed(format!("unknown muse thread {thread_id}")))?;
+            prepare_config(&self.0.config_home)?;
             let prompt = self.prompt_file(text).map_err(|e| failed(format!("could not start muse: {e}")))?;
             let spawned = (|| {
                 // stderr goes to an unlinked file: read back for the error text, never a pipe that could fill.
@@ -333,7 +391,7 @@ impl MuseCodeHost {
                     .stderr(Stdio::from(stderr.try_clone()?))
                     .current_dir(&settings.cwd)
                     .env_clear()
-                    .envs(Self::env(&settings))
+                    .envs(self.env(&settings))
                     .spawn()?;
                 Ok::<_, std::io::Error>((child, stderr))
             })();
@@ -540,7 +598,7 @@ mod tests {
             assert_eq!(got, expected, "{}", path.display());
         }
         // Every prompt file is gone once its turn ends.
-        assert_eq!(std::fs::read_dir(dir.join("state")).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(dir.join("state")).unwrap().flatten().filter(|e| e.file_name() != "config").count(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -679,6 +737,27 @@ mod tests {
             assert_eq!(messages, vec![&json!(format!("echo: {text}"))], "{got:?}");
         }
         println!("session {thread}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn turns_run_on_ticos_own_muse_folder_with_no_settings_mcp_servers() {
+        let dir = temp("muse-config");
+        let home = dir.join("config");
+        assert_eq!(prepare_config(&home).unwrap(), home.join("muse"));
+        let settings = home.join("muse").join("settings.json");
+        std::fs::write(&settings, r#"{"schema_version": 1, "theme": "dark", "mcpServers": {"mine": {}}, "mcp_servers": {}}"#).unwrap();
+        prepare_config(&home).unwrap();
+        let kept: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert_eq!(kept, json!({"schema_version": 1, "theme": "dark"}));
+        std::fs::write(&settings, "not json").unwrap();
+        prepare_config(&home).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&std::fs::read_to_string(&settings).unwrap()).unwrap(), json!({"schema_version": 1}));
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let host = MuseCodeHost::on_config("coo", vec!["muse".into()], None, dir.join("state"), home.clone(), tx);
+        let mut s = Settings { cwd: dir.display().to_string(), ..Default::default() };
+        s.env.insert("XDG_CONFIG_HOME".into(), "/operator/.config".into());
+        assert_eq!(host.env(&s)["XDG_CONFIG_HOME"], home.display().to_string());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

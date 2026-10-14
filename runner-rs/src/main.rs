@@ -57,6 +57,9 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 
+/// The source fingerprint of this build (build.rs; runner/engine.py `source_id`).
+pub const BUILD_ID: &str = env!("TICO_BUILD_ID");
+
 #[derive(Parser)]
 #[command(name = "tico-runner", about = "Run this computer's Tico bots: the Rust runner", version = runner::RUNNER_VERSION)]
 struct Cli {
@@ -138,6 +141,7 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
                 .args(&command[1..])
                 .env_clear()
                 .envs(profile.environment(&runtime, &std::env::vars().collect()))
+                .envs(harness_tools::env_for(&runtime)) // e.g. MUSE_NO_AUTO_UPDATE: the runner updates its harnesses
                 .status();
             return status.ok().and_then(|s| s.code()).unwrap_or(1);
         }
@@ -162,6 +166,11 @@ fn main() {
     if argv.first().and_then(|a| std::path::Path::new(a).file_name()).is_some_and(|n| n == "gh") {
         std::process::exit(gitcred::gh_main(argv[1..].to_vec()));
     }
+    if argv.get(1).is_some_and(|a| a == "--build-id") {
+        // The source fingerprint build.rs stamped in: runner/engine.py rebuilds when the checkout's differs.
+        println!("{}", BUILD_ID);
+        std::process::exit(0);
+    }
     let cli = Cli::parse();
     if let Command::GitCredential { socket, action, .. } = &cli.command {
         if action.as_deref().is_some_and(|a| a != "get") {
@@ -178,6 +187,7 @@ fn main() {
     if let Command::Run = cli.command {
         // Puts the tools bin on PATH, so it runs before any thread reads the environment.
         harness_tools::init(&config);
+        hosts::musecode::set_state_dir(&config.state_dir());
     }
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio runtime");
     std::process::exit(rt.block_on(async move { start(cli.command, config).await }));
@@ -268,4 +278,48 @@ fn python_fallback() -> Option<String> {
         .env_remove("TICO_RUNNER_PYTHON_ARGV")
         .exec();
     Some(err.to_string())
+}
+
+#[cfg(test)]
+mod build_id_tests {
+    /// build.rs's SHA-256 and file list agree with `ring` here and with runner/engine.py `source_id`.
+    #[test]
+    fn the_build_id_is_the_checkouts_source_id() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut names = vec!["runner-rs/build.rs".to_string(), "runner-rs/Cargo.toml".into(), "runner-rs/Cargo.lock".into()];
+        let mut stack = vec![root.join("runner-rs/src")];
+        while let Some(dir) = stack.pop() {
+            for p in std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()) {
+                if p.is_dir() {
+                    stack.push(p);
+                } else {
+                    names.push(p.strip_prefix(root).unwrap().display().to_string());
+                }
+            }
+        }
+        for p in std::fs::read_dir(root.join("runner/harnesses")).unwrap().flatten().map(|e| e.path()) {
+            if p.extension().is_some_and(|e| e == "toml") {
+                names.push(p.strip_prefix(root).unwrap().display().to_string());
+            }
+        }
+        names.sort();
+        let mut data = vec![];
+        for name in names {
+            let bytes = std::fs::read(root.join(&name)).unwrap();
+            data.extend_from_slice(format!("{name}\0{}\0", bytes.len()).as_bytes());
+            data.extend_from_slice(&bytes);
+        }
+        let digest = ring::digest::digest(&ring::digest::SHA256, &data);
+        let id: String = digest.as_ref()[..8].iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(super::BUILD_ID, id);
+        let python = std::process::Command::new("python3")
+            .args(["-c", "import sys; from runner.engine import source_id; print(source_id(__import__('pathlib').Path(sys.argv[1])))"])
+            .arg(root)
+            .current_dir(root)
+            .output();
+        if let Ok(out) = python {
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), id);
+        }
+    }
 }

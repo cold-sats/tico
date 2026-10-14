@@ -576,11 +576,12 @@ impl Runner {
                 Host::Codex(CodexHost::on_home(env.clone(), tx, home.as_deref()))
             }
             "gemini" => Host::Gemini(GeminiHost::new(bot, &self.state.directory.join("gemini").join(bot), vec!["gemini".into()], tx)),
-            "musecode" => Host::MuseCode(crate::hosts::musecode::MuseCodeHost::new(
+            "musecode" => Host::MuseCode(crate::hosts::musecode::MuseCodeHost::on_config(
                 bot,
-                vec![crate::hosts::musecode::EXECUTABLE.into()],
+                vec![crate::harness_tools::executable_for("musecode")],
                 None,
-                self.state.directory.join("musecode"),
+                crate::isolation::bot_state(&self.state.directory).join("musecode"),
+                crate::hosts::musecode::config_home(profile),
                 tx,
             )),
             "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
@@ -699,6 +700,18 @@ impl Runner {
                 env.insert(crate::gitcred::SOCKET_ENV.into(), p.display().to_string());
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
+            let hop_runtime = crate::fallback::configured(&config).map(|h| h.runtime);
+            if runtime == "musecode" || hop_runtime.as_deref() == Some("musecode") {
+                // Muse reads META_API_KEY from its environment only. A key on this computer (the runner's environment,
+                // `_shared.env` or the company's) reports Muse ready, so it reaches the turn unless a grant set one.
+                if selected.as_ref().is_none_or(|p| p.share_operator) {
+                    if let Some((name, key)) = self.sign_in.headless_secret("musecode") {
+                        if env.get(&name).is_none_or(|v| v.is_empty()) {
+                            env.insert(name, key);
+                        }
+                    }
+                }
+            }
             base_env = Some(env.clone());
             let pairs: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             redactor = redact::for_turn(&pairs, &vault.values);

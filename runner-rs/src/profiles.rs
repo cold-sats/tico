@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::env::Env;
 use crate::util::{text_of, truthy};
 
-pub const RUNTIMES: &[&str] = &["codex", "claude", "gemini", "grok"];
+pub const RUNTIMES: &[&str] = &["codex", "claude", "gemini", "grok", "musecode"];
 /// Worst first: a runner row reports the profile that needs attention, not the healthy one.
 pub const SIGN_IN_ORDER: &[&str] = &["failed", "missing", "unknown", "ready"];
 
@@ -21,6 +21,8 @@ pub fn home_var(runtime: &str) -> Option<&'static str> {
     match runtime {
         "codex" => Some("CODEX_HOME"),
         "claude" | "grok" => Some("HOME"),
+        // Muse Code keeps its login and settings in $XDG_CONFIG_HOME/muse.
+        "musecode" => Some("XDG_CONFIG_HOME"),
         _ => None,
     }
 }
@@ -30,6 +32,7 @@ pub fn login_command(runtime: &str) -> Option<&'static [&'static str]> {
         "codex" => Some(&["codex", "login"]),
         "claude" => Some(&["claude", "auth", "login"]),
         "grok" => Some(&["grok", "login"]),
+        "musecode" => Some(&["muse", "login"]),
         _ => None,
     }
 }
@@ -404,6 +407,9 @@ pub async fn report(config: &Map<String, Value>, rejected: &(dyn Fn(&str, &str) 
                     }
                     runtimes.insert(runtime.into(), json!({"signed_in": signed}));
                 }
+                let muse = crate::hosts::musecode::signed_in(&crate::hosts::musecode::config_home(Some(&profile)).join("muse").join("auth.json"));
+                let signed = if rejected("musecode", &name) { Some(false) } else { muse };
+                runtimes.insert("musecode".into(), json!({"signed_in": signed}));
                 rows.push(json!({"name": name, "runtimes": runtimes}));
                 if rows.len() == 100 {
                     break;

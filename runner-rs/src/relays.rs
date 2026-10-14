@@ -135,8 +135,10 @@ pub fn poll(runner: &Arc<Runner>) {
                     }
                     if let Ok(rows) = me.client.get("runners/assignments").await {
                         let rows = rows.as_array().cloned().unwrap_or_default();
-                        let runtimes = harness_runtimes(&rows, &harness.default_runtime);
-                        tools.lock().unwrap().want(&runtimes.into_iter().collect::<Vec<_>>());
+                        let runtimes: Vec<String> = harness_runtimes(&rows).into_iter().collect();
+                        let default: Vec<&str> =
+                            if runtimes.is_empty() && !harness.default_runtime.is_empty() { vec![&harness.default_runtime] } else { vec![] };
+                        tools.lock().unwrap().want(&runtimes, &default);
                     }
                 }
                 let active = me.active.lock().unwrap().clone();
@@ -150,9 +152,8 @@ pub fn poll(runner: &Arc<Runner>) {
     }
 }
 
-/// The runtimes this computer installs a harness for (service.harness_runtimes): each assigned bot's and its
-/// fallback's; with no bots, the company's default.
-pub fn harness_runtimes(rows: &[Value], default_runtime: &str) -> HashSet<String> {
+/// The runtimes this computer's bots run on (service.harness_runtimes): each assigned bot's and its fallback's.
+pub fn harness_runtimes(rows: &[Value]) -> HashSet<String> {
     let mut found = HashSet::new();
     for row in rows {
         found.insert(text_of(&row["config"]["runtime"]));
@@ -161,8 +162,5 @@ pub fn harness_runtimes(rows: &[Value], default_runtime: &str) -> HashSet<String
         }
     }
     found.remove("");
-    if found.is_empty() && !default_runtime.is_empty() {
-        found.insert(default_runtime.to_string());
-    }
     found
 }

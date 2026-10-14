@@ -118,9 +118,16 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
             } else if runtime == "musecode" {
                 // Muse Code keeps a Meta-account login in auth.json (`muse login`) and has no status command, so the
                 // file's presence is the sign-in; its contents are never read. META_API_KEY wins over it.
-                sign.team_model_keys(client, "musecode").await;
-                let signed = crate::hosts::musecode::signed_in(&crate::hosts::musecode::auth_file(&std::env::vars().collect()));
-                if sign.headless_secret("musecode").is_some() {
+                // Turns run on Tico's own Muse folder (musecode::config_home), so that is where the login is looked for.
+                let shared_key = profile.is_none_or(|p| p.share_operator);
+                if profile.is_none() {
+                    sign.team_model_keys(client, "musecode").await;
+                }
+                let mut env: Env = std::env::vars().collect();
+                env.remove("MUSE_AUTH_PATH");
+                env.insert("XDG_CONFIG_HOME".into(), crate::hosts::musecode::config_home(profile).display().to_string());
+                let signed = crate::hosts::musecode::signed_in(&crate::hosts::musecode::auth_file(&env));
+                if shared_key && sign.headless_secret("musecode").is_some() {
                     authenticated = "ready";
                     detail = "Signed in with META_API_KEY".into();
                 } else if signed == Some(true) {
@@ -131,7 +138,7 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
                     detail = "Muse sign-in could not be checked (its config folder is not readable)".into();
                 } else {
                     authenticated = "missing";
-                    detail = "Muse login required (muse login) or META_API_KEY".into();
+                    detail = "Muse sign-in required (sign in from Tico) or META_API_KEY".into();
                 }
             } else {
                 let status = run_env(&[&p, "auth", "status", "--json"], CLAUDE_AUTH_TIMEOUT_S, env).await;

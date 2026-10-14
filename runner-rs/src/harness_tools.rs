@@ -77,6 +77,9 @@ pub struct Manifest {
     #[allow(dead_code)]
     pub api_key_env: Vec<String>,
     pub login: Option<Login>,
+    /// Variables every command the runner runs with this harness sets (version probes, logins), e.g. an
+    /// auto-updater's off switch. Sorted by name.
+    pub env: Vec<(String, String)>,
 }
 
 impl Manifest {
@@ -137,7 +140,7 @@ fn groups(pattern: &str) -> Result<usize, String> {
 /// A validated Manifest from a parsed TOML document (harness_tools.parse).
 pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
     let mut at = if source.is_empty() { "manifest".to_string() } else { source.to_string() };
-    let known = ["id", "name", "host", "executable", "providers", "catch_all", "install", "version", "update", "auth", "login"];
+    let known = ["id", "name", "host", "executable", "providers", "catch_all", "install", "version", "update", "auth", "login", "env"];
     let mut extra: Vec<&String> = data.keys().filter(|k| !known.contains(&k.as_str())).collect();
     if !extra.is_empty() {
         extra.sort();
@@ -260,6 +263,14 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
     } else {
         None
     };
+    let mut env = vec![];
+    for (k, v) in table(data, "env", &at)?.iter() {
+        match v {
+            toml::Value::String(v) if full(&env_re, k) => env.push((k.clone(), v.clone())),
+            _ => return Err(format!("{at}: [env] maps variable names to strings")),
+        }
+    }
+    env.sort();
     Ok(Manifest {
         id: ident.into(),
         name: name.into(),
@@ -275,6 +286,7 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
         auth_methods: methods,
         api_key_env: keys,
         login,
+        env,
     })
 }
 
@@ -344,6 +356,11 @@ pub fn executable_for(runtime: &str) -> String {
 }
 
 /// The login command (argv after the executable) and whether it needs a terminal, per host (login.py COMMANDS).
+/// The manifest's `[env]` for a host: set on its logins and version probes (e.g. MUSE_NO_AUTO_UPDATE).
+pub fn env_for(runtime: &str) -> Vec<(String, String)> {
+    manifests().values().find(|m| m.host == runtime).map(|m| m.env.clone()).unwrap_or_default()
+}
+
 pub fn login_command(runtime: &str) -> Option<Login> {
     manifests().values().find(|m| m.host == runtime).and_then(|m| m.login.clone())
 }
@@ -438,6 +455,8 @@ pub struct Harnesses {
     check_every: f64,
     pub wanted: HashSet<String>,
     needed: HashSet<String>,           // what this computer's bots run on: always installed
+    default: HashSet<String>,          // a computer with no bots: the company default, unless the owner turned it off
+    pub loaded: bool,                  // the bots' runtimes have been read once; until then nothing is removed
     choices: BTreeMap<String, bool>,   // the owner's on/off per harness for this computer; empty from an older server
     requests: Vec<Job>,
     job: Option<(Job, Slot)>,
@@ -481,6 +500,8 @@ impl Harnesses {
             check_every: CHECK_EVERY_S,
             wanted: HashSet::new(),
             needed: HashSet::new(),
+            default: HashSet::new(),
+            loaded: false,
             choices: BTreeMap::new(),
             requests: vec![],
             job: None,
@@ -560,7 +581,7 @@ impl Harnesses {
         if let Some(v) = self.versions.get(&key) {
             return v.clone();
         }
-        let version = run(path.as_os_str(), &m.version_args, &[], timeout_s)
+        let version = run(path.as_os_str(), &m.version_args, &m.env, timeout_s)
             .ok()
             .filter(|(code, _)| *code == 0)
             .and_then(|(_, out)| Regex::new(&m.version_pattern).ok()?.captures(&out).map(|c| c[1].to_string()))
@@ -575,10 +596,16 @@ impl Harnesses {
         self.manifests.values().find(|m| m.host == runtime)
     }
 
+    fn ids<S: AsRef<str>>(&self, runtimes: &[S]) -> HashSet<String> {
+        runtimes.iter().filter_map(|r| self.harness_for_runtime(r.as_ref()).map(|m| m.id.clone())).collect()
+    }
+
     /// Install the harnesses these runtimes (this computer's bots, primary and fallback) run on, plus the ones
-    /// the owner turned on here. The company's other providers are not installed.
-    pub fn want<S: AsRef<str>>(&mut self, runtimes: &[S]) -> HashSet<String> {
-        self.needed = runtimes.iter().filter_map(|r| self.harness_for_runtime(r.as_ref()).map(|m| m.id.clone())).collect();
+    /// the owner turned on here. The company's other providers are not installed. `default` (the company
+    /// default, for a computer with no bots yet) is installed unless the owner turned it off. Called once the
+    /// bots have been read from the server; only after that is anything removed.
+    pub fn want<S: AsRef<str>, D: AsRef<str>>(&mut self, runtimes: &[S], default: &[D]) -> HashSet<String> {
+        (self.needed, self.default, self.loaded) = (self.ids(runtimes), self.ids(default), true);
         self.rewant()
     }
 
@@ -593,13 +620,15 @@ impl Harnesses {
     }
 
     fn rewant(&mut self) -> HashSet<String> {
-        self.wanted = self.needed.iter().cloned().chain(self.choices.iter().filter(|(_, on)| **on).map(|(k, _)| k.clone())).collect();
+        let default = self.default.iter().filter(|id| self.choices.get(*id) != Some(&false));
+        self.wanted = self.needed.iter().chain(default).cloned().chain(self.choices.iter().filter(|(_, on)| **on).map(|(k, _)| k.clone())).collect();
         self.wanted.clone()
     }
 
-    /// Off on this computer: the owner said so and none of its bots runs on it.
+    /// Off on this computer: the owner said so and none of its bots runs on it. Never before the bots have been
+    /// read: a saved "off" must not remove what a bot needs while the server is still being asked.
     fn turned_off(&self, id: &str) -> bool {
-        self.choices.get(id) == Some(&false) && !self.needed.contains(id)
+        self.loaded && self.choices.get(id) == Some(&false) && !self.needed.contains(id)
     }
 
     /// The bot problem while this runner installs the runtime's harness ("Codex is installing"), else None.
@@ -1184,6 +1213,7 @@ mod tests {
         assert_eq!(login.command, vec!["auth", "login", "--claudeai"]);
         assert!(login.terminal && login.paste_code);
         assert_eq!(all["cursor-agent"].bin_relative(), ".local/bin/cursor-agent");
+        assert_eq!(all["muse-code"].env, vec![("MUSE_NO_AUTO_UPDATE".to_string(), "1".to_string())]);
         assert!(all["pi"].catch_all);
         let mut dup = BUILT_IN.iter().map(|(n, t)| (n.to_string(), t.to_string())).collect::<Vec<_>>();
         dup.push(("other.toml".into(), BUILT_IN[1].1.replace("id = \"codex\"", "id = \"other\"")));
@@ -1230,8 +1260,14 @@ mod tests {
     fn a_computer_wants_what_its_bots_run_on_and_removes_what_the_owner_turned_off() {
         let dir = std::env::temp_dir().join(format!("tico-harness-{}", uuid::Uuid::new_v4().simple()));
         let mut h = Harnesses::new(dir.join("tools"), dir.join("harnesses.json"), built_in());
-        assert_eq!(h.want(&["claude", "nope"]), HashSet::from(["claude-code".to_string()]));
+        let none: [&str; 0] = [];
         let choices = json!({"codex": true, "claude-code": false, "cursor-agent": false, "unknown": true});
+        h.choose(choices.as_object().unwrap());
+        assert!(!h.turned_off("cursor-agent")); // nothing is off before the bots were read
+        // An empty computer takes the company default, unless the owner turned it off.
+        assert!(h.want(&none, &["gemini"]).contains("gemini-cli"));
+        assert!(!h.want(&none, &["claude"]).contains("claude-code"));
+        assert_eq!(h.want(&["claude", "nope"], &none), HashSet::from(["claude-code".to_string(), "codex".to_string()]));
         assert_eq!(h.choose(choices.as_object().unwrap()), HashSet::from(["claude-code".to_string(), "codex".to_string()]));
         assert!(!h.turned_off("claude-code") && h.turned_off("cursor-agent")); // a bot here still needs Claude Code
         assert_eq!(h.installing("codex").as_deref(), Some("Codex is installing"));
