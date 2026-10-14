@@ -3,7 +3,7 @@
 import pytest
 
 from backend import releases, runner_versions
-from backend.tests.test_api import api, assign, post, ready, runner  # noqa: F401
+from backend.tests.test_api import api, assign, get, post, ready, runner  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -47,4 +47,41 @@ def test_an_incompatible_runner_does_not_claim(api):
     assert reply["attempt"] is None and "0.2.0 or later" in reply["paused"] and "paused" in reply["paused"]
     report(api, r, "0.2.1")                                    # it updated
     assert post(api, "jobs/claim", {"bot": None}, token=r["token"])["attempt"]["bot"] == "ops"
+
+
+def test_outdated_is_behind_the_servers_release_or_unknown():
+    outdated = runner_versions.outdated
+    assert outdated("0.2.9") and outdated("0.3.0-rc.1")                          # older
+    assert not outdated("0.3.0") and not outdated("0.4.0")                       # equal or newer
+    assert outdated("dev") and outdated("")                                      # unknown
+    assert not outdated("dev", server="dev") and not outdated("0.1.0", server="dev")   # a dev server has nothing to compare
+
+
+def test_heartbeat_stores_release_and_commit_and_nudges_the_owner_once_per_server_release(api, monkeypatch):
+    r = runner(api, operator="ben", label="Ben's Mac")
+    commit = "a" * 40
+
+    def notices():
+        with api.app.state.store.read() as c:
+            return [row["body"] for row in c.execute(
+                "SELECT body FROM messages WHERE to_actor='human:ben' AND kind='notice' ORDER BY created")]
+
+    report(api, r, "0.3.0", commit=commit)
+    machine = next(m for m in get(api, "operations", token="ben-test")["computers"] if m["id"] == r["runner_id"])
+    assert machine["update"]["release"] == "0.3.0" and machine["update"]["commit"] == commit
+    assert machine["update"]["outdated"] is False and notices() == []
+
+    report(api, r, "0.2.5", commit=commit)
+    assert notices() == []                                      # it gets time to update itself first
+    monkeypatch.setattr(runner_versions, "NUDGE_AFTER_S", 0)
+    report(api, r, "0.2.5", commit=commit)
+    report(api, r, "0.2.5", commit=commit)                     # every heartbeat after: no repeat
+    assert len(notices()) == 1 and "Ben's Mac" in notices()[0] and "0.3.0" in notices()[0]
+    machine = next(m for m in get(api, "operations", token="ben-test")["computers"] if m["id"] == r["runner_id"])
+    assert machine["update"]["outdated"] is True and machine["update"]["server_release"] == "0.3.0"
+
+    monkeypatch.setenv("TICO_VERSION", "0.4.0")                 # a new server release: one more nudge
+    report(api, r, "0.2.5")
+    report(api, r, "0.2.5")
+    assert len(notices()) == 2 and "0.4.0" in notices()[1]
 

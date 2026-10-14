@@ -3743,7 +3743,7 @@ def create_app(settings=None):
     def desired_runner_release(request: Request):
         with store.read() as c:
             execution.runner(c, request.state.identity)
-        return {**runner_versions.desired(), "features": {"task_files_multipart": True}}
+        return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):

@@ -619,6 +619,7 @@ class Store:
             _updates.ensure_schema(c)
             from . import runner_versions as _runner_versions
             c.executescript(_runner_versions.SCHEMA)
+            _runner_versions.ensure_schema(c)
             from . import files as _files
             c.executescript(_files.SCHEMA)
             from . import memory_history as _memory_history

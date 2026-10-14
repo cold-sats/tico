@@ -920,6 +920,8 @@ class Heartbeat(Contract):
     checkout: "Checkout | None" = None
     # Which release the runner is on and how its self-update stands (backend/runner_versions.py).
     release: str | None = Field(default=None, max_length=100)
+    # The commit it runs: an image's release-manifest.json, else its checkout's HEAD; "" when it cannot say.
+    commit: str | None = Field(default=None, pattern=r"^([0-9a-f]{40}|[0-9a-f]{64})?$")
     kind: Literal["mac", "linux", "docker"] | None = None
     update: "RunnerUpdate | None" = None
 

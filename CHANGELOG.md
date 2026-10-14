@@ -8,6 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Computers say which release they run, and an outdated one is flagged.** Each computer now reports the commit it runs (an image's release manifest, else its checkout) beside its release. Settings > Computers shows both, marks a computer behind the server's release, or on no release at all, as Outdated, and opens with a banner naming the online ones and whose they are. A computer that stays outdated for an hour sends its owner one notice per server release, not one per heartbeat. A development server, which has no release, flags nothing. See [Updates](docs/updates.md).
 - **Approvals nobody will act on leave Needs you.** An undecided approval is withdrawn (a new decision, `withdrawn`)
   when its task is closed, declined or marked done, when its bot asks again for the same thing (`hub approval request
   --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
