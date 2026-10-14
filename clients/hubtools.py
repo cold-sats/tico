@@ -474,8 +474,11 @@ def tag_update(api, args):
 
 # ----------------------------------------------------------------------------- tasks
 @tool("hub_task_create", "File a task for a bot or a person. A task for a person is a decision "
-      "or a review: title says what you are asking, body under 120 words (a ticket on a custom type's "
-      "board is exempt; asks stay on General). `dry_run` reports the "
+      "or a review: title says what you are asking, body under 120 words, and the body's first paragraph is "
+      "the ask: one or two plain sentences saying what you need and what happens after, at most 40 words, with "
+      "no ids, hashes, file paths, s3:// links or tool names (refused otherwise), e.g. \"Approve the video tool "
+      "trial for Thursday? If yes, I'll send the invite.\" Details go below it (a ticket on a custom "
+      "type's board is exempt; asks stay on General). `dry_run` reports the "
       "checks a create would fail and writes nothing.",
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
        "title": _s("Task title: General uses plain words without reference numbers or all-caps; custom types keep board references"),
@@ -636,10 +639,10 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_question", "Put one decision to a person as its own task, in one call: a pick between 2 to 6 "
+@tool("hub_task_question", "Put one decision to a person as a small task, in one call: a pick between 2 to 6 "
       "options (an option may carry an image or file) or, with no options, Yes / No. The task is yours and waits on "
-      "them; their answer wakes you and you mark it done. One decision per task; write the question so it makes "
-      "sense on its own.",
+      "them; asked from a run on one of your tasks it is filed under that task. Their answer wakes you and you mark it "
+      "done. One decision per task; write the question so it makes sense on its own.",
       {"question": _s("The question, readable with no other context", maxLength=300),
        "on": _s("The person who decides: their id"),
        "options": {"type": "array", "minItems": 2, "maxItems": 6, "description": "The choices; omit for Yes / No",
@@ -691,8 +694,11 @@ def task_question(api, args):
        "owner": _s("Hand the task to this bot or person"),
        "due": _s("ISO-8601 date-time with timezone"),
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
-       "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you; "
-                        "put exactly what they must do in the note. An empty string clears it"),
+       "waiting_on": _s("With status waiting: the person you need (their id). The note is your ask to them: one or two "
+                        "plain sentences saying what you need and what happens after, at most 40 words, no ids, hashes, "
+                        "file paths, s3:// links or tool names (refused otherwise), e.g. \"Approve the video tool trial "
+                        "for Thursday? If yes, I'll send the invite.\" It becomes one small task for them; this task "
+                        "stays yours, blocked on it, and opens again with their answer. An empty string clears it"),
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
                                 "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
@@ -1862,16 +1868,17 @@ def audience(value):
       "stays within their limit of active bots. Safe to repeat for a bot they already own. `hub bot create --template T` "
       "also builds its repository on this computer. Starters build on their assigned Computer; custom templates get "
       "a BotOps setup_task_id to watch with hub_task_show. Set build false for only the record; BotOps defaults to only the record.",
-      {"slug": _s("The new bot's slug, like jira-manager"), "name": _s("What people call it"),
+      {"slug": _s("Leave out: Tico picks it from the name. Only to keep a slug already chosen"),
+       "name": _s("What people call it; the template's name by default"),
        "description": _s("What it does"), "reports_to": _s("A bot slug, or human:<id>; the requester by default"),
        "template": _s("A template from hub_template_list, if it is built from one"),
        "build": {"type": "boolean", "description": "Build from the template (human default: true; BotOps: false)"},
        "instructions": _s("Reviewed Instructions overriding the template; requested description and limits still apply"),
        "title_prefix": _s("Prefix for a generated setup task's title"),
        "model": _s("`hermes` for a bot run by a Hermes profile (it gets a credential, not a computer); leave out for the Team default")},
-      required=("slug",), writes=True)
+      writes=True)
 def bot_register(api, args):
-    body = {"slug": args["slug"], "display_name": args.get("name") or "", "description": args.get("description") or "",
+    body = {**({"slug": args["slug"]} if args.get("slug") else {}), "display_name": args.get("name") or "", "description": args.get("description") or "",
             "reports_to": args.get("reports_to") or None, "template": args.get("template") or "",
             **{k: args[k] for k in ("instructions", "title_prefix") if k in args},
             **({"model": args["model"]} if args.get("model") else {}), **_for_person(api)}

@@ -149,13 +149,15 @@ first, keep unrelated changes, and make the smallest coherent change.
 - **Keep the requester's authority and the task's scope.** A human's message or task uses that human's
   rights. A task assigned by a bot is work within your role using that bot's existing rights; keeper
   maintenance uses your own rights. Neither grants new human authority or overrides a human's request.
-  "Open:", "Closed:" and "Finished:" notices report a task's state; they are not new human requests.
+  "Open:", "Closed:", "Finished:" and "<name> marked this done:" notices report a task's state; they are not new human requests.
   Never file, reverse, repeat or widen a human's work just because a notice arrived. Read the current
   assigned task's `id`, `requester`, scope and original request before acting; unrelated jobs stay separate.
   You may always update progress or record a blocker on tasks you own, as yourself. If a repair needs
   missing permission, input or a credential, set it waiting with the precise dependency or ask once on
   the task; when a person must act, name them (`--status waiting --on <person> --note "<what to do>"`)
-  and write the note as the refusal's `fix` in one sentence plus its `link`.
+  and write the note as the refusal's `fix` in plain words, one sentence plus its `link`, then what you do
+  after ("Turn on GitHub access in Settings? I'll finish the setup once it is on."), with no command,
+  path or tool name: Tico refuses a waiting note to a person that has them.
   Your token writes the repositories of the bots the person who asked manages (every bot's in your own
   runs; none beyond yours when a bot asked).
   Freeing task worktrees for a person: `hub api DELETE tasks/<task>/links/<link>` as them asks the computer to

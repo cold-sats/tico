@@ -870,6 +870,8 @@ class WorktreeStatus(Contract):
     last_commit: str | None = Field(default=None, max_length=100)
     size_mb: float = Field(default=0, ge=0)
     error: str | None = Field(default=None, max_length=300)
+    # The record's `updated` stamp this report was built from; a report older than the record is stale.
+    record_updated: str | None = Field(default=None, max_length=40)
 
 
 class Heartbeat(Contract):
@@ -980,8 +982,9 @@ class BotAccess(Contract):
 
 
 class BotRegister(Contract):
-    """Register a bot with the server, planned, before BotOps builds its repository."""
-    slug: Slug
+    """Register a bot with the server, planned, before BotOps builds its repository. Left out, the slug is
+    picked from the name (or the template's name)."""
+    slug: Slug | None = None
     display_name: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=2000)
     reports_to: ID | None = None
@@ -1071,7 +1074,7 @@ class GroupUpdate(Contract):
 
 class BotDefinitionCreate(Contract):
     private_tasks_default: StrictBool = False
-    slug: Slug
+    slug: Slug | None = None                 # left out, picked from the display name
     display_name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=2000)
     reports_to: ID | None = None

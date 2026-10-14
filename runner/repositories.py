@@ -457,6 +457,7 @@ class Repositories:
             fill_mirror()
             # Bot-owned directories are touched only by unprivileged Git, without a token.
             # Both spellings of the mirror's path: older Git compares safe.directory without resolving symlinks.
+            trusted = safe_git.trusting(clean, mirror.resolve(), mirror)       # the bot user reads the supervisor's mirror
             local = [*safe_git.PREFIX, '-c', 'safe.directory=' + str(mirror.resolve()), '-c', 'safe.directory=' + str(mirror),
                      '-c', 'safe.directory=' + str(path.resolve()), '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
                      '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always']
@@ -469,7 +470,7 @@ class Repositories:
                 def clone_mirror():
                     return self.run_git([*local, 'clone', '--quiet', '--single-branch', '--no-hardlinks',
                                          '--origin', 'tico-mirror', '--branch', branch, '--', mirror.as_uri(), str(path)],
-                                        env=clean, timeout=timeout, bot=True)
+                                        env=trusted, timeout=timeout, bot=True)
                 done = clone_mirror()
                 if done.returncode and 'already exists' not in (done.stderr or ''):
                     # The mirror itself can be what is broken while GitHub is fine: a fetch killed halfway, missing
@@ -508,7 +509,7 @@ class Repositories:
                 return self.run_git([*local, '-C', str(path), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
                                      '--', mirror.as_uri(), f'+refs/heads/{branch}:refs/remotes/origin/{branch}',
                                      f'+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}'],
-                                    env=clean, timeout=timeout, bot=True)
+                                    env=trusted, timeout=timeout, bot=True)
             done = fetch_mirror()
             if done.returncode:
                 # git_error masks credentials and local secrets in git's stderr before it reaches a report.
@@ -646,7 +647,7 @@ def worktree_base(workspace, repo, env):
             position = command.index('clone')
             command[position:position] = ['-c', 'safe.directory=' + unquote(urlparse(url).path)]
             command += ['--origin', 'tico-mirror']
-            clone_env = safe_git.clean_environment(env)
+            clone_env = safe_git.trusting(safe_git.clean_environment(env), unquote(urlparse(url).path))
             repo['default_branch'] = refreshed['default_branch']
             if refreshed.get('warning'):
                 repo['fetch_warning'] = refreshed['warning']
@@ -699,6 +700,9 @@ def worktree_base(workspace, repo, env):
             repo['fetch_warning'] = mirror_warning(mirror)
     source = mirror_url or 'origin'
     local_env = safe_git.clean_environment(env) if mirror_url else env
+    if mirror_url:
+        from urllib.parse import urlparse, unquote
+        local_env = safe_git.trusting(local_env, unquote(urlparse(mirror_url).path))
     prefix = [*safe_git.prefix(path), '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always'] if mirror_url else [*safe_git.prefix(path), '-c', 'http.followRedirects=false']
     if mirror_url:
         from urllib.parse import urlparse, unquote

@@ -50,6 +50,7 @@ printf '%s\n' "$BODY" | $HUB_DIR/connectors/slack.py post --as <slug> --channel 
 $HUB_DIR/connectors/slack.py inbox --since 24h --format md --mark    # DMs people sent the bot; --mark advances the watermark
 $HUB_DIR/connectors/slack.py dm --as <slug> --to person@example.com --text 'Pricing doc is live.'
 $HUB_DIR/connectors/slack.py reply --as <slug> --to person@example.com --thread 1756742400.000100 --text 'On it.'
+$HUB_DIR/connectors/slack.py file --as <slug> --id F0123ABCD   # a shared screenshot or log, from its [file F...] line
 ```
 
 Inside a hosted turn `HUB_BOT` stands in for `--as`. Exit codes: `0` ok, `1` failure
@@ -61,6 +62,10 @@ Inside a hosted turn `HUB_BOT` stands in for `--as`. Exit codes: `0` ok, `1` fai
 - Reading needs `service: slack` with `read` in `tools:`; a `channels:` list on that entry
   limits `history` to those channels (plus any channel whose list entry names the bot as a reader) before any call
   reaches Slack; `dms: false` refuses `inbox`.
+- A file someone shared shows as a `[file F...] name` line in `history`, `inbox` and a message routed from
+  Slack. `file --id` downloads it under the same read rules: a channel the bot may read, or a DM unless
+  `dms: false`. It needs the app's `files:read` scope; without it Slack sends its sign-in page, and `file` says
+  so instead of saving it.
 - Posting needs `post` in `can`, and the channel must be on the Slack channel list
   (Tools > Slack channels) with posting on, as it is unless an owner or admin turned it off. Externally shared (Slack Connect) channels are refused: posting there is an
   outbound send. Text over 4,000 characters is refused.

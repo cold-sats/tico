@@ -446,8 +446,8 @@ def refusing(fn):
 
 
 def publish(api, slug):
-    """Give the new repository a home on GitHub when the team has connected it; else it stays on this computer, and the computer
-    pushes it on its own once the bot is placed (runner/git_credentials.py publish_history)."""
+    """Give the new repository a home on GitHub when the team has connected it; else it stays on this computer. Its first placement
+    is this computer (backend/built_on.py), whose runner then publishes the history (runner/git_credentials.py publish_history)."""
     from clients.tico import APIError
     try:
         made = api.post("github/repos", {"slug": slug, "empty": True})

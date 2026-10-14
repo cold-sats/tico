@@ -58,6 +58,7 @@ class FetchRepository(unittest.TestCase):
         self.remote = self.root / "remote.git"
         git("clone", "-q", "--bare", str(seed), str(self.remote))
         real = git_credentials.clone_repository
+        self.real_clone = real
         patcher = mock.patch.object(git_credentials, "clone_repository",
                                     lambda path, repository, env=None, **kw: real(path, repository, env, url=str(self.remote)))
         patcher.start()
@@ -160,6 +161,25 @@ class FetchRepository(unittest.TestCase):
                         with self.assertRaisesRegex(RuntimeError, "shares no history"):
                             fresh.prepare_history("helper", 2, path, {git_credentials.REPOSITORY_KEY: REPO})
                 shutil.rmtree(path)
+
+    def test_an_empty_github_repository_is_not_a_checkout_and_is_cloned_once_it_has_history(self):
+        # The repository `hub bot create` made, before the computer that built the bot publishes it.
+        empty = self.root / "empty.git"
+        git("init", "-q", "--bare", "-b", "main", str(empty))
+        path = self.projects / "bot-helper"
+        with mock.patch.object(git_credentials, "clone_repository", lambda p, repository, env=None, **kw:
+                               self.real_clone(p, repository, env, url=str(empty))):
+            row = self.runner(Cloud()).preflight([entry()], RUNTIMES)[0]
+        self.assertFalse(row["ready"])
+        self.assertIn("is empty", row["problems"][0])
+        self.assertFalse(path.exists())                   # nothing left that would pass for a checkout
+        # A clone an older runner left of the empty repository is set aside too, so the history arrives.
+        git("clone", "-q", str(empty), str(path))
+        self.assertTrue(git_credentials.empty_clone(path))
+        row = self.runner(Cloud()).preflight([entry(generation=3)], RUNTIMES)[0]
+        self.assertTrue(row["ready"], row["problems"])
+        self.assertEqual((path / "AGENT.md").read_text(), "# Helper\n")
+        self.assertFalse(git_credentials.empty_clone(path))
 
     def test_a_computer_only_fetches_what_is_assigned_to_it(self):
         cloud = Cloud()

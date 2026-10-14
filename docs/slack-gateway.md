@@ -17,7 +17,8 @@ and the decision model deciding who a DM or a mention is for. The code is
 | A reply in a thread a bot already talks in, no mention | Routed at once, like a mention: the decision model sees the thread's routing and the reply usually continues it. |
 | Any other message in a channel Tico is in, bots' posts included | Stored (Channels, below). The channel's readers get it on the hourly pass; nobody is woken now. A bot still reads a channel through `connectors/slack.py history` during its own run. |
 | An edit or a deletion in a channel | Applied to the stored message; a reader that had already seen it is told. |
-| A join, a reaction, a file with no text | Ignored. |
+| A join, a reaction | Ignored. |
+| A file shared with a DM, a mention or a channel message | A `[file F...] name` line per file is added to the message; the bot opens it with `connectors/slack.py file --id F...` (the app needs `files:read`). |
 | A Slack Connect or externally shared channel | Refused; nothing is written. |
 | A guest, a deactivated account, a sender whose verified email is not on `registry/people.yaml` or not admitted by `registry/hub-access.yaml` | Refused silently: no reply, the reason on the event. |
 

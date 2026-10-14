@@ -1156,8 +1156,10 @@ class Runner:
         if last and last["key"] == key and time.monotonic() - last["at"] < FETCH_RETRY_S:
             return last["problem"]
         problem = ""
+        if (path / ".git").exists() and git_credentials.empty_clone(path):
+            git_credentials.discard_partial(path, True)        # an older runner's clone of the still-empty repository
         if (path / ".git").exists():
-            problem = f"{repository} is checked out here but has no AGENT.md"      # a clone of an empty repository
+            problem = f"{repository} is checked out here but has no AGENT.md"
         elif personal:
             detail = clone_shared(path, config)
             if not detail:
@@ -3261,6 +3263,8 @@ class Runner:
             body["profiles"] = self.profile_report()
         if hasattr(self, "worktrees") and time.monotonic() >= getattr(self, "_worktrees_after", 0):
             body["worktrees"] = self.worktrees.poll() if full else self.worktrees.latest()
+            if not getattr(self, "_reports_worktree_stamp", False):
+                body["worktrees"] = [{k: v for k, v in r.items() if k != "record_updated"} for r in body["worktrees"]]
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
@@ -3291,6 +3295,7 @@ class Runner:
         if hasattr(self, "worktrees") and (full or actions):
             self.worktrees.poll(actions)
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
+        self._reports_worktree_stamp = bool((beat or {}).get("worktree_record_stamp"))
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
             # A person pressed Restart: take main if that is safe, then restart once nothing runs.
@@ -3346,6 +3351,11 @@ class Runner:
                         for state in profile.get("runtimes", {}).values():
                             state.pop("weekly", None)
                     continue  # Older servers keep receiving the existing sign-in report.
+                if extra and "record_updated" in detail and any("record_updated" in r for r in body.get("worktrees") or []):
+                    # A server from before stamped reports still gets every worktree report, unstamped.
+                    body["worktrees"] = [{k: v for k, v in r.items() if k != "record_updated"} for r in body["worktrees"]]
+                    self._reports_worktree_stamp = False
+                    continue
                 if exc.status == 422 and "capabilities" in detail and "task_goals_v1" in body.get("capabilities", []):
                     # A server from before task goals never hands a task room's goal; only the new one goes.
                     body["capabilities"].remove("task_goals_v1")

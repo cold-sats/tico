@@ -378,6 +378,10 @@ def clone_repository(path, repository, env=None, url=None, timeout=180):
         discard_partial(path, fresh)
         return "failed", type(exc).__name__
     if done.returncode == 0:
+        if empty_clone(path):
+            discard_partial(path, fresh)
+            return "failed", (f"GitHub's {repository} is empty: the computer that built the bot has not published its "
+                              "history yet; it is cloned once it has")
         return "cloned", ""
     discard_partial(path, fresh)
     from .redact import env_secrets, git_failure
@@ -387,6 +391,23 @@ def clone_repository(path, repository, env=None, url=None, timeout=180):
     if "not found" in text.lower():
         return "failed", f"GitHub has no repository {repository} that this token can see: {text}"
     return "failed", text
+
+
+def empty_clone(path):
+    """Whether `path` holds only a clone of a repository with no commits: what `git clone` leaves (and calls a
+    success) when GitHub's repository is still empty. Nothing in it is anyone's work, so it is not a checkout."""
+    path = Path(path)
+    try:
+        if not (path / ".git").is_dir() or any(entry.name != ".git" for entry in path.iterdir()):
+            return False
+        env = safe_git.clean_environment()
+        head = isolation.run([*safe_git.prefix(path), "-C", str(path), "rev-parse", "--verify", "--quiet", "HEAD"],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env, timeout=10)
+        refs = isolation.run([*safe_git.prefix(path), "-C", str(path), "for-each-ref", "--count=1"],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return head.returncode != 0 and refs.returncode == 0 and not refs.stdout.strip()
 
 
 def discard_partial(path, fresh):

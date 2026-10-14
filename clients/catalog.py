@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -34,6 +35,7 @@ CARD = "card.yaml"
 STAMP = ".tico-template.json"
 PRODUCT_OWNED = ("AGENT.md", "playbooks", "skills")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SLUG_MAX = 40                   # short enough for `bot-<slug>` on GitHub and readable in a path
 # What a template's text is filled with before the first commit.
 PLACEHOLDERS = ("company_name", "app_name", "assistant_name", "bot_name")
 MAX_FILL = 1_000_000            # a file worth filling; anything larger is copied as it is
@@ -52,6 +54,30 @@ ANSWERS = (("what_we_do", "What the Team does"),
 def catalog_dir(directory=None):
     """Where the cards are: the argument, then TICO_CATALOG_DIR, then this checkout's own."""
     return Path(directory or os.environ.get("TICO_CATALOG_DIR") or ROOT / "templates/catalog")
+
+
+def slug_from_name(name, fallback="bot"):
+    """A bot slug made from what people call it: ASCII, lowercase, hyphens, at most SLUG_MAX characters, cut at a
+    word ("Head of Marketing" -> head-of-marketing). Nobody is asked to type one."""
+    ascii_name = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode().lower()
+    words = re.findall(r"[a-z0-9]+", ascii_name)
+    slug = ""
+    for word in words:
+        joined = f"{slug}-{word}" if slug else word
+        if len(joined) > SLUG_MAX:
+            break
+        slug = joined
+    return slug or (words[0][:SLUG_MAX] if words else fallback)
+
+
+def free_slug(name, taken, fallback="bot"):
+    """`slug_from_name`, with -2, -3... added while `taken(slug)` says the slug is in use or reserved."""
+    base = slug_from_name(name, fallback)
+    slug, n = base, 2
+    while taken(slug):
+        suffix = f"-{n}"
+        slug, n = base[:SLUG_MAX - len(suffix)].rstrip("-") + suffix, n + 1
+    return slug
 
 
 def cards(directory=None):
