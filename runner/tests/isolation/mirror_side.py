@@ -1,5 +1,5 @@
-"""Inside the runner image, after its entrypoint prepared the volume, as root with the runner's capabilities: the
-supervisor (10002) owns a mirror and the bot user (10003) clones and fetches it over file://, the way
+"""Inside the runner image, after its entrypoint prepared the volume, as the supervisor (ticorun, 10002) with the runner's
+capabilities: it owns a mirror and the bot user (10003) clones and fetches it over file://, the way
 runner/repositories.py does. Prints one JSON line."""
 import json
 import os
@@ -26,7 +26,8 @@ def supervisor(*command):
 
 
 root = "/home/runner/state-test/mirrors"                  # where Repositories keeps them: state-*/mirrors, 0755
-supervisor("mkdir", "-p", "-m", "0755", root)
+supervisor("mkdir", "-m", "0711", "/home/runner/state-test")  # as State makes it (runner/state.py)
+supervisor("mkdir", "-m", "0755", root)
 supervisor("git", "init", "-q", "-b", "main", root + "/seed")
 supervisor("git", "-C", root + "/seed", "commit", "-q", "--allow-empty", "-m", "one")
 mirror = root + "/ticoteam__bot-alpha.git"
