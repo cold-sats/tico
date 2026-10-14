@@ -768,6 +768,8 @@ TASK_STEPS = {"type": "array", "items": {"type": "object", "properties": {
     "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)}},
     "required": ["name", "status"], "additionalProperties": False}}
 NUMBERED = {"type": "boolean", "description": "Give each task created on or moved onto the type the team's next number"}
+STEPS_ONLY = {"type": "boolean", "description": "Its tasks change status only by moving to a step: closing, declining, "
+                                               "reopening or finishing one is refused"}
 
 
 @tool("hub_task_types", "Task types and their steps, in order. Status remains the task contract.",
@@ -782,9 +784,11 @@ TYPE_BOTS = {"type": "string", "enum": ["parties", "read", "work"],
 
 
 @tool("hub_task_type_create", "Create a task type and its steps (movers only).",
-      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("name",), writes=True)
+      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED,
+       "steps_only": STEPS_ONLY}, required=("name",), writes=True)
 def task_type_create(api, args):
-    body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered"))}
+    body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered")),
+            "steps_only": bool(args.get("steps_only"))}
     if args.get("bots"):
         body["bots"] = args["bots"]
     return api.post("task-types", body, key=_key(args))
@@ -792,9 +796,9 @@ def task_type_create(api, args):
 
 @tool("hub_task_type_update", "Edit a task type (movers only). Steps replace the full list; keep retained ids. "
       "A step with tasks cannot be removed.", {"id": _s("Type id or name"), "name": _s("Type name"),
-      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("id",), writes=True)
+      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED, "steps_only": STEPS_ONLY}, required=("id",), writes=True)
 def task_type_update(api, args):
-    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered") if k in args},
+    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered", "steps_only") if k in args},
                     key=_key(args))
 
 

@@ -29,6 +29,7 @@
 .dc-who .av{flex:none}
 .dc-who-text{flex:1;min-width:0}
 .dc-who-name{font-weight:600;font-size:var(--t-md);line-height:1.25}
+.dc-origin{font-weight:400;color:var(--muted);font-size:var(--t-sm)}
 .dc-who-sub{color:var(--muted);font-size:var(--t-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dc-who .pill{flex:none}
 /* a bot's face and name open its chat: the name reads as before until hovered or focused */

@@ -1,4 +1,4 @@
-// Decide on a phone (390px): a task card leads with the plain ask, large, and the title second, smaller; the bot's
+// Decide on a phone (390px): what a person asked for leads. A task card leads with the plain ask, large, and the title second, smaller; the bot's
 // status note, the rest of the body and anything else it said fold under Details, as text. The ask is an open
 // question to me, else the one the bot wrote in its waiting note (`person_ask`). A yes/no ask gets Yes and No, which
 // answer the bot with a comment. A card with no plain ask (`ask_missing`) comes last and says it waits for the bot
@@ -64,6 +64,18 @@ const comments = {
       await page.locator(`.decide .dc-actions [data-dc="${what}"]`).click();
     };
 
+    // What a person asked for leads, ahead of a bot's older wait on me; a bot's pressing item (due, or old) joins it.
+    // The card says whose request it is when that is not the name it shows.
+    assert.deepEqual(await page.evaluate(() => ({
+      order: decideCards([
+        {id: 'bot-made', kind: 'waiting', owner: 'bot:writer', requester: 'bot:writer', waiting_on: 'human:ana', created: '2026-01-01T00:00:00Z'},
+        {id: 'for-sam', kind: 'task', owner: 'human:ana', requester: 'bot:writer', from_person: 'human:sam', created: '2026-01-03T00:00:00Z'},
+        {id: 'overdue', kind: 'waiting', owner: 'bot:writer', requester: 'bot:writer', waiting_on: 'human:ana', pressing: true, created: '2026-01-02T00:00:00Z'},
+      ]).map(c => c.key),
+      cue: [decideFromPerson({from_person: 'human:sam'}, 'bot:writer'), decideFromPerson({from_person: 'human:ana'}, 'bot:writer'),
+        decideFromPerson({from_person: 'human:sam'}, 'human:sam'), decideFromPerson({}, 'bot:writer')],
+    })), {order: ['task:overdue', 'task:for-sam', 'task:bot-made'], cue: ['From Sam', 'You asked', '', '']});
+
     // An open question to me leads, the title under it, smaller; the note folds under Details, closed.
     let c = await read('t-ask');
     assert.match(c.sub, /^Waiting on you · /);
@@ -121,7 +133,8 @@ const comments = {
     assert.deepEqual(bot.links.map(({cls, href, tab}) => ({cls, href, tab})), [
       {cls: 'dc-who-face', href: '#/bot/writer', tab: -1}, {cls: 'dc-who-link', href: '#/bot/writer', tab: 0}]);
     assert.equal(bot.links[1].text, 'Writer');
-    assert.equal(person.height, bot.height, 'the header keeps its height');
+    // Sub-pixel layout can differ by a rounding hair (60.5000038 against 60.5); a real change is whole pixels.
+    assert.ok(Math.abs(person.height - bot.height) < 0.5, `the header keeps its height: ${person.height} vs ${bot.height}`);
     assert.deepEqual(errors, []);
 
     // Tapping the name goes to the chat and does nothing to the card

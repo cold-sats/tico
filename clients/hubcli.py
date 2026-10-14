@@ -750,11 +750,13 @@ def parser():
     types = task.add_parser("type", help="manage task types (movers only)").add_subparsers(dest="type_sub")
     bots_help = ("what every bot may do with the type's tasks: parties (only the bots on each task), "
                  "read (read and comment on all of them) or work (also change them)")
+    steps_only_help = "its tasks change status only by moving to a step, never by closing, declining, reopening or finishing"
     s = types.add_parser("create")
     s.add_argument("--name", required=True)
     s.add_argument("--steps-file", dest="steps_file")
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action="store_true", default=None, help="number each task on the type")
+    s.add_argument("--steps-only", dest="steps_only", action="store_true", default=None, help=steps_only_help)
     s.set_defaults(fn="task type create")
     s = types.add_parser("update")
     s.add_argument("id")
@@ -763,6 +765,8 @@ def parser():
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action=argparse.BooleanOptionalAction, default=None,
                    help="number each task created on or moved onto the type")
+    s.add_argument("--steps-only", dest="steps_only", action=argparse.BooleanOptionalAction, default=None,
+                   help=steps_only_help)
     s.set_defaults(fn="task type update")
     s = types.add_parser("delete")
     s.add_argument("id")
