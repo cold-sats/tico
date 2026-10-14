@@ -1,6 +1,6 @@
 # Task worktrees
 
-A task worktree gives a bot a separate branch and folder for its code work. The computer shares one base clone per repository and records each worktree on its task.
+A task worktree gives a bot a separate branch and folder for its code work. The computer shares one base clone per repository and records each worktree on its task. Each task session also runs in its own worktree of the bot's own repository ([Sessions](sessions.md#many-tasks-at-once)).
 
 During a bot run:
 

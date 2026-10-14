@@ -303,7 +303,7 @@ changes always wake the owner, including requests from those identities.
 A merged PR becomes Shipped once the running release includes its merge commit; the task stays
 where it is. PRs in another repository stay Merged.
 
-Sessions show who is working a task. The primary session is the owning bot's task session, recorded
+Sessions show who is working a task ([Sessions](sessions.md) is the overview). The primary session is the owning bot's task session, recorded
 by Tico when its turn starts in the task's own lane (every bot by default, unless set to `session: bot`, on a runner
 that runs lanes); a bot's shared thread is never one. The task's set-up worktrees on that computer are added to
 its session, with each repo's AGENTS.md (else CLAUDE.md) in the prompt as rules for writing code there. A task has at most one primary: a newer thread or a
