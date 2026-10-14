@@ -47,6 +47,13 @@ LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
 KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts
 GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
 GATHER_CHAT_SECONDS = 0.25  # a stream following a conversation: its messages and run output stay prompt
+LEAD_SECONDS = 0.02       # a ring after a quiet window waits only this long, for the rest of its request's writes
+
+
+def gathered(window, read_at):
+    """How long a stream waits after a ring before it reads: at most one read per `window`, but a ring after
+    a quiet window is read almost at once instead of a full window later (a chat reply, a job for a computer)."""
+    return max(LEAD_SECONDS, window - (time.monotonic() - read_at))
 BATCH = 500
 MAX_FILTER = 20           # conversation= and bot= values per stream
 
@@ -882,11 +889,13 @@ def install(app, store, auth, task_views, task_view):
                 deadline = time.monotonic() + LIFETIME_SECONDS
                 quiet_since = time.monotonic()
                 due = True                       # the first read catches up from `after`
+                read_at = 0.0
                 while True:
                     if await request.is_disconnected():
                         return
                     generation = doorbell.generation
                     if due or doorbell.latest > cursor:
+                        read_at = time.monotonic()
                         try:
                             sent, next_cursor, reset, more = await asyncio.to_thread(poll, cursor)
                         except Problem:
@@ -913,7 +922,7 @@ def install(app, store, auth, task_views, task_view):
                         return
                     wait = min(remaining, max(0.0, KEEPALIVE_SECONDS - (time.monotonic() - quiet_since)))
                     if await doorbell.wait(generation, wait):
-                        await asyncio.sleep(GATHER_CHAT_SECONDS if conversations else GATHER_SECONDS)
+                        await asyncio.sleep(gathered(GATHER_CHAT_SECONDS if conversations else GATHER_SECONDS, read_at))
                         continue
                     if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
                         try:
@@ -1015,11 +1024,13 @@ def install_runner(app, store, execution):
                 # Contact is due every KEEPALIVE_SECONDS whatever is sent, so last_seen never lapses.
                 quiet_since = time.monotonic()
                 due = after is not None          # a resume catches up first
+                read_at = 0.0
                 while True:
                     if await request.is_disconnected():
                         return
                     generation = doorbell.generation
                     if due or doorbell.latest > cursor:
+                        read_at = time.monotonic()
                         try:
                             sent, next_cursor, reset, more = await asyncio.to_thread(poll, cursor)
                         except Problem:
@@ -1040,7 +1051,7 @@ def install_runner(app, store, execution):
                         return
                     wait = min(remaining, max(0.0, KEEPALIVE_SECONDS - (time.monotonic() - quiet_since)))
                     if await doorbell.wait(generation, wait):
-                        await asyncio.sleep(RUNNER_GATHER_SECONDS)
+                        await asyncio.sleep(gathered(RUNNER_GATHER_SECONDS, read_at))
                         continue
                     if time.monotonic() - quiet_since >= KEEPALIVE_SECONDS:
                         try:

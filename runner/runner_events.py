@@ -101,6 +101,7 @@ class Events:
         self.legacy_until = 0.0
         self.thread = None
         self.stop = threading.Event()
+        self.wake = threading.Event()   # set on every ask, so the runner's loop acts now, not at its next 0.25 s tick
 
     @property
     def live(self):
@@ -117,6 +118,7 @@ class Events:
     def ask(self, *channels):
         with self.lock:
             self.pending.update(channels)
+        self.wake.set()
 
     def start(self):
         self.thread = threading.Thread(target=self.run, name="runner-events", daemon=True)
