@@ -90,6 +90,13 @@ about. Only the bot that owns the task names the person, and a private task can 
 Bot tasks that were waiting on a person before this rule are moved to it within the hour when their note is a plain
 ask; the rest stay last in the person's Needs you while their bot is asked once to restate the ask.
 
+Needs you, Decide and the Assistant's lineup put work that traces back to a person first: a
+person requested the task, or it sits under a task a person requested (only tasks the viewer may
+open count). A person's own to-do does not lift itself. A bot's own work follows unless it is due
+within a day, overdue, or has waited three days (one day for an approval or a question). A card
+still waiting for its bot to explain stays last. Decide shows "From <name>" on such a card; the
+item's `from_person` and `pressing` fields carry the same facts.
+
 A bot may do this for its own task, including a task it requested itself. The blocker must exist
 and be accessible; a finished blocker does not justify waiting. An unanswered question, an open
 child task, a pending approval or a person named with `--on` can also justify waiting. Finishing a blocker clears the dependency
@@ -176,9 +183,10 @@ the requester or an authorized human accepts the result or cancels the task. Clo
 work does not mark it Done. Both statuses appear in the **Done** view; the task history keeps
 the separate completion and closing events.
 
-A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the
-task's comment box (or the note box on a Decide card) and not yet sent goes with Done as the
-outcome. Done on several selected tasks at once sends no comment: an unsent one stays in its
+A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the box
+where you press Done (the task's comment box, the note box on a Decide card or the reply box on a
+Needs you card) and not yet sent goes with Done as the outcome; a card's Done never takes one left
+in the task window. Done on several selected tasks at once sends no comment: an unsent one stays in its
 task's box. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
 comment on the next line when there is one. When a bot needs a specific answer it asks a yes/no
 or choice question instead.

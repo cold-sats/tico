@@ -230,6 +230,15 @@ def test_write_without_read_shows_only_your_own_threads_and_tasks(world):
     r = call(api, "post", "sql", "dee-test", {"sql": "SELECT count(*) FROM tasks WHERE owner='bot:counsel'"})
     assert r.json()["rows"] == [[1]]
 
+    # A subtask filed for her under a task she may not read says nothing of whose that task is.
+    child = post(api, "tasks", {"owner": "human:dee", "title": "Sign the contract", "body": "Sign it.",
+                                "relations": [{"task": others_task["id"], "kind": "parent"}]},
+                 token=post(api, "bots/counsel/agent-credential", {})["token"])
+    assert get(api, "tasks/" + child["id"], "dee-test")["task"]["from_person"] is None
+    assert [t["from_person"] for t in get(api, "tasks", "dee-test")["tasks"] if t["id"] == child["id"]] == [None]
+    assert [i["from_person"] for i in get(api, "needs-you", "dee-test")["items"] if i["id"] == child["id"]] == [None]
+    assert get(api, "tasks/" + child["id"], "cara-test")["task"]["from_person"] == "human:cara"
+
 
 # ------------------------------------------------------------------ editing it
 
