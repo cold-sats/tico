@@ -3336,7 +3336,7 @@ class Runner:
         else:
             repository_rows, assignments = None, self.assignments_seen
         # Install on demand: what this computer's bots run on, plus what the owner turned on here.
-        self.tools.want(self.harness_runtimes(assignments, fetch=full))
+        self.want_harnesses(assignments, fetch=full)
         candidates = self.readiness_candidates(assignments)
         runtimes = self.runtime_report(candidates)
         self.runtime_rows = runtimes
@@ -3783,16 +3783,21 @@ class Runner:
             return ""
         return f"{manifest.name} is installing"
 
-    def harness_runtimes(self, assignments, fetch=True):
-        """The runtimes this computer installs a harness for: each assigned bot's, and its fallback's. A computer with
-        no bots yet takes the company's default, so it can be signed in before its first bot arrives."""
+    def harness_runtimes(self, assignments):
+        """The runtimes this computer's bots run on: each assigned bot's, and its fallback's."""
         found = set()
         for row in assignments or ():
             config = row.get("config") or {}
             found |= {config.get("runtime"), (configured_fallback(config) or {}).get("runtime")}
         found.discard(None)
         found.discard("")
-        return found or ({self.default_runtime(fetch)} - {""})
+        return found
+
+    def want_harnesses(self, assignments, fetch=True):
+        """Install what this computer's bots run on. A computer with no bots yet takes the company's default, so it
+        can be signed in before its first bot arrives; the owner's "off" for it here wins over that default."""
+        runtimes = self.harness_runtimes(assignments)
+        return self.tools.want(runtimes, default=() if runtimes else {self.default_runtime(fetch)} - {""})
 
     def default_runtime(self, fetch=True):
         """The company's default runtime, from the server; the last answer when it cannot be reached or was not
