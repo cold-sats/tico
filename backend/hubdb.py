@@ -2900,12 +2900,13 @@ def _answered(conn, actor, task_id, card, told=None):
     if task_private(conn, card) and not task_private(conn, row):
         return False
     name = person_name(conn, person)
-    said = str(card.get("note") or "").strip() or {"done": "Done.", "closed": "Closed."}.get(card["status"], "Declined.")
+    said = str(card.get("note") or "").strip() or {"done": "Done.", "declined": "Declined."}.get(card["status"], "")
+    closer = "Tico" if actor == KEEPER else person_name(conn, actor)   # the keeper closes an ask that expired
     if card["status"] == "closed":
-        who = f"{name} closed the ask" if actor == person else f"{person_name(conn, actor)} closed the ask to {name}"
+        who = f"{name} closed the ask" if actor == person else f"{closer} closed the ask to {name}"
     else:
-        who = f"{name} answered" if actor == person else f"{person_name(conn, actor)} closed the ask to {name}"
-    note = f"{who}: {said}"
+        who = f"{name} answered" if actor == person else f"{closer} closed the ask to {name}"
+    note = f"{who}: {said}" if said else f"{who}."
     if card["status"] != "done":
         TR.remove_blocker(conn, KEEPER, row["id"], card["id"], keeper_note=f"answered: {card['title']}")
     if row["status"] == "waiting" and not waiting_for(conn, row):
@@ -2913,7 +2914,7 @@ def _answered(conn, actor, task_id, card, told=None):
     conn.execute("UPDATE tasks SET note=?, version=version+1 WHERE id=?", (note, row["id"]))
     _task_event(conn, row["id"], KEEPER, "note", row.get("note"), note, "")
     if row["owner"] != told or TR.parent_of(conn, card["id"]) != row["id"]:
-        _wake(conn, row, row["owner"], f"{who}: {card['title']}\n{said}", refs={"subtask": card["id"]})
+        _wake(conn, row, row["owner"], f"{who}: {card['title']}" + (f"\n{said}" if said else ""), refs={"subtask": card["id"]})
     return True
 
 
