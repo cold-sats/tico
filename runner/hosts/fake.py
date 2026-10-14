@@ -28,6 +28,7 @@ class FakeHost(Host):
         self.threads = {}                  # thread id -> {"bot", "settings"}
         self.prompts = []                  # (thread_id, text) in order
         self.steers = []                   # (thread_id, turn_id, text)
+        self.goal_turns = []               # (thread_id, objective, text) for start_goal_turn
         self.interrupts = []
         self.resumes = []                  # thread ids the runner asked us to resume
         self.forks = []
@@ -158,6 +159,11 @@ class FakeHost(Host):
         turn = self.start_turn(thread_id, "/goal clear" if action in ("pause", "clear") else "/goal " + objective,
                                effort=effort)
         return turn
+
+    def start_goal_turn(self, thread_id, objective, text, effort=None):
+        self.goal_turns.append((thread_id, objective, text))
+        self.emit("goal", thread_id, None, status="active", objective=objective, note="")
+        return self.start_turn(thread_id, text, effort=effort)
 
     def goal_met(self, thread_id, note="The condition holds."):
         self.emit("goal", thread_id, None, status="met", note=note)

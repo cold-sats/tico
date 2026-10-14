@@ -86,8 +86,9 @@ function botChatTasksRender(slug, rows) {
     }
     const button = event.target.closest('[data-bot-chat-task]');
     if (!button) return;
+    // The task's own thread, not the full task: what is said there goes to the task, and Back is the main chat again.
     const task = BOT_CHAT_TASKS.get(button.dataset.botChatTask);
-    if (task) taskModalShow(task);
+    if (task) void taskThreadShow(task);
   };
 }
 async function loadBotChatTasks(slug) {

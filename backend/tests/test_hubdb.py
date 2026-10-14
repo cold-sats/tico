@@ -532,7 +532,7 @@ class APersonsReplyAnswersWhatWasAsked(HubCase):
         second = H.task_create(self.conn, ANA, "Draft the update", "Write an update", CMO, conversation_id=room)
         question = H.task_ask(self.conn, CMO, first["id"], "Which format?")
         other = H.task_ask(self.conn, CMO, second["id"], "Which audience?")
-        self.assertEqual(first["conversation_id"], second["conversation_id"])
+        self.assertNotEqual(first["conversation_id"], second["conversation_id"], "a bot's task has its own room")
         self.assertEqual(H.unanswered_ask(self.conn, first)["id"], question["id"])
         self.assertEqual(H.unanswered_ask(self.conn, second)["id"], other["id"])
         reply = H.task_comment(self.conn, ANA, first["id"], "Markdown")

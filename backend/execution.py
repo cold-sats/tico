@@ -54,6 +54,10 @@ LANES = "task_lanes_v2"
 # on the task itself, so for it the server keeps every task, subtasks included, its own lane and session.
 ROOTS = "session_roots_v1"
 
+# A runner that advertises this runs a task's goal as the harness's native goal (chat_goals.task_goal_row):
+# it sets it in the task's session beside the turn's prompt. Any other runner is handed no task-room goal.
+TASK_GOALS = "task_goals_v1"
+
 
 def lanes_on(runner):
     return LANES in set(H._json(runner["capabilities_json"], []) or []) if runner else False
@@ -61,6 +65,10 @@ def lanes_on(runner):
 
 def roots_on(runner):
     return ROOTS in set(H._json(runner["capabilities_json"], []) or []) if runner else False
+
+
+def task_goals_on(runner):
+    return TASK_GOALS in set(H._json(runner["capabilities_json"], []) or []) if runner else False
 
 
 def session_task_id(c, bot, config, task_id, roots):
@@ -77,6 +85,49 @@ def job_lane(c, bot, config, message, conversation, lanes, roots=False):
         return sessions.MAIN_LANE
     return sessions.lane(config, bot, session_task_id(c, bot, config, H.message_task_id(message, conversation), roots),
                          conversation["id"] if conversation else None)
+
+
+# The room messages a claim hands its turn (the runner forwards only what arrived since the session last answered).
+HISTORY_PAGE = 50
+
+
+def lane_history(c, bot, config, history, conversation, lane, roots=False):
+    """The part of a room's page a turn in `lane` reads: the messages whose own lane (job_lane) is that
+    lane, so the main session never reads task traffic and a task's session never reads the main chat or
+    another task. The main chat's quiet task lines (`refs.task_started`, `refs.task_report`) are the main
+    session's: how it hears that a task started and where it got to."""
+    memo = {}
+
+    def lane_of(message):
+        refs = message.get("refs") or {}
+        if refs.get("task_report") or refs.get("task_started"):
+            return sessions.MAIN_LANE
+        task_id = H.message_task_id(message, conversation)
+        if task_id not in memo:
+            memo[task_id] = sessions.lane(config, bot, session_task_id(c, bot, config, task_id, roots),
+                                          conversation["id"] if conversation else None)
+        return memo[task_id]
+    return [message for message in history if lane_of(message) == lane]
+
+
+def task_goal(c, bot, config, task):
+    """The goal a bot's task turn carries, or None. `task_goal: on` in the bot's config gives every task it
+    owns one; a `goal:on` or `goal:off` label on the task overrides it. A person's task never has one."""
+    if not task or task.get("owner") != "bot:" + bot:
+        return None
+    labels = set(H.task_labels(task))
+    if not ("goal:on" in labels or (config or {}).get("task_goal") == "on" and "goal:off" not in labels):
+        return None
+    criteria = [str(item).strip() for item in (H._json(task.get("acceptance_json"), []) or []) if str(item).strip()]
+    objective = task["title"] + ("\nAcceptance criteria:\n" + "\n".join("- " + item for item in criteria) if criteria else "")
+    return {"objective": objective[:4000]}
+
+
+def current_task_goal(c, bot, task):
+    """task_goal with the bot's config as its turns read it (shared_bots.follow)."""
+    from .shared_bots import follow
+    found = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    return task_goal(c, bot, follow(c, bot, json.loads(found[0] or "{}")) if found else {}, task)
 
 
 def settle_status(c, bot, state, focus, began=None):
@@ -859,11 +910,15 @@ class Execution:
                 return {"attempt": None}
         conv = H.conversation(c, msg["conversation_id"])
         task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
+        if task and task["owner"] == "bot:" + row["bot"] and row["bot"] != self.store.settings.assistant_bot:
+            # A bot's task filed before task rooms moves to its own room now; this turn's message stays put.
+            # The Assistant's stay in the person's own room, where its turns act for that person.
+            task = H.give_task_room(c, task)
         from .shared_bots import follow
         followed = follow(c, row["bot"], json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
-        roots = roots_on(runner)
-        lane = job_lane(c, row["bot"], followed, msg, conv, lanes_on(runner), roots)
+        roots, lanes = roots_on(runner), lanes_on(runner)
+        lane = job_lane(c, row["bot"], followed, msg, conv, lanes, roots)
         token = secrets.token_urlsafe(32)
         until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)
         turn = H.turn_start(c, H.KEEPER, row["bot"], trigger="task" if task else msg["kind"],
@@ -882,7 +937,10 @@ class Execution:
         # hub keeps no pointer to the bot's session and rebuilds nothing on its behalf.
         epoch = c.execute("SELECT updated FROM session_epochs WHERE conversation_id=?", (conv["id"],)).fetchone()
         bot_who = Identity("bot:" + row["bot"], "bot", attempt_id=aid)
-        history = privacy.page(c, bot_who, conv["id"], limit=50, since=epoch["updated"] if epoch else None)["messages"]
+        history = privacy.page(c, bot_who, conv["id"], limit=HISTORY_PAGE * (2 if lanes else 1),
+                               since=epoch["updated"] if epoch else None)["messages"]
+        if lanes:
+            history = lane_history(c, row["bot"], followed, history, conv, lane, roots)[-HISTORY_PAGE:]
         principal = (conv.get("owner_actor") if conv.get("scope") == "personal"
                      else msg["from_actor"] if str(msg["from_actor"]).startswith("human:") else None)
         routine = None
@@ -903,6 +961,10 @@ class Execution:
                     return False
             from .task_relations import for_prompt
             task = {**task, "relations": for_prompt(c, task["id"], lambda other: bool(other) and readable(other))}
+            goal = task_goal(c, row["bot"], followed, task)
+            if goal:
+                # Worked as a goal: the runner tells the bot to keep at it until the objective holds.
+                task["goal"] = goal
             if roots:
                 # The task whose session and worktree this turn continues (H.session_root); the runner keys on it.
                 task["session_task_id"] = session_task_id(c, row["bot"], followed, task["id"], roots)
@@ -912,6 +974,17 @@ class Execution:
                     kept = root.get("checkpoint") if not root.get("checkpoint_blocked") else None
                     task.update({"checkpoint": kept, "checkpoint_at": root.get("checkpoint_at") if kept else None,
                                  "checkpoint_by": root.get("checkpoint_by") if kept else None})
+            own_room = conv and conv.get("kind") == "task" and conv.get("task_id") == task["id"]
+            from .chat_goals import clear_task_goal, task_goal_row
+            if own_room and not goal:
+                # goal:off, or the bot's task_goal turned off: the goal Tico set for the task ends.
+                clear_task_goal(c, conv)
+            if (goal and own_room and lane != sessions.MAIN_LANE and task_goals_on(runner)
+                    and task.get("session_task_id", task["id"]) == task["id"]):
+                # Its own session runs it as the harness's native goal; the runner sets it once per session.
+                native = task_goal_row(c, self.auth, conv, row["bot"], task, goal["objective"])
+                if native:
+                    task["goal"] = {**goal, "goal_id": native["id"]}
         recovery = c.execute("SELECT * FROM job_recovery WHERE job_id=? AND attempt_id=? AND decision='resume'",
                              (row['id'],row['attempt_id'])).fetchone()
         if recovery:
@@ -949,7 +1022,9 @@ class Execution:
         from .chat_goals import current
         from .subscriptions import effective
         from . import worktrees
-        return {"attempt": {"chat_goal": current(c, conv["id"]), "routine": routine, "id": aid,
+        # A runner from before task goals would treat a task room's goal as running without ever setting it.
+        chat_goal = current(c, conv["id"]) if not (conv.get("kind") == "task" and not task_goals_on(runner)) else None
+        return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
                             "profile": effective(c, row["bot"])[0],
                             "computer_label": runner["label"],
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
@@ -1158,6 +1233,10 @@ class Execution:
             from .shared_bots import follow
             followed = follow(c, attempt["bot"], json.loads(
                 c.execute("SELECT config_json FROM bot_config WHERE bot=?", (attempt["bot"],)).fetchone()[0]))
+        # A task turn whose message stayed in the chat the task moved out of (H.give_task_room) also takes
+        # follow-ups from the task's own room; the lane and privacy checks below apply to both.
+        task_room = ((H.task(c, origin_task) or {}).get("conversation_id")
+                     if origin_task and str(dict(attempt).get("lane") or "").startswith("task:") else None)
         taken = 0
         for row in c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
@@ -1165,9 +1244,9 @@ class Execution:
                              "SELECT active_message.conversation_id FROM attempts active_attempt "
                              "JOIN jobs active_job ON active_job.id=active_attempt.job_id "
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
-                             "WHERE active_attempt.id=?) OR (m.kind='ask' AND m.wait_s>0 "
+                             "WHERE active_attempt.id=?) OR m.conversation_id=? OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid",
-                             (attempt["bot"], aid)).fetchall():
+                             (attempt["bot"], aid, task_room)).fetchall():
             # Ten at a time, counted after the filters below: older work queued for other lanes must
             # never hide this lane's follow-ups.
             if taken >= 10:
@@ -1315,9 +1394,10 @@ class Execution:
                     humans = [p for p in conv.get("participants") or [] if str(p).startswith("human:")]
                     target = ((conv.get("owner_actor") if conv.get("scope") == "personal" else None)
                               or (humans[0] if humans else None) or task["requester"])
-                    # A task in the bot's chat room always delivers. A dedicated task thread
-                    # still waits until the owner has marked the work done.
-                    if conv.get("kind") == "chat":
+                    # A task in the bot's chat room always delivers, and so does one filed from a chat into
+                    # its own room (H.task_from_chat). Any other dedicated task thread waits until the owner
+                    # has marked the work done.
+                    if conv.get("kind") == "chat" or (conv.get("task_id") == task["id"] and H.task_from_chat(c, task["id"])):
                         replyable = target not in (H.KEEPER, actor)
                     else:
                         replyable = actor == task["owner"] and task["status"] == "done"

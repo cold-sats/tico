@@ -140,6 +140,20 @@ def native_objective(objective):
     return full if len(full) <= NATIVE_GOAL_LIMIT else objective
 
 
+def task_goal_pending(attempt, state, thread):
+    """Whether this task turn must set its task's goal in the session: the server handed it one
+    (backend/chat_goals.py task_goal_row) that this thread has not been given at this revision."""
+    goal, task = attempt.get("chat_goal") or {}, attempt.get("task") or {}
+    if goal.get("status") != "active" or not goal.get("id") or (task.get("goal") or {}).get("goal_id") != goal["id"]:
+        return False
+    return state.repo_rules("goal:" + str(thread)) != goal["id"] + "@" + str(goal.get("updated_at"))
+
+
+def task_goal_set(state, thread, goal):
+    """Record that `thread` holds this goal revision, so later turns on the task continue it."""
+    state.repo_rules("goal:" + str(thread), goal["id"] + "@" + str(goal.get("updated_at")))
+
+
 def tico_objective(text):
     """The person's objective back from what the harness reports."""
     if isinstance(text, str) and text.endswith(WAITING_CLAUSE):

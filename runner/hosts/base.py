@@ -148,6 +148,10 @@ class Host:
     def start_goal(self, thread_id, action, objective, effort=None):
         raise HostError("This harness does not support native goals")
 
+    def start_goal_turn(self, thread_id, objective, text, effort=None):
+        """Set `objective` as the thread's native goal and begin a turn with `text` as its input."""
+        raise HostError("This harness does not support native goals")
+
     def start_command(self, thread_id, text, effort=None):
         return self.start_turn(thread_id, text, effort=effort)
 

@@ -1436,6 +1436,7 @@ def parser():
     s.add_argument("--session", choices=("bot", "task"), help="one provider session per bot or per task")
     s.add_argument("--subtask-session", choices=("parent", "own"),
                    help="parent (default): a subtask continues its parent task's session; own: its own session")
+    s.add_argument("--task-goal", choices=("on", "off"), help="on: work each task it owns as a goal; off (default): not")
     s.add_argument("--shared", action=argparse.BooleanOptionalAction, default=None, help="allow branches")
     s.set_defaults(fn="bot update")
     s = bot.add_parser("check", help="what preflight would still refuse about that repository")

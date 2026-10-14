@@ -152,7 +152,9 @@ def guarded(c, auth, who, inner, function, columns=None):
         first_human = "(SELECT value FROM json_each(participants_json) WHERE value LIKE 'human:%' LIMIT 1)"
         participant = "1" if owner else f"EXISTS (SELECT 1 FROM json_each(participants_json) WHERE value={me})"
         conversations = (f"CASE COALESCE(scope,'direct') WHEN 'personal' THEN COALESCE(owner_actor,{first_human})={me} "
-                         f"WHEN 'shared' THEN {room_bot} IN {qlist(shared)} ELSE {participant} END")
+                         f"WHEN 'shared' THEN {room_bot} IN {qlist(shared)} ELSE {participant} END "
+                         # A task's own room is read by whoever may read the task (auth.conversation).
+                         "OR (kind='task' AND task_id IS NOT NULL)")
     tasks = auth.task_sql(c, who, delegations=inner("task_delegations"), unreadable=hidden)
     # Evaluate provenance only for candidate rows, never scan unrelated content first.
     msg_gate = function("message") + "(id,conversation_id,refs_json,in_reply_to)"

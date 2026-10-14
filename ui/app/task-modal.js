@@ -84,13 +84,16 @@ async function taskModalOpen(key, d) {
   taskModalShow(it.task, d);
 }
 // The one way a hub task opens in full: from the board, from a link, from a chat card. In the peek it opens beside the list.
-async function taskModalShow(task, d = taskModal()) {
+// `opts.thread`: just the task's own conversation, as a bot's chat opens it (taskThreadShow); Details shows the rest.
+async function taskModalShow(task, d = taskModal(), opts = {}) {
   TASK_MODAL_LOAD++;
   if (!d) d = taskModal();
   const peek = !!d.dataset.peek;
   // A fresh open starts with no file open, whether or not the last close's event has run yet.
-  if (!d.open || String(d.dataset.task) !== String(task.id)) { d.taskOpening = {}; d.askDrafts = new Map(); d.tfEl = null; d.tfOpen = null; }
-  else askDraftCapture(d);
+  if (!d.open || String(d.dataset.task) !== String(task.id)) {
+    d.taskOpening = {}; d.askDrafts = new Map(); d.tfEl = null; d.tfOpen = null;
+    d.classList.toggle('thread', !peek && !!opts.thread);     // a redraw of the same task keeps the view it had
+  } else askDraftCapture(d);
   const opening = d.taskOpening;
   taskChatStop();
   // A menu open on this task (a property picked while a save was still on its way) is never pulled away: the redraw
@@ -111,7 +114,7 @@ async function taskModalShow(task, d = taskModal()) {
   // a property that has the focus now keeps it through the redraw (over the one a save asked for)
   const onProp = d.contains(document.activeElement) ? document.activeElement.dataset.prop : '';
   if (onProp) d.focusProp = onProp;
-  d.innerHTML = hubModalHTML(task, taskItem(task), {peek});
+  d.innerHTML = hubModalHTML(task, taskItem(task), {peek, thread: d.classList.contains('thread')});
   taskModalBind(d, task);
   taskPropFocus(d);
   if (!d.open) {
@@ -126,7 +129,7 @@ async function taskModalShow(task, d = taskModal()) {
     else if (peek) { d.show(); if (was && was !== document.body && was.isConnected) was.focus({preventScroll: true}); }
     else d.showModal();
     // Opening lands on the title, not on the first header button (a focus ring on "…" read as a stray highlight).
-    if (d.open && d.matches(':modal')) $('.tmodal-title', d)?.focus({preventScroll: true});
+    if (d.open && d.matches(':modal')) $(d.classList.contains('thread') ? '.tthread-title' : '.tmodal-title', d)?.focus({preventScroll: true});
   }
   if (!peek) document.body.classList.add('task-modal-open');
   d.scrollTop = 0;
@@ -141,9 +144,10 @@ async function taskModalShow(task, d = taskModal()) {
   // the redraw keeps the focus where it was (a header button, the title, a property)
   const a = d.contains(document.activeElement) ? document.activeElement : null;
   const keep = !a ? '' : a.matches('[data-modal-close]') ? '[data-modal-close]' : a.matches('[data-task-more]') ? '[data-task-more]' : a.matches('.tmodal-title') ? '.tmodal-title'
+    : a.matches('[data-thread-back]') ? '[data-thread-back]' : a.matches('.tthread-title') ? '.tthread-title'
     : a.dataset.prop ? `[data-prop="${CSS.escape(a.dataset.prop)}"]` : '';
   askDraftCapture(d);
-  d.innerHTML = hubModalHTML(full, taskItem(full), {peek});
+  d.innerHTML = hubModalHTML(full, taskItem(full), {peek, thread: d.classList.contains('thread')});
   taskModalBind(d, full, true);
   if (keep) $(keep, d)?.focus({preventScroll: true});
   taskPropFocus(d); d.focusProp = '';
@@ -151,6 +155,15 @@ async function taskModalShow(task, d = taskModal()) {
   void taskChatLoad(task.id, d, detail);
   void tfLoad(d, task.id);
   if (typing) { const box = $('.task-chat textarea', d); box?.focus(); box?.setSelectionRange(box.value.length, box.value.length); }
+}
+// A task's own thread: the full modal showing only its header and its conversation, so what is typed there is plainly
+// said in the task (POST /v2/tasks/{id}/comments), never in the bot's main chat. Back returns to the chat.
+function taskThreadShow(task) { return taskModalShow(task, taskModal(), {thread: true}); }
+async function taskThreadOpen(id) {
+  try {
+    const data = await get('/v2/tasks/' + encodeURIComponent(id));
+    if (data?.task) await taskThreadShow(data.task);
+  } catch (error) { toast(error.message, true); }
 }
 // After a property saves, the redrawn row gets the focus back.
 function taskPropFocus(d) {
@@ -166,6 +179,9 @@ function taskModalBind(d, task, full = false) {
   taskRailPaint(d, task); taskRailBind(d, task);
   const dismiss = () => d.dataset.peek && TASKS_ST ? taskPeekClose(TASKS_ST) : d.close();
   $('[data-modal-close]', d).onclick = dismiss;
+  const back = $('[data-thread-back]', d), details = $('[data-thread-details]', d);
+  if (back) back.onclick = dismiss;
+  if (details) details.onclick = () => { d.classList.remove('thread'); void taskModalShow(d.liveTask || task, d); };
   void taskGoalTitle(d);
   // Each change goes through the dialog's queue (taskSave), one at a time, each with the latest version.
   const change = (body, then, field) => taskSaveQueued(d, String(task.id), body, then, field);
@@ -417,14 +433,28 @@ function taskCommentsRender(state, data) {
     ...(data.events || []).map(e => ({kind: 'event', ts: e.ts, ...e})),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   if (!$('form', host)) {
+    // The thread view's box is the main chat's composer: a pill, one line that grows, the send arrow, Return sends.
+    const pill = state.dialog.classList.contains('thread');
     host.innerHTML = `<h3>Comments</h3>
       <div class="task-comments" role="log" aria-live="polite"></div>
-      <form><textarea rows="3" maxlength="4000" required aria-label="Add a comment" placeholder="Add a comment…"></textarea>
-        <div class="row"><button class="primary" type="submit">Comment</button><span class="muted" data-task-chat-status role="status"></span></div></form>`;
+      ${pill ? `<form class="ask task-pill"><div class="p-pill"><textarea class="p-text" rows="1" maxlength="4000" required aria-label="Message" placeholder="Message…"></textarea>
+          <button class="p-send p-send-icon" type="submit" aria-label="Send" title="Send">${ICON_SEND}</button></div>
+          <span class="muted" data-task-chat-status role="status"></span></form>`
+      : `<form><textarea rows="3" maxlength="4000" required aria-label="Add a comment" placeholder="Add a comment…"></textarea>
+        <div class="row"><button class="primary" type="submit">Comment</button><span class="muted" data-task-chat-status role="status"></span></div></form>`}`;
     $('form', host).onsubmit = ev => { ev.preventDefault(); void taskCommentSend(state); };
     const box = $('textarea', host);
     box.value = TASK_DRAFTS.get(String(state.id)) || '';
-    box.oninput = () => { if (box.value) TASK_DRAFTS.set(String(state.id), box.value); else TASK_DRAFTS.delete(String(state.id)); };
+    const grow = () => { if (!pill) return; box.style.height = 'auto'; box.style.height = box.scrollHeight + 'px'; };
+    box.oninput = () => { grow(); if (box.value) TASK_DRAFTS.set(String(state.id), box.value); else TASK_DRAFTS.delete(String(state.id)); };
+    if (pill) {
+      if (box.value) requestAnimationFrame(grow);
+      // As in the main chat: on a computer Return sends and Shift+Return is a new line; on a phone Return is a line.
+      box.onkeydown = ev => {
+        if (ev.key !== 'Enter' || ev.isComposing) return;
+        if (ev.metaKey || ev.ctrlKey || (!ev.shiftKey && !touchKeyboard())) { ev.preventDefault(); void taskCommentSend(state); }
+      };
+    }
   }
   state.data = data;
   // `can_comment`: false for someone who may read the task but not comment on it; they get no box and no answer controls
@@ -496,11 +526,12 @@ async function taskCommentSend(state) {
   if (!text) { box.focus(); return; }
   state.sending = true;
   const button = $('button[type=submit]', form), status = $('[data-task-chat-status]', form);
-  button.disabled = box.disabled = true; button.textContent = 'Sending…'; status.textContent = '';
+  const icon = button.classList.contains('p-send-icon');
+  button.disabled = box.disabled = true; if (!icon) button.textContent = 'Sending…'; status.textContent = '';
   try {
     const data = await post(`/v2/tasks/${encodeURIComponent(state.id)}/comments`, {text});
     if (!taskChatCurrent(state)) return;
-    box.value = ''; TASK_DRAFTS.delete(String(state.id)); state.sending = false;
+    box.value = ''; box.style.height = ''; TASK_DRAFTS.delete(String(state.id)); state.sending = false;
     const thread = $('.task-comments', state.host);
     if (thread) stickScroll(thread).toBottom();      // your comment is where you look
     await taskChatRead(state);
@@ -509,7 +540,7 @@ async function taskCommentSend(state) {
     if (taskChatCurrent(state)) status.textContent = `Not saved: ${e.message}`;
   } finally {
     state.sending = false;
-    if (taskChatCurrent(state)) { button.disabled = box.disabled = false; button.textContent = 'Comment'; }
+    if (taskChatCurrent(state)) { button.disabled = box.disabled = false; if (!icon) button.textContent = 'Comment'; if (icon) box.focus(); }
   }
 }
 async function taskChatSend(state) { return taskCommentSend(state); }
@@ -556,7 +587,10 @@ function hubModalHTML(t, it, opts = {}) {
   const rights = taskPropRights(t);
   const canDone = !finished && t.status !== 'done' && !!myActor() && myActor() === t.owner;
   const canClose = t.status !== 'closed' && (rights.mover || rights.party);
-  return `<div class="tmodal-head"><span class="pill tstatus">${esc(statusWord)}</span>${blockers.length && !finished
+  // The thread view's own header pieces: back, the title in the bar, and Details (task-modal.css hides the rest).
+  const thread = !!opts.thread;
+  return `<div class="tmodal-head">${thread ? `<button class="ghost peek-btn tthread-only tthread-back" type="button" data-thread-back aria-label="Back to chat" title="Back to chat"><svg viewBox="0 0 12 12" width="14" height="14" aria-hidden="true" focusable="false"><path d="M7.5 3l-3 3 3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <span class="tthread-only tthread-title" tabindex="-1">${esc(t.title)}</span>` : ''}<span class="pill tstatus">${esc(statusWord)}</span>${blockers.length && !finished
       ? `<span class="tchip-blocked" title="Blocked by ${esc(blockers.map(b => b.title).join(', '))}">blocked</span>` : ''}
       <span class="tmodal-owner">${actorFace(t.owner, 18)}<span class="who">${esc(actorLabel(t.owner))}</span></span>
       <span class="spacer"></span>${pos ? `<span class="peek-pos tnum" title="J / K or ↑ / ↓ move to the next or previous task">${esc(pos)}</span>` : ''}
@@ -564,6 +598,7 @@ function hubModalHTML(t, it, opts = {}) {
       ${canDone ? `<button class="ghost tmodal-act" type="button" data-task-finish="done" title="Mark this task done">${PROP_ICON.check}<span>Done</span></button>` : ''}
       ${canClose ? `<button class="ghost tmodal-act" type="button" data-task-finish="close" aria-label="Close task" title="Close this task">Close</button>` : ''}
       <button class="ghost peek-btn" type="button" data-task-more aria-haspopup="menu" aria-label="More actions" title="More">${PROP_ICON.more}</button>
+      ${thread ? '<button class="ghost tmodal-act tthread-only" type="button" data-thread-details>Details</button>' : ''}
       <button class="ghost peek-btn tmodal-x" type="button" data-modal-close aria-label="Close" title="Close (Esc)">${TL_ICON.x}</button></div>
     <h2 class="tmodal-title" tabindex="-1">${esc(t.title)}</h2>
     <div class="muted tmeta">${esc(taskSourceLine(t))} · ${esc(ago(t.created))}${t.goal_id ? ` · <a href="#/goals/${encodeURIComponent(t.goal_id)}" class="task-goal" data-goal-title="${esc(t.goal_id)}">serves a goal</a>` : ''}</div>

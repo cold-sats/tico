@@ -2188,7 +2188,7 @@ class Runner:
             if stale:
                 lines.append(stale)
         if attempt.get("task"):
-            task = {k: v for k, v in attempt["task"].items() if k not in ("checkpoint", "checkpoint_at", "checkpoint_by", "checkpoint_blocked")}
+            task = {k: v for k, v in attempt["task"].items() if k not in ("checkpoint", "checkpoint_at", "checkpoint_by", "checkpoint_blocked", "goal")}
             lines.append("Assigned task:\n" + json.dumps(task, ensure_ascii=False))
             if not resumed and attempt["task"].get("checkpoint"):
                 # A fresh session has none of the task's past turns; the hub's checkpoint is where they left it.
@@ -2199,6 +2199,14 @@ class Runner:
             requester = str((attempt["task"] or {}).get("requester") or "")
             if requester:
                 lines.append(f"This task was requested by {requester}.")
+            goal = (attempt["task"].get("goal") or {}).get("objective")
+            if goal:
+                # The bot's `task_goal` setting, or the task's goal:on label (backend/execution.py task_goal).
+                lines.append("Work this task as a goal. Keep at it, turn after turn, until this holds:\n" + goal
+                             + "\nWhen it holds, mark the task done with a short summary of what you did "
+                             "(`hub task update <this task id> --status done --note ...`). If it cannot go on without a "
+                             "person, file a subtask for them under it as below; if it waits on anything else, set it "
+                             "waiting with the reason. A progress report alone is not the end of the goal.")
             lines.append("If this task is blocked on a person's approval or input, file a subtask for them under it "
                          "(`hub task create --owner <person> --parent <this task id> ...`, or `hub task question ... "
                          "--parent <this task id>` for a pick or Yes / No), not a new top-level task: when they finish it "
@@ -2272,8 +2280,9 @@ class Runner:
             # Quiet notes (hub note create): read, not answered. Bot Desk reads this block back too.
             lines.append(NOTES_HEADER + "\n" + json.dumps(attempt["notes"], ensure_ascii=False))
         from_person = str(attempt.get("message", {}).get("from_actor") or "").startswith("human:")
-        if conversation.get("kind") == "chat" and not setup and (from_person or attempt.get("task")):
-            # A task worked in a bot's chat room delivers its reply to the person there too.
+        if (conversation.get("kind") == "chat" or conversation.get("kind") == "task" and attempt.get("task")) and not setup \
+                and (from_person or attempt.get("task")):
+            # A task worked in a bot's chat room, or in its own room, delivers its reply to the person there too.
             lines.append(
                 "Plain English in chat: your reply goes to a person. Answer first, in plain words a busy "
                 "person reads in seconds, then only what they must decide or do. Leave out task IDs, commit "
@@ -2800,6 +2809,18 @@ class Runner:
                                                effort=config.get("reasoning_effort"))
                     if refs.get("command"):
                         return host.start_command(thread, prompt, effort=config.get("reasoning_effort"))
+                    task_goal = attempt.get("chat_goal") if goals.task_goal_pending(attempt, self.state, thread) else None
+                    if task_goal:
+                        # The task's goal goes into its session once, beside the task's own prompt; later turns
+                        # on the task continue it. A harness that cannot take both works it from the prompt line.
+                        try:
+                            turn_id = host.start_goal_turn(thread, goals.native_objective(task_goal["objective"]), prompt,
+                                                           effort=config.get("reasoning_effort"))
+                        except HostError as exc:
+                            log(f"Tico runner: {bot}: task goal not set natively ({exc}); the prompt carries it")
+                        else:
+                            goals.task_goal_set(self.state, thread, task_goal)
+                            return turn_id
                     return host.start_turn(thread, prompt, effort=config.get("reasoning_effort"))
                 cold = runtime == "claude" and self.claude_token_cold(bot, selected_profile)
                 if cold:
@@ -3157,7 +3178,8 @@ class Runner:
                 self._checkout = {**self._checkout, "blocked": self._update_note}
         body = {"version": RUNNER_VERSION, "platform": sys.platform,
                 "capabilities": (["task_lanes_v2"] if time.monotonic() >= getattr(self, "_task_lanes_after", 0) else [])
-                                + (["session_roots_v1"] if time.monotonic() >= getattr(self, "_session_roots_after", 0) else []),
+                                + (["session_roots_v1"] if time.monotonic() >= getattr(self, "_session_roots_after", 0) else [])
+                                + (["task_goals_v1"] if time.monotonic() >= getattr(self, "_task_goals_after", 0) else []),
                 "capacity": self.capacity, "readiness": self.readiness(candidates, checks, runtimes),
                 "mail_agent_instructions": self.mail_agent_instructions(assignments),
                 "agent_instructions": agent_instructions,
@@ -3252,6 +3274,11 @@ class Runner:
                         for state in profile.get("runtimes", {}).values():
                             state.pop("weekly", None)
                     continue  # Older servers keep receiving the existing sign-in report.
+                if exc.status == 422 and "capabilities" in detail and "task_goals_v1" in body.get("capabilities", []):
+                    # A server from before task goals never hands a task room's goal; only the new one goes.
+                    body["capabilities"].remove("task_goals_v1")
+                    self._task_goals_after = time.monotonic() + 600
+                    continue
                 if exc.status == 422 and "capabilities" in detail and "session_roots_v1" in body.get("capabilities", []):
                     # A server from before session roots never sends `session_task_id`; only the new one goes.
                     body["capabilities"].remove("session_roots_v1")

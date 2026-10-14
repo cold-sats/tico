@@ -880,7 +880,7 @@ class Heartbeat(Contract):
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=32)
     # The assignment_* values name the retired temporary assignments (#420); an older runner still sends them.
-    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1"]] = Field(default_factory=list, max_length=20)
+    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1"]] = Field(default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1123,6 +1123,8 @@ class BotDefinitionUpdate(Contract):
     session: Literal["bot", "task"] | None = None
     # Unset or `parent`: a subtask continues its parent task's session (hubdb.session_root); `own`: its own session.
     subtask_session: Literal["parent", "own"] | None = None
+    # `on`: each task the bot owns is worked as a goal (execution.task_goal); unset or `off`: not.
+    task_goal: Literal["on", "off"] | None = None
     expected_revision: int = Field(ge=1)
     # BotOps applying a person's own request: the id of that person's message to BotOps. The
     # change is checked as that person, never as BotOps (backend/app.py update_bot).

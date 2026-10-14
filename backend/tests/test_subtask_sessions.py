@@ -125,3 +125,15 @@ def test_a_person_finishing_a_subtask_wakes_the_bot_once_on_the_parent(api):
         [body] = [m["body"] for m in H.messages(c, H.task(c, parent)["conversation_id"])
                   if (m.get("refs") or {}).get("subtask") == quiet]
     assert "Approve the budget" in body and "140k" not in body
+
+
+def test_a_turn_reads_only_its_own_lane_of_the_room_and_the_main_chat_keeps_the_task_lines(api):
+    from backend import execution
+    (tid,) = tasks(api, ("bot:finance", None))
+    chat = {"id": "room", "kind": "chat"}
+    page = [{"id": "hi", "refs": {}}, {"id": "work", "refs": {"task": tid}},
+            {"id": "report", "refs": {"task": tid, "task_report": "done"}}]
+    with api.app.state.store.read() as c:
+        main = execution.lane_history(c, "finance", {}, page, chat, "main")
+        own = execution.lane_history(c, "finance", {}, page, chat, "task:" + tid)
+    assert [m["id"] for m in main] == ["hi", "report"] and [m["id"] for m in own] == ["work"]
