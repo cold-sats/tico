@@ -4414,8 +4414,29 @@ def not_yet_due(row, at):
     return bool(due and due > parse_ts(at))
 
 
+def parked_bots(conn):
+    """Bots still waiting for their first setup (backend/statuses.py). The runner gives such a bot only a
+    person's messages (execution.py claim), so work from bots and Tico stays queued until setup is done."""
+    if not _has_table(conn, "bot_config"):
+        return set()
+    from .statuses import PARKED_SQL
+    return {r[0] for r in conn.execute(f"SELECT bot FROM bot_config WHERE onboarding_state IN {PARKED_SQL}")}
+
+
+def setup_hold(conn, actor):
+    """Why work sent to `actor` does not start, when it is a bot still in setup; else None. The sender,
+    Run now and the stall check all give these words."""
+    slug = actor_id(actor)
+    if not is_bot(actor) or slug not in parked_bots(conn):
+        return None
+    name = (bot(conn, slug) or {}).get("display_name") or slug
+    return (f"{name} hasn't finished its setup, so it starts no work from bots or Tico yet: this waits until "
+            f"its owner finishes its setup in its chat (hub bot go-live {slug}).")
+
+
 def stalled_tasks(conn, at=None):
-    """Bot tasks nothing is going to move, with how long they have been quiet (minutes)."""
+    """Bot tasks nothing is going to move, with how long they have been quiet (minutes). A task whose bot is
+    still in setup carries `held`: waking it would only queue another run that never starts."""
     at = at or now()
     rows = _rows(conn.execute(
         "SELECT t.* FROM tasks t JOIN bots b ON t.owner='bot:'||b.slug WHERE b.state='active' "
@@ -4423,8 +4444,13 @@ def stalled_tasks(conn, at=None):
         (shift(at, seconds=-STALL_MINUTES * 60),)))
     if not rows:
         return []
+    parked = parked_bots(conn)
     try:
-        busy = {r[0] for r in conn.execute("SELECT DISTINCT bot FROM jobs WHERE state IN ('queued','leased','running')")}
+        # A parked bot's queued job that is not a person's message never starts: it is not busy.
+        busy = {r[0] for r in conn.execute(
+            "SELECT j.bot, max(j.state!='queued' OR coalesce(m.from_actor,'') LIKE 'human:%') FROM jobs j "
+            "LEFT JOIN messages m ON m.id=j.message_id WHERE j.state IN ('queued','leased','running') GROUP BY j.bot")
+            if r[1] or r[0] not in parked}
     except sqlite3.OperationalError:     # a local hub has no jobs table
         busy = set()
     soon = shift(at, seconds=(STALL_REPEAT_MINUTES + 5) * 60)
@@ -4448,7 +4474,7 @@ def stalled_tasks(conn, at=None):
         if TR.live_blocker(conn, row["id"], ACTIVE_STATUSES):
             continue
         quiet = int((base - parse_ts(row["updated"])).total_seconds() // 60)
-        out.append({**row, "quiet_minutes": quiet})
+        out.append({**row, "quiet_minutes": quiet, **({"held": "needs_setup"} if slug in parked else {})})
     return out
 
 
@@ -4521,20 +4547,99 @@ def _report_stuck(conn, row):
                                                  "quiet_minutes": row["quiet_minutes"]})
 
 
+def _setup_person(conn, slug):
+    """The person who finishes a bot's setup: who made it, else its operator, else the default person."""
+    row = _one(conn, "SELECT * FROM bot_config WHERE bot=?", (slug,)) if _has_table(conn, "bot_config") else None
+    made = str((row or {}).get("created_by") or "")
+    for who in (made if is_human(made) else "", human_actor((row or {}).get("operator") or ""),
+                human_actor(default_human(conn))):
+        if actor_id(who) and _actor_exists(conn, who):
+            return who
+    return None
+
+
+def _open_setup_reminder(conn, slug):
+    previous = _one(conn, "SELECT detail_json FROM events WHERE action='bot.setup_reminder' AND target=? "
+                          "ORDER BY rowid DESC LIMIT 1", (slug,))
+    found = task(conn, _json(previous["detail_json"], {}).get("task")) if previous else None
+    return found if found and found["status"] in ACTIVE_STATUSES else None
+
+
+def setup_finished(conn, slug, archived=False):
+    """A bot's setup is done (onboarding.onboarded), or the bot is archived: its reminder is done too."""
+    found = _open_setup_reminder(conn, slug)
+    if found:
+        name = (bot(conn, slug) or {}).get("display_name") or slug
+        task_update(conn, KEEPER, found["id"], status="done",
+                    note=f"{name} was archived." if archived else f"{name} finished its setup; its work starts now.")
+
+
+def _setup_reminder(conn, slug):
+    """One "Finish setting up <bot>" task per parked bot in a person's Needs you, reused while it is open."""
+    found = _open_setup_reminder(conn, slug)
+    if found:
+        return found
+    person = _setup_person(conn, slug)
+    if not person:
+        return None
+    name = (bot(conn, slug) or {}).get("display_name") or slug
+    held = _rows(conn.execute("SELECT * FROM tasks WHERE owner=? AND status IN ('open','doing') ORDER BY created",
+                              (bot_actor(slug),)))
+    # The person is shown only the tasks they may read; the rest are a count.
+    seen = [t for t in held if task_private_readable(conn, person, t)]
+    lines = "\n".join(f"- {t['title'][:120]} ({t['id']})" for t in seen[:10])
+    if len(held) > len(seen[:10]):
+        unseen = len(held) - len(seen)
+        lines += (f"\n- and {len(held) - len(seen[:10])} more"
+                  + (f" ({unseen} you can't see)" if unseen else ""))
+    reminder = task_create(conn, KEEPER, f"Finish setting up {name}: work sent to it is not starting"[:150],
+                           f"{name} hasn't finished its first setup, so tasks and messages from bots and Tico stay "
+                           f"queued and never start. Open its chat and finish its setup (hub bot go-live {slug}), or "
+                           f"move its tasks to another bot.\n\nWaiting on it:\n{lines}", person,
+                           deduplicate=False, lint=False)
+    event(conn, KEEPER, "bot.setup_reminder", slug, {"task": reminder["id"], "owner": person})
+    return reminder
+
+
+def _hold_for_setup(conn, row):
+    """A stalled task whose bot is still in setup: waking the bot would only queue another run that never
+    starts. Once per task, say why on the task, tell a bot that asked for it, and put the bot's setup in a
+    person's Needs you. Returns whether it did."""
+    if conn.execute("SELECT 1 FROM events WHERE action='task.setup_held' AND target=? LIMIT 1", (row["id"],)).fetchone():
+        return False
+    why = setup_hold(conn, row["owner"])
+    reminder = _setup_reminder(conn, actor_id(row["owner"]))
+    if not reminder:        # nobody to finish its setup yet: try again on a later sweep
+        return False
+    task_comment(conn, KEEPER, row["id"], f"Not started: {why}", wake=False)
+    asker = row["requester"]
+    if is_bot(asker) and asker != row["owner"] and actor_id(asker) not in parked_bots(conn):
+        _wake(conn, row, asker, f"Your task for {actor_id(row['owner'])} is not starting: {why} "
+                                "Move it to another bot if it can't wait.", {"setup_held": True})
+    event(conn, KEEPER, "task.setup_held", row["id"], {"bot": actor_id(row["owner"]), "reminder": reminder["id"]})
+    return True
+
+
 def wake_stalled(conn, at=None):
     """Wake the owner of each stalled task (at most once per STALL_REPEAT_MINUTES, STALL_WAKES_PER_DAY
     a day); past that, one diagnostic per stuck task. BotOps cannot be its own last resort:
-    its stalled work, or work it cannot take while unavailable, goes to a human.
+    its stalled work, or work it cannot take while unavailable, goes to a human. A bot still in setup
+    is not woken: its task says why once and its setup goes to a person (_hold_for_setup).
 
     Spot checks share the path, its events and its cap: a task with a recent session and no progress
     (spot_check_tasks) that is not stalled gets one status check per quiet stretch; a status check or a
     stall wake with still no progress SPOT_STUCK_MINUTES later reports it stuck (_report_stuck). Returns what it did."""
     at = at or now()
-    woke, escalated, checked, stuck = [], [], [], []
+    woke, escalated, checked, stuck, held = [], [], [], [], []
     stalled = {row["id"]: row for row in stalled_tasks(conn, at)}
     spots = {row["id"]: row for row in spot_check_tasks(conn, at)}
+    parked = parked_bots(conn)
     for row in [*stalled.values(), *[r for r in spots.values() if r["id"] not in stalled]]:
         with isolated(conn, "wake_stalled", row["id"]):
+            if actor_id(row["owner"]) in parked:
+                if row["id"] in stalled and _hold_for_setup(conn, row):
+                    held.append(row["id"])
+                continue
             spot, nudged = spots.get(row["id"]), None
             if spot:
                 nudged = conn.execute("SELECT min(ts) FROM events WHERE action='task.stall_wake' AND target=? AND ts>?",
@@ -4603,7 +4708,7 @@ def wake_stalled(conn, at=None):
             event(conn, KEEPER, "task.stall_wake", row["id"],
                   {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1})
             woke.append(row["id"])
-    return {"woke": woke, "escalated": escalated, "checked": checked, "stuck": stuck}
+    return {"woke": woke, "escalated": escalated, "checked": checked, "stuck": stuck, "held": held}
 
 
 @private_task_write
@@ -4621,6 +4726,8 @@ def task_run_now(conn, actor, task_id):
         refuse(conn, actor, "run-now", "only a bot's task runs; a person does it themselves")
     if row["status"] not in ACTIVE_STATUSES:
         refuse(conn, actor, "run-now", f"the task is {row['status']}; reopen it first")
+    if why := setup_hold(conn, row["owner"]):
+        raise Refused("run-now", why)       # not a refused write: nothing to count against the caller
     if row.get("next_run"):
         conn.execute("UPDATE tasks SET next_run=0, updated=? WHERE id=?", (now(), task_id))
         _task_event(conn, task_id, actor, "next_run", "1", "0", "run now")
