@@ -135,9 +135,9 @@ def harness_denies(c, settings):
                   and t.get("id") != "repo" and "own repository" not in str(t.get("detail") or "")
                   and str((t.get("scope") or {}).get("repo") or t.get("identity") or "").split("/")[-1].lower() != own]
         declared = [t for t in github if not str(t.get("id") or "").startswith("github-extra-")]
-        reads_only = bool(declared) and not any(WRITE_VERBS & set(t.get("can") or []) for t in declared)
+        reads_only = not any(WRITE_VERBS & set(t.get("can") or []) for t in declared)
         # Write on every repository ('all', write by default) says nothing about this bot; a repository a person
-        # chose for it with write does. A bot.yaml declaring GitHub read-only means its denies are intended.
+        # chose for it with write does. A bot.yaml declaring no GitHub write means its denies are intended.
         granted = [t for t in github if t in declared or mode == "chosen" or not reads_only]
         for command, verbs in GITHUB_WRITES:
             if not any(command == p or command.startswith(p + " ") for p in prefixes):
