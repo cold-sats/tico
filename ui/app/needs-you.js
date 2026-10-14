@@ -241,7 +241,7 @@ async function v2TaskAct(button, id, body) {
       ({task} = await get(`/v2/tasks/${encodeURIComponent(id)}`));
       const expected = body.version || Number(button.closest('[data-task-version]')?.dataset.taskVersion);
       if (expected && expected !== task.version) throw new Error('Task changed; refresh and review it before finishing.');
-      note = taskOutcomeNote(task, body, box);
+      note = taskOutcomeNote(task, body, box?.value);
       if (note) body = {...body, note};
     }
     if (S.me?.cloud) {
@@ -249,7 +249,7 @@ async function v2TaskAct(button, id, body) {
       body = {...body, version: body.version || displayed || task?.version || (await get(`/v2/tasks/${encodeURIComponent(id)}`)).task.version};
     }
     const saved = await post(`/v2/tasks/${encodeURIComponent(id)}`, body);
-    if (note) taskOutcomeTaken(task, box);
+    if (note && box) { box.value = ''; box.style.height = ''; }
     toast(body.close ? 'Closed' : body.status === 'open' ? 'Reopened' : `Marked ${body.status}`,
       false, body.status === 'done' ? {label: 'Undo', run: async () => {
         await post(`/v2/tasks/${encodeURIComponent(id)}`, {version: saved.task.version, status: task?.status || 'open'});
@@ -268,19 +268,19 @@ async function v2TaskAct(button, id, body) {
     return true;
   } catch (e) { toast(e.message, true); button.disabled = false; button.textContent = label; return false; }
 }
-// Finishing a bot's request is one tap: no prompt. What the person already typed for the task (its comment box, or
-// the card's reply box) goes with Done as the outcome; otherwise nothing extra is sent. Closing never takes one.
-function taskOutcomeNote(task, action, box) {
+// Finishing a bot's request is one tap: no prompt. What the person typed in the box they are looking at (the task
+// window's comment box, or the card's reply box) goes with Done as the outcome; otherwise nothing extra is sent.
+// Closing never takes one.
+function taskOutcomeNote(task, action, typed) {
   if (!task || action.close || !String(task.owner || '').startsWith('human:') ||
       !String(task.requester || '').startsWith('bot:')) return '';
-  return String(box?.value || TASK_DRAFTS.get(String(task.id)) || '').trim();
+  return String(typed || '').trim();
 }
-// The typed outcome went with Done: it is not left behind to be sent again as a comment.
-function taskOutcomeTaken(task, box) {
+// The task window's typed outcome went with Done: it is not left behind to be sent again as a comment.
+function taskOutcomeTaken(task) {
   TASK_DRAFTS.delete(String(task.id));
-  for (const el of [box, document.querySelector(`dialog[data-task="${CSS.escape(String(task.id))}"] .task-comments + form textarea`)]) {
-    if (el) { el.value = ''; el.style.height = ''; }
-  }
+  const el = document.querySelector(`dialog[data-task="${CSS.escape(String(task.id))}"] .task-comments + form textarea`);
+  if (el) { el.value = ''; el.style.height = ''; }
 }
 function v2ReplyBox(button, conversation) {
   const host = button.closest('.req-body')?.querySelector('.issue-compose');
