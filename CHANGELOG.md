@@ -29,6 +29,7 @@ All notable changes to Tico are recorded here. The format follows
   [Health Monitor](docs/health-monitor.md).
 
 ### Changed
+- **A computer that stops checking in is no longer quiet.** Ten minutes without a word while work is queued for its bots, Health's Bots waiting check turns red and Overview's Stuck line says how long it has been silent; after thirty minutes the person who enrolled it (the company owner when nobody current did) gets it in Needs you, with how to bring it back. A computer offline for a moment is still a warning that clears itself.
 - **A bot left in setup for a day shows on Overview.** A bot still `needs_setup` a day after it was added holds its
   routines' jobs and its tasks, and nobody saw it. It is now listed with the stuck bots on Overview and Health
   ("Stuck in setup for 14 days", reason `setup` in `GET /api/v2/health` `stuck`), and a person who may manage it gets
@@ -52,7 +53,6 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Changed
 - **Chat replies reach the page sooner.** The runner wakes on a stream event and posts output as it arrives, and the chat page re-reads sooner: about 0.9 s to 0.3 s from Enter to the reply on screen. A reply a turn has just saved is no longer replaced by "Runner restarted during execution".
-- **A computer that stops checking in is no longer quiet.** Ten minutes without a word while work is queued for its bots, Health's Bots waiting check turns red and Overview's Stuck line says how long it has been silent; after thirty minutes the person who enrolled it (the company owner when nobody current did) gets it in Needs you, with how to bring it back. A computer offline for a moment is still a warning that clears itself.
 - **Each computer installs only the model CLIs its bots use.** A runner used to install a harness for every provider the company enabled, on every computer. Now it installs the harness of each bot assigned to it (and of each bot's fallback), or the company default while it has no bot. The owner can turn any other one on or off per computer under **Settings > Computers > Model CLIs**; off removes the runner's own install once no turn uses it. Nothing already installed is removed on upgrade: it stays and keeps updating until the owner turns it off. Moving a bot to a computer that lacks its harness is no longer refused; the computer installs it and the check says "installing". A runner against an older server installs what its bots use and keeps what it has. See [Harnesses](docs/harnesses.md#choosing-what-a-computer-installs).
 - A bot's turn loads only the `hub` MCP server, its declared servers and its repository's `.mcp.json`: Claude Code bots on
   the operator's own login no longer get the operator's personal servers or claude.ai connectors, and Grok skips the ones it
