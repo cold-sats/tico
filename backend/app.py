@@ -2444,6 +2444,7 @@ def create_app(settings=None):
                                                    + auth.task_sql(c, who) + ") ORDER BY (rank IS NULL), rank, created",
                                                    (tid,)))]
             from .task_review import comment_rights
+            from .views import task_wait
             try:
                 comment_rights(c, auth, who, tid)
                 can_comment = True
@@ -2455,6 +2456,7 @@ def create_app(settings=None):
                     "children": children,
                     "comments": H.task_comments(c, tid, actor=privacy.actor(request.state.identity)),
                     "mover": mover(c, request.state.identity),
+                    "waiting_for": task_wait(c, tid, settings),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
     def task_create(c, who, body, lint=True, asked=None):
