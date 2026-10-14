@@ -10,10 +10,6 @@
 .ln .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
 .ln .age{color:var(--muted);font-size:var(--t-sm);white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
 .ln .pill{flex:none}
-/* inside the native Mac shell the sidebar header is the title bar: leave room for the traffic lights */
-body.native .side-head{display:flex;min-height:36px;padding-left:84px;-webkit-app-region:drag}
-body.native .side-head a,body.native .side-head button{-webkit-app-region:no-drag}
-@media (max-width:760px){body.native .side-head{padding-left:84px}}
 details.card,section.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--s4);margin-bottom:var(--s4)}
 details.card summary{cursor:pointer}
 section.card>header{display:flex;align-items:baseline;gap:var(--s3);margin-bottom:var(--s3)}
