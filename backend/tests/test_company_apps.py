@@ -72,7 +72,8 @@ def test_configuration_bakes_company_identity_and_runner_feed(tmp_path, monkeypa
     assert conf["plugins"]["updater"]["endpoints"] == ["https://runner.example.com/download/latest.json"]
     assert "pubkey" not in conf["plugins"]["updater"]  # inherits the generic app's signing key
     assert "TICO_HUB_URL=https://tico.example.com" in env_file.read_text()
-    assert "TICO_TRAY_LABEL=acm1\n" in env_file.read_text()
+    # An entry from before the menu-bar item was removed may still carry tray_label; it is ignored.
+    assert "TRAY_LABEL" not in env_file.read_text()
     output = capsys.readouterr()
     assert all("::add-mask::" + value in output.out.splitlines() for value in entry.values())
     public = "\n".join(line for line in output.out.splitlines() if not line.startswith("::add-mask::"))
@@ -96,18 +97,10 @@ def test_invalid_company_isolated_and_publishing_does_not_fetch_icon(tmp_path, m
     assert all(value not in output.out + output.err for value in ENTRY.values())
     assert main(["configure", "--publishing", "--company", key(other)]) == 1
     assert main(["configure", "--publishing", "--company", key(ENTRY)]) == 0
-    assert "TICO_TRAY_LABEL=\n" in (tmp_path / "env").read_text()
+    assert "TRAY_LABEL" not in (tmp_path / "env").read_text()
 
 
-@pytest.mark.parametrize("label", ["\u202eAB"])
-def test_invalid_tray_labels_never_escape_errors(label, monkeypatch, capsys):
-    monkeypatch.setenv("TICO_COMPANY_APPS", json.dumps([{**ENTRY, "tray_label": label}]))
-    assert main(["configure", "--company", key(ENTRY)]) == 1
-    out = capsys.readouterr()
-    assert str(label) not in out.out + out.err
-
-
-def test_local_check_keeps_company_identity_and_clears_inherited_label(tmp_path):
+def test_local_check_keeps_company_identity(tmp_path):
     import os
     from pathlib import Path
     import subprocess
@@ -129,11 +122,11 @@ def test_local_check_keeps_company_identity_and_clears_inherited_label(tmp_path)
     # Inherited BASH_ENV can restore the turn's PATH and run real cargo instead of the stub.
     env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", os.defpath),
            "HOME": str(tmp_path / "home"), "CAPTURE": str(capture),
-           "TICO_ENVIRONMENTS_DIR": str(env_dir.parent), "TICO_TRAY_LABEL": "LEAK"}
-    for args, label, slug in [(["--env", "acme"], "A1", "acme"), ([], "", "")]:
+           "TICO_ENVIRONMENTS_DIR": str(env_dir.parent)}
+    for args, slug in [(["--env", "acme"], "acme"), ([], "")]:
         result = subprocess.run(["bash", str(root / "scripts/app.sh"), *args, "check"], capture_output=True, text=True, check=True, env=env)
         values = json.loads(capture.read_text())
-        assert values["TICO_TRAY_LABEL"] == label
+        assert "TICO_TRAY_LABEL" not in values
         assert values["TICO_ENV_SLUG"] == slug
         assert values["TICO_APP_NAME"] == (ENTRY["app_name"] if slug else "Tico")
         if slug:

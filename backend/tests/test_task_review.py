@@ -276,6 +276,6 @@ def test_done_news_skips_a_bot_that_cannot_read_the_task(api):
     version = get(api, f"tasks/{child}")["task"]["version"]
     post(api, f"tasks/{child}", {"version": version, "status": "done", "note": "Sent the draft."})
     with api.app.state.store.read() as c:
-        told = {r[0] for r in c.execute("SELECT to_actor FROM messages WHERE body LIKE 'Finished:%' "
+        told = {r[0] for r in c.execute("SELECT to_actor FROM messages WHERE body LIKE '% marked this done:%' "
                                         "AND json_extract(refs_json,'$.task')=?", (child,))}
     assert "bot:inbox" in told and "bot:ops" not in told, told

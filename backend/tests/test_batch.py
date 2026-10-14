@@ -91,3 +91,16 @@ def test_a_batch_belongs_to_a_person_and_a_failed_item_does_not_stop_the_commit(
     assert done["committed"] and len(done["errors"]) == 1 and "already declined" in done["errors"][0]
     assert get(api, "batch")["batch"] is None
 
+
+
+def test_done_on_a_bots_request_needs_no_words_and_the_bot_hears_who_finished_it(api):
+    _, _, finance = setup_attempt(api, "finance")
+    chore = post(api, "tasks", {"title": "Sign the lease", "body": "Ready", "owner": "human:ana"}, token=finance["token"])
+    b = post(api, "batch", {})
+    assert b["item"]["key"] == "task:" + chore["id"]
+    post(api, f"batch/{b['id']}/respond", {"kind": "decide", "decision": "done"})
+    assert post(api, f"batch/{b['id']}/commit", {})["errors"] == []
+    assert get(api, f"tasks/{chore['id']}")["task"]["status"] == "done"
+    with api.app.state.store.read() as c:
+        told = [r["body"] for r in c.execute("SELECT body FROM messages WHERE to_actor='bot:finance'")]
+    assert "Ana marked this done: Sign the lease" in told
