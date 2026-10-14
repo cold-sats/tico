@@ -66,6 +66,18 @@ def _count(row, *keys):
     return 0
 
 
+def tool_started(kind, payload):
+    """The tool a JSONL event starts, or None. Real Muse 1.4.7 runs announce a tool call as
+    `task.lifecycle.proposed` with `event.task_kind` "tool.<name>"; `tool.*.started` is the older shape."""
+    if kind == "task.lifecycle.proposed":
+        event = payload.get("event")
+        task = event.get("task_kind") if isinstance(event, dict) else None
+        return task[5:] if isinstance(task, str) and task.startswith("tool.") and task[5:] else None
+    if kind.startswith("tool.") and kind.endswith(".started"):
+        return str(payload.get("tool_name") or payload.get("name") or payload.get("tool") or "tool")
+    return None
+
+
 def usage_of(payload):
     """(input, cached, output) from one event's own token counters, or None. Muse reports usage per
     model completion (`inputTokens`/`input_tokens`, ...); a session's `cumulative` running totals are
@@ -289,8 +301,8 @@ class MuseCodeHost(Host):
             if isinstance(text, str) and text:
                 state["streamed"] += text
                 self.emit("delta", tid, turn, text=text, delta_kind="text")
-        elif kind.startswith("tool.") and kind.endswith(".started"):
-            name = str(payload.get("tool_name") or payload.get("name") or payload.get("tool") or "tool")
+        elif tool_started(kind, payload):
+            name = tool_started(kind, payload)
             state["streamed"] = ""         # text before a tool call is progress, not the answer
             self.emit("tool", tid, turn, name=name, tool=name, phase="tool_execution_start")
         elif kind.startswith("run.terminal."):
