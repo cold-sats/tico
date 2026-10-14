@@ -1,5 +1,6 @@
 """Git used by computer maintenance has no turn credentials or repository hooks."""
 import atexit
+import hashlib
 import os
 import shutil
 import tempfile
@@ -15,6 +16,9 @@ _SETTINGS.add('SSH_AUTH_SOCK')
 _hooks = tempfile.mkdtemp(prefix='tico-empty-hooks-')
 os.chmod(_hooks, 0o555)
 atexit.register(shutil.rmtree, _hooks, ignore_errors=True)
+_trust = tempfile.mkdtemp(prefix='tico-git-trust-')
+os.chmod(_trust, 0o755)
+atexit.register(shutil.rmtree, _trust, ignore_errors=True)
 PREFIX = ['git', '--no-optional-locks', '-c', 'core.hooksPath=' + _hooks, '-c', 'core.fsmonitor=false']
 
 
@@ -32,6 +36,23 @@ def clean_environment(source=None):
 
 def prefix(path):
     return [*PREFIX, '-c', 'safe.directory=' + str(path)]
+
+
+def trusting(env, *directories):
+    """`env` with a Git global config that trusts only `directories` (`safe.directory`), for a clone or fetch from
+    a local repository another user owns: the computer's mirror, which the supervisor owns while the bot user
+    reads it. Git does not hand `-c` settings to the upload-pack it starts for a local repository, so there the
+    ownership check only sees system and global config, which a clean environment empties."""
+    lines = ''.join('\tdirectory = "' + d.replace('\\', '\\\\').replace('"', '\\"') + '"\n'
+                    for d in dict.fromkeys(str(d) for d in directories) if d and '\n' not in d)
+    path = Path(_trust) / (hashlib.sha256(lines.encode()).hexdigest()[:20] + '.gitconfig')
+    if not path.exists():
+        handle, made = tempfile.mkstemp(dir=path.parent, suffix='.tmp')     # one per call: pool threads share a pid
+        with os.fdopen(handle, 'w') as out:
+            out.write('[safe]\n' + lines)
+        os.chmod(made, 0o644)
+        os.replace(made, path)
+    return {**env, 'GIT_CONFIG_GLOBAL': str(path)}
 
 
 def machine_environment(source=None):
