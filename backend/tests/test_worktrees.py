@@ -303,6 +303,33 @@ def test_initializing_checkout_stays_pending_until_checkout_and_setup_complete(p
         assert json.loads(saved['detail_json'])['checkout_state'] == 'ready'
 
 
+def test_a_heartbeat_built_before_checkout_finished_never_moves_it_back(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+
+    def beat(**report):
+        body = {'version': '0.3.42', 'platform': 'test', 'readiness': {'schema_version': 1, 'worktrees': True},
+                'worktrees': [{'link_id': link['link_id'], 'branch': link['branch'], 'repo': 'Acme/product',
+                               **report}]}
+        response = post(api, 'runners/heartbeat', body, 'runner-test')
+        assert response.status_code == 200, response.text
+        with api.app_state.store.read() as c:
+            saved = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+        return saved['state'], json.loads(saved['detail_json'])
+
+    # Reports the computer built from the record it read before setup finished.
+    for report in ({'state': 'pending', 'checkout_state': 'queued', 'dirty_files': 0},
+                   {'state': 'pending', 'checkout_state': 'checkout_ready', 'expected_head': 'c' * 40},
+                   {'state': 'present', 'checkout_state': 'unverified'}):
+        state, detail = beat(**report)
+        assert state == 'present' and detail['checkout_state'] == 'ready'
+        assert detail['expected_head'] == 'a' * 40 and detail['setup_pending'] is False
+    state, detail = beat(state='present', checkout_state='ready', expected_head='a' * 40,
+                         checkout_target='refs/heads/tico/test', expected_base='b' * 64, dirty_files=3)
+    assert state == 'present' and detail['checkout_state'] == 'ready' and detail['dirty_files'] == 3
+
+
 def test_an_older_runner_can_still_add_a_worktree_and_finish_its_setup(prepared):
     """A 0.3.34 runner adds as the bot, reports present with only its path, then setup_pending True and False."""
     api, tid, _ = prepared
