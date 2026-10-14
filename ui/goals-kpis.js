@@ -532,8 +532,10 @@ function goalPanelDialog(state) {
     dlg.addEventListener('close', () => {
       const st = dlg._state;
       if (!st || dlg.open) return;   // the event comes late: the panel may be open again already
+      const goal = st.panel?.goal;
       st.panel = null;
-      if (st === GOALS_ST && location.hash.startsWith(GOALS + '/')) history.replaceState(null, '', GOALS);
+      // Only the address this panel set: a link followed before the event arrives names another goal and stays.
+      if (st === GOALS_ST && goal && location.hash === GOALS + '/' + encodeURIComponent(goal)) history.replaceState(null, '', GOALS);
     });
     document.body.appendChild(dlg);
   }
