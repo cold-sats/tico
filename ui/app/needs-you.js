@@ -70,8 +70,9 @@ function approvalWhere(url) {
 // The readable rows for a publish, spend or merge: the fields APPROVAL_FIELDS requires by name, then one row per other
 // key (labelled with the key; the content hash stays in the exact payload). A string or number shows as is, anything
 // else as its JSON. A row is [label, value, class, keep]; a named row with no value is left out, a `keep` row never is.
-// Null for any other kind.
-function approvalFacts(what, p) {
+// A support report (a bot's Tico bug report) shows where it goes (the host the server names in `it.support.to`), what
+// goes with it, and its whole message. Null for any other kind.
+function approvalFacts(what, p, it = {}) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const shown = v => v == null ? '' : typeof v === 'string' || typeof v === 'number' ? String(v) : JSON.stringify(v);
   const plain = v => typeof v === 'string' || typeof v === 'number';
@@ -85,6 +86,12 @@ function approvalFacts(what, p) {
   } else if (what === 'spend') {
     rows = [['Amount', shown(p.amount)], ['Account', shown(p.account)], ['For', shown(p.what)]];
     named = ['amount', 'account', 'what'];
+  } else if (what === 'support') {
+    const host = String(it?.support?.to ?? '').trim();
+    rows = [['To', host ? `Tico support (${host})` : 'Tico support'],
+      ['With it', p.include_ids === false ? 'Nothing else: only the message' : "The Tico version and this install's ID"],
+      ['Message', shown(p.message), 'approval-text', true]];
+    named = ['message', 'include_ids'];
   } else if (what === 'merge') {
     rows = [['Repository', shown(p.repo)], ['Pull request', plain(p.pr) && p.pr !== '' ? '#' + String(p.pr).replace(/^#/, '') : shown(p.pr)]];
     named = ['repo', 'pr'];
@@ -103,7 +110,7 @@ function approvalPayloadNode(it) {
   box.append(el('span', '', 'Exactly this'), main);
   const raw = el('pre', '', JSON.stringify(p, null, 2));
   if (it.what !== 'send') {
-    const rows = approvalFacts(it.what, p);
+    const rows = approvalFacts(it.what, p, it);
     if (!rows) { main.append(raw); return box; }
     const facts = el('dl', 'approval-facts');
     for (const [label, value, cls, keep] of rows) {
@@ -226,13 +233,13 @@ async function v2TaskAct(button, id, body) {
   const label = button.textContent;
   button.disabled = true; button.textContent = '…';
   try {
-    let task;
+    let task, note = '';
+    const box = button.closest('.req')?.querySelector('.issue-compose textarea');
     if (body.status === 'done' || body.close) {
       ({task} = await get(`/v2/tasks/${encodeURIComponent(id)}`));
       const expected = body.version || Number(button.closest('[data-task-version]')?.dataset.taskVersion);
       if (expected && expected !== task.version) throw new Error('Task changed; refresh and review it before finishing.');
-      const note = await taskOutcomeNote(task, body);
-      if (note === null) { button.disabled = false; button.textContent = label; return false; }
+      note = taskOutcomeNote(task, body, box);
       if (note) body = {...body, note};
     }
     if (S.me?.cloud) {
@@ -240,6 +247,7 @@ async function v2TaskAct(button, id, body) {
       body = {...body, version: body.version || displayed || task?.version || (await get(`/v2/tasks/${encodeURIComponent(id)}`)).task.version};
     }
     const saved = await post(`/v2/tasks/${encodeURIComponent(id)}`, body);
+    if (note) taskOutcomeTaken(task, box);
     toast(body.close ? 'Closed' : body.status === 'open' ? 'Reopened' : `Marked ${body.status}`,
       false, body.status === 'done' ? {label: 'Undo', run: async () => {
         await post(`/v2/tasks/${encodeURIComponent(id)}`, {version: saved.task.version, status: task?.status || 'open'});
@@ -258,33 +266,19 @@ async function v2TaskAct(button, id, body) {
     return true;
   } catch (e) { toast(e.message, true); button.disabled = false; button.textContent = label; return false; }
 }
-// Finishing a bot's request records what was decided; closing never asks for a reason.
-function taskOutcomeNote(task, action) {
+// Finishing a bot's request is one tap: no prompt. What the person already typed for the task (its comment box, or
+// the card's reply box) goes with Done as the outcome; otherwise nothing extra is sent. Closing never takes one.
+function taskOutcomeNote(task, action, box) {
   if (!task || action.close || !String(task.owner || '').startsWith('human:') ||
-      !String(task.requester || '').startsWith('bot:')) return Promise.resolve('');
-  return new Promise(resolve => {
-    const dialog = document.createElement('dialog');
-    dialog.className = 'tmodal task-outcome';
-    dialog.innerHTML = `<form class="tmodal-body">
-      <h2>Finish this request</h2>
-      ${task.title ? `<p class="task-outcome-title">${esc(task.title)}</p>` : ''}
-      <p class="muted">What did you decide or do?</p>
-      <textarea required maxlength="4000" aria-label="Result or decision" placeholder="State the result or decision explicitly."></textarea>
-      <div class="row"><button class="ghost" type="button" data-cancel>Cancel</button>
-        <button class="primary" type="submit">Mark done</button></div>
-    </form>`;
-    const finish = note => { dialog.close(); dialog.remove(); resolve(note); };
-    dialog.querySelector('[data-cancel]').onclick = () => finish(null);
-    dialog.addEventListener('cancel', ev => { ev.preventDefault(); finish(null); });
-    dialog.querySelector('form').onsubmit = ev => {
-      ev.preventDefault();
-      const note = dialog.querySelector('textarea').value.trim();
-      if (note) finish(note);
-    };
-    document.body.appendChild(dialog);
-    dialog.showModal();
-    dialog.querySelector('textarea').focus();
-  });
+      !String(task.requester || '').startsWith('bot:')) return '';
+  return String(box?.value || TASK_DRAFTS.get(String(task.id)) || '').trim();
+}
+// The typed outcome went with Done: it is not left behind to be sent again as a comment.
+function taskOutcomeTaken(task, box) {
+  TASK_DRAFTS.delete(String(task.id));
+  for (const el of [box, document.querySelector(`dialog[data-task="${CSS.escape(String(task.id))}"] .task-comments + form textarea`)]) {
+    if (el) { el.value = ''; el.style.height = ''; }
+  }
 }
 function v2ReplyBox(button, conversation) {
   const host = button.closest('.req-body')?.querySelector('.issue-compose');

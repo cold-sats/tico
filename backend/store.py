@@ -152,27 +152,6 @@ CREATE TABLE IF NOT EXISTS oidc_codes(
 CREATE TABLE IF NOT EXISTS assignments(
  bot TEXT PRIMARY KEY REFERENCES bots(slug), runner_id TEXT NOT NULL REFERENCES runners(id),
  generation INTEGER NOT NULL, updated TEXT NOT NULL, updated_by TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS assignment_branches(
- id TEXT PRIMARY KEY, source_bot TEXT NOT NULL REFERENCES bots(slug), assignment_key TEXT NOT NULL,
- generation INTEGER NOT NULL CHECK(generation>=1), bot TEXT NOT NULL UNIQUE REFERENCES bots(slug),
- task_id TEXT NOT NULL REFERENCES tasks(id), allocator TEXT NOT NULL, runner_id TEXT NOT NULL REFERENCES runners(id),
- display_name TEXT NOT NULL, phase TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
- request_hash TEXT NOT NULL, checkpoint_json TEXT NOT NULL DEFAULT '{}', receipts_json TEXT NOT NULL DEFAULT '{}',
- created TEXT NOT NULL, updated TEXT NOT NULL, archived_at TEXT,
- UNIQUE(source_bot,assignment_key,generation));
-CREATE UNIQUE INDEX IF NOT EXISTS assignment_branch_live_task ON assignment_branches(source_bot,task_id)
- WHERE phase NOT IN ('archived','cancelled');
-CREATE INDEX IF NOT EXISTS assignment_branch_source_phase ON assignment_branches(source_bot,phase,created);
-CREATE TABLE IF NOT EXISTS assignment_branch_events(
- id TEXT PRIMARY KEY, assignment_id TEXT NOT NULL REFERENCES assignment_branches(id),
- actor TEXT NOT NULL, action TEXT NOT NULL, detail_json TEXT NOT NULL DEFAULT '{}', created TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS assignment_branch_events_by_assignment ON assignment_branch_events(assignment_id,created);
-CREATE TABLE IF NOT EXISTS assignment_branch_cleanup(
- assignment_id TEXT PRIMARY KEY REFERENCES assignment_branches(id), runner_id TEXT NOT NULL REFERENCES runners(id),
- state TEXT NOT NULL CHECK(state IN ('requested','blocked','complete')), requested_by TEXT NOT NULL,
- requested TEXT NOT NULL, updated TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', completed TEXT,
- attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt>=1));
-CREATE INDEX IF NOT EXISTS assignment_branch_cleanup_pending ON assignment_branch_cleanup(runner_id,state,updated);
 CREATE TABLE IF NOT EXISTS jobs(
  id TEXT PRIMARY KEY, message_id TEXT NOT NULL UNIQUE REFERENCES messages(id),
  bot TEXT NOT NULL REFERENCES bots(slug), state TEXT NOT NULL DEFAULT 'queued',
@@ -187,8 +166,6 @@ CREATE TABLE IF NOT EXISTS attempts(
  token_hash TEXT NOT NULL UNIQUE, state TEXT NOT NULL, lease_until TEXT NOT NULL,
  created TEXT NOT NULL, started TEXT, finished TEXT, thread_id TEXT,
  result_json TEXT, final_text TEXT, last_seq INTEGER NOT NULL DEFAULT 0);
-CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt_per_bot ON attempts(bot)
- WHERE state IN ('leased','running');
 CREATE TABLE IF NOT EXISTS attempt_events(
  id INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id TEXT NOT NULL REFERENCES attempts(id),
  seq INTEGER NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created TEXT NOT NULL,
@@ -1133,6 +1110,10 @@ class Store:
                 # trigger below, so it never takes a migration number another change needs.
                 from .task_delete import ensure as ensure_task_trash
                 ensure_task_trash(c)
+                # Temporary task assignments are retired (#420): their actors are archived and off every computer,
+                # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
+                from .shared_bots import retire_assignments
+                retire_assignments(c)
                 # A service key's scope (backend/service_keys.py); every older key files tasks. Unversioned like
                 # the trash: an older release reads the table as before and never sees the column.
                 H.add_column(c, "service_keys", "scope", "TEXT NOT NULL DEFAULT 'tasks'")
@@ -1142,6 +1123,15 @@ class Store:
                 # Who asked a running turn to stop (backend/execution.py stop); the runner reads it on its next
                 # lease renewal. Unversioned like the key scope: an older release never reads the column.
                 H.add_column(c, "attempts", "stop_requested", "TEXT")
+                # An attempt's lane (clients/sessions.py lane): a task-keyed turn runs in its own lane beside
+                # the bot's other tasks, everything else in `main`. At most one active attempt per bot and lane;
+                # an existing row and an older runner's turn are `main`, so a bot without lanes stays serial.
+                # Unversioned like stop_requested; an older release must be drained before it runs again,
+                # since its per-bot index cannot be built over two active attempts.
+                H.add_column(c, "attempts", "lane", "TEXT NOT NULL DEFAULT 'main'")
+                c.execute("DROP INDEX IF EXISTS one_active_attempt_per_bot")
+                c.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt_per_lane ON attempts(bot,lane) "
+                          "WHERE state IN ('leased','running')")
                 # The change log live events are read from (backend/events.py); idempotent.
                 from .events import ensure as ensure_changes
                 ensure_changes(c)
@@ -1165,6 +1155,8 @@ class Store:
                                    ("attempts_bot_created", "attempts(bot, created)"),
                                    ("attempts_job", "attempts(job_id)"),
                                    ("attempts_runner_state", "attempts(runner_id, state)"),
+                                   # A computer asking after the tasks its session checkouts are kept for.
+                                   ("attempts_bot_lane", "attempts(bot, lane)"),
                                    ("events_action_target", "events(action, target, ts)"),
                                    # A blob's provenance (task_privacy.blob_readable), read for every
                                    # version of every file a bot's Files tab lists and for each download.
@@ -1222,6 +1214,12 @@ class Store:
                                                     (FILE_MIGRATION,)).fetchone()[0]))
                     again = [r[0] for r in c.execute("SELECT slug FROM bots") if r[0] not in done]
                     c.execute("INSERT INTO registry_metadata VALUES(?,?)", (HUB_MIGRATION, encode(again)))
+                # Every task is its own session by default now (clients/sessions.py). Older servers wrote
+                # `session: bot` into every bot as the default, so clear it once; a later explicit `bot` stays.
+                if not c.execute("SELECT 1 FROM registry_metadata WHERE key='task_session_default'").fetchone():
+                    c.execute("UPDATE bot_config SET config_json=json_remove(config_json,'$.session') "
+                              "WHERE json_valid(config_json) AND json_extract(config_json,'$.session')='bot'")
+                    c.execute("INSERT INTO registry_metadata VALUES('task_session_default','true')")
                 _docs.refresh_generated_docs(c)
                 record = c.execute("SELECT value_json FROM registry_metadata WHERE key='onboarding'").fetchone()
                 if record:

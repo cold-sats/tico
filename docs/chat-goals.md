@@ -3,7 +3,8 @@
 Pin a goal in a bot conversation to let its native harness keep working toward an outcome.
 Claude Code and Codex support chat goals when the assigned computer reports that capability.
 Older computers and other harnesses report `supported: false`. Goals belong to their own
-conversation, including a branch; the Assistant is outside this first version.
+conversation, including a branch; the Assistant is outside this first version. A bot can also
+work each of its tasks as a goal (`task_goal: on`, see [Sessions](sessions.md#task-goals)).
 
 Use `/goal <objective>` to set a goal, or `/goal edit <objective>`, `/goal pause`,
 `/goal resume` and `/goal clear`. An objective is 1–4,000 characters. Pause retains its text;

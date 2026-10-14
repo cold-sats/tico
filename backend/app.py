@@ -436,16 +436,19 @@ def create_app(settings=None):
                                                  request.state.identity.actor,
                                                  lambda tid, shared: assistant_owns(tid, request.state.identity.actor, shared),
                                                  assistant_direct(), assistant_to_bot)):
-                    # A task change, comment or link the person asked for in their own Assistant chat: the turn cites
-                    # their message and it runs as them, recorded via assistant for that message (backend/assistant.py).
+                    # A task change, comment or link, a decline or an answer the person asked for in their own Assistant
+                    # chat: the turn cites their message and it runs as them, recorded via assistant for that message
+                    # (backend/assistant.py).
                     asked = request.headers.get(botops_act.HEADER)
                     if not (asked and request.state.identity.via == "assistant" and assistant_direct()
-                            and assistant_instructed(request.method, request.url.path)):
+                            and assistant_instructed(request.method, request.url.path,
+                                                     getattr(request, "_body", b""))):
                         raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
-                                      "own. A task change, comment or link the person clearly asked for in this chat runs "
-                                      "when you cite their message (`--on-behalf-of turn`). Otherwise propose it with "
-                                      "`hub assistant propose` (or POST /api/v2/assistant/actions), several task actions on "
-                                      "one card (path /api/v2/assistant/batch); the person confirms it in "
+                                      "own. A task change, comment or link, declining an approval or answering a bot's "
+                                      "question that the person clearly asked for in this chat runs when you cite their "
+                                      "message (`--on-behalf-of turn`). Otherwise propose it with `hub assistant propose` "
+                                      "(or POST /api/v2/assistant/actions), several actions on one card (path "
+                                      "/api/v2/assistant/batch); approving is only ever a card. The person confirms it in "
                                       + settings.app_name, 403)
                     with store.read() as c:
                         delegation_reset = H.DELEGATION.set(assistant_instruction(c, request.state.identity, asked))
@@ -905,6 +908,7 @@ def create_app(settings=None):
         result = []
         for row in rows:
             value = task_view(row, pipelines=pipelines)
+            value.pop("checkpoint", None)    # up to a page of text per task; the full task view carries it
             value.update({
                 "relations": relations[row["id"]],
                 "roles": roles[row["id"]],
@@ -1036,7 +1040,8 @@ def create_app(settings=None):
             if who.attempt_id and all(p.startswith("bot:") for p in conv["participants"]):
                 c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, conv["id"]))
             auth.conversation(c, who, conv["id"])
-        if note := usage_limits.warning(c, to):
+        # A bot still in setup starts only a person's message; anyone else's waits for its setup.
+        if note := usage_limits.warning(c, to) or (None if H.is_human(who.actor) else H.setup_hold(c, to)):
             message = {**message, "warning": note}
         return message
 
@@ -2201,7 +2206,7 @@ def create_app(settings=None):
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
               number: int | None = None, updated_since: str | None = None, brief: bool = False,
               member: str | None = None, role: str | None = None, changed_after: str | None = None,
-              ids: str | None = None):
+              ids: str | None = None, snoozed: str | None = None):
         from . import task_reads as reads
         who = request.state.identity
         auth.domain(who)
@@ -2234,6 +2239,8 @@ def create_app(settings=None):
                 step_ids = [s["id"] for s in steps if step in (s["id"], s["name"])]
                 if not step_ids:
                     raise Problem("step", "No step " + step + (" in " + typ["name"] if typ else ""), 422)
+            if snoozed not in (None, "hide", "only", "all"):
+                raise Problem("snoozed", "snoozed is hide, only or all", 422)
             if number is not None and not 1 <= number <= 999_999_999:
                 raise Problem("number", "number is a task number, from 1", 422)
             since = H.parse_ts(updated_since) if updated_since else None
@@ -2258,7 +2265,10 @@ def create_app(settings=None):
             filters = dict(status=status.split(",") if status and status != "all" else None, lane=lane, label=label,
                            order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids, number=number,
                            updated_since=views.since_time(updated_since) if since else None, visible_sql=visible_sql,
-                           member=member, role=TRo.role_name(role) if role else None)
+                           member=member, role=TRo.role_name(role) if role else None,
+                           # A snoozed task is off every list until its date unless asked for by id, number or filter.
+                           snoozed=None if snoozed == "all" or (snoozed is None and (ids is not None or number is not None))
+                           else snoozed or "hide")
             if typed is not None:
                 filters["ids"] = [tid for tid in found.values() if tid]
             def brief_rows(rows):
@@ -2466,8 +2476,6 @@ def create_app(settings=None):
         from .shared_bots import route
         original = auth.target(c, who, body.owner, need="write")
         owner = auth.target(c, who, route(c, who.actor, original), need="write")
-        if auth.assignment_task_for_bot(c, owner):
-            raise Problem("assignment_scope", "A temporary assignment cannot receive another task; continue on its linked delivery task", 403)
         if privacy.private_execution(c, source):
             privacy.require_destination(c, source, owner, None, {})
             privacy.require_destination(c, source, who.actor, None, {})
@@ -2530,7 +2538,8 @@ def create_app(settings=None):
                             private=private, conversation_id=rooms.task_conversation_id(c, auth, owner, who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step,
-                            number=body.number, mover=mover(c, who) or None)
+                            number=body.number, mover=mover(c, who) or None,
+                            own_room=H.actor_id(owner) != settings.assistant_bot)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
         inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
         if H.is_human(who.actor) and (request_id or inherited_request):
@@ -2544,7 +2553,7 @@ def create_app(settings=None):
                 TRo.set_roles(c, who.actor, row["id"], body.roles, mover=mover(c, who) or None)
             except ValueError as exc:
                 raise Problem("roles", str(exc), 422)
-        note = usage_limits.warning(c, owner)
+        note = usage_limits.warning(c, owner) or H.setup_hold(c, owner)
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who),
                 **({"warning": note} if note else {}), **({"warnings": row["warnings"]} if row.get("warnings") else {})}
 
@@ -2633,6 +2642,31 @@ def create_app(settings=None):
                     auth.require_write(c, who, H.actor_id(row["owner"]))
             after, queued = H.task_run_now(c, who.actor, task_id)
             return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who), "queued": queued}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/tasks/{tid}/snooze")
+    def task_snooze(request: Request, tid: str, body: M.TaskSnooze):
+        """Snooze a task until a date: off the board, lists and Needs you, and quiet, until then
+        (backend/task_snooze.py). The requester, the owner, anyone on it by role, or a mover."""
+        def work(c):
+            from . import task_snooze as TS
+            who = request.state.identity
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
+            after = TS.snooze(c, who.actor, task_id, body.until, mover=mover(c, who))
+            return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who)}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/tasks/{tid}/unsnooze")
+    def task_unsnooze(request: Request, tid: str, body: M.Empty):
+        """End a snooze early: the task is back now and its owner bot is woken once."""
+        def work(c):
+            from . import task_snooze as TS
+            who = request.state.identity
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
+            after = TS.unsnooze(c, who.actor, task_id, mover=mover(c, who))
+            return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/ask")
@@ -2847,7 +2881,7 @@ def create_app(settings=None):
             if body.remove:
                 H.task_unlink(c, who.actor, task_id, body.remove, mover=mover(c, who))
             elif body.url:
-                H.task_link(c, who.actor, task_id, body.url, body.title, mover=mover(c, who))
+                H.task_link(c, who.actor, task_id, body.url, body.title, kind=body.kind, mover=mover(c, who))
             else:
                 raise Problem("kind", "Send a url to add or remove with a link id", 422)
             return {"links": H.task_links(c, task_id)}
@@ -2894,6 +2928,9 @@ def create_app(settings=None):
     @app.post("/api/v2/approvals")
     def approval_request(request: Request, body: M.ApprovalCreate):
         who = request.state.identity
+        if body.kind == "support":
+            from .support import require_on
+            require_on(settings)            # nothing to draft where nothing can be sent (docs/support.md)
         def work(c):
             auth.domain(who)
             if body.task_id:
@@ -2914,6 +2951,10 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             row = auth.approval(c, who, aid, decide=True)
+            if row["kind"] == "support":
+                # Sending off the install is a person's own tap: not their token or the Assistant (which may have drafted it).
+                from .support import require_person
+                require_person(who)
             privacy.require_payload(c, who, row)
             return H.approval_decide(c, who.actor, aid, body.decision, body.note)
         return mutate(request, body, work)
@@ -4476,8 +4517,6 @@ def create_app(settings=None):
     install_mail_settings(app, store, auth, mutate)
     from .shared_bots import install as install_branches
     install_branches(app, store, auth, mutate, settings_admin, execution)
-    from .assignment_branches import install as install_assignment_branches
-    install_assignment_branches(app, store, auth, mutate, settings_admin, execution)
     from .bot_copy import install as install_bot_copy
     install_bot_copy(app, store, auth, mutate, settings_admin, place_now)
     from .subscriptions import install as install_subscriptions

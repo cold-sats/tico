@@ -188,9 +188,9 @@ your message and attachments), and streams the reply back. The conversation show
 
 **A routine fires.** The server (America/Los_Angeles unless the routine says otherwise) creates one
 task for the bot with the saved instructions and version. Missed occurrences coalesce; a task still
-open from the last occurrence absorbs the next one. The runner claims it like any task. The wake,
-the note, and the bot's answer land in that bot's Chat room (the owner's room for a personal bot,
-the shared room otherwise), so the next run can read them.
+open from the last occurrence absorbs the next one. The runner claims it like any task. Like any task
+the bot owns, it gets its own room and session: the wake, the note and the bot's answer land there, and
+the bot's main chat gets one-line reports ([Sessions](sessions.md)).
 
 **The Mac is asleep.** Everything on hub.acme.example stays available and accepts work. After 60 s
 without a heartbeat the bot shows *offline* and new messages show *Saved — waiting for <computer>*.
@@ -254,13 +254,20 @@ Tico is seeded with Gemini CLI as its fallback from Antigravity, so a usage limi
 a stored `GEMINI_API_KEY` Credential granted to the bot. **None (fail)** means no hop:
 the cloud cooldown applies.
 
-**A bot's session is its own.** By default each bot has one provider thread. BotOps defaults to
-one thread per task and per chat conversation so unrelated jobs and requesters stay separate.
-Other bots can opt into that isolation with `session: task`; explicit `session: bot` keeps one
-thread. Wakes about the same task resume its thread. Sessions use the same local `bot-<slug>` checkout,
-and only that computer knows which thread
+**A bot's session is its own** ([Sessions](sessions.md)). By default every task is its own provider thread, and the bot's
+chat and other turns share one more. BotOps (and any bot set to `session: task`) also gives each
+chat conversation its own thread, so unrelated requesters stay separate; `session: bot` keeps
+everything on one thread. A subtask continues its parent task's thread when the bot owns both (`subtask_session: own` opts out). Each bot task has its own room, so the main thread reads only the main chat plus a quiet line when a task starts, is blocked, done, declined or stuck ([Tasks](tasks.md#subtasks-and-prs)). Wakes about the same task resume its thread. A task's set-up worktrees
+on that computer join its session (Claude Code's `--add-dir`), and the prompt carries each repo's
+AGENTS.md (else CLAUDE.md), labelled as rules for writing code there that never grant access;
+a link out of the worktree is refused, the whole is capped at 16 KB, and a resumed thread gets
+them again only when they change. A bot's chat and its own thread use the local
+`bot-<slug>` checkout one turn at a time; with a session per task, each task's turns run in that
+task's own worktree (`sessions/bot-<slug>/<task>`), beside the bot's other tasks. Only that
+computer knows which thread
 it is. Tico never ends a thread, never asks the bot for a checkpoint before a model or computer
-change, and never rebuilds history into a prompt: when the conversation fills the model's window
+change, and never rebuilds history into a prompt (a fresh session on a task starts from the task's last
+checkpoint, [Tasks](tasks.md#picking-work-back-up)): when the conversation fills the model's window
 the runtime compacts it, and a run carries only what the room said since the bot last answered.
 A bot that wants what was said before reads it with `hub conversation show <conversation id>`: the
 newest 200 messages, then `--before <next_before>` for each older page. Every run's prompt names the

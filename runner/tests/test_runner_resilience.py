@@ -11,7 +11,7 @@ import time
 import unittest
 
 import pytest
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -292,15 +292,36 @@ class Execution(unittest.TestCase):
         self.assertEqual(client.completion()["outcome"], "completed")
         self.assertTrue(client.completion()["text"].endswith(note))
 
+    def test_main_lane_turns_of_one_bot_wait_for_each_other(self):
+        # A bot's chat and its bot-thread turns share one checkout; only task lanes run side by side.
+        running, most, guard = [0], [0], threading.Lock()
+
+        class Counting(FakeHost):
+            def start_turn(host, thread_id, text, effort=None):
+                with guard:
+                    running[0] += 1
+                    most[0] = max(most[0], running[0])
+                time.sleep(0.2)
+                with guard:
+                    running[0] -= 1
+                return FakeHost.start_turn(host, thread_id, text, effort)
+        runner = self.runner(FakeClient())
+        runner.host_factory = lambda attempt, env: Counting(replies=["done"])
+        other = {**attempt("att-2"), "conversation": {"id": "conv-2", "scope": "shared", "kind": "chat"}}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            for future in [pool.submit(runner.execute, attempt("att-1")), pool.submit(runner.execute, other)]:
+                future.result(timeout=30)
+        self.assertEqual(most[0], 1)
+
     def test_only_a_persons_message_resets_the_goal_tries(self):
         client = FakeClient()
         runner = self.runner(client)
-        runner.goal_tries["coo"] = [goals.MAX_GOAL_TRIES - 1, "PR 888 is open"]
+        runner.goal_tries[("coo", "bot")] = [goals.MAX_GOAL_TRIES - 1, "PR 888 is open"]
         bot_wake = {**attempt("att-1"), "message": {"id": "msg-1", "body": "hourly check", "from_actor": "bot:ops"}}
         runner.execute(bot_wake)
-        self.assertEqual(runner.goal_tries["coo"][0], goals.MAX_GOAL_TRIES - 1)
+        self.assertEqual(runner.goal_tries[("coo", "bot")][0], goals.MAX_GOAL_TRIES - 1)
         runner.execute(attempt("att-2"))
-        self.assertNotIn("coo", runner.goal_tries)
+        self.assertNotIn(("coo", "bot"), runner.goal_tries)
 
     def test_a_follow_up_refused_before_a_goal_control_is_handed_back_undelivered(self):
         goal = {"id": "goal-1", "status": "active", "updated_at": "r1", "objective": "ship it"}
@@ -453,6 +474,177 @@ class Pushing(unittest.TestCase):
         self.assertEqual(self.head(self.origin, "main"), self.head(self.repo))
         self.assertTrue((self.repo / "elsewhere").exists() and (self.repo / "memory").exists())
 
+    def test_two_tasks_of_one_bot_run_at_once_in_their_own_worktrees_and_both_land(self):
+        both = threading.Barrier(2, timeout=30)
+
+        class Lane(FakeHost):
+            def start_turn(host, thread_id, text, effort=None):
+                cwd = Path(host.threads[thread_id]["settings"]["cwd"])
+                (cwd / "knowledge").mkdir(exist_ok=True)
+                (cwd / "knowledge" / (cwd.name + ".md")).write_text("learned on " + cwd.name)
+                both.wait()                 # passes only while the other task's turn is running too
+                return FakeHost.start_turn(host, thread_id, text, effort)
+
+        def task_turn(aid, task):
+            return {**attempt(aid), "config": {"runtime": "codex", "max_run_minutes": 1, "session": "task"},
+                    "task": {"id": task}, "lane": "task:" + task}
+        self.runner.host_factory = lambda attempt, env: Lane(replies=["done"])
+        self.runner.task_closed = lambda attempt: False
+        with mock.patch.dict(os.environ, self.env), ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self.runner.execute, task_turn("att-1", "t1")),
+                       pool.submit(self.runner.execute, task_turn("att-2", "t2"))]
+            for future in futures:
+                future.result(timeout=60)
+        self.assertEqual([body["outcome"] for path, body in self.client.posts if path.endswith("/complete")],
+                         ["completed", "completed"])
+        sessions = Path(self.tmp.name) / "sessions" / "bot-coo"
+        self.assertTrue((sessions / "t1" / "knowledge" / "t1.md").exists() and not (self.repo / "knowledge").exists())
+        landed = git(self.origin, "ls-tree", "-r", "--name-only", "main", env=self.env).stdout.split()
+        self.assertTrue({"knowledge/t1.md", "knowledge/t2.md"} <= set(landed))
+        messages = git(self.origin, "log", "--format=%B", "main", env=self.env).stdout
+        self.assertIn("Tico-Run: att-1", messages)
+        self.assertIn("Tico-Run: att-2", messages)
+
+    def test_a_task_worktree_keeps_an_unpushed_merge_and_stays_until_it_is_on_the_remote(self):
+        from runner import task_sessions
+        path = Path(self.tmp.name) / "sessions" / "bot-coo" / "t9"
+        with mock.patch.dict(os.environ, self.env):
+            self.assertEqual(task_sessions.ensure(self.repo, path, "t9", self.env)[1], "")
+            git(path, "checkout", "-q", "-b", "side", env=self.env)
+            (path / "notes").write_text("side")
+            git(path, "add", "notes", env=self.env)
+            git(path, "commit", "-q", "-m", "side", env=self.env)
+            git(path, "checkout", "-q", "tico-session/t9", env=self.env)
+            (path / "notes").write_text("lane")
+            git(path, "add", "notes", env=self.env)
+            git(path, "commit", "-q", "-m", "lane", env=self.env)
+            subprocess.run(["git", "-C", str(path), "merge", "-q", "side"], capture_output=True, env=self.env)
+            (path / "notes").write_text("resolved in the merge")
+            git(path, "add", "notes", env=self.env)
+            git(path, "commit", "-q", "--no-edit", env=self.env)
+            self.assertEqual(task_sessions.finish(path, "att-9", self.env), "")
+            self.assertFalse(task_sessions.remove(self.repo, path, "t9", self.env), "nothing unpushed is removed")
+            self.assertTrue(self.runner.push(path, self.env))
+            self.assertEqual(git(self.origin, "show", "main:notes", env=self.env).stdout, "resolved in the merge")
+            self.assertTrue(task_sessions.remove(self.repo, path, "t9", self.env))
+        self.assertFalse(path.exists())
+
+    def test_a_finished_tasks_worktree_waits_for_its_files_to_upload(self):
+        class Reporting(FakeHost):
+            def start_turn(host, thread_id, text, effort=None):
+                cwd = Path(host.threads[thread_id]["settings"]["cwd"])
+                (cwd / "reports").mkdir(exist_ok=True)
+                (cwd / "reports" / "summary.md").write_text("the summary")
+                git(cwd, "add", "reports", env=env)
+                git(cwd, "commit", "-q", "-m", "Summary", env=env)
+                return FakeHost.start_turn(host, thread_id, text, effort)
+        env = self.env
+        turn = {**attempt("att-1"), "config": {"runtime": "codex", "max_run_minutes": 1, "session": "task"},
+                "task": {"id": "t1"}, "lane": "task:t1"}
+        self.runner.host_factory = lambda attempt, env: Reporting(replies=["done"])
+        self.runner.task_closed = lambda attempt: True
+        path = Path(self.tmp.name) / "sessions" / "bot-coo" / "t1"
+        with mock.patch.dict(os.environ, self.env), mock.patch("runner.service.files_publish.drain"):
+            self.runner.execute(turn)       # the upload has not gone (another lane is draining)
+        self.assertTrue((path / "reports" / "summary.md").exists())
+        with self.runner.state.connect() as c:
+            c.execute("UPDATE file_outbox SET phase='done'")
+        self.runner.host_factory = lambda attempt, env: FakeHost(replies=["done"])
+        with mock.patch.dict(os.environ, self.env):
+            self.runner.execute({**turn, "id": "att-2"})
+        self.assertFalse(path.exists())
+
+    def sweep(self, statuses):
+        """One sweep of the session checkouts, the server answering `statuses` (task -> status) for bot coo."""
+        asked = []
+
+        def post(path, body=None, key=None):
+            if path == "runners/me/session-tasks":
+                asked.extend(body["sessions"])
+                return {"sessions": [{**item, "status": statuses[item["task"]]} for item in body["sessions"]
+                                     if item["task"] in statuses]}
+            return FakeClient.post(self.client, path, body, key)
+        self.runner.config["runner_id"] = "pny"
+        self.runner._sessions_swept_after = 0
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(self.client, "post", post), \
+                mock.patch("runner.service.log") as log:
+            self.runner.sweep_sessions([{"bot": "coo", "runner_id": "pny", "config": {}},
+                                        {"bot": "elsewhere", "runner_id": "other", "config": {}}])
+        return asked, [call.args[0] for call in log.call_args_list]
+
+    def test_a_finished_tasks_worktree_left_by_another_bots_turn_is_swept_between_turns(self):
+        # The reviewer's last turn ended before the owner finished the task, so no turn's end removes its copy.
+        from runner import task_sessions
+        sessions = Path(self.tmp.name) / "sessions" / "bot-coo"
+        with mock.patch.dict(os.environ, self.env):
+            for task in ("done1", "open1", "unknown1", "dirty1", "busy1"):
+                self.assertEqual(task_sessions.ensure(self.repo, sessions / task, task, self.env)[1], "")
+        (sessions / "dirty1" / "draft.md").write_text("not saved anywhere")
+        busy = self.runner.worktrees.lane_lock("coo", "task:busy1")
+        held, release = threading.Event(), threading.Event()
+
+        def turn():
+            with busy:
+                held.set()
+                release.wait(10)
+        threading.Thread(target=turn, daemon=True).start()
+        held.wait(10)
+        try:
+            asked, said = self.sweep({"done1": "closed", "open1": "doing", "dirty1": "done", "busy1": "declined"})
+        finally:
+            release.set()
+        self.assertEqual({item["task"] for item in asked}, {"done1", "open1", "unknown1", "dirty1", "busy1"})
+        self.assertFalse((sessions / "done1").exists())
+        self.assertNotIn("tico-session/done1", git(self.repo, "branch", "--list", env=self.env).stdout)
+        self.assertEqual(said, ["Tico runner: coo: task done1 is finished; removed its worktree"])
+        for kept in ("open1", "unknown1", "dirty1", "busy1"):
+            self.assertTrue((sessions / kept).exists(), kept)
+        self.assertEqual((sessions / "dirty1" / "draft.md").read_text(), "not saved anywhere")
+        asked, said = self.sweep({"done1": "closed"})
+        self.assertNotIn("done1", {item["task"] for item in asked})
+        self.assertEqual(said, [])
+
+    def test_a_finished_tasks_worktree_kept_for_an_upload_is_swept_once_the_file_has_gone(self):
+        class Reporting(FakeHost):
+            def start_turn(host, thread_id, text, effort=None):
+                cwd = Path(host.threads[thread_id]["settings"]["cwd"])
+                (cwd / "reports").mkdir(exist_ok=True)
+                (cwd / "reports" / "summary.md").write_text("the summary")
+                git(cwd, "add", "reports", env=env)
+                git(cwd, "commit", "-q", "-m", "Summary", env=env)
+                return FakeHost.start_turn(host, thread_id, text, effort)
+        env = self.env
+        turn = {**attempt("att-1"), "config": {"runtime": "codex", "max_run_minutes": 1, "session": "task"},
+                "task": {"id": "t1"}, "lane": "task:t1"}
+        self.runner.host_factory = lambda attempt, env: Reporting(replies=["done"])
+        self.runner.task_closed = lambda attempt: True
+        path = Path(self.tmp.name) / "sessions" / "bot-coo" / "t1"
+        with mock.patch.dict(os.environ, self.env), mock.patch("runner.service.files_publish.drain"):
+            self.runner.execute(turn)       # the task is done, and its file has not uploaded yet
+        self.assertTrue(path.exists())
+        self.sweep({"t1": "done"})
+        self.assertTrue((path / "reports" / "summary.md").exists(), "the upload still reads it")
+        with self.runner.state.connect() as c:
+            c.execute("UPDATE file_outbox SET phase='done'")
+        _asked, said = self.sweep({"t1": "done"})
+        self.assertFalse(path.exists())
+        self.assertEqual(said, ["Tico runner: coo: task t1 is finished; removed its worktree"])
+
+    def test_a_server_without_the_session_read_leaves_every_worktree_and_is_asked_again_later(self):
+        from runner import task_sessions
+        path = Path(self.tmp.name) / "sessions" / "bot-coo" / "t2"
+        with mock.patch.dict(os.environ, self.env):
+            self.assertEqual(task_sessions.ensure(self.repo, path, "t2", self.env)[1], "")
+        self.runner.config["runner_id"] = "pny"
+        with mock.patch.object(self.client, "post", side_effect=APIError("not_found", "Not found", 404)) as post, \
+                mock.patch("runner.service.log") as log:
+            self.runner.sweep_sessions([{"bot": "coo", "runner_id": "pny", "config": {}}])
+            self.runner.sweep_sessions([{"bot": "coo", "runner_id": "pny", "config": {}}])
+        self.assertTrue(path.exists())
+        post.assert_called_once()
+        log.assert_not_called()
+        self.assertGreater(self.runner._sessions_swept_after - time.monotonic(), service.SESSION_SWEEP_S)
+
     def test_a_branch_tracking_a_local_branch_is_not_counted_as_pushed(self):
         git(self.repo, "checkout", "-q", "-b", "draft", "--track", "main", env=self.env)
         self.commit("draft-note")
@@ -571,17 +763,31 @@ class RefusedReplies(unittest.TestCase):
                 self.assertIn(detail, completes[1]["text"])
 
 
-def test_busy_bots_follow_live_turn_processes_until_they_exit(tmp_path):
+def test_busy_lanes_follow_live_turn_processes_and_an_old_server_gets_busy_bots(tmp_path):
     client = FakeClient()
     runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": str(tmp_path)},
                     tmp_path / "state", client=client)
     future = Future()
     runner.active["att-1"] = future
     runner.attempt_bots["att-1"] = "ops"
-    # Even after a lost lease, the supervisor tracks the live worker.
+    runner.attempt_lanes["att-1"] = ("ops", "task:t1", "t1")
+    # Even after a lost lease, the supervisor tracks the live worker; the bot's other lanes stay free.
+    runner.claim_next()
+    assert client.posts == [("jobs/claim", {"next_run": True, "busy_bots": [], "busy_lanes": ["ops|task:t1"]})]
+    plain = client.post
+
+    def before_lanes(path, body=None, key=None):
+        if "busy_lanes" in (body or {}):
+            client.posts.append((path, body))
+            raise APIError("validation", "busy_lanes: Extra inputs are not permitted", 422, False)
+        return plain(path, body, key)
+    client.post = before_lanes
+    client.posts.clear()
     runner.claim_next()
     runner.claim_next()
-    assert client.posts == [("jobs/claim", {"next_run": True, "busy_bots": ["ops"]})] * 2
+    assert [body for _, body in client.posts] == [
+        {"next_run": True, "busy_bots": [], "busy_lanes": ["ops|task:t1"]},
+        {"next_run": True, "busy_bots": ["ops"]}, {"next_run": True, "busy_bots": ["ops"]}]
     future.set_result(None)
     runner.claim_next()
     assert client.posts[-1] == ("jobs/claim", {"next_run": True, "busy_bots": []})

@@ -265,6 +265,9 @@ class ClaudeHost(Host):
             servers = {**project, **servers}
         if servers:
             argv += ["--mcp-config", json.dumps({"mcpServers": servers})]
+        # The task's worktrees in other repos (runner/repo_rules.py), each one readable and writable by the session.
+        for directory in t["settings"].get("add_dirs") or []:
+            argv += ["--add-dir", directory]
         model = model_for(t["settings"].get("model"))
         if model:
             argv += ["--model", model]
@@ -298,6 +301,20 @@ class ClaudeHost(Host):
     def start_goal(self, thread_id, action, objective, effort=None):
         return self.start_turn(thread_id, "/goal clear" if action in ("pause", "clear") else "/goal " + objective,
                                effort=effort)
+
+    def start_goal_turn(self, thread_id, objective, text, effort=None):
+        """`/goal` first, as the turn's input, and the prompt written right behind it: Claude reads it as the
+        goal starts (a steer), so the goal works on the task's own prompt. Needs steering."""
+        if not getattr(self, "supports_steer", False):
+            raise HostError("this Claude Code cannot take a goal and a prompt in one turn")
+        turn = self.start_goal(thread_id, "set", objective, effort=effort)
+        try:
+            self.steer(thread_id, turn, text)
+        except SteerRefused:
+            # Written as the turn starts, so only a turn that ended at once refuses it: the goal holds, and the
+            # task's next turn brings its prompt.
+            self._log(f"claude[{self.bot}]: the task prompt missed the goal turn")
+        return turn
 
     def session_id(self, thread_id):
         return self._threads.get(thread_id, {}).get("session_id") or thread_id

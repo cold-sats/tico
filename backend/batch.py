@@ -383,10 +383,11 @@ def respond(c, actor, batch_id, kind, text="", n=None, decision=None, heard="", 
             raise Problem("decision", "Notes are not decided; instruct or skip", 422)
         if decision == "answer" and not text:
             raise Problem("decision", "An answer needs the text to send", 422)
-        if item["key"].startswith("task:") and decision in ("approve", "decline", "done", "close") and not text:
+        # Done is one tap: a note is optional. A yes, a no or a close still says why to the bot that asked.
+        if item["key"].startswith("task:") and decision in ("approve", "decline", "close") and not text:
             task = H.task(c, item["key"].split(":", 1)[1])
             if (task and H.is_human(task.get("owner")) and H.is_bot(task.get("requester"))
-                    and (decision == "done" or task["status"] not in ("done", "declined"))):
+                    and task["status"] not in ("done", "declined")):
                 raise Problem("decision", "Tell the requesting bot what you decided or completed", 422)
         response["decision"] = decision
     elif kind in ("needs_info", "instruct", "rule") and not text:
@@ -428,7 +429,14 @@ def _apply_decide(c, auth, who, item, r):
     decision, text = r["decision"], r.get("text") or ""
     kind, ident = item["key"].split(":", 1)
     if kind == "approval":
-        auth.approval(c, who, ident, decide=True)
+        row = auth.approval(c, who, ident, decide=True)
+        if row["kind"] == "support":
+            # As on the approve route: sending off the install is a person's own tap in Tico, not their token.
+            from .support import require_person
+            try:
+                require_person(who)
+            except Problem:
+                raise Problem("forbidden", "Say yes to a support report in Tico itself", 403) from None
         verdict = "approved" if decision == "approve" else "declined"
         H.approval_decide(c, who.actor, ident, verdict, note=text[:2000])
         return f"{verdict.capitalize()}: {item['title']}"

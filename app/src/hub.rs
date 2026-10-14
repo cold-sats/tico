@@ -1,6 +1,6 @@
-//! What the shell asks the hub itself: the status line and what needs a person. The web view and
-//! this client have separate cookie stores; remote builds copy only the cookies that belong to the
-//! hub into each request, so the tray shares the signed-in Cloudflare Access session without
+//! What the shell asks the hub itself: how many things need a person, for the Dock badge. The web
+//! view and this client have separate cookie stores; remote builds copy only the cookies that belong
+//! to the hub into each request, so the badge shares the signed-in Cloudflare Access session without
 //! persisting or exposing it elsewhere.
 
 use serde_json::Value;
@@ -12,26 +12,8 @@ use crate::config::Config;
 
 #[derive(Clone, Debug, Default)]
 pub struct HubStatus {
-    pub reachable: bool,
-    pub alive: bool,
     pub cloud: bool,
-    pub running: usize,
     pub needs: usize,
-    pub tick_age: Option<i64>,
-}
-
-impl HubStatus {
-    pub fn headline(&self) -> String {
-        if !self.reachable {
-            return "Hub server unreachable".into();
-        }
-        match (self.cloud, self.alive) {
-            (true, true) => "Cloud backend connected".into(),
-            (true, false) => "Cloud backend unavailable".into(),
-            (false, true) => format!("Dispatcher running · tick {}s ago", self.tick_age.unwrap_or(0)),
-            (false, false) => "Dispatcher STOPPED".into(),
-        }
-    }
 }
 
 pub struct Client {
@@ -70,13 +52,9 @@ impl Client {
     pub async fn status<R: Runtime>(&self, app: &AppHandle<R>) -> HubStatus {
         let mut status = HubStatus::default();
         if let Some(st) = self.get(app, self.config.api("status")).await {
-            status.reachable = true;
             status.cloud = st.get("cloud").and_then(Value::as_bool).unwrap_or(false);
-            status.alive = status.cloud || st.get("dispatcher_alive").and_then(Value::as_bool).unwrap_or(false);
-            status.running = st.get("active").and_then(Value::as_array).map(Vec::len).unwrap_or(0);
-            status.tick_age = st.get("tick_age_s").and_then(Value::as_i64);
         }
-        // The tray shows only the number: `count=1` answers with it instead of the full list
+        // The badge shows only the number: `count=1` answers with it instead of the full list
         // (over 100 KB every 30 s). An older hub ignores the query and sends the items.
         let needs = if status.cloud { self.config.api("v2/needs-you?count=1") } else { self.config.api("issues?needs_human=1") };
         if let Some(value) = self.get(app, needs).await {

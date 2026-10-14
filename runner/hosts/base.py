@@ -21,6 +21,7 @@ threads, starts turns, and drains events.
                   bot's secrets plus HUB_API_URL / HUB_TOKEN / HUB_BOT / HUB_EMPLOYEE / HUB_DIR /
                   HUB_WORKSPACE)
     slug    str   the bot, for logging
+    add_dirs list  the task's other worktrees the session may work in (Claude `--add-dir`; others ignore it)
 
 Events are dicts. Every event carries `kind`, `thread_id` and `turn_id` (either may be None):
 
@@ -145,6 +146,10 @@ class Host:
         raise NotImplementedError
 
     def start_goal(self, thread_id, action, objective, effort=None):
+        raise HostError("This harness does not support native goals")
+
+    def start_goal_turn(self, thread_id, objective, text, effort=None):
+        """Set `objective` as the thread's native goal and begin a turn with `text` as its input."""
         raise HostError("This harness does not support native goals")
 
     def start_command(self, thread_id, text, effort=None):

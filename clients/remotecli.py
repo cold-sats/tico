@@ -121,6 +121,13 @@ def run(args, who=None):
         return via_tool(client, args)
     if args.cmd in ("chat", "replay"):
         return via_tool(client, args)
+    if fn in ("support report", "support send"):
+        from clients import hubtools
+        key = os.environ.get("HUB_OPERATION_ID")
+        if fn == "support send":
+            return hubtools.support_send(client, {"approval": args.approval, "operation_id": key})
+        text = Path(args.file).read_text(encoding="utf-8") if args.file else args.message
+        return hubtools.support_report(client, {"message": text, "include_ids": not args.no_ids, "operation_id": key})
     if args.cmd in ("api", "computer", "credential", "support", "health") or fn == "message redact":
         return botops_tools(client, args)
     if args.cmd == "classify":
@@ -236,7 +243,7 @@ def run(args, who=None):
             "refs": args.ref or [], "operation_id": key})
     if fn == "question answer":
         return post(f"messages/{args.message_id}/answer", {"text": args.text or args.unknown,
-                    "unknown": bool(args.unknown)})
+                    "unknown": bool(args.unknown)}, delegate=getattr(args, "on_behalf_of", None) or False)
     if fn == "question ask":
         if len(args.words) < 2:
             raise APIError("usage", 'hub question ask <bot> [<bot>...] "question"')
@@ -325,7 +332,7 @@ def run(args, who=None):
             return client.get("tasks/" + ids[0])
         if sub == "run":
             return post(f"tasks/{args.id}/run-now", {})
-        if sub == "list":
+        if sub in ("list", "snooze", "unsnooze"):
             return via_tool(client, args)
         if sub == "ask":
             return post(f"tasks/{args.id}/ask", {"text": args.text})
@@ -360,7 +367,8 @@ def run(args, who=None):
         if sub == "restore":
             return post(f"tasks/{args.id}/restore", {})
         if sub == "link":
-            return post(f"tasks/{args.id}/links", {"url": args.url, "title": args.title}, delegate=asked)
+            return post(f"tasks/{args.id}/links", {"url": args.url, "title": args.title,
+                                                   **({"kind": "session"} if args.session else {})}, delegate=asked)
         if sub == "relate":
             return post(f"tasks/{args.id}/relations", {"task": args.task, "kind": args.kind, "remove": args.remove})
         if sub == "label":
@@ -516,6 +524,9 @@ def run(args, who=None):
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)
+        if sub == "decline":
+            return post("approvals/" + args.id, {"decision": "declined", "note": args.note},
+                        delegate=getattr(args, "on_behalf_of", None) or False)
         payload = json.loads(Path(args.payload_file).read_text() if args.payload_file else args.payload or "{}")
         return post("approvals", {"kind": args.kind, "payload": payload, "task_id": args.task})
     if fn.startswith("bot status"):
@@ -579,46 +590,6 @@ def bots(client, args):
     """
     from clients import catalog
     workspace = Path(os.environ.get("HUB_WORKSPACE") or "")
-    if args.fn == "bot assignment":
-        action = args.assignment_action
-        operation = os.environ.get("HUB_OPERATION_ID")
-        if action == "list":
-            return client.get(f"bots/{args.source}/assignment-branches")
-        if action == "policy":
-            return client.call("PUT", f"bots/{args.source}/assignment-branches/policy",
-                               {"enabled": args.enabled, "expected_revision": args.revision}, key=operation)
-        if action == "create":
-            return client.post(f"bots/{args.source}/assignment-branches",
-                               {"assignment_key": args.assignment_key, "generation": args.generation,
-                                "task_id": args.task, "display_name": args.display_name}, key=operation)
-        if action == "update":
-            try:
-                checkpoint = json.loads(args.checkpoint_json)
-            except json.JSONDecodeError as exc:
-                raise APIError("checkpoint", "--checkpoint-json must be a JSON object") from exc
-            if not isinstance(checkpoint, dict):
-                raise APIError("checkpoint", "--checkpoint-json must be a JSON object")
-            reviewed_learning = ""
-            if args.reviewed_learning_file:
-                try:
-                    reviewed_learning = Path(args.reviewed_learning_file).read_text(encoding="utf-8")
-                except OSError as exc:
-                    raise APIError("learning_note", f"Could not read reviewed learning file: {type(exc).__name__}") from exc
-            if reviewed_learning.strip() and not args.confirm_learning_review:
-                raise APIError("learning_review", "Review the lesson and pass --confirm-learning-review to publish it")
-            if args.confirm_learning_review and not reviewed_learning.strip():
-                raise APIError("learning_note", "--confirm-learning-review needs --reviewed-learning-file with content")
-            body = {"expected_revision": args.revision, "phase": args.phase,
-                    "display_name": args.display_name, "note": args.note, "checkpoint": checkpoint,
-                    "deployed_version": args.deployed_version, "acceptance_receipt": args.acceptance_receipt,
-                    "learning_receipt": args.learning_receipt, "evidence_receipt": args.evidence_receipt,
-                    "handoff_task_id": args.handoff_task,
-                    "reviewed_learning_note": reviewed_learning,
-                    "confirm_learning_review": args.confirm_learning_review}
-            return client.patch(f"assignment-branches/{args.assignment}", body, key=operation)
-        if action == "cleanup":
-            return client.post(f"assignment-branches/{args.assignment}/cleanup",
-                               {"expected_revision": args.revision}, key=operation)
     if args.fn == "template list":
         try:
             # The server's cards carry the instructions onboarding filled in; a server without
@@ -645,7 +616,9 @@ def bots(client, args):
         from clients import hubtools
         fields = {k: v for k, v in (("slug", args.slug), ("reports_to", args.reports_to), ("display_name", args.display_name),
                                     ("description", args.description), ("status", args.status), ("repo", args.repo),
-                                    ("on_behalf_of", args.on_behalf_of), ("shared", args.shared), ("session", args.session)) if v is not None}
+                                    ("on_behalf_of", args.on_behalf_of), ("shared", args.shared), ("session", args.session),
+                                    ("subtask_session", getattr(args, "subtask_session", None)),
+                                    ("task_goal", getattr(args, "task_goal", None))) if v is not None}
         try:
             return hubtools.BY_NAME["hub_bot_update"]["fn"](client, fields)
         except ValueError as exc:

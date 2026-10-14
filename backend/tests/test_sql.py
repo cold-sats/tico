@@ -114,9 +114,10 @@ def test_owner_sees_everything_but_other_peoples_rooms(api, world):
     assert "Ben private context." not in bodies
     personal = column(api, "SELECT id FROM conversations WHERE scope='personal'")
     assert world["ana_room"] in personal and world["steven_room"] not in personal
-    assert world["coo_task"]["conversation_id"] == world["ana_room"]
-    assert world["private"]["conversation_id"] in personal
-    assert world["finance_task"]["conversation_id"] in personal
+    # A bot's task has its own room; the chat it came from has a "Started task" line.
+    rooms = column(api, "SELECT id FROM conversations WHERE kind='task'")
+    assert all(world[k]["conversation_id"] in rooms for k in ("private", "coo_task", "finance_task"))
+    assert "Started task: Summarize the week" in bodies
     assert column(api, "SELECT id FROM attempts") == [world["attempt"]["id"]]
     assert column(api, "SELECT id FROM turns") == [world["attempt"]["id"]]
     with api.app.state.store.read() as c:
@@ -124,7 +125,7 @@ def test_owner_sees_everything_but_other_peoples_rooms(api, world):
     # Every queued job but the one Ben's private room raised.
     assert jobs == 5 and len(column(api, "SELECT id FROM jobs")) == 4
     # Clone and subscription profile reports have per-computer keys; the rest are fixed.
-    assert column(api, "SELECT key FROM registry_metadata WHERE key NOT LIKE 'computer-repositories:%' AND key NOT LIKE 'computer-profiles:%'") == ["access", "access_bot_limit", "bot_access", "credential-file-migration-v1", "credential-file-migration-v2-hub", "docs_migrated", "librarian_wording35", "librarian_wording36", "message_links.ready", "onboarding", "owner", "people", "release-history", "repositories-access-migrated", "usage-count"]
+    assert column(api, "SELECT key FROM registry_metadata WHERE key NOT LIKE 'computer-repositories:%' AND key NOT LIKE 'computer-profiles:%'") == ["access", "access_bot_limit", "bot_access", "credential-file-migration-v1", "credential-file-migration-v2-hub", "docs_migrated", "librarian_wording35", "librarian_wording36", "message_links.ready", "onboarding", "owner", "people", "release-history", "repositories-access-migrated", "task_session_default", "usage-count"]
 
 
 def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, world):
@@ -135,8 +136,11 @@ def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, worl
     assert "inbox" not in column(api, "SELECT slug FROM bots", ben)
     assert column(api, "SELECT bot FROM bot_status", ben) == sorted(
         b for b in column(api, "SELECT bot FROM bot_status") if b != "inbox")
-    assert column(api, "SELECT body FROM messages", ben) == ["Ben private context."]
-    assert column(api, "SELECT id FROM conversations", ben) == [world["steven_room"]]
+    # Their own room, and the own rooms of the public tasks; not Ana's room or its "Started task" line.
+    assert column(api, "SELECT body FROM messages", ben) == ["Ben private context.", "New task from human:ana: Close the books",
+                                                             "New task from human:ana: Summarize the week"]
+    assert column(api, "SELECT id FROM conversations", ben) == sorted(
+        [world["steven_room"], world["coo_task"]["conversation_id"], world["finance_task"]["conversation_id"]])
     assert column(api, "SELECT id FROM attempts", ben) == []
     assert column(api, f"SELECT task_id FROM task_events WHERE task_id='{world['private']['id']}'", ben) == []
     assert column(api, f"SELECT task_id FROM task_events WHERE task_id='{world['coo_task']['id']}'", ben)
@@ -146,14 +150,17 @@ def test_a_bot_reads_ordinary_tasks_but_only_its_granted_rooms_and_no_private_da
     token = world["attempt"]["token"]
     assert query(api, "SELECT 1", token)["rows"] == [[1]]
     bodies = column(api, "SELECT body FROM messages", token)
-    assert bodies == ["Ana private context.", "New task from human:ana: Summarize the week"]
-    assert column(api, "SELECT id FROM conversations", token) == [world["ana_room"]]
+    # Its granted room, and the own rooms of the ordinary tasks it may read.
+    assert bodies == ["Ana private context.", "New task from human:ana: Close the books",
+                      "New task from human:ana: Summarize the week", "Started task: Summarize the week"]
+    assert column(api, "SELECT id FROM conversations", token) == sorted(
+        [world["ana_room"], world["coo_task"]["conversation_id"], world["finance_task"]["conversation_id"]])
     assert column(api, "SELECT id FROM tasks", token) == sorted([world["coo_task"]["id"], world["finance_task"]["id"]])
     assert "inbox" not in column(api, "SELECT slug FROM bots", token)
     assert column(api, "SELECT id FROM attempts", token) == [world["attempt"]["id"]]
-    # Its running job and the queued one behind its own task; nothing of another bot's.
+    # Its running job, the queued one behind its own task, and the one behind a public task it may read.
     jobs = query(api, "SELECT id, bot FROM jobs", token)["rows"]
-    assert len(jobs) == 2 and [world["attempt"]["job_id"], "ops"] in jobs and {row[1] for row in jobs} == {"ops"}
+    assert len(jobs) == 3 and [world["attempt"]["job_id"], "ops"] in jobs and {row[1] for row in jobs} == {"ops", "finance"}
     assert column(api, "SELECT key FROM registry_metadata", token) == []
     assert column(api, "SELECT DISTINCT actor FROM events", token) in ([], ["bot:ops"])
     # Delegations do not widen the already readable ordinary task set or the hidden bot's activity.
@@ -225,10 +232,6 @@ def test_materialized_visibility_matches_the_predicate_and_never_survives_a_requ
         c.execute("INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)",
                   ('tree-1', 'human:cara', 'human:ana', c.execute('SELECT id FROM messages LIMIT 1').fetchone()[0],
                    H.shift(H.now(), seconds=3600)))
-        c.execute("INSERT INTO assignment_branches(id,source_bot,assignment_key,generation,bot,task_id,allocator,runner_id,"
-                  "display_name,phase,request_hash,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                  ('synthetic-assignment', 'ops', 'fixture', 1, 'doc-updater', 'tree-0', 'human:ana',
-                   world['machine']['runner_id'], 'Synthetic branch', 'working', 'fixture', H.now(), H.now()))
     callers = [Identity('human:ana', 'owner'), Identity('human:ben', 'human'),
                Identity('human:cara', 'human'), Identity('bot:ops', 'bot'), Identity('bot:doc-updater', 'bot'),
                replace(Identity('human:ana', 'owner'), task_actor='bot:ops')]

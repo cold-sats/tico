@@ -27,6 +27,7 @@ class Scheduler:
         self.store, self.execution = store, execution
         self.swept = None
         self.stranded = None
+        self.still_wanted = None
         self.stall_checked = None
         self.goals_checked = None
         self.go_lives_checked = None
@@ -108,6 +109,9 @@ class Scheduler:
             from .task_loops import flag as flag_task_loops
             with isolated(c, "task_loops", "all", failures):
                 flag_task_loops(c)
+            # Snoozes whose date came: back on every list, and one notice to the owner bot (backend/task_snooze.py).
+            from . import task_snooze
+            task_snooze.wake_ended(c, stamp(at), failures)
             for row in H.tasks_due_for_bots(c, stamp(at + timedelta(days=1))[:10]):
                 with isolated(c, "reminder", row["id"], failures):
                     due = H.parse_ts(row.get("due"))
@@ -184,9 +188,18 @@ class Scheduler:
             self.stall_checked = at
             with self.store.transaction() as c:
                 H.wake_stalled(c, stamp(at))
-        if self.stranded is None or at - self.stranded >= timedelta(days=1):
-            # Once a day: bot tasks parked as waiting with nothing left to wait on.
+        if self.stranded is None or at - self.stranded >= timedelta(hours=1):
+            # Every hour: bot tasks parked as waiting with nothing left to wait on.
             self.stranded = at
             with self.store.transaction() as c:
                 H.sweep_stranded(c, stamp(at))
+        if self.still_wanted is None or at - self.still_wanted >= timedelta(days=1):
+            self.still_wanted = at
+            # Once a day: a task idle for a week gets one "Still wanted?" to its person (backend/still_wanted.py).
+            try:
+                from . import still_wanted
+                with self.store.transaction() as c:
+                    still_wanted.ask_idle(c, stamp(at))
+            except Exception as exc:
+                failures.append({"still_wanted": type(exc).__name__})
         return {"fired": fired, "failures": failures}

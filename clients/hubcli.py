@@ -17,13 +17,14 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            first; has_more says there is an older page, --before
                                            its next_before reads it. The run's prompt names it
     hub question ask <bot> [<bot>...] "<question>" --wait 60
-    hub question answer <message-id> "<text>" [--unknown "needs X"]
+    hub question answer <message-id> "<text>" [--unknown "needs X"] [--on-behalf-of turn]
     hub note create <bot> "<text>" [--text-file f]  a quiet note: wakes nobody; the bot's next run reads it
     hub note list [--to me|X] [--from me|X] [--since 24h|ISO] [--waiting]   notes, newest first
     hub note delete <id>                   take back a note no run has carried yet
     hub task create --owner <bot|human> --title "..." [--body "..."|--body-file f] [--due D] [--parent ID]
                     [--goal ID] [--dry-run] the checks a create would fail, nothing written
                     [--next-run]           for a bot: no wake; its next run carries the task
+                                           blocked on a person? --owner <person> --parent <your task>
     hub task ask <id> "<question>"
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
                                            one decision as its own task, waiting on them; none for Yes / No
@@ -37,6 +38,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--title "..."]        rename it: checked as a new task's title would be
                     [--on PERSON]          with --status waiting: the person it waits on (their Needs you)
     hub task close <id> [--note "..."]
+    hub task snooze <id> --until DATE      set it aside until DATE: off the lists and quiet until then
+    hub task unsnooze <id>                 bring a snoozed task back now
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
     hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done] [--member me|X [--role R]]
@@ -72,8 +75,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            Assistant only: ask the person to confirm a side effect (an
                                            approval, anything outside the company, spend, settings,
                                            archive/delete, activating a bot); it runs only on their click.
-                                           Several task actions: ONE card, --path /api/v2/assistant/batch
+                                           Several actions: ONE card, --path /api/v2/assistant/batch
                                            --body '{"actions": [{"path": "/api/v2/tasks/<id>", "body": {...}}, ...]}'
+                                           (task actions, approval decisions, answers to bots' questions)
     hub replay show [--from ISO] [--to ISO] [--bot B|--person P|--team T]
                                            what happened in a window (default the last 24 hours), as you may see it
     hub goal list [--owner me|X] [--all]   what you are for: your goals in order, the chain above
@@ -114,10 +118,12 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            a change you may not make yourself, for the owner to confirm
     hub proposal list [--status pending|confirmed|rejected|all] [--goal ID] [--kpi ID]
     hub proposal decide <id> confirm|reject [--note "..."]   a person's own decision; a bot is refused
-    hub approval request --kind send|spend|publish|merge --payload-file f.json [--task ID]
+    hub approval request --kind send|spend|publish|merge|support --payload-file f.json [--task ID]
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
     hub approval show <id>
+    hub approval decline <id> [--note "why"] [--on-behalf-of turn]
+                                           a person declines one addressed to them (the Assistant: when they asked)
     hub listening save --file run.json     Listening: one sweep and the posts it saw (status ok|blocked|
                                            rate_limited|error; a post already saved is kept as it was)
     hub listening decide [--limit 20] [--item ID]
@@ -266,6 +272,11 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub slack channel remove <channel> [--reader BOT]   take the channel off the list, or only that reader off it
     hub slack channel import               store the channels of the old registry/slack-channels.yaml, once
     hub support file "<message>"           tell the Tico team about a gap or fault (a Confirm card first)
+    hub support report --message "..." | --file report.md [--no-ids]
+                                           draft a Tico bug report for the Tico team; a person approves it in Needs
+                                           you (the version and install ID go with it unless --no-ids). Prints its id
+    hub support send --approval <id>       send the report once a person approved it, filed as them; again is the
+                                           same ticket, never a second one
     hub service-key create --label "Billing backend"
                                            the owner or an admin: a key another system uses to file, update and close
                                            tasks (POST /api/v2/inbound/tasks, docs/service-keys.md); shown once
@@ -304,7 +315,7 @@ if __package__ in (None, ""):                          # run as a script: python
 # Mirrors of the server's vocabulary (backend/hubdb.py), so a typo is refused by the parser
 # before a request is made. The server is the authority when they disagree.
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
-APPROVAL_KINDS = ("send", "spend", "publish", "merge")
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # set by hand; gray is only ever automatic
 # The Assistant, acting on a task the person asked it to in their own Assistant chat (backend/assistant.py `instruction`).
 ASKED = ("Assistant: the person asked for exactly this in their own Assistant chat: `turn` (their message that started "
@@ -549,6 +560,7 @@ def parser():
     s.add_argument("message_id")
     s.add_argument("text", nargs="?", default="")
     s.add_argument("--unknown")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="question answer")
 
     note = sub.add_parser("note", help="a quiet note for a bot: no run now, its next run reads it").add_subparsers(dest="sub")
@@ -811,10 +823,12 @@ def parser():
     s = task.add_parser("restore", help="put a deleted task back: whoever deleted it, its requester or a mover")
     s.add_argument("id")
     s.set_defaults(fn="task restore")
-    s = task.add_parser("link", help="attach a link: the pull request you opened, an issue, a document")
+    s = task.add_parser("link", help="attach a link: the pull request you opened, an issue, a document, a session")
     s.add_argument("id")
-    s.add_argument("url")
+    s.add_argument("url", help="the URL; with --session also a resume command or a reference")
     s.add_argument("--title")
+    s.add_argument("--session", action="store_true",
+                   help="another session working this task, tracked only: task chat goes to the owning bot")
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="task link")
     s = task.add_parser("relate", help="relate another task to this one: <id> <kind> <task>")
@@ -867,6 +881,8 @@ def parser():
     s.add_argument("--stuck", action="store_true",
                    help="only open work untouched for --hours that waits on nobody (BotOps's sweep)")
     s.add_argument("--hours", type=int, default=24, help="with --stuck: untouched for at least this many hours")
+    s.add_argument("--snoozed", choices=["only", "all"],
+                   help="snoozed tasks are left out: only lists just them, all lists them with the rest")
     s.set_defaults(fn="task list")
     s = task.add_parser("show", help="one task with its history and conversation; several ids: their fields in one read")
     s.add_argument("id", nargs="+")
@@ -874,6 +890,15 @@ def parser():
     s = task.add_parser("run", help="start a bot's task now, as the task")
     s.add_argument("id")
     s.set_defaults(fn="task run")
+    s = task.add_parser("snooze", help="set a task aside until a date: off the lists, Needs you and stall wakes "
+                        "until then, when its owner bot is woken once")
+    s.add_argument("id")
+    s.add_argument("--until", required=True,
+                   help="ISO-8601 date (the start of that day, Pacific) or date-time with a zone")
+    s.set_defaults(fn="task snooze")
+    s = task.add_parser("unsnooze", help="bring a snoozed task back now; its owner bot is woken once")
+    s.add_argument("id")
+    s.set_defaults(fn="task unsnooze")
 
     replay = sub.add_parser("replay", help="what happened in a window, as you may see it").add_subparsers(dest="sub")
     s = replay.add_parser("show", help="what happened in a window, in time order, as you may see it (JSON)")
@@ -1221,6 +1246,11 @@ def parser():
     s = appr.add_parser("show")
     s.add_argument("id")
     s.set_defaults(fn="approval show")
+    s = appr.add_parser("decline", help="decline an approval addressed to you, with a reason")
+    s.add_argument("id")
+    s.add_argument("--note", default="")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
+    s.set_defaults(fn="approval decline")
 
     s = sub.add_parser("brief", help="alerts, who needs the person, what bots said since --since")
     s.add_argument("--since", help="an ISO date-time; default the last 12 hours")
@@ -1430,6 +1460,9 @@ def parser():
     s.add_argument("--repo", help="its GitHub repository: <org>/bot-<slug>")
     s.add_argument("--status", choices=("active", "paused", "planned"))
     s.add_argument("--session", choices=("bot", "task"), help="one provider session per bot or per task")
+    s.add_argument("--subtask-session", choices=("parent", "own"),
+                   help="parent (default): a subtask continues its parent task's session; own: its own session")
+    s.add_argument("--task-goal", choices=("on", "off"), help="on: work each task it owns as a goal; off (default): not")
     s.add_argument("--shared", action=argparse.BooleanOptionalAction, default=None, help="allow branches")
     s.set_defaults(fn="bot update")
     s = bot.add_parser("check", help="what preflight would still refuse about that repository")
@@ -1489,45 +1522,6 @@ def parser():
     s.add_argument("bot")
     s.add_argument("--computer", help="your computer's label or id")
     s.set_defaults(fn="bot branch")
-    assignment = bot.add_parser("assignment", help="temporary task-scoped instances of a persistent role").add_subparsers(
-        dest="assignment_action", required=True)
-    s = assignment.add_parser("list", help="list assignment branches and lifecycle history")
-    s.add_argument("source")
-    s.set_defaults(fn="bot assignment")
-    s = assignment.add_parser("policy", help="enable the source role's direct-parent bot as allocator")
-    s.add_argument("source")
-    policy = s.add_mutually_exclusive_group(required=True)
-    policy.add_argument("--enable", dest="enabled", action="store_true")
-    policy.add_argument("--disable", dest="enabled", action="store_false")
-    s.add_argument("--revision", type=int, required=True)
-    s.set_defaults(fn="bot assignment")
-    s = assignment.add_parser("create", help="allocate one existing delivery task to an isolated actor")
-    s.add_argument("source")
-    s.add_argument("--task", required=True)
-    s.add_argument("--name", required=True, dest="display_name")
-    s.add_argument("--key", required=True, dest="assignment_key", help="stable identity key; do not reuse for another task")
-    s.add_argument("--generation", type=int, default=1)
-    s.set_defaults(fn="bot assignment")
-    s = assignment.add_parser("update", help="record a checkpoint or lifecycle transition")
-    s.add_argument("assignment")
-    s.add_argument("--revision", type=int, required=True)
-    s.add_argument("--phase", choices=("working", "waiting_review", "waiting_release", "paused", "interrupted", "verifying", "archived", "cancelled"))
-    s.add_argument("--name", dest="display_name")
-    s.add_argument("--note", default="")
-    s.add_argument("--checkpoint-json", default="{}")
-    s.add_argument("--deployed-version", default="")
-    s.add_argument("--acceptance-receipt", default="")
-    s.add_argument("--learning-receipt", default="")
-    s.add_argument("--evidence-receipt", default="")
-    s.add_argument("--handoff-task", default="", help="existing source-role task to record as the follow-up on cancellation")
-    s.add_argument("--reviewed-learning-file", help="read a generalized lesson reviewed for publication to the source role's shared trunk")
-    s.add_argument("--confirm-learning-review", action="store_true",
-                   help="confirm the lesson excludes task/customer details, private conversation content and credentials")
-    s.set_defaults(fn="bot assignment")
-    s = assignment.add_parser("cleanup", help="request guarded local cleanup after archive or cancellation")
-    s.add_argument("assignment")
-    s.add_argument("--revision", type=int, required=True)
-    s.set_defaults(fn="bot assignment")
     s = bot.add_parser("copy", help="copy a bot into a new one the requester owns (BotOps)")
     s.add_argument("bot", help="the bot to copy")
     s.add_argument("--slug", help="the copy's slug; <bot>-copy by default")
@@ -1688,6 +1682,15 @@ def parser():
     s = support.add_parser("file", help="a Confirm card shows the message; nothing is sent until the person confirms")
     s.add_argument("message")
     s.set_defaults(fn="support file")
+    s = support.add_parser("report", help="draft a Tico bug report; a person must approve it before it is sent")
+    text = s.add_mutually_exclusive_group(required=True)
+    text.add_argument("--message", help="the whole report: what failed, since when, the exact error, what you tried")
+    text.add_argument("--file", help="a file holding the report (UTF-8)")
+    s.add_argument("--no-ids", dest="no_ids", action="store_true", help="send only the message: not the version and install ID")
+    s.set_defaults(fn="support report")
+    s = support.add_parser("send", help="send a report a person approved; filed as the person who approved it")
+    s.add_argument("--approval", required=True, help="the approval id `support report` printed")
+    s.set_defaults(fn="support send")
     keys = sub.add_parser("service-key", help="keys another system uses to file tasks, or to update this install (owner and admins)").add_subparsers(dest="sub")
     s = keys.add_parser("create", help="make a key; it is shown this once")
     s.add_argument("--label", required=True, help="the system that holds it; every task it files says so")

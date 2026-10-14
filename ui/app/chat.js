@@ -14,7 +14,6 @@ function v2ChatStop() {
   V2C.liveOff?.();
   clearInterval(V2C.poll);
   clearTimeout(V2C.waitTimer);
-  V2C.resize?.disconnect();
   V2C = null;
 }
 // Which of the viewer's rooms with a bot is its chat: the shared room, or one of their own. The bot page and the
@@ -44,7 +43,7 @@ const v2RunLive = x => !!x && !['completed', 'cancelled'].includes(x.state);
 async function v2ChatLoad(slug, room = null) {
   v2ChatStop();
   const mode = v2ChatMode(slug);
-  const state = V2C = {slug, mode, conv: null, messages: [], mine: [], live: null, es: null, poll: 0, rendered: false, followLatest: true,
+  const state = V2C = {slug, mode, conv: null, messages: [], mine: [], live: null, es: null, poll: 0, rendered: false,
                        loaded: false, failed: false, empty: room?.empty || ''};
   const seen = CHAT_CACHE.get(slug);
   if (room) {
@@ -301,6 +300,23 @@ document.addEventListener('click', ev => {
   for (const el of document.querySelectorAll('.bubble.acts')) if (el !== bubble) el.classList.remove('acts');
   if (bubble && !keep && bubble.querySelector(':scope>.chat-message-actions')) bubble.classList.toggle('acts');
 });
+// A bot-owned task works in a room of its own. The main chat keeps one quiet row when it starts (refs.task_started)
+// and one per milestone (refs.task_report: blocked, done, declined, stuck); a tap opens the task's thread.
+function chatTaskMark(m) {
+  const refs = m.refs || {};
+  if (!refs.task || !(refs.task_started || refs.task_report)) return null;
+  const id = String(typeof refs.task === 'object' ? refs.task.id || '' : refs.task);
+  if (!id) return null;
+  const known = m.ref_tasks?.[id] || (typeof refs.task === 'object' ? refs.task : null);
+  const title = known?.title || (refs.task_started ? String(m.body || '').replace(/^Started task:\s*/i, '') : '') || 'Task';
+  return {id, title, state: refs.task_report ? String(refs.task_report) : 'started'};
+}
+function chatTaskRowHTML(m) {
+  const t = chatTaskMark(m);
+  return `<button type="button" class="chat-task-row" data-task-conversation="${esc(t.id)}" data-message="${esc(m.id || '')}" title="${esc(plainActors(m.body || ''))}">
+    <span class="ct-dot ${esc(t.state)}" aria-hidden="true"></span><span class="ct-title">${esc(chatLine(t.title, 90))}</span><span class="ct-state">· ${esc(t.state)}</span>${
+    m.created ? `<time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time>` : ''}</button>`;
+}
 // Tico Live was retired; the lines it left in rooms (refs.live) read as plain messages.
 function v2MessageHTML(m) {
   // A Confirm card a bot left for you (BotOps: adding a person, a role, a shared credential): filled in from the action.
@@ -309,6 +325,7 @@ function v2MessageHTML(m) {
   if (m.refs?.action) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-action-host="${esc(m.refs.action)}"><div class="asst-state">Loading the card…</div></div></div>`;
   // A met or stopped goal's notice from the server is the compact goal line (ui/app/chat-goal.js), not a Task line.
   if (m.refs?.chat_goal) return chatGoalNoticeHTML(m);
+  if (chatTaskMark(m)) return chatTaskRowHTML(m);
   const when = `<time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time>`;
   // A task's note is its work log: chat names the task and keeps the note one click away.
   if (m.refs?.note) {
@@ -345,6 +362,8 @@ const chatNeedsYou = m => !!(m.refs?.action || m.refs?.credential_request)
 function chatSideKind(m, slug) {
   const from = String(m.from_actor || ''), refs = m.refs || {};
   if (m.elsewhere) return 'bots';                       // a conversation between bots, shown in this chat's timeline
+  // A task's start or milestone: its own row in time order (not folded with side traffic), never the conversation's last line.
+  if (chatTaskMark(m)) return 'task';
   if (actorPerson(from)) return '';
   if (chatNeedsYou(m) || refs.chat_goal) return '';
   if (refs.note) return 'note';
@@ -400,7 +419,8 @@ function v2MessagesHTML(messages, goalLine, slug = V2C?.slug) {
   const feed = [];
   messages.forEach((message, i) => {
     if (goalLine?.at === i) feed.push({html: goalLine.html});
-    feed.push({message, side: !!chatSideKind(message, slug)});
+    const kind = chatSideKind(message, slug);
+    feed.push({message, side: !!kind && kind !== 'task'});
   });
   if (goalLine?.at === messages.length) feed.push({html: goalLine.html});
   const lastMain = feed.findLastIndex(item => !item.side);
@@ -472,33 +492,24 @@ function v2WithBotTalk(state, messages) {
   return out.concat(talk.slice(t));
 }
 const shownById = (state, id) => state.messages.find(m => m.id === id) || (state.botTalk || []).find(m => m.id === id);
-// Scrolled up when something new lands: a small pill above the composer takes you to it. Only the conversation
-// counts; a side item joins its folded line without a pill.
-function v2Jump(state, fresh) {
-  const jump = $('#conv-jump'), thread = $('#conv-thread');
-  if (!jump || !thread) return;
-  const last = state.lastMain;
-  if (state.followLatest) state.seenLast = last?.id;
-  const show = !state.followLatest && !!last && last.id !== state.seenLast;
-  if (show && fresh) jump.textContent = actorPerson(last.from_actor) ? 'Latest ↓' : 'New reply ↓';
-  jump.hidden = !show;
-  jump.onclick = () => {
-    state.followLatest = true; thread.scrollTop = thread.scrollHeight;
-    v2Jump(state);
-  };
+// Scrolled up when something new lands: a small pill above the composer takes you to it (ui/app/stick-scroll.js).
+// Only the conversation counts, and a reply as it streams in; a side item joins its folded line without a pill.
+const v2Latest = state => state.lastMain ? state.lastMain.id + (state.live?.text ? ':live' : '') : '';
+function v2Jump(state) {
+  if (!state.stick) return '';
+  const last = v2Latest(state), fresh = !!last && last !== state.seenLast;
+  if (state.stick.atBottom) state.seenLast = last;
+  return fresh && (actorPerson(state.lastMain.from_actor) && !state.live?.text ? 'Latest' : 'New reply');
 }
 function v2ChatRender(state) {
   const thread = $('#conv-thread');
   if (!thread || V2C !== state) return;
-  if (!state.resize) {
-    state.threadHeight = thread.clientHeight;
-    thread.addEventListener('scroll', () => {
-      if (V2C === state && thread.clientHeight === state.threadHeight) {
-        state.followLatest = thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 40;
-        if (state.followLatest) v2Jump(state);
-      }
-      v2OlderUpdate(state);
-    }, {passive: true});
+  if (state.thread !== thread) {
+    // A new thread, or one kept from the last chat on the same page, starts this chat at its newest line.
+    state.thread = thread; state.html = null;
+    state.stick = stickScroll(thread, {pill: $('#conv-jump'), onBottom: () => { if (V2C === state) v2Jump(state); }});
+    state.stick.toBottom();
+    thread.addEventListener('scroll', () => v2OlderUpdate(state), {passive: true});
     thread.addEventListener('toggle', ev => {
       if (V2C !== state) return;
       if (ev.target.matches?.('details.run-steps')) v2StepsOpen(state, ev.target);
@@ -517,14 +528,7 @@ function v2ChatRender(state) {
       state.dismissed = ev.target.closest('[data-pending]')?.dataset.pending;
       v2ChatRender(state);
     });
-    state.resize = new ResizeObserver(() => {
-      if (V2C === state && state.followLatest) thread.scrollTop = thread.scrollHeight;
-      state.threadHeight = thread.clientHeight;
-    });
-    state.resize.observe(thread);
   }
-  const atEnd = !state.rendered || state.followLatest;
-  const wasTop = thread.scrollTop, wasHeight = thread.scrollHeight;
   // A goal's controls (the /goal messages the server sends for Set, Pause, Clear) are the bar above, not bubbles.
   const shown = v2WithBotTalk(state, state.messages.filter(m => m.refs?.maintenance !== 'checkpoint' && !chatGoalControl(m)));
   state.lastMain = shown.findLast(m => !chatSideKind(m, state.slug)) || null;
@@ -536,16 +540,21 @@ function v2ChatRender(state) {
     ? `<div class="conv-run chat"><div class="bubble bot reply"><span class="who">${empName(state.slug)}</span>
         <div class="md" id="v2-live">${safeMd(state.live.text, {shortLinks: true})}</div>${chatCopyHTML(state.live.text)}</div></div>`
     : pending ? `<div class="conv-run chat">${pending}</div>` : '';
-  thread.innerHTML = (groups + live) || (state.failed ? '<div class="empty">Could not load the conversation yet; trying again…</div>'
+  const html = (groups + live) || (state.failed ? '<div class="empty">Could not load the conversation yet; trying again…</div>'
     : !state.loaded ? '<div class="empty">Loading the thread…</div>' : state.empty || '<div class="empty">Nothing yet. Say something below.</div>');
-  if (thread.querySelector('[data-action-host]')) void window.assistantChat?.cards(thread, {get, post, esc, toast,
-    reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
-  if (thread.querySelector('[data-credential-host]')) void window.credentialCards?.mount(thread, {get, post, esc, toast,
-    reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
-  if (atEnd) thread.scrollTop = thread.scrollHeight;
-  else thread.scrollTop = wasTop + (state.prepending ? thread.scrollHeight - wasHeight : 0);
+  // A poll or snapshot that changed nothing leaves the thread alone: no rebuild, nothing to jump.
+  if (html !== state.html) {
+    state.html = html;
+    state.stick.update(() => {
+      thread.innerHTML = html;
+      if (thread.querySelector('[data-action-host]')) void window.assistantChat?.cards(thread, {get, post, esc, toast,
+        reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
+      if (thread.querySelector('[data-credential-host]')) void window.credentialCards?.mount(thread, {get, post, esc, toast,
+        reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
+    }, {fresh: state.rendered && v2Jump(state), prepended: state.prepending});
+  }
   state.prepending = false;
-  v2Jump(state, state.rendered);
+  v2Jump(state);
   state.rendered = true;
   botAvatarsSync();                     // the bot breathes while it answers
   const older = $('#conv-older');
@@ -576,8 +585,6 @@ function v2ChatRender(state) {
       access.innerHTML = '<span class="pill ok">Private</span> <span class="muted">only you and this bot</span>';
     }
   }
-  // Header updates above can resize the thread after its content renders.
-  requestAnimationFrame(() => { if (V2C === state && state.followLatest) thread.scrollTop = thread.scrollHeight; });
 }
 // Stop shows while this chat's message runs, or waits behind a run the bot is still in, for a person who manages the bot.
 function chatStopSync(state) {
@@ -604,7 +611,7 @@ async function v2ChatOlder(state) {
   if (V2C !== state) return false;
   state.messages = [...d.messages, ...state.messages.filter(m => !d.messages.some(x => x.id === m.id))]; state.nextBefore = d.next_before;
   state.older = state.messages.filter(m => !state.latestIds?.has(m.id));
-  state.followLatest = false; state.prepending = true;
+  state.stick?.release(); state.prepending = true;
   return true;
 }
 // A message sent to a bot (the composer, Start setup) lands in the chat that is open on that bot, in the conversation the
@@ -618,7 +625,7 @@ function v2ChatAdopt(slug, j) {
   if (j.message) { state.messages.push(j.message); state.mine.push(j.message); }
   state.live = {text: ''};
   state.execution = null; state.sentAt = Date.now();
-  state.followLatest = true;
+  state.stick?.toBottom();                     // what you just sent is where you look
   v2ChatRender(state);
   v2ChatStream(state);
 }
@@ -765,10 +772,10 @@ function v2ChatStream(state, loaded = false) {
     state.live = {text: (state.live?.text || '') + String(d.text || '')};
     const box = $('#v2-live');
     if (box && state.live.text) {
+      // The thread's stick follows the reply as it grows, if the reader is at the bottom.
       box.innerHTML = safeMd(state.live.text, {shortLinks: true});
       const copy = box.parentElement.querySelector('[data-chat-copy]');
       if (copy) copy.dataset.chatCopy = state.live.text;
-      const thread = $('#conv-thread'); if (thread) thread.scrollTop = thread.scrollHeight;
     } else v2ChatRender(state);
   });
   es.addEventListener('goal', ev => {
@@ -798,10 +805,7 @@ const taskConversationButton = task => `<button class="chat-btn" type="button" d
 document.addEventListener('click', async ev => {
   const button = ev.target.closest('[data-task-conversation]'); if (!button) return;
   ev.preventDefault(); ev.stopPropagation();
-  try {
-    const data = await get('/v2/tasks/' + encodeURIComponent(button.dataset.taskConversation));
-    void taskModalShow(data.task);
-  } catch (error) { toast(error.message, true); }
+  await taskThreadOpen(button.dataset.taskConversation);       // the task's own thread (ui/app/task-modal.js)
 });
 // Bots link a task as <hub>/tasks/<id>, an address the server does not serve, or as #/task/<id>,
 // which leaves the chat. Either opens the task pop-up in place.

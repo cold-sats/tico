@@ -46,7 +46,7 @@ def release_version():
 SERVER_INFO = {"name": "tico", "title": "Tico", "version": release_version()}
 ASK_WAIT_MAX = 300
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
-APPROVAL_KINDS = ("send", "spend", "publish", "merge")
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
 PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag")
@@ -322,15 +322,22 @@ def ask_wait(api, pending, wait, args):
     return result
 
 
-@tool("hub_question_answer", "Answer a question another bot asked you.",
+# The Assistant, citing the person's message for something they asked for (`_asked`).
+ASKED = _s("Assistant: the person asked for exactly this in their own Assistant chat: `turn` (their message that started "
+           "this run) or that message's id. Leave it out when they did not clearly ask, and propose instead")
+
+
+@tool("hub_question_answer", "Answer a question another bot asked you. The Assistant answers a bot's question to its "
+      "person in the person's own words, citing the message where they gave it (on_behalf_of).",
       {"message_id": _s("The ask's message id"),
        "text": _s("Your answer"),
        "unknown": {"type": "boolean", "default": False,
-                   "description": "True when you cannot answer; `text` then says what you would need"}},
+                   "description": "True when you cannot answer; `text` then says what you would need"},
+       "on_behalf_of": ASKED},
       required=("message_id", "text"), writes=True)
 def answer(api, args):
-    return api.post(f"messages/{args['message_id']}/answer",
-                    {"text": args["text"], "unknown": bool(args.get("unknown"))}, key=_key(args))
+    return _asked(api, args).post(f"messages/{args['message_id']}/answer",
+                                  {"text": args["text"], "unknown": bool(args.get("unknown"))}, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- meetings
@@ -475,7 +482,8 @@ def tag_update(api, args):
        "body": _s("The details", default=""),
        "due": _s("ISO-8601 date-time with timezone"),
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
-       "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
+       "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task. Blocked on a "
+                    "person's approval or input for your task? File it for them with your task as parent"),
        "request_id": _s("BotOps continuation: originating human chat message id"),
        "type": _s("Task type id or name; defaults to General"),
        "step": _s("Step id or name within the type; sets its status"),
@@ -562,6 +570,22 @@ def task_run(api, args):
     return api.post(f"tasks/{args['id']}/run-now", {}, key=_key(args))
 
 
+@tool("hub_task_snooze", "Set a task aside until a date: it leaves the board, task lists and Needs you, and nothing "
+      "wakes its bot about it (no stall wake, Still wanted? or Due reminder; a person's comment still does) until "
+      "then, when it is back and its owner bot is woken once. Its requester, owner, anyone on it by role, or a mover. "
+      "Snoozing again moves the date.",
+      {"id": TASK_ID, "until": _s("An ISO-8601 date (the start of that day, Pacific) or date-time with a zone")},
+      required=("id", "until"), writes=True)
+def task_snooze(api, args):
+    return api.post(f"tasks/{args['id']}/snooze", {"until": args["until"]}, key=_key(args))
+
+
+@tool("hub_task_unsnooze", "Bring a snoozed task back now, before its date; its owner bot is woken once.",
+      {"id": TASK_ID}, required=("id",), writes=True)
+def task_unsnooze(api, args):
+    return api.post(f"tasks/{args['id']}/unsnooze", {}, key=_key(args))
+
+
 @tool("hub_task_list", "Tasks you may see, filtered; each has its full `id` and an 8-character `short_id` that every task tool accepts. Your own come back in queue order: the "
       "first is what to do next. `all` also returns every bot you may see (the board: `{tasks, bots}`). `stuck` is "
       "BotOps's sweep: every bot's open work that has not moved in a day and waits on nobody (no human owes an "
@@ -585,11 +609,13 @@ def task_run(api, args):
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
        "stuck": {"type": "boolean", "default": False,
                  "description": "Only open work untouched for `hours` that waits on nobody (BotOps's sweep)"},
-       "hours": {"type": "integer", "description": "With `stuck`: untouched for at least this many hours (default 24)"}})
+       "hours": {"type": "integer", "description": "With `stuck`: untouched for at least this many hours (default 24)"},
+       "snoozed": {"type": "string", "enum": ["hide", "only", "all"],
+                   "description": "Snoozed tasks: hide (default), only them, or all"}})
 def task_list(api, args):
     if args.get("stuck"):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
-    more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since") if args.get(name)}
+    more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since", "snoozed") if args.get(name)}
     if args.get("member"):
         more["member"] = _target(api, args["member"])
         if args.get("role"):
@@ -647,11 +673,6 @@ def task_question(api, args):
         if args.get(field) is not None:
             body[field] = args[field]
     return api.post("task-questions", body, key=_key(args))
-
-
-# The Assistant, citing the person's message for a task action they asked for (`_asked`).
-ASKED = _s("Assistant: the person asked for exactly this in their own Assistant chat: `turn` (their message that started "
-           "this run) or that message's id. Leave it out when they did not clearly ask, and propose instead")
 
 
 @tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, who is on it by role, or what blocks it. "
@@ -835,11 +856,18 @@ def task_label(api, args):
 
 
 @tool("hub_task_link", "Attach a link to a task: the pull request you opened (this is what moves a "
-      "product task to In review and on to Shipped), an issue, a document, a page.",
-      {"id": TASK_ID, "url": _s("The URL"), "title": _s("A short name; a pull request needs none"), "on_behalf_of": ASKED},
+      "product task to In review and on to Shipped), an issue, a document, a page. `kind: session` links "
+      "another session working the task (a thread URL, a resume command); it is tracked only, task chat "
+      "goes to the owning bot.",
+      {"id": TASK_ID, "url": _s("The URL; for a session also a resume command or a reference"),
+       "title": _s("A short name; a pull request needs none"),
+       "kind": {"type": "string", "enum": ["session"], "description": "session: another session on this task"},
+       "on_behalf_of": ASKED},
       required=("id", "url"), writes=True)
 def task_link(api, args):
-    return _asked(api, args).post(f"tasks/{args['id']}/links", {"url": args["url"], "title": args.get("title")}, key=_key(args))
+    return _asked(api, args).post(f"tasks/{args['id']}/links", {"url": args["url"], "title": args.get("title"),
+                                                               **({"kind": "session"} if args.get("kind") == "session" else {})},
+                                  key=_key(args))
 
 
 @tool("hub_task_relate", "Relate another task to this one, read as `id kind task`: parent (task is its "
@@ -1788,6 +1816,10 @@ def routine_run(api, args):
        "description": _s("New description"), "template": _s("Correct the template metadata; use hub_template_list"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
        "shared": {"type": "boolean", "description": "Allow branches"},
        "session": {"type": "string", "enum": ["bot", "task"]},
+       "subtask_session": {"type": "string", "enum": ["parent", "own"],
+                           "description": "parent (default): a subtask continues its parent task's session; own: its own session"},
+       "task_goal": {"type": "string", "enum": ["on", "off"],
+                     "description": "on: work each task it owns as a goal; off (default): not"},
        "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
       required=("slug",), writes=True)
 def bot_set(api, args):
@@ -1799,7 +1831,7 @@ def bot_set(api, args):
         row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
-    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session") if args.get(k) is not None}
+    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
                     {**change, "expected_revision": row["revision"],
                      **({"on_behalf_of": on_behalf} if delegated else {})}, key=_key(args))
@@ -2062,86 +2094,6 @@ def bot_restore(api, args):
 def bot_branch(api, args):
     body = {"runner_id": args["runner_id"]} if args.get("runner_id") else {}
     return _as_person(api).post(f"bots/{args['bot']}/copies", body, key=_key(args))
-
-
-@tool("hub_bot_assignment_list", "List temporary task-scoped branches for a source role, including their lifecycle and checkpoint history. "
-      "The source role's normal read permissions apply.",
-      {"source": _s("The persistent source bot role")}, required=("source",))
-def bot_assignment_list(api, args):
-    return api.get(f"bots/{quote(str(args['source']), safe='')}/assignment-branches")
-
-
-@tool("hub_bot_assignment_policy", "Enable or disable the source role's direct-parent bot as an assignment allocator. "
-      "Only a human manager may change this policy; normal source-role and revision checks still apply.",
-      {"source": _s("The persistent source bot role"),
-       "enabled": {"type": "boolean", "description": "Whether its direct-parent bot may allocate eligible tasks"},
-       "revision": {"type": "integer", "minimum": 1}},
-      required=("source", "enabled", "revision"), writes=True)
-def bot_assignment_policy(api, args):
-    source = quote(str(args["source"]), safe="")
-    return api.call("PUT", f"bots/{source}/assignment-branches/policy",
-                    {"enabled": args["enabled"], "expected_revision": args["revision"]},
-                    key=_key(args))
-
-
-@tool("hub_bot_assignment_create", "Allocate one eligible delivery task to an isolated temporary actor for a persistent source role. "
-      "The stable assignment key and generation identify the branch; the display name is editable metadata. "
-      "Server-side task, source-role, repository, runner-capability, allocator and capacity rules remain authoritative.",
-      {"source": _s("The persistent source bot role"),
-       "task": TASK_ID,
-       "name": _s("The assignment's visible name", minLength=1, maxLength=100),
-       "key": _s("Stable identity key; never reuse it for a different task", minLength=8, maxLength=80,
-                  pattern="^[A-Za-z0-9._-]+$"),
-       "generation": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1}},
-      required=("source", "task", "name", "key"), writes=True)
-def bot_assignment_create(api, args):
-    source = quote(str(args["source"]), safe="")
-    return api.post(f"bots/{source}/assignment-branches",
-                    {"task_id": args["task"], "display_name": args["name"],
-                     "assignment_key": args["key"], "generation": args.get("generation", 1)},
-                    key=_key(args))
-
-
-@tool("hub_bot_assignment_update", "Record a temporary assignment checkpoint or lifecycle transition. "
-      "The server enforces safe transitions, delivery-task state, leases, acceptance and reviewed-learning receipts.",
-      {"assignment": _s("The assignment ID"),
-       "revision": {"type": "integer", "minimum": 1},
-       "phase": _s("The lifecycle phase", enum=["working", "waiting_review", "waiting_release", "paused",
-                                                   "interrupted", "verifying", "archived", "cancelled"]),
-       "name": _s("Updated visible name", minLength=1, maxLength=100),
-       "note": _s("Checkpoint or lifecycle note", maxLength=4000),
-       "checkpoint": {"type": "object", "description": "Safe commit and next-step checkpoint"},
-       "deployed_version": _s("Deployed version receipt", maxLength=200),
-       "acceptance_receipt": _s("Acceptance receipt", maxLength=2000),
-       "learning_receipt": _s("Reviewed learning receipt", maxLength=2000),
-       "evidence_receipt": _s("Preserved evidence receipt", maxLength=2000),
-       "handoff_task": _s("Existing source-role task to record as cancellation handoff", maxLength=200),
-       "reviewed_learning_note": _s("Generalized lesson submitted for human review and source-role learning", maxLength=6000),
-       "confirm_learning_review": {"type": "boolean", "default": False,
-                                   "description": "Confirm the lesson contains no task/customer details, private conversation content or credentials"}},
-      required=("assignment", "revision"), writes=True)
-def bot_assignment_update(api, args):
-    body = {"expected_revision": args["revision"]}
-    fields = ("phase", "note", "checkpoint", "deployed_version", "acceptance_receipt",
-              "learning_receipt", "evidence_receipt", "reviewed_learning_note",
-              "confirm_learning_review")
-    body.update({name: args[name] for name in fields if name in args})
-    if "name" in args:
-        body["display_name"] = args["name"]
-    if "handoff_task" in args:
-        body["handoff_task_id"] = args["handoff_task"]
-    assignment = quote(str(args["assignment"]), safe="")
-    return api.patch(f"assignment-branches/{assignment}", body, key=_key(args))
-
-
-@tool("hub_bot_assignment_cleanup", "Request separate guarded cleanup of an archived or cancelled assignment's local trees. "
-      "Cleanup is refused while a lease, pending reply, uncertain dirty work or unsupported runner remains.",
-      {"assignment": _s("The assignment ID"), "revision": {"type": "integer", "minimum": 1}},
-      required=("assignment", "revision"), writes=True)
-def bot_assignment_cleanup(api, args):
-    assignment = quote(str(args["assignment"]), safe="")
-    return api.post(f"assignment-branches/{assignment}/cleanup",
-                    {"expected_revision": args["revision"]}, key=_key(args))
 
 
 # Copying a bot or a skill moves files in the workspace on this computer, so these run here, never on the server
@@ -2488,6 +2440,39 @@ def support_file(api, args):
 
 
 
+@tool("hub_support_report", "Report a Tico bug to the Tico team (the maintainers): drafts it for a person, who sees the whole "
+      "message in Needs you and approves or declines it. Nothing leaves this install until then; afterwards send it with "
+      "hub_support_send. Write it self-contained: what failed, since when, the exact error, what you tried. No secrets, "
+      "tokens or customer data. Don't hand the person a copy-and-paste task instead.",
+      {"message": _s("The whole report, plain text, up to 4000 characters"),
+       "include_ids": {"type": "boolean", "description": "Send the Tico version and this install's ID with it (default true)"}},
+      required=("message",), writes=True)
+def support_report(api, args):
+    message = support_message(args.get("message"))
+    payload = {"message": message, "content_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest()}
+    if args.get("include_ids") is False:
+        payload["include_ids"] = False
+    row = api.post("approvals", {"kind": "support", "payload": payload}, key=_key(args))
+    return {"approval": row.get("id"), "decision": row.get("decision"),
+            "next": "A person must approve it in Needs you. Then send it: hub support send --approval "
+                    f"{row.get('id')} (hub_support_send). Until then nothing is sent."}
+
+
+def support_message(value):
+    """The report as backend/support.py `clean_message` keeps it (line ends as \\n, no blank space round it), so the hash
+    a person approves is the hash of what is sent."""
+    return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+@tool("hub_support_send", "Send a Tico bug report a person approved (hub_support_report gave its approval id). It is filed as "
+      "the person who approved it and its replies reach their Support page. Before a yes, after a no, or for someone "
+      "else's approval it is refused; a second call answers with the same ticket. When Tico support cannot be reached "
+      "the approval is not spent: try again later.",
+      {"approval": _s("The approval id hub_support_report returned")}, required=("approval",), writes=True)
+def support_send(api, args):
+    return api.post("support/tickets/from-approval", {"approval": args["approval"]}, key=_key(args))
+
+
 # ----------------------------------------------------------------------------- approvals
 @tool("hub_approval_request", "Ask a person for a yes or no on one exact action. Only a person "
       "decides; an approval is spent once. If the owner already told you in Tico to send a "
@@ -2507,6 +2492,16 @@ def approval_request(api, args):
 @tool("hub_approval_show", "One approval and its decision.", {"id": _s("Approval id")}, required=("id",))
 def approval_show(api, args):
     return api.get("approvals/" + args["id"])
+
+
+@tool("hub_approval_decline", "Decline an approval addressed to you (a send, spend, publish or merge), with a short reason "
+      "the requesting bot reads. A declined item can be asked for again. The Assistant declines what its person asked it to "
+      "in their chat, citing that message (on_behalf_of); approving is never a tool: it is their click on a card.",
+      {"id": _s("Approval id"), "note": _s("Why, in a few words: the requesting bot reads it"), "on_behalf_of": ASKED},
+      required=("id",), writes=True)
+def approval_decline(api, args):
+    return _asked(api, args).post("approvals/" + args["id"], {"decision": "declined", "note": args.get("note") or ""},
+                                  key=_key(args))
 
 
 # ----------------------------------------------------------------------------- status, activity
@@ -2754,12 +2749,15 @@ def ack(api, args):
 
 # ----------------------------------------------------------------------------- the Assistant
 @tool("hub_assistant_propose", "Assistant only: ask the person you are acting for to confirm something with "
-      "side effects that matter: approving or declining a Needs-you item, anything that leaves the team, "
+      "side effects that matter: approving a Needs-you item, anything that leaves the team, "
       "spending, changing people, access or settings, archiving or deleting, activating a bot. Give the exact "
       "API operation; it is shown to them as a Confirm / Cancel card and runs only when they click, as them. "
-      "Several task changes, comments or links go on ONE card, never one card each: path /api/v2/assistant/batch, "
-      "body {\"actions\": [{\"path\": \"/api/v2/tasks/<id>\", \"body\": {\"close\": true}}, ...]} (up to 100). "
-      "A task action the person clearly asked for needs no card: pass on_behalf_of to the task tool instead. "
+      "Several actions go on ONE card, never one card each: path /api/v2/assistant/batch, body {\"actions\": "
+      "[{\"path\": \"/api/v2/tasks/<id>\", \"body\": {\"close\": true}}, {\"path\": \"/api/v2/approvals/<id>\", "
+      "\"body\": {\"decision\": \"declined\", \"note\": \"<reason>\"}}, {\"path\": \"/api/v2/messages/<id>/answer\", "
+      "\"body\": {\"text\": \"<their words>\"}}, ...]} (up to 100). Approving goes on a card only when the person's "
+      "message names it (approve, merge, publish, send, spend); 'clear my queue' never approves. "
+      "A task action, decline or answer the person clearly asked for needs no card: pass on_behalf_of to that tool instead. "
       "Nothing here runs until they confirm.",
       {"summary": _s("One plain sentence saying what will happen if they confirm"),
        "method": {"enum": ["POST", "PUT", "PATCH", "DELETE"], "default": "POST"},
@@ -3221,17 +3219,12 @@ REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
 ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
-                    "hub_task_close", "hub_task_link",
+                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_question_answer",
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,
-    # Assignment tools go straight through the existing assignment routes. The API still decides which
-    # humans or direct-parent actors may manage a source role; only the allocator policy is human-only.
-    **{name: NOT_ASSISTANT for name in ("hub_bot_assignment_list", "hub_bot_assignment_create",
-                                        "hub_bot_assignment_update", "hub_bot_assignment_cleanup")},
-    "hub_bot_assignment_policy": PEOPLE,
     "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
@@ -3247,6 +3240,7 @@ AUDIENCE = {
                                    "hub_meeting_pending", "hub_meeting_approve", "hub_meeting_dismiss", "hub_meeting_restore")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
+    "hub_approval_decline": HUMANS_AND_ASSISTANT,         # only a person decides an approval
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,
     # Humans only (views.human_only and the batch routes refuse a bot); a bot's own posts are the other way round.
     "hub_brief": HUMANS_AND_ASSISTANT, "hub_bot_recent": HUMANS_AND_ASSISTANT,

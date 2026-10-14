@@ -86,8 +86,9 @@ function botChatTasksRender(slug, rows) {
     }
     const button = event.target.closest('[data-bot-chat-task]');
     if (!button) return;
+    // The task's own thread, not the full task: what is said there goes to the task, and Back is the main chat again.
     const task = BOT_CHAT_TASKS.get(button.dataset.botChatTask);
-    if (task) taskModalShow(task);
+    if (task) void taskThreadShow(task);
   };
 }
 async function loadBotChatTasks(slug) {
@@ -118,7 +119,7 @@ async function loadBotTasksV2(slug) {
     if (wait) await new Promise(done => setTimeout(done, wait));
     if (!$('#t-open') || BOT?.slug !== slug) return;
     [owned, asked] = await Promise.all([
-      owned || v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all&brief=true`),     // Done needs the finished ones
+      owned || v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all&snoozed=all&brief=true`),     // Done needs the finished ones; snoozed show with their chip
       asked || v2Get(`/v2/tasks?requester=${encodeURIComponent(slug)}&status=${V2_ACTIVE.join(',')}&brief=true`)]);
     if (owned && asked) break;
   }

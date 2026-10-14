@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend import hubdb as H
+from backend import worktrees as W
 from backend.tests.test_github_app import api, gh, auth, connect, runner_token  # noqa: F401
 from backend.tests.test_repositories import catalog, put
 
@@ -58,10 +59,11 @@ def test_create_permissions_limit_old_computer_and_attach(prepared):
     assert link['path'] == f'tasks/{tid[:8]}/Acme__product'
     assert link['branch'].startswith('tico/' + tid[:8])
     assert post(api, path, {'repo': 'Acme/product'}, 'bot-test').json() == link
-    for i in range(9):
+    for i in range(W.LIMIT - 1):
         response = post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/extra{i}', 'repo': 'Acme/product'}, 'bot-test')
         assert response.status_code == 200, response.text
-    assert post(api, f'tasks/{tid}/worktrees/attach', {'path': 'tasks/eleven', 'repo': 'Acme/product'}, 'bot-test').status_code == 409
+    refused = post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/over', 'repo': 'Acme/product'}, 'bot-test')
+    assert refused.status_code == 409 and 'Oldest idle: ' in refused.json()['error']['detail']
     assert post(api, f'tasks/{tid}/worktrees/attach', {'path': '../escape', 'repo': 'Acme/product'}, 'bot-test').status_code == 422
     response = api.patch(f'/api/v2/tasks/{tid}/links/{link["link_id"]}', json={'state': 'present', 'computer_id': 'elsewhere'}, headers={**auth('runner-test'), 'Idempotency-Key': uuid.uuid4().hex})
     assert response.status_code == 403
@@ -247,14 +249,14 @@ def test_finished_pr_releases_an_open_tasks_worktree_and_the_limit_names_it(prep
         c.execute("UPDATE task_links SET state='merged' WHERE kind='pr'")
     actions = post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions']
     assert len(actions) == 1 and actions[0]['action'] == 'remove' and actions[0]['release'] is True
-    for i in range(9):
+    for i in range(W.LIMIT - 1):
         assert post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/extra{i}', 'repo': 'Acme/product'},
                     'bot-test').status_code == 200
     refused = post(api, f'tasks/{tid}/worktrees/attach', {'path': f'tasks/{tid[:8]}/eleven', 'repo': 'Acme/product'}, 'bot-test')
     assert refused.status_code == 409
     error = refused.json()['error']
     assert error['code'] == 'worktree_limit' and 'free themselves once you are idle' in error['detail']
-    assert len(error['worktrees']) == 10 and {w['clear'] for w in error['worktrees']} == {'merged'}
+    assert len(error['worktrees']) == W.LIMIT and {w['clear'] for w in error['worktrees']} == {'merged'}
     # A new open pull request on the task means its worktree is in use again: no release.
     with api.app_state.store.transaction() as c:
         H.task_link(c, 'bot:cmo', tid, 'https://github.com/Acme/product/pull/2')
@@ -299,6 +301,33 @@ def test_initializing_checkout_stays_pending_until_checkout_and_setup_complete(p
         saved = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
         assert saved['state'] == 'present'
         assert json.loads(saved['detail_json'])['checkout_state'] == 'ready'
+
+
+def test_a_heartbeat_built_before_checkout_finished_never_moves_it_back(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+
+    def beat(**report):
+        body = {'version': '0.3.42', 'platform': 'test', 'readiness': {'schema_version': 1, 'worktrees': True},
+                'worktrees': [{'link_id': link['link_id'], 'branch': link['branch'], 'repo': 'Acme/product',
+                               **report}]}
+        response = post(api, 'runners/heartbeat', body, 'runner-test')
+        assert response.status_code == 200, response.text
+        with api.app_state.store.read() as c:
+            saved = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+        return saved['state'], json.loads(saved['detail_json'])
+
+    # Reports the computer built from the record it read before setup finished.
+    for report in ({'state': 'pending', 'checkout_state': 'queued', 'dirty_files': 0},
+                   {'state': 'pending', 'checkout_state': 'checkout_ready', 'expected_head': 'c' * 40},
+                   {'state': 'present', 'checkout_state': 'unverified'}):
+        state, detail = beat(**report)
+        assert state == 'present' and detail['checkout_state'] == 'ready'
+        assert detail['expected_head'] == 'a' * 40 and detail['setup_pending'] is False
+    state, detail = beat(state='present', checkout_state='ready', expected_head='a' * 40,
+                         checkout_target='refs/heads/tico/test', expected_base='b' * 64, dirty_files=3)
+    assert state == 'present' and detail['checkout_state'] == 'ready' and detail['dirty_files'] == 3
 
 
 def test_an_older_runner_can_still_add_a_worktree_and_finish_its_setup(prepared):
@@ -452,3 +481,26 @@ def test_human_pending_link_stops_repeating_restore_after_checkout_progress(prep
     second = post(api, 'runners/heartbeat', beat, 'runner-test')
     assert second.status_code == 200, second.text
     assert second.json()['worktree_actions'] == []
+
+
+def test_a_computer_reads_the_status_only_of_tasks_it_ran_that_bots_session_for(prepared):
+    api, tid, other = prepared
+    path = 'runners/me/session-tasks'
+    with api.app_state.store.transaction() as c:
+        cols = [r[1] for r in c.execute('PRAGMA table_info(runners)')]
+        fresh = {'id': 'r2', 'token_hash': 'synthetic-r2'}
+        c.execute(f"INSERT INTO runners({','.join(cols)}) SELECT {','.join('?' if col in fresh else col for col in cols)} "
+                  "FROM runners WHERE id='r1'", [fresh[col] for col in cols if col in fresh])
+        job = c.execute("SELECT job_id FROM attempts WHERE id='a1'").fetchone()[0]
+        for aid, runner, lane in (('a2', 'r1', 'task:' + tid), ('a3', 'r2', 'task:' + other)):
+            c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,lane) "
+                      "VALUES(?,?,'cmo',?,1,?,'completed',?,?,?)", (aid, job, runner, 'synthetic-' + aid, H.now(), H.now(), lane))
+        c.execute("UPDATE tasks SET status='done' WHERE id IN (?,?)", (tid, other))
+    asked = {'sessions': [{'bot': 'cmo', 'task': tid}, {'bot': 'cpo', 'task': tid},
+                          {'bot': 'cmo', 'task': other}, {'bot': 'cmo', 'task': 'no-such-task'}]}
+    response = post(api, path, asked, 'runner-test')
+    assert response.status_code == 200, response.text
+    # Another bot's lane, another computer's turn and an unknown task are left out, not refused.
+    assert response.json() == {'sessions': [{'bot': 'cmo', 'task': tid, 'status': 'done'}]}
+    assert post(api, path, asked, 'bot-test').status_code == 403
+    assert post(api, path, {'sessions': [{'bot': 'cmo', 'task': tid}] * 501}, 'runner-test').status_code == 422

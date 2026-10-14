@@ -1,6 +1,7 @@
 """The tasks board: queues in rank order, two lanes,
 labels, blocked-by, links, comments that wake or wait, movers, and plain-English titles."""
 
+import json
 import uuid
 
 import pytest
@@ -85,14 +86,21 @@ def bot_token(api, slug="ops"):
 # ----------------------------------------------------------------------------- rank
 
 
-def test_completing_a_bot_requested_human_task_needs_a_result(api):
+def test_completing_a_bot_requested_human_task_needs_no_result_note(api):
     token = bot_token(api, "ops")
-    task = post(api, "tasks", {"owner": "ana", "title": "Decide the content hold",
+    tapped = post(api, "tasks", {"owner": "ana", "title": "Decide the content hold",
         "body": "Keep or change the hold?"}, token=token)
-    post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done"}, expected=422)
-    done = post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done",
+    done = post(api, "tasks/" + tapped["id"], {"version": tapped["version"], "status": "done"})
+    assert done["status"] == "done" and done["note"] == ""
+    noted = post(api, "tasks", {"owner": "ana", "title": "Decide the launch hold",
+        "body": "Keep or change the hold?"}, token=token)
+    done = post(api, "tasks/" + noted["id"], {"version": noted["version"], "status": "done",
         "note": "Keep the hold; no publication is approved."})
     assert done["status"] == "done" and done["note"] == "Keep the hold; no publication is approved."
+    with api.app.state.store.read() as c:
+        told = {r[0] for r in c.execute("SELECT body FROM messages WHERE to_actor='bot:ops'")}
+    assert {"Ana marked this done: Decide the content hold",
+            "Ana marked this done: Decide the launch hold\nKeep the hold; no publication is approved."} <= told, told
 
 
 def test_self_requested_completion_stays_done_until_explicit_close(api):
@@ -480,11 +488,11 @@ def test_three_level_tree_requester_rules_cycles_and_last_child_wake(api):
     relate(api, parent['id'], leaf['id'], 'parent', expected=422)
     leaf = post(api, 'tasks/' + leaf['id'], {'version': leaf['version'], 'close': True})
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM messages WHERE body LIKE 'All subtasks done%'").fetchone()[0] == 1
     child = post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'})
     assert get(api, 'tasks/' + parent['id'])['task']['children_summary']['done'] == 2
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM messages WHERE body='All subtasks done'").fetchone()[0] == 2
+        assert c.execute("SELECT count(*) FROM messages WHERE body LIKE 'All subtasks done%'").fetchone()[0] == 2
     other = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the next feature', 'body': 'x'})
     child = relate(api, child['id'], other['id'], 'parent')
     assert get(api, 'tasks/' + parent['id'] + '/tree') == []
@@ -561,6 +569,11 @@ def test_people_can_change_visible_task_links_but_bots_need_task_rights(api):
     post(api, path, {'url': 'https://example.com/plan'}, token=token, expected=403)
     link = post(api, path, {'url': 'https://example.com/work'})['links'][-1]
     post(api, path, {'remove': link['id']}, token=token, expected=403)
+    # A session link follows the same rights: any person who sees the task, a bot only with task rights.
+    post(api, path, {'url': 'codex resume abc123', 'kind': 'session'}, token=token, expected=403)
+    session = post(api, path, {'url': 'codex resume abc123', 'kind': 'session'}, token='priya-test')['links'][-1]
+    assert (session['kind'], session['url']) == ('session', 'session:codex resume abc123')
+    assert json.loads(session['detail_json']) == {'primary': False, 'harness': 'codex', 'thread_id': 'abc123'}
     # The owning bot and an ancestor party retain their task rights.
     parent = post(api, 'tasks', {'owner': 'ops', 'title': 'Track linked work', 'body': 'x'})
     child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build linked work', 'body': 'x', 'relations': [{'task': parent['id'], 'kind': 'parent'}]})

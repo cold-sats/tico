@@ -123,7 +123,8 @@ def _card(document, instructions):
             "name": str(document.get("name") or template), "required": bool(document.get("required")),
             "bootstrap": bool(document.get("bootstrap")),
             "shared": bool(document.get("shared")),
-            "session": "task" if document.get("session") == "task" else "bot",
+            # Unset follows the default (every task its own session); a card names `task` or `bot` only to differ.
+            "session": document.get("session") if document.get("session") in ("task", "bot") else None,
             # The template that heads its department in the org builder (templates/groups.yaml `head`).
             "lead": bool(document.get("lead")),
             # Where the org builder shows it (backend/recruit_rank.py): its department (else its `pack`'s),
@@ -546,6 +547,7 @@ class Onboarding:
         self._write_config(c, slug, declared)
         c.execute("UPDATE bot_config SET onboarding_state=? WHERE bot=?", (ONBOARDED, slug))
         H.event(c, who.actor, "bot.onboarded", slug, {})
+        H.setup_finished(c, slug)
         return {"bot": slug, "onboarding_state": ONBOARDED, "changed": True}
 
     def attach_template(self, c, who, slug, template, instructions, *, queue_build=False, title_prefix=""):

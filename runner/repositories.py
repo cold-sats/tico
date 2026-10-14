@@ -18,6 +18,10 @@ from clients import git_repository
 from . import git_credentials, isolation, safe_git
 
 FETCH_INTERVAL = 15 * 60
+# A failed base clone is tried again after 5 minutes, then 10, 20, ... and at most every 6 hours. A runner
+# restart (Computers > Restart) forgets the wait and tries at once.
+RETRY_FIRST, RETRY_MOST = 5 * 60, 6 * 3600
+CLONE_TIMEOUT = 120           # a base clone made inside a turn, when no computer mirror is there yet
 REMOVE_AFTER = 30 * 86400
 GB = 1024 ** 3
 
@@ -38,10 +42,39 @@ def base_folder(name):
     return git_repository.folder(name.lower() if valid_name(name) else name)
 
 
-def machine_error(name, detail):
+def machine_error(name, detail, env=None):
     from . import redact
-    first = (str(detail).strip().splitlines() or ['Git command failed'])[0][:200]
-    return f"git could not reach {name} with this computer's git login: {redact.scrub_log(first)}"
+    reason = redact.git_failure(detail, redact.env_secrets(env), limit=240) or 'Git command failed'
+    return f"git could not reach {name} with this computer's git login: {reason}"
+
+
+def git_error(what, name, done, env=None):
+    """`what` failed for `name`, with git's own reason (credentials masked), so nobody has to guess between
+    access, network and disk."""
+    from . import redact
+    reason = redact.git_failure(done.stderr, redact.env_secrets(env), limit=240) or f'exit {done.returncode}'
+    return f'{what} of {name} failed: {reason}'
+
+
+def timed_out(what, name, seconds):
+    return f'{what} of {name} timed out after {int(seconds)} seconds; a large repository or a slow network needs longer'
+
+
+_MIRROR_BROKEN = re.compile(r'corrupt|bad object|missing (?:blob|tree|commit|object)|unable to read|did not send all|'
+                            r'index-pack|unpack-objects|\.lock\b|is not a valid|not a git repository|'
+                            r'could not (?:open|read)|permission denied|unable to create temporary', re.I)
+
+
+def mirror_broken(stderr, mirror):
+    """Whether a failed mirror fetch is the mirror's own fault (corrupt, half-written, locked, unreadable) rather
+    than GitHub's or the network's, so rebuilding it can help."""
+    text = str(stderr or '')
+    return bool(_MIRROR_BROKEN.search(text)) or str(mirror) in text
+
+
+def wait_words(seconds):
+    minutes = round(seconds / 60)
+    return f'{minutes} minutes' if minutes < 120 else f'{minutes // 60} hours'
 
 
 def mirror_warning(mirror):
@@ -70,6 +103,11 @@ class Repositories:
             self.rows = {name: row for name, row in saved.items() if valid_repository(name) and isinstance(row, dict)}
         except (OSError, ValueError, AttributeError):
             self.rows = {}
+        # Restarting the runner is how a person says "try again now": a failure's wait does not outlive it.
+        for row in self.rows.values():
+            if row.get('state') == 'failed' or row.get('failures'):
+                row.pop('attempted_at', None)
+                row.update(failures=0, retry_delay=FETCH_INTERVAL)
 
     def close(self):
         self.stopping.set()
@@ -192,7 +230,8 @@ class Repositories:
                     continue
                 name = name.lower() if valid_name(name) else name
                 if valid_repository(name) and not marker.is_symlink() and base_folder(name) == marker.parent.parent.name:
-                    self.rows.setdefault(name, {'full_name': name, 'state': 'cloned', 'managed': True, 'left_at': now, 'size_mb': 0})
+                    self.rows.setdefault(name, {'full_name': name, 'state': 'cloned', 'managed': True, 'left_at': now, 'size_mb': 0,
+                                                **({'adopted': True} if stored.get('adopted') is True else {})})
             for name, row in list(self.rows.items()):
                 if name in wanted:
                     row.pop('left_at', None)
@@ -225,7 +264,12 @@ class Repositories:
         for name in stale:
             try:
                 path = self.path(name)
-                if self.rows[name].get('managed') and path.exists():
+                if self.rows[name].get('adopted') and path.exists():
+                    # A clone a person made is theirs: Tico stops looking after it and leaves it where it is.
+                    marker = path / '.git' / 'tico-managed'
+                    if marker.is_file() and not marker.is_symlink():
+                        marker.unlink()
+                elif self.rows[name].get('managed') and path.exists():
                     kept = base_kept(path)
                     if kept:
                         self.rows[name].update(error=kept)
@@ -268,6 +312,37 @@ class Repositories:
                         raise ValueError('Mirror is writable by another user; repair the computer mirror permissions')
         return path
 
+    def adoption_problem(self, path, full_name):
+        """Why a folder already at a base clone's place cannot be taken over, or '' when it can: a real Git checkout
+        of this very repository, made by the user the runner runs as, on a computer where bots are not a separate
+        user (a Mac). Nothing in it is changed by asking."""
+        from . import redact
+        git_dir = path / '.git'
+        if isolation.enabled():
+            return 'bots run as a separate user on this computer, so a folder made by someone else is not taken over'
+        if not git_dir.is_dir() or git_dir.is_symlink():
+            return 'it is not a Git checkout'
+        if any(p.lstat().st_uid != os.geteuid() for p in (path, git_dir)):
+            return 'it belongs to another user'
+        if (git_dir / 'objects' / 'info' / 'alternates').exists() or (git_dir / 'commondir').exists():
+            return 'it shares its objects with another repository'
+        env = safe_git.clean_environment()
+        git = [*safe_git.prefix(path), '-C', str(path), 'config', '--local', '--get']
+        if self.run_git([*git, 'core.worktree'], env=env, timeout=10).returncode == 0:
+            return 'its work tree is somewhere else'
+        if self.run_git([*git, '--bool', 'core.bare'], env=env, timeout=10).stdout.strip() == 'true':
+            return 'it is a bare repository'
+        origin = self.run_git([*git, 'remote.origin.url'], env=env, timeout=10).stdout.strip()
+        if not github_origin(origin, full_name):
+            return f'its origin is {redact.scrub_credentials(origin)[:120] or "not set"}, not {full_name}'
+        return ''
+
+    def discard_mirror(self, name):
+        """Remove a computer mirror so it is fetched afresh. It holds only what GitHub has, never anyone's work."""
+        mirror = self.mirror_path(name)
+        if mirror.exists():
+            shutil.rmtree(mirror)
+
     @staticmethod
     def mirror_permissions(path):
         for root, dirs, files in os.walk(path, followlinks=False):
@@ -281,8 +356,28 @@ class Repositories:
         try:
             path = self.path(name)
             exists = path.exists()
-            if exists and (not (self.rows[name].get('managed') or (path / '.git' / 'tico-managed').is_file()) or not (path / '.git').is_dir() or (path / '.git').is_symlink()):
+            if exists and self.rows[name].get('partial') and not (path / '.git' / 'tico-managed').exists():
+                if tico_half_clone(path):
+                    # A clone this runner started and never finished (it was stopped mid-clone): nothing in it is
+                    # anyone's work, so it is removed and cloned again rather than refused as broken forever.
+                    discard_failed_clone(path, fresh=True)
+                    exists = path.exists()
+                else:
+                    # Something else now stands where the half clone was (a person's own clone, of this repository
+                    # or not): never delete it; it is taken over or refused below like any other folder.
+                    self.rows[name].pop('partial', None)
+                    self.rows[name].pop('managed', None)
+            managed = self.rows[name].get('managed') or (path / '.git' / 'tico-managed').is_file()
+            if exists and (not (path / '.git').is_dir() or (path / '.git').is_symlink()):
                 raise ValueError('Repository folder already exists and is not a managed base clone; left as it is')
+            if exists and not managed:
+                # A clone a person made here themselves (on a Mac, with their own git) is taken over when it is
+                # plainly this repository's; Tico then fetches into it but never deletes it or rewrites its origin.
+                problem = self.adoption_problem(path, repo['full_name'])
+                if problem:
+                    raise ValueError(f'Repository folder already exists and is not a managed base clone ({problem}); left as it is')
+                with self.lock:
+                    self.rows[name].update(managed=True, adopted=True)
             volumes = (self.root if self.root.exists() else self.root.parent,
                        self.mirrors if self.mirrors.exists() else self.state_file.parent)
             volume, usage = min(((p, shutil.disk_usage(p)) for p in volumes), key=lambda item: item[1].free)
@@ -299,10 +394,17 @@ class Repositories:
             mirror = self.mirror_path(name)
             self.mirrors.mkdir(mode=0o755, parents=True, exist_ok=True)
             os.chmod(self.mirrors, 0o755)
-            granted = self.client.post('runners/me/repositories/token')
+            try:
+                granted = self.client.post('runners/me/repositories/token')
+            except Exception as exc:
+                raise ValueError(git_credentials.token_problem(exc, repo['full_name'])) from None
             token = granted.get('token') or ''
-            if not token or name not in {n.lower() for n in granted.get('repositories', [])}:
-                raise ValueError('No GitHub read token for this repository; check the GitHub connection')
+            if not token:
+                raise ValueError(f'Tico could not get a GitHub read token for {repo["full_name"]}: the GitHub App gave '
+                                 'none; check Settings > Tools > GitHub')
+            if name not in {n.lower() for n in granted.get('repositories', [])}:
+                raise ValueError(f'Tico could not get a GitHub read token for {repo["full_name"]}: the GitHub App is not '
+                                 "installed on it or cannot reach it; add it to the App's repository access on GitHub")
             env = {**clean, **git_credentials.environment(token)}
             url = f'https://github.com/{repo["full_name"]}.git'
             prefix = ['git', '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
@@ -314,98 +416,147 @@ class Repositories:
                 result = self.run_git([*prefix, 'ls-remote', '--symref', url, 'HEAD'], env=env, timeout=timeout)
                 match = re.search(r'^ref: refs/heads/(.+)\tHEAD$', result.stdout, re.M)
                 if result.returncode or not match:
-                    raise ValueError('Could not find the default branch; check GitHub access')
+                    raise ValueError(git_error('Finding the default branch', repo['full_name'], result, env)
+                                     if result.returncode else 'Could not find the default branch; check GitHub access')
                 branch = match.group(1)
-            if not mirror.exists():
-                done = self.run_git([*prefix, 'init', '--bare', '--quiet', '--initial-branch=' + branch, str(mirror)], env=clean, timeout=10)
+            base_prefix = list(prefix)
+
+            def fill_mirror(rebuild=True):
+                """Create the mirror if it is missing and fetch the default branch into it from GitHub."""
+                prefix = list(base_prefix)
+                if not mirror.exists():
+                    done = self.run_git([*prefix, 'init', '--bare', '--quiet', '--initial-branch=' + branch, str(mirror)], env=clean, timeout=10)
+                    if done.returncode:
+                        raise ValueError('Could not create mirror; check disk space and permissions')
+                # Only supervisor-owned Git config is read with an installation token.
+                config = self.run_git([*prefix, '-C', str(mirror), 'config', '--no-includes', '--name-only',
+                                       '--get-regexp', r'^(http|include|includeif)\.'], env=clean, timeout=10)
+                if config.returncode not in (0, 1):
+                    raise ValueError('Could not inspect mirror Git config')
+                for key in config.stdout.splitlines():
+                    if key.lower().startswith(('include.', 'includeif.')):
+                        raise ValueError('Mirror Git config includes another file; remove the include before fetching')
+                    setting = key.rsplit('.', 1)[-1].lower()
+                    value = 'true' if setting == 'sslverify' else (clean.get('GIT_SSL_CAINFO', '') if setting == 'sslcainfo' else '')
+                    prefix += ['-c', key + '=' + value]
+                done = self.run_git([*prefix, '-C', str(mirror), 'fetch', '--quiet', '--prune', '--no-tags',
+                                     '--no-write-fetch-head', '--', url, f'+refs/heads/{branch}:refs/heads/{branch}'],
+                                    env=env, timeout=timeout)
+                if done.returncode and rebuild and mirror_broken(done.stderr, mirror):
+                    # The mirror, not GitHub, failed (corrupt or missing objects, a stale lock): start it again.
+                    self.discard_mirror(name)
+                    return fill_mirror(rebuild=False)
                 if done.returncode:
-                    raise ValueError('Could not create mirror; check disk space and permissions')
-            # Only supervisor-owned Git config is read with an installation token.
-            config = self.run_git([*prefix, '-C', str(mirror), 'config', '--no-includes', '--name-only',
-                                   '--get-regexp', r'^(http|include|includeif)\.'], env=clean, timeout=10)
-            if config.returncode not in (0, 1):
-                raise ValueError('Could not inspect mirror Git config')
-            for key in config.stdout.splitlines():
-                if key.lower().startswith(('include.', 'includeif.')):
-                    raise ValueError('Mirror Git config includes another file; remove the include before fetching')
-                setting = key.rsplit('.', 1)[-1].lower()
-                value = 'true' if setting == 'sslverify' else (clean.get('GIT_SSL_CAINFO', '') if setting == 'sslcainfo' else '')
-                prefix += ['-c', key + '=' + value]
-            done = self.run_git([*prefix, '-C', str(mirror), 'fetch', '--quiet', '--prune', '--no-tags',
-                                 '--no-write-fetch-head', '--', url, f'+refs/heads/{branch}:refs/heads/{branch}'],
-                                env=env, timeout=timeout)
-            if done.returncode:
-                raise ValueError(f'Git mirror fetch failed (exit {done.returncode}); check GitHub access, disk space and network')
-            done = self.run_git([*prefix, '-C', str(mirror), 'symbolic-ref', 'HEAD', 'refs/heads/' + branch], env=clean, timeout=10)
-            if done.returncode:
-                raise ValueError('Could not set mirror default branch')
-            self.mirror_permissions(mirror)
-            (mirror / 'tico-fetched-at').write_text(str(now))
+                    raise ValueError(git_error('Git mirror fetch', repo['full_name'], done, env))
+                done = self.run_git([*prefix, '-C', str(mirror), 'symbolic-ref', 'HEAD', 'refs/heads/' + branch], env=clean, timeout=10)
+                if done.returncode:
+                    raise ValueError('Could not set mirror default branch')
+                self.mirror_permissions(mirror)
+                (mirror / 'tico-fetched-at').write_text(str(now))
+
+            fill_mirror()
             # Bot-owned directories are touched only by unprivileged Git, without a token.
-            local = [*safe_git.PREFIX, '-c', 'safe.directory=' + str(mirror.resolve()),
+            # Both spellings of the mirror's path: older Git compares safe.directory without resolving symlinks.
+            local = [*safe_git.PREFIX, '-c', 'safe.directory=' + str(mirror.resolve()), '-c', 'safe.directory=' + str(mirror),
                      '-c', 'safe.directory=' + str(path.resolve()), '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
                      '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always']
             if not exists:
                 isolation.mkdir(self.root, mode=0o755)
                 created = True
                 with self.lock:
-                    self.rows[name].update(state='cloning', managed=True)
+                    self.rows[name].update(state='cloning', managed=True, partial=True)
                     self.save()
-                done = self.run_git([*local, 'clone', '--quiet', '--single-branch', '--no-hardlinks',
-                                     '--origin', 'tico-mirror', '--branch', branch, '--', mirror.as_uri(), str(path)],
-                                    env=clean, timeout=timeout, bot=True)
-                if done.returncode:
-                    raise ValueError('Could not clone local mirror; check disk space and permissions')
+                def clone_mirror():
+                    return self.run_git([*local, 'clone', '--quiet', '--single-branch', '--no-hardlinks',
+                                         '--origin', 'tico-mirror', '--branch', branch, '--', mirror.as_uri(), str(path)],
+                                        env=clean, timeout=timeout, bot=True)
+                done = clone_mirror()
+                if done.returncode and 'already exists' not in (done.stderr or ''):
+                    # The mirror itself can be what is broken while GitHub is fine: a fetch killed halfway, missing
+                    # objects, stale lock files, files the bot user cannot read. Rebuild it from GitHub once and
+                    # clone again, rather than leaving every later try to fail the same way.
+                    first = git_error('Cloning the local mirror', repo['full_name'], done, clean)
+                    discard_failed_clone(path, fresh=True)
+                    self.discard_mirror(name)
+                    fill_mirror(rebuild=False)
+                    done = clone_mirror()
+                    if done.returncode:
+                        from . import redact
+                        again = redact.git_failure(done.stderr, redact.env_secrets(clean), limit=200) or f'exit {done.returncode}'
+                        created = 'already exists' not in (done.stderr or '')
+                        raise ValueError(f'{first}; rebuilt the mirror from GitHub and cloning it failed again: {again}')
+                elif done.returncode:
+                    # A turn's own clone made the folder meanwhile: that one is not this clone's to remove.
+                    created = False
+                    raise ValueError(git_error('Cloning the local mirror', repo['full_name'], done, clean))
             else:
                 done = self.run_git([*local, '-C', str(path), 'rev-parse', '--git-dir'], env=clean, timeout=10, bot=True)
                 if done.returncode:
                     raise ValueError('Base clone is not a working Git repository; repair it without deleting local work')
-            for key, value in [('remote.tico-mirror.url', mirror.as_uri()),
-                               ('remote.tico-mirror.fetch', f'+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}'),
-                               ('remote.origin.url', url), ('remote.origin.pushurl', url),
-                               ('remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'),
-                               ('branch.' + branch + '.remote', 'origin'), ('branch.' + branch + '.merge', 'refs/heads/' + branch)]:
+            settings = [('remote.tico-mirror.url', mirror.as_uri()),
+                        ('remote.tico-mirror.fetch', f'+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}')]
+            if not self.rows[name].get('adopted'):
+                # An adopted clone keeps the origin and branch settings its owner chose (an SSH remote, say).
+                settings += [('remote.origin.url', url), ('remote.origin.pushurl', url),
+                             ('remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'),
+                             ('branch.' + branch + '.remote', 'origin'), ('branch.' + branch + '.merge', 'refs/heads/' + branch)]
+            for key, value in settings:
                 done = self.run_git([*local, '-C', str(path), 'config', '--local', '--replace-all', key, value], env=clean, timeout=10, bot=True)
                 if done.returncode:
                     raise ValueError('Could not configure base clone mirror; check its Git config and permissions')
-            done = self.run_git([*local, '-C', str(path), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
-                                 '--', mirror.as_uri(), f'+refs/heads/{branch}:refs/remotes/origin/{branch}',
-                                 f'+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}'],
-                                env=clean, timeout=timeout, bot=True)
+            def fetch_mirror():
+                return self.run_git([*local, '-C', str(path), 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
+                                     '--', mirror.as_uri(), f'+refs/heads/{branch}:refs/remotes/origin/{branch}',
+                                     f'+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}'],
+                                    env=clean, timeout=timeout, bot=True)
+            done = fetch_mirror()
             if done.returncode:
-                # Git's stderr may contain credentials or local secrets; keep them out of reports.
-                raise ValueError(f'Git {"fetch" if exists else "clone"} failed (exit {done.returncode}); check GitHub access, disk space and network')
+                # git_error masks credentials and local secrets in git's stderr before it reaches a report.
+                first = git_error(f'Git {"fetch" if exists else "clone"} from the local mirror', repo['full_name'], done, clean)
+                # As for a clone: a broken mirror is rebuilt from GitHub once before this attempt gives up.
+                self.discard_mirror(name)
+                fill_mirror(rebuild=False)
+                done = fetch_mirror()
+                if done.returncode:
+                    from . import redact
+                    again = redact.git_failure(done.stderr, redact.env_secrets(clean), limit=200) or f'exit {done.returncode}'
+                    raise ValueError(f'{first}; rebuilt the mirror from GitHub and fetching it failed again: {again}')
             done = self.run_git([*local, '-C', str(path), 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/' + branch], env=clean, timeout=10, bot=True)
             if done.returncode:
                 raise ValueError('Could not record base default branch; check permissions')
-            mark_managed(path, clean)
+            mark_managed(path, clean, repo['full_name'] if self.rows[name].get('adopted') else None,
+                         adopted=bool(self.rows[name].get('adopted')))
             size = sum(p.stat().st_size for root, dirs, files in os.walk(path, followlinks=False)
                        for p in (Path(root) / f for f in files) if not p.is_symlink()) / (1024 ** 2)
             with self.lock:
                 self.rows[name].update(state='cloned', managed=True, fetched_at=now,
                                        last_fetch=datetime.fromtimestamp(now, timezone.utc).isoformat(), size_mb=round(size, 1))
                 self.rows[name].pop('error', None)
+                self.rows[name].pop('partial', None)
                 self.rows[name].update(failures=0, retry_delay=FETCH_INTERVAL)
         except Exception as exc:
             if created:
                 try:
-                    if path.exists() and not base_kept(path):
-                        shutil.rmtree(self.path(name))
+                    discard_failed_clone(self.path(name), fresh=True)
+                    with self.lock:
+                        self.rows[name].pop('partial', None)
                 except (OSError, ValueError):
                     pass
             if isinstance(exc, subprocess.TimeoutExpired):
-                error = f'Git timed out after {exc.timeout} seconds; check the network'
+                error = f'Git timed out after {int(exc.timeout)} seconds syncing {repo["full_name"]}; a large repository or a slow network needs longer'
             elif isinstance(exc, ValueError):
-                error = str(exc).replace(token, '[redacted]') if token else str(exc)
+                from . import redact
+                error = redact.scrub_credentials(str(exc), [token] if token else [])
             elif isinstance(exc, OSError) and exc.errno == 28:
                 error = 'Not enough disk space; free space on the workspace volume'
             else:
                 error = 'Could not sync base clone; check GitHub connection, network, disk space and folder permissions'
             with self.lock:
                 failures = self.rows[name].get('failures', 0) + 1
-                delay = (900, 3600, 21600)[min(failures - 1, 2)]
+                delay = min(RETRY_FIRST * 2 ** min(failures - 1, 10), RETRY_MOST)
                 self.rows[name].update(state='failed', failures=failures, retry_delay=delay, attempted_at=time.time(),
-                                       error=f'{error}. Retrying in {delay // 60} minutes')
+                                       error=f'{error.rstrip(".")}. Retrying in {wait_words(delay)}, or restart the '
+                                             "computer's runner to retry now")
 
     def refresh_mirror(self, name, token):
         """A bounded refresh requested by an authorized turn; tokens never enter the base."""
@@ -487,8 +638,8 @@ def worktree_base(workspace, repo, env):
                 refreshed = git_credentials.credential_socket.request_refresh(socket_path, source_env.get('HUB_TOKEN', ''), name)
             except (OSError, ValueError):
                 pass
-        command = [*safe_git.PREFIX, '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', 'protocol.file.allow=always', '-c', 'http.followRedirects=false', '-c', 'http.sslVerify=true', 'clone', '--quiet', '--single-branch']
-        clone_env, url = env, git_repository.address(name)
+        direct = [*safe_git.PREFIX, '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', 'protocol.file.allow=always', '-c', 'http.followRedirects=false', '-c', 'http.sslVerify=true', 'clone', '--quiet', '--single-branch']
+        command, clone_env, url = list(direct), env, git_repository.address(name)
         if refreshed:
             url = refreshed['mirror']
             from urllib.parse import urlparse, unquote
@@ -499,20 +650,19 @@ def worktree_base(workspace, repo, env):
             repo['default_branch'] = refreshed['default_branch']
             if refreshed.get('warning'):
                 repo['fetch_warning'] = refreshed['warning']
-        if repo.get('default_branch'):
-            command += ['--branch', repo['default_branch']]
-        try:
-            done = isolation.run([*command, '--', url, str(path)], env=clone_env, capture_output=True, text=True, timeout=120)
-        except (OSError, subprocess.SubprocessError) as exc:
-            discard_failed_clone(path)
-            if repo.get('machine_git'):
-                raise ValueError(machine_error(name, type(exc).__name__)) from None
-            raise ValueError('Git clone failed; check repository access, network and disk space') from None
-        if done.returncode:
-            discard_failed_clone(path)
-            if repo.get('machine_git'):
-                raise ValueError(machine_error(name, done.stderr or f'exit {done.returncode}'))
-            raise ValueError('Git clone failed; check repository access, network and disk space')
+        branch_args = ['--branch', repo['default_branch']] if repo.get('default_branch') else []
+        problem = _clone(name, path, [*command, *branch_args], url, clone_env, repo.get('machine_git'))
+        if problem and refreshed and not problem.endswith(_ELSEWHERE):
+            # The computer's mirror could not be copied into the workspace while GitHub may well be fine: clone from
+            # GitHub with this bot's own access instead of failing the turn on the mirror.
+            fallback = _clone(name, path, [*direct, *branch_args], git_repository.address(name), env, False)
+            if fallback:
+                raise ValueError(f'{problem}; cloning from GitHub instead also failed: '
+                                 f'{fallback.removeprefix(f"Git clone of {name} failed: ")}')
+            problem, refreshed, clone_env = None, None, env
+            repo['fetch_warning'] = "Could not copy this computer's mirror of " + name + '; cloned from GitHub instead'
+        if problem:
+            raise ValueError(problem)
         if refreshed:
             for key, value in [('remote.origin.url', git_repository.address(name)),
                                ('remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')]:
@@ -560,14 +710,16 @@ def worktree_base(workspace, repo, env):
         fetch_error = done.stderr or f'exit {done.returncode}'
     except (OSError, subprocess.SubprocessError) as exc:
         fetched = False
-        fetch_error = type(exc).__name__
+        fetch_error = 'timed out' if isinstance(exc, subprocess.TimeoutExpired) else type(exc).__name__
     if not fetched:
         available = isolation.run([*safe_git.prefix(path), '-C', str(path), 'show-ref', '--verify', 'refs/remotes/origin/' + branch],
                                  env=local_env, capture_output=True, timeout=15)
         if available.returncode:
             if repo.get('machine_git'):
-                raise ValueError(machine_error(name, fetch_error))
-            raise ValueError('Git fetch failed; check repository access, network and disk space')
+                raise ValueError(machine_error(name, fetch_error, local_env))
+            from . import redact
+            reason = redact.git_failure(fetch_error, redact.env_secrets(local_env), limit=240) or 'no reason given'
+            raise ValueError(f'Git fetch of {name} failed: {reason}')
         repo.setdefault('fetch_warning', 'Could not refresh origin; using the base clone (age unknown)')
     mark_managed(path, local_env, name)
     # A normal git push then updates the task branch's tracking ref, rather than comparing it to main.
@@ -582,9 +734,70 @@ def worktree_base(workspace, repo, env):
     return path, branch
 
 
-def discard_failed_clone(path):
+_ELSEWHERE = 'already exists and is not an empty directory.'
+
+
+def _clone(name, path, command, url, env, machine_git):
+    """Clone into a new `path`: None, or why not (git's own reason). What a failed clone left is removed."""
+    try:
+        done = isolation.run([*command, '--', url, str(path)], env=env, capture_output=True, text=True, timeout=CLONE_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as exc:
+        discard_failed_clone(path, fresh=True)
+        if isinstance(exc, subprocess.TimeoutExpired):
+            return timed_out('Git clone', name, CLONE_TIMEOUT)
+        return machine_error(name, type(exc).__name__) if machine_git else f'Git clone of {name} failed: {type(exc).__name__}'
+    if not done.returncode:
+        return None
+    if 'already exists' in (done.stderr or ''):
+        # Git refuses a destination something else made meanwhile: that folder is not this clone's to remove.
+        return f'Git clone of {name} failed: {path.name} {_ELSEWHERE}'
+    discard_failed_clone(path, fresh=True)
+    return machine_error(name, done.stderr or f'exit {done.returncode}', env) if machine_git else git_error('Git clone', name, done, env)
+
+
+def tico_half_clone(path):
+    """Whether the folder is plainly what Tico's own clone left when stopped halfway: empty, or a Git folder made by
+    this runner or its bot user (where bots run as a separate user, Tico's clones are theirs) whose only remote is
+    the one Tico clones with (tico-mirror), or none yet. Anything else, such as a person's clone of a fork or
+    another host, is not proven to be Tico's and is never deleted for being half made."""
+    who = isolation.identity()
+    owners = {os.geteuid(), *((who[0],) if who else ())}
+    try:
+        if path.is_symlink() or path.stat().st_uid not in owners:
+            return False
+        if not any(path.iterdir()):
+            return True
+        git_dir = path / '.git'
+        if git_dir.is_symlink() or not git_dir.is_dir() or git_dir.stat().st_uid not in owners:
+            return False
+        config = git_dir / 'config'
+        if config.is_symlink():
+            return False
+        if not config.exists():
+            return True
+    except OSError:
+        return False
+    try:
+        done = isolation.run([*safe_git.PREFIX, 'config', '--file', str(config), '--name-only', '--get-regexp', r'^remote\.'],
+                             env=safe_git.clean_environment(), capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if done.returncode not in (0, 1):
+        return False
+    return all(key.startswith('remote.tico-mirror.') for key in done.stdout.split())
+
+
+def discard_failed_clone(path, fresh=False):
+    """Remove what a failed clone left behind. `fresh`: the folder did not exist before this clone, so nothing
+    in it is anyone's work unless a task worktree was already registered on it; a clone killed halfway or one
+    whose checkout failed is otherwise left half-made, and every retry would refuse it."""
     if not path.exists() or path.is_symlink():
         return
+    if fresh and not (path / '.git').is_symlink():
+        registered = path / '.git' / 'worktrees'
+        if not registered.is_symlink() and not (registered.is_dir() and any(registered.iterdir())):
+            shutil.rmtree(path)
+            return
     if (path / '.git').exists():
         try:
             if base_kept(path):
@@ -594,8 +807,26 @@ def discard_failed_clone(path):
     shutil.rmtree(path)
 
 
-def mark_managed(path, env, name=None):
-    marker = json.dumps({'full_name': name}) if name else ''
+def github_origin(url, full_name):
+    """Whether `url` is GitHub's address for `full_name`, in its HTTPS or SSH spelling (no user, no other host)."""
+    pattern = r'(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)' + re.escape(full_name) + r'(?:\.git)?/?'
+    return re.fullmatch(pattern, str(url or '').strip(), re.I) is not None
+
+
+def was_adopted(path):
+    try:
+        marker = path / '.git' / 'tico-managed'
+        if marker.is_symlink() or not marker.is_file() or marker.stat().st_size > 1024:
+            return False
+        return json.loads(marker.read_text() or '{}').get('adopted') is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def mark_managed(path, env, name=None, adopted=False):
+    # A clone Tico took over stays recorded as one, whoever marks it next (a turn's worktree_base).
+    adopted = adopted or was_adopted(path)
+    marker = json.dumps({'full_name': name, **({'adopted': True} if adopted else {})}) if name else ''
     done = isolation.run(['/bin/sh', '-c', 'test ! -L .git/tico-managed && printf %s \"$1\" > .git/tico-managed', 'mark', marker],
                          cwd=str(path), env=safe_git.process_environment(env), capture_output=True, timeout=15)
     if done.returncode:

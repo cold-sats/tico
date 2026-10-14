@@ -294,6 +294,9 @@ class TaskLink(Contract):
     url: str | None = Field(default=None, max_length=2000)
     title: str | None = Field(default=None, max_length=200)
     remove: ID | None = None
+    # Only a session link is asked for by kind: its value may be a resume command, not a URL. Tico sets
+    # which session is primary; a client never does.
+    kind: Literal["session"] | None = None
 
 
 class TaskRelation(Contract):
@@ -562,7 +565,7 @@ class MarketPage(Contract):
 
 
 class ApprovalCreate(Contract):
-    kind: Literal["send", "spend", "publish", "merge"]
+    kind: Literal["send", "spend", "publish", "merge", "support"]
     payload: dict
     task_id: ID | None = None
 
@@ -878,7 +881,8 @@ class Heartbeat(Contract):
     version: str = Field(max_length=100)
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=32)
-    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1"]] = Field(default_factory=list, max_length=20)
+    # The assignment_* values name the retired temporary assignments (#420); an older runner still sends them.
+    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1"]] = Field(default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1095,44 +1099,6 @@ class BotBranch(Contract):
     runner_id: ID | None = None
 
 
-class AssignmentBranchCreate(Contract):
-    assignment_key: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9._-]+$")
-    generation: int = Field(ge=1, le=1000)
-    task_id: ID
-    display_name: str = Field(min_length=1, max_length=100)
-
-
-class AssignmentBranchPolicy(Contract):
-    enabled: StrictBool
-    expected_revision: int = Field(ge=1)
-
-
-class AssignmentBranchUpdate(Contract):
-    expected_revision: int = Field(ge=1)
-    display_name: str | None = Field(default=None, min_length=1, max_length=100)
-    phase: Literal["working", "waiting_review", "waiting_release", "paused", "interrupted",
-                   "verifying", "archived", "cancelled"] | None = None
-    note: str = Field(default="", max_length=4000)
-    checkpoint: dict = Field(default_factory=dict)
-    deployed_version: str = Field(default="", max_length=200)
-    acceptance_receipt: str = Field(default="", max_length=2000)
-    learning_receipt: str = Field(default="", max_length=2000)
-    evidence_receipt: str = Field(default="", max_length=2000)
-    handoff_task_id: str = Field(default="", max_length=200)
-    reviewed_learning_note: str = Field(default="", max_length=6000)
-    confirm_learning_review: StrictBool = False
-
-
-class AssignmentBranchCleanupRequest(Contract):
-    expected_revision: int = Field(ge=1)
-
-
-class AssignmentBranchCleanupResult(Contract):
-    attempt: int = Field(ge=1)
-    result: Literal["complete", "blocked"]
-    detail: str = Field(default="", max_length=2000)
-
-
 class BotArchive(Contract):
     successor: ID | None = None          # a bot that takes its open tasks and any team it roots
     expected_revision: int = Field(ge=1)
@@ -1157,6 +1123,10 @@ class BotDefinitionUpdate(Contract):
     temp: bool | None = None
     shared: bool | None = None
     session: Literal["bot", "task"] | None = None
+    # Unset or `parent`: a subtask continues its parent task's session (hubdb.session_root); `own`: its own session.
+    subtask_session: Literal["parent", "own"] | None = None
+    # `on`: each task the bot owns is worked as a goal (execution.task_goal); unset or `off`: not.
+    task_goal: Literal["on", "off"] | None = None
     expected_revision: int = Field(ge=1)
     # BotOps applying a person's own request: the id of that person's message to BotOps. The
     # change is checked as that person, never as BotOps (backend/app.py update_bot).
@@ -1428,7 +1398,10 @@ class Recruit(Contract):
 
 
 class Claim(Contract):
+    # Bots the runner takes no work for at all (maintenance, or a runner without lanes that is busy).
     busy_bots: list[ID] | None = Field(default=None, max_length=32)
+    # Lanes the runner is already running, each "bot|lane" (clients/sessions.py lane), when it runs lanes.
+    busy_lanes: list[Annotated[str, Field(min_length=3, max_length=256)]] | None = Field(default=None, max_length=256)
     bot: ID | None = None
     # The runner puts next-run tasks in its prompt. One that does not say so is never handed
     # any, so they wait for it rather than being marked carried and never read.
@@ -1552,6 +1525,11 @@ class BotGoLive(Contract):
     computer: str = Field(default="", max_length=200)
     setup: bool = True
     routines: list[RoutineExpectation] | None = None
+
+
+class TaskSnooze(Contract):
+    # An ISO-8601 date (the start of that day in the team's zone) or a date-time (backend/task_snooze.py).
+    until: str = Field(min_length=10, max_length=40)
 
 
 class Empty(Contract):

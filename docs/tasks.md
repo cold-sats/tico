@@ -86,6 +86,17 @@ and be accessible; a finished blocker does not justify waiting. An unanswered qu
 child task, a pending approval or a person named with `--on` can also justify waiting. Finishing a blocker clears the dependency
 and wakes the waiting bot. **Waiting** does not mean a person must review the code.
 
+When another bot must act, file a subtask for it; finishing the subtask wakes the waiting task:
+
+```sh
+hub task create --parent <task> --owner botops --title "Send the disk usage snapshot"
+hub task update <task> --status waiting --note "Needs BotOps's disk snapshot"
+```
+
+A note alone wakes nobody. A bot's task waiting with no blocker, subtask, approval, question or
+person goes back to open after two hours (unless its due date says to look later), and the update
+that parks it warns the bot.
+
 For unblocked open or doing tasks, automatic stalled-task wakes are limited to three in a rolling
 24 hours, spaced at least 30 minutes apart. Updating a note does not reset that limit. Repeated
 stalls are escalated to BotOps with a separate diagnostic for each source task. If BotOps itself is
@@ -93,11 +104,61 @@ stuck or unavailable, the diagnostic goes to the human requester, or the team's 
 bot-requested work. An unresolved diagnostic is reused on later days. Health warns when repeated
 runs have escalated a public task without progress; an explicit run is still available.
 
-Task worktrees have a separate lifecycle. The ten-worktree limit stays in effect, and cleanup
+Task worktrees have a separate lifecycle. The 30-worktree limit stays in effect, and cleanup
 waits until the owning bot is idle so it cannot remove a checkout in use. A supported cleanup
 request continues to occupy its slot until the runner removes it. For merged work that is still
 awaiting release, request cleanup of the worktree link rather than marking the task Done or Closed
 just to free space.
+
+## Picking work back up
+
+Each completed turn on a task leaves a **checkpoint** on it: the turn's final reply, up to 1,500
+characters, with when (`checkpoint_at`) and which bot (`checkpoint_by`). The full task view
+(`GET /api/v2/tasks/{id}`) and the task a run is handed both carry it; task lists leave the text
+out. When a turn on the task starts a fresh session (no saved thread to resume), its prompt opens
+with where the task stood after its last turn. A reply that drew on a private task the task's
+readers cannot read is not kept as a checkpoint.
+
+Waiting work is not starved: a bot's queued jobs are claimed oldest first (a person's chat message
+still goes ahead), so a newer task never jumps one that has been waiting. Task ranks stay as people
+set them.
+
+A task still on the board with no activity for 7 days (no update, comment or checkpoint, no run
+going, and no question already waiting on someone) gets one **Still wanted?** question with
+**Keep** and **Close**: to its requester when a person asked for it, otherwise to its owner when a
+person owns it; a task only bots are on is left alone. It shows in that person's Needs you and
+Decide. **Keep** restarts the clock; **Close** closes the task as theirs with a note. Nothing
+closes without the answer, and the task is asked again only after new activity and another idle
+week (`stale_asked_at`).
+
+## Snoozing a task
+
+**Snooze** sets a task aside until a date: it tells its bot or person that nobody plans to get to it
+before then. Its requester, its owner, anyone on it by role, or a mover snoozes it from the task's
+**…** menu (Tomorrow, Next week, In two weeks, In a month, or a typed date), with
+`hub task snooze <id> --until 2026-11-02`, `hub_task_snooze` or `POST /api/v2/tasks/{id}/snooze`
+with `{"until": ...}`. A bare date means the start of that day, Pacific; a date-time with a zone is
+taken as it is. Snoozing again moves the date. The task keeps its status, owner, goal and place;
+`snoozed_until` and `snoozed_by` say until when and who. A snoozed task still counts toward its goal.
+When someone other than its requester snoozes a task, the requester is told.
+
+Until that moment:
+
+- it is off the board, the Open list, Needs you, Decide and `hub task list`. The **Snoozed** tab on
+  the Tasks page (shown while something is snoozed), `hub task list --snoozed only|all` and
+  `GET /api/v2/tasks?snoozed=only|all` list it; a read by id or number always finds it.
+- nothing automatic moves it: no stall wake or status check, no stranded or stuck sweep, no
+  **Still wanted?** question and no **Due:** reminder. Tico's notices about it reach its owner bot
+  quietly, read on the bot's next run instead of starting one, and so does another bot's comment.
+  A person's comment still reaches the bot as usual, **Run now** still runs it, and notices to
+  anyone else on it (a requester bot it is handed to for review) arrive as usual. A snooze survives
+  reassignment: the new owner hears of the task quietly and is woken when the date comes.
+
+When the date comes, the task is back everywhere and its owner bot gets one **Snooze over** notice,
+which also stands in for a due date that passed during the snooze. **Unsnooze** (the **…** menu, the
+**Snoozed to** chip on the task, `hub task unsnooze <id>` or `POST /api/v2/tasks/{id}/unsnooze`)
+brings it back early and wakes its owner bot once. Finishing, declining or closing a task, or
+moving it to review, ends its snooze.
 
 ## Done and Closed
 
@@ -105,6 +166,12 @@ just to free space.
 the requester or an authorized human accepts the result or cancels the task. Closing unfinished
 work does not mark it Done. Both statuses appear in the **Done** view; the task history keeps
 the separate completion and closing events.
+
+A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the
+task's comment box (or the note box on a Decide card) and not yet sent goes with Done as the
+outcome. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
+comment on the next line when there is one. When a bot needs a specific answer it asks a yes/no
+or choice question instead.
 
 Done stays Done, including tasks the owner requested for itself, old bot-requested tasks,
 and completed routine runs. Closing is a separate decision; it records `closed_at` and
@@ -288,6 +355,67 @@ A head pusher counts as the bot only when their login matches the PR author. Req
 changes always wake the owner, including requests from those identities.
 A merged PR becomes Shipped once the running release includes its merge commit; the task stays
 where it is. PRs in another repository stay Merged.
+
+Sessions show who is working a task ([Sessions](sessions.md) is the overview). The primary session is the owning bot's task session, recorded
+by Tico when its turn starts in the task's own lane (every bot by default, unless set to `session: bot`, on a runner
+that runs lanes); a bot's shared thread is never one. The task's set-up worktrees on that computer are added to
+its session, with each repo's AGENTS.md (else CLAUDE.md) in the prompt as rules for writing code there. A task has at most one primary: a newer thread or a
+new owner's session replaces it, and the old one stays as an alternate. Anyone with link rights can add other sessions to track:
+a thread URL, a `claude --resume <id>` or `codex resume <id>` command, or another reference
+(`hub task link <id> <value> --session`, `hub_task_link` with `kind: session`, or Sessions + on the task).
+They are for tracking only: task chat and comments always go to the owning bot.
+
+A subtask does not get a session of its own. A turn on a task runs in its **session root**: Tico walks up the
+parents the same bot owns (up to 20) and takes the topmost, so the bot's turns on a subtask continue its parent's
+session, in the parent's lane and worktree, one at a time with the parent's turns. A parent owned by someone else, or
+one with different readers (one task private and the other not, or two private tasks whose people cannot each read
+both), ends the walk, so a bot's subtask under a person's task is its own root. The primary session, the Copy session
+ID and the checkpoint all live on the root, and a fresh session on a subtask starts from the root's checkpoint; a
+subtask shows no session.
+`subtask_session: own` on a bot (`hub bot update <slug> --subtask-session own`, `hub_bot_update`, or the bot
+definition API) keeps every subtask its own session; unset or `parent` is the default. A runner from before this
+change keys every task, subtasks included, on its own session, and Tico gives it lanes the same way.
+
+Every task a bot owns has its own room (a `kind: task` conversation), even one filed from a chat: its comments,
+notices, notes and replies go there, and the chat it was filed from gets one quiet line, "Started task: <title>"
+(`refs.task_started`). A bot's open task filed into a chat room before this moves to a room of its own the next time
+a turn on it is claimed; its earlier messages stay in the chat, and the new room opens with a line saying so. A
+person's own tasks, and the Assistant's (whose turns act for the person of the room), keep their chat room.
+A turn reads only its own lane's messages: the main session reads the main chat, with no task traffic, and a task's
+session reads that task (and its subtasks that share the session). The main chat hears where its bot's tasks got to
+from short quiet lines (`refs.task_report`): `<title>: blocked.` when the task waits on a person (a person's subtask
+under it, or `waiting --on <person>`), `done.`, `declined.` or `stuck.`, with the first 140 characters of the note
+or checkpoint. These start no run; the main session reads them the next time something wakes it. The same state is
+not reported twice in a row, and a private task is reported only in a room whose every reader may read it, otherwise
+not at all. A runner from before lanes (`task_lanes_v2`) still reads the whole room.
+
+Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and
+that has made no progress for 30 minutes (no checkpoint, comment, status change, message from its bot or finished
+turn) gets one "Status check: checkpoint where you are, or mark it blocked or done." in its session. Thirty minutes
+later with still no progress it is reported stuck in the main chat, and when a person asked for it they get a
+question on it in Needs you, whose answer wakes the bot. These share the stall watcher's spacing and its cap of three
+a day, after which BotOps gets a task to find out why.
+
+`task_goal: on` on a bot (`hub bot update <slug> --task-goal on`, `hub_bot_update`, or the bot definition API; off by
+default) works each task it owns as a goal: the turn carries `task.goal` (the title and its acceptance criteria), and
+the bot is told to keep at it until that holds, then mark the task done with a summary, or file a subtask for the
+person it waits on. A `goal:on` or `goal:off` label on a task overrides the setting. A person's task never has one.
+On Claude Code and Codex (a runner with `task_goals_v1`) the goal is the harness's native goal, kept in the task
+room like a chat goal: the first turn in the task's session sets it beside the task's prompt, and later turns
+continue it. It pauses after the usual number of tries without progress, and waiting on a person, another bot, CI or
+a review ends the turn rather than polling. Met: the task is marked done with the goal's reason if the bot has not
+marked it already. Paused or stopped: the task stays open and the main chat gets a `blocked` or `stuck` line. Other
+harnesses, and older runners, work it from the prompt alone.
+
+When the requester (or a person) closes a task its bot had already marked done or sent for review, the bot is not
+woken; a close note that differs from the bot's own done note still reaches it, without starting a run.
+
+When a bot's task is blocked on a person's approval or input, the bot files a subtask for them under it
+(`hub task create --owner <person> --parent <task> ...`, or `hub task question ... --parent <task>` for a pick or
+Yes / No) rather than a new top-level task. When the person marks it done, declines or closes it, the bot is woken
+once on the parent and picks up in the parent's session (a private subtask that not everyone on the parent may read
+tells the bot on the subtask instead). A quick question stays `hub task ask` on the task, and a
+send or publish that needs a yes stays `hub approval request`.
 
 ## Related tasks
 

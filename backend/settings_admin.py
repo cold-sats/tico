@@ -189,6 +189,8 @@ class SettingsAdmin:
                 "effort": effective.get("reasoning_effort") or row["effort"],
                 "compact_at": compact_at(effective),
                 "session": effective.get("session"),
+                "subtask_session": effective.get("subtask_session"),
+                "task_goal": effective.get("task_goal"),
                 "harness": resolve_harness(effective, effective.get("runtime") or row.get("runtime")),
                 "fallback": normalize_fallback(effective.get("fallback"))}
 
@@ -521,7 +523,23 @@ class SettingsAdmin:
         if values["status"] == "active" and before.get("status") != "active":
             self.ensure_activation(c, who, bot)
         if "session" in body.model_fields_set:
-            declared["session"] = body.session or "bot"
+            # Cleared means the default: every task its own session (clients/sessions.py).
+            if body.session:
+                declared["session"] = body.session
+            else:
+                declared.pop("session", None)
+        if "subtask_session" in body.model_fields_set:
+            # Cleared means the default: a subtask continues its parent's session (hubdb.session_root).
+            if body.subtask_session:
+                declared["subtask_session"] = body.subtask_session
+            else:
+                declared.pop("subtask_session", None)
+        if "task_goal" in body.model_fields_set:
+            # Cleared means the default: off (execution.task_goal).
+            if body.task_goal:
+                declared["task_goal"] = body.task_goal
+            else:
+                declared.pop("task_goal", None)
         if "shared" in body.model_fields_set:
             declared["shared"] = bool(body.shared)
         if "template" in body.model_fields_set:
@@ -1060,6 +1078,7 @@ def archive_bot(c, actor, bot, successor="", revoke_agent=True):
     for slug in entries:
         c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, loaded), slug))
     H.event(c, actor, "bot.archived", bot, {"successor": successor or None, "heir": heir, "previous": previous})
+    H.setup_finished(c, bot, archived=True)
     result = {"bot": bot, "status": "archived", "successor": successor or None}
     from .agents import external_harness, revoke_credential, row as agent_row
     harness = external_harness(c, bot)

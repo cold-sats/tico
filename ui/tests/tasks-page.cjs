@@ -151,6 +151,13 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
         other._blocked = body.remove ? (other._blocked || []).filter(x => x !== id) : [...(other._blocked || []), id]; }
       return json({task: withRelations(task, tasks)});
     }
+    const snooze = p.match(/^\/api\/v2\/tasks\/([^/]+)\/(snooze|unsnooze)$/);
+    if (snooze && method === 'POST') {
+      const task = tasks.find(x => x.id === decodeURIComponent(snooze[1])), body = req.postDataJSON();
+      posts.push({p, body});
+      Object.assign(task, {snoozed_until: snooze[2] === 'snooze' ? body.until : null, snoozed_by: snooze[2] === 'snooze' ? 'human:ana' : null});
+      return json({task: withRelations(task, tasks)});
+    }
     const one = p.match(/^\/api\/v2\/tasks\/([^/]+)$/);
     if (one) {
       const id = decodeURIComponent(one[1]), task = tasks.find(x => x.id === id);
@@ -701,7 +708,7 @@ async function properties(browser) {
   assert.match(await props.locator('[data-prop="status"]').innerText(), /Doing/);
   // The "…" menu holds Close (and Copy link, Add subtask).
   await peek.locator('[data-task-more]').click();
-  assert.deepEqual(await menu.locator('.tl-mi').allInnerTexts(), ['Open full', 'Copy link', 'Close task'], 'Add subtask is the rail\'s own field here');
+  assert.deepEqual(await menu.locator('.tl-mi').allInnerTexts(), ['Open full', 'Copy link', 'Snooze…', 'Close task'], 'Add subtask is the rail\'s own field here');
   await menu.locator('.tl-mi', {hasText: 'Copy link'}).click();
   assert.match(await page.evaluate(() => window.copied), /#\/task\/t-checkout$/);
   // The full task: properties at the top of the side column, then Code, then Subtasks.
@@ -782,18 +789,14 @@ async function bulk(browser) {
   await page.waitForFunction(() => document.querySelector('#task-peek [data-prop="status"]')?.textContent.includes('Waiting'));
   await page.locator('#task-bulk [data-bulk="clear"]').click();
   await page.keyboard.press('Escape');
-  // Done on two bot requests: each gets its own note, and the prompt says which request it is for.
+  // Done on two bot requests: one tap, no prompt, and no note when nothing was typed.
   await box('tt-copy').click();
   await box('tt-refund').click();
   await page.locator('#task-bulk [data-bulk="status"]').click();
   await page.locator('#task-filter-pop [data-bulk-status="done"]').click();
-  for (const [title, note] of [['Approve the Q4 pricing page copy', 'Go with headline B.'], ['Choose a refund policy for annual plans', 'Prorated after 30 days.']]) {
-    await page.locator('dialog.task-outcome .task-outcome-title', {hasText: title}).waitFor();
-    await page.locator('dialog.task-outcome textarea').fill(note);
-    await page.locator('dialog.task-outcome button[type=submit]').click();
-  }
   await page.waitForFunction(() => /2 moved to Done/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
-  assert.deepEqual(taskWrites(posts).slice(-2).map(x => x.body.note), ['Go with headline B.', 'Prorated after 30 days.']);
+  assert.equal(await page.locator('dialog.task-outcome').count(), 0, 'nothing asks what was decided');
+  assert.deepEqual(taskWrites(posts).slice(-2).map(x => x.body.note), [undefined, undefined]);
   assert.deepEqual(errors, []);
   console.log('bulk: ok');
   await page.close();
@@ -807,6 +810,33 @@ async function bulk(browser) {
   await viewer.page.close();
 }
 
+async function snoozing(browser) {
+  // Snooze from the "…" menu: the task leaves Open for a Snoozed tab, and its chip there brings it back.
+  const {page, errors, posts} = await open(browser);
+  const shown = async () => (await rowKeys(page)).includes('tt-deck');
+  assert.ok(await shown());
+  assert.equal(await page.locator('#task-view [data-view="snoozed"]').count(), 0, 'no Snoozed tab while nothing is snoozed');
+  await page.locator('#task-body .tl-row[data-task-key="tt-deck"] [data-open-task]').click();
+  await peekTitle(page, 'Review the launch deck');
+  const peek = page.locator('#task-peek'), menu = peek.locator('.prop-pop');
+  await peek.locator('[data-task-more]').click();
+  await menu.locator('.tl-mi', {hasText: 'Snooze…'}).click();
+  await menu.locator('.tl-mi', {hasText: 'Tomorrow'}).click();
+  await page.waitForFunction(() => !document.querySelector('#task-body .tl-row[data-task-key="tt-deck"]'));
+  const sent = taskWrites(posts).at(-1);
+  assert.equal(sent.p, '/api/v2/tasks/t-deck/snooze');
+  assert.ok(Date.parse(sent.body.until) > Date.now(), 'tomorrow, at the start of the day');
+  await page.locator('#task-view [data-view="snoozed"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('#task-body .tl-row').length === 1);
+  assert.match(await page.locator('#task-body .tl-row .tl-due').innerText(), /^Snoozed to /);
+  await page.locator('#task-body .tl-row [data-open-task]').click();
+  await peek.locator('[data-task-unsnooze]').click();
+  await page.waitForFunction(() => document.querySelector('#task-body .tl-empty'));
+  assert.deepEqual(taskWrites(posts).at(-1), {p: '/api/v2/tasks/t-deck/unsnooze', body: {}});
+  assert.deepEqual(errors, []);
+  console.log('snoozing: ok');
+  await page.close();
+}
 async function views(browser) {
   // Needs you: what waits on you, grouped by who asks. A bot's heading has a visible Chat link; a person's has none.
   const {page, errors} = await open(browser, {hash: '#/tasks'});
@@ -1191,7 +1221,7 @@ if (require.main === module) (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const only = process.env.TASKS_ONLY ? process.env.TASKS_ONLY.split(',') : null;
-    for (const [name, run] of Object.entries({listAndTabs, typeSelection, filters, carriedOver, peekAndKeys, properties, bulk, views, waitingOnYou, donePagination, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
+    for (const [name, run] of Object.entries({listAndTabs, typeSelection, filters, carriedOver, peekAndKeys, properties, snoozing, bulk, views, waitingOnYou, donePagination, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
       if (!only || only.includes(name)) await run(browser);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

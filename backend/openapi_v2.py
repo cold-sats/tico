@@ -119,12 +119,6 @@ STABLE = [
      "Who may see, read and write to a bot (its managers only; docs/permissions.md)", "BotAccessView"),
     ("/api/v2/bots/{bot}/access", "put", "Bots", "setBotAccess",
      "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccessView"),
-    ("/api/v2/bots/{source}/assignment-branches", "get", "Bots", "listAssignmentBranches", "Temporary task assignments for a persistent role", "AssignmentBranchList"),
-    ("/api/v2/bots/{source}/assignment-branches", "post", "Bots", "createAssignmentBranch", "Allocate one eligible delivery task to an isolated temporary actor", "AssignmentBranch"),
-    ("/api/v2/bots/{source}/assignment-branches/policy", "put", "Bots", "setAssignmentBranchPolicy", "Enable or disable the source role's direct-parent allocator", "AssignmentBranchPolicyResult"),
-    ("/api/v2/assignment-branches/{ident}", "patch", "Bots", "updateAssignmentBranch", "Checkpoint or advance a temporary assignment lifecycle", "AssignmentBranch"),
-    ("/api/v2/assignment-branches/{ident}/cleanup", "post", "Bots", "requestAssignmentBranchCleanup", "Request separate cleanup of a terminal assignment after its runner proves local trees are safe to remove", "AssignmentBranchCleanup"),
-    ("/api/v2/assignment-branches/{ident}/events", "get", "Bots", "listAssignmentBranchEvents", "Assignment history", "AssignmentBranchEvents"),
     ("/api/v2/bots/{bot}/instructions", "get", "Bots", "getBotInstructions",
      "Latest Instructions snapshot published by the Computer; requires Read, published is false until content arrives",
      "BotInstructions"),
@@ -172,7 +166,8 @@ STABLE = [
     ("/api/v2/tasks", "get", "Tasks", "listTasks",
      "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that "
      "person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, "
-     "brief=true leaves out bodies. Each answer carries a `cursor`; changed_after=<cursor> with the same filters "
+     "brief=true leaves out bodies. Snoozed tasks are left out unless snoozed=only|all or asked for by ids or "
+     "number. Each answer carries a `cursor`; changed_after=<cursor> with the same filters "
      "answers only the tasks changed since (`tasks`) and the ids that left (`gone`), or `reset: true` to read in "
      "full. A full read has an ETag: If-None-Match answers 304 when nothing changed", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
@@ -201,6 +196,11 @@ STABLE = [
     ("/api/v2/tasks/{tid}/delete", "post", "Tasks", "deleteTask",
      "Delete a task made by mistake, with its conversation, to the trash: its human requester or a mover, signed in "
      "as themselves; a task carrying work is refused (409 has_work)", None),
+    ("/api/v2/tasks/{tid}/snooze", "post", "Tasks", "snoozeTask",
+     "Set a task aside until `until` (an ISO-8601 date or date-time): off lists and Needs you, and quiet, until "
+     "then, when its owner bot is woken once. Its requester, owner, anyone on it by role, or a mover", "TaskResult"),
+    ("/api/v2/tasks/{tid}/unsnooze", "post", "Tasks", "unsnoozeTask",
+     "Bring a snoozed task back now; its owner bot is woken once", "TaskResult"),
     ("/api/v2/tasks/{tid}/restore", "post", "Tasks", "restoreTask",
      "Put a deleted task back with its conversation, comments, links and number: whoever deleted it, its "
      "requester or a mover, signed in as themselves", None),
@@ -438,18 +438,6 @@ ACTORS = {"type": "object", "additionalProperties": {"type": "string"},
           "description": "On reads: display names for every actor id in the answer, {\"human:ana\": \"Ana Alvarez\"}"}
 
 SCHEMAS = {
-    "AssignmentBranch": obj({"id": "s", "source_bot": "s", "assignment_key": "s", "generation": "i", "bot": "s",
-                              "task_id": "s", "allocator": "s", "runner_id": "s", "display_name": "s", "phase": "s",
-                              "revision": "i", "request_hash": "s", "checkpoint": "o", "receipts": "o", "created": "s",
-                              "updated": "s", "archived_at": "n", "task": {"type": ["object", "null"]},
-                              "cleanup": {"type": ["object", "null"]}}),
-    "AssignmentBranchCleanup": obj({"assignment_id": "s", "state": {"enum": ["requested", "blocked", "complete"]},
-                                     "runner_id": "s", "requested_by": "s", "requested": "s", "updated": "s",
-                                     "detail": "s", "completed": "n", "attempt": "i"}),
-    "AssignmentBranchList": obj({"source": "s", "enabled": "b", "allocator_enabled": "b", "capacity": "i", "active": "i",
-                                  "assignments": items(ref("AssignmentBranch"))}),
-    "AssignmentBranchPolicyResult": obj({"source": "s", "enabled": "b", "allocator": "s", "revision": "i"}),
-    "AssignmentBranchEvents": obj({"events": items(obj({"actor": "s", "action": "s", "detail_json": "s", "created": "s"}))}),
     "SubscriptionList": obj({"profiles_by_computer": items(obj({"runner_id": "s", "label": "s", "profiles": items(
         obj({"name": "s", "id": "s", "display_name": "s", "runtimes": "o"}))})), "assignments": items(obj({"scope": "s", "target": "s", "profile": "s", "updated": "s", "updated_by": "s"}))}),
     "SubscriptionIdentity": obj({"id": "s", "display_name": "s"}),
@@ -525,6 +513,9 @@ SCHEMAS = {
                 step_rank={"type": ["number", "null"], "description": "Its place within its step, lower first"},
                 waiting_on={"type": ["string", "null"], "description": "The person a waiting task waits on; "
                             "the task is in their Needs you"},
+                snoozed_until={"type": ["string", "null"], "description": "Set aside until this moment (UTC): "
+                               "off lists and Needs you, and quiet, until then"},
+                snoozed_by={"type": ["string", "null"], "description": "Who snoozed it"},
                 roles={"type": "object", "description": "Who is on the task, by role: each role a short name the team "
                        "chooses (developer, reviewer, qa ...) with its actors in the order they were added; a role nobody "
                        "holds is absent, and one actor may hold several roles. Tico gives roles no meaning or rights. Task "

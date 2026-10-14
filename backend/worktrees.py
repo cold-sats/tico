@@ -20,6 +20,19 @@ CLOSED = ('done', 'closed', 'declined')
 PR_FINISHED = ('merged', 'closed', 'shipped')
 RESTORE_PROGRESS = ('attached_pending', 'initializing', 'checkout_ready', 'setup_running',
                     'setup_failed', 'ready', 'legacy_present', 'unverified')
+# How far a modern checkout has got. A computer builds its heartbeat report from the record it read on an
+# earlier pass, so a report can echo a state the record has since moved past; it never moves a record back.
+CHECKOUT_PROGRESS = {'queued': 0, 'attached_pending': 0, 'initializing': 1, 'checkout_ready': 2,
+                     'setup_running': 3, 'setup_failed': 3, 'ready': 4}
+IDENTITY = ('expected_head', 'checkout_target', 'expected_base')
+
+
+def stale_checkout_report(detail, reported_state):
+    current = detail.get('checkout_state')
+    if current == 'ready' and reported_state == 'unverified':
+        return all(detail.get(key) for key in IDENTITY)
+    return (current in CHECKOUT_PROGRESS and reported_state in CHECKOUT_PROGRESS
+            and CHECKOUT_PROGRESS[reported_state] < CHECKOUT_PROGRESS[current])
 
 
 def restore_requested(row, detail):
@@ -61,6 +74,15 @@ class Attach(Contract):
     branch: str | None = Field(default=None, max_length=200)
 
 
+class SessionTask(Contract):
+    bot: str = Field(min_length=1, max_length=100)
+    task: str = Field(min_length=1, max_length=100)
+
+
+class SessionTasks(Contract):
+    sessions: list[SessionTask] = Field(max_length=500)
+
+
 class Update(Contract):
     state: Literal['pending', 'present', 'missing', 'removed', 'unknown'] | None = None
     path: str | None = Field(default=None, max_length=1000)
@@ -89,7 +111,7 @@ def supported(c):
     return 'computer_id' in {r[1] for r in c.execute('PRAGMA table_info(task_links)')}
 
 
-LIMIT = 10            # live worktrees per bot
+LIMIT = 30            # live worktrees per bot; the computer's free-disk floor can stop it sooner
 CLEANUP_TRIES = 6     # a refused worktree cleanup is asked again after 2, 4, ... 64 minutes, then left
 
 
@@ -104,11 +126,24 @@ def inventory(c, computer):
             "OR (t.status NOT IN ('done','closed','declined') AND b.state='active'))", (computer,))]
 
 
+def attached(c, task_id, computer, bot):
+    """The task's worktrees this bot's turn on this computer works in: its own, set up, not removed. A claimed
+    task turn carries them (backend/execution.py) so the runner adds each to the session with its repo's rules."""
+    if not supported(c) or not task_id or not computer:
+        return []
+    owner = "coalesce(json_extract(l.detail_json,'$.owner'),CASE WHEN l.added_by LIKE 'bot:%' THEN l.added_by ELSE t.owner END)"
+    rows = c.execute(f"SELECT l.repo,l.branch,l.path,l.detail_json FROM task_links l JOIN tasks t ON t.id=l.task_id "
+                     f"WHERE l.task_id=? AND l.kind='worktree' AND l.computer_id=? AND l.state='present' AND {owner}=? "
+                     "ORDER BY l.created", (task_id, computer, "bot:" + bot)).fetchall()
+    return [{"repo": r["repo"] or "", "branch": r["branch"] or "", "path": r["path"]} for r in rows
+            if r["path"] and not json.loads(r["detail_json"] or "{}").get("setup_pending")]
+
+
 def holdings(c, owner):
     """The bot's live worktrees, each with what clears it: `merged` or `closed` (its pull requests are finished and the
     computer releases it once the bot is idle), `merge_ready` (an approved, passing pull request), `task_finished`,
     or `in_progress`. A worktree the computer kept says why in `kept`."""
-    rows = c.execute("SELECT l.id,l.task_id,l.path,l.repo,l.branch,l.detail_json,t.title,t.status FROM task_links l "
+    rows = c.execute("SELECT l.id,l.task_id,l.path,l.repo,l.branch,l.detail_json,coalesce(l.updated,l.created) AS updated,t.title,t.status FROM task_links l "
                      "JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(l.state,'unknown')<>'removed' "
                      "AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? ORDER BY l.created", (owner,)).fetchall()
     out = []
@@ -128,7 +163,7 @@ def holdings(c, owner):
             clear, why = 'in_progress', 'in progress'
         detail = json.loads(row['detail_json'] or '{}')
         item = {'link_id': row['id'], 'task_id': row['task_id'], 'task': row['title'], 'path': row['path'],
-                'repo': row['repo'], 'branch': row['branch'], 'clear': clear, 'why': why,
+                'repo': row['repo'], 'branch': row['branch'], 'clear': clear, 'why': why, 'updated': row['updated'],
                 'pull_requests': [{'url': p['url'], 'state': p['state']} for p in prs]}
         if detail.get('error') and (detail.get('cleanup_requested') or detail.get('release_requested')):
             item['kept'] = detail['error']
@@ -213,15 +248,18 @@ def heartbeat(c, who, reports, capable, default_org=""):
                     detail[key] = True
         if report.state == 'removed' and detail.get('cleanup_requested'):
             detail['removed_by'] = 'cleanup'
+        stale = stale_checkout_report(detail, report.checkout_state)
         reported = report.model_dump(exclude_none=True,
-                                     exclude={'link_id', 'state', 'branch', 'checkout_state'})
+                                     exclude={'link_id', 'state', 'branch', 'checkout_state',
+                                              *(IDENTITY if stale else ())})
         detail.update(reported)
         legacy_present = (report.state == 'present' and report.checkout_state == 'legacy_present'
                           and not detail.get('setup_pending')
                           and (row['state'] == 'present' and detail.get('checkout_state') in (None, 'legacy_present')
                                or row['state'] == 'unknown' and detail.get('checkout_state') == 'legacy_present'
                                or _demoted_legacy_report(row, detail)))
-        if report.checkout_state is not None and (report.checkout_state != 'legacy_present' or legacy_present):
+        if (report.checkout_state is not None and not stale
+                and (report.checkout_state != 'legacy_present' or legacy_present)):
             detail['checkout_state'] = report.checkout_state
         checkout_state = detail.get('checkout_state')
         completion_proven = ((checkout_state == 'ready' and bool(detail.get('expected_head'))
@@ -232,6 +270,7 @@ def heartbeat(c, who, reports, capable, default_org=""):
         state = ('removed' if report.state == 'removed' else
                  report.state if legacy_passthrough else
                  'pending' if not completion_proven else
+                 row['state'] if stale and report.state == 'pending' else
                  'pending' if row['state'] == 'pending' and report.state == 'present' and report.checkout_state not in ('ready', 'legacy_present') else
                  'pending' if row['state'] == 'pending' and row['repo'] and report.state == 'missing' else report.state)
         detail['current_branch'] = report.branch
@@ -372,7 +411,9 @@ def install(app, store, auth, mutate):
             if kept:
                 detail += ' Kept for the reason given; save or discard that work: ' + '; '.join(kept) + '.'
             if not (merge or freeing or kept):
-                detail += ' Finish or close older tasks first.'
+                # Nothing frees itself, and nothing is removed to make room: name the oldest idle ones to clean up.
+                idle = [f"{w['path']} ({w['task']})" for w in sorted(held, key=lambda w: w['updated'] or '')[:3]]
+                detail += ' Clean one up before making another. Oldest idle: ' + '; '.join(idle) + '.'
             raise Problem('worktree_limit', detail, 409, extra={'worktrees': held})
         if existing:
             detail = json.loads(existing['detail_json'] or '{}')
@@ -540,6 +581,25 @@ def install(app, store, auth, mutate):
                 raise Problem('forbidden', 'This bot needs write access to save its worktree', 403)
         value, expires = service.mint([link['repo']], {'contents': 'write', 'metadata': 'read'})
         return {'token': value, 'expires_at': expires}
+
+    @app.post('/api/v2/runners/me/session-tasks')
+    def session_tasks(request: Request, body: SessionTasks):
+        """The status of each task a bot's session checkout on this computer is kept for (runner/task_sessions.py),
+        so the computer can take away the checkouts of finished tasks between turns. Only a task this computer ran
+        a turn of that bot in that task's lane is answered; any other is left out, and the computer keeps it."""
+        who = request.state.identity
+        with store.read() as c:
+            validate_identity(c, who)
+            if who.role != 'runner':
+                raise Problem('forbidden', 'A registered computer is required', 403)
+            out = []
+            for item in body.sessions:
+                row = c.execute("SELECT t.status FROM tasks t WHERE t.id=? AND EXISTS (SELECT 1 FROM attempts a "
+                                "WHERE a.runner_id=? AND a.bot=? AND a.lane=?)",
+                                (item.task, who.runner_id, item.bot, 'task:' + item.task)).fetchone()
+                if row:
+                    out.append({'bot': item.bot, 'task': item.task, 'status': row['status']})
+            return {'sessions': out}
 
     @app.get('/api/v2/runners/me/worktrees')
     def listing(request: Request):

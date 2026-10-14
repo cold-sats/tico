@@ -6,27 +6,29 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from clients import sessions
+from clients.sessions import BOT_THREAD  # noqa: F401  (runner/service.py imports it from here)
+
 from . import isolation
 
 
-# The default provider thread. BotOps isolates jobs by default; other bots can
-# opt into the same isolation with session: task.
-BOT_THREAD = "bot"
+def session_task(attempt):
+    """The task a claimed turn keys its session on: the server's `session_task_id` (a subtask continues its
+    parent's session, backend/hubdb.py session_root), else the task itself."""
+    task = attempt.get("task") or {}
+    return task.get("session_task_id") or task.get("id")
 
 
 def session_key(config, attempt):
-    """The provider thread this turn continues. BotOps and bots set to `session: task` get one
-    per task, so a review never carries every earlier review into each call; a wake about the
-    same task (a stalled nudge, a reconcile, a reply) resumes it. A wake with no task keys on
-    its conversation, so a person's follow-up still lands where the first answer was."""
-    mode = (config or {}).get("session") or ("task" if attempt.get("bot") == "botops" else "bot")
-    if mode != "task":
-        return BOT_THREAD
-    task = (attempt.get("task") or {}).get("id")
-    if task:
-        return "task:" + task
-    conversation = (attempt.get("conversation") or {}).get("id")
-    return "conversation:" + conversation if conversation else BOT_THREAD
+    """The provider thread this turn continues (clients/sessions.py), read from a claimed attempt."""
+    return sessions.session_key(config, attempt.get("bot"), session_task(attempt),
+                                (attempt.get("conversation") or {}).get("id"))
+
+
+def lane(config, attempt):
+    """The lane this turn runs in: the server's word when it sent one, else worked out the same way."""
+    return attempt.get("lane") or sessions.lane(config, attempt.get("bot"), session_task(attempt),
+                                                (attempt.get("conversation") or {}).get("id"))
 
 
 class State:
@@ -63,6 +65,8 @@ class State:
                   PRIMARY KEY(attempt_id,message_id));
                 CREATE TABLE IF NOT EXISTS session_cursors(
                   thread TEXT PRIMARY KEY, message TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS session_repo_rules(
+                  thread TEXT PRIMARY KEY, digest TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS import_cursors(
                   source TEXT PRIMARY KEY, cursor TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS imports(
@@ -174,6 +178,15 @@ class State:
             if message is not None:
                 c.execute("INSERT OR REPLACE INTO session_cursors VALUES(?,?)", (thread, message))
             row = c.execute("SELECT message FROM session_cursors WHERE thread=?", (thread,)).fetchone()
+            return row[0] if row else None
+
+    def repo_rules(self, thread, digest=None):
+        """The hash of the repo rules a thread was last given (runner/repo_rules.py), so they are sent
+        again only to a fresh thread or when they change."""
+        with self.connect() as c:
+            if digest is not None:
+                c.execute("INSERT OR REPLACE INTO session_repo_rules VALUES(?,?)", (thread, digest))
+            row = c.execute("SELECT digest FROM session_repo_rules WHERE thread=?", (thread,)).fetchone()
             return row[0] if row else None
 
     def import_cursor(self, source, cursor=None):

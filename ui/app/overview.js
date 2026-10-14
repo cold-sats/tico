@@ -86,9 +86,30 @@ function pageOverview() {
       const person = overviewModel().groups.flatMap(g => g.members).find(m => m.id === ev.data.id);
       if (person?.href) location.hash = person.href;
     }
+    if (ev.data?.type === 'tico-overview-replay-load') void overviewReplayLoad(state);
   }, {signal: state.abort.signal});
   overviewStuckDraw();
   void overviewLoadComputers().then(() => { if (OVERVIEW_PAGE === state) overviewRefresh(); });
+}
+// The campus replay reads the same history as the Replay page (GET /api/v2/replay), with the viewer's own rights,
+// and hands the frame only what the campus shows: who, to whom, task titles, states and a short line of each
+// message. Bot focus text and run summaries stay on this side, as they do for the live campus.
+async function overviewReplayLoad(state) {
+  const to = new Date(), from = new Date(to.getTime() - 864e5);
+  const post = message => { if (OVERVIEW_PAGE === state) state.frame.contentWindow?.postMessage(message, location.origin); };
+  let data;
+  try { data = await get('/v2/replay?' + new URLSearchParams({from: from.toISOString(), to: to.toISOString()})); }
+  catch { post({type: 'tico-overview-replay-error'}); return; }
+  const nameOf = replayName(data), names = {};
+  const actors = (data.items || []).flatMap(it => [it.who, it.to, it.owner, it.kind === 'task.owner' ? it.new : null, it.bot ? 'bot:' + it.bot : null])
+    .concat(Object.keys(data.start?.bots || {}).map(slug => 'bot:' + slug));
+  for (const a of actors) if (a && !(a in names)) names[a] = nameOf(a);
+  const slim = it => ({at: it.at, kind: it.kind, who: it.who, to: it.to, owner: it.owner, bot: it.bot, state: it.state, exit: it.exit,
+    new: it.new, task: it.task ? {title: it.task.title} : undefined, goal: it.goal ? {title: it.goal.title} : undefined,
+    text: it.kind === 'chat.message' || it.kind === 'task.comment' ? String(it.text || '').slice(0, 160) : undefined});
+  const start = {bots: Object.fromEntries(Object.entries(data.start?.bots || {}).map(([slug, b]) => [slug, {state: b.state}]))};
+  post({type: 'tico-overview-replay-data', names, words: V2_WORD,
+    data: {from: data.from, to: data.to, truncated: !!data.truncated, next: data.next || null, items: (data.items || []).map(slim), start}});
 }
 function overviewRefresh() {
   const state = OVERVIEW_PAGE; if (!state) return;

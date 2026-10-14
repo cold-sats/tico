@@ -93,23 +93,9 @@ class FetchRepository(unittest.TestCase):
         runner.preflight([entry(generation=3)], RUNTIMES)
         self.assertEqual(cloud.asked, 2)
 
-    def test_assignment_token_refusal_stands_until_placement_repository_or_config_changes(self):
-        cloud = Cloud(APIError("assignment_repository", "Private task assignments have no GitHub token", 409))
+    def test_an_older_server_without_token_purpose_keeps_the_no_app_path(self):
+        cloud = Cloud()
         runner, assigned = self.runner(cloud), entry()
-        for _ in range(40):
-            env, problem = runner.github_access("helper", assigned)
-            self.assertIsNone(env)       # a remembered refusal never falls back to machine credentials
-            self.assertIn("Private task assignments", problem)
-        self.assertEqual(cloud.asked, 1)
-        for name, value in (("generation", 3), ("repository", "Acme/other"),
-                            ("config", {"runtime": "claude"}), ("runner_id", "r2"),
-                            ("assignment", {"id": "a1", "revision": 2})):
-            assigned[name] = value
-            runner.github_access("helper", assigned)
-        self.assertEqual(cloud.asked, 6)
-        # Old servers that answer configured=false still use the existing no-App path.
-        cloud.refusal = None
-        assigned["config"] = {}
         with mock.patch.object(cloud, "post", side_effect=[
                 APIError("validation", "Unexpected field: purpose", 422),
                 {"configured": False}, {"configured": False}]) as older:
@@ -117,25 +103,6 @@ class FetchRepository(unittest.TestCase):
             self.assertIsNotNone(runner.github_access("helper", assigned)[0])
             self.assertEqual([call.args[1] for call in older.call_args_list],
                              [{"bot": "helper", "purpose": "git"}, {"bot": "helper"}, {"bot": "helper"}])
-        for refusal in (APIError("github_repo_missing", "Missing repository", 409),
-                        APIError("assignment_repository", "Unavailable", 502)):
-            cloud.refusal = refusal
-            before = cloud.asked
-            runner.github_access("helper", assigned)
-            runner.github_access("helper", assigned)
-            self.assertEqual(cloud.asked, before + 2)   # no permanent cache for other errors
-        cloud.refusal = APIError("assignment_repository", "Private assignment", 409)
-        before = cloud.asked
-        runner.github_access("helper")
-        runner.github_access("helper")
-        self.assertEqual(cloud.asked, before + 2)       # no snapshot, no safe invalidation
-        runner.github_access("helper", assigned)
-        runner.fetch_notes = {"helper": {"problem": "Private assignment"}}
-        runner.remember_github_assignments([assigned])
-        self.assertIn("helper", runner.github_assignment_refusals)
-        runner.remember_github_assignments([])
-        self.assertNotIn("helper", runner.github_assignment_refusals)
-        self.assertNotIn("helper", runner.fetch_notes)
 
     def test_a_template_bot_with_history_on_github_is_cloned_not_set_up_afresh(self):
         real = git_credentials.remote_history
@@ -221,6 +188,46 @@ class FetchRepository(unittest.TestCase):
             self.assertIn("left as it is", service.clone_shared(target, {"repo": "Acme/bot-original"}))
         run.assert_not_called()
         self.assertEqual((target / "draft.md").read_text(), "unfinished")
+
+    def test_a_failed_clone_names_gits_reason_and_leaves_nothing_behind(self):
+        target = self.projects / "bot-helper"
+        def fails(command, **kwargs):
+            if "clone" not in command:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            (target / ".git" / "objects").mkdir(parents=True)
+            return subprocess.CompletedProcess(command, 128, "", "Cloning into 'bot-helper'...\nerror: RPC failed; HTTP 500 "
+                                               "curl 22 The requested URL returned error: 500\nfatal: expected flush after ref listing\n")
+        with mock.patch.object(git_credentials.isolation, "run", side_effect=fails):
+            state, detail = git_credentials.clone_repository(target, REPO, {"GH_TOKEN": "ghs_" + "x" * 36})
+        self.assertEqual(state, "failed")
+        self.assertIn("RPC failed; HTTP 500", detail)
+        self.assertIn("expected flush after ref listing", detail)
+        self.assertFalse(target.exists())                      # the next try is a clone, not "already exists"
+
+    def test_a_timed_out_clone_says_so_and_leaves_nothing_behind(self):
+        target = self.projects / "bot-helper"
+        def slow(command, **kwargs):
+            if "clone" not in command:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            (target / ".git").mkdir(parents=True)
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        with mock.patch.object(git_credentials.isolation, "run", side_effect=slow):
+            self.assertEqual(git_credentials.clone_repository(target, REPO, {}, timeout=180),
+                             ("failed", "git clone timed out after 180 seconds; a large repository or a slow network needs longer"))
+        self.assertFalse(target.exists())
+        with mock.patch.object(service.isolation, "run", side_effect=slow):
+            self.assertIn("timed out after 120 seconds", service.clone_shared(target, {"repo": "Acme/bot-original"}))
+        self.assertFalse(target.exists())
+
+    def test_a_refused_token_keeps_gits_words(self):
+        target = self.projects / "bot-helper"
+        refused = subprocess.CompletedProcess([], 128, "", "remote: Permission to Acme/emp-helper.git denied to app.\n"
+                                              "fatal: unable to access 'https://x-access-token:ghs_secretsecretsecretsecret@github.com/"
+                                              "Acme/emp-helper.git/': The requested URL returned error: 403\n")
+        with mock.patch.object(git_credentials.isolation, "run", return_value=refused):
+            state, detail = git_credentials.clone_repository(target, REPO, {})
+        self.assertTrue(detail.startswith("GitHub refused the bot's token: remote: Permission to Acme/emp-helper.git denied"))
+        self.assertNotIn("ghs_secretsecret", detail)
 
 if __name__ == "__main__":
     unittest.main()

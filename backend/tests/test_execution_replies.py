@@ -1,4 +1,6 @@
 """Completion delivers new input answers without repeating this attempt's tool sends."""
+import json
+
 import pytest
 
 from backend.store import H, encode
@@ -150,7 +152,11 @@ def test_routine_reply_in_a_personal_room_is_not_lost_to_an_unrelated_private_ta
     reply = finish(api, runner, attempt, "Map refreshed.")
     with api.app.state.store.read() as c:
         assert tuple(c.execute("SELECT state,final_text FROM attempts WHERE id=?", (attempt["id"],)).fetchone()) == ("completed", "Map refreshed.")
-        shown = [m for m in get(api, f"conversations/{origin['conversation_id']}/messages") if m["created"] > task["created"]]
+        room = H.task(c, task["id"])["conversation_id"]
+    # The task has its own room; the person's room got only the "Started task" line.
+    started = [m for m in get(api, f"conversations/{origin['conversation_id']}/messages") if m["created"] > task["created"]]
+    assert [(m["refs"] or {}).get("task_started") for m in started] == [True]
+    shown = get(api, f"conversations/{room}/messages")
     if notice == "current":
         assert reply and reply["to_actor"] == "human:ana" and reply["body"] == "Map refreshed."
     else:
@@ -159,3 +165,35 @@ def test_routine_reply_in_a_personal_room_is_not_lost_to_an_unrelated_private_ta
         told = [m for m in shown if m["from_actor"] == H.KEEPER and (m.get("refs") or {}).get("withheld")]
         assert len(told) == 1 and told[0]["to_actor"] == "human:ana"
         assert not any("Map refreshed." in m["body"] or "Nightly" in m["body"] for m in shown)
+
+
+
+def test_a_task_session_becomes_the_tasks_one_primary_session_and_a_shared_thread_does_not(api):
+    r = runner(api, "ana")
+    assign(api, r, "ops")
+
+    def turn(task, thread):
+        post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {"ops": True},
+                                        "capabilities": ["task_lanes_v2"]}, token=r["token"])
+        attempt = claim(api, r)
+        post(api, f"attempts/{attempt['id']}/started", {"thread_id": thread}, r["token"])
+        finish(api, r, attempt)
+        with api.app.state.store.read() as c:
+            return {link["url"]: json.loads(link["detail_json"])["primary"]
+                    for link in H.task_links(c, task["id"]) if link["kind"] == "session"}
+
+    # A bot set to one shared thread carries its other conversations there too: no task's session.
+    with api.app.state.store.transaction() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='ops'").fetchone()[0])
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'", (json.dumps({**config, "session": "bot"}),))
+    shared = post(api, "tasks", {"owner": "ops", "title": "Check the shared folder", "body": "Check it"})
+    assert turn(shared, "shared-thread") == {}
+    with api.app.state.store.transaction() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='ops'").fetchone()[0])
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'", (json.dumps({**config, "session": "task"}),))
+    task = post(api, "tasks", {"owner": "ops", "title": "Check the task folder", "body": "Check it"})
+    assert turn(task, "old") == {"session:ops/old": True}
+    # Someone linked the next thread before it ran: it becomes the one primary, the old one an alternate.
+    post(api, f"tasks/{task['id']}/links", {"url": "ops/new", "kind": "session"})
+    post(api, f"tasks/{task['id']}/comments", {"text": "Check it again"})
+    assert turn(task, "new") == {"session:ops/old": False, "session:ops/new": True}

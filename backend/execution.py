@@ -5,6 +5,8 @@ import re
 import secrets
 import sqlite3
 
+from clients import sessions
+
 from . import inbox_isolation, providers, routines, runner_versions, usage_limits
 from . import task_privacy as privacy
 from .auth import Identity
@@ -25,6 +27,7 @@ SILENT_KINDS = {"error", "diagnostic", "status"}
 NO_EFFECT_TRIES = 3
 PRE_START_TRIES = 10        # lapsed leases before start: a broken computer must not retry forever
 NO_EFFECT_WITHIN = 120       # seconds from start; a longer silent run may have used unreported tools
+CHECKPOINT_CHARS = 1500      # a task's checkpoint: the last turn's reply, enough to pick the work back up
 # A deploy drains every bot while it waits for runs to finish (at most 30 minutes) and then
 # activates. A drain it left behind for longer than this is a leak, not a deploy in progress.
 DEPLOY_DRAIN_MAX = 3600
@@ -37,6 +40,115 @@ AWAKE_SETTLE = 120
 # A claim arrives four times a second; contact is recorded at most this often so the rule costs
 # one write a minute on an idle machine rather than four a second.
 CONTACT_EVERY = 10
+
+
+# A runner that advertises this runs a bot's task-keyed turns in their own lanes, side by side;
+# for any other runner every turn is in the main lane, one at a time per bot. `task_lanes_v1` was
+# advertised by unreleased main-built runners whose session key treats an unset `session` as the
+# bot thread, so the task-session default would give their lanes one shared provider thread: it
+# is still accepted but means no lanes, and those runners run serially.
+LANES = "task_lanes_v2"
+
+# A runner that advertises this keys a task turn's session and worktree on the claimed task's
+# `session_task_id` (H.session_root: a subtask continues its parent's session). Any other runner keys
+# on the task itself, so for it the server keeps every task, subtasks included, its own lane and session.
+ROOTS = "session_roots_v1"
+
+# A runner that advertises this runs a task's goal as the harness's native goal (chat_goals.task_goal_row):
+# it sets it in the task's session beside the turn's prompt. Any other runner is handed no task-room goal.
+TASK_GOALS = "task_goals_v1"
+
+
+def lanes_on(runner):
+    return LANES in set(H._json(runner["capabilities_json"], []) or []) if runner else False
+
+
+def roots_on(runner):
+    return ROOTS in set(H._json(runner["capabilities_json"], []) or []) if runner else False
+
+
+def task_goals_on(runner):
+    return TASK_GOALS in set(H._json(runner["capabilities_json"], []) or []) if runner else False
+
+
+def session_task_id(c, bot, config, task_id, roots):
+    """The task a turn on `task_id` keys its session and lane on: its session root for a runner that reads
+    `session_task_id`, the task itself for any other."""
+    return H.session_root(c, bot, task_id, config) if roots and task_id else task_id
+
+
+def job_lane(c, bot, config, message, conversation, lanes, roots=False):
+    """The lane a queued message would run in (clients/sessions.py), `main` for a runner without lanes.
+    `config` is the bot's followed config, the one its runner keys sessions on. A subtask's turn runs in
+    its session root's lane, so it and its parent's turns take turns in one session."""
+    if not lanes:
+        return sessions.MAIN_LANE
+    return sessions.lane(config, bot, session_task_id(c, bot, config, H.message_task_id(message, conversation), roots),
+                         conversation["id"] if conversation else None)
+
+
+# The room messages a claim hands its turn (the runner forwards only what arrived since the session last answered).
+HISTORY_PAGE = 50
+
+
+def lane_history(c, bot, config, history, conversation, lane, roots=False):
+    """The part of a room's page a turn in `lane` reads: the messages whose own lane (job_lane) is that
+    lane, so the main session never reads task traffic and a task's session never reads the main chat or
+    another task. The main chat's quiet task lines (`refs.task_started`, `refs.task_report`) are the main
+    session's: how it hears that a task started and where it got to."""
+    memo = {}
+
+    def lane_of(message):
+        refs = message.get("refs") or {}
+        if refs.get("task_report") or refs.get("task_started"):
+            return sessions.MAIN_LANE
+        task_id = H.message_task_id(message, conversation)
+        if task_id not in memo:
+            memo[task_id] = sessions.lane(config, bot, session_task_id(c, bot, config, task_id, roots),
+                                          conversation["id"] if conversation else None)
+        return memo[task_id]
+    return [message for message in history if lane_of(message) == lane]
+
+
+def task_goal(c, bot, config, task):
+    """The goal a bot's task turn carries, or None. `task_goal: on` in the bot's config gives every task it
+    owns one; a `goal:on` or `goal:off` label on the task overrides it. A person's task never has one."""
+    if not task or task.get("owner") != "bot:" + bot:
+        return None
+    labels = set(H.task_labels(task))
+    if not ("goal:on" in labels or (config or {}).get("task_goal") == "on" and "goal:off" not in labels):
+        return None
+    criteria = [str(item).strip() for item in (H._json(task.get("acceptance_json"), []) or []) if str(item).strip()]
+    objective = task["title"] + ("\nAcceptance criteria:\n" + "\n".join("- " + item for item in criteria) if criteria else "")
+    return {"objective": objective[:4000]}
+
+
+def current_task_goal(c, bot, task):
+    """task_goal with the bot's config as its turns read it (shared_bots.follow)."""
+    from .shared_bots import follow
+    found = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    return task_goal(c, bot, follow(c, bot, json.loads(found[0] or "{}")) if found else {}, task)
+
+
+def settle_status(c, bot, state, focus, began=None):
+    """The status a finished or lapsed turn leaves its bot in. While another of its turns is still out,
+    the bot is still at work, so an idle or crashed turn does not mark the whole bot idle or crashed;
+    the held run keeps its own item in Health. A usage limit is the subscription's, so one lane's limit
+    holds for the whole bot until its cooldown passes, whatever a turn begun before it ends with; a turn
+    begun after it (a person's message, Try now) that settles shows the limit has lifted. `began` is
+    when the settling turn started, None when unknown."""
+    if state in ("idle", "crashed"):
+        status = H.status(c, bot) or {}
+        if (status.get("state") == "limited" and status.get("since")
+                and status["since"] > H.shift(H.now(), seconds=-limit_cooldown(c, bot))
+                and (began is None or began < status["since"])):
+            return
+        if c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') LIMIT 1",
+                     (bot,)).fetchone():
+            # No count and no task: the other turns may be on private tasks this status's readers cannot see.
+            H.status_set(c, H.KEEPER, bot, state="running", focus="Working on other tasks", task_id="")
+            return
+    H.status_set(c, H.KEEPER, bot, state=state, focus=focus)
 
 
 def queued_task_sql():
@@ -80,6 +192,15 @@ def person_wrote_since(c, bot, since):
                      (bot, max(since, last or ""))).fetchone() is not None
 
 
+def cooling_off(c, bot):
+    """Whether a usage limit still holds the bot: its status is `limited`, the cooldown has not passed,
+    and no person has written to it since (a person's message is worth one try)."""
+    status = H.status(c, bot) or {}
+    return bool(status.get("state") == "limited" and status.get("since")
+                and status["since"] > H.shift(H.now(), seconds=-limit_cooldown(c, bot))
+                and not person_wrote_since(c, bot, status["since"]))
+
+
 def clear_limits(c, settings, actor, bot):
     """Try now: lift the usage-limit cooldown for the bot and for every bot limited on the same
     runtime on the same computer, since they share the subscription a person has just renewed.
@@ -117,10 +238,6 @@ def bot_repository(c, settings, bot, rows=None, app=None):
     else:
         found = rows(bot)
         config = _json(found["config_json"]) if found else {}
-    # Assignment instances clone the source repository into a private machine-local tree.
-    # They must never receive the source's scoped GitHub token or publish task work to its trunk.
-    if config.get("assignment_branch"):
-        return ""
     bot = source_of(config) or bot
     config = rows(bot) if rows is not None else c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
     app = app[0] if app is not None else _github_app(c)
@@ -177,6 +294,16 @@ def split_runner_notices(text):
     while len(parts) > 1 and RUNNER_NOTICE.fullmatch(parts[-1].strip()):
         notices.insert(0, parts.pop().strip())
     return "\n\n".join(parts), notices
+
+
+def checkpoint_safe(c, aid, task):
+    """Whether this run's reply may be kept on `task` as its checkpoint: only when the run took in no
+    other private task. Stricter than a posted reply's rule: a checkpoint keeps no record of what it
+    drew on, so another task's private details in it would leak once `task` is published or
+    reassigned. When it is not safe the task's earlier checkpoint stays as it was: it predates this
+    run, so it holds nothing from these other tasks, and a stale starting point beats none."""
+    return not any(other and H.task_private(c, other)
+                   for other in (H.task(c, tid) for tid in privacy.attempt_tasks(c, aid) if tid != task["id"]))
 
 
 class Execution:
@@ -402,27 +529,13 @@ class Execution:
         load(sorted({source_of(_json(r["config_json"])) for r in configs.values()} - {""} - set(configs)))
         app, creators = (_github_app(c),), {}
         for row in rows:
-            row_config = json.loads(row["config_json"] or "{}")
-            assignment_info = None
-            if row_config.get("assignment_branch"):
-                active = c.execute("SELECT id,phase,runner_id,task_id,revision,checkpoint_json FROM assignment_branches WHERE bot=?",
-                                   (row["bot"],)).fetchone()
-                capabilities = set(H._json(runner["capabilities_json"], []) or [])
-                if (not active or active["runner_id"] != who.runner_id
-                        or active["phase"] in ("archived", "cancelled")
-                        or "assignment_instances_v1" not in capabilities):
-                    continue
-                assignment_info = {"id": active["id"], "phase": active["phase"], "task_id": active["task_id"],
-                                  "revision": active["revision"],
-                                  "checkpoint": H._json(active["checkpoint_json"], {}) or {}}
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'], configs.get(row['bot']), creators)
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
             result.append({**dict(row), 'computer_label': runner['label'], 'profile': effective(c, row['bot'], subscription_context)[0],
                            'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']), configs.get)),
                            'repository': bot_repository(c, self.store.settings, row['bot'], configs.get, app),
-                           'mail_agent': bool(P.inbox_person(row['bot'], people)),
-                           **({'assignment': assignment_info} if assignment_info else {})})
+                           'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
 
     def assign(self, c, who, bot, body):
@@ -543,8 +656,9 @@ class Execution:
                 H.turn_finish(c, H.KEEPER, row["id"], exit_code="failed" if state == "failed" else "interrupted",
                               summary=reason if state == "failed" else "Runner lease expired")
                 if H.bot(c, row["bot"]):
-                    H.status_set(c, H.KEEPER, row["bot"], state="crashed",
-                                 focus=reason if state == "failed" else "One run stopped; saved for later")
+                    settle_status(c, row["bot"], "crashed",
+                                  reason if state == "failed" else "One run stopped; saved for later",
+                                  began=row["started"] or row["created"])
                 H.event(c, H.KEEPER, "attempt.expired", row["id"], {"job_state": state})
 
     @staticmethod
@@ -577,6 +691,15 @@ class Execution:
     def candidate(self, c, who, body, runner):
         """The queued job this runner would be given next, or None. Reads only."""
         runner_capabilities = set(H._json(runner["capabilities_json"], []) or [])
+        lanes = LANES in runner_capabilities
+        roots = ROOTS in runner_capabilities
+        # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
+        # without lanes runs one turn per bot, so any active attempt takes the whole bot.
+        busy = {(r["bot"], r["lane"]) for r in c.execute(
+            "SELECT bot,lane FROM attempts WHERE state IN ('leased','running')")}
+        busy_bots = {bot for bot, _ in busy} if not lanes else set()
+        busy |= {tuple(entry.split("|", 1)) for entry in (body.busy_lanes or ()) if "|" in entry}
+        followed = {}
         ready = readiness_document(runner["readiness_json"])
         # Unconfirmed effects hold the interrupted conversation and task until review. Other
         # tasks and routines for the same bot can continue. A person's unrelated chat also
@@ -584,16 +707,16 @@ class Execution:
         default = usage_limits.company(c)
         from .subscriptions import context, effective, covers, refusal
         from .repositories import metadata
+        from .shared_bots import follow
         subscription_context = context(c)
         bots = []
         for row in c.execute("SELECT a.bot,bc.config_json FROM assignments a JOIN bots b ON b.slug=a.bot JOIN bot_config bc ON bc.bot=a.bot "
                              "WHERE a.runner_id=? AND b.state='active' AND (? IS NULL OR a.bot=?) "
                              "AND EXISTS(SELECT 1 FROM jobs j WHERE j.bot=a.bot AND j.state='queued') "
-                             "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=a.bot AND t.state IN ('leased','running')) "
                              "AND NOT EXISTS(SELECT 1 FROM bot_control bc WHERE bc.bot=a.bot AND bc.draining=1)",
                              (who.runner_id, body.bot, body.bot)).fetchall():
             bot = row["bot"]
-            if bot in (body.busy_bots or ()):
+            if bot in (body.busy_bots or ()) or bot in busy_bots:
                 continue
             try:
                 config = json.loads(row["config_json"])
@@ -601,26 +724,6 @@ class Execution:
                     continue
             except (ValueError, TypeError):
                 continue
-            if config.get("assignment_branch"):
-                assignment = c.execute("SELECT phase,task_id FROM assignment_branches WHERE bot=?", (bot,)).fetchone()
-                if ("assignment_instances_v1" not in runner_capabilities or not assignment
-                        or assignment["phase"] not in ("preparing", "working")):
-                    continue
-                has_linked_task = False
-                for queued in c.execute("SELECT m.*,cv.task_id AS conversation_task FROM jobs j JOIN messages m ON m.id=j.message_id "
-                                        "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.bot=? AND j.state='queued'",
-                                        (bot,)).fetchall():
-                    if H.message_task_id(queued, {"task_id": queued["conversation_task"]}) == assignment["task_id"]:
-                        has_linked_task = True
-                        break
-                if not has_linked_task:
-                    continue
-            if config.get("assignment_branch"):
-                assignment = c.execute("SELECT phase FROM assignment_branches WHERE bot=?", (bot,)).fetchone()
-                # Waiting, paused, interrupted and archived actors keep their identity and data,
-                # but cannot take work until an authorized lifecycle transition resumes them.
-                if not assignment or assignment["phase"] not in ("preparing", "working"):
-                    continue
             profile = effective(c, bot, subscription_context)[0]
             if profile:
                 if not metadata(c, "computer-profiles:" + runner["id"]).get("reported"):
@@ -641,12 +744,10 @@ class Execution:
                 continue
             if usage_limits.blocked(c, bot, default=default):
                 continue
-            status = H.status(c, bot) or {}
-            if (status.get("state") == "limited" and status.get("since")
-                    and status["since"] > H.shift(H.now(), seconds=-limit_cooldown(c, bot))
-                    and not person_wrote_since(c, bot, status["since"])):
+            if cooling_off(c, bot):
                 continue
             bots.append(bot)
+            followed[bot] = follow(c, bot, config)
         if not bots:
             return None
         marks = ",".join("?" for _ in bots)
@@ -668,14 +769,12 @@ class Execution:
             "ORDER BY CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
             (*bots, who.runner_id))
         for row in candidates:
-            if not privacy.message_readable(c, "bot:" + row["bot"], H.message(c, row["message_id"])):
+            message = H.message(c, row["message_id"])
+            if not privacy.message_readable(c, "bot:" + row["bot"], message):
                 continue
-            assignment = c.execute("SELECT task_id FROM assignment_branches WHERE bot=?", (row["bot"],)).fetchone()
-            if assignment:
-                message = H.message(c, row["message_id"])
-                conversation = H.conversation(c, message["conversation_id"])
-                if H.message_task_id(message, conversation) != assignment["task_id"]:
-                    continue
+            conversation = H.conversation(c, message["conversation_id"])
+            if (row["bot"], job_lane(c, row["bot"], followed[row["bot"]], message, conversation, lanes, roots)) in busy:
+                continue
             return row
         return None
 
@@ -811,26 +910,37 @@ class Execution:
                 return {"attempt": None}
         conv = H.conversation(c, msg["conversation_id"])
         task = H.task(c, H.message_task_id(msg, conv)) if H.message_task_id(msg, conv) else None
+        if task and task["owner"] == "bot:" + row["bot"] and row["bot"] != self.store.settings.assistant_bot:
+            # A bot's task filed before task rooms moves to its own room now; this turn's message stays put.
+            # The Assistant's stay in the person's own room, where its turns act for that person.
+            task = H.give_task_room(c, task)
+        from .shared_bots import follow
+        followed = follow(c, row["bot"], json.loads(
+            c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
+        roots, lanes = roots_on(runner), lanes_on(runner)
+        lane = job_lane(c, row["bot"], followed, msg, conv, lanes, roots)
         token = secrets.token_urlsafe(32)
         until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)
         turn = H.turn_start(c, H.KEEPER, row["bot"], trigger="task" if task else msg["kind"],
                             message_id=msg["id"], task_id=task["id"] if task else None)
         aid = turn["id"]
-        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) VALUES(?,?,?,?,?,?,'leased',?,?)",
-                  (aid, row["id"], row["bot"], who.runner_id, row["generation"], digest(token), until, H.now()))
+        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,lane) "
+                  "VALUES(?,?,?,?,?,?,'leased',?,?,?)",
+                  (aid, row["id"], row["bot"], who.runner_id, row["generation"], digest(token), until, H.now(), lane))
         c.execute("UPDATE jobs SET state='leased',attempt_id=? WHERE id=?", (aid, row["id"]))
         c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, conv["id"]))
         # A bot that names no runtime or model runs on the company default, resolved here the way
         # runners/assignments resolves it: the runner starts exactly what this says.
-        from .shared_bots import follow
-        config = providers.fill(providers.load(c, self.store.settings), follow(c, row["bot"], json.loads(
-            c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0])))
+        config = providers.fill(providers.load(c, self.store.settings), followed)
         # The room's recent page. The runner forwards only what arrived since the bot last
         # answered; the bot reads further back itself with `hub conversation show` when it wants to. The
         # hub keeps no pointer to the bot's session and rebuilds nothing on its behalf.
         epoch = c.execute("SELECT updated FROM session_epochs WHERE conversation_id=?", (conv["id"],)).fetchone()
         bot_who = Identity("bot:" + row["bot"], "bot", attempt_id=aid)
-        history = privacy.page(c, bot_who, conv["id"], limit=50, since=epoch["updated"] if epoch else None)["messages"]
+        history = privacy.page(c, bot_who, conv["id"], limit=HISTORY_PAGE * (2 if lanes else 1),
+                               since=epoch["updated"] if epoch else None)["messages"]
+        if lanes:
+            history = lane_history(c, row["bot"], followed, history, conv, lane, roots)[-HISTORY_PAGE:]
         principal = (conv.get("owner_actor") if conv.get("scope") == "personal"
                      else msg["from_actor"] if str(msg["from_actor"]).startswith("human:") else None)
         routine = None
@@ -851,14 +961,39 @@ class Execution:
                     return False
             from .task_relations import for_prompt
             task = {**task, "relations": for_prompt(c, task["id"], lambda other: bool(other) and readable(other))}
+            goal = task_goal(c, row["bot"], followed, task)
+            if goal:
+                # Worked as a goal: the runner tells the bot to keep at it until the objective holds.
+                task["goal"] = goal
+            if roots:
+                # The task whose session and worktree this turn continues (H.session_root); the runner keys on it.
+                task["session_task_id"] = session_task_id(c, row["bot"], followed, task["id"], roots)
+                root = H.task(c, task["session_task_id"]) if task["session_task_id"] != task["id"] else None
+                if root and readable(root):
+                    # The checkpoint lives on the root: a fresh session starts from where the root stood.
+                    kept = root.get("checkpoint") if not root.get("checkpoint_blocked") else None
+                    task.update({"checkpoint": kept, "checkpoint_at": root.get("checkpoint_at") if kept else None,
+                                 "checkpoint_by": root.get("checkpoint_by") if kept else None})
+            own_room = conv and conv.get("kind") == "task" and conv.get("task_id") == task["id"]
+            from .chat_goals import clear_task_goal, task_goal_row
+            if own_room and not goal:
+                # goal:off, or the bot's task_goal turned off: the goal Tico set for the task ends.
+                clear_task_goal(c, conv)
+            if (goal and own_room and lane != sessions.MAIN_LANE and task_goals_on(runner)
+                    and task.get("session_task_id", task["id"]) == task["id"]):
+                # Its own session runs it as the harness's native goal; the runner sets it once per session.
+                native = task_goal_row(c, self.auth, conv, row["bot"], task, goal["objective"])
+                if native:
+                    task["goal"] = {**goal, "goal_id": native["id"]}
         recovery = c.execute("SELECT * FROM job_recovery WHERE job_id=? AND attempt_id=? AND decision='resume'",
                              (row['id'],row['attempt_id'])).fetchone()
         if recovery:
             msg = {**msg, 'body':msg['body'] + '\n\nOperator recovery instructions (' + recovery['actor'] + '):\n' + recovery['note']}
         # Next-run tasks ride along with whatever woke the bot: one run, one prompt, each task
-        # still its own task to mark done. Only a runner that puts them in its prompt gets them.
+        # still its own task to mark done. Only a runner that puts them in its prompt gets them,
+        # and only in the main lane, so two lanes never carry the same task.
         carried = []
-        if getattr(body, "next_run", False):
+        if getattr(body, "next_run", False) and lane == sessions.MAIN_LANE:
             if row["bot"] == "librarian":
                 from .docs import refresh_generated_docs
                 refresh_generated_docs(c)  # Also covers a Librarian enabled after the upgrade.
@@ -873,7 +1008,7 @@ class Execution:
         # Quiet notes ride the same way: every note waiting for this bot, each with when it was
         # sent, so the run can tell yesterday's from this morning's.
         notes = []
-        if getattr(body, "next_run", False):
+        if getattr(body, "next_run", False) and lane == sessions.MAIN_LANE:
             for item in H.notes_waiting(c, row["bot"]):
                 c.execute("UPDATE notes SET carried_by=? WHERE id=?", (aid, item["id"]))
                 notes.append({"id": item["id"], "from": item["from_actor"], "sent": item["created"],
@@ -886,19 +1021,24 @@ class Execution:
         parked = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         from .chat_goals import current
         from .subscriptions import effective
-        return {"attempt": {"chat_goal": current(c, conv["id"]), "routine": routine, "id": aid,
+        from . import worktrees
+        # A runner from before task goals would treat a task room's goal as running without ever setting it.
+        chat_goal = current(c, conv["id"]) if not (conv.get("kind") == "task" and not task_goals_on(runner)) else None
+        return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
                             "profile": effective(c, row["bot"])[0],
                             "computer_label": runner["label"],
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
                             # The mailboxes an inbox bot's turn may ask its runner for mail access to: the one it declares
                             # (its person's email when it declares none), then the people below them.
-                            "mailboxes": routines.token_mailboxes(c, row["bot"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
+                            "mailboxes": routines.token_mailboxes(c, row["bot"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"], "lane": lane,
                             "credential_vault": c.execute("SELECT 1 FROM credential_grants WHERE subject=? AND revoked IS NULL LIMIT 1",
                                                           ("bot:" + row["bot"],)).fetchone() is not None,
                             "generation": row["generation"], "lease_until": until,
                             "lease_seconds": self.store.settings.lease_seconds, "token": token,
                             "message": msg, "conversation": conv, "task": task,
+                            # The task's set-up worktrees on this computer, added to its session (runner/service.py).
+                            "worktrees": worktrees.attached(c, task["id"], who.runner_id, row["bot"]) if task else [],
                             "history": history, "config": config, "principal": principal}}
 
     def attempt(self, c, who, aid, active=True, final=False):
@@ -933,14 +1073,15 @@ class Execution:
     def restore(self, c, row):
         """A running attempt the server let lapse comes back when its runner reports in within
         STALL_MAX, as long as nothing else touched the job: it is still uncertain and on this
-        attempt, no review decided it, and no other attempt runs for the bot. The turn on the
+        attempt, no review decided it, and no other attempt runs in its lane. The turn on the
         Mac never stopped, so its result is worth more than a review of a phantom interruption."""
         now = H.now()
         job = c.execute("SELECT state,message_id FROM jobs WHERE id=? AND attempt_id=?", (row["job_id"], row["id"])).fetchone()
         if (not row["finished"] or row["finished"] <= H.shift(now, seconds=-STALL_MAX)
                 or not job or job["state"] != "uncertain"
                 or c.execute("SELECT 1 FROM job_recovery WHERE job_id=? AND attempt_id=?", (row["job_id"], row["id"])).fetchone()
-                or c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (row["bot"],)).fetchone()):
+                or c.execute("SELECT 1 FROM attempts WHERE bot=? AND lane=? AND state IN ('leased','running')",
+                             (row["bot"], row["lane"])).fetchone()):
             return None
         until = H.shift(now, seconds=self.store.settings.lease_seconds)
         c.execute("UPDATE attempts SET state='running',finished=NULL,lease_until=? WHERE id=?", (until, row["id"]))
@@ -958,7 +1099,7 @@ class Execution:
         """Whether a result that arrives after the lease lapsed may still settle its job. The
         test is the one `restore` uses without the clock: this runner still owns the bot, the job
         is still uncertain and still on this attempt, no review has decided it, and no other
-        attempt is running for the bot. A review — a person's or `auto_reconcile`'s — always
+        attempt is running in its lane. A review — a person's or `auto_reconcile`'s — always
         writes job_recovery and moves the job off `uncertain`, so a decision already taken wins
         and a late result can never undo one. Elapsed time is what hands a job from the runner to
         the sweep; it is not what makes settling safe, and the longest turns are exactly the ones
@@ -969,8 +1110,8 @@ class Execution:
                     and job and job["state"] == "uncertain"
                     and not c.execute("SELECT 1 FROM job_recovery WHERE job_id=? AND attempt_id=?",
                                       (row["job_id"], row["id"])).fetchone()
-                    and not c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')",
-                                      (row["bot"],)).fetchone())
+                    and not c.execute("SELECT 1 FROM attempts WHERE bot=? AND lane=? AND state IN ('leased','running')",
+                                      (row["bot"], row["lane"])).fetchone())
 
     def run_usage(self, c, row, body):
         """The turn's usage columns from the tokens its runner counted, or None when it counted none.
@@ -1037,10 +1178,15 @@ class Execution:
             raise Problem("not_found", "Unknown bot", 404)
         if not (self.auth.operator(c, who, bot) or self.auth.bot_manager(c, who, bot)):
             raise Problem("forbidden", "Only a person who manages this bot can stop it", 403)
-        row = c.execute("SELECT id,stop_requested FROM attempts WHERE bot=? AND state IN ('leased','running')",
-                        (bot,)).fetchone()
-        if not row or attempt_id and row["id"] != attempt_id:
+        rows = c.execute("SELECT id,stop_requested FROM attempts WHERE bot=? AND state IN ('leased','running') "
+                         "AND (? IS NULL OR id=?) ORDER BY created", (bot, attempt_id, attempt_id)).fetchall()
+        if not rows:
             raise Problem("not_running", "This bot is not running that turn", 409)
+        if len(rows) > 1:
+            # A bot running several tasks at once: stopping one of them takes its attempt id.
+            raise Problem("ambiguous", "This bot is running more than one turn; say which to stop", 409,
+                          extra={"attempts": [r["id"] for r in rows]})
+        row = rows[0]
         if not row["stop_requested"]:
             c.execute("UPDATE attempts SET stop_requested=? WHERE id=?", (who.actor, row["id"]))
             H.event(c, who.actor, "attempt.stop", row["id"], {"bot": bot})
@@ -1054,12 +1200,6 @@ class Execution:
                   (H.now(), body.thread_id, aid))
         c.execute("UPDATE turns SET thread_id=? WHERE id=?", (body.thread_id, aid))
         c.execute("UPDATE jobs SET state='running' WHERE id=?", (row["job_id"],))
-        branch = c.execute("SELECT id,phase FROM assignment_branches WHERE bot=?", (row["bot"],)).fetchone()
-        if branch and branch["phase"] == "preparing":
-            c.execute("UPDATE assignment_branches SET phase='working',revision=revision+1,updated=? WHERE id=?",
-                      (H.now(), branch["id"]))
-            c.execute("INSERT INTO assignment_branch_events VALUES(?,?,?,?,?,?)",
-                      (H.new_id(), branch["id"], H.KEEPER, "working", encode({"reason": "first turn started"}), H.now()))
         from .shared_bots import follow
         config = follow(c, row["bot"], json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
         runtime, model = providers.bot_choice(c, self.store.settings, config)
@@ -1068,6 +1208,7 @@ class Execution:
                   "thread_id=excluded.thread_id,runner_id=excluded.runner_id,updated=excluded.updated",
                   (row["bot"], runtime, model, body.thread_id, who.runner_id, H.now()))
         msg = c.execute("SELECT message_id FROM jobs WHERE id=?", (row["job_id"],)).fetchone()[0]
+        H.task_session_started(c, row["bot"], row["lane"], msg, body.thread_id, runtime)
         H.mark_delivered(c, H.KEEPER, msg)
         H.status_set(c, H.KEEPER, row["bot"], state="running", focus="Responding to queued work",
                      task_id=H.message_task_id(H.message(c, msg)) or "")
@@ -1086,20 +1227,39 @@ class Execution:
             return {"messages": []}
         origin = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
         origin_task = H.message_task_id(origin, H.conversation(c, origin["conversation_id"]))
+        capabilities = c.execute("SELECT capabilities_json FROM runners WHERE id=?", (attempt["runner_id"],)).fetchone()
+        lanes, roots = lanes_on(capabilities), roots_on(capabilities)
+        if lanes:
+            from .shared_bots import follow
+            followed = follow(c, attempt["bot"], json.loads(
+                c.execute("SELECT config_json FROM bot_config WHERE bot=?", (attempt["bot"],)).fetchone()[0]))
+        # A task turn whose message stayed in the chat the task moved out of (H.give_task_room) also takes
+        # follow-ups from the task's own room; the lane and privacy checks below apply to both.
+        task_room = ((H.task(c, origin_task) or {}).get("conversation_id")
+                     if origin_task and str(dict(attempt).get("lane") or "").startswith("task:") else None)
+        taken = 0
         for row in c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
                              "AND (m.conversation_id=("
                              "SELECT active_message.conversation_id FROM attempts active_attempt "
                              "JOIN jobs active_job ON active_job.id=active_attempt.job_id "
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
-                             "WHERE active_attempt.id=?) OR (m.kind='ask' AND m.wait_s>0 "
-                             "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid LIMIT 10",
-                             (attempt["bot"], aid)).fetchall():
+                             "WHERE active_attempt.id=?) OR m.conversation_id=? OR (m.kind='ask' AND m.wait_s>0 "
+                             "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid",
+                             (attempt["bot"], aid, task_room)).fetchall():
+            # Ten at a time, counted after the filters below: older work queued for other lanes must
+            # never hide this lane's follow-ups.
+            if taken >= 10:
+                break
             if not privacy.message_readable(c, "bot:" + attempt["bot"], row):
                 continue
-            incoming_task = H.message_task_id(H.message(c, row["id"]), H.conversation(c, row["conversation_id"]))
+            incoming_conversation = H.conversation(c, row["conversation_id"])
+            incoming_task = H.message_task_id(H.message(c, row["id"]), incoming_conversation)
             if incoming_task and incoming_task != origin_task and row["kind"] == "notice":
                 continue                    # a new task gets its own run, even in the same bot room
+            if lanes and job_lane(c, attempt["bot"], followed, H.message(c, row["id"]), incoming_conversation,
+                                  lanes, roots) != attempt["lane"]:
+                continue                    # another lane's work is that lane's turn, never folded into this one
             if any(tid != origin_task and H.task_private(c, H.task(c, tid))
                    for tid in privacy.message_tasks(c, row, include_run=False)):
                 # Folding another task's private message into this run would make the run private
@@ -1139,6 +1299,7 @@ class Execution:
                       "attempt_id=excluded.attempt_id", (aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))
+            taken += 1
         ids = c.execute("SELECT message_id FROM attempt_inputs WHERE attempt_id=? AND acked_at IS NULL", (aid,)).fetchall()
         # `attempt_id` lets the response check read these as the bot, as for the turn itself:
         # each message was just checked readable by the bot, and a private task's message is
@@ -1233,9 +1394,10 @@ class Execution:
                     humans = [p for p in conv.get("participants") or [] if str(p).startswith("human:")]
                     target = ((conv.get("owner_actor") if conv.get("scope") == "personal" else None)
                               or (humans[0] if humans else None) or task["requester"])
-                    # A task in the bot's chat room always delivers. A dedicated task thread
-                    # still waits until the owner has marked the work done.
-                    if conv.get("kind") == "chat":
+                    # A task in the bot's chat room always delivers, and so does one filed from a chat into
+                    # its own room (H.task_from_chat). Any other dedicated task thread waits until the owner
+                    # has marked the work done.
+                    if conv.get("kind") == "chat" or (conv.get("task_id") == task["id"] and H.task_from_chat(c, task["id"])):
                         replyable = target not in (H.KEEPER, actor)
                     else:
                         replyable = actor == task["owner"] and task["status"] == "done"
@@ -1362,6 +1524,35 @@ class Execution:
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, tokens_in=body.tokens_in,
                       tokens_out=body.tokens_out, summary=split_runner_notices(body.text)[0][:2000],
                       usage=self.run_usage(c, row, body))
+        # The checkpoint goes on the task whose session the turn ran in: a subtask's turn runs in its session
+        # root's lane (`task:<root>`, set at claim), so it checkpoints that root, never the subtask, even if
+        # the subtask moved during the turn. A lane naming a task this bot does not own checkpoints nothing.
+        turn_task_id = H.message_task_id(msg, conv)
+        lane_task = row["lane"][len("task:"):] if turn_task_id and str(row["lane"] or "").startswith("task:") else ""
+        if lane_task and lane_task != turn_task_id:
+            root = H.task(c, lane_task)
+            checkpoint_task = root if root and root["owner"] == "bot:" + row["bot"] else None
+        else:
+            checkpoint_task = H.task(c, turn_task_id) if turn_task_id else None
+        if checkpoint_task:
+            bot_config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
+            own = sessions.session_key(json.loads(bot_config[0]) if bot_config else {}, row["bot"],
+                                       checkpoint_task["id"], conv["id"]) == "task:" + checkpoint_task["id"]
+            # Only a turn in the task's own session leaves a checkpoint: a shared bot thread carries
+            # other tasks. And a session that once took in another private task may carry it in every
+            # later turn, even one that does not, so that task never gets a checkpoint again (a private
+            # subtask worked in its root's session counts as another task here).
+            if not own or checkpoint_task.get("checkpoint_blocked"):
+                checkpoint_task = None
+            elif not checkpoint_safe(c, aid, checkpoint_task):
+                c.execute("UPDATE tasks SET checkpoint_blocked=1 WHERE id=?", (checkpoint_task["id"],))
+                checkpoint_task = None
+        if body.outcome == "completed" and body.text and checkpoint_task:
+            # Where the task stood after this turn: a later turn that cannot resume this session
+            # starts from it (runner prompt). It is not the task's activity, so `updated` stays.
+            c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=?,checkpoint_by=? WHERE id=?",
+                      (split_runner_notices(body.text)[0].strip()[:CHECKPOINT_CHARS], H.now(), actor,
+                       checkpoint_task["id"]))
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
@@ -1381,7 +1572,7 @@ class Execution:
         if stopped:
             person = row["stop_requested"]
             name = (H.human(c, H.actor_id(person)) or {}).get("name") or H.actor_id(person)
-            H.status_set(c, H.KEEPER, row["bot"], state="idle", focus="")
+            settle_status(c, row["bot"], "idle", "", began=row["started"] or row["created"])
             # Quiet: the bot reads it with the room next time; it does not start a run of its own.
             H.say(c, H.KEEPER, actor, f"Stopped by {name}", conversation_id=conv["id"], kind="notice",
                   refs={"quiet": True, "stopped_by": person, "turn_id": aid})
@@ -1399,19 +1590,22 @@ class Execution:
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime, "streak": streak,
                      "retry_after": retry})
         elif rejected:
-            H.status_set(c, H.KEEPER, row["bot"], state="idle" if requeue else "crashed",
-                         focus=f"{body.auth_rejected.runtime} sign-in was rejected; " +
-                         ("sign in on this computer to continue" if requeue else "this run is saved for review"))
+            settle_status(c, row["bot"], "idle" if requeue else "crashed",
+                          f"{body.auth_rejected.runtime} sign-in was rejected; " +
+                          ("sign in on this computer to continue" if requeue else "this run is saved for review"),
+                          began=row["started"] or row["created"])
         elif silent:
-            H.status_set(c, H.KEEPER, row["bot"], state="idle",
-                         focus=f"{runtime} failed before the run began at {H.now()[11:16]} UTC; the run is back in the queue")
+            settle_status(c, row["bot"], "idle",
+                          f"{runtime} failed before the run began at {H.now()[11:16]} UTC; the run is back in the queue",
+                          began=row["started"] or row["created"])
             H.event(c, H.KEEPER, "attempt.no_effect_retry", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime})
         elif retryable:
             # Not a crash and not a limit: the box's sign-in lapsed. Say so plainly, leave the
             # bot claimable, and let the requeued job run again as soon as it is handed out.
-            H.status_set(c, H.KEEPER, row["bot"], state="idle",
-                         focus=f"{runtime} sign-in could not be renewed at {H.now()[11:16]} UTC; the run is back in the queue")
+            settle_status(c, row["bot"], "idle",
+                          f"{runtime} sign-in could not be renewed at {H.now()[11:16]} UTC; the run is back in the queue",
+                          began=row["started"] or row["created"])
             H.event(c, H.KEEPER, "attempt.sign_in_retry", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime})
         else:
@@ -1419,8 +1613,9 @@ class Execution:
             # later" item in Health until reviewed; counting it here turned every clean run after
             # it into a crash, so a working bot looked broken.
             healthy = body.outcome == "completed"
-            H.status_set(c, H.KEEPER, row["bot"], state="idle" if healthy else "crashed",
-                         focus="" if healthy else "One run stopped; saved for later")
+            settle_status(c, row["bot"], "idle" if healthy else "crashed",
+                          "" if healthy else "One run stopped; saved for later",
+                          began=row["started"] or row["created"])
         return {"attempt_id": aid, "outcome": body.outcome, "message": reply}
 
     def retry(self, c, who, job_id, body):
@@ -1482,7 +1677,9 @@ class Execution:
         if (not body.acknowledge_uncertain_effects or row['state'] != 'uncertain'
                 or row['attempt_id'] != body.attempt_id):
             raise Problem("uncertain", "This run changed or its external effects have not been reviewed", 409)
-        if c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (row['bot'],)).fetchone():
+        # Only a run in the job's own lane can race the decision; the bot's other tasks run on.
+        if c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') AND lane="
+                     "coalesce((SELECT lane FROM attempts WHERE id=?),'main')", (row['bot'], row['attempt_id'])).fetchone():
             raise Problem("active_attempt", "Wait for the active run to finish before reconciling", 409)
         note = body.note.strip()
         if len(note) < 20:
@@ -1502,7 +1699,7 @@ class Execution:
         c.execute("UPDATE jobs SET state=? WHERE id=?", (state,job_id))
         H.event(c, actor, action, job_id, {'attempt_id':attempt_id, 'decision':decision, 'note':note})
         if not c.execute("SELECT 1 FROM jobs WHERE bot=? AND state='uncertain'", (row['bot'],)).fetchone():
-            H.status_set(c, H.KEEPER, row['bot'], state='idle', focus='Stopped run reviewed')
+            settle_status(c, row['bot'], 'idle', 'Stopped run reviewed')
         return {'job_id':job_id, 'state':state}
 
     def hold_unrunnable(self, c):
@@ -1608,7 +1805,8 @@ class Execution:
         decided = []
         rows = c.execute("SELECT j.*, a.started, a.finished FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
                          "WHERE j.state='uncertain' AND coalesce(a.finished, j.created) <= ? "
-                         "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=j.bot AND t.state IN ('leased','running')) "
+                         "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=j.bot AND t.state IN ('leased','running') "
+                         "AND t.lane=coalesce(a.lane,'main')) "
                          "ORDER BY j.created", (cutoff,)).fetchall()
         for row in rows:
             with isolated(c, "auto_reconcile", row["id"]):
