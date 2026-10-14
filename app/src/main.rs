@@ -1,13 +1,12 @@
 // Tico: a thin native shell around the local or cloud hub.
-// A bundled first-run page selects the server. One window on the hub's own page and a tray item
-// toggle the window with a left click and show status on a right click. One source builds every company's app on macOS, Windows and
-// Linux: the name, icon, identifier and server URL come in at build time (scripts/app.sh).
+// A bundled first-run page selects the server, then one ordinary window shows the hub's own page. No
+// menu-bar item: on macOS the Dock icon reopens a hidden window and carries the Needs you count. One
+// source builds every company's app on macOS, Windows and Linux: the name, icon, identifier and server
+// URL come in at build time (scripts/app.sh).
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod config;
 mod hub;
-#[cfg(target_os = "macos")]
-mod identity;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -16,8 +15,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 
 use config::Config;
@@ -26,48 +24,56 @@ use hub::{Client, HubStatus};
 const USER_AGENT: &str = "TicoHub/2.0 Tauri";
 const MIN_WIDTH: u32 = 360;
 const MIN_HEIGHT: u32 = 400;
-const RAIL_WIDTH: u32 = 420;
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum WindowMode {
-    Full,
-    Rail,
-}
-
-#[derive(Serialize, Deserialize, Default)]
+/// The main window's last outer frame (x, y, width, height) in `frame` units: points on macOS,
+/// where one point space spans every display whatever its scale, and physical pixels elsewhere,
+/// where the virtual screen is the consistent space. Older builds wrote `full` in physical pixels
+/// and `mode` ("full" or "rail"); `mode` is ignored, so a window last used as the right rail opens
+/// at its full frame.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 struct Saved {
-    mode: Option<WindowMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    frame: Option<(f64, f64, f64, f64)>,
+    #[serde(default, skip_serializing)]
     full: Option<(i32, i32, u32, u32)>,
 }
 
-struct TrayItems {
-    tray: TrayIcon,
-    headline: MenuItem<tauri::Wry>,
-    counts: MenuItem<tauri::Wry>,
-    toggle: MenuItem<tauri::Wry>,
-    mode: MenuItem<tauri::Wry>,
+/// Frames are kept in points on macOS (see `Saved`).
+const POINTS: bool = cfg!(target_os = "macos");
+
+/// Pixels per frame unit on a display with this scale factor.
+fn unit(scale: f64, points: bool) -> f64 {
+    if points && scale > 0.0 { scale } else { 1.0 }
+}
+
+impl Saved {
+    /// The frame to restore. An older file's physical `full` frame converts to points only when every
+    /// connected display has the same scale; with mixed scales its unit is unknown, so none.
+    fn frame(&self, scales: &[f64], points: bool) -> Option<(f64, f64, f64, f64)> {
+        if self.frame.is_some() { return self.frame; }
+        let (x, y, w, h) = self.full?;
+        let scale = *scales.first()?;
+        if points && scales.iter().any(|s| (s - scale).abs() > 1e-6) { return None; }
+        let u = unit(scale, points);
+        Some((x as f64 / u, y as f64 / u, w as f64 / u, h as f64 / u))
+    }
 }
 
 struct AppState {
     connection: Mutex<Option<Config>>,
     status: Mutex<HubStatus>,
-    mode: Mutex<WindowMode>,
+    // Set while the shell itself places the window, so that placement is not saved as the person's.
     applying_frame: AtomicBool,
-    tray: Mutex<Option<TrayItems>>,
 }
 
 type App = AppHandle<tauri::Wry>;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let saved = load_saved();
     let state = AppState {
         connection: Mutex::new(None),
         status: Mutex::new(HubStatus::default()),
-        mode: Mutex::new(saved.mode.unwrap_or(WindowMode::Full)),
         applying_frame: AtomicBool::new(false),
-        tray: Mutex::new(None),
     };
 
     let builder = tauri::Builder::default()
@@ -93,7 +99,6 @@ fn main() {
             if connection(app.handle()).is_some() { build_window(app.handle())?; }
             else { build_server_window(app.handle())?; }
             build_menu(app.handle())?;
-            build_tray(app.handle())?;
             #[cfg(not(target_os = "macos"))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -110,7 +115,7 @@ fn main() {
             }
             start_polling(app.handle().clone());
             start_updates(app.handle().clone());
-            apply_window_mode(app.handle(), false);
+            restore_frame(app.handle());
             show_window(app.handle());
             Ok(())
         })
@@ -119,20 +124,32 @@ fn main() {
                 return;
             }
             match event {
-                // Closing hides; Quit quits. The tray item stays.
+                // On macOS closing hides and Quit quits; the Dock icon brings the window back.
+                // Elsewhere there is no Dock to reopen it from, so closing closes.
+                #[cfg(target_os = "macos")]
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let _ = window.hide();
-                    render_tray(window.app_handle());
                 }
-                WindowEvent::Moved(_) | WindowEvent::Resized(_) => remember_full_frame(window.app_handle()),
+                // A meeting window left open must not keep the app running with no main window.
+                #[cfg(not(target_os = "macos"))]
+                WindowEvent::Destroyed => window.app_handle().exit(0),
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => remember_frame(window.app_handle()),
                 _ => {}
             }
         })
         .on_menu_event(|app, event| menu_event(app, event.id().as_ref()))
         .build(tauri::generate_context!())
         .expect("the app could not start")
-        .run(|_app, _event| {});
+        .run(|app, event| {
+            // A click on the Dock icon while the main window is hidden.
+            #[cfg(target_os = "macos")]
+            if let RunEvent::Reopen { .. } = event {
+                if !main_window(app).and_then(|w| w.is_visible().ok()).unwrap_or(false) { show_window(app); }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
 
 fn connection(app: &App) -> Option<Config> {
@@ -150,7 +167,7 @@ fn build_server_window(app: &App) -> tauri::Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(app, "server", WebviewUrl::App("index.html".into()))
-        .title(config::app_name()).inner_size(440.0, 400.0).resizable(false)
+        .title(config::app_name()).inner_size(440.0, 400.0).min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
         .on_navigation(|url| url.scheme() == "tauri" || matches!(url.host_str(), Some("tauri.localhost") | Some("localhost")))
         .build()?;
     Ok(())
@@ -239,7 +256,8 @@ fn build_window(app: &App) -> tauri::Result<()> {
         .on_navigation(move |url| stays_in_app(&opener, url));
     #[cfg(target_os = "macos")]
     {
-        // Native chrome stays draggable on hub pages, sign-in pages and in rail mode.
+        // The native title bar drags the window on every page, including sign-in pages that are
+        // not ours; an overlay title bar would leave dragging to each page.
         builder = builder.title_bar_style(tauri::TitleBarStyle::Visible);
     }
     builder.build()?;
@@ -314,135 +332,173 @@ fn show_window(app: &App) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-    render_tray(app);
 }
 
-fn toggle_window(app: &App) {
-    if main_window(app).is_none() { let _ = build_server_window(app); return; }
-    if let Some(window) = main_window(app) {
-        let visible = window.is_visible().unwrap_or(false);
-        let focused = window.is_focused().unwrap_or(false);
-        if visible && focused {
-            let _ = window.hide();
-        } else {
-            show_window(app);
-            return;
-        }
-    }
-    render_tray(app);
+/// Where this app keeps its window frame: its own config folder, which follows the bundle
+/// identifier, so each company's app (and the generic app) remembers its own place and size.
+fn saved_path(app: &App) -> Option<std::path::PathBuf> {
+    Some(app.path().app_config_dir().ok()?.join("window.json"))
 }
 
-fn saved_path() -> Option<std::path::PathBuf> {
-    let base = dirs_config_dir()?;
-    Some(base.join("window.json"))
-}
-
-fn dirs_config_dir() -> Option<std::path::PathBuf> {
+/// Builds before this one kept the frame under ~/.config/tico/app/<environment>, shared by every
+/// app built without an environment. Read once when the app's own file does not exist yet.
+fn legacy_saved_path() -> Option<std::path::PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let name = option_env!("TICO_ENV_SLUG").filter(|s| !s.is_empty()).unwrap_or("tico");
-    let dir = std::path::PathBuf::from(home).join(".config").join("tico").join("app").join(name);
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir)
+    Some(std::path::PathBuf::from(home).join(".config").join("tico").join("app").join(name).join("window.json"))
 }
 
-fn load_saved() -> Saved {
-    saved_path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+fn parse_saved(text: &str) -> Saved {
+    serde_json::from_str(text).unwrap_or_default()
 }
 
-fn save(saved: &Saved) {
-    if let Some(path) = saved_path() {
-        let _ = std::fs::write(path, serde_json::to_string(saved).unwrap_or_default());
-    }
+fn load_saved(app: &App) -> Saved {
+    let read = |path: Option<std::path::PathBuf>| path.and_then(|p| std::fs::read_to_string(p).ok());
+    read(saved_path(app)).or_else(|| read(legacy_saved_path())).map(|s| parse_saved(&s)).unwrap_or_default()
 }
 
-fn remember_full_frame(app: &App) {
+fn save(app: &App, saved: &Saved) {
+    let Some(path) = saved_path(app) else { return };
+    if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
+    let _ = std::fs::write(path, serde_json::to_string(saved).unwrap_or_default());
+}
+
+/// Every move and resize the person makes is kept, so the next launch opens where they left it.
+fn remember_frame(app: &App) {
     let state: State<AppState> = app.state();
-    if *state.mode.lock().unwrap() != WindowMode::Full || state.applying_frame.load(Ordering::Relaxed) {
+    if state.applying_frame.load(Ordering::Relaxed) {
         return;
     }
     let Some(window) = main_window(app) else { return };
-    let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) else { return };
+    // A minimised or full-screen window is not a frame to reopen at.
+    if window.is_minimized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
+        return;
+    }
+    let (Ok(position), Ok(size), Ok(scale)) = (window.outer_position(), window.outer_size(), window.scale_factor()) else { return };
     if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
         return;
     }
-    let mut saved = load_saved();
-    saved.full = Some((position.x, position.y, size.width, size.height));
-    saved.mode = Some(WindowMode::Full);
-    save(&saved);
+    let u = unit(scale, POINTS);
+    let frame = (position.x as f64 / u, position.y as f64 / u, size.width as f64 / u, size.height as f64 / u);
+    save(app, &Saved { frame: Some(frame), full: None });
 }
 
-fn set_outer_size(window: &WebviewWindow, width: u32, height: u32) -> tauri::Result<()> {
-    // Saved frames and monitor work areas include the title bar; set_size takes content size.
-    let outer = window.outer_size()?;
-    let inner = window.inner_size()?;
-    window.set_size(PhysicalSize::new(
-        width.saturating_sub(outer.width.saturating_sub(inner.width)).max(1),
-        height.saturating_sub(outer.height.saturating_sub(inner.height)).max(1),
-    ))
+/// A saved frame is usable when enough of its title bar lies on a display that is still connected,
+/// so the person can grab it; a frame from a display since unplugged is not restored. Frame and work
+/// areas are in the same units (points on macOS).
+fn frame_reachable(frame: (f64, f64, f64, f64), areas: &[(f64, f64, f64, f64)]) -> bool {
+    let (x, y, w, _) = frame;
+    areas.iter().any(|&(ax, ay, aw, ah)| {
+        let (left, right) = (x.max(ax), (x + w).min(ax + aw));
+        let (top, bottom) = (y.max(ay), (y + 24.0).min(ay + ah));
+        right - left >= 80f64.min(w) && bottom > top
+    })
 }
 
-fn apply_window_mode(app: &App, _animated: bool) {
+/// Once, before the main window first shows: the saved frame if it is still on a connected display,
+/// otherwise the default size, centred. The window is never moved again by the app after that.
+fn restore_frame(app: &App) {
     let state: State<AppState> = app.state();
     let Some(window) = main_window(app) else { return };
-    let mode = *state.mode.lock().unwrap();
     state.applying_frame.store(true, Ordering::Relaxed);
-    match mode {
-        WindowMode::Rail => {
-            if let Ok(Some(monitor)) = window.current_monitor() {
-                let area = monitor.work_area();
-                // Match the logical minimum width on Retina displays before positioning in pixels.
-                let rail = LogicalSize::new(RAIL_WIDTH.max(MIN_WIDTH), 0)
-                    .to_physical::<u32>(monitor.scale_factor());
-                let width = rail.width.min(area.size.width);
-                let _ = set_outer_size(&window, width, area.size.height);
-                let _ = window.set_position(PhysicalPosition::new(area.position.x + area.size.width as i32 - width as i32, area.position.y));
-            }
-        }
-        WindowMode::Full => {
-            let saved = load_saved();
-            if let Some((x, y, w, h)) = saved.full {
-                let _ = set_outer_size(&window, w, h);
-                let _ = window.set_position(PhysicalPosition::new(x, y));
+    let monitors = window.available_monitors().unwrap_or_default();
+    let scales: Vec<f64> = monitors.iter().map(|m| m.scale_factor()).collect();
+    let areas: Vec<_> = monitors.iter().map(|m| {
+        let (area, u) = (m.work_area(), unit(m.scale_factor(), POINTS));
+        (area.position.x as f64 / u, area.position.y as f64 / u, area.size.width as f64 / u, area.size.height as f64 / u)
+    }).collect();
+    match load_saved(app).frame(&scales, POINTS) {
+        Some(frame @ (x, y, w, h)) if frame_reachable(frame, &areas) => {
+            // Saved frames include the title bar; set_size takes the content size.
+            let u = window.scale_factor().map(|s| unit(s, POINTS)).unwrap_or(1.0);
+            let (outer, inner) = (window.outer_size(), window.inner_size());
+            let (dw, dh) = match (outer, inner) {
+                (Ok(o), Ok(i)) => (o.width.saturating_sub(i.width) as f64 / u, o.height.saturating_sub(i.height) as f64 / u),
+                _ => (0.0, 0.0),
+            };
+            let (cw, ch) = ((w - dw).max(1.0), (h - dh).max(1.0));
+            if POINTS {
+                let _ = window.set_size(LogicalSize::new(cw, ch));
+                let _ = window.set_position(LogicalPosition::new(x, y));
             } else {
-                let _ = window.set_size(LogicalSize::new(1240.0, 820.0));
-                let _ = window.center();
+                let _ = window.set_size(PhysicalSize::new(cw.round() as u32, ch.round() as u32));
+                let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
             }
         }
+        _ => {
+            let _ = window.set_size(LogicalSize::new(1240.0, 820.0));
+            let _ = window.center();
+        }
     }
-    let mut saved = load_saved();
-    saved.mode = Some(mode);
-    save(&saved);
     state.applying_frame.store(false, Ordering::Relaxed);
-    sync_window_mode(app);
-    render_tray(app);
 }
 
-fn toggle_window_mode(app: &App) {
-    let state: State<AppState> = app.state();
-    // This helper reads mode too, so capture the full frame before taking the mode lock.
-    remember_full_frame(app);
-    {
-        let mut mode = state.mode.lock().unwrap();
-        *mode = match *mode {
-            WindowMode::Full => WindowMode::Rail,
-            WindowMode::Rail => WindowMode::Full,
-        };
+#[cfg(test)]
+mod window_frame_tests {
+    use super::*;
+
+    #[test]
+    fn a_window_saved_as_the_right_rail_reopens_at_its_full_frame() {
+        let rail = parse_saved(r#"{"mode":"rail","full":[240,160,2480,1640]}"#);
+        assert_eq!(rail.frame(&[2.0, 2.0], true), Some((120.0, 80.0, 1240.0, 820.0)));
+        assert_eq!(rail.frame(&[1.25], false), Some((240.0, 160.0, 2480.0, 1640.0)));
+        // Rail mode with no full frame yet: the default size, centred once.
+        assert_eq!(parse_saved(r#"{"mode":"rail"}"#).frame(&[2.0], true), None);
+        assert_eq!(parse_saved("not json"), Saved::default());
+        let saved = Saved { frame: Some((1.0, 2.5, 3.0, 4.0)), full: None };
+        assert_eq!(serde_json::to_string(&saved).unwrap(), r#"{"frame":[1.0,2.5,3.0,4.0]}"#);
+        assert_eq!(parse_saved(&serde_json::to_string(&saved).unwrap()).frame(&[1.0, 2.0], true), saved.frame);
     }
-    apply_window_mode(app, true);
+
+    #[test]
+    fn an_old_pixel_frame_is_not_guessed_at_on_mixed_scale_displays() {
+        // Laptop at 2x, external at 1x: the old physical frame's unit depends on the screen it was
+        // saved on, so the window is centred once instead.
+        let old = parse_saved(r#"{"full":[5800,200,800,1600]}"#);
+        assert_eq!(old.frame(&[1.0, 2.0], true), None);
+        // Windows and Linux kept virtual-screen pixels all along.
+        assert_eq!(old.frame(&[1.0, 2.0], false), Some((5800.0, 200.0, 800.0, 1600.0)));
+    }
+
+    #[test]
+    fn a_saved_frame_is_restored_only_where_its_title_bar_can_be_grabbed() {
+        let laptop = (0.0, 25.0, 1512.0, 920.0);
+        let external = (1512.0, -200.0, 2560.0, 1415.0);
+        assert!(frame_reachable((100.0, 100.0, 1240.0, 820.0), &[laptop]));
+        assert!(frame_reachable((1700.0, 0.0, 1240.0, 820.0), &[laptop, external]));
+        // The external display was unplugged.
+        assert!(!frame_reachable((1700.0, 0.0, 1240.0, 820.0), &[laptop]));
+        // Title bar above the menu bar's work area, or almost entirely off the right edge.
+        assert!(!frame_reachable((100.0, -900.0, 1240.0, 820.0), &[laptop]));
+        assert!(!frame_reachable((1480.0, 100.0, 1240.0, 820.0), &[laptop]));
+        assert!(frame_reachable((1400.0, 100.0, 1240.0, 820.0), &[laptop]));
+        assert!(!frame_reachable((100.0, 100.0, 1240.0, 820.0), &[]));
+    }
+
+    #[test]
+    fn mixed_scale_displays_are_compared_in_points() {
+        // A 1x 1920x1080 main display and a 2x laptop (1512x982 points) to its right, as macOS
+        // reports their work areas in pixels, converted per display.
+        let scaled = |(x, y, w, h): (i32, i32, u32, u32), s: f64| {
+            let u = unit(s, true);
+            (x as f64 / u, y as f64 / u, w as f64 / u, h as f64 / u)
+        };
+        let main = scaled((0, 25, 1920, 1055), 1.0);
+        let laptop = scaled((3840, 0, 3024, 1964), 2.0);
+        assert_eq!(laptop, (1920.0, 0.0, 1512.0, 982.0));
+        // A window saved on the laptop at (2900, 100) points is reachable there.
+        assert!(frame_reachable((2900.0, 100.0, 400.0, 800.0), &[main, laptop]));
+        // In points, the same pixel frame (5800, 200) lies past the laptop's right edge at 3432.
+        assert!(!frame_reachable((5800.0, 200.0, 800.0, 1600.0), &[main, laptop]));
+    }
 }
 
-// Search from the View menu (⌘K) or the tray: bring the window forward, then the page opens
+// Search from the View menu (⌘K): bring the window forward, then the page opens
 // its own search dialog (`window.ticoSearch` in ui/app/search.js). The menu accelerator takes
 // ⌘K before the webview sees it, so the page's own shortcut still works everywhere else.
 fn open_search(app: &App) {
     show_window(app);
     eval(app, "window.ticoSearch && window.ticoSearch()");
-}
-
-fn sync_window_mode(app: &App) {
-    let state: State<AppState> = app.state();
-    let mode = match *state.mode.lock().unwrap() { WindowMode::Full => "full", WindowMode::Rail => "rail" };
-    eval(app, &format!("window.ticoWindowModeChanged && window.ticoWindowModeChanged('{mode}')"));
 }
 
 fn eval(app: &App, js: &str) {
@@ -460,16 +516,14 @@ fn reload(app: &App) {
 }
 
 // ----------------------------------------------------------------------------- bridge
-/// What the page posts: `windowMode` ("toggle" | "state"), `openWindow` ({meeting: id}).
+/// What the page posts: `openWindow` ({meeting: id}). Older pages also post `windowMode`, which is
+/// ignored now that the window has one mode.
 #[tauri::command]
 fn bridge(app: App, window: WebviewWindow, name: String, body: Option<Value>) {
     // Generic builds accept any server; only the selected origin may call the native bridge.
     let Some(config) = connection(&app) else { return };
     if window.label() != "main" || window.url().map(|u| u.origin() != config.hub.origin()).unwrap_or(true) { return; }
     match name.as_str() {
-        "windowMode" => {
-            if body.as_ref().and_then(Value::as_str) == Some("toggle") { toggle_window_mode(&app) } else { sync_window_mode(&app) }
-        }
         "openWindow" => {
             // `recording` is what an older page called it.
             let id = body.as_ref().and_then(|b| b.get("meeting").or_else(|| b.get("recording"))).and_then(Value::as_str);
@@ -516,7 +570,6 @@ fn build_menu(app: &App) -> tauri::Result<()> {
         &MenuItem::with_id(app, "search", "Search…", true, Some("CmdOrCtrl+K"))?,
         &PredefinedMenuItem::separator(app)?,
         &MenuItem::with_id(app, "reload", "Reload", true, Some("CmdOrCtrl+R"))?,
-        &MenuItem::with_id(app, "mode", "Toggle Right Rail", true, Some("CmdOrCtrl+\\"))?,
     ])?;
     let window = Submenu::with_items(app, "Window", true, &[
         &PredefinedMenuItem::close_window(app, None)?, &PredefinedMenuItem::minimize(app, None)?,
@@ -530,77 +583,33 @@ fn menu_event(app: &App, id: &str) {
         "server" if config::is_generic() => { let _ = build_server_window(app); }
         "search" => open_search(app),
         "reload" => reload(app),
-        "mode" => toggle_window_mode(app),
-        "toggle" => toggle_window(app),
-        "quit" => app.exit(0),
         _ => {}
     }
 }
 
-// ----------------------------------------------------------------------------- tray
-fn build_tray(app: &App) -> tauri::Result<()> {
-    let headline = MenuItem::with_id(app, "headline", "", false, None::<&str>)?;
-    let counts = MenuItem::with_id(app, "counts", "", false, None::<&str>)?;
-    let toggle = MenuItem::with_id(app, "toggle", "Hide window", true, None::<&str>)?;
-    let mode = MenuItem::with_id(app, "mode", "Move to right rail", true, None::<&str>)?;
-    let search = MenuItem::with_id(app, "search", "Search…", true, None::<&str>)?;
-    let reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
-    let state: State<AppState> = app.state();
-    let quit = MenuItem::with_id(app, "quit", format!("Quit {}", config::app_name()), true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[
-        &headline, &counts, &PredefinedMenuItem::separator(app)?,
-        &toggle, &mode, &search, &reload,
-    ])?;
-    if config::is_generic() {
-        menu.append(&MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?)?;
-    }
-    menu.append_items(&[&PredefinedMenuItem::separator(app)?, &quit])?;
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-    let builder = TrayIconBuilder::with_id("tico")
-        .icon(icon)
-        .icon_as_template(true)
-        .tooltip(config::app_name())
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                toggle_window(tray.app_handle());
-            }
-        });
-    // Native text and the template mark follow macOS light/dark appearance together.
-    #[cfg(target_os = "macos")]
-    let builder = match identity::tray_label(config::app_name(),
-        option_env!("TICO_ENV_SLUG").unwrap_or(""), option_env!("TICO_TRAY_LABEL").unwrap_or("")) {
-        Some(label) => builder.title(label),
-        None => builder,
-    };
-    let tray = builder.build(app)?;
-    *state.tray.lock().unwrap() = Some(TrayItems { tray, headline, counts, toggle, mode });
-    render_tray_now(app);
-    Ok(())
-}
-
-/// Status updates keep the company label; state lives in the tooltip and menu.
-fn render_tray(app: &App) {
-    // Always on the main thread: window questions round-trip there, and a lock held while
-    // asking one would wait on itself.
+// ----------------------------------------------------------------------------- Dock badge
+/// The Needs you count on the Dock icon (macOS), cleared at zero or when the hub cannot be read.
+fn render_badge(app: &App) {
+    let needs = app.state::<AppState>().status.lock().unwrap().needs;
     let handle = app.clone();
-    let _ = app.run_on_main_thread(move || render_tray_now(&handle));
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = main_window(&handle) {
+            let _ = window.set_badge_count(badge_count(needs));
+        }
+    });
 }
 
-fn render_tray_now(app: &App) {
-    let state: State<AppState> = app.state();
-    let status = state.status.lock().unwrap().clone();
-    let visible = main_window(app).and_then(|w| w.is_visible().ok()).unwrap_or(false);
-    let rail = *state.mode.lock().unwrap() == WindowMode::Rail;
-    let guard = state.tray.lock().unwrap();
-    let Some(items) = guard.as_ref() else { return };
-    let name = config::app_name();
-    let _ = items.toggle.set_text(if visible { "Hide window" } else { "Show window" });
-    let _ = items.mode.set_text(if rail { "Use full window" } else { "Move to right rail" });
-    let _ = items.headline.set_text(status.headline());
-    let _ = items.counts.set_text(format!("{} running · {} need you", status.running, status.needs));
-    let _ = items.tray.set_tooltip(Some(format!("{name} · {} · {} running · {} need you", status.headline(), status.running, status.needs)));
+fn badge_count(needs: usize) -> Option<i64> {
+    (needs > 0).then(|| needs.min(i64::MAX as usize) as i64)
+}
+
+#[cfg(test)]
+mod badge_tests {
+    #[test]
+    fn the_dock_badge_shows_needs_you_and_clears_at_zero() {
+        assert_eq!(super::badge_count(0), None);
+        assert_eq!(super::badge_count(7), Some(7));
+    }
 }
 
 // ----------------------------------------------------------------------------- updates
@@ -684,7 +693,7 @@ async fn check_for_update(app: &App) {
 }
 
 // ----------------------------------------------------------------------------- polling
-// Status every 30 s, for the tray.
+// Status every 30 s, for the Dock badge.
 fn start_polling(app: App) {
     tauri::async_runtime::spawn(async move {
         loop {
@@ -701,7 +710,7 @@ async fn refresh_status(app: &App) {
     // A status request for the previous server may finish after someone changes the address.
     if connection(app).map(|c| c.hub) != Some(config.hub) { return; }
     *state.status.lock().unwrap() = fresh;
-    render_tray(app);
+    render_badge(app);
 }
 
 #[cfg(test)]
