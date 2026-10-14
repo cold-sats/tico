@@ -3082,6 +3082,22 @@ def create_app(settings=None):
     def week_old(created):
         return created < H.shift(H.now(), days=-DELEGATION_DAYS)
 
+    def handed_over(c, task, botops):
+        """Who gave BotOps a task a person asked for, when it was not that person: the actor of the last owner change, or
+        "" when there is none to name. None when BotOps has owned it since it was filed, or the requester moved it to
+        BotOps themselves (not through BotOps or the Assistant). Otherwise any bot that owns a person's task could
+        reassign it to BotOps and borrow their rights for its next run."""
+        moved = c.execute("SELECT * FROM task_events WHERE task_id=? AND field='owner' ORDER BY ts DESC, rowid DESC "
+                          "LIMIT 1", (task["id"],)).fetchone()
+        if not moved:
+            made = c.execute("SELECT detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
+                             (task["id"],)).fetchone()
+            return None if made and H._json(made["detail_json"], {}).get("owner") == botops else ""
+        moved = dict(moved)
+        if moved["new"] == botops and moved["actor"] == task["requester"] and not moved.get("via"):
+            return None
+        return moved["actor"] or ""
+
     def delegated_identity(c, who, ref, new_task=False, carry=False):
         """Resolve the run's requester, never a human named in its text. Human messages and tasks
         carry that human's rights; bot messages and tasks carry only that bot's rights. Fleet work
@@ -3129,6 +3145,15 @@ def create_app(settings=None):
                 if creator and H.is_bot(creator["actor"]):
                     requester = creator["actor"]
                 requester = filed_for_bot(c, task_id, who) or requester
+            handed = (handed_over(c, task, who.actor) if task and H.is_human(requester) and task["owner"] == who.actor
+                      else None)
+            if handed is not None:
+                # Someone other than the person gave BotOps their task: it runs with the rights of the bot that moved
+                # it (its refusals become the person's Confirm card), never the person's.
+                if not H.is_bot(handed) or handed == who.actor:
+                    raise Problem("on_behalf_of", "Only the person who asked for this task lends their rights by giving it "
+                                  "to BotOps; ask them to confirm", 403)
+                requester = handed
             if task and initial:
                 refs = initial.get("refs") or {}
                 relayed = any(refs.get(key) for key in ("via", "assistant", "slack", "routing"))
@@ -3328,6 +3353,9 @@ def create_app(settings=None):
             start = H.message(c, turn["message_id"]) if turn else None
             task = H.task(c, H.message_task_id(start) or "") if start else None
             found = carried(c, task, acting.actor) if task and task["requester"] == acting.actor else None
+            if (not found and task and H.is_human(task["requester"]) and task["owner"] == who.actor
+                    and handed_over(c, task, who.actor) == acting.actor):
+                found = {"person": task["requester"]}      # the bot gave BotOps a task this person asked for
             if not found or not open_task(task):
                 return None
             try:
@@ -3368,6 +3396,8 @@ def create_app(settings=None):
         via = H._json(made["detail_json"], {}).get("via") if made else None
         if not made or made["actor"] != requester or via == "assistant" or filed_for_bot(c, task["id"], who):
             raise Problem("on_behalf_of", "That task was not filed by the person who asked for it", 403)
+        if handed_over(c, task, who.actor) is not None:
+            raise Problem("on_behalf_of", "Someone other than the person who asked for that task gave it to BotOps", 403)
         if via and not task.get("request_id"):
             # Filed by BotOps as the person: only a continuation of their message (--request-id) counts, or a
             # follow-through run could file a fresh task as them and so lend their rights for ever.
