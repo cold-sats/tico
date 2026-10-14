@@ -147,3 +147,18 @@ def test_run_now_during_another_task_stays_queued_for_its_own_run(api):
     assert next_attempt["task"]["id"] == tid
     with api.app.state.store.read() as c:
         assert c.execute("SELECT state FROM jobs WHERE id=?", (next_attempt["job_id"],)).fetchone()[0] == "leased"
+
+
+def test_a_routine_run_stays_company_scope_and_leaves_a_private_next_run_task_for_later(api):
+    from backend import task_privacy as privacy
+    from backend.auth import Identity
+    r = setup(api)
+    secret = post(api, "tasks", {"owner": "ops", "title": "Review the settlement", "body": "Private.",
+                                 "next_run": True, "private": True})
+    assert secret["private"] is True
+    fired = tick(api, datetime(2026, 9, 14, 14, tzinfo=timezone.utc))["fired"]
+    attempt = post(api, "jobs/claim", {"next_run": True}, token=r["token"])["attempt"]
+    assert attempt["task"]["id"] == fired[0] and not attempt.get("next_run")
+    with api.app.state.store.read() as c:
+        assert not privacy.private_execution(c, Identity("bot:ops", "bot", attempt_id=attempt["id"]))
+    assert get(api, "tasks/" + secret["id"])["task"]["next_run_waiting"] is True

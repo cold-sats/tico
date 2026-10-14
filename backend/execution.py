@@ -1035,6 +1035,10 @@ class Execution:
             for item in H.next_run_tasks(c, row["bot"], exclude=task["id"] if task else None):
                 if not H.task_private_readable(c, bot_who.actor, item):
                     continue
+                if routine and H.task_private(c, item):
+                    # A routine runs in company scope: a private task carried in would make the whole run
+                    # private, and its shared outputs (the docs map, a report) refused. It rides the next run.
+                    continue
                 c.execute("UPDATE tasks SET carried_by=? WHERE id=?", (aid, item["id"]))
                 carried.append({k: item.get(k) for k in ("id", "title", "body", "requester", "created")})
             if carried:
