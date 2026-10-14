@@ -2804,19 +2804,21 @@ def _unblock(conn, done_task, told=()):
 
 
 def _answered(conn, task_id, card, told=None):
-    """`card`, a person's subtask a bot's task was blocked on (_ask_in_subtask), is done or declined: when nothing
-    else holds the task, it opens again with their answer as its note, and its bot is woken on it once, unless
-    `told` (_subtask_wake) already woke it there. Returns whether this was such a task."""
+    """`card`, an ask this rule filed (ask_card) that a bot's task is blocked on, is done or declined: the task's note
+    becomes the answer, it opens again when nothing else holds it, it no longer waits on a declined card, and its bot
+    is woken on it once, unless `told` (_subtask_wake) already woke it there. Returns whether this was such a task."""
+    person = ask_card(conn, card)
     row = task(conn, task_id)
-    name = person_name(conn, card["owner"])
-    if (not row or not is_bot(row["owner"]) or row["status"] != "waiting"
-            or not str(row.get("note") or "").startswith(BLOCKED_ON.format(name=name, ask=""))):
+    if not person or not row or not is_bot(row["owner"]) or row["status"] not in ACTIVE_STATUSES:
         return False
     if task_private(conn, card) and not task_private(conn, row):
         return False
+    name = person_name(conn, person)
     said = str(card.get("note") or "").strip() or ("Done." if card["status"] == "done" else "Declined.")
     note = f"{name} answered: {said}"
-    if not waiting_for(conn, row):
+    if card["status"] != "done":
+        TR.remove_blocker(conn, KEEPER, row["id"], card["id"], keeper_note=f"answered: {card['title']}")
+    if row["status"] == "waiting" and not waiting_for(conn, row):
         _set_status(conn, KEEPER, row, "open", note=note)
     conn.execute("UPDATE tasks SET note=?, version=version+1 WHERE id=?", (note, row["id"]))
     _task_event(conn, row["id"], KEEPER, "note", row.get("note"), note, "")
@@ -3820,7 +3822,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             said = said.split(": ", 1)[1]          # the note this rule wrote, sent back as it was
         require_person_ask(conn, actor, waiting_on, said, "waiting")
         asked_in = _ask_in_subtask(conn, actor, row, waiting_on, said)
-        note, waiting_on = BLOCKED_ON.format(name=person_name(conn, asked_in["owner"]), ask=said), ""
+        note, waiting_on = BLOCKED_ON.format(name=person_name(conn, waiting_on), ask=said), ""
     if number is not None and number == row.get("number"):
         number = None               # sent back unchanged
     wanted = {k: v for k, v in (("lane", lane), ("labels", labels), ("number", number)) if v is not None}
@@ -3978,7 +3980,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         notify_requester = False
     # A person answering a bot's ask (_ask_in_subtask), yes or no: each task blocked on it opens again.
     answered = set()
-    if status in ("done", "declined") and row["status"] != status and is_human(after["owner"]) and not closing_step:
+    if status in ("done", "declined") and row["status"] != status and not closing_step:
         answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, tid, after, subtask_told)}
     if status == "done":
         _unblock(conn, after, told=answered)
@@ -4057,38 +4059,61 @@ def _ask_title(ask):
     return next((s for s in sentences if s.endswith("?")), sentences[0] if sentences else str(ask).strip())
 
 
+ASK_CARD = "task.ask_subtask"
+
+
+def ask_card(conn, card):
+    """The person `card` asks for this rule (_ask_in_subtask), or None: a subtask it filed for them, or a bot's own
+    question to them that a task of the bot was blocked on. Marked by an event the bot that asked wrote on the card."""
+    row = _one(conn, "SELECT detail_json FROM events WHERE actor=? AND action=? AND target=? ORDER BY ts LIMIT 1",
+               (card["requester"], ASK_CARD, card["id"]))
+    return _json(row["detail_json"], {}).get("to") if row else None
+
+
 def person_card(conn, row, person):
-    """The open card already in front of `person` in this task's tree, or None: a subtask a bot gave them, or a
-    bot's question subtask waiting on them. The task itself and its ancestors are not cards for them."""
+    """The open card this rule already put in front of `person` in this task's tree, or None. Only a card it made
+    (ask_card) is joined, never another task the person was given, and never across privacy: a private task's ask
+    stays on its own private card, and a public task never joins a private one."""
+    if task_private(conn, row):
+        return None
     above = TR.ancestors(conn, row["id"])
     root = above[-1] if above else row["id"]
     skip = {row["id"], *above}
     for tid in TR.descendant_ids(conn, root):
         card = task(conn, tid)
-        if tid in skip or not card or card["status"] not in ACTIVE_STATUSES:
+        if (tid in skip or not card or card["status"] not in ACTIVE_STATUSES or task_private(conn, card)
+                or card["owner"] != person or ask_card(conn, card) != person):
             continue
-        if task_private(conn, card) and not task_private(conn, row):
-            continue
-        if card["owner"] == person and is_bot(card["requester"]) or (
-                is_bot(card["owner"]) and card.get("waiting_on") == person):
+        return card
+    return None
+
+
+def own_question(conn, actor, row, person):
+    """A question `actor` already put to `person` under this task (`hub task question`): its own open subtask
+    waiting on them. That is the card, so no second one is filed."""
+    for tid in TR.child_ids(conn, row["id"]):
+        card = task(conn, tid)
+        if (card and card["owner"] == actor and card["status"] in ACTIVE_STATUSES and card.get("waiting_on") == person
+                and any(a["to_actor"] == person for a in open_task_asks(conn, card))):
             return card
     return None
 
 
 def _ask_in_subtask(conn, actor, row, person, ask):
-    """One question, one card: `actor`, the bot that owns `row`, needs `person`. Unless the task's tree already has
-    an open card for them (person_card), file one small subtask they own whose title is the ask (its question, when
-    it has one) and whose body is the ask; their Needs you shows it with Yes and No when it asks a yes-or-no
-    question. A second bot in the same tree asking them adds its ask to that card as a comment instead. The task is
-    blocked on the card; when they finish it, the bot hears it once on the task and the task opens again
-    (_unblock). Returns the card."""
-    card = person_card(conn, row, person)
+    """One question, one card: `actor`, the bot that owns `row`, needs `person`. Unless its own question to them is
+    already open under the task (own_question), or this rule already filed them a card in the task's tree
+    (person_card), file one small subtask they own whose title is the ask (its question, when it has one) and whose
+    body is the ask; their Needs you shows it with Yes and No when it asks a yes-or-no question. A second bot in the
+    same tree asking them adds its ask to that card as a comment instead. The task is blocked on the card; when it is
+    finished, the bot hears it once on the task and the task opens again (_answered). Returns the card."""
+    card = own_question(conn, actor, row, person) or person_card(conn, row, person)
     if card is None:
         card = task_create(conn, actor, _ask_title(ask), ask, person, parent_id=row["id"], lint=False)
-        event(conn, actor, "task.ask_subtask", row["id"], {"subtask": card["id"], "to": person})
-    elif ask not in (card["title"], str(card.get("body") or "").strip(), str(card.get("note") or "").strip()) and not any(
+    elif card["owner"] == person and ask not in (card["title"], str(card.get("body") or "").strip()) and not any(
             str(m.get("body") or "").strip() == ask for m in task_comments(conn, card["id"], actor=actor)):
         task_comment(conn, actor, card["id"], ask)
+    if card["requester"] == actor and not ask_card(conn, card):
+        event(conn, actor, ASK_CARD, card["id"], {"for": row["id"], "to": person})
     if card["id"] not in TR.blocker_ids(conn, row["id"]):
         TR.add_blocker(conn, actor, row["id"], card["id"], note="asked in a subtask")
     return card

@@ -690,8 +690,8 @@ class WaitingWithDependency(HubCase):
         card = H.task_update(self.conn, CMO, other['id'], status='waiting', waiting_on='ana',
                              note='Buy a signing key for $5? If yes, I will order it today.')['asked_in']
         H.task_update(self.conn, ANA, card['id'], status='declined', note='No. Use the old one.')
-        self.assertEqual((H.task(self.conn, other['id'])['status'], H.task(self.conn, other['id'])['note']),
-                         ('open', 'Ana Rivera answered: No. Use the old one.'))
+        self.assertEqual((H.task(self.conn, other['id'])['status'], H.task(self.conn, other['id'])['note'],
+                          TR.blocker_ids(self.conn, other['id'])), ('open', 'Ana Rivera answered: No. Use the old one.', []))
         # A question to a person counts too, once per task, until it is answered.
         asked = H.task_create(self.conn, ANA, 'Draft the launch post', '', CMO)
         question = H.task_ask(self.conn, CMO, asked['id'], 'Which date?')
@@ -733,6 +733,52 @@ class WaitingWithDependency(HubCase):
                      if m['to_actor'] == bot and 'Yes to both.' in m['body']]
             self.assertEqual(len(woken), 1, bot)
         # The root still has its own open subtask (the other bot's part), so it stays waiting on that.
+
+    def test_an_ask_joins_only_a_card_it_made_never_across_privacy_and_answers_by_the_link(self):
+        cards = lambda: [t['id'] for t in H.needs_you(self.conn, 'ana')['tasks']]
+        root = H.task_create(self.conn, CMO, 'Plan the offsite', '', CMO, private=False)
+        part = H.task_create(self.conn, CMO, 'Book the rooms', 'Book them.', SEO, parent_id=root['id'])
+        public = H.task_update(self.conn, SEO, part['id'], status='waiting', waiting_on='ana',
+                               note='Approve the venue for Friday? If yes, I will book it.')['asked_in']
+        # A private task's ask never lands on the public card: it gets its own private one.
+        secret = H.task_create(self.conn, ANA, 'Pay the offsite staff', '', CMO, parent_id=root['id'], private=True)
+        hidden = H.task_update(self.conn, CMO, secret['id'], status='waiting', waiting_on='ana',
+                               note='Send the staff pay file? If yes, I will pay them today.')['asked_in']
+        self.assertNotEqual(hidden['id'], public['id'])
+        self.assertTrue(H.task_private(self.conn, H.task(self.conn, hidden['id'])))
+        self.assertEqual(H.task_comments(self.conn, public['id'], actor=ANA), [])
+        # Another task given to the person is not a card to join, and finishing it answers nothing.
+        other = H.task_create(self.conn, CMO, 'Move the office', '', CMO, private=False)
+        lease = H.task_create(self.conn, CMO, 'Sign the lease', 'Sign the lease by Friday? I will file it after.', ANA,
+                              parent_id=other['id'])
+        card = H.task_update(self.conn, CMO, other['id'], status='waiting', waiting_on='ana',
+                             note='Approve the movers for Monday? If yes, I will book them.')['asked_in']
+        self.assertNotEqual(card['id'], lease['id'])
+        H.task_update(self.conn, ANA, lease['id'], status='done', note='Signed.')
+        self.assertTrue(H.task(self.conn, other['id'])['note'].startswith('Blocked on Ana Rivera: Approve the movers'))
+        # A progress note while waiting does not lose the answer, and the bot is woken once.
+        H.task_update(self.conn, CMO, other['id'], note='Still waiting; checked prices meanwhile.')
+        H.task_update(self.conn, ANA, card['id'], status='done', note='Yes.')
+        back = H.task(self.conn, other['id'])
+        self.assertEqual((back['status'], back['note']), ('open', 'Ana Rivera answered: Yes.'))
+        woken = [m for m in H.messages(self.conn, back['conversation_id']) if m['to_actor'] == CMO
+                 and ('Yes.' in m['body'] or m['body'].startswith('Unblocked'))]
+        self.assertEqual(len(woken), 1, [m['body'] for m in woken])
+        # The bot's own question under its task is the card: no second one, and the note names the person.
+        trial = H.task_create(self.conn, CMO, 'Assess the vendor trial', '', CMO, private=False)
+        question = H.task_create(self.conn, CMO, 'Run the trial once?', 'Run the trial once?', CMO, parent_id=trial['id'])
+        H.task_comment(self.conn, CMO, question['id'], 'Run the trial once?', ask={'questions': [
+            {'id': 'decision', 'header': '', 'question': 'Run the trial once?', 'options': [{'label': 'Yes'}, {'label': 'No'}],
+             'multi': False, 'other': False}], 'who': ANA})
+        H.task_update(self.conn, CMO, question['id'], status='waiting', waiting_on='ana')
+        before = cards()
+        after = H.task_update(self.conn, CMO, trial['id'], status='waiting', waiting_on='ana',
+                              note='Run the trial once? If yes, I will add the results to the report.')
+        self.assertEqual((after['asked_in']['id'], after['note'], cards()),
+                         (question['id'], 'Blocked on Ana Rivera: Run the trial once? If yes, I will add the results to the report.', before))
+        H.task_update(self.conn, CMO, question['id'], status='done', note='Ana said yes.')
+        self.assertEqual((H.task(self.conn, trial['id'])['status'], H.task(self.conn, trial['id'])['note']),
+                         ('open', 'Ana Rivera answered: Ana said yes.'))
 
     def test_bot_tasks_already_waiting_on_a_person_move_to_the_subtask_shape(self):
         from backend import person_asks
