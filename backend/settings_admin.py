@@ -190,6 +190,7 @@ class SettingsAdmin:
                 "compact_at": compact_at(effective),
                 "session": effective.get("session"),
                 "subtask_session": effective.get("subtask_session"),
+                "task_goal": effective.get("task_goal"),
                 "harness": resolve_harness(effective, effective.get("runtime") or row.get("runtime")),
                 "fallback": normalize_fallback(effective.get("fallback"))}
 
@@ -533,6 +534,12 @@ class SettingsAdmin:
                 declared["subtask_session"] = body.subtask_session
             else:
                 declared.pop("subtask_session", None)
+        if "task_goal" in body.model_fields_set:
+            # Cleared means the default: off (execution.task_goal).
+            if body.task_goal:
+                declared["task_goal"] = body.task_goal
+            else:
+                declared.pop("task_goal", None)
         if "shared" in body.model_fields_set:
             declared["shared"] = bool(body.shared)
         if "template" in body.model_fields_set:

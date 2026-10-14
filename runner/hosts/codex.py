@@ -425,6 +425,10 @@ class CodexHost(Host):
         self.request("thread/goal/set", {"threadId": thread_id, "objective": objective, "status": "active"})
         return self.start_turn(thread_id, objective, effort=effort)
 
+    def start_goal_turn(self, thread_id, objective, text, effort=None):
+        self.request("thread/goal/set", {"threadId": thread_id, "objective": objective, "status": "active"})
+        return self.start_turn(thread_id, text, effort=effort)
+
     def _control_completed(self, thread_id):
         import uuid
         turn = str(uuid.uuid4())

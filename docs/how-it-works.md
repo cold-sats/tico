@@ -257,7 +257,7 @@ the cloud cooldown applies.
 **A bot's session is its own.** By default every task is its own provider thread, and the bot's
 chat and other turns share one more. BotOps (and any bot set to `session: task`) also gives each
 chat conversation its own thread, so unrelated requesters stay separate; `session: bot` keeps
-everything on one thread. A subtask continues its parent task's thread when the bot owns both (`subtask_session: own` opts out). Wakes about the same task resume its thread. A task's set-up worktrees
+everything on one thread. A subtask continues its parent task's thread when the bot owns both (`subtask_session: own` opts out). Each bot task has its own room, so the main thread reads only the main chat plus a quiet line when a task starts, is blocked, done, declined or stuck ([Tasks](tasks.md#subtasks-and-prs)). Wakes about the same task resume its thread. A task's set-up worktrees
 on that computer join its session (Claude Code's `--add-dir`), and the prompt carries each repo's
 AGENTS.md (else CLAUDE.md), labelled as rules for writing code there that never grant access;
 a link out of the worktree is refused, the whole is capped at 16 KB, and a resumed thread gets

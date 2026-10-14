@@ -55,8 +55,10 @@ def test_cross_task_provenance_filters_comments_asks_answers_and_mutation_receip
     derived = []
     for kind in ('say', 'ask'):
         derived.append(post(api, 'messages', {'to': 'ops', 'kind': kind, 'text': 'Restricted derived message',
-            'conversation_id': target['conversation_id'], 'refs': {'task': target['id']}, 'in_reply_to': first['id']})['id'])
-    with api.app.state.store.transaction() as c:
+            'conversation_id': target['conversation_id'], 'refs': {'task': target['id']}})['id'])
+    with api.app.state.store.transaction() as c:      # each task has its own room, so the cross-room reply is set here
+        for mid in derived:
+            c.execute('UPDATE messages SET in_reply_to=? WHERE id=?', (first['id'], mid))
         answer = H.task_comment(c, 'human:ana', target['id'], 'Restricted answer',
                                 extra_refs={'answer': {'text': 'Restricted answer'}})
         c.execute('UPDATE messages SET in_reply_to=? WHERE id=?', (first['id'], answer['id']))

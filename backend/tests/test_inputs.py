@@ -200,3 +200,22 @@ def test_an_input_the_runtime_never_got_goes_back_to_the_queue_whatever_the_outc
         second = claim(api, r)
         with api.app.state.store.read() as c:
             assert c.execute("SELECT message_id FROM jobs WHERE id=?", (second["job_id"],)).fetchone()[0] == lost["id"]
+
+
+def test_a_comment_in_the_room_a_task_moved_to_steers_the_turn_still_running_from_the_old_chat(api):
+    from backend.store import H
+    r = runner(api)
+    assign(api, r, "ops")
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capabilities": ["task_lanes_v2"],
+                                    "readiness": {"ops": True}}, token=r["token"])
+    room = post(api, "chat/ops", {"text": "Hello"})["conversation_id"]
+    with api.app.state.store.transaction() as c:      # filed into the chat before task rooms
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='ops'")
+        task = H.task_create(c, "human:ana", "Recheck the cash warning", "Today.", "bot:ops", conversation_id=room, own_room=False)
+    active = claim(api, r)
+    post(api, f"attempts/{active['id']}/started", {"thread_id": "thread"}, r["token"])
+    with api.app.state.store.transaction() as c:
+        moved = H.task(c, task["id"])
+        assert moved["conversation_id"] != room
+        comment = H.task_comment(c, "human:ana", task["id"], "Use the new numbers.")
+    assert [m["id"] for m in post(api, f"attempts/{active['id']}/inputs", {}, r["token"])["messages"]] == [comment["id"]]

@@ -233,3 +233,85 @@ def test_a_clear_after_met_is_not_checked_again(api, live, tmp_path):
         assert len([m for m in notices if m['refs'].get('goal_status') == 'met']) == 1
     finally:
         service.pool.shutdown()
+
+
+def test_a_task_goal_runs_natively_beside_the_task_prompt_and_meeting_it_marks_the_task_done(api, live, tmp_path):
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE bot_config SET config_json=? WHERE bot=?', (encode({'runtime': 'codex', 'task_goal': 'on'}), 'ops'))
+    post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test',
+         'capabilities': ['task_lanes_v2', 'session_roots_v1', 'task_goals_v1'], 'readiness': {
+         'schema_version': 1, 'bots': {'ops': {'ready': True, 'runtime': 'codex', 'goals': True}}}}, machine['token'])
+    task = post(api, 'tasks', {'owner': 'ops', 'title': 'Publish the Acme summary', 'body': 'For the board.',
+                               'acceptance_criteria': ['The summary is in Docs']})
+    attempt = claim(api, machine)
+    goal = attempt['chat_goal']
+    assert goal['status'] == 'active' and goal['set_by'] == 'keeper' and attempt['task']['goal']['goal_id'] == goal['id']
+    assert goal['conversation_id'] == task['conversation_id'] and 'The summary is in Docs' in goal['objective']
+
+    class GoalHost(FakeHost):
+        def start_goal_turn(self, thread, objective, text, effort=None):
+            turn = super().start_goal_turn(thread, objective, text, effort)
+            self.goal_met(thread, 'The summary is in Docs.')
+            return turn
+    hosts = []
+    def factory(*args):
+        hosts.append(GoalHost(replies=['Published.']))
+        return hosts[-1]
+    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
+                     tmp_path / 'runner', host_factory=factory, push=lambda *a, **k: None)
+    try:
+        service.execute(attempt)
+    finally:
+        service.pool.shutdown()
+    (thread, objective, text), = hosts[0].goal_turns
+    assert objective == goals.native_objective(goal['objective']) and 'Publish the Acme summary' in text
+    assert get(api, f"conversations/{task['conversation_id']}/goal")['goal']['status'] == 'met'
+    done = get(api, 'tasks/' + task['id'])['task']
+    assert done['status'] == 'done' and done['note'] == 'The summary is in Docs.'
+
+
+def task_goal_world(api):
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE bot_config SET config_json=? WHERE bot=?', (encode({'runtime': 'codex', 'task_goal': 'on'}), 'ops'))
+    post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test',
+         'capabilities': ['task_lanes_v2', 'session_roots_v1', 'task_goals_v1'], 'readiness': {
+         'schema_version': 1, 'bots': {'ops': {'ready': True, 'runtime': 'codex', 'goals': True}}}}, machine['token'])
+    return machine, post(api, 'tasks', {'owner': 'ops', 'title': 'Publish the Acme summary', 'body': 'For the board.'})
+
+
+def test_turning_a_task_goal_off_clears_it_natively_and_a_persons_goal_never_completes_the_task(api, live, tmp_path):
+    from backend import chat_goals
+    machine, task = task_goal_world(api)
+    first = claim(api, machine)
+    assert first['chat_goal']['status'] == 'active'
+    class PausingHost(FakeHost):         # Codex blocked on a person: the goal pauses and the turn ends
+        def start_goal_turn(self, thread, objective, text, effort=None):
+            turn = super().start_goal_turn(thread, objective, text, effort)
+            self.emit('goal', thread, None, status='paused', note='Waiting on: Ana')
+            return turn
+    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
+                     tmp_path / 'runner', host_factory=lambda *a: PausingHost(replies=['Working on it.']), push=lambda *a, **k: None)
+    try:
+        service.execute(first)
+    finally:
+        service.pool.shutdown()
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE bot_config SET config_json=? WHERE bot=?', (encode({'runtime': 'codex'}), 'ops'))
+        H.task_comment(c, 'human:ana', task['id'], 'Use the new numbers.')
+    second = claim(api, machine)
+    assert second['chat_goal']['status'] == 'cleared' and 'goal' not in second['task']
+    with api.app.state.store.read() as c:
+        clear = c.execute("SELECT m.body,m.refs_json FROM jobs j JOIN messages m ON m.id=j.message_id "
+                          "WHERE j.state='queued' AND m.conversation_id=?", (task['conversation_id'],)).fetchall()
+    assert [(b, '"goal_action": "clear"' in r) for b, r in clear] == [('/goal clear', True)]
+    # A goal a person set in the task's room being met leaves the task as it is.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE chat_goals SET set_by='human:ana',objective='Summarize current progress',status='active' "
+                  "WHERE conversation_id=?", (task['conversation_id'],))
+        goal = chat_goals.current(c, task['conversation_id'])
+        chat_goals.task_goal_ended(c, goal, task['id'], 'met', 'Summarized.')
+        assert H.task(c, task['id'])['status'] != 'done'

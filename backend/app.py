@@ -2529,7 +2529,8 @@ def create_app(settings=None):
                             private=private, conversation_id=rooms.task_conversation_id(c, auth, owner, who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step,
-                            number=body.number, mover=mover(c, who) or None)
+                            number=body.number, mover=mover(c, who) or None,
+                            own_room=H.actor_id(owner) != settings.assistant_bot)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
         inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
         if H.is_human(who.actor) and (request_id or inherited_request):

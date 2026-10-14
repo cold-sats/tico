@@ -152,7 +152,11 @@ def test_routine_reply_in_a_personal_room_is_not_lost_to_an_unrelated_private_ta
     reply = finish(api, runner, attempt, "Map refreshed.")
     with api.app.state.store.read() as c:
         assert tuple(c.execute("SELECT state,final_text FROM attempts WHERE id=?", (attempt["id"],)).fetchone()) == ("completed", "Map refreshed.")
-        shown = [m for m in get(api, f"conversations/{origin['conversation_id']}/messages") if m["created"] > task["created"]]
+        room = H.task(c, task["id"])["conversation_id"]
+    # The task has its own room; the person's room got only the "Started task" line.
+    started = [m for m in get(api, f"conversations/{origin['conversation_id']}/messages") if m["created"] > task["created"]]
+    assert [(m["refs"] or {}).get("task_started") for m in started] == [True]
+    shown = get(api, f"conversations/{room}/messages")
     if notice == "current":
         assert reply and reply["to_actor"] == "human:ana" and reply["body"] == "Map refreshed."
     else:

@@ -87,7 +87,7 @@ def test_botops_cannot_be_its_own_last_resort_and_sources_do_not_share_a_repair_
             recovery = H.task(c, detail['recovery_task'])
             assert task['id'] in recovery['body']
             assert detail['owner'] == recovery['owner']
-        assert H.wake_stalled(c) == {'woke': [], 'escalated': []}
+        assert H.wake_stalled(c) == {'woke': [], 'escalated': [], 'checked': [], 'stuck': []}
         assert not c.execute("SELECT 1 FROM jobs WHERE bot='botops' AND state='queued'").fetchone()
 
 
@@ -103,3 +103,53 @@ def test_unavailable_botops_routes_stalled_work_to_a_human(api, state):
         assert c.execute("SELECT owner FROM tasks WHERE requester='keeper'").fetchone()[0] == 'human:ben'
 
 
+
+
+def test_a_chat_task_gets_its_own_room_reports_once_and_a_quiet_session_is_checked_then_flagged(api):
+    from backend.tests.test_api import post
+    room = post(api, "chat/finance", {"text": "Can you look at cash?"})["conversation_id"]
+    with api.app.state.store.transaction() as c:
+        lines = lambda: [(r[0], json.loads(r[1])) for r in c.execute(
+            "SELECT body,refs_json FROM messages WHERE conversation_id=? AND from_actor=? ORDER BY created", (room, H.KEEPER))]
+        task = H.task_create(c, H.human_actor("ana"), "Recheck the cash warning", "Before the deadline.", "bot:finance",
+                             conversation_id=room)
+        assert task["conversation_id"] != room and H.conversation(c, task["conversation_id"])["kind"] == "task"
+        assert [(b, r.get("task_started")) for b, r in lines()] == [("Started task: Recheck the cash warning", True)]
+        # Its session ran 40 minutes ago and nothing moved since: one status check, no stall wake (it is busy).
+        c.execute("INSERT INTO runners(id,label,operator,token_hash,created) VALUES('r1','r','ana','h','t')")
+        job = c.execute("SELECT id FROM jobs WHERE bot='finance' ORDER BY created DESC LIMIT 1").fetchone()[0]
+        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,lane) "
+                  "VALUES('a1',?,'finance','r1',1,'a1','running',?,?,?)",
+                  (job, H.shift(H.now(), seconds=600), H.shift(H.now(), seconds=-2400), "task:" + task["id"]))
+        aged(c, task["id"], 40)
+        out = H.wake_stalled(c)
+        assert out["checked"] == [task["id"]] and out["woke"] == [] and out["stuck"] == []
+        assert H.wake_stalled(c)["checked"] == []                       # once per quiet stretch
+        # Half an hour after the check, still nothing: reported stuck in the main chat, and Ana is asked.
+        c.execute("UPDATE events SET ts=? WHERE action='task.stall_wake' AND target=?",
+                  (H.shift(H.now(), seconds=-1900), task["id"]))
+        assert H.wake_stalled(c)["stuck"] == [task["id"]]
+        assert lines()[-1][1]["task_report"] == "stuck" and lines()[-1][0].startswith("Recheck the cash warning: stuck.")
+        assert c.execute("SELECT count(*) FROM messages WHERE kind='ask' AND to_actor='human:ana' "
+                         "AND refs_json LIKE '%stuck%'").fetchone()[0] == 1
+        assert H.wake_stalled(c)["stuck"] == []
+        # Done: one report line; the same state is not reported twice.
+        H.task_update(c, "bot:finance", task["id"], status="done", note="Cash is fine.")
+        H.task_report(c, H.task(c, task["id"]), "done", "Again.")
+        assert [b for b, r in lines() if r.get("task_report") == "done"] == ["Recheck the cash warning: done. Cash is fine."]
+
+
+def test_closing_what_the_bot_already_finished_does_not_wake_it_unless_the_note_says_something_new(api):
+    with api.app.state.store.transaction() as c:
+        def closed_wakes(task_id):
+            rows = c.execute("SELECT m.id,(SELECT count(*) FROM jobs j WHERE j.message_id=m.id) FROM messages m "
+                             "WHERE m.to_actor='bot:finance' AND m.body LIKE 'Closed:%' AND m.refs_json LIKE ?",
+                             (f'%{task_id}%',)).fetchall()
+            return [r[1] for r in rows]
+        ana = H.human_actor("ana")
+        same, new = (H.task_create(c, ana, title, "Review it.", "bot:finance") for title in ("Review the Q3 deck", "Review the Q4 deck"))
+        for row in (same, new):
+            H.task_update(c, "bot:finance", row["id"], status="done", note="Reviewed; two fixes made.")
+        H.task_close(c, ana, same["id"], note="Reviewed; two fixes made.")
+        H.task_close(c, ana, new["id"], note="Ship the fixes to the board too.")
+        assert closed_wakes(same["id"]) == [] and closed_wakes(new["id"]) == [0]     # the new note lands without a run
