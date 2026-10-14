@@ -4107,7 +4107,8 @@ def person_card(conn, row, person):
     stays on its own private card, one per task, and a public task never joins a private one."""
     for tid in TR.blocker_ids(conn, row["id"]):
         card = task(conn, tid)
-        if card and card["status"] in ACTIVE_STATUSES and card["owner"] == person and ask_card(conn, card) == person:
+        if (card and card["status"] in ACTIVE_STATUSES and card["owner"] == person and ask_card(conn, card) == person
+                and bool(task_private(conn, card)) == bool(task_private(conn, row))):
             return card
     if task_private(conn, row):
         return None
