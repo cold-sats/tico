@@ -356,6 +356,20 @@ final answer. Use `hub question ask` (`hub_question_ask` over MCP) when you need
 A bot receiving an ordinary message that asks for a reply sends that reply explicitly with
 `hub message send`. Humans' chat replies and ask-message answers are delivered automatically.
 
+A bot answers an ask with `hub question answer <message-id>` (`hub_question_answer`) only from a run
+that can see the ask's conversation: the discussion of a task it owns or is delegated, or a
+conversation its current turn was handed. A bot's own asks to a person are the exception and are
+reachable from any of its runs. From any other run the answer is refused with "This conversation
+is outside the current execution context", and the ask stays open. There are two ways on:
+
+1. Pass the information without resolving the ask: `hub message send <asking-bot> "<answer>"
+   --conversation <conversation-id>`, naming a conversation this run can see and the asking bot is
+   in, such as the current task's. The same visibility rule applies to `--conversation`, so the
+   ask's own conversation is refused here too. The original ask stays unanswered.
+2. Resolve the structured ask from a run whose context contains it (the turn it was delivered to,
+   or the task whose discussion holds it), or have the asker ask again where the answering bot can
+   answer, for example on a task that bot owns.
+
 Computer readiness covers only bots assigned to that Computer. Eligible bots are placement
 options, and their missing repositories do not count as readiness or Health failures there.
 
