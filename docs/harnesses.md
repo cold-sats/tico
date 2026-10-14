@@ -36,8 +36,14 @@ file (the CLI takes no prompt on stdin) and `--session-id <uuid>`: Tico makes th
 session and every later run with the same id continues it, so a restart resumes it. The hub and a bot's remote MCP
 servers are set for that run only (`-c mcp_servers.<name>=...`), with secrets left as `${VAR}` in the run's
 environment. Every run sets `MUSE_NO_AUTO_UPDATE=1` so the launcher does not update itself; the runner updates it.
-The download is about 340 MB. The sign-in is `~/.config/muse/auth.json` in the bot user's home (from `muse login`);
-`META_API_KEY` wins over it. The CLI has no sign-in status command, so readiness reports the file being there.
+Muse also loads every MCP server in its own `settings.json` and refuses to switch those off per run, so bot runs
+never use the operator's `~/.config/muse`: they run with `XDG_CONFIG_HOME` set to a Muse folder of Tico's own (a
+subscription profile's `musecode/`, else the runner's host state), and any servers in it are removed before each
+run. A bot run gets only the hub, its bot.yaml servers and the repository's own MCP config.
+The download is about 340 MB. The sign-in is `muse/auth.json` in that folder (sign in from Settings; a
+profile signs in to its own); `META_API_KEY` wins over it, and a computer-wide key reaches the run. The CLI has no
+sign-in status command, so readiness reports the file being there. Version checks and sign-ins also set
+`MUSE_NO_AUTO_UPDATE=1` (the manifest's `[env]`).
 Meta's install script only installs the newest release, so this harness follows `latest` like Cursor's.
 Meta's Llama models stay on pi through OpenRouter (`llama-4-maverick`, no longer recommended).
 

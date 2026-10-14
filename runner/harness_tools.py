@@ -79,6 +79,9 @@ class Manifest:
     api_key_env: tuple
     login: dict | None
     source: str = ""
+    # Variables every command the runner runs with this harness sets (version probes, logins), e.g. an
+    # auto-updater's off switch.
+    env: tuple = ()
 
     @property
     def method(self):
@@ -114,7 +117,7 @@ def parse(data, source="", hosts_dir=HOSTS_DIR):
     if not isinstance(data, dict):
         raise ManifestError(f"{where}: not a table")
     known = {"id", "name", "host", "executable", "providers", "catch_all", "install", "version",
-             "update", "auth", "login"}
+             "update", "auth", "login", "env"}
     if set(data) - known:
         raise ManifestError(f"{where}: unknown field(s) {', '.join(sorted(set(data) - known))}")
     ident = data.get("id")
@@ -209,8 +212,11 @@ def parse(data, source="", hosts_dir=HOSTS_DIR):
             raise ManifestError(f"{where}: login is for device-code or subscription sign-in")
     elif "device-code" in methods:
         raise ManifestError(f"{where}: device-code sign-in needs a [login] command for the browser relay")
+    env = _table(data, "env", where)
+    if not all(isinstance(k, str) and ENV_NAME.fullmatch(k) and isinstance(v, str) for k, v in env.items()):
+        raise ManifestError(f"{where}: [env] maps variable names to strings")
     return Manifest(ident, name.strip(), host, executable, providers, bool(data.get("catch_all", False)),
-                    install, args, pattern, policy, pin, methods, keys, login, source)
+                    install, args, pattern, policy, pin, methods, keys, login, source, tuple(sorted(env.items())))
 
 
 def load_all(directory=MANIFEST_DIR, hosts_dir=HOSTS_DIR):
@@ -361,7 +367,8 @@ class Harnesses:
         version = ""
         try:
             done = self.run([path, *manifest.version_args], capture_output=True, text=True, timeout=timeout,
-                            stdin=subprocess.DEVNULL)
+                            stdin=subprocess.DEVNULL, **({"env": {**os.environ, **dict(manifest.env)}}
+                                                         if manifest.env else {}))
             found = re.search(manifest.version_pattern, (done.stdout or "") + "\n" + (done.stderr or ""))
             version = found.group(1) if found and done.returncode == 0 else ""
         except (OSError, subprocess.SubprocessError):

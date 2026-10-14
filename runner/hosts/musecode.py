@@ -14,12 +14,19 @@ other hosts run. The prompt goes in a file the turn can read: the CLI takes no p
 "payload_type": ..., "payload": {...}}`: `run.output.delta` streams text and `run.terminal.completed`,
 `.failed` or `.cancelled` ends the run with the final `text` or a `reason`. Anything else is skipped.
 
-The hub reaches the model as a stdio MCP server set for this run only (`-c mcp_servers.hub=...`), so
-nothing is written to `~/.config/muse/settings.json`. Muse takes a secret only as a whole-value `${VAR}`
-it reads from its own environment, so the hub's credential and each remote server's header are named,
-never put on the command line. The launcher updates itself unless MUSE_NO_AUTO_UPDATE=1; the runner
-updates the harness itself (runner/harness_tools.py), so every run sets it. A Meta-account login lives
-in `~/.config/muse/auth.json` (`muse login`); META_API_KEY in the environment wins over it.
+The hub reaches the model as a stdio MCP server set for this run only (`-c mcp_servers.hub=...`). Muse
+takes a secret only as a whole-value `${VAR}` it reads from its own environment, so the hub's credential
+and each remote server's header are named, never put on the command line. The launcher updates itself
+unless MUSE_NO_AUTO_UPDATE=1; the runner updates the harness itself (runner/harness_tools.py), so every
+run sets it.
+
+A bot turn loads only the hub, the servers its bot.yaml declares and the repository's own MCP config.
+Muse also loads every server in `$XDG_CONFIG_HOME/muse/settings.json` and has no switch to skip them
+(`-c mcp_servers.<name>.enabled=false` on a server that file names is refused: "the server name is
+reserved"). So turns never run on the operator's `~/.config/muse`: the runner gives each a Muse folder
+of Tico's own (`config_home`: a subscription profile's, else the runner's), and `prepare_config` takes
+any MCP servers out of its settings before each run. The Meta-account login (`muse login`) lives in that
+folder's `muse/auth.json`; META_API_KEY in the environment wins over it.
 """
 
 import json
@@ -98,6 +105,36 @@ def usage_of(payload):
     return found
 
 
+def prepare_config(home):
+    """Make `home` (XDG_CONFIG_HOME) ready for a bot turn: `muse/` exists and its settings name no MCP
+    servers, so none but this run's own load. The folder is Tico's own, never a person's."""
+    directory = isolation.mkdir(Path(home) / "muse")
+    path = directory / "settings.json"
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return directory
+    except ValueError:
+        stored = {"schema_version": 1}     # Muse refuses a broken file anyway; this one is ours to rewrite
+    except OSError as exc:
+        raise HostError(f"Muse settings are not readable: {exc}")
+    if not isinstance(stored, dict):
+        stored = {"schema_version": 1}
+    elif not {"mcpServers", "mcp_servers"} & set(stored):
+        return directory
+    cleaned = {k: v for k, v in stored.items() if k not in ("mcpServers", "mcp_servers")}
+    fd, temporary = tempfile.mkstemp(prefix=".settings-", suffix=".json", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            json.dump(cleaned, out, indent=2)
+        isolation.chown(temporary)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return directory
+
+
 def mcp_overrides(settings):
     """(["-c", "mcp_servers.<name>=<json>", ...], extra environment) for one run: the hub as a stdio server,
     and the bot's declared remote servers. Secrets stay in the environment as `${VAR}`; a header that is not
@@ -120,13 +157,15 @@ class MuseCodeHost(Host):
     supports_steer = False
 
     def __init__(self, bot=None, cmd=(EXECUTABLE,), provider=None, state_dir=None, log=None, stderr_path=None,
-                 spawn=None):
+                 spawn=None, config_home=None):
         super().__init__(log=log)
         self.bot = bot
         self.cmd = list(cmd)
         # `echo` is Muse's offline provider (tests and smoke runs): it takes no model or effort.
         self.provider = provider
         self.state_dir = Path(state_dir) if state_dir else Path(tempfile.gettempdir()) / "tico-musecode"
+        # Muse's XDG_CONFIG_HOME for every turn (see the module docstring): never the operator's.
+        self.config_home = Path(config_home) if config_home else self.state_dir / "config"
         self.stderr_path = stderr_path
         self._spawn = spawn or isolation.popen
         self._up = False
@@ -197,11 +236,11 @@ class MuseCodeHost(Host):
         argv += mcp_overrides(settings)[0]
         return argv + ["--prompt-file", str(prompt_file)]
 
-    @staticmethod
-    def env(settings):
+    def env(self, settings):
         env = dict(settings.get("env") or os.environ)
         if not env.get("HOME") and os.environ.get("HOME"):
             env["HOME"] = os.environ["HOME"]
+        env["XDG_CONFIG_HOME"] = str(self.config_home)
         env.update(QUIET)
         env.update(mcp_overrides(settings)[1])
         return env
@@ -225,6 +264,7 @@ class MuseCodeHost(Host):
             if t is None:
                 raise HostError(f"unknown muse thread {thread_id}")
             turn = str(uuid.uuid4())
+            prepare_config(self.config_home)
             prompt = self._prompt_file(text)
             stderr = tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
             try:
