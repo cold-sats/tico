@@ -215,8 +215,8 @@ pub async fn pull_repo(path: &Path, env: &Env) -> String {
 }
 
 /// Push the turn's commits to the checkout's upstream (service.py push_repo): never forces or pulls; a
-/// checkout without an upstream, or not ahead of it, is left alone. A rejected push is logged for a person:
-/// this runner does not rebase onto the remote (`catch_up`) yet.
+/// checkout without an upstream, or not ahead of it, is left alone. A push refused as behind comes back as
+/// `non-fast-forward`, which sessions.rs push_checkout catches up and pushes again.
 pub async fn push_repo(path: &Path, env: &Env) -> (i64, String) {
     if !path.join(".git").exists() {
         return (0, String::new());
@@ -584,12 +584,11 @@ impl Runner {
 
     /// One turn, start to result. Err only when the result could not be settled; the loop then saves an
     /// interrupted result for recovery.
-    pub async fn execute(self: Arc<Self>, attempt: Value) -> Result<(), String> {
+    pub async fn execute(self: Arc<Self>, mut attempt: Value) -> Result<(), String> {
         let aid = text_of(&attempt["id"]);
         let bot = text_of(&attempt["bot"]);
         self.state.record(&attempt)?;
         let config = attempt["config"].clone();
-        let lane = crate::lanes::lane(&attempt);
         let key = session_key(&attempt);
         // Goal continuations count per thread: one task's stuck goal does not pause another's.
         let mut goal = GoalRun {
@@ -620,7 +619,9 @@ impl Runner {
         let mut conv = key.clone();
         let effort = Some(text_of(&config["reasoning_effort"])).filter(|e| !e.is_empty());
         let model = Some(text_of(&config["model"])).filter(|m| !m.is_empty());
-        let execution_path: PathBuf = crate::readiness::local_path(&self.config, &bot);
+        let mut execution_path: PathBuf = crate::sessions::local_path(&self.config, &bot, &config);
+        let mut place: Option<crate::sessions::Place> = None;
+        let mut skipped: Vec<String> = vec![];
         let mut vault = Vault::default();
         let mut env: Env = Env::new();
         let mut base_env: Option<Env> = None;
@@ -638,10 +639,6 @@ impl Runner {
         let (mut unavailable, mut prepared) = (false, false);
         let token = text_of(&attempt["token"]);
         let refs = attempt["message"]["refs"].clone();
-        // A lane runs one turn at a time. A main-lane turn holds the bot's checkout for the whole turn; a task lane
-        // without a worktree of its own waits for the checkout like any other turn.
-        let lane_lock = crate::lanes::lane_lock(&bot, &lane);
-        let checkout_lock = self.bot_lock(&bot);
         let mut uses: Vec<String> = vec![runtime.clone()];
         if let Some(hop) = crate::fallback::configured(&config) {
             uses.push(hop.runtime);
@@ -649,21 +646,10 @@ impl Runner {
         crate::harness_tools::turn_runtimes(&aid, &uses);
 
         let ran: Result<(), Fail> = async {
-            let hold = |lock: Arc<tokio::sync::Mutex<()>>| {
-                let flags = flags.clone();
-                async move {
-                    loop {
-                        if flags.lost.load(Ordering::SeqCst) {
-                            return Err(Fail::runtime("Attempt lease lost while waiting for the bot's checkout"));
-                        }
-                        if let Ok(g) = tokio::time::timeout(Duration::from_secs(1), lock.clone().lock_owned()).await {
-                            return Ok(g);
-                        }
-                    }
-                }
-            };
-            let _lane = hold(lane_lock.clone()).await?;
-            let _checkout = hold(checkout_lock.clone()).await?;
+            // A lane runs one turn at a time. A main-lane turn holds the bot's checkout for the whole turn; a task
+            // lane works in its own worktree and takes the checkout only to refresh it (sessions.rs).
+            let p = place.insert(self.enter_lanes(&attempt, &flags.lost).await.map_err(Fail::runtime)?);
+            execution_path = p.main_path.clone();
             if let Some(line) = crate::runner::local_refusal() {
                 // Never run a bot as the supervisor user when it is meant to run as another one.
                 return Err(Fail::runtime(format!("Not started: {line}")));
@@ -704,22 +690,19 @@ impl Runner {
                 // A thread begun on one login is never resumed on another.
                 conv = format!("{conv}:profile:{}:{}", p.name, p.binding());
             }
-            let error = pull_repo(&execution_path, &env).await;
-            if !error.is_empty() {
-                let name = execution_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                log(&format!("Tico runner: {name} pull before {bot} turn failed ({error}); using the local tree"));
+            if p.has_checkout() {
+                // A checkout with no upstream yet: give its history a home first (service.py prepare_history), and
+                // run no turn on a copy that shares no history with GitHub's.
+                let (published, detail) = self.publish(&bot, &execution_path, &env).await;
+                if published == "failed" && detail.contains("unrelated history") {
+                    return Err(Fail::runtime(format!("this computer's copy of {bot} shares no history with GitHub ({detail}); no turn runs on it")));
+                }
+                self.refresh_checkout(p, &mut attempt, &env).await;
             }
-            // A checkout with no upstream yet: give its history a home first (service.py prepare_history), and
-            // run no turn on a copy that shares no history with GitHub's.
-            let (published, detail) = self.publish(&bot, &execution_path, &env).await;
-            if published == "failed" && detail.contains("unrelated history") {
-                return Err(Fail::runtime(format!("this computer's copy of {bot} shares no history with GitHub ({detail}); no turn runs on it")));
-            }
+            conv.push_str(self.place_turn(p, &mut attempt, &env, &flags.lost).await.map_err(Fail::runtime)?);
+            execution_path = p.execution_path.clone();
             if redactor.is_some() {
                 started_at = redact::head(&execution_path);
-            }
-            if attempt["worktrees"].as_array().is_some_and(|w| !w.is_empty()) {
-                self.diagnose(&aid, "This computer's runner does not join the task's set-up worktrees yet; the turn runs in the bot's checkout");
             }
             let previous = self.state.session(&bot, &conv, &session_runtime)?;
             let minutes = config["max_run_minutes"].as_f64().or_else(|| text_of(&config["max_run_minutes"]).parse().ok()).unwrap_or(60.0);
@@ -745,6 +728,8 @@ impl Runner {
                 env: env.clone(),
                 slug: bot.clone(),
                 compact_at: config.get("compact_at").cloned().unwrap_or(Value::Null),
+                add_dirs: p.add_dirs.clone(),
+                shared: crate::sessions::is_shared(&config),
             };
             let mut resumed = false;
             if let Some(prev) = &previous {
@@ -764,6 +749,9 @@ impl Runner {
             // Acknowledge before execution. Any later crash is explicitly uncertain.
             self.client.post(&format!("attempts/{aid}/started"), &json!({"thread_id": th}), Some(&format!("started:{aid}"))).await?;
             self.state.phase(&aid, "running")?;
+            // A resumed thread already holds the repo rules unless they changed since it was given them.
+            let digest = p.rules_digest.clone();
+            attempt["_repo_rules_changed"] = json!(!digest.is_empty() && self.state.repo_rules(&th, None)?.as_deref() != Some(digest.as_str()));
             let names = self.names().await;
             let after = if resumed { self.state.cursor(&th, None)? } else { None };
             let prompt = crate::prompt::prompt(&attempt, &names, after.as_deref(), resumed);
@@ -785,6 +773,9 @@ impl Runner {
                 self.start_turn(&aid, &bot, h, &th, &prompt, effort.as_deref(), &refs, &attempt, &mut goal, &own).await?
             };
             mark("harness_spawned", &aid);
+            if !digest.is_empty() {
+                self.state.repo_rules(&th, Some(&digest))?;
+            }
             turn = Some(t.clone());
             let d = Drive { aid: &aid, host: h, thread: &th, effort: effort.as_deref(), limit, flags: &flags, wake: &wake, redactor: redactor.as_ref(), runtime: &runtime };
             drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
@@ -843,6 +834,8 @@ impl Runner {
                     env: hop_env.clone(),
                     slug: bot.clone(),
                     compact_at: config.get("compact_at").cloned().unwrap_or(Value::Null),
+                    add_dirs: place.as_ref().map(|p| p.add_dirs.clone()).unwrap_or_default(),
+                    shared: crate::sessions::is_shared(&config),
                 };
                 let th = h.start_thread(&bot, &settings).await?;
                 thread = Some(th.clone());
@@ -929,6 +922,7 @@ impl Runner {
                             })
                             .unwrap_or_default();
                         stamps.push((name.clone(), stamp));
+                        skipped.push(path.display().to_string());
                         reasons.insert(name, why);
                     }
                 }
@@ -1021,13 +1015,12 @@ impl Runner {
                         }
                     }
                     self.state.phase(&aid, "synced")?;
-                    if drove.outcome == "completed" && !committed_secret && host.is_some() {
-                        let (ahead, error) = push_repo(&execution_path, &env).await;
-                        if !error.is_empty() {
-                            let name = execution_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                            log(&format!("Tico runner: {name} has {ahead} unpushed commits and push failed ({error}); leaving it for a person"));
+                    if let Some(p) = place.as_ref().filter(|_| drove.outcome == "completed" && host.is_some()) {
+                        if !committed_secret && p.session_path.is_none() {
+                            self.publish(&bot, &execution_path, &env).await;
                         }
-                        self.publish(&bot, &execution_path, &env).await;
+                        let closed = p.session_path.is_some() && self.task_closed(&attempt).await;
+                        self.finish_place(p, &attempt, &env, &skipped, committed_secret, closed).await;
                     }
                     Ok(())
                 }
@@ -1051,6 +1044,8 @@ impl Runner {
             s.unregister(&token);
         }
         redact::release(&aid);
+        // Worktree maintenance scrubs a closed task's snapshot with what this bot was last granted.
+        self.lanes.keep_vault(&bot, vault.values.clone());
         vault.remove_files();
         crate::harness_tools::turn_done(&aid);
         flags.done.store(true, Ordering::SeqCst);

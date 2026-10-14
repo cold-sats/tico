@@ -18,6 +18,15 @@ fn hooks() -> &'static Path {
     })
 }
 
+pub fn hooks_dir() -> &'static Path {
+    hooks()
+}
+
+/// What every runner git command starts with (safe_git.PREFIX), for git outside a checkout.
+pub fn prefix() -> Vec<String> {
+    vec!["--no-optional-locks".into(), "-c".into(), format!("core.hooksPath={}", hooks().display()), "-c".into(), "core.fsmonitor=false".into()]
+}
+
 /// `git` with what every runner git command starts with (safe_git.PREFIX plus `safe.directory`), then `-C path`.
 pub fn args(path: &Path) -> Vec<String> {
     vec![

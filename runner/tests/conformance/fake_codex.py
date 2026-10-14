@@ -2,7 +2,8 @@
 `--version`, `login status`, `app-server generate-json-schema` (the protocol files that say goals, compact and
 review are there), and `app-server` speaking the part of the JSON-RPC protocol runner/hosts/codex.py uses
 (scripts/journey-fake-codex.py, plus token usage, native goals and steering). Every thread, goal, steer and turn
-request is appended to $FAKE_LOG, with the turn's homes and granted variables.
+request is appended to $FAKE_LOG, with the turn's homes, cwd and granted variables; a prompt containing
+REMEMBER leaves a file in that cwd's memory/.
 
 Scripted prompts: HANG streams one delta and then waits, once per $FAKE_LOG, until its parent goes away; LIMIT
 fails the turn with a usage limit; SLOW streams one delta and answers after $FAKE_SLOW seconds (2), or at once
@@ -65,7 +66,7 @@ def main():
             lines.put(line)
         lines.put(None)
     threading.Thread(target=read, daemon=True).start()
-    threads, turns, parent = 0, 0, os.getppid()
+    threads, turns, parent, cwds = 0, 0, os.getppid(), {}
     goals = {}
     slow = None          # (thread, turn, number, due) of the turn answering later
     while True:
@@ -91,6 +92,7 @@ def main():
         if method in ("thread/start", "thread/resume"):
             threads += 1
             thread = thread or "acme-thread-%d-%d" % (os.getpid(), threads)
+            cwds[thread] = params.get("cwd")
             record({"harness": "codex", "method": method, "thread": thread})
             send({"id": rid, "result": {"thread": {"id": thread}}})
         elif method == "thread/goal/set":
@@ -120,7 +122,12 @@ def main():
             turn = "acme-turn-%d-%d" % (os.getpid(), turns)
             text = " ".join(part.get("text", "") for part in params.get("input", []))
             record({"harness": "codex", "method": method, "thread": thread, "turn": turn, "prompt": text,
-                    "env": {k: os.environ.get(k) for k in GRANTED}, "at": time.time()})
+                    "cwd": cwds.get(thread), "env": {k: os.environ.get(k) for k in GRANTED}, "at": time.time()})
+            if "REMEMBER" in text and cwds.get(thread):
+                # As a bot does: a lesson left uncommitted in memory/.
+                os.makedirs(os.path.join(cwds[thread], "memory"), exist_ok=True)
+                with open(os.path.join(cwds[thread], "memory", "lesson-%d.md" % turns), "w") as note:
+                    note.write("Keep the product tests fast.\n")
             send({"id": rid, "result": {"turn": {"id": turn}}})
             send({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn}}})
             marker = os.environ["FAKE_LOG"] + ".hung"

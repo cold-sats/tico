@@ -236,6 +236,9 @@ pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, ass
 
 /// A bot's checkout: the configured repos entry, else `bot-<slug>` or the older `emp-<slug>` under projects_dir.
 pub fn local_path(config: &Config, bot: &str) -> PathBuf {
+    if let Some(p) = crate::sessions::shared_path(bot) {
+        return p; // a branch of a bot with branches works in the original's checkout
+    }
     if let Some(p) = config.repo_for(bot) {
         return p;
     }
@@ -261,9 +264,6 @@ pub fn unsupported(config: &Config, entry: &Value) -> Vec<String> {
     let harness = text_of(&c["harness"]);
     if !harness.is_empty() && harness != runtime && !(runtime == "gemini" && harness == "antigravity") {
         needs.push(format!("the {harness} harness"));
-    }
-    if crate::util::truthy(c.get("shared")) || crate::util::truthy(c.get("shared_from")) {
-        needs.push("shared bot checkouts".into());
     }
     if crate::util::truthy(entry.get("mail_agent")) {
         needs.push("the mail agent".into());
@@ -328,7 +328,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         let bot = text_of(&entry["bot"]);
         let expected = &entry["config"];
         let runtime = text_of(&expected["runtime"]);
-        let path = local_path(config, &bot);
+        let path = crate::sessions::local_path(config, &bot, expected);
         let requested = text_of(&entry["profile"]);
         let computer = text_of(&entry["computer_label"]);
         let profile = profiles::select(&config.data, Some(&bot), Some(&requested));
@@ -349,7 +349,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         }
         let repository_present = path.join("AGENT.md").is_file();
         if !repository_present {
-            problems.push("Missing bot repository or AGENT.md".into());
+            problems.push(crate::fetchrepo::problem(&bot).unwrap_or_else(|| "Missing bot repository or AGENT.md".into()));
         } else {
             if runtime == "claude" {
                 warnings.extend(crate::readiness_extra::deny_warnings(&path));
@@ -488,7 +488,7 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
         out.insert("warnings".into(), row.get("warnings").cloned().unwrap_or(json!([])));
         bots.insert(text_of(&row["bot"]), Value::Object(out));
     }
-    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots});
+    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": true});
     if let Some((total, free)) = disk_usage(state_dir) {
         doc["disk"] = json!({"total_bytes": total, "free_bytes": free});
     }

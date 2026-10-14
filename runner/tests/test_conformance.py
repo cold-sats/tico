@@ -32,11 +32,25 @@ SECRET = "acme-synthetic-fixture-4821"
 
 
 @pytest.fixture(scope="session")
-def rust_binary():
+def rust_binary(tmp_path_factory):
+    """The release binary, built once per test run: xdist workers share the base temp directory's lock, and the
+    first to take it builds and copies the binary. A copy, so no worker ever runs a file cargo is relinking."""
     if not shutil.which("cargo"):
         pytest.skip("cargo is not installed")
-    subprocess.run(["cargo", "build", "--release", "-q"], cwd=ROOT / "runner-rs", check=True, timeout=900)
-    return ROOT / "runner-rs" / "target" / "release" / "tico-runner"
+    import fcntl
+    shared = tmp_path_factory.getbasetemp().parent
+    # Inside the checkout, where the binary finds its root (runner-rs/src/env.rs root).
+    binary = ROOT / "runner-rs" / "target" / "conformance" / shared.name / "tico-runner"
+    with open(shared / "tico-runner.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not binary.exists():
+            subprocess.run(["cargo", "build", "--release", "-q"], cwd=ROOT / "runner-rs", check=True, timeout=900)
+            shutil.rmtree(binary.parent.parent, ignore_errors=True)  # earlier runs' copies
+            binary.parent.mkdir(parents=True)
+            staged = binary.parent / "tico-runner.part"
+            shutil.copy2(ROOT / "runner-rs" / "target" / "release" / "tico-runner", staged)
+            staged.rename(binary)
+    return binary
 
 
 def until(check, what, timeout=30.0):
@@ -364,10 +378,7 @@ def test_a_bot_on_a_subscription_profile_runs_in_that_profiles_home(api, live, t
 @pytest.mark.parametrize("harness", ["codex"])
 @pytest.mark.parametrize("setup", [{"bot": {"session": "task"}, "git": True, "registration": {"capacity": 4},
                                     "env": {"FAKE_SLOW": "4"}}])
-def test_two_tasks_of_one_bot_run_side_by_side_in_their_own_lanes(api, computer, request):
-    if computer.engine == "rust":
-        # Task worktrees are the rr-worktrees step; without them a task turn waits for the bot's checkout.
-        request.applymarker(pytest.mark.xfail(reason="the Rust runner has no task worktrees yet", strict=False))
+def test_two_tasks_of_one_bot_run_side_by_side_in_their_own_lanes(api, computer):
     computer.start()
     for title in ("SLOW first", "SLOW second"):
         post(api, "tasks", {"owner": "ops", "title": title, "body": "Please do " + title + "."})
@@ -375,3 +386,73 @@ def test_two_tasks_of_one_bot_run_side_by_side_in_their_own_lanes(api, computer,
     starts = sorted(c["at"] for c in computer.calls() if c.get("method") == "turn/start")
     ends = sorted(c["at"] for c in computer.calls() if c.get("method") == "turn/completed")
     assert len(starts) == 2 and starts[1] < ends[0], (starts, ends)
+
+
+def git(cwd, *args):
+    done = subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                           "-c", "init.defaultBranch=main", *args], cwd=cwd, capture_output=True, text=True,
+                          env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(cwd),
+                               "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_a_task_turn_works_in_its_own_worktree_with_the_tasks_repo_and_pushes_its_run(api, computer, tmp_path):
+    projects = tmp_path / "projects"
+    # The bot's repository tracks a local remote; the task's product checkout is a worktree of a base clone.
+    bot_remote = tmp_path / "remotes" / "bot-ops.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bot_remote))
+    repo = projects / "bot-ops"
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "Ops starts")
+    git(repo, "remote", "add", "origin", str(bot_remote))
+    git(repo, "push", "-q", "-u", "origin", "main")
+    product_remote = tmp_path / "remotes" / "product.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(product_remote))
+    seed = tmp_path / "product-seed"
+    git(tmp_path, "clone", "-q", str(product_remote), str(seed))
+    (seed / "AGENTS.md").write_text("Run the product tests before every commit.\n")
+    git(seed, "add", "-A")
+    git(seed, "commit", "-qm", "Product rules")
+    git(seed, "push", "-q", "origin", "main")
+    base = projects / "repos" / "org__product"
+    git(tmp_path, "clone", "-q", str(product_remote), str(base))
+    git(base, "remote", "set-url", "origin", "https://github.com/org/product.git")
+    git(base, "worktree", "add", "-q", "-b", "tico/feature", str(projects / "work" / "product"))
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'",
+                  (encode({"name": "ops", "runtime": computer.harness, "model": MODELS[computer.harness],
+                           "status": "active", "session": "task"}),))
+    computer.start()
+
+    task = post(api, "tasks", {"owner": "ops", "title": "Build product", "body": "Please build the product."})
+    until(lambda: any(a["state"] == "completed" for a in computer.attempts()), "the task's first turn")
+    link = post(api, f"tasks/{task['id']}/worktrees/attach",
+                {"path": "work/product", "repo": "org/product", "branch": "tico/feature"})
+
+    def certified():
+        # Each config change is a full readiness pass, which inspects the computer's worktrees.
+        with api.app.state.store.transaction() as c:
+            c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.touched',?) WHERE bot='ops'",
+                      (time.monotonic(),))
+            row = c.execute("SELECT state, detail_json FROM task_links WHERE id=?", (link["link_id"],)).fetchone()
+        time.sleep(0.5)
+        return row["state"] == "present" and json.loads(row["detail_json"])["checkout_state"] == "ready"
+    until(certified, "the attached worktree reported ready", timeout=60)
+
+    post(api, f"tasks/{task['id']}/chat", {"text": "REMEMBER what the build taught you"})
+    second = until(lambda: next((a for a in computer.attempts()[1:] if a["state"] == "completed"), None),
+                   "the turn with the worktree")
+    call = computer.prompts()[-1]
+    session = projects / "sessions" / "bot-ops" / task["id"]
+    assert Path(call["cwd"]).resolve() == session.resolve()
+    assert "Repo rules for org/product: how to write code there" in call["prompt"]
+    assert "Run the product tests before every commit." in call["prompt"]
+    if computer.harness == "claude":
+        assert call["argv"][call["argv"].index("--add-dir") + 1] == str(projects / "work" / "product")
+    # The lesson the turn left is committed with its run and lands on the bot's remote.
+    trailer = f"Tico-Run: {second['id']}"
+    until(lambda: trailer in git(tmp_path, "--git-dir", str(bot_remote), "log", "--format=%B", "main"),
+          "the turn's memory pushed")

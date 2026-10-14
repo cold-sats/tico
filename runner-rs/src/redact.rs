@@ -454,6 +454,7 @@ pub fn for_turn(env: &[(String, String)], vault_values: &[String]) -> Option<Arc
 
 #[allow(clippy::type_complexity)]
 fn active() -> &'static Mutex<Vec<(String, Arc<Redactor>)>> {
+    #[allow(clippy::type_complexity)]
     static ACTIVE: OnceLock<Mutex<Vec<(String, Arc<Redactor>)>>> = OnceLock::new();
     ACTIVE.get_or_init(|| Mutex::new(Vec::new()))
 }

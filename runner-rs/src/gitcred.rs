@@ -212,15 +212,22 @@ async fn answer(attempts: &Mutex<HashMap<String, Registered>>, client: &Client, 
     if !(asked.get("purpose").is_none() || ["turn", "git"].contains(&purpose)) || (asked.get("purpose").is_some() && asked["purpose"].as_str().is_none()) {
         return json!({"error": "bad purpose"});
     }
-    if asked.get("refresh").is_some_and(|r| crate::util::truthy(Some(r))) {
-        return json!({"error": "mirror refresh unavailable"});
-    }
     let granted = if purpose == "git" { cache.git(client, &bot).await } else { cache.get(client, json!({"bot": bot})).await };
     let granted = match granted {
         Ok(g) => select_token(&g, repository.as_deref().filter(|r| !r.is_empty())),
         Err(e) if e.status != 0 => return json!({"error": format!("APIError: {}", token_problem(&e, repository.as_deref().unwrap_or("")))}),
         Err(_) => return json!({"error": "APIError"}),
     };
+    if asked.get("refresh").is_some_and(|r| crate::util::truthy(Some(r))) {
+        // A bounded mirror refresh for a turn that may read the repository; the token never leaves this process.
+        let (Some(repository), Some(mirrors)) = (repository.filter(|r| !r.is_empty()), crate::repositories::MIRRORS.get()) else {
+            return json!({"error": "mirror refresh unavailable"});
+        };
+        if granted.is_empty() {
+            return json!({"error": "mirror refresh unavailable"});
+        }
+        return mirrors.refresh_mirror(&repository, &granted).await.unwrap_or_else(|_| json!({"error": "ValueError"}));
+    }
     if granted.is_empty() {
         return json!({"error": "no token"});
     }
