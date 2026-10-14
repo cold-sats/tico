@@ -1254,6 +1254,8 @@ def lint_title(title):
 LINT_HEX_ID = re.compile(r"(?<![\w/.-])(?=[0-9a-f-]*\d)(?=[0-9a-f-]*[a-f])"
                          r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){1,4}(?:[0-9a-f]{8})?|[0-9a-f]{7,40})(?![\w/-]|\.[\w/-])", re.I)
 LINT_CURRENCY = "$£€¥"
+# A year after a few letters (FY2026, CY2025, ES2022) or a standard's number (ISO27001) names a thing, not a record.
+LINT_NAMED_NUMBER = re.compile(r"[A-Z]{1,4}-?(?:19|20)\d{2}|ISO-?\d+")
 LINT_WAIT_WORDS = 40
 
 
@@ -1267,7 +1269,8 @@ def lint_waiting_note(note, person, asked=False):
     problems = []
     # An amount ("$250000") is not a reference number. Only here: a title keeps LINT_IDENT as it is.
     m = LINT_HEX_ID.search(text) or next((i for i in LINT_IDENT.finditer(text)
-                                          if not (i.start() and text[i.start() - 1] in LINT_CURRENCY)), None)
+                                          if not (i.start() and text[i.start() - 1] in LINT_CURRENCY)
+                                          and not LINT_NAMED_NUMBER.fullmatch(i.group(0))), None)
     if m:
         problems.append(f'id in the note for {name}: "{m.group(0)}" - say what it is in plain words')
     n = len(text.split())
@@ -1295,6 +1298,22 @@ LINT_PATH = re.compile(r"(?<![\w:/.-])(?:~|\.{1,2})?/[\w.@-]+/[\w.@/-]*"        
 LINT_TOOL = re.compile(r"\bhub\s+(?:task|message|question|approval|note|chat|doc|file|goal|kpi|bot|routine|update|tool|calendar|meeting|support|team|tag|human|group|conversation|whoami|sql)\b|(?<![\w-])--[a-z][\w-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|`[^`]+`")
 
 
+# A sentence ends at . ! or ? before a capital letter, a digit or a quote, so "3 p.m. on Friday" and "U.S. customers"
+# stay one sentence; initials (U.S.) and these short titles never end one, so "Dr. Smith" does not either.
+LINT_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[\"'(\[A-Z0-9])")
+LINT_ABBREV = re.compile(r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs|etc|Inc|Ltd|Co|Jr|Sr|No|approx|e\.g|i\.e)\.)$")
+
+
+def lint_sentences(text):
+    """How many sentences an ask has, not counting a stop after an abbreviation or initials as an end."""
+    parts, start = [], 0
+    for m in LINT_SENTENCE_END.finditer(text):
+        if not LINT_ABBREV.search(text[start:m.start()]):
+            parts.append(text[start:m.start()])
+            start = m.end()
+    return len([s for s in [*parts, text[start:]] if s.strip()])
+
+
 def lint_person_ask(text):
     """The problems with an ask to a person, empty when it passes: there is one, it is one or two sentences of at
     most LINT_ASK_WORDS words, and it carries no ids, hashes, file paths, s3:// links or tool and field names.
@@ -1304,7 +1323,7 @@ def lint_person_ask(text):
         return ["is missing"]
     problems = []
     n = len(text.split())
-    sentences = len([s for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()])
+    sentences = lint_sentences(text)
     if n > LINT_ASK_WORDS or sentences > 2:
         problems.append(f"is {n} words in {sentences} sentence{'s' if sentences != 1 else ''}")
     m = LINT_S3.search(text)
@@ -1312,7 +1331,8 @@ def lint_person_ask(text):
         problems.append(f'has an s3:// link: "{m.group(0)}"')
     plain = LINT_S3.sub(" ", re.sub(r"https?://\S+", " ", text))
     m = LINT_HEX_ID.search(plain) or next((i for i in LINT_IDENT.finditer(plain)
-                                           if not (i.start() and plain[i.start() - 1] in LINT_CURRENCY)), None)
+                                           if not (i.start() and plain[i.start() - 1] in LINT_CURRENCY)
+                                           and not LINT_NAMED_NUMBER.fullmatch(i.group(0))), None)
     if m:
         problems.append(f'has an id or hash: "{m.group(0)}"')
     m = LINT_PATH.search(plain)
