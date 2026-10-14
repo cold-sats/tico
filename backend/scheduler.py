@@ -29,6 +29,7 @@ class Scheduler:
         self.swept = None
         self.stranded = None
         self.still_wanted = None
+        self.asks_checked = None
         self.stall_checked = None
         self.goals_checked = None
         self.go_lives_checked = None
@@ -224,4 +225,13 @@ class Scheduler:
                     still_wanted.ask_idle(c, stamp(at))
             except Exception as exc:
                 failures.append({"still_wanted": type(exc).__name__})
+        if self.asks_checked is None or at - self.asks_checked >= timedelta(hours=1):
+            self.asks_checked = at
+            # Every hour: a bot's ask past its deadline goes ahead on its default, or expires (backend/ask_deadlines.py).
+            try:
+                from . import ask_deadlines
+                with self.store.transaction() as c:
+                    ask_deadlines.sweep(c, stamp(at))
+            except Exception as exc:
+                failures.append({"ask_deadlines": type(exc).__name__})
         return {"fired": fired, "failures": failures}

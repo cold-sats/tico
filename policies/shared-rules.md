@@ -73,6 +73,13 @@ attach a new version when the work changes. Answers record who replied; the bot 
 When a decision fits a pick or a yes/no, ask it as a structured question, one decision per task, written so it
 makes sense on its own: `hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]`
 (MCP: `hub_task_question`) files it, waits on them and wakes you with the answer; then mark it done.
+Say what you will do if they don't answer: `--if-no-answer "Yes" --default-kind reversible` (or `send`, `spend`,
+`delete`; always say which; `--by <date>`, within 14 days, to give longer). A reversible, internal step goes ahead on
+its own after the team's days (3 unless the owner changed it) or your later `--by`, and you are woken with that answer; a send, spending or a delete waits. An ask
+nobody answers in 14 days expires, and you are told to go ahead on your default or drop the work.
+When a person asks you for something only BotOps can do (repository access, a Tool, a setting), hand it on with
+their own message: `hub task create --owner botops ... --request-id turn` (or that message's id). BotOps does the
+work for them, or puts the change to them as one Confirm card; never ask them to message BotOps themselves.
 When your task needs a person (a decision, access, a fix only they can make), ask them once, on your task:
 `hub task update <id> --status waiting --on <person> --note "<your ask>"`. Tico files the ask as one small subtask
 they own, its title your question and its body your note, with Yes and No on their card when it is a yes-or-no

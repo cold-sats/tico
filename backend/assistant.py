@@ -242,7 +242,12 @@ def valid_operation(method, path, settings=None, proposer="assistant"):
     if not path or (settings is not None and path == "/api/v2/chat/" + settings.assistant_bot):
         return False
     routes = _PROPOSABLE + (_PROPOSABLE_BOTOPS if proposer == "botops" else [])
-    return any(m == method and p.fullmatch(path) for m, p in routes)
+    if any(m == method and p.fullmatch(path) for m, p in routes):
+        return True
+    # BotOps also puts to a person, as a card, any change it makes for a person directly (a bot's hand-off that
+    # lends nothing: app.py `confirm_for_carried`). It runs only on their click, as them.
+    from . import botops_act
+    return proposer == "botops" and method != "GET" and any(m == method and p.fullmatch(path) for m, p in botops_act.DO)
 
 
 PREVIEW = 160

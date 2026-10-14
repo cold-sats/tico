@@ -205,6 +205,14 @@ class QuestionFile(Contract):
     content_base64: Annotated[StrictStr, Field(min_length=1, max_length=14_000_000)]
 
 
+class IfNoAnswer(Contract):
+    """What the bot does if the person does not answer by `by` (backend/ask_deadlines.py). `kind` says what that step is:
+    only a `reversible` internal step goes ahead on its own; a send, a payment or a delete waits for an answer."""
+    do: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+    kind: Literal["reversible", "send", "spend", "delete"]
+    by: Annotated[StrictStr, Field(max_length=40)] | None = None
+
+
 class QuestionChoice(Contract):
     label: Annotated[StrictStr, Field(min_length=1, max_length=60)]
     description: Annotated[StrictStr, Field(max_length=200)] = ""
@@ -220,6 +228,7 @@ class TaskQuestion(Contract):
     body: Text | None = None
     parent: ID | None = None
     private: StrictBool | None = None
+    if_no_answer: IfNoAnswer | None = None
 
     @model_validator(mode="after")
     def unique_labels(self):
@@ -250,6 +259,7 @@ class ReviewQuestion(Contract):
 class ReviewAsk(Contract):
     questions: list[ReviewQuestion] = Field(min_length=1, max_length=4)
     who: Annotated[StrictStr, Field(min_length=1, max_length=200)] | None = None
+    if_no_answer: IfNoAnswer | None = None
 
     @model_validator(mode="after")
     def unique_questions(self):
@@ -1324,6 +1334,8 @@ class AccessRules(Contract):
     members_store_credentials: bool | None = None
     admin_sql: bool | None = None
     member_tokens: bool | None = None
+    bots_go_ahead: bool | None = None
+    go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 
 class AccessAllowUpdate(Contract):
