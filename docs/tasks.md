@@ -735,3 +735,10 @@ python -m backend.manage restore-tasks /data/hub.sqlite --ids-file ids.txt      
 python -m backend.manage purge-deleted-tasks /data/hub.sqlite --older-than-days 30          # lists
 python -m backend.manage purge-deleted-tasks /data/hub.sqlite --older-than-days 30 --apply  # removes for good
 ```
+
+A purge cannot remove a deleted task's attached files: their versions and activity are append-only
+and their bytes may be shared with another file. They stay, and no one can open them again, not even
+whoever attached them, unless the same file is also attached somewhere they can still read. The purge
+says so: its answer lists them under `files_left` (how many, their versions, file bytes, the ids of
+files added to the task and, under `attachments`, the files attached when it was created), before
+and after `--apply`, and each `task.purged` event names the ones its task left.
