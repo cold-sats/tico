@@ -530,7 +530,8 @@ def run(args, who=None):
             return post("approvals/" + args.id, {"decision": sub + "d", "note": args.note},
                         delegate=getattr(args, "on_behalf_of", None) or False)
         payload = json.loads(Path(args.payload_file).read_text() if args.payload_file else args.payload or "{}")
-        return post("approvals", {"kind": args.kind, "payload": payload, "task_id": args.task})
+        return post("approvals", {"kind": args.kind, "payload": payload, "task_id": args.task,
+                                  "supersedes_approval": getattr(args, "supersedes", None)})
     if fn.startswith("bot status"):
         if fn == "bot status set":
             bot = args.bot or actor.split(":", 1)[-1]

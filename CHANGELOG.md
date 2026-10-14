@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Approvals nobody will act on leave Needs you.** An undecided approval is withdrawn (a new decision, `withdrawn`)
+  when its task is closed, declined or marked done, when its bot asks again for the same thing (`hub approval request
+  --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
+  recipient and subject, pull request or spend), and after 14 days undecided. The bot hears once, without a run, and
+  may ask again. An hourly sweep also clears approvals and questions to people still open on tasks that ended earlier.
+
 ## [0.3.43] - 2026-10-14
 
 ### Added

@@ -2620,6 +2620,8 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
             # A finished task's open questions to people are moot. Done keeps its structured questions: that is how
             # a done task asks for acceptance of what it delivered.
             supersede_asks(conn, row["id"], plain_only=effective == "done")
+            # ...and so is a yes it was waiting for: nothing will act on it now.
+            withdraw_task_approvals(conn, row["id"], f"Its task was {TASK_ENDED[effective]}.")
     return effective
 
 
@@ -5211,8 +5213,51 @@ def _wake(conn, task_row, target, body, refs=None, quiet_bots=False, quiet=False
 
 
 # ----------------------------------------------------------------------------- approvals
-def approval_request(conn, actor, kind, payload, task_id=None):
-    """Rule 6. One exact payload, one open request per payload, a human decides, spent once."""
+APPROVAL_STALE_DAYS = 14       # an undecided approval older than this is withdrawn (approval_expiry.sweep)
+TASK_ENDED = {"done": "marked done", "closed": "closed", "declined": "declined"}
+# What an approval acts on. A newer request on the same task for the same target replaces the older one; a bot may
+# rightly have several open on one task (three posts to publish), so a different target is a separate decision.
+APPROVAL_TARGET = {"publish": ("url",), "send": ("to", "subject"), "merge": ("repo", "pr"), "spend": ("account", "what")}
+
+
+def approval_target(kind, payload):
+    keys = APPROVAL_TARGET.get(kind)
+    values = [(payload or {}).get(k) for k in keys or ()]
+    return json.dumps(values, sort_keys=True, default=str) if keys and all(v not in (None, "", []) for v in values) \
+        else None
+
+
+def approval_withdraw(conn, approval_id, note):
+    """An undecided approval nobody needs any more leaves the person's queue as `withdrawn`: its task ended, a newer
+    request replaced it, or nobody decided it in APPROVAL_STALE_DAYS. Only the keeper withdraws, so a withdrawal is
+    never mistaken for a person's no; the bot that asked hears once, quietly, and may ask again."""
+    row = approval(conn, approval_id)
+    if not row or row["decision"]:
+        return None
+    conn.execute("UPDATE approvals SET decision='withdrawn', decided_by=?, decided_at=? WHERE id=? AND decision IS NULL",
+                 (KEEPER, now(), approval_id))
+    event(conn, KEEPER, "approval.withdraw", approval_id, {"decision": "withdrawn", "note": note})
+    conv = conversation(conn, (message(conn, row["message_id"]) or {}).get("conversation_id")) \
+        if row.get("message_id") else None
+    if conv and _actor_exists(conn, row["requested_by"]):
+        _write_message(conn, KEEPER, row["requested_by"], f"Withdrawn: your {row['kind']} approval. {note}",
+                       conv, "notice", {"approval": approval_id, "quiet": True}, None, None)
+    _recount(conn, row["requested_by"])
+    return approval(conn, approval_id)
+
+
+def withdraw_task_approvals(conn, task_id, note):
+    """Withdraw every undecided approval on a task that ended."""
+    return [aid for (aid,) in conn.execute("SELECT id FROM approvals WHERE task_id=? AND decision IS NULL "
+                                           "ORDER BY created", (task_id,)).fetchall()
+            if approval_withdraw(conn, aid, note)]
+
+
+def approval_request(conn, actor, kind, payload, task_id=None, supersedes=None):
+    """Rule 6. One exact payload, one open request per payload, a human decides, spent once.
+
+    A request replaces the asker's older undecided one it names (`supersedes`), and any it has open on the same task
+    for the same target (APPROVAL_TARGET): a re-cut release or a redrafted email is the same decision, asked again."""
     _writer(conn, actor)
     if kind not in APPROVAL_KINDS:
         refuse(conn, actor, "kind", f"an approval is {'|'.join(APPROVAL_KINDS)}, not {kind}")
@@ -5232,6 +5277,10 @@ def approval_request(conn, actor, kind, payload, task_id=None):
     dup = _one(conn, "SELECT id FROM approvals WHERE payload_hash=? AND decision IS NULL", (digest,))
     if dup:
         refuse(conn, actor, "duplicate", f"{dup['id']} already asks for exactly this")
+    if supersedes:
+        named = approval(conn, supersedes)
+        if not named or named["requested_by"] != actor:
+            refuse(conn, actor, "not-found", f"you have no approval {supersedes} to replace")
     owner = None
     if task_id:
         row = task(conn, task_id)
@@ -5258,6 +5307,15 @@ def approval_request(conn, actor, kind, payload, task_id=None):
     conn.execute("UPDATE messages SET refs_json=? WHERE id=?",
                  (_dump({"approval": row["id"], "task": task_id}), msg["id"]))
     event(conn, actor, "approval.request", row["id"], {"kind": kind, "to": owner})
+    replaced = {supersedes} if supersedes else set()
+    target = approval_target(kind, payload)
+    if task_id and target and is_bot(actor):
+        replaced |= {r["id"] for r in conn.execute(
+            "SELECT id, payload_json FROM approvals WHERE task_id=? AND kind=? AND requested_by=? AND decision IS NULL "
+            "AND id<>?", (task_id, kind, actor, row["id"])).fetchall()
+            if approval_target(kind, _json(r["payload_json"], {})) == target}
+    for aid in sorted(replaced):
+        approval_withdraw(conn, aid, f"Replaced by {row['id']}.")
     _recount(conn, actor)
     return approval(conn, row["id"])
 

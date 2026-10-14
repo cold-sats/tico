@@ -578,6 +578,7 @@ class ApprovalCreate(Contract):
     kind: Literal["send", "spend", "publish", "merge", "support"]
     payload: dict
     task_id: ID | None = None
+    supersedes_approval: ID | None = None
 
 
 class ApprovalDecision(Contract):
