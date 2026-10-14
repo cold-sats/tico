@@ -202,6 +202,8 @@ def entrypoint(tmp_path, *args, command="restore", env=None):
            "TICO_DATA_DIR": str(data), "TICO_BACKUP_DIR": str(backups), "PYTHONPATH": str(ROOT),
            "STUB_LOG": str(tmp_path / "stub.log"), "STUB_DB": str(source), **(env or {})}
     env.pop("TICO_BACKUP_URL", None)
+    # An inherited BASH_ENV can restore the turn's PATH and run real litestream and uvicorn instead of the stubs.
+    env.pop("BASH_ENV", None)
     return subprocess.run(["bash", str(ENTRYPOINT), command, *([] if command == "prepare" else args)], env=env, capture_output=True, text=True, timeout=60)
 
 
