@@ -15,9 +15,10 @@ def _identity_route(api):
     api.app.router.routes.insert(0, api.app.router.routes.pop())
 
 
-def _hand_off(api, machine, cite):
-    """Ana asks Ops in her chat with it; Ops files the work for BotOps, citing her message or not; BotOps picks it up."""
-    post(api, "chat/ops", {"text": "Give yourself read access to the acme site repository"}, token="ana-test")
+def _hand_off(api, machine, cite, said="Give yourself read access to the acme site repository"):
+    """Ana says something to Ops in her chat with it; Ops files work for BotOps, citing her message or not; BotOps picks
+    it up."""
+    post(api, "chat/ops", {"text": said}, token="ana-test")
     ops = claim(api, machine, "ops")
     task = post(api, "tasks", {"owner": "botops", "title": "Give Ops read access to the acme site repository",
                                "body": "Ana asked for it in her chat with Ops.", **({"request_id": cite} if cite else {})},
@@ -39,6 +40,14 @@ def test_a_bot_hands_botops_the_persons_own_request_and_botops_acts_as_them(api,
                            ).fetchone()
         assert "> Give yourself read access" in quoted["body"]
     assert get(api, "qa-handoff-identity", attempt["token"]) == {"actor": "human:ana", "role": "owner"}
+
+    # A task finished and reopened no longer lends: the request it carried was done.
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:ops", task["id"], status="done", note="done")
+        H.task_update(c, "bot:ops", task["id"], status="open", note="one more thing")
+    assert get(api, "qa-handoff-identity", attempt["token"]) == {"actor": "bot:ops", "role": "bot"}
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM task_events WHERE task_id=? AND field='status'", (task["id"],))
 
     # Once the message is more than a week old it lends nothing: BotOps has only Ops' rights again.
     with api.app.state.store.transaction() as c:
@@ -65,3 +74,20 @@ def test_a_hand_off_that_lends_nothing_puts_a_confirm_card_to_the_person(api, bo
         assert not c.execute("SELECT 1 FROM tasks WHERE owner='human:ana' AND requester='bot:botops'").fetchone()
         said = H.message(c, card["message_id"])
         assert said["to_actor"] == "human:ana" and said["from_actor"] == "bot:botops"
+
+
+def test_a_cited_message_never_raises_access_with_the_persons_rights(api, botops):
+    """Ana only said thanks; Ops cites it anyway and asks for write access to every repository for itself. BotOps tries
+    it with Ops' rights, and Ana gets a Confirm card: nothing changes until she taps it."""
+    assign(api, botops, "ops")
+    ready(api, botops, ["botops", "ops"])
+    _, attempt = _hand_off(api, botops, "turn", said="Thanks, that's all for today")
+    before = get(api, "bots/ops/repositories", "ana-test")
+    tried = api.put("/api/v2/bots/ops/repositories", json={"mode": "all", "all_access": "write"},
+                    headers=headers(attempt["token"]))
+    assert tried.status_code == 200, tried.text
+    assert tried.json()["needs_confirm"] is True
+    assert get(api, "bots/ops/repositories", "ana-test") == before
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT owner FROM assistant_actions WHERE id=?",
+                         (tried.json()["action"]["id"],)).fetchone()["owner"] == "human:ana"

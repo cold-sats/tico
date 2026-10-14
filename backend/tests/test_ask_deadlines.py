@@ -53,7 +53,9 @@ def test_an_ask_unanswered_for_two_weeks_expires_and_a_task_handed_to_a_person_c
         c.execute("UPDATE messages SET created=? WHERE id=?", (H.shift(H.now(), days=-15), spoken["id"]))
         handed = H.task_create(c, "bot:ops", "Sign the venue form", "x", "human:ana", lint=False)
         touched = H.task_create(c, "bot:ops", "Pick the venue", "x", "human:ana", lint=False)
-        for row in (handed, touched):
+        later = H.task_create(c, "bot:ops", "Renew the domain before Dec 1", "x", "human:ana",
+                              H.shift(H.now(), days=40)[:10], lint=False)
+        for row in (handed, touched, later):
             c.execute("UPDATE tasks SET created=? WHERE id=?", (H.shift(H.now(), days=-15), row["id"]))
             c.execute("UPDATE task_events SET ts=? WHERE task_id=?", (H.shift(H.now(), days=-15), row["id"]))
         H.task_comment(c, "human:ana", touched["id"], "Still looking, give me a few days")
@@ -65,20 +67,50 @@ def test_an_ask_unanswered_for_two_weeks_expires_and_a_task_handed_to_a_person_c
         closed = H.task(c, handed["id"])
         assert closed["status"] == "closed" and "expired" in closed["note"]
         assert H.task(c, touched["id"])["status"] == "open"
+        assert H.task(c, later["id"])["status"] == "open"          # due later: not expired
+
+    # A go-ahead date after day 14 is refused when asked; here one is set anyway: at day 14 the ask expires with
+    # nothing done, rather than going ahead early.
+    with api.app.state.store.transaction() as c:
+        _, far = _ask(c, "Archive the spring drafts?",
+                      {"do": "Yes", "kind": "reversible", "by": H.shift(H.now(), days=5)}, days=15)
+        done = ask_deadlines.sweep(c)
+    assert done["expired"] == [far["id"]]
+    with api.app.state.store.read() as c:
+        assert "Drop the work" in _answer(c, far)["body"]
 
 
-def test_a_bot_puts_its_default_on_a_question_and_a_past_deadline_is_refused(api):
+def test_a_bot_date_never_beats_the_teams_days_and_the_cli_must_say_the_kind(api):
+    import pytest
+    from clients import hubtools
+    with api.app.state.store.transaction() as c:
+        _, soon = _ask(c, "Tidy the board?",
+                       {"do": "Yes", "kind": "reversible", "by": H.shift(H.now(), minutes=-1)}, days=1)
+        assert ask_deadlines.sweep(c)["went_ahead"] == []          # 1 day in: the team's 3 days still apply
+    with pytest.raises(ValueError, match="default-kind"):
+        hubtools.task_question(None, {"question": "Send the reply to the vendor?", "on": "ana",
+                                      "if_no_answer": "Send it"})
+
+
+def test_a_bot_puts_its_default_on_a_question_and_a_past_or_far_deadline_is_refused(api):
+    from datetime import datetime, timedelta, timezone
     from backend.tests.test_api import setup_attempt
     from backend.tests.test_mcp import call
     _, _, attempt = setup_attempt(api)
+    pacific = timezone(timedelta(hours=-8))
+    by = (datetime.now(pacific) + timedelta(days=5)).replace(hour=9, minute=0, second=0, microsecond=0)
     err, out = call(api, "hub_task_question", {"question": "Archive the September drafts?", "on": "ana",
-                    "if_no_answer": {"do": "Yes", "kind": "reversible", "by": "2099-01-02T09:00:00-08:00"}},
+                    "if_no_answer": {"do": "Yes", "kind": "reversible", "by": by.isoformat()}},
                     token=attempt["token"])
     assert not err, out
     with api.app.state.store.read() as c:
         refs = H.message(c, out["question"]["id"])["refs"]
-    assert refs["if_no_answer"] == {"do": "Yes", "kind": "reversible", "by": "2099-01-02T17:00:00.000000Z"}
+    assert refs["if_no_answer"] == {"do": "Yes", "kind": "reversible", "by": f"{by.astimezone(timezone.utc):%Y-%m-%dT%H:%M:%S}.000000Z"}
     err, out = call(api, "hub_task_question", {"question": "Archive the August drafts?", "on": "ana",
                     "if_no_answer": {"do": "Yes", "kind": "reversible", "by": "2020-01-01T00:00:00Z"}},
                     token=attempt["token"])
     assert err and "already past" in str(out)
+    err, out = call(api, "hub_task_question", {"question": "Archive the July drafts?", "on": "ana",
+                    "if_no_answer": {"do": "Yes", "kind": "reversible", "by": "2099-01-02T00:00:00Z"}},
+                    token=attempt["token"])
+    assert err and "more than 14 days" in str(out)

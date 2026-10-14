@@ -779,7 +779,8 @@ def parser():
     s.add_argument("--if-no-answer", dest="if_no_answer",
                    help="what you will do if they don't answer: an option (\"Yes\") or one plain sentence")
     s.add_argument("--default-kind", dest="default_kind", choices=["reversible", "send", "spend", "delete"],
-                   default="reversible", help="what that step is; only a reversible, internal one goes ahead on its own")
+                   help="what that step is, required with --if-no-answer; only reversible (internal, undoable) goes "
+                        "ahead on its own: a send, spending or a delete waits for an answer")
     s.add_argument("--by", help="ISO-8601 date-time: go ahead then, instead of after the team's days (default 3)")
     s.set_defaults(fn="task question")
     s = task.add_parser("update")

@@ -262,6 +262,30 @@ def classify(method, path, body=None, rules=None, to_bot=None):
     return None
 
 
+# Who may do what, and what it costs: a request a bot carried for a person (app.py carried_request) never changes these
+# with the person's rights. BotOps tries them with the bot's own, and a refusal becomes the person's Confirm card.
+ACCESS = _routes(
+    ("POST", rf"bots/{_S}/(access|owners|co-owners|tools|agent-credential|agent-credential/revoke|definition|model|"
+             rf"fallback|go-live|quarantine/clear|restore|repository-read-token)"),
+    ("POST", rf"bots/{_S}/tools/{_S}/(delete|update)"), ("DELETE", rf"bots/{_S}/tools/{_S}"),
+    ("PUT", rf"bots/{_S}/(access|repositories|github-repos)"), ("PUT", rf"repositories/{_S}/{_S}"),
+    ("PUT", "repositories/settings"), ("PUT", "subscriptions"),
+    ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
+    ("POST", r"access/(people|humans)"), ("POST", rf"access/(people|humans)/{_S}"), ("PUT", r"access/rules"),
+    ("POST", r"groups"), ("PATCH", rf"groups/{_S}"), ("DELETE", rf"groups/{_S}"),
+    ("POST", r"slack/channels"), ("POST", r"slack/channels/(remove|import)"),
+    ("POST", rf"credentials/{_S}/grants"), ("DELETE", rf"credentials/{_S}"),
+    ("POST", r"agents/pairings/(approve|decline)"),
+    ("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),
+)
+
+
+def access_change(method, path):
+    """A change to who may do what, or to spending: never made with rights a bot's hand-off lent."""
+    path, method = normalize(path), str(method).upper()
+    return bool(path) and (admin_only(method, path) or any(m == method and p.fullmatch(path) for m, p in ACCESS))
+
+
 def admin_only(method, path):
     path = normalize(path)
     return bool(path) and any(m == str(method).upper() and p.fullmatch(path) for m, p in ADMIN_ONLY)

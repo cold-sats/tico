@@ -171,7 +171,9 @@ or its own wider access. The one exception is a person's own request the bot han
 the person's message (`hub task create --owner botops --request-id turn`, or the message id). When that person wrote it
 to the bot themselves, in their 1:1 chat with it (the app or a Slack DM) or as a comment on an open task they asked it for,
 in the conversation the bot's run is working on and within the last week, BotOps' run on the task uses the person's rights
-while it is open. A citation that lends nothing (no message cited, the Assistant's words, a channel, another conversation,
+while it is open and has never been finished. Access and spending (a bot's access, Tools, owners, credentials,
+repositories, subscriptions, people, groups, Slack channels, providers, limits, anything admin-only) never use rights a
+hand-off lent: BotOps tries them with the bot's rights, and a refusal is the Confirm card below. A citation that lends nothing (no message cited, the Assistant's words, a channel, another conversation,
 older than a week) still names the person: a change BotOps can't make with the bot's rights comes back as `needs_confirm`,
 a Confirm card in that person's BotOps chat that runs as them on their click. The task records which
 (`botops.request_carried`). Unattended work with no requester keeps BotOps' own rights. Personal tokens use their human's rights.

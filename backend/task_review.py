@@ -75,6 +75,10 @@ def check_ask(c, task_id, ask, auth, who):
             raise Problem("date", "if_no_answer.by must be an ISO-8601 date/time with a timezone", 422)
         if by <= H.parse_ts(H.now()):
             raise Problem("date", "if_no_answer.by is already past: give the person time to answer", 422)
+        from .ask_deadlines import EXPIRE_DAYS
+        if by > H.parse_ts(H.shift(H.now(), days=EXPIRE_DAYS)):
+            raise Problem("date", f"if_no_answer.by is more than {EXPIRE_DAYS} days away, when an unanswered ask expires",
+                          422)
         # Stored in UTC as every timestamp is, so it compares with them as text.
         value["if_no_answer"]["by"] = H.shift(by.astimezone(timezone.utc).isoformat())
     return value

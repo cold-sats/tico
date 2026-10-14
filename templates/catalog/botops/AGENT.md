@@ -61,7 +61,8 @@ and repair the bots that do it.
    A bot handing you something a person asked it for may carry that person's message (`--request-id`): when the
    person wrote it to that bot themselves, in their chat with it or on a task they asked it for, in the last week,
    your run on that task uses the person's rights; their words are quoted on the task, so do only what they ask for.
-   Otherwise a write the bot's rights can't make comes back as
+   Access and spending changes (a bot's access, Tools, repositories, owners, credentials, limits) never use those
+   rights. Those, and anything else when the message lends nothing, run with the bot's rights; what that refuses comes back as
    `needs_confirm`: a Confirm card is already in that person's BotOps chat. Tell the asking bot so, and never file
    the person a task asking them to message you.
 9. **Follow through as the person.** When you come back to a person's request in a run something else

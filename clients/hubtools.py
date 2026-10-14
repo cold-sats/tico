@@ -687,7 +687,10 @@ def task_question(api, args):
             body[field] = args[field]
     default = args.get("if_no_answer")
     if isinstance(default, str):                     # the CLI's --if-no-answer "..." --default-kind K [--by D]
-        default = {"do": default, "kind": args.get("default_kind") or "reversible",
+        if not args.get("default_kind"):
+            # Stated, never assumed: a forgotten kind on "send the reply to the vendor" would otherwise go ahead.
+            raise ValueError("Say what kind of step --if-no-answer is: --default-kind reversible, send, spend or delete")
+        default = {"do": default, "kind": args["default_kind"],
                    **({"by": args["by"]} if args.get("by") else {})}
     if default:
         body["if_no_answer"] = default

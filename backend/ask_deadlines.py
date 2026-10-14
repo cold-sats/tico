@@ -4,14 +4,16 @@ Run hourly (backend/scheduler.py):
 
 1. Go ahead. A bot may say what it will do if nobody answers (`if_no_answer` on `hub task ask` and `hub task question`:
    what it does, what kind of step that is, and optionally by when). When the step is reversible and internal and the
-   person has said nothing by then (`by`, else `go_ahead_days` after the ask), the keeper answers the ask for them:
+   person has said nothing by then (`by` or `go_ahead_days` after the ask, whichever is later: the team's days are the
+   least a person gets, and `by` is at most EXPIRE_DAYS away), the keeper answers the ask for them:
    "No answer from Ana by Oct 16, so the bot goes ahead: <what>". The bot wakes on that answer as on any answer. A send,
    a payment or a delete never goes ahead on its own: it waits for an answer, then expires. The owner turns this off
    (`bots_go_ahead`) or changes the days in Settings > Humans (backend/team_rules.py).
 2. Expire. An ask to a person that has gone EXPIRE_DAYS with no word from them closes: with its default when rule 1
    allows it, otherwise the work is dropped. The bot is told which, and why, in the answer. A task a bot handed a person
    (owned by the person, requested by the bot: a Needs-you task, or the small subtask an ask becomes) closes the same
-   way when the person has not touched it in EXPIRE_DAYS, and the bot hears why when it closes.
+   way when the person has not touched it in EXPIRE_DAYS, unless it is due later or waits on someone else, and the bot
+   hears why when it closes.
 
 A task with nobody's ask on it is "Still wanted?" (backend/still_wanted.py), which only a person's answer closes.
 """
@@ -72,7 +74,8 @@ def deadline(asked, rules):
     default = (asked.get("refs") or {}).get("if_no_answer") or {}
     if not rules["bots_go_ahead"] or default.get("kind") != GOES_AHEAD or not default.get("do"):
         return None
-    return default.get("by") or H.shift(asked["created"], days=rules["go_ahead_days"])
+    least = H.shift(asked["created"], days=rules["go_ahead_days"])
+    return max(default.get("by") or least, least)
 
 
 def _picked(asked, default):
@@ -134,7 +137,7 @@ def sweep(conn, at=None):
                 done["went_ahead"].append(asked["id"])
             elif spoke < expiry:
                 why = f"No answer from {_name(conn, person)} in {EXPIRE_DAYS} days, so this ask expired."
-                if due:
+                if due and due <= at:
                     settle(conn, asked, task, f"{why} {_name(conn, bot)} goes ahead with what it said it would do: "
                            f"{default['do']}", "expired", answers=_picked(asked, default))
                 else:
@@ -158,7 +161,7 @@ def sweep(conn, at=None):
 
 def handed_to_people(conn, expiry, at=None):
     """Tasks a bot handed a person that the person has not touched since `expiry`: owned by them, requested by a bot,
-    still open or waiting, not on a numbered board, not set aside until a date."""
+    still open or waiting (on nobody or that bot), not due later, not on a numbered board, not set aside until a date."""
     marks = ",".join("?" * len(ASKED_STATUSES))
     rows = H._rows(conn.execute(
         f"SELECT t.* FROM tasks t LEFT JOIN task_types y ON y.id=t.type_id WHERE t.status IN ({marks}) "
@@ -166,7 +169,8 @@ def handed_to_people(conn, expiry, at=None):
         "ORDER BY t.created", (*ASKED_STATUSES, expiry)))
     out = []
     for row in rows:
-        if H.TS.snoozed(row, at or H.now()):
+        if (H.TS.snoozed(row, at or H.now()) or (row.get("due") and str(row["due"])[:10] >= (at or H.now())[:10])
+                or row.get("waiting_on") not in (None, "", row["requester"])):
             continue
         person = row["owner"]
         touched = conn.execute(

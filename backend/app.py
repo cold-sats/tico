@@ -3076,11 +3076,12 @@ def create_app(settings=None):
     def week_old(created):
         return created < H.shift(H.now(), days=-DELEGATION_DAYS)
 
-    def delegated_identity(c, who, ref, new_task=False):
+    def delegated_identity(c, who, ref, new_task=False, carry=True):
         """Resolve the run's requester, never a human named in its text. Human messages and tasks
         carry that human's rights; bot messages and tasks carry only that bot's rights. Fleet work
         with no requester keeps BotOps' own. Explicit message references must belong to this requester.
-        `new_task`: the reference is the request a task is being filed from.
+        `new_task`: the reference is the request a task is being filed from. `carry`: False for an access change, which a
+        bot's hand-off (carried_request) never makes with the person's rights.
         """
         if who.via == "botops" and who.role == "bot" and not who.attempt_id:
             if ref in ("turn", "default"):
@@ -3143,7 +3144,7 @@ def create_app(settings=None):
             if str(requester).startswith("bot:") and requester != who.actor:
                 if (H.bot(c, H.actor_id(requester)) or {}).get("state") != "active":
                     raise Problem("forbidden", "The requesting bot is no longer active", 403)
-                person = lending_carried(c, task, requester)
+                person = lending_carried(c, task, requester) if carry else None
                 if person:
                     # The bot handed on a person's own request (carried_request): BotOps acts as that person.
                     H.VIA.set("botops")
@@ -3282,6 +3283,9 @@ def create_app(settings=None):
         found = carried(c, task, requester)
         if not found or not found.get("lends") or not open_task(task):
             return None
+        if c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='status' AND old IN (?,?,?) LIMIT 1",
+                     (task["id"], *botops_act.TERMINAL)).fetchone():
+            return None             # finished once: the request it carried was done, whoever reopened it
         msg = H.message(c, found.get("message_id") or "")
         if not msg or msg.get("deleted_at") or msg["from_actor"] != found.get("person") or week_old(msg["created"]):
             return None
@@ -3393,7 +3397,8 @@ def create_app(settings=None):
         token = H.DELEGATION.set(None)
         try:
             with store.read() as c:
-                acting = delegated_identity(c, who, ref)
+                acting = delegated_identity(c, who, ref, carry=not botops_act.access_change(request.method,
+                                                                                            request.url.path))
             request.state.delegation = H.DELEGATION.get()
         finally:
             H.DELEGATION.reset(token)
@@ -3416,7 +3421,8 @@ def create_app(settings=None):
         own = Identity("bot:" + BOTOPS, "bot", runner_id=row["runner_id"], attempt_id=attempt_id)
         try:
             # Its own context: resolving the run here records nothing as delegated.
-            return contextvars.copy_context().run(delegated_identity, c, own, "turn")
+            # A bot's hand-off (carried_request) lends no repository access: the token keeps that bot's scope.
+            return contextvars.copy_context().run(delegated_identity, c, own, "turn", carry=False)
         except Problem:
             return None
     app.state.botops_run_identity = botops_run_identity
