@@ -22,6 +22,12 @@ All notable changes to Tico are recorded here. The format follows
   [Health Monitor](docs/health-monitor.md).
 
 ### Changed
+- **A bot left in setup for a day shows on Overview.** A bot still `needs_setup` a day after it was added holds its
+  routines' jobs and its tasks, and nobody saw it. It is now listed with the stuck bots on Overview and Health
+  ("Stuck in setup for 14 days", reason `setup` in `GET /api/v2/health` `stuck`), and a person who may manage it gets
+  **Finish with defaults**, the same setup-done call as `hub bot setup-done`, which now also turns the template's first
+  routine on as Start setup would have (`routine` in its answer). The person the "Finish setting up" reminder goes to
+  gets one message about it, once per bot, unless that reminder is still open. Nothing finishes setup on its own.
 - **A bot can't ask a person a question on a task that has ended.** On a task that is closed, declined or done, a new question from a bot to a person (`hub task ask`, a task comment that asks, or a message sent as an ask) is refused with "reopen it or ask on an open task"; a done task still asks for acceptance with its review questions.
 
 ### Fixed
@@ -44,12 +50,6 @@ All notable changes to Tico are recorded here. The format follows
   the operator's own login no longer get the operator's personal servers or claude.ai connectors, and Grok skips the ones it
   borrows from Claude and Cursor.
 - **Computers say which release they run, and an outdated one is flagged.** Each computer now reports the commit it runs (an image's release manifest, else its checkout) beside its release. Settings > Computers shows both, marks a computer behind the server's release, or on no release at all, as Outdated, and opens with a banner naming the online ones and whose they are. A computer that stays outdated for an hour sends its owner one notice per server release, not one per heartbeat. A development server, which has no release, flags nothing. See [Updates](docs/updates.md).
-- **A bot left in setup for a day shows on Overview.** A bot still `needs_setup` a day after it was added holds its
-  routines' jobs and its tasks, and nobody saw it. It is now listed with the stuck bots on Overview and Health
-  ("Stuck in setup for 14 days", reason `setup` in `GET /api/v2/health` `stuck`), and a person who may manage it gets
-  **Finish with defaults**, the same setup-done call as `hub bot setup-done`, which now also turns the template's first
-  routine on as Start setup would have (`routine` in its answer). The person the "Finish setting up" reminder goes to
-  gets one message about it, once per bot, unless that reminder is still open. Nothing finishes setup on its own.
 - **Approvals nobody will act on leave Needs you.** An undecided approval is withdrawn (a new decision, `withdrawn`)
   when its task is closed, declined or marked done, when its bot asks again for the same thing (`hub approval request
   --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
