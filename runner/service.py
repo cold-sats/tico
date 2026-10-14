@@ -2659,7 +2659,7 @@ class Runner:
                                 attempt["branch_sync_problem"] = sync_shared(session_path, env)
                     if session_problem:
                         # Without a worktree of its own the task's turn waits for the main checkout like any other.
-                        log(f"Tico runner: {bot}: task {session_task} runs in the bot's checkout ({session_problem})")
+                        log(f"Tico runner: {bot}: task {session_task} runs in the bot's checkout ({session_problem})", diagnostic=True)
                         session_path = None
                         if checkout_lock not in held:
                             hold(checkout_lock)

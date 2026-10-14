@@ -8,6 +8,16 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Health Monitor, an optional built-in helper.** Off by default; one switch in Settings > Health turns it on. Once an
+  hour Tico checks the install with no model (computers on an older release, runner errors that point at a known
+  problem, turns stopped by a usage limit on a bot with no fallback model, bots stuck in setup, routines on paused bots,
+  queued work that does not start while its computer has room, failed task worktrees, a server busy while idle), and its
+  watcher checks the computer it runs on for processes busy two hours running. It wakes the Health Monitor only for
+  something new. A setup problem becomes a task for BotOps with the fix; a Tico bug becomes one support ticket per
+  signature, written from the finding with the redacted diagnostics bundle (never task or message text), and a "seen
+  again" message on that ticket when it comes back. The team rule "Health Monitor may file Tico bug reports without
+  asking" (on by default) skips the Needs you card. `hub health-monitor findings` and `hub health-monitor report`. See
+  [Health Monitor](docs/health-monitor.md).
 - **Bots can check a workflow run's result.** A bot's GitHub token now reads Actions (workflow runs and their logs) in every repository it can read, so a bot that watches a deploy reads `gh run list` / `gh run view` itself instead of asking a person. It can't start, rerun or cancel a run. New GitHub Apps ask for Actions read; **an existing App needs Actions: Read-only added on its GitHub settings page and accepted on the installation**, and until then tokens are issued without it as before. See [GitHub App](docs/github-app.md#permissions-and-why).
 - **Attachments can be allowed for one mailbox.** `mailboxes.<address>.allow_attachments: true` in `registry/mail-policy.yaml` lets bots attach files to drafts from that mailbox only (Legal's, say) while `defaults.allow_attachments` stays off for the rest; `false` turns one off when the default is on. `mail draft discard <draft-id>` removes an unsent draft the bot made (the older `mail discard` still works). See [Mail](docs/mail.md).
 
