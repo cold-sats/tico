@@ -773,9 +773,9 @@ def _bots(view, rows):
 
 
 def _needs_list(view, rows, task_view):
-    from .views import needs_items
+    from .views import needs_items, went_away
     items = needs_items(view.c, view.auth, view.who, task_view)
-    return [(rows[-1], {"count": len(items), "items": items})]
+    return [(rows[-1], {"count": len(items), "items": items, "went_away": went_away(view.c, view.who.actor)})]
 
 
 def read(c, auth, who, after, *, topics=TOPICS, conversations=(), bots=(), task_views=None, task_view=None,

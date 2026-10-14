@@ -2235,6 +2235,20 @@ def create_app(settings=None):
             return H.answer(c, who.actor, mid, body.text, unknown=body.unknown)
         return mutate(request, body, work)
 
+    @app.post("/api/v2/needs-you/recommended")
+    def take_recommendation(request: Request, body: M.TakeRecommendation):
+        """One tap on "Do what you recommend": answers the bot's ask with its recommendation and closes the card."""
+        who = request.state.identity
+        views.human_only(who)
+        def work(c):
+            asked = H.message(c, body.ask)
+            if not asked or asked["kind"] != "ask":
+                raise Problem("not_found", "Question not found", 404)
+            auth.conversation(c, who, asked["conversation_id"])
+            privacy.require_message(c, who, asked)
+            return views.take_recommendation(c, auth, who, asked, body.version)
+        return mutate(request, body, work)
+
     @app.get("/api/v2/tasks")
     def tasks(request: Request, response: Response, owner: str | None = None, requester: str | None = None,
               status: str | None = None, lane: str | None = None, label: str | None = None, limit: int = 500,
