@@ -178,7 +178,8 @@ the separate completion and closing events.
 
 A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the
 task's comment box (or the note box on a Decide card) and not yet sent goes with Done as the
-outcome. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
+outcome. Done on several selected tasks at once sends no comment: an unsent one stays in its
+task's box. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
 comment on the next line when there is one. When a bot needs a specific answer it asks a yes/no
 or choice question instead.
 
