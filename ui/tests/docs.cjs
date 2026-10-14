@@ -460,10 +460,11 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.deepEqual(requests.findLast(r => r.api === 'doc-sources').body, {url: 'www.notion.so/Acme-Handbook', title: '', description: 'The company handbook', reference: ''});
     assert.equal(await page.locator('#docs-browser .docs-link', {hasText: 'Acme-Handbook'}).locator('.docs-kind').getAttribute('data-kind'), 'notion');
     await page.locator('#docs-browser .docs-link-main', {hasText: 'Help centre'}).click();
-    const [popup] = await Promise.all([page.waitForEvent('popup'), page.getByRole('link', {name: 'Open original'}).click()]);
-    await popup.waitForURL('https://help.acme.example/refunds', {timeout: t(5000), waitUntil: 'commit'});
-    assert.equal(popup.url(), 'https://help.acme.example/refunds');
-    await popup.close();
+    // Open original is a plain new-tab link to the source. The pane is redrawn for the clicked link, so wait for its
+    // link (the previous one's can still be on screen), then check it rather than open a real tab: that is the browser's work.
+    const original = page.getByRole('link', {name: 'Open original'}).and(page.locator('[href="https://help.acme.example/refunds"]'));
+    await original.waitFor();
+    assert.deepEqual(await original.evaluate(a => [a.target, a.rel]), ['_blank', 'noopener noreferrer']);
     await page.locator('#docs-browser .docs-link', {hasText: 'Help centre'}).hover();
     await page.locator('#docs-browser .docs-link', {hasText: 'Help centre'}).locator('[data-link-edit]').click();
     await page.locator('form[data-link-form] input[name=title]').fill('Public help centre');

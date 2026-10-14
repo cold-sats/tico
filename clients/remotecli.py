@@ -285,6 +285,8 @@ def run(args, who=None):
                 body["bots"] = args.bots
             if args.numbered is not None:
                 body["numbered"] = args.numbered
+            if getattr(args, "steps_only", None) is not None:
+                body["steps_only"] = args.steps_only
             return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
         if sub == "types":
             if args.delete:
@@ -673,8 +675,8 @@ def local_slug(client, args, workspace):
 
 
 def github_repository(client, slug, path):
-    """Give the new bot its empty private `<org>/bot-<slug>` on GitHub; its runner publishes the local history into
-    it. No GitHub connected (or a rehearsal) leaves the bot on its computer, as before. When the GitHub App may not
+    """Give the new bot its empty private `<org>/bot-<slug>` on GitHub. The server records this computer as the one
+    holding the build, so the bot's first placement is here, and this computer's runner publishes the history into it. No GitHub connected (or a rehearsal) leaves the bot on its computer, as before. When the GitHub App may not
     create repositories, the build is not finished: the command fails (non-zero) and says a person must act. The
     server has put one Needs-you task in front of the owner and finishes the repository on its own once they do; the
     bot stays planned with its files here."""

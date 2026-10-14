@@ -182,6 +182,7 @@ class TaskTypeCreate(Contract):
     steps: list[TaskStepInput] = Field(default_factory=list)
     bots: TypeBots | None = None
     numbered: bool = False
+    steps_only: bool = False
 
 
 class TaskTypeUpdate(Contract):
@@ -189,6 +190,7 @@ class TaskTypeUpdate(Contract):
     steps: list[TaskStepInput] | None = None
     bots: TypeBots | None = None
     numbered: bool | None = None
+    steps_only: bool | None = None
 
 
 class QuestionOption(Contract):
@@ -870,6 +872,8 @@ class WorktreeStatus(Contract):
     last_commit: str | None = Field(default=None, max_length=100)
     size_mb: float = Field(default=0, ge=0)
     error: str | None = Field(default=None, max_length=300)
+    # The record's `updated` stamp this report was built from; a report older than the record is stale.
+    record_updated: str | None = Field(default=None, max_length=40)
 
 
 class Heartbeat(Contract):
