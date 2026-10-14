@@ -213,6 +213,9 @@ def task_dry_run(c, auth, who, body):
         elif H.is_human(target) and general and H.STYLE_LINT != "off":
             # writing problems: the create is accepted with these as warnings unless TICO_STYLE_LINT=refuse
             (problems if H.STYLE_LINT == "refuse" else warnings).extend(H.lint_human_item(text, title=title))
+        if title and H.is_bot(who.actor) and H.is_human(target) and general:
+            # the ask that opens a person's task is always refused when it is missing or unclear
+            problems += list(filter(None, [H.person_ask_refusal(target, H.person_ask_of_body(text, title), "assign")]))
         if H.is_bot(who.actor) and H.TITLE_LINT != "off" and general:
             # plain-English titles: recorded on the task this week, refused once TICO_TITLE_LINT=refuse
             problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
