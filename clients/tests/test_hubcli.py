@@ -334,6 +334,25 @@ class BotSetup(unittest.TestCase):
         self.assertIn("skipped", made["github"])
         self.assertIn("hub bot repo-create seo --empty", made["github"]["note"])
 
+    def test_a_bot_created_without_a_slug_takes_the_one_picked_from_its_name(self):
+        # The server picks it in a person's turn; the build and its repository use that slug.
+        self.client.post = lambda path, body, key=None: (
+            self.client.posted.append((path, body)) or {"slug": "head-of-marketing-2", "created": True}
+            if path == "bots/register" else {"repository": "Acme/bot-" + body["slug"]})
+        made = self.run_command("bot", "create", "--template", "specialist", "--name", "Head of Marketing")
+        self.assertNotIn("slug", self.client.posted[0][1])
+        self.assertEqual(made["slug"], "head-of-marketing-2")
+        self.assertTrue((self.workspace / "bot-head-of-marketing-2").is_dir())
+        # With no person's turn the command picks it, from the template's name, past a repository already here.
+        from clients.tico import APIError
+        def outside_a_turn(path, body, key=None):
+            if path == "bots/register":
+                raise APIError("on_behalf_of", "No person started this turn", 422, False)
+            return {"repository": "Acme/bot-" + body["slug"]}
+        self.client.post = outside_a_turn
+        self.assertEqual(self.run_command("bot", "create", "--template", "specialist")["slug"], "the-specialist")
+        self.assertEqual(self.run_command("bot", "create", "--template", "specialist")["slug"], "the-specialist-2")
+
 
 
 

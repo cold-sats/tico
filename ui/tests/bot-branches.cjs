@@ -57,6 +57,10 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
         return json({revision: 3});
       }
       if (p === '/api/v2/bots/architect-ana') return json({revision: 2});
+      if (p === '/api/v2/bots' && request.method() === 'POST') {
+        writes.push([p, JSON.parse(request.postData())]);
+        return json({slug: 'head-of-marketing', display_name: 'Head of Marketing'});
+      }
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       if (p.endsWith('/files')) return json({files: []});
       return json({});
@@ -110,6 +114,18 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await dialog.locator('[type=submit]').click();
     await page.waitForFunction(() => !document.querySelector('#bot-editor').open);
     assert.equal(writes.at(-1)[1].shared, true);
+    // Adding a bot asks only for its name: the slug is under Advanced, follows the name, and is left to the server.
+    await page.evaluate(() => { settingsChoiceFromValue = () => ({harness: 'claude', model: 'm', effort: 'high'}); settingsEditBot(''); });
+    const slug = dialog.locator('[name=slug]');
+    assert.equal(await slug.isVisible(), false);
+    await dialog.locator('[name=display_name]').fill('Head of Marketing');
+    assert.equal(await slug.inputValue(), 'head-of-marketing');
+    await dialog.locator('[type=submit]').click();
+    await page.waitForFunction(() => !document.querySelector('#bot-editor').open);
+    const added = writes.at(-1);
+    assert.equal(added[0], '/api/v2/bots');
+    assert.equal(added[1].display_name, 'Head of Marketing');
+    assert.ok(!('slug' in added[1]) && !('repo' in added[1]));
     // Eligibility comes from both the current computer assignments and the roster's family.
     original.shared = true;
     computers = [{id: 'ana-mac', label: 'My Mac', operator: 'ana', bots: ['architect']},

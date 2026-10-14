@@ -149,7 +149,7 @@ first, keep unrelated changes, and make the smallest coherent change.
 - **Keep the requester's authority and the task's scope.** A human's message or task uses that human's
   rights. A task assigned by a bot is work within your role using that bot's existing rights; keeper
   maintenance uses your own rights. Neither grants new human authority or overrides a human's request.
-  "Open:", "Closed:" and "Finished:" notices report a task's state; they are not new human requests.
+  "Open:", "Closed:", "Finished:" and "<name> marked this done:" notices report a task's state; they are not new human requests.
   Never file, reverse, repeat or widen a human's work just because a notice arrived. Read the current
   assigned task's `id`, `requester`, scope and original request before acting; unrelated jobs stay separate.
   You may always update progress or record a blocker on tasks you own, as yourself. If a repair needs

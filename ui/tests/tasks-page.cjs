@@ -789,18 +789,14 @@ async function bulk(browser) {
   await page.waitForFunction(() => document.querySelector('#task-peek [data-prop="status"]')?.textContent.includes('Waiting'));
   await page.locator('#task-bulk [data-bulk="clear"]').click();
   await page.keyboard.press('Escape');
-  // Done on two bot requests: each gets its own note, and the prompt says which request it is for.
+  // Done on two bot requests: one tap, no prompt, and no note when nothing was typed.
   await box('tt-copy').click();
   await box('tt-refund').click();
   await page.locator('#task-bulk [data-bulk="status"]').click();
   await page.locator('#task-filter-pop [data-bulk-status="done"]').click();
-  for (const [title, note] of [['Approve the Q4 pricing page copy', 'Go with headline B.'], ['Choose a refund policy for annual plans', 'Prorated after 30 days.']]) {
-    await page.locator('dialog.task-outcome .task-outcome-title', {hasText: title}).waitFor();
-    await page.locator('dialog.task-outcome textarea').fill(note);
-    await page.locator('dialog.task-outcome button[type=submit]').click();
-  }
   await page.waitForFunction(() => /2 moved to Done/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
-  assert.deepEqual(taskWrites(posts).slice(-2).map(x => x.body.note), ['Go with headline B.', 'Prorated after 30 days.']);
+  assert.equal(await page.locator('dialog.task-outcome').count(), 0, 'nothing asks what was decided');
+  assert.deepEqual(taskWrites(posts).slice(-2).map(x => x.body.note), [undefined, undefined]);
   assert.deepEqual(errors, []);
   console.log('bulk: ok');
   await page.close();
