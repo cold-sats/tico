@@ -2819,10 +2819,11 @@ class Runner:
                             # rather than at the next 1 s mark. At most one more post a turn than before.
                             try:
                                 self.flush(aid)
-                                sent_at, unsent = time.monotonic(), False
+                                unsent = False
                             except APIError as exc:
                                 if not exc.retryable:
                                     raise
+                            sent_at = time.monotonic()   # a failed post is retried a second later, not every pass
                         if time.monotonic() - last_flush >= 1:
                             try:
                                 host.poll_goal(thread)
