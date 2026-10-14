@@ -112,6 +112,17 @@ class FakeProcess:
         return self._rc
 
 
+class EventWakeup(unittest.TestCase):
+    def test_an_emit_wakes_the_turn_loop_before_its_timeout(self):
+        import threading, time
+        host = FakeHost()
+        threading.Timer(0.02, host.emit, ("delta",), {"text": "hi"}).start()
+        started = time.monotonic()
+        host.wait_events(2)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual([e["kind"] for e in host.drain()], ["delta"])
+
+
 class AuthRetryClassification(unittest.TestCase):
     """One rule for "the runtime could not sign itself in", kept beside the usage-limit rule."""
 

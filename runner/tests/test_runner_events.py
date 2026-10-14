@@ -82,6 +82,20 @@ def test_claims_wait_for_work_and_follow_up_an_empty_one_backing_off():
         assert r.claim_due()
 
 
+def test_an_event_wakes_the_loop_at_once_and_a_backoff_still_waits():
+    events = up()
+    r = runner(events)
+    r.stop = mock.Mock()
+    events.ask("claim")
+    r.idle(5)                                  # an error backoff is waited in full, event or not
+    r.stop.wait.assert_called_once_with(5)
+    events.wake.clear()
+    threading.Timer(0.02, events.ask, ("claim",)).start()
+    started = service.time.monotonic()
+    r.idle(0.25)
+    assert service.time.monotonic() - started < 0.2 and not events.wake.is_set()
+
+
 def test_stream_down_polls_as_before_and_reconnects_from_the_last_event():
     clock = Clock()
     seen, gate = [], threading.Event()
