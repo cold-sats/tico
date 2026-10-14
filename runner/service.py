@@ -3713,6 +3713,16 @@ class Runner:
             value = body = None
         log(f"Tico runner: credential import for {bot} {'sent' if not problem else 'could not be read'}")
 
+    def idle(self, delay):
+        """Wait out one loop pause, but tick at once when the stream asks for something (a `work` event is a
+        chat message waiting: up to 0.25 s saved on every reply). A backoff after an error is waited in full."""
+        wake = getattr(getattr(self, "events", None), "wake", None)
+        if wake is None or delay > 0.25:
+            self.stop.wait(delay)
+            return
+        wake.wait(delay)
+        wake.clear()
+
     def run(self):
         try:
             self.revision = record_revision(self.state.directory)
@@ -3732,7 +3742,7 @@ class Runner:
                     delay = self.cloud.failed(exc)
                 except Exception as exc:
                     delay = self.loop.failed(exc)
-                self.stop.wait(delay)
+                self.idle(delay)
         finally:
             self.stop.set()
             self.events.close()
