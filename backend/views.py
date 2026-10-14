@@ -789,6 +789,8 @@ def needs_items(c, auth, who, task_view, older=None):
     raw = H.needs_you(c, who.actor)
     visible = auth.task_sql(c, who)
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
+    from . import ask_deadlines, team_rules
+    rules = team_rules.load(c)
     items = []
     for kind in ("tasks", "waiting", "declined"):
         for row in raw[kind]:
@@ -798,6 +800,8 @@ def needs_items(c, auth, who, task_view, older=None):
                 continue
             open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
+            if ask and (ask.get("refs") or {}).get("if_no_answer"):
+                ask["goes_ahead_at"] = ask_deadlines.deadline(ask, rules)     # when the bot's default goes ahead
             item = {**task_view(row),
                     "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
                     "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),

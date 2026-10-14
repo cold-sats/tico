@@ -487,7 +487,10 @@ def tag_update(api, args):
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
        "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task. Blocked on a "
                     "person's approval or input for your task? File it for them with your task as parent"),
-       "request_id": _s("BotOps continuation: originating human chat message id"),
+       "request_id": _s("A person's message this task carries: BotOps continuing its own chat, or another bot handing "
+                        "BotOps something a person asked it for (their message id, or `turn` for the one that "
+                        "started this run). BotOps then acts with that person's rights, or puts it to them as a "
+                        "Confirm card"),
        "type": _s("Task type id or name; defaults to General"),
        "step": _s("Step id or name within the type; sets its status"),
        "number": {"type": "integer", "minimum": 1,
@@ -654,7 +657,17 @@ def task_ask(api, args):
        "body": _s("What the decision is for; defaults to the question"),
        "parent": _s("Parent task id, when this decision is part of a bigger task"),
        "private": {"type": "boolean", "description": "Only you and the person may read it; they must already "
-                   "read the private task you are working on, and the parent"}},
+                   "read the private task you are working on, and the parent"},
+       "if_no_answer": {"type": "object", "additionalProperties": False, "required": ["do", "kind"],
+                        "description": "What you will do if they don't answer, e.g. do: \"Yes\" (an option) or a short "
+                        "plain sentence. A reversible, internal step goes ahead on its own after the team's days "
+                        "(default 3) or `by`; a send, spending or a delete waits for an answer. Unanswered asks expire "
+                        "after 14 days", "properties": {
+                            "do": _s("What you will do: one of the options, or one plain sentence", maxLength=300),
+                            "kind": {"type": "string", "enum": ["reversible", "send", "spend", "delete"],
+                                     "description": "What that step is: reversible and internal, or a send, spending "
+                                     "money or a delete"},
+                            "by": _s("ISO-8601 date-time with timezone: go ahead then instead of after the team's days")}}},
       required=("question", "on"), writes=True)
 def task_question(api, args):
     options = [dict(o) for o in args.get("options") or []]
@@ -675,6 +688,15 @@ def task_question(api, args):
     for field in ("title", "body", "parent", "private"):
         if args.get(field) is not None:
             body[field] = args[field]
+    default = args.get("if_no_answer")
+    if isinstance(default, str):                     # the CLI's --if-no-answer "..." --default-kind K [--by D]
+        if not args.get("default_kind"):
+            # Stated, never assumed: a forgotten kind on "send the reply to the vendor" would otherwise go ahead.
+            raise ValueError("Say what kind of step --if-no-answer is: --default-kind reversible, send, spend or delete")
+        default = {"do": default, "kind": args["default_kind"],
+                   **({"by": args["by"]} if args.get("by") else {})}
+    if default:
+        body["if_no_answer"] = default
     return api.post("task-questions", body, key=_key(args))
 
 

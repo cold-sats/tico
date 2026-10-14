@@ -1859,7 +1859,10 @@ class Execution:
                     decided.append(self._decide(c, row, row['attempt_id'], 'dismiss', note, H.KEEPER,
                                                 action='job.auto_reconcile'))
                     continue
-                if c.execute("SELECT count(*) FROM attempts WHERE job_id=?", (row['id'],)).fetchone()[0] > 1:
+                # Only runs that started count: a claim that lapsed before its run began (a computer offline, the
+                # hub unreachable) says nothing about the request itself.
+                if c.execute("SELECT count(*) FROM attempts WHERE job_id=? AND started IS NOT NULL",
+                             (row['id'],)).fetchone()[0] > 1:
                     # Stopped twice the same way: not bad luck. Let it go and hand the cause to BotOps.
                     note = ("Dismissed automatically: this request stopped partway twice, so it is not retried "
                             "again. BotOps is looking into why.")

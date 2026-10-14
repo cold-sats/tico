@@ -64,10 +64,12 @@ provider; with neither the night shows "needs a decision model") answers, per it
 learnable and, per recipient, whether it is relevant (`questions/learnings-route.json`). An item goes
 to every recipient scoring 0.6 or more, unless its learnable score is under 0.2; at most 40 items each,
 highest first. Recipients are the active bots other than BotOps, the Assistant and the Goal Manager,
-plus the Librarian for how the company works and the market.
+plus the Librarian for how the company works and the market, that had a run in the last 24 hours. A bot
+synced in from another platform (Grok, Dots, Muse) never gets a run here, so it gets no packet.
 
 **Packets are tasks.** Each recipient gets one private task, "Nightly learnings: <date>", with the
 instructions and its packet: each item's source, link, the quoted text, its score and who else got it.
+A new night closes the bot's earlier packet if no run has picked it up yet, so unread nights never pile up.
 A bot changes only its own repository and commits with `Tico-Run:`; a change to its instructions or
 settings goes to BotOps as a task. The Librarian edits docs directly (every edit is a version) and
 reports market facts with `hub market report`.
