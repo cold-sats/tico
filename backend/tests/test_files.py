@@ -168,3 +168,61 @@ def test_a_new_file_deep_in_a_full_folder_is_still_queued(tmp_path, monkeypatch)
     assert queued == 1 and refused == files_publish.MAX_PER_TURN * 5 - 1
     with State().connect() as c:
         assert c.execute("SELECT rel FROM file_outbox").fetchall() == [("reports/candidates/2026-10-14.md",)]
+
+
+def test_an_unpublished_report_reaches_the_cut_in_a_fresh_checkout(tmp_path, monkeypatch):
+    import hashlib
+    import sqlite3
+    import subprocess
+    monkeypatch.setattr(files_publish, "log", lambda *_: None)
+
+    class State:
+        def connect(self):
+            return sqlite3.connect(tmp_path / "state.db")
+
+    def git(*args, cwd):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=cwd, check=True,
+                       capture_output=True)
+    origin = tmp_path / "origin"
+    (origin / "reports" / "candidates").mkdir(parents=True)
+    (origin / "reports" / "releases").mkdir()
+    (origin / "reports" / "candidates" / "backlog.md").write_text("# Never published")
+    git("init", "-q", cwd=origin)
+    git("add", ".", cwd=origin)
+    git("commit", "-qm", "backlog", cwd=origin)
+    published = []
+    for n in range(files_publish.MAX_PER_TURN * 5 + 100):
+        page = origin / "reports" / "releases" / f"{n:03}.md"
+        page.write_text(f"# Release {n}")
+        published.append(("release-manager", f"reports/releases/{n:03}.md", hashlib.sha256(page.read_bytes()).hexdigest()))
+    git("add", ".", cwd=origin)
+    git("commit", "-qm", "releases", cwd=origin)
+    with State().connect() as c:
+        c.executescript(files_publish.TABLES)
+        c.executemany("INSERT INTO file_published VALUES(?,?,?)", published)
+    checkout = tmp_path / "session"
+    git("clone", "-q", str(origin), str(checkout), cwd=tmp_path)
+    assert files_publish.prepare(State(), "release-manager", "a1", checkout, {}) == (1, 0)
+    with State().connect() as c:
+        assert c.execute("SELECT rel FROM file_outbox").fetchall() == [("reports/candidates/backlog.md",)]
+
+
+
+def test_a_file_refused_again_after_it_was_fixed_is_logged_again(tmp_path, monkeypatch):
+    import sqlite3
+    logged = []
+    monkeypatch.setattr(files_publish, "log", logged.append)
+
+    class State:
+        def connect(self):
+            return sqlite3.connect(tmp_path / "state.db")
+    (tmp_path / "reports").mkdir()
+    page = tmp_path / "reports" / "page.md"
+    page.write_text("")
+    assert files_publish.prepare(State(), "ops", "a1", tmp_path, {}) == (0, 1)
+    assert files_publish.prepare(State(), "ops", "a2", tmp_path, {}) == (0, 1)
+    page.write_text("# Page")
+    assert files_publish.prepare(State(), "ops", "a3", tmp_path, {}) == (1, 0)
+    page.write_text("")
+    assert files_publish.prepare(State(), "ops", "a4", tmp_path, {}) == (0, 1)
+    assert len(logged) == 2 and all("empty file" in line for line in logged)

@@ -59,8 +59,9 @@ def _employee_yaml(root):
         return {}
 
 
-def candidates(root, folders):
-    """([(relative path, refused-reason or "")], newest first) under the publish folders."""
+def candidates(root, folders, seen=frozenset()):
+    """([(relative path, refused-reason or "")]) under the publish folders: paths not in `seen` first, then newest
+    first."""
     root = Path(root).resolve()
     found = []
     for folder in folders:
@@ -85,9 +86,10 @@ def candidates(root, folders):
                         stack.append((entry, depth + 1))
                 else:
                     found.append((_mtime(entry), rel, ""))
-    # The cut keeps the work per turn bounded. A new or edited file is the newest on disk, so it is
-    # always inside the cut however many older files the folders hold; walk order would drop whole folders.
-    found.sort(key=lambda item: (-item[0], item[1]))
+    # The cut keeps the work per turn bounded. A fresh checkout gives every committed file the same time, so
+    # files this bot never published or refused go first or an older unpublished report would never make the
+    # cut; then newest first, so an edit made during the turn does.
+    found.sort(key=lambda item: (item[1] in seen, -item[0], item[1]))
     return [(rel, why) for _, rel, why in found[:MAX_PER_TURN * 5]]
 
 
@@ -104,7 +106,9 @@ def prepare(state, bot, attempt_id, root, config, pushed=False, skip=()):
     queued = refused = 0
     with state.connect() as c:
         c.executescript(TABLES)
-    for rel, why in candidates(root, folders_for(config, root)):
+        seen = {rel for (rel,) in c.execute("SELECT rel FROM file_published WHERE bot=? UNION "
+                                            "SELECT rel FROM file_refused WHERE bot=?", (bot, bot))}
+    for rel, why in candidates(root, folders_for(config, root), seen):
         try:
             if rel in skip:
                 raise BF.Refused("holds a secret")
@@ -124,6 +128,8 @@ def prepare(state, bot, attempt_id, root, config, pushed=False, skip=()):
         key = f"file:{bot}:{BF.sha256(rel.encode())[:16]}:{digest[:32]}"
         commit = BF.pushed_commit(root, rel) if pushed else ""
         with state.connect() as c:
+            # Accepted now: a later refusal of this file is news again.
+            c.execute("DELETE FROM file_refused WHERE bot=? AND rel=?", (bot, rel))
             same = c.execute("SELECT 1 FROM file_published WHERE bot=? AND rel=? AND digest=?", (bot, rel, digest)).fetchone()
             if same or c.execute("SELECT 1 FROM file_outbox WHERE key=?", (key,)).fetchone():
                 continue
