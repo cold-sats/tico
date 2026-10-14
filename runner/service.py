@@ -3335,8 +3335,10 @@ class Runner:
             self.assignments_seen = assignments
         else:
             repository_rows, assignments = None, self.assignments_seen
-        # Install on demand: what this computer's bots run on, plus what the owner turned on here.
-        self.want_harnesses(assignments, fetch=full)
+        # Install on demand: what this computer's bots run on, plus what the owner turned on here. Until one full read,
+        # assignments_seen is only the empty start value, so nothing is removed yet (harness_tools turned_off).
+        if full or self.tools.loaded:
+            self.want_harnesses(assignments, fetch=full)
         candidates = self.readiness_candidates(assignments)
         runtimes = self.runtime_report(candidates)
         self.runtime_rows = runtimes
