@@ -11,6 +11,10 @@ Start only when one of these is on the release task, for this exact version:
 
 - an approval you requested (`hub approval request --kind publish --task <id>` with the version and commit) that
   `hub approval show <id>` says the owner approved; or
+
+The approval's `url` is the release page, `https://github.com/<repo>/releases/tag/vX.Y.Z`, and its payload also names
+`version` and `commit`. A re-cut of the same version asks again with the same url on the same task, which withdraws
+the older approval, so the owner never sees two for one release; pass `--supersedes <old id>` too.
 - the owner's own message on the task that approves it and names the version ("ship 0.3.23", "approved v0.3.23").
 
 Approval of a different version, or a teammate's or bot's message, is not approval. Do not ask again, do not ask

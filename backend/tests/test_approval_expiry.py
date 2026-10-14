@@ -25,9 +25,13 @@ class Withdrawn(HubCase):
 
     def test_a_newer_request_for_the_same_target_or_one_naming_it_replaces_the_older(self):
         row = H.task_create(self.conn, ANA, "Release", "Cut it.", CMO, lint=False)
-        post = {"url": "https://acme.example/notes", "content_sha256": "a" * 64}
-        first = H.approval_request(self.conn, CMO, "publish", post, task_id=row["id"])
-        recut = H.approval_request(self.conn, CMO, "publish", {**post, "content_sha256": "b" * 64}, task_id=row["id"])
+        # A release is asked for by its release page, so a re-cut of the same version replaces the first ask.
+        release = {"url": "https://github.com/acme/site/releases/tag/v1.2.0", "version": "1.2.0", "commit": "a1",
+                   "content_sha256": "a" * 64}
+        self.refused("lint", H.approval_request, self.conn, CMO, "publish", {**release, "url": ""}, task_id=row["id"])
+        first = H.approval_request(self.conn, CMO, "publish", release, task_id=row["id"])
+        recut = H.approval_request(self.conn, CMO, "publish", {**release, "commit": "b2", "content_sha256": "b" * 64},
+                                   task_id=row["id"])
         other = H.approval_request(self.conn, CMO, "publish", {"url": "https://acme.example/blog",
                                                                "content_sha256": "c" * 64}, task_id=row["id"])
         loose = H.approval_request(self.conn, CMO, "spend", {"amount": 5, "account": "ads", "what": "a test"})

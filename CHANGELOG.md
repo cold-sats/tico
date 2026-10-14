@@ -13,6 +13,10 @@ All notable changes to Tico are recorded here. The format follows
   --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
   recipient and subject, pull request or spend), and after 14 days undecided. The bot hears once, without a run, and
   may ask again. An hourly sweep also clears approvals and questions to people still open on tasks that ended earlier.
+  The Release Manager asks for a release by its release page, so a re-cut replaces the first ask.
+
+### Fixed
+- **Slack file downloads cope with long or odd names and keep to a private folder.** `connectors/slack.py file` cuts a shared file's name to 200 bytes and drops control characters, so a long name or one with a NUL byte no longer crashes the download; a name the file system still refuses is a clear failure that saves nothing. The default folder is now the user's own `slack-files-<uid>` under the temp folder, made private, and one another local user owns (or a link) is refused. The `saved` line prints on one line. See [Slack](integrations/slack.md).
 
 ## [0.3.43] - 2026-10-14
 
