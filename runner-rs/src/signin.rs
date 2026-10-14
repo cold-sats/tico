@@ -18,6 +18,16 @@ use crate::util::{log, text_of};
 pub const TEAM_KEYS_FILE: &str = "_team_model.env";
 const TEAM_KEY_RETRY: Duration = Duration::from_secs(300);
 const CODEX_LOGIN_RETRY: Duration = Duration::from_secs(600);
+/// How long a refused key or sign-in is trusted before one turn tries again (service.py REJECT_RECHECK_S).
+pub const REJECT_RECHECK: Duration = Duration::from_secs(300);
+
+/// A provider's refusal of this computer's key or sign-in on a real turn.
+#[derive(Clone, Debug)]
+pub struct Rejection {
+    pub at: String,
+    pub mono: Instant,
+    pub reason: String,
+}
 
 pub fn headless_names(runtime: &str) -> &'static [&'static str] {
     match runtime {
@@ -46,11 +56,76 @@ pub struct SignIn {
     secrets: PathBuf,
     asked: Mutex<HashMap<String, Instant>>,
     codex_tried: Mutex<HashMap<(String, u64), Instant>>,
+    rejected: Mutex<HashMap<(String, String, String), Rejection>>,
+    /// Set when a rejection is recorded or cleared: the loop sends a heartbeat at once.
+    dirty: std::sync::atomic::AtomicBool,
 }
 
 impl SignIn {
     pub fn new(projects_dir: &Path) -> SignIn {
-        SignIn { secrets: projects_dir.join("secrets"), asked: Mutex::new(HashMap::new()), codex_tried: Mutex::new(HashMap::new()) }
+        SignIn { secrets: projects_dir.join("secrets"), asked: Mutex::new(HashMap::new()), codex_tried: Mutex::new(HashMap::new()), rejected: Mutex::new(HashMap::new()), dirty: Default::default() }
+    }
+
+    /// Changes when a key or sign-in might have (service.py credential_fingerprint); never holds a secret.
+    pub fn credential_fingerprint(&self, profile: Option<&crate::profiles::Profile>) -> String {
+        use std::os::unix::fs::MetadataExt;
+        let mut env: Vec<(String, String)> = std::env::vars().filter(|(k, _)| k.contains("API_KEY") || k.contains("OAUTH_TOKEN")).collect();
+        env.sort();
+        let mut seen: Vec<String> = env.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+        let codex = std::env::var("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|_| home.join(".codex"));
+        let mut files = vec![codex.join("auth.json"), home.join(".claude.json"), home.join(".claude/.credentials.json")];
+        let mut secrets: Vec<PathBuf> = std::fs::read_dir(&self.secrets)
+            .map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "env")).collect())
+            .unwrap_or_default();
+        secrets.sort();
+        files.extend(secrets);
+        if let Some(p) = profile {
+            seen.push(format!("{}:{}", p.directory.display(), p.share_operator));
+            files = vec![p.directory.join("codex/auth.json"), p.directory.join("claude/.claude.json"), p.directory.join("claude/.claude/.credentials.json")];
+        }
+        for path in files {
+            if let Ok(m) = std::fs::metadata(&path) {
+                seen.push(format!("{}:{}:{}:{}", path.display(), m.mtime(), m.mtime_nsec(), m.size()));
+            }
+        }
+        crate::profiles::sha256_hex(seen.join("\n").as_bytes())
+    }
+
+    /// The live refusal of `runtime` on `profile` while its credentials are unchanged, or None.
+    pub fn rejection(&self, runtime: &str, profile: Option<&crate::profiles::Profile>) -> Option<Rejection> {
+        let key = (runtime.to_string(), profile.map(|p| p.name.clone()).unwrap_or_default(), self.credential_fingerprint(profile));
+        let mut rows = self.rejected.lock().unwrap();
+        if rows.get(&key).is_some_and(|r| r.mono.elapsed() >= REJECT_RECHECK) {
+            rows.remove(&key);
+        }
+        rows.get(&key).cloned()
+    }
+
+    /// Record that the provider refused `runtime`'s key or sign-in (service.py reject): the runtime stops taking
+    /// work here until a credential changes, a sign-in succeeds, or REJECT_RECHECK passes.
+    pub fn reject(&self, runtime: &str, text: &str, profile: Option<&crate::profiles::Profile>) {
+        let key = (runtime.to_string(), profile.map(|p| p.name.clone()).unwrap_or_default(), self.credential_fingerprint(profile));
+        let at = crate::util::iso(&serde_json::json!(crate::util::epoch_s().floor()));
+        let at = text_of(&at).chars().take(19).collect::<String>() + "Z";
+        let mut rows = self.rejected.lock().unwrap();
+        rows.retain(|_, r| r.mono.elapsed() < REJECT_RECHECK);
+        rows.insert(key, Rejection { at, mono: Instant::now(), reason: crate::hosts::rejection_reason(text) });
+        drop(rows);
+        crate::profiles::forget_report();
+        self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// A sign-in succeeded: forget the refusals of `runtime` on `profile` ("" = the operator's own).
+    pub fn clear_rejection(&self, runtime: &str, profile: &str) {
+        self.rejected.lock().unwrap().retain(|k, _| !(k.0 == runtime && k.1 == profile));
+        crate::profiles::forget_report();
+        self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether a rejection changed since the last call (the loop then heartbeats at once).
+    pub fn take_dirty(&self) -> bool {
+        self.dirty.swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
     fn hand(&self) -> Env {
@@ -80,15 +155,16 @@ impl SignIn {
     }
 
     /// Take the company's model key when this computer has none of its own for `runtime`, at most every
-    /// TEAM_KEY_RETRY. Written owner-only, never logged. Unlike Python, a key already taken is not asked for
-    /// again after the provider refuses it: this runner does not record sign-in rejections yet.
+    /// TEAM_KEY_RETRY. Written owner-only, never logged. A team key the provider refused is asked for again, in
+    /// case the company rotated it.
     pub async fn team_model_keys(&self, client: &Client, runtime: &str) -> bool {
         let names = headless_names(runtime);
         if names.is_empty() {
             return false;
         }
         let (hand, mut team) = (self.hand(), self.team());
-        if names.iter().any(|n| hand.get(*n).is_some_and(|v| !v.is_empty()) || team.get(*n).is_some_and(|v| !v.is_empty())) {
+        let refused = self.rejection(runtime, None).is_some();
+        if names.iter().any(|n| hand.get(*n).is_some_and(|v| !v.is_empty())) || (names.iter().any(|n| team.get(*n).is_some_and(|v| !v.is_empty())) && !refused) {
             return false;
         }
         {

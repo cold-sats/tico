@@ -2,14 +2,16 @@
 
 `--version`, `--help` and `auth status --json` answer as Claude Code 2.1.296 does; `-p` speaks stream-json the way
 runner/hosts/claude.py reads it: each user message is replayed, then a text delta, the assistant message and a
-`result`. Every call is appended to $FAKE_LOG as one JSON line (argv, the prompt, the granted variables). A prompt
-containing HANG streams one delta and then waits, once per $FAKE_LOG, until its parent goes away."""
+`result`. Every call is appended to $FAKE_LOG as one JSON line (argv, the prompt, the granted variables and homes,
+when it started and finished). A prompt containing HANG streams one delta and then waits, once per $FAKE_LOG, until
+its parent goes away; SLOW streams one delta and answers after $FAKE_SLOW seconds (2), so a steer written
+meanwhile is read (replayed) and answered after it, in the same process, as Claude Code does."""
 import json
 import os
 import sys
 import time
 
-GRANTED = ("ACME_API_KEY", "HUB_TOKEN", "HUB_API_URL", "HUB_BOT", "TICO_CRED_SOCKET")
+GRANTED = ("ACME_API_KEY", "HUB_TOKEN", "HUB_API_URL", "HUB_BOT", "TICO_CRED_SOCKET", "HOME", "CODEX_HOME")
 
 
 def send(message):
@@ -46,7 +48,8 @@ def main():
         except ValueError:
             continue
         text = " ".join(part.get("text", "") for part in message["message"]["content"])
-        record({"harness": "claude", "argv": args, "prompt": text, "env": {k: os.environ.get(k) for k in GRANTED}})
+        record({"harness": "claude", "argv": args, "prompt": text, "env": {k: os.environ.get(k) for k in GRANTED},
+                "at": time.time()})
         send({**message, "isReplay": True})
         send({"type": "system", "subtype": "init", "session_id": session, "model": "claude-sonnet-5", "tools": []})
         send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_1"}}, "parent_tool_use_id": None})
@@ -58,6 +61,10 @@ def main():
             while os.getppid() == parent:
                 time.sleep(0.1)
             return
+        if "SLOW" in text:
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                  "delta": {"type": "text_delta", "text": "Working on it"}}, "parent_tool_use_id": None})
+            time.sleep(float(os.environ.get("FAKE_SLOW") or 2))
         reply = "Acme reply."
         if os.environ.get("ACME_API_KEY"):
             reply += " The key is " + os.environ["ACME_API_KEY"]
@@ -66,6 +73,7 @@ def main():
                   "delta": {"type": "text_delta", "text": chunk}}, "parent_tool_use_id": None})
         send({"type": "assistant", "message": {"id": "msg_1", "role": "assistant", "content": [{"type": "text", "text": reply}]},
               "parent_tool_use_id": None})
+        record({"harness": "claude", "finished": text, "at": time.time()})
         send({"type": "result", "subtype": "success", "is_error": False, "result": reply, "stop_reason": "end_turn",
               "session_id": session, "total_cost_usd": 0.01,
               "usage": {"input_tokens": 7, "cache_read_input_tokens": 3, "output_tokens": 2}})

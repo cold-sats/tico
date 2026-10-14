@@ -1,6 +1,7 @@
-//! One claimed turn (`Runner.execute` in runner/service.py, main lane only): environment and credentials,
-//! the host, the drive loop, and the result. Events stream to the server as they arrive: a flusher posts the
-//! outbox at most every STREAM_WINDOW, where Python posts it on a 1 s tick.
+//! One claimed turn (`Runner.execute` in runner/service.py): lanes, the subscription profile, environment and
+//! credentials, the host, the drive loop (runner-rs/src/drive.rs), a fallback harness, and the result. Events
+//! stream to the server as they arrive: a flusher posts the outbox at most every STREAM_WINDOW, where Python
+//! posts it on a 1 s tick.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,10 +11,13 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::Notify;
 
 use crate::client::ApiError;
+use crate::drive::{from_person, tries, Drive, GoalRun, Segment};
+use crate::goals;
+use crate::profiles::{Profile, Unavailable};
 use crate::env::{Env, EnvContext, Vault};
 use crate::hosts::{self, claude::ClaudeHost, codex::CodexHost, Host, HostError, Settings};
 use crate::redact::{self, Redactor};
@@ -30,46 +34,52 @@ pub struct Fail {
     pub kind: &'static str,
     pub text: String,
     pub api: Option<ApiError>,
+    /// The turn's subscription cannot run here (SubscriptionUnavailable).
+    pub subscription: Option<Unavailable>,
 }
 
 impl Fail {
-    fn runtime(text: impl Into<String>) -> Fail {
-        Fail { kind: "RuntimeError", text: text.into(), api: None }
+    pub(crate) fn runtime(text: impl Into<String>) -> Fail {
+        Fail { kind: "RuntimeError", text: text.into(), api: None, subscription: None }
+    }
+
+    pub(crate) fn unavailable(u: Unavailable) -> Fail {
+        Fail { kind: "SubscriptionUnavailable", text: u.problem.clone(), api: None, subscription: Some(u) }
     }
 }
 
 impl From<ApiError> for Fail {
     fn from(e: ApiError) -> Fail {
-        Fail { kind: "APIError", text: e.detail.clone(), api: Some(e) }
+        Fail { kind: "APIError", text: e.detail.clone(), api: Some(e), subscription: None }
     }
 }
 
 impl From<HostError> for Fail {
     fn from(e: HostError) -> Fail {
-        Fail { kind: "HostError", text: e.to_string(), api: None }
+        Fail { kind: "HostError", text: e.to_string(), api: None, subscription: None }
     }
 }
 
 impl From<String> for Fail {
     fn from(text: String) -> Fail {
-        Fail { kind: "OperationalError", text, api: None }
+        Fail { kind: "OperationalError", text, api: None, subscription: None }
     }
 }
 
 /// What a turn spent (runner/usage.py Meter): the sum of each `tokens` event's `usage` increment.
 #[derive(Default)]
-struct Meter {
+pub(crate) struct Meter {
     input: i64,
     cached: i64,
     output: i64,
 }
 
-fn count(v: &Value) -> i64 {
+pub(crate) fn count(v: &Value) -> i64 {
     v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)).or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0).max(0)
 }
 
 impl Meter {
-    fn add(&mut self, event: &Value) {
+    pub(crate) fn add(&mut self, event: &Value) {
         let u = &event["usage"];
         if u.is_object() {
             self.input += count(&u["input"]);
@@ -78,7 +88,7 @@ impl Meter {
         }
     }
 
-    fn report(&self, model: &str, runtime: &str, billing: &str) -> Option<Map<String, Value>> {
+    pub(crate) fn report(&self, model: &str, runtime: &str, billing: &str) -> Option<Map<String, Value>> {
         let cached = self.cached.min(self.input);
         if self.input == 0 && self.output == 0 {
             return None;
@@ -375,21 +385,36 @@ pub async fn publish_history(path: &Path, repository: &str, env: &Env) -> (&'sta
 }
 
 /// The per-turn signals the renewer, the drive loop and the flusher share.
-struct Flags {
-    lost: AtomicBool,
-    stopped: AtomicBool,
-    done: AtomicBool,
-    done_notify: Notify,
-    deadline: Mutex<Instant>,
+pub(crate) struct Flags {
+    pub(crate) lost: AtomicBool,
+    pub(crate) stopped: AtomicBool,
+    pub(crate) done: AtomicBool,
+    pub(crate) done_notify: Notify,
+    pub(crate) deadline: Mutex<Instant>,
 }
 
-struct Drove {
-    outcome: String,
-    reply: String,
-    tokens: Value,
-    limited: bool,
-    retryable: bool,
+pub(crate) struct Drove {
+    pub(crate) outcome: String,
+    pub(crate) reply: String,
+    pub(crate) tokens: Value,
+    pub(crate) limited: bool,
+    pub(crate) retryable: bool,
+    /// The turn running when the drive ended (a goal's continuation, a carried input's turn).
+    pub(crate) turn: String,
 }
+
+impl Drove {
+    fn interrupted() -> Drove {
+        Drove { outcome: "interrupted".into(), reply: String::new(), tokens: json!({}), limited: false, retryable: false, turn: String::new() }
+    }
+}
+
+/// One cold Claude sign-in renewal at a time on this computer (service.py claude_cold_start).
+fn claude_cold_start() -> &'static tokio::sync::Mutex<()> {
+    static L: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    L.get_or_init(Default::default)
+}
+const CLAUDE_COLD_START_HOLD_S: u64 = 45;
 
 impl Runner {
     /// Lease renewal: a definite answer about the attempt ends the turn; an unreachable hub does not.
@@ -450,7 +475,7 @@ impl Runner {
     }
 
     /// Steer this attempt's new inputs into the running turn; one the turn refused as it ended is carried.
-    async fn receive_inputs(&self, aid: &str, host: &Host, thread: &str, turn: &str, carried: &mut BTreeMap<String, Value>) -> Result<Vec<Value>, Fail> {
+    pub(crate) async fn receive_inputs(&self, aid: &str, host: &Host, thread: &str, turn: &str, carried: &mut BTreeMap<String, Value>) -> Result<Vec<Value>, Fail> {
         if !host.supports_steer() {
             return Ok(vec![]);
         }
@@ -480,7 +505,7 @@ impl Runner {
         Ok(messages)
     }
 
-    async fn carry_inputs(&self, aid: &str, host: &Host, thread: &str, carried: &mut BTreeMap<String, Value>, effort: Option<&str>) -> Result<String, Fail> {
+    pub(crate) async fn carry_inputs(&self, aid: &str, host: &Host, thread: &str, carried: &mut BTreeMap<String, Value>, effort: Option<&str>) -> Result<String, Fail> {
         for mid in carried.keys() {
             self.state.input_phase(aid, mid, Some("dispatching"))?;
         }
@@ -492,147 +517,6 @@ impl Runner {
         }
         carried.clear();
         Ok(turn)
-    }
-
-    /// Drain the host until the turn ends.
-    #[allow(clippy::too_many_arguments)]
-    async fn drive(
-        &self,
-        aid: &str,
-        host: &Host,
-        rx: &mut UnboundedReceiver<Value>,
-        thread: &str,
-        mut turn: String,
-        effort: Option<&str>,
-        limit: Instant,
-        flags: &Flags,
-        wake: &Notify,
-        redactor: Option<&Arc<Redactor>>,
-        meter: &mut Meter,
-        carried: &mut BTreeMap<String, Value>,
-        auth_rejected: &mut Option<String>,
-    ) -> Result<Drove, Fail> {
-        let redact = |v: &Value| redactor.map(|r| r.scrub_json(v)).unwrap_or_else(|| v.clone());
-        let (mut reply, mut tokens, mut outcome) = (String::new(), json!({}), "interrupted".to_string());
-        let (mut limited, mut retryable, mut acted, mut complete) = (false, false, false, false);
-        let mut earlier = String::new();
-        let mut earlier_tokens: Option<Value> = None;
-        let mut last_flush: Option<Instant> = None;
-        let mut first_output = false;
-        let mut queue: Vec<Value> = vec![];
-        let answer = |earlier: &str, reply: &str| [earlier, reply].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join("\n\n");
-        let spent = |earlier: &Option<Value>, tokens: &Value| match earlier {
-            None => tokens.clone(),
-            Some(e) => {
-                let mut m = Map::new();
-                for k in ["input", "output", "total"] {
-                    m.insert(k.into(), json!(count(&e[k]) + count(&tokens[k])));
-                }
-                Value::Object(m)
-            }
-        };
-        while !complete {
-            if flags.stopped.load(Ordering::SeqCst) {
-                let _ = host.interrupt(thread, &turn).await;
-                return Ok(Drove { outcome: "interrupted".into(), reply: answer(&earlier, &reply), tokens: spent(&earlier_tokens, &tokens), limited: false, retryable: false });
-            }
-            if self.stopping() || flags.lost.load(Ordering::SeqCst) || Instant::now() >= limit {
-                let _ = host.interrupt(thread, &turn).await;
-                return Err(Fail::runtime("Execution interrupted after stop, run-time limit, or loss of ownership"));
-            }
-            while let Ok(ev) = rx.try_recv() {
-                queue.push(ev);
-            }
-            for event in queue.drain(..) {
-                let owned = |key: &str, want: &str| {
-                    let v = text_of(&event[key]);
-                    v.is_empty() || v == want
-                };
-                if !owned("thread_id", thread) || !owned("turn_id", &turn) {
-                    continue;
-                }
-                let kind = text_of(&event["kind"]);
-                if kind == "message" || kind == "tool" {
-                    // Proof the turn reached the model and may have changed something outside this computer.
-                    acted = true;
-                }
-                if ["delta", "message", "tokens", "status", "error", "tool", "diagnostic", "turn_failed"].contains(&kind.as_str()) {
-                    let clean = redact(&event);
-                    if !first_output && (kind == "delta" || kind == "message") {
-                        first_output = true;
-                        mark("first_output", aid);
-                    }
-                    self.state.append(aid, if kind == "turn_failed" { "error" } else { &kind }, &clean)?;
-                    wake.notify_one();
-                    if kind == "message" && (truthy(event.get("final")) || reply.is_empty()) {
-                        reply = text_of(&clean["text"]);
-                    }
-                    if kind == "tokens" {
-                        tokens = event.clone();
-                        meter.add(&event);
-                    }
-                }
-                if kind == "turn_completed" {
-                    outcome = if event["status"] == "interrupted" { "interrupted".into() } else { "completed".into() };
-                    complete = true;
-                } else if kind == "turn_failed" || (kind == "error" && truthy(event.get("host_restart"))) {
-                    outcome = "failed".into();
-                    limited = truthy(event.get("limit"));
-                    // A sign-in the runtime could not renew refuses the turn before it starts, so the job can go
-                    // back in the queue; `acted` guards a token that died after the bot had done something.
-                    let error = text_of(&event["error"]);
-                    let rejected = hosts::is_auth_rejected(&error);
-                    if rejected {
-                        *auth_rejected = Some(text_of(&redact(&json!(error))));
-                    }
-                    retryable = truthy(event.get("auth_retry")) && !acted && !rejected;
-                    complete = true;
-                }
-            }
-            if complete && outcome == "completed" && !carried.is_empty() {
-                // Not on a failed or stopped turn: those settle the attempt, inputs included.
-                turn = self.carry_inputs(aid, host, thread, carried, effort).await?;
-                outcome = "interrupted".into();
-                complete = false;
-                earlier = answer(&earlier, &reply);
-                reply.clear();
-                earlier_tokens = Some(spent(&earlier_tokens, &tokens));
-                tokens = json!({});
-            }
-            if last_flush.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
-                let step: Result<(), Fail> = async {
-                    self.flush(aid).await?;
-                    if !complete && host.supports_steer() {
-                        self.receive_inputs(aid, host, thread, &turn, carried).await?;
-                    }
-                    Ok(())
-                }
-                .await;
-                if let Err(e) = step {
-                    if e.api.as_ref().is_none_or(|a| !a.retryable) {
-                        return Err(e);
-                    }
-                }
-                last_flush = Some(Instant::now());
-            }
-            if complete {
-                break;
-            }
-            if !host.alive() {
-                // Whatever it said before it went is read first.
-                while let Ok(ev) = rx.try_recv() {
-                    queue.push(ev);
-                }
-                if queue.is_empty() {
-                    return Err(Fail::runtime("Local runtime exited unexpectedly"));
-                }
-                continue;
-            }
-            if let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
-                queue.push(ev);
-            }
-        }
-        Ok(Drove { outcome, reply: answer(&earlier, &reply), tokens: spent(&earlier_tokens, &tokens), limited, retryable })
     }
 
     fn diagnose(&self, aid: &str, text: &str) {
@@ -664,6 +548,39 @@ impl Runner {
         (state, detail)
     }
 
+    /// The host for `runtime` on this turn: Claude Code runs the installed (or tools-dir) `claude`, Codex its app
+    /// server on the profile's CODEX_HOME.
+    fn make_host(&self, bot: &str, runtime: &str, env: &Env, profile: Option<&Profile>, tx: hosts::Events) -> Result<Host, Fail> {
+        Ok(match runtime {
+            "claude" => Host::Claude(ClaudeHost::new(bot, vec![crate::harness_tools::executable_for("claude")], tx)),
+            "codex" => {
+                let home = profile.and_then(|p| p.home("codex")).map(|h| h.display().to_string());
+                Host::Codex(CodexHost::on_home(env.clone(), tx, home.as_deref()))
+            }
+            "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
+            other => return Err(Fail::runtime(format!("Unsupported local runtime: {other}"))),
+        })
+    }
+
+    /// `subscription` when the runtime is signed in with a plan on this profile, else `api` (service.py billing).
+    fn billing(&self, runtime: &str, profile: Option<&Profile>) -> &'static str {
+        let rows = self.runtime_rows.lock().unwrap();
+        let mut row = rows.get(runtime).cloned().unwrap_or(Value::Null);
+        if let Some(p) = profile {
+            if row["profiles"][&p.name].is_object() {
+                row = row["profiles"][&p.name].clone();
+            }
+        }
+        billing_for(runtime, &text_of(&row["detail"]))
+    }
+
+    fn turn_profile(&self, attempt: &Value) -> Result<Option<Profile>, Fail> {
+        let rows = self.runtime_rows.lock().unwrap().clone();
+        let assignments = self.assignments_seen();
+        let rejected = |runtime: &str, p: &Profile| self.sign_in.rejection(runtime, Some(p)).is_some();
+        crate::profiles::turn_profile(&self.config.data, attempt, &rows, &assignments, &rejected).map_err(Fail::unavailable)
+    }
+
     /// One turn, start to result. Err only when the result could not be settled; the loop then saves an
     /// interrupted result for recovery.
     pub async fn execute(self: Arc<Self>, attempt: Value) -> Result<(), String> {
@@ -671,6 +588,19 @@ impl Runner {
         let bot = text_of(&attempt["bot"]);
         self.state.record(&attempt)?;
         let config = attempt["config"].clone();
+        let lane = crate::lanes::lane(&attempt);
+        let key = session_key(&attempt);
+        // Goal continuations count per thread: one task's stuck goal does not pause another's.
+        let mut goal = GoalRun {
+            chat_goal: attempt["chat_goal"].is_object().then(|| attempt["chat_goal"].clone()),
+            controlled: false,
+            failure: None,
+            paused: None,
+            tries_key: (bot.clone(), key.clone()),
+        };
+        if from_person(&attempt["message"]) {
+            tries().take(&goal.tries_key);
+        }
         let lease = attempt["lease_seconds"].as_f64().unwrap_or(60.0);
         let flags = Arc::new(Flags {
             lost: AtomicBool::new(false),
@@ -683,57 +613,71 @@ impl Runner {
         let renewer = tokio::spawn(self.clone().renew_loop(aid.clone(), flags.clone()));
         let streamer = tokio::spawn(self.clone().stream_loop(aid.clone(), wake.clone(), flags.clone()));
         let runtime = text_of(&config["runtime"]);
-        let conv = session_key(&attempt);
+        let mut conv = key.clone();
         let effort = Some(text_of(&config["reasoning_effort"])).filter(|e| !e.is_empty());
         let model = Some(text_of(&config["model"])).filter(|m| !m.is_empty());
         let execution_path: PathBuf = crate::readiness::local_path(&self.config, &bot);
         let mut vault = Vault::default();
         let mut env: Env = Env::new();
+        let mut base_env: Option<Env> = None;
         let mut host: Option<Host> = None;
         let (mut thread, mut turn): (Option<String>, Option<String>) = (None, None);
-        let mut drove = Drove { outcome: "interrupted".into(), reply: String::new(), tokens: json!({}), limited: false, retryable: false };
+        let mut drove = Drove::interrupted();
         let mut redactor: Option<Arc<Redactor>> = None;
         let mut started_at = String::new();
-        let mut meter = Meter::default();
+        let mut segments: Vec<Segment> = vec![];
         let mut carried: BTreeMap<String, Value> = BTreeMap::new();
-        let mut auth_rejected: Option<String> = None;
+        let mut auth_rejected: Option<(String, String)> = None;
+        let mut selected: Option<Profile> = None;
+        let mut subscription_unavailable: Option<Value> = None;
+        let mut fallback: Option<String> = None;
+        let (mut unavailable, mut prepared) = (false, false);
         let token = text_of(&attempt["token"]);
         let refs = attempt["message"]["refs"].clone();
-        let lock = self.bot_lock(&bot);
-        let billing = {
-            let rows = self.runtime_rows.lock().unwrap();
-            billing_for(&runtime, &text_of(&rows.get(&runtime).map(|r| r["detail"].clone()).unwrap_or(Value::Null)))
-        };
+        // A lane runs one turn at a time. A main-lane turn holds the bot's checkout for the whole turn; a task lane
+        // without a worktree of its own waits for the checkout like any other turn.
+        let lane_lock = crate::lanes::lane_lock(&bot, &lane);
+        let checkout_lock = self.bot_lock(&bot);
+        let mut uses: Vec<String> = vec![runtime.clone()];
+        if let Some(hop) = crate::fallback::configured(&config) {
+            uses.push(hop.runtime);
+        }
+        crate::harness_tools::turn_runtimes(&aid, &uses);
 
         let ran: Result<(), Fail> = async {
-            // One turn per bot at a time here: the bot's checkout is the turn's working tree.
-            let _held = loop {
-                if flags.lost.load(Ordering::SeqCst) {
-                    return Err(Fail::runtime("Attempt lease lost while waiting for the bot's checkout"));
-                }
-                if let Ok(g) = tokio::time::timeout(Duration::from_secs(1), lock.clone().lock_owned()).await {
-                    break g;
+            let hold = |lock: Arc<tokio::sync::Mutex<()>>| {
+                let flags = flags.clone();
+                async move {
+                    loop {
+                        if flags.lost.load(Ordering::SeqCst) {
+                            return Err(Fail::runtime("Attempt lease lost while waiting for the bot's checkout"));
+                        }
+                        if let Ok(g) = tokio::time::timeout(Duration::from_secs(1), lock.clone().lock_owned()).await {
+                            return Ok(g);
+                        }
+                    }
                 }
             };
+            let _lane = hold(lane_lock.clone()).await?;
+            let _checkout = hold(checkout_lock.clone()).await?;
             if let Some(line) = crate::runner::local_refusal() {
                 // Never run a bot as the supervisor user when it is meant to run as another one.
                 return Err(Fail::runtime(format!("Not started: {line}")));
             }
-            if truthy(refs.get("goal_action")) || truthy(refs.get("command")) {
-                // Settled as failed with the reason, not run half-way: goals and harness commands need the Python runner.
-                let what = if truthy(refs.get("goal_action")) { "goal controls" } else { "harness commands" };
-                drove.outcome = "failed".into();
-                drove.reply = format!("This computer's runner does not run {what} yet; run it on the Python runner for this bot.");
-                // The server takes a result only for a started attempt. A control acts on the bot's current
-                // thread, so that is the thread named; nothing runs in it.
-                let thread_id = self.state.session(&bot, &conv, &runtime)?.unwrap_or_else(|| format!("unstarted-{aid}"));
-                self.client.post(&format!("attempts/{aid}/started"), &json!({"thread_id": thread_id}), Some(&format!("started:{aid}"))).await?;
-                self.state.phase(&aid, "running")?;
-                self.diagnose(&aid, &drove.reply);
-                return Ok(());
-            }
+            selected = self.turn_profile(&attempt)?;
+            segments.push(Segment {
+                meter: Meter::default(),
+                config: config.clone(),
+                profile: selected.as_ref().map(|p| p.name.clone()),
+                billing: self.billing(&runtime, selected.as_ref()),
+            });
             let ctx = EnvContext { url: &self.config.url(), projects_dir: &self.config.projects_dir(), state_dir: &self.state.directory };
             env = crate::env::environment(&ctx, &attempt, &mut vault).await.map_err(Fail::runtime)?;
+            // The subscription this bot runs on: Claude keys its login to HOME, so it is the turn's own environment,
+            // the same one the host process and the turn's shell commands get.
+            if let Some(p) = &selected {
+                env = p.environment(&runtime, &env);
+            }
             let socket_path = self.socket.as_ref().map(|s| {
                 s.register(&token, &bot);
                 s.path.clone()
@@ -742,6 +686,7 @@ impl Runner {
                 env.insert(crate::gitcred::SOCKET_ENV.into(), p.display().to_string());
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
+            base_env = Some(env.clone());
             let pairs: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             redactor = redact::for_turn(&pairs, &vault.values);
             if let Some(s) = &self.socket {
@@ -750,6 +695,10 @@ impl Runner {
             }
             if let Some(r) = &redactor {
                 redact::register(&aid, r.clone());
+            }
+            if let Some(p) = &selected {
+                // A thread begun on one login is never resumed on another.
+                conv = format!("{conv}:profile:{}:{}", p.name, p.binding());
             }
             let error = pull_repo(&execution_path, &env).await;
             if !error.is_empty() {
@@ -765,23 +714,16 @@ impl Runner {
             if redactor.is_some() {
                 started_at = redact::head(&execution_path);
             }
-            if attempt["chat_goal"].is_object() {
-                self.diagnose(&aid, "This computer's runner does not work goals natively yet; the turn runs from its prompt alone");
-            }
             if attempt["worktrees"].as_array().is_some_and(|w| !w.is_empty()) {
                 self.diagnose(&aid, "This computer's runner does not join the task's set-up worktrees yet; the turn runs in the bot's checkout");
             }
             let previous = self.state.session(&bot, &conv, &runtime)?;
             let minutes = config["max_run_minutes"].as_f64().or_else(|| text_of(&config["max_run_minutes"]).parse().ok()).unwrap_or(60.0);
             let limit = Instant::now() + Duration::from_secs_f64(60.0 * minutes);
+            prepared = true;
             let (tx, mut rx) = unbounded_channel();
-            let made = match runtime.as_str() {
-                "claude" => Host::Claude(ClaudeHost::new(&bot, vec!["claude".into()], tx)),
-                "codex" => Host::Codex(CodexHost::new(env.clone(), tx)),
-                "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
-                other => return Err(Fail::runtime(format!("Unsupported local runtime: {other}"))),
-            };
-            let h = host.insert(made);
+            let own = tx.clone();
+            let h = host.insert(self.make_host(&bot, &runtime, &env, selected.as_ref(), tx)?);
             h.start().await?;
             let settings = Settings {
                 cwd: execution_path.display().to_string(),
@@ -812,41 +754,126 @@ impl Runner {
             let names = self.names().await;
             let after = if resumed { self.state.cursor(&th, None)? } else { None };
             let prompt = crate::prompt::prompt(&attempt, &names, after.as_deref(), resumed);
-            let t = h.start_turn(&th, &prompt, effort.as_deref()).await?;
+            let cold = runtime == "claude" && crate::profiles::claude_token_cold(selected.as_ref());
+            let t = if cold {
+                // Held only until the sign-in this turn triggers has landed, not for the length of the turn: the
+                // others follow a few seconds behind, warm.
+                let _one = claude_cold_start().lock().await;
+                let t = self.start_turn(&aid, &bot, h, &th, &prompt, effort.as_deref(), &refs, &attempt, &mut goal, &own).await?;
+                let warm_by = Instant::now() + Duration::from_secs(CLAUDE_COLD_START_HOLD_S);
+                while Instant::now() < warm_by && crate::profiles::claude_token_cold(selected.as_ref()) {
+                    if self.stopping() || flags.lost.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                t
+            } else {
+                self.start_turn(&aid, &bot, h, &th, &prompt, effort.as_deref(), &refs, &attempt, &mut goal, &own).await?
+            };
             mark("harness_spawned", &aid);
             turn = Some(t.clone());
-            drove = self
-                .drive(&aid, h, &mut rx, &th, t, effort.as_deref(), limit, &flags, &wake, redactor.as_ref(), &mut meter, &mut carried, &mut auth_rejected)
-                .await?;
+            let d = Drive { aid: &aid, host: h, thread: &th, effort: effort.as_deref(), limit, flags: &flags, wake: &wake, redactor: redactor.as_ref(), runtime: &runtime };
+            drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
+            turn = Some(drove.turn.clone());
             self.state.save_session(&bot, &conv, &runtime, &h.session_id(&th))?;
+            // A runtime that cannot sign itself in is as unavailable as one out of quota: a bot with a fallback
+            // harness runs the turn there instead of losing it.
+            unavailable = drove.limited || drove.retryable;
             Ok(())
         }
         .await;
 
         if let Err(e) = &ran {
-            // The cause, not just its type, with granted values, the turn's token and URL credentials taken out.
-            let scrub = redactor.clone().unwrap_or_else(|| {
-                let mut values = vault.values.clone();
-                values.push(token.clone());
-                Arc::new(Redactor::new(&values))
-            });
-            let masked = redact::scrub_credentials(&scrub.scrub_text(&e.text), &[]);
-            let cause: String = masked.chars().take(300).collect();
-            let detail = if cause.is_empty() { String::new() } else { format!(" ({cause})") };
-            self.diagnose(&aid, &format!("{}: execution interrupted{detail}; inspect local runner", e.kind));
-            if !OWN_INTERRUPT.iter().any(|p| e.text.contains(p)) {
-                log(&format!("Tico runner: {bot}: turn {aid} stopped: {}{}", e.kind, if cause.is_empty() { String::new() } else { format!(": {cause}") }));
+            if let Some(u) = &e.subscription {
+                self.settle_unavailable(&aid, u, &mut drove, &mut auth_rejected, &mut subscription_unavailable);
+                unavailable = false;
+            } else {
+                self.report_failure(&aid, &bot, e, redactor.as_ref(), &vault, &token, "execution interrupted");
+                unavailable = !OWN_INTERRUPT.iter().any(|p| e.text.contains(p));
             }
         }
-        if let Some(reason) = &auth_rejected {
-            if drove.outcome == "failed" {
-                log(&format!("Tico runner: {bot}: {runtime} sign-in was rejected ({})", hosts::rejection_reason(reason)));
+        let native_control = truthy(refs.get("command")) || goal.chat_goal.as_ref().is_some_and(|g| g["status"] == "active");
+        let hop = if unavailable && !native_control { crate::fallback::configured(&config) } else { None };
+        if let (Some(hop), true, Some(base)) = (hop, prepared, base_env.clone()) {
+            if let Some(th) = &thread {
+                let _ = self.state.forget_session(&bot, &conv, &runtime, th);
             }
+            if let Some(h) = &host {
+                h.stop().await;
+            }
+            fallback = Some(hop.harness.clone());
+            drove = Drove::interrupted();
+            let primary = Some(text_of(&config["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
+            let hopped: Result<(), Fail> = async {
+                let hop_config = hop.config(&config);
+                let mut hop_attempt = attempt.clone();
+                hop_attempt["config"] = hop_config.clone();
+                hop_attempt["fallback"] = json!(hop.harness);
+                selected = self.turn_profile(&hop_attempt)?;
+                segments.push(Segment {
+                    meter: Meter::default(),
+                    config: hop_config,
+                    profile: selected.as_ref().map(|p| p.name.clone()),
+                    billing: self.billing(&hop.runtime, selected.as_ref()),
+                });
+                let hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
+                env = hop_env.clone();
+                self.diagnose(&aid, &format!("{primary} unavailable; running this turn on {}", hop.harness));
+                let (tx, mut rx) = unbounded_channel();
+                let h = host.insert(self.make_host(&bot, &hop.runtime, &hop_env, selected.as_ref(), tx)?);
+                h.start().await?;
+                let settings = Settings {
+                    cwd: execution_path.display().to_string(),
+                    model: Some(hop.model.clone()),
+                    effort: hop.reasoning_effort.clone(),
+                    env: hop_env.clone(),
+                    slug: bot.clone(),
+                    compact_at: config.get("compact_at").cloned().unwrap_or(Value::Null),
+                };
+                let th = h.start_thread(&bot, &settings).await?;
+                thread = Some(th.clone());
+                let names = self.names().await;
+                let t = h.start_turn(&th, &crate::prompt::prompt(&attempt, &names, None, false), hop.reasoning_effort.as_deref()).await?;
+                turn = Some(t.clone());
+                let minutes = config["max_run_minutes"].as_f64().or_else(|| text_of(&config["max_run_minutes"]).parse().ok()).unwrap_or(60.0);
+                let limit = Instant::now() + Duration::from_secs_f64(60.0 * minutes);
+                let d = Drive {
+                    aid: &aid,
+                    host: h,
+                    thread: &th,
+                    effort: hop.reasoning_effort.as_deref(),
+                    limit,
+                    flags: &flags,
+                    wake: &wake,
+                    redactor: redactor.as_ref(),
+                    runtime: &hop.runtime,
+                };
+                drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
+                turn = Some(drove.turn.clone());
+                let how = if drove.outcome == "completed" { String::new() } else { format!(" ({})", drove.outcome) };
+                log(&format!("Tico runner: {bot}: {primary} unavailable; ran the turn on {}{how}", hop.harness));
+                Ok(())
+            }
+            .await;
+            if let Err(e) = hopped {
+                if let Some(u) = &e.subscription {
+                    self.settle_unavailable(&aid, u, &mut drove, &mut auth_rejected, &mut subscription_unavailable);
+                } else {
+                    self.diagnose(&aid, &format!("{}: fallback harness interrupted; inspect local runner", e.kind));
+                }
+            }
+        }
+        let ran_on = fallback.clone().unwrap_or_else(|| runtime.clone());
+        if let Some((rt, reason)) = auth_rejected.as_ref().filter(|_| drove.outcome == "failed") {
+            // Retrying cannot help: this runtime takes no work here until a credential changes.
+            self.sign_in.reject(rt, reason, selected.as_ref());
+            log(&format!("Tico runner: {bot}: {rt} sign-in was rejected; this computer takes no {rt} work on this profile until the key or sign-in changes"));
         }
         if drove.limited {
-            log(&format!("Tico runner: {bot} hit a {runtime} usage limit; the cloud will retry later"));
-        } else if drove.retryable {
-            log(&format!("Tico runner: {bot}: {runtime} could not renew its sign-in and the turn never started; the cloud will retry it"));
+            log(&format!("Tico runner: {bot} hit a {ran_on} usage limit; the cloud will retry later"));
+        } else if drove.retryable && subscription_unavailable.is_none() {
+            log(&format!("Tico runner: {bot}: {ran_on} could not renew its sign-in and the turn never started; the cloud will retry it"));
         }
 
         // The result: settle the host, scrub, save, send.
@@ -858,7 +885,7 @@ impl Runner {
             }
             h.stop().await;
         }
-        if drove.outcome != "completed" && runtime == "codex" {
+        if drove.outcome != "completed" && runtime == "codex" && !goal.controlled {
             if let Some(th) = &thread {
                 // The Codex app-server aborts the next turn on an interrupted thread at once: a retry starts fresh.
                 let _ = self.state.forget_session(&bot, &conv, &runtime, th);
@@ -905,6 +932,12 @@ impl Runner {
                 reply = scrubbed;
             }
         }
+        if let Some(g) = goal.chat_goal.as_ref().filter(|g| g["status"] == "active") {
+            if drove.outcome != "completed" && !drove.limited && !drove.retryable {
+                let note = goal.failure.clone().unwrap_or_else(|| format!("The harness run {}", drove.outcome));
+                let _ = self.state.append(&aid, "goal", &json!({"goal_id": g["id"], "revision": g["updated_at"], "status": "stopped", "note": note}));
+            }
+        }
         let mut completion = Map::new();
         completion.insert("outcome".into(), json!(drove.outcome));
         completion.insert("text".into(), json!(reply));
@@ -913,13 +946,28 @@ impl Runner {
         if !carried.is_empty() {
             completion.insert("undelivered".into(), json!(carried.keys().collect::<Vec<_>>()));
         }
-        if let Some(mut part) = meter.report(model.as_deref().unwrap_or(""), &runtime, billing) {
-            let harness = Some(text_of(&config["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
-            part.insert("harness".into(), json!(harness));
-            part.insert("effort".into(), json!(effort.clone().unwrap_or_default()));
-            part.insert("profile_used".into(), Value::Null);
-            let mut spent = part.clone();
-            spent.insert("segments".into(), json!([part]));
+        let profile_used = selected.as_ref().filter(|_| host.is_some()).map(|p| p.name.clone());
+        if let Some(name) = &profile_used {
+            completion.insert("profile_used".into(), json!(name));
+        }
+        let mut parts: Vec<Map<String, Value>> = vec![];
+        for s in &segments {
+            let ran = &s.config;
+            let rt = text_of(&ran["runtime"]);
+            if let Some(mut part) = s.meter.report(&text_of(&ran["model"]), &rt, s.billing) {
+                let harness = Some(text_of(&ran["harness"])).filter(|h| !h.is_empty()).unwrap_or(rt);
+                part.insert("harness".into(), json!(harness));
+                part.insert("effort".into(), json!(text_of(&ran["reasoning_effort"])));
+                part.insert("profile_used".into(), s.profile.as_ref().map_or(Value::Null, |p| json!(p)));
+                parts.push(part);
+            }
+        }
+        if let Some(last) = parts.last() {
+            let mut spent = last.clone();
+            for k in ["input_tokens", "cached_tokens", "output_tokens"] {
+                spent.insert(k.into(), json!(parts.iter().map(|p| count(&p[k])).sum::<i64>()));
+            }
+            spent.insert("segments".into(), json!(parts));
             completion.insert("usage".into(), Value::Object(spent));
         }
         if drove.limited {
@@ -928,8 +976,14 @@ impl Runner {
         if drove.retryable && !drove.limited {
             completion.insert("retryable".into(), json!(true));
         }
-        if let Some(reason) = auth_rejected.as_ref().filter(|_| drove.outcome == "failed") {
-            completion.insert("auth_rejected".into(), json!({"runtime": runtime, "reason": hosts::rejection_reason(reason)}));
+        if let Some(f) = &fallback {
+            completion.insert("fallback".into(), json!(f));
+        }
+        if let Some(u) = &subscription_unavailable {
+            completion.insert("subscription_unavailable".into(), u.clone());
+        }
+        if let Some((rt, reason)) = auth_rejected.as_ref().filter(|_| drove.outcome == "failed") {
+            completion.insert("auth_rejected".into(), json!({"runtime": rt, "reason": hosts::rejection_reason(reason)}));
         }
         let settled: Result<(), String> = async {
             let completion = self.state.finish(&aid, &completion)?;
@@ -979,12 +1033,86 @@ impl Runner {
         }
         redact::release(&aid);
         vault.remove_files();
+        crate::harness_tools::turn_done(&aid);
         flags.done.store(true, Ordering::SeqCst);
         flags.done_notify.notify_waiters();
         renewer.abort();
         streamer.abort();
         self.forget_flush(&aid);
         settled
+    }
+
+    /// The turn's first call: a goal control, a harness command, a task goal with the task's prompt, or the prompt.
+    #[allow(clippy::too_many_arguments)]
+    async fn start_turn(
+        &self,
+        aid: &str,
+        bot: &str,
+        h: &Host,
+        th: &str,
+        prompt: &str,
+        effort: Option<&str>,
+        refs: &Value,
+        attempt: &Value,
+        goal: &mut GoalRun,
+        own: &hosts::Events,
+    ) -> Result<String, Fail> {
+        if truthy(refs.get("goal_action")) {
+            let latest = self.client.get(&format!("attempts/{aid}/goal")).await?;
+            let latest = &latest["goal"];
+            if !latest.is_object() || latest["id"] != refs["goal_id"] || latest["updated_at"] != refs["goal_revision"] {
+                // A control superseded after leasing settles without touching the native objective.
+                goal.chat_goal = None;
+                goal.controlled = true;
+                let id = format!("goal-control-{aid}");
+                let _ = own.send(hosts::event("turn_completed", Some(th), Some(&id), json!({"status": "completed"})));
+                return Ok(id);
+            }
+            let objective = goals::native_objective(&text_of(&refs["goal_objective"]));
+            return Ok(h.start_goal(th, &text_of(&refs["goal_action"]), &objective, effort).await?);
+        }
+        if truthy(refs.get("command")) {
+            return Ok(h.start_command(th, prompt, effort).await?);
+        }
+        let task_goal = goal.chat_goal.clone().filter(|_| goals::task_goal_pending(attempt, &self.state, th));
+        if let Some(task_goal) = task_goal {
+            // The task's goal goes into its session once, beside the task's own prompt; later turns on the task
+            // continue it. A harness that cannot take both works it from the prompt line.
+            match h.start_goal_turn(th, &goals::native_objective(&text_of(&task_goal["objective"])), prompt, effort).await {
+                Ok(t) => {
+                    goals::task_goal_set(&self.state, th, &task_goal);
+                    return Ok(t);
+                }
+                Err(e) => log(&format!("Tico runner: {bot}: task goal not set natively ({e}); the prompt carries it")),
+            }
+        }
+        Ok(h.start_turn(th, prompt, effort).await?)
+    }
+
+    /// The assigned subscription cannot run here: a failed, retryable result that names it, and a heartbeat now.
+    fn settle_unavailable(&self, aid: &str, u: &crate::profiles::Unavailable, drove: &mut Drove, rejected: &mut Option<(String, String)>, out: &mut Option<Value>) {
+        *drove = Drove { outcome: "failed".into(), reply: u.problem.clone(), tokens: json!({}), limited: false, retryable: true, turn: drove.turn.clone() };
+        *rejected = None;
+        let _ = self.state.append(aid, "diagnostic", &json!({"text": u.problem, "detail": {"runtime": u.runtime}}));
+        *out = Some(u.detail());
+        self.events.ask(&["heartbeat"]);
+    }
+
+    /// The cause, not just its type, with granted values, the turn's token and URL credentials taken out.
+    #[allow(clippy::too_many_arguments)]
+    fn report_failure(&self, aid: &str, bot: &str, e: &Fail, redactor: Option<&Arc<Redactor>>, vault: &Vault, token: &str, what: &str) {
+        let scrub = redactor.cloned().unwrap_or_else(|| {
+            let mut values = vault.values.clone();
+            values.push(token.to_string());
+            Arc::new(Redactor::new(&values))
+        });
+        let masked = redact::scrub_credentials(&scrub.scrub_text(&e.text), &[]);
+        let cause: String = masked.chars().take(300).collect();
+        let detail = if cause.is_empty() { String::new() } else { format!(" ({cause})") };
+        self.diagnose(aid, &format!("{}: {what}{detail}; inspect local runner", e.kind));
+        if !OWN_INTERRUPT.iter().any(|p| e.text.contains(p)) {
+            log(&format!("Tico runner: {bot}: turn {aid} stopped: {}{}", e.kind, if cause.is_empty() { String::new() } else { format!(": {cause}") }));
+        }
     }
 }
 

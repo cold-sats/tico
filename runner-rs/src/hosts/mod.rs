@@ -6,6 +6,7 @@
 
 pub mod claude;
 pub mod codex;
+mod native;
 
 use std::sync::OnceLock;
 
@@ -123,7 +124,7 @@ const HUB_MCP_ENV: &[&str] = &["HUB_API_URL", "HUB_TOKEN", "HUB_BOT", "HUB_EMPLO
 
 /// The hub as a stdio MCP server for one turn (`hub_mcp_server`), or None outside a turn.
 pub fn hub_mcp_server(env: &Env) -> Option<Value> {
-    if env.get("HUB_API_URL").map_or(true, |v| v.is_empty()) || env.get("HUB_TOKEN").map_or(true, |v| v.is_empty()) {
+    if env.get("HUB_API_URL").is_none_or(|v| v.is_empty()) || env.get("HUB_TOKEN").is_none_or(|v| v.is_empty()) {
         return None;
     }
     let mut vars = Map::new();

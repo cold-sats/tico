@@ -227,7 +227,7 @@ async fn answer(attempts: &Mutex<HashMap<String, Registered>>, client: &Client, 
     let mut map = attempts.lock().unwrap();
     let Some(entry) = map.get_mut(token) else { return json!({"error": "unknown attempt"}) };
     match &entry.redactor {
-        Some(r) => r.add(&[granted.clone()]),
+        Some(r) => r.add(std::slice::from_ref(&granted)),
         None => entry.issued.push(granted.clone()),
     }
     json!({"token": granted})
@@ -461,7 +461,7 @@ pub fn git_credential_main(socket: Option<String>) -> i32 {
     let token = credential(socket.as_deref(), repo.as_deref());
     if token.is_empty() {
         eprintln!("Tico runner: no GitHub App token for this repository; check Settings > Tools > GitHub");
-        print!("quit=true\n");
+        println!("quit=true");
     } else {
         print!("username=x-access-token\npassword={token}\n");
     }

@@ -41,6 +41,33 @@ fn local_stamp() -> String {
 pub fn log(line: &str) {
     let line = crate::redact::scrub_log(line);
     println!("{} {}", local_stamp(), line);
+    static TROUBLE: OnceLock<regex::Regex> = OnceLock::new();
+    let trouble = TROUBLE.get_or_init(|| {
+        regex::Regex::new(r"(?i)error|fail|unavailable|refused|rejected|interrupted|cannot|could not|not updating|exception|limit").unwrap()
+    });
+    if trouble.is_match(&line) {
+        remember(&line);
+    }
+}
+
+/// The last lines that said something went wrong, for the heartbeat's `recent_errors` (outage.py RECENT).
+static RECENT: std::sync::Mutex<std::collections::VecDeque<String>> = std::sync::Mutex::new(std::collections::VecDeque::new());
+
+fn remember(line: &str) {
+    let stamp = {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let iso = text_of(&iso(&serde_json::json!(now)));
+        format!("{}Z", iso.trim_end_matches("+00:00"))
+    };
+    let mut recent = RECENT.lock().unwrap_or_else(|p| p.into_inner());
+    if recent.len() == 50 {
+        recent.pop_front();
+    }
+    recent.push_back(format!("{stamp} {}", line.replace('\n', " ")).chars().take(300).collect());
+}
+
+pub fn recent_errors() -> Vec<String> {
+    RECENT.lock().unwrap_or_else(|p| p.into_inner()).iter().cloned().collect()
 }
 
 /// Whether `TICO_RUNNER_TIMINGS=1` asked for timing marks.

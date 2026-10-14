@@ -9,8 +9,9 @@ use serde_json::{json, Map, Value};
 
 use crate::client::Client;
 use crate::config::Config;
+use crate::env::{which, Env};
+use crate::profiles::{self, Profile};
 use crate::signin::{self, SignIn};
-use crate::env::which;
 use crate::util::text_of;
 
 pub const RUNTIMES: &[&str] = &["codex", "grok", "claude", "gemini", "pi", "cursor"];
@@ -20,22 +21,27 @@ pub const CLAUDE_MODELS: &[&str] = &["claude-fable-5-1", "claude-opus-5", "claud
 pub const NO_RUNTIME: &str = "No AI provider is chosen: the owner picks providers and a default model in Settings > AI providers";
 const CLAUDE_AUTH_TIMEOUT_S: u64 = 30;
 
-/// One command's exit status and output, or None when it did not run or ran past its time.
-pub async fn run(argv: &[&str], timeout_s: u64) -> Option<(bool, String, String)> {
+/// `run` in `env` (a profile's homes) when given. Err(true) is a timeout, Err(false) a command that did not start.
+async fn run_env(argv: &[&str], timeout_s: u64, env: Option<&Env>) -> Result<(bool, String, String), bool> {
     let mut cmd = tokio::process::Command::new(argv[0]);
     cmd.args(&argv[1..]).stdin(std::process::Stdio::null()).kill_on_drop(true);
-    let out = tokio::time::timeout(Duration::from_secs(timeout_s), cmd.output()).await.ok()?.ok()?;
-    Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into()))
+    if let Some(env) = env {
+        cmd.env_clear().envs(env);
+    }
+    let out = tokio::time::timeout(Duration::from_secs(timeout_s), cmd.output()).await.map_err(|_| true)?.map_err(|_| false)?;
+    Ok((out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into()))
 }
 
 fn executable(runtime: &str) -> Option<PathBuf> {
-    which(runtime, &std::env::var("PATH").unwrap_or_default())
+    which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default())
 }
 
-pub fn codex_models() -> Vec<String> {
-    let home = std::env::var("CODEX_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".codex"));
+pub fn codex_models(home: Option<PathBuf>) -> Vec<String> {
+    let home = home.unwrap_or_else(|| {
+        std::env::var("CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".codex"))
+    });
     let Ok(text) = std::fs::read_to_string(home.join("models_cache.json")) else { return vec![] };
     let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     let mut slugs: Vec<String> = value["models"]
@@ -47,12 +53,16 @@ pub fn codex_models() -> Vec<String> {
     slugs
 }
 
-/// One runtime's row: installed, signed in, version, models, controls, detail, goals, commands.
-pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, assignments: &[Value]) -> Map<String, Value> {
+/// One runtime's row: installed, signed in, version, models, controls, detail, goals, commands. With a
+/// profile, every check runs in that profile's home and no shared key signs it in.
+pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, assignments: &[Value], profile: Option<&Profile>) -> Map<String, Value> {
     let exe = if DRIVEN.contains(&runtime) { executable(runtime) } else { None };
+    let env: Option<Env> = profile.map(|p| p.environment(runtime, &std::env::vars().collect()));
+    let env = env.as_ref();
     let authenticated: &str;
     let detail: String;
     let mut version = String::new();
+    let timed_out = if profile.is_some() { "unknown" } else { "failed" };
     match &exe {
         None if !DRIVEN.contains(&runtime) => {
             authenticated = "missing";
@@ -65,21 +75,21 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
         Some(path) => {
             let p = path.to_string_lossy().to_string();
             if runtime == "codex" {
-                let mut status = run(&[&p, "login", "status"], 8).await;
-                let signed = |s: &Option<(bool, String, String)>| s.as_ref().is_some_and(|(ok, out, err)| *ok && format!("{out}\n{err}").to_lowercase().contains("logged in"));
+                let mut status = run_env(&[&p, "login", "status"], 8, env).await;
+                let signed = |s: &Result<(bool, String, String), bool>| s.as_ref().is_ok_and(|(ok, out, err)| *ok && format!("{out}\n{err}").to_lowercase().contains("logged in"));
                 // A box with an API key and no browser: sign in once, for the bots that use Codex, or with the
-                // key the company gave every computer.
-                if status.is_some() && !signed(&status) {
+                // key the company gave every computer. Never into a profile's own home.
+                if status.is_ok() && !signed(&status) && profile.is_none() {
                     sign.team_model_keys(client, "codex").await;
                     if sign.headless_secret("codex").is_some()
                         && (sign.team_key_only("codex") || signin::assigned(assignments, "codex"))
                         && sign.codex_key_login(path).await
                     {
-                        status = run(&[&p, "login", "status"], 8).await;
+                        status = run_env(&[&p, "login", "status"], 8, env).await;
                     }
                 }
                 match status {
-                    Some((ok, out, err)) => {
+                    Ok((ok, out, err)) => {
                         let output = format!("{out}\n{err}").trim().to_lowercase();
                         if ok && output.contains("logged in") {
                             authenticated = "ready";
@@ -89,20 +99,24 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
                             detail = "Codex login required".into();
                         }
                     }
-                    None => {
-                        authenticated = "failed";
+                    Err(true) => {
+                        authenticated = timed_out;
                         detail = "Codex sign-in check timed out".into();
+                    }
+                    Err(false) => {
+                        authenticated = "failed";
+                        detail = "Codex sign-in could not be checked".into();
                     }
                 }
             } else {
-                let status = run(&[&p, "auth", "status", "--json"], CLAUDE_AUTH_TIMEOUT_S).await;
-                let parsed: Option<Value> = status.as_ref().and_then(|(_, out, _)| serde_json::from_str::<Value>(out).ok()).filter(|v| v.is_object());
-                if !parsed.as_ref().is_some_and(|s| s["loggedIn"] == true) {
+                let status = run_env(&[&p, "auth", "status", "--json"], CLAUDE_AUTH_TIMEOUT_S, env).await;
+                let parsed: Option<Value> = status.as_ref().ok().and_then(|(_, out, _)| serde_json::from_str::<Value>(out).ok()).filter(|v| v.is_object());
+                if !parsed.as_ref().is_some_and(|s| s["loggedIn"] == true) && profile.is_none() {
                     sign.team_model_keys(client, "claude").await;
                 }
                 // A key in the environment, `_shared.env` or the company's file signs the CLI in on a headless box
-                // even when `auth status` says otherwise.
-                let token = sign.headless_secret("claude").map(|(name, _)| name);
+                // even when `auth status` says otherwise; a profile has only its own login.
+                let token = if profile.is_none() { sign.headless_secret("claude").map(|(name, _)| name) } else { None };
                 if let Some(s) = parsed.as_ref().filter(|s| s["loggedIn"] == true) {
                     authenticated = "ready";
                     let method = text_of(&s["authMethod"]);
@@ -110,8 +124,8 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
                 } else if let Some(name) = token {
                     authenticated = "ready";
                     detail = format!("Signed in with {name}");
-                } else if status.is_none() {
-                    authenticated = "failed";
+                } else if status == Err(true) {
+                    authenticated = timed_out;
                     detail = "Claude sign-in check timed out".into();
                 } else if parsed.is_none() {
                     authenticated = "failed";
@@ -121,19 +135,17 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
                     detail = "Claude login required".into();
                 }
             }
-            if let Some((true, out, err)) = run(&[&p, "--version"], 5).await {
+            if let Ok((true, out, err)) = run_env(&[&p, "--version"], 5, env).await {
                 let text = if out.trim().is_empty() { err } else { out };
                 version = text.trim().lines().next().unwrap_or_default().chars().take(100).collect();
             }
         }
     }
     let models: Vec<String> = match runtime {
-        "codex" => codex_models(),
+        "codex" => codex_models(profile.and_then(|p| p.home("codex"))),
         "claude" => CLAUDE_MODELS.iter().map(|s| s.to_string()).collect(),
         _ => vec![],
     };
-    // Harness commands (/compact, /clear, /model) and goals are not run here, so none is offered.
-    let commands: Vec<Value> = vec![];
     let mut row = Map::new();
     row.insert("installed".into(), json!(exe.is_some()));
     row.insert("authenticated".into(), json!(authenticated));
@@ -141,17 +153,77 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
     row.insert("models".into(), json!(models));
     row.insert("controls".into(), if exe.is_some() { json!(["interrupt", "new-session"]) } else { json!([]) });
     row.insert("detail".into(), json!(detail));
-    row.insert("goals".into(), json!(false));
-    row.insert("commands".into(), json!(commands));
+    row.extend(crate::goals::capabilities(runtime, exe.as_deref(), &version).await);
     row
 }
 
-pub async fn runtime_report(sign: &SignIn, client: &Client, assignments: &[Value]) -> Map<String, Value> {
+fn order(row: &Value) -> usize {
+    let a = text_of(&row["authenticated"]);
+    profiles::SIGN_IN_ORDER.iter().position(|s| *s == a).unwrap_or(profiles::SIGN_IN_ORDER.len())
+}
+
+fn joined(rows: &Map<String, Value>) -> String {
+    let parts: Vec<String> = rows
+        .iter()
+        .map(|(name, row)| if name.is_empty() { text_of(&row["detail"]) } else { format!("{name}: {}", text_of(&row["detail"])) })
+        .collect();
+    parts.join("; ").chars().take(500).collect()
+}
+
+/// Readiness per runtime, and per subscription profile for the profiles in use (service.py runtime_report): the
+/// runtime row reports the profile that needs attention first and carries every profile's row under `profiles`.
+/// A sign-in the provider refused on a real turn shows as `rejected` until its credentials change.
+pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, assignments: &[Value]) -> Map<String, Value> {
     let mut report = Map::new();
     let mut names: Vec<&str> = RUNTIMES.to_vec();
     names.sort();
     for runtime in names {
-        report.insert(runtime.into(), Value::Object(runtime_readiness(runtime, sign, client, assignments).await));
+        let mut used: std::collections::BTreeMap<String, Option<Profile>> = Default::default();
+        for entry in assignments {
+            let requested = text_of(&entry["profile"]);
+            let profile = profiles::select(&config.data, Some(&text_of(&entry["bot"])), Some(&requested));
+            if text_of(&entry["config"]["runtime"]) == runtime && (profile.is_some() || requested.is_empty()) {
+                used.entry(profile.as_ref().map(|p| p.name.clone()).unwrap_or_default()).or_insert(profile);
+            }
+        }
+        let mut targets = Map::new();
+        if used.keys().all(|k| k.is_empty()) {
+            targets.insert(String::new(), Value::Object(runtime_readiness(runtime, sign, client, assignments, None).await));
+        } else {
+            for (name, profile) in &used {
+                targets.insert(name.clone(), Value::Object(runtime_readiness(runtime, sign, client, assignments, profile.as_ref()).await));
+            }
+        }
+        for (name, status) in targets.iter_mut() {
+            let profile = used.get(name).cloned().flatten();
+            if status["installed"] != true {
+                continue;
+            }
+            if let Some(r) = sign.rejection(runtime, profile.as_ref()) {
+                let source = if name.is_empty() && sign.team_key_only(runtime) { "credentials" } else { "computer" };
+                let detail: String = format!("Sign-in rejected: {}", r.reason).chars().take(500).collect();
+                let s = status.as_object_mut().unwrap();
+                s.insert("authenticated".into(), json!("rejected"));
+                s.insert("rejected_at".into(), json!(r.at));
+                s.insert("rejected_reason".into(), json!(r.reason));
+                s.insert("credential_source".into(), json!(source));
+                s.insert("detail".into(), json!(detail));
+            }
+        }
+        let row = if targets.len() == 1 && targets.contains_key("") {
+            targets.remove("").unwrap()
+        } else {
+            let worst = targets
+                .iter()
+                .min_by_key(|(name, row)| (row["authenticated"] != "rejected", if row["authenticated"] == "rejected" { 0 } else { order(row) }, (*name).clone()))
+                .map(|(_, row)| row.clone())
+                .unwrap_or(Value::Null);
+            let mut row = worst.as_object().cloned().unwrap_or_default();
+            row.insert("detail".into(), json!(joined(&targets)));
+            row.insert("profiles".into(), Value::Object(targets));
+            Value::Object(row)
+        };
+        report.insert(runtime.into(), row);
     }
     report
 }
@@ -186,15 +258,6 @@ pub fn unsupported(config: &Config, entry: &Value) -> Vec<String> {
     }
     if crate::util::truthy(c.get("shared")) || crate::util::truthy(c.get("shared_from")) {
         needs.push("shared bot checkouts".into());
-    }
-    if c["fallback"].is_object() && !text_of(&c["fallback"]["harness"]).is_empty() {
-        needs.push("a fallback harness".into());
-    }
-    let profiled = crate::util::truthy(entry.get("profile"))
-        || config.data.get("bot_profiles").and_then(|p| p.get(&bot)).is_some_and(|v| crate::util::truthy(Some(v)))
-        || config.data.get("default_profile").is_some_and(|v| crate::util::truthy(Some(v)));
-    if profiled {
-        needs.push("subscription profiles".into());
     }
     if crate::util::truthy(entry.get("mail_agent")) {
         needs.push("the mail agent".into());
@@ -260,36 +323,70 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         let expected = &entry["config"];
         let runtime = text_of(&expected["runtime"]);
         let path = local_path(config, &bot);
+        let requested = text_of(&entry["profile"]);
+        let computer = text_of(&entry["computer_label"]);
+        let profile = profiles::select(&config.data, Some(&bot), Some(&requested));
+        let profile_name = profile.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+        // This bot's own subscription, not the worst of the machine's: a signed-out profile blocks its own bots only.
+        let status = runtimes
+            .get(&runtime)
+            .and_then(|r| r["profiles"].get(&profile_name).cloned())
+            .or_else(|| runtimes.get(&runtime).cloned())
+            .unwrap_or(Value::Null);
         let mut problems: Vec<String> = vec![];
-        let mut warnings: Vec<String> = vec![];
+        let mut warnings: Vec<String> = crate::readiness_extra::credential_warnings(&bot);
+        if !requested.is_empty() && !profiles::covers(expected) {
+            problems.push(format!("Subscription {requested} doesn't cover {runtime}"));
+        }
+        if !profiles::missing(&config.data, &requested).is_empty() {
+            problems.push(profiles::subscription_problem(&config.data, assignments, &requested, false, &computer));
+        }
         let repository_present = path.join("AGENT.md").is_file();
         if !repository_present {
             problems.push("Missing bot repository or AGENT.md".into());
-        } else if let Ok(text) = std::fs::read(path.join("AGENT.md")) {
-            let lines = text.split(|b| *b == b'\n').count() - usize::from(text.ends_with(b"\n"));
-            if lines > 150 {
-                warnings.push(format!("AGENT.md is {lines} lines; keep current rules under 150 and move dated history to memory/decisions.md"));
+        } else {
+            if runtime == "claude" {
+                warnings.extend(crate::readiness_extra::deny_warnings(&path));
+            }
+            if let Ok(text) = std::fs::read(path.join("AGENT.md")) {
+                let lines = text.split(|b| *b == b'\n').count() - usize::from(text.ends_with(b"\n"));
+                if lines > 150 {
+                    warnings.push(format!("AGENT.md is {lines} lines; keep current rules under 150 and move dated history to memory/decisions.md"));
+                }
             }
         }
-        let status = runtimes.get(&runtime).cloned().unwrap_or(Value::Null);
+        let signed_out = |detail: String| {
+            if !requested.is_empty() {
+                profiles::subscription_problem(&config.data, assignments, &requested, true, &computer)
+            } else {
+                detail
+            }
+        };
         if runtime.is_empty() {
             problems.push(NO_RUNTIME.into());
         } else if !RUNTIMES.contains(&runtime.as_str()) {
             problems.push("Unsupported runtime".into());
         } else if !DRIVEN.contains(&runtime.as_str()) {
             // Named below with the other features this runner lacks.
-        } else if status["installed"] != true {
+        } else if runtimes.get(&runtime).is_none_or(|r| r["installed"] != true) {
             problems.push("Runtime executable is not on PATH".into());
+        } else if status["authenticated"] == "rejected" {
+            problems.push(signed_out(text_of(&status["detail"])));
         } else if status["authenticated"] == "missing" || status["authenticated"] == "failed" {
             let d = text_of(&status["detail"]);
-            problems.push(if d.is_empty() { "Runtime sign-in is not ready".into() } else { d });
+            let d = if d.is_empty() { "Runtime sign-in is not ready".to_string() } else { d };
+            problems.push(signed_out(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") }));
         }
         for need in unsupported(config, entry) {
             problems.push(format!("This computer's runner does not do {need} yet; run it on the Python runner for this bot"));
         }
         let mut configuration_valid = RUNTIMES.contains(&runtime.as_str());
         let manifest = manifest_path(&path);
+        let (mut tools, mut mail_request) = (vec![], Value::Null);
         if repository_present && manifest.is_file() {
+            let (t, m, w) = crate::readiness_extra::declared(&bot, &manifest, &runtime, &text_of(&expected["harness"])).await;
+            (tools, mail_request) = (t, m);
+            warnings.extend(w);
             configuration_valid = match std::fs::read_to_string(&manifest) {
                 Ok(text) => {
                     let declared = manifest_keys(&text);
@@ -321,7 +418,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         row.insert("bot".into(), json!(bot));
         row.insert("repository".into(), json!(path.to_string_lossy()));
         row.insert("runtime".into(), json!(runtime));
-        row.insert("profile".into(), json!(""));
+        row.insert("profile".into(), json!(profile_name));
         row.insert("sign_in".into(), status.get("authenticated").cloned().unwrap_or(json!("unknown")));
         row.insert("model".into(), json!(text_of(&expected["model"])));
         row.insert("ready".into(), json!(problems.is_empty()));
@@ -330,6 +427,8 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         row.insert("published".into(), published);
         row.insert("configuration_valid".into(), json!(configuration_valid));
         row.insert("problems".into(), json!(problems));
+        row.insert("tools".into(), json!(tools));
+        row.insert("mail_request".into(), mail_request);
         row.insert("warnings".into(), json!(warnings));
         rows.push(row);
     }
@@ -338,6 +437,17 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
 
 /// The heartbeat's `readiness` document (backend/models.py RunnerReadiness).
 pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], state_dir: &Path) -> Value {
+    // The heartbeat contract forbids unknown fields, so the per-profile rows stay local; `detail` names each.
+    let runtimes: Map<String, Value> = runtimes
+        .iter()
+        .map(|(name, row)| {
+            let mut row = row.clone();
+            if let Some(r) = row.as_object_mut() {
+                r.remove("profiles");
+            }
+            (name.clone(), row)
+        })
+        .collect();
     let mut bots = Map::new();
     for row in checks {
         let mut out = Map::new();
@@ -354,6 +464,11 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
             if let Some(v) = capability.get(key) {
                 out.insert(key.into(), v.clone());
             }
+        }
+        // A Claude Code bot's own skills and commands run like /compact; a harness too old for commands offers none.
+        let builtins = capability["commands"].as_array().cloned().unwrap_or_default();
+        if row["runtime"] == "claude" && !builtins.is_empty() && row["repository_present"] == true && !text_of(&row["repository"]).is_empty() {
+            out.insert("commands".into(), json!(crate::goals::with_repo_commands(&builtins, Path::new(&text_of(&row["repository"])))));
         }
         if !row["published"].is_null() {
             out.insert("published".into(), row["published"].clone());
@@ -376,6 +491,7 @@ pub fn disk_usage(path: &Path) -> Option<(u64, u64)> {
     if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
         return None;
     }
+    #[allow(clippy::unnecessary_cast)] // u32 on some platforms
     let frsize = s.f_frsize as u64;
     Some((s.f_blocks as u64 * frsize, s.f_bavail as u64 * frsize))
 }

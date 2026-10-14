@@ -2,21 +2,35 @@
 //! _rust-runner-plan.md). Same registration file, state directory, lock and outbox, so a computer can switch
 //! between the two engines and back.
 
+// A turn's failure carries its whole report, and the caches key on tuples: both read better as they are.
+#![allow(clippy::result_large_err, clippy::type_complexity)]
+
 mod client;
 mod config;
+mod credential_imports;
 mod env;
 mod events;
+mod drive;
 mod execute;
+mod fallback;
 mod gitcred;
+mod harness_tools;
+mod goals;
 mod hosts;
+mod lanes;
 mod lock;
+mod login;
+mod profiles;
 mod prompt;
 mod readiness;
+mod readiness_extra;
 mod redact;
+mod relays;
 mod runner;
 mod safegit;
 mod signin;
 mod state;
+mod subscription_refresh;
 mod util;
 
 use std::path::PathBuf;
@@ -40,6 +54,11 @@ enum Command {
     Run,
     /// Print this registration's assignments and eligible bots.
     Status,
+    /// Subscription profiles: one provider login per directory.
+    Profile {
+        #[command(subcommand)]
+        action: ProfileAction,
+    },
     /// Git's credential helper for one turn (git runs it; not for people).
     GitCredential {
         #[arg(long)]
@@ -51,8 +70,70 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// Make a profile (the first one added is the default).
+    Add {
+        name: String,
+        /// Use the operator's own logins.
+        #[arg(long)]
+        share_operator: bool,
+    },
+    /// Print the profiles, the default and each bot's.
+    List,
+    /// Sign a profile in to one runtime, interactively.
+    Login { name: String, runtime: String },
+    /// Run a bot on a profile here.
+    Assign { bot: String, name: String },
+}
+
+/// `profile add|list|assign|login` (runner/__main__.py profile_command): local to this computer, no network.
+fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
+    let result = match action {
+        ProfileAction::Add { name, share_operator } => profiles::command(config, "add", Some(&name), share_operator, None),
+        ProfileAction::List => profiles::command(config, "list", None, false, None),
+        ProfileAction::Assign { bot, name } => profiles::command(config, "assign", Some(&name), false, Some(&bot)),
+        ProfileAction::Login { name, runtime } => {
+            if !profiles::RUNTIMES.contains(&runtime.as_str()) {
+                fail(&format!("argument runtime: invalid choice: '{runtime}' (choose from {})", profiles::RUNTIMES.join(", ")));
+            }
+            let entry = config.data.get("profiles").and_then(|p| p.get(&name)).filter(|e| util::truthy(Some(e))).cloned();
+            let Some(entry) = entry else { fail("No such profile on this registration; add it with `profile add`") };
+            let profile = profiles::Profile::new(&name, &util::text_of(&entry["dir"]), util::truthy(entry.get("share_operator")));
+            if profile.share_operator {
+                fail(&format!("Profile {name} shares the operator's own logins; sign in normally"));
+            }
+            let home = profile.home(&runtime).unwrap_or_default();
+            if runtime == "gemini" {
+                let secrets = config.projects_dir().join("secrets");
+                println!("Gemini CLI authenticates with an API key, not an interactive login: put GEMINI_API_KEY in {}/_shared.env or <bot>.env. This profile's Gemini sessions live in {}.", secrets.display(), home.display());
+                return 0;
+            }
+            let command = profiles::login_command(&runtime).unwrap_or(&[]);
+            if command.is_empty() || env::which(command[0], &std::env::var("PATH").unwrap_or_default()).is_none() {
+                fail(&format!("{} is not on PATH", command.first().unwrap_or(&runtime.as_str())));
+            }
+            println!("Signing in to {runtime} for profile {name} in {}", home.display());
+            // Interactive on purpose: the CLI owns the browser flow and prints its own instructions.
+            let status = std::process::Command::new(command[0])
+                .args(&command[1..])
+                .env_clear()
+                .envs(profile.environment(&runtime, &std::env::vars().collect()))
+                .status();
+            return status.ok().and_then(|s| s.code()).unwrap_or(1);
+        }
+    };
+    match result {
+        Ok(text) => {
+            println!("{text}");
+            0
+        }
+        Err(e) => fail(&e),
+    }
+}
+
 fn fail(message: &str) -> ! {
-    eprintln!("usage: tico-runner [--config CONFIG] {{run,status}}\ntico-runner: error: {message}");
+    eprintln!("usage: tico-runner [--config CONFIG] {{run,status,profile}}\ntico-runner: error: {message}");
     std::process::exit(2)
 }
 
@@ -71,7 +152,14 @@ fn main() {
     }
     util::start_clock();
     let path = cli.config.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/tico/runner.json"));
-    let config = config::Config::load(&path).unwrap_or_else(|e| fail(&e));
+    let mut config = config::Config::load(&path).unwrap_or_else(|e| fail(&e));
+    if let Command::Profile { action } = cli.command {
+        std::process::exit(profile_main(action, &mut config));
+    }
+    if let Command::Run = cli.command {
+        // Puts the tools bin on PATH, so it runs before any thread reads the environment.
+        harness_tools::init(&config);
+    }
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio runtime");
     std::process::exit(rt.block_on(async move { start(cli.command, config).await }));
 }

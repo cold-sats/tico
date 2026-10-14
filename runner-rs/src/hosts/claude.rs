@@ -143,6 +143,8 @@ struct Inner {
     done_turns: HashSet<String>,
     replay_fallback_logged: bool,
     reader: Option<tokio::task::JoinHandle<()>>,
+    /// How far each thread's transcript has been read for goal records.
+    goal_offsets: HashMap<String, u64>,
 }
 
 struct Shared {
@@ -298,7 +300,7 @@ impl ClaudeHost {
         if !t.settings.env.is_empty() {
             let mut env = t.settings.env.clone();
             // The login and the session files live under HOME; a trimmed environment must keep it.
-            if env.get("HOME").map_or(true, |h| h.is_empty()) {
+            if env.get("HOME").is_none_or(|h| h.is_empty()) {
                 if let Ok(home) = std::env::var("HOME") {
                     env.insert("HOME".into(), home);
                 }
@@ -319,6 +321,9 @@ impl ClaudeHost {
                 return Err(failed("claude host already has a turn running"));
             }
             let t = inner.threads.get(thread_id).cloned().ok_or_else(|| failed(format!("unknown claude thread {thread_id}")))?;
+            if let Some(size) = transcript(&t.settings, &session_of(thread_id, &t)).and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()) {
+                inner.goal_offsets.insert(thread_id.into(), size);
+            }
             let launched = self.launch(thread_id, &t, effort).map_err(|e| failed(format!("could not start claude: {e}")))?;
             inner.turn = Some((thread_id.into(), turn.clone()));
             inner.reply.insert(turn.clone(), String::new());
@@ -537,6 +542,10 @@ impl ClaudeHost {
         if !msg.is_object() || crate::util::truthy(msg.get("parent_tool_use_id")) {
             return false; // subagent traffic is not the bot's reply
         }
+        if let Some(status) = crate::goals::claude_status(msg) {
+            self.emit(event("goal", Some(tid), None, Value::Object(status)));
+            return false;
+        }
         match msg["type"].as_str().unwrap_or_default() {
             "stream_event" => {
                 let ev = &msg["event"];
@@ -621,6 +630,7 @@ impl ClaudeHost {
                        "usage": {"input": u.input, "cached": u.cached, "output": u.output}}),
             ));
         }
+        self.poll_goal(tid);
         let ok = result.as_ref().is_some_and(|r| !crate::util::truthy(r.get("is_error"))) && rc == 0 && failure.is_none();
         if interrupted {
             self.emit(event("turn_completed", Some(tid), Some(turn), json!({"status": "interrupted"})));
@@ -646,6 +656,47 @@ impl ClaudeHost {
         self.emit(event("status", Some(tid), None, json!({"state": "idle"})));
     }
 
+    /// `/goal <objective>`, or `/goal clear` to pause or clear, as a turn of its own.
+    pub fn start_goal(&self, thread_id: &str, action: &str, objective: &str, effort: Option<&str>) -> Result<String, HostError> {
+        let text = if action == "pause" || action == "clear" { "/goal clear".to_string() } else { format!("/goal {objective}") };
+        self.start_turn(thread_id, &text, effort)
+    }
+
+    /// `/goal` first, as the turn's input, and the prompt written right behind it: Claude reads it as the goal
+    /// starts (a steer), so the goal works on the task's own prompt. Needs steering.
+    pub fn start_goal_turn(&self, thread_id: &str, objective: &str, text: &str, effort: Option<&str>) -> Result<String, HostError> {
+        if !self.supports_steer() {
+            return Err(failed("this Claude Code cannot take a goal and a prompt in one turn"));
+        }
+        let turn = self.start_goal(thread_id, "set", objective, effort)?;
+        if let Err(HostError::SteerRefused(_)) = self.steer(thread_id, &turn, text) {
+            // Only a turn that ended at once refuses it: the goal holds, and the task's next turn brings its prompt.
+            log(&format!("claude[{}]: the task prompt missed the goal turn", self.0.bot));
+        }
+        Ok(turn)
+    }
+
+    /// Goal records this session's transcript gained since the turn began (Claude writes some only there).
+    pub fn poll_goal(&self, thread_id: &str) {
+        let (path, offset) = {
+            let inner = self.inner();
+            let Some(t) = inner.threads.get(thread_id) else { return };
+            let Some(path) = transcript(&t.settings, &session_of(thread_id, t)) else { return };
+            (path, inner.goal_offsets.get(thread_id).copied().unwrap_or(0))
+        };
+        let Ok(bytes) = std::fs::read(&path) else { return };
+        let start = (offset as usize).min(bytes.len());
+        let rest = &bytes[start..];
+        let complete = rest.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+        for line in rest[..complete].split(|b| *b == b'\n') {
+            let Ok(message) = serde_json::from_slice::<Value>(line) else { continue };
+            if let Some(status) = crate::goals::claude_status(&message).filter(|_| !crate::util::truthy(message.get("isSidechain"))) {
+                self.emit(event("goal", Some(thread_id), None, Value::Object(status)));
+            }
+        }
+        self.inner().goal_offsets.insert(thread_id.into(), (start + complete) as u64);
+    }
+
     /// Write `text` into the running turn, or refuse with nothing written once it is over or ending.
     pub fn steer(&self, thread_id: &str, turn_id: &str, text: &str) -> Result<(), HostError> {
         let mut inner = self.inner();
@@ -665,7 +716,7 @@ impl ClaudeHost {
 
     pub fn interrupt(&self, _thread_id: &str, turn_id: &str) {
         let mut inner = self.inner();
-        if !inner.turn.as_ref().is_some_and(|(_, t)| t == turn_id) {
+        if inner.turn.as_ref().is_none_or(|(_, t)| t != turn_id) {
             return; // already over; nothing to stop
         }
         inner.interrupted.insert(turn_id.into());
@@ -674,6 +725,19 @@ impl ClaudeHost {
             p.stopper.terminate(STOP_TIMEOUT);
         }
     }
+}
+
+fn session_of(thread_id: &str, t: &Thread) -> String {
+    t.session_id.clone().unwrap_or_else(|| thread_id.to_string())
+}
+
+/// This exact session's transcript: other bots' and people's transcripts stay private.
+fn transcript(settings: &Settings, session: &str) -> Option<std::path::PathBuf> {
+    let get = |k: &str| if settings.env.is_empty() { std::env::var(k).ok() } else { settings.env.get(k).cloned() }.filter(|v| !v.is_empty());
+    let home = get("HOME").or_else(|| std::env::var("HOME").ok()).unwrap_or_default();
+    let dir = get("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::Path::new(&home).join(".claude"));
+    let name = format!("{session}.jsonl");
+    std::fs::read_dir(dir.join("projects")).ok()?.flatten().map(|e| e.path().join(&name)).find(|p| p.is_file())
 }
 
 fn stderr_tail(file: &mut std::fs::File) -> String {

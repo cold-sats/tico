@@ -79,7 +79,7 @@ struct Built {
 
 fn build(secrets: &[String]) -> Built {
     let mut vals: Vec<String> = values(secrets).into_iter().collect();
-    vals.sort_by(|a, b| b.len().cmp(&a.len()));
+    vals.sort_by_key(|b| std::cmp::Reverse(b.len()));
     let mut forms = BTreeSet::new();
     for v in &vals {
         forms.extend(variants(v));
