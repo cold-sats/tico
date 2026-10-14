@@ -691,6 +691,12 @@ _YES_NO = frozenset("approve can could should shall may do does did is are was w
                     "keep cancel".split())
 
 
+def deadline(item):
+    """When the card is due: a person's task's due date. A bot's own task's due is when it looks again, not a date
+    anyone owes it by."""
+    return item.get("due") if item.get("kind") != "approval" and not H.is_bot(item.get("owner")) else None
+
+
 def yes_no_ask(text):
     """Whether `text`'s first question asks for a yes or a no: it opens with such a word and offers no "or"."""
     question = next((s for s in re.split(r"(?<=[.!?])\s+", str(text or "").strip()) if s.endswith("?")), "")
@@ -848,8 +854,6 @@ def fold_related(items, c, me):
             anchor.setdefault("folded", []).append({k: it.get(k) for k in (
                 "id", "title", "owner", "kind", "person_ask", "note", "status", "due")})
             gone.add(str(it["id"]))
-            if it.get("due") and (not anchor.get("due") or str(it["due"]) < str(anchor["due"])):
-                anchor["due"] = it["due"]
     return [it for it in items if str(it["id"]) not in gone]
 
 
@@ -1035,14 +1039,13 @@ def needs_items(c, auth, who, task_view, older=None):
     for row in raw["approvals"]:
         msg = H.message(c, row["message_id"])
         if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
-            # Its task's title and due date only when the person may read that task.
+            # Its task's title only when the person may read that task.
             try:
                 task = auth.task(c, who, row["task_id"]) if row.get("task_id") else None
             except Problem:
                 task = None
             item = {**row, "kind": "approval", "what": row["kind"],
                     "title": approval_title(row["kind"], row.get("payload"), (task or {}).get("title")),
-                    "due": (task or {}).get("due"),
                     "requester": row["requested_by"], "conversation_id": msg["conversation_id"],
                     "from_person": person_origin(c, H.task(c, row["task_id"]) if row.get("task_id") else None, visible)}
             if row["kind"] == "send":
@@ -1060,7 +1063,7 @@ def needs_items(c, auth, who, task_view, older=None):
         item["need"] = need_of(item)
     return sorted(items, key=lambda x: needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
                                                    x.get("from_person"), x["pressing"], bool(x.get("ask_missing")),
-                                                   x.get("due")))
+                                                   deadline(x)))
 
 
 FLEET_CACHE_S = 15

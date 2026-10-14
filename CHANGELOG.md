@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Needs you says what each card takes, and when.** Needs you is grouped by what an item takes, with a count per group: **Decide**, **Pay**, **Sign in or connect**, **Review and send**, **Do** (Group by **What it takes**, the new default; Asked by and the others are still in the menu). An approval says what it approves: "Send: '$200 for each rental owner you introduce' to Jennie Ooten", "Pay $1,200: LinkedIn ads", "Merge: 'Checkout redesign' (acme/web #412)". A person's task with a deadline shows it ("Due Wed", "Oct 22") and comes first, soonest first; a bot's own task's date is when it looks again, so it does not count. When a bot's ask says what it would do, the card's main button is **Do what you recommend** (R on Decide): one tap answers with that (picking its option if the ask has one) and closes the card (`POST /api/v2/needs-you/recommended`). A bot's task and its child still parked waiting on you about the same thing show as one card, with "+N" and the folded tasks under "Also waiting on this". Overview shows how many items need you and how many went away on their own this week (expired, withdrawn, answered by your Assistant), and `GET /api/v2/needs-you` returns these as `need`, `due`, `recommend`, `folded` and `went_away`.
+
 ## [0.3.43] - 2026-10-14
 
 ### Added

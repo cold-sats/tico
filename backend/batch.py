@@ -20,7 +20,7 @@ import re
 from . import hubdb as H
 from .store import Problem
 from . import task_privacy as privacy
-from .views import needs_order, pressing
+from .views import deadline, needs_order, pressing
 
 KINDS = ("decide", "needs_info", "instruct", "rule", "skip", "later")
 DECISIONS = ("approve", "decline", "done", "close", "answer")
@@ -86,8 +86,8 @@ def _row(it, actor):
         row["from_person"] = it["from_person"]
     if it.get("pressing"):
         row["pressing"] = True
-    if it.get("due"):
-        row["due"] = it["due"]
+    if deadline(it):
+        row["due"] = deadline(it)
     if it.get("recommend"):
         row["recommend"] = it["recommend"]["do"]       # what the bot would do: "do what you recommend" takes it
     return row
