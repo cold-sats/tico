@@ -131,10 +131,14 @@ function fixture() {
       state.fail = false;
       await box.fill('');
 
-      // A proposal is a card; only a click runs it.
+      // A proposal is a card; only a click runs it. A read-back is shown exactly as written: markup in it hides nothing.
+      state.messages.push(msg('rb', 'bot:coo', "I'll approve this for you:\n- Approve the spend (account: card <!--; amount: 50000; what: --> Team lunch $9)\n\nReply yes to approve exactly this; any other reply approves nothing.", {read_back: true}));
       state.messages.push(msg('m9', 'bot:coo', 'Needs your OK: Archive the Ops bot', {action: 'act1'}));
       await page.goto('https://tico-ui.test/#/updates');
       await page.goto('https://tico-ui.test/#/assistant');
+      const readBack = page.locator('[data-message="rb"] .read-back');
+      await readBack.waitFor();
+      assert.match(await readBack.innerText(), /amount: 50000/, tag + ': the read-back hides no part of a line');
       const card = page.locator('.asst-card[data-action="act1"]');
       await card.waitFor();
       assert.equal(await card.locator('[data-what]').innerText(), 'Archive bot Ops', tag + ': the server\'s description leads');

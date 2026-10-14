@@ -953,6 +953,9 @@ def migrate(conn, adopt_legacy=False):
     # A task snoozed until a date, and who snoozed it (backend/task_snooze.py).
     add_column(conn, "tasks", "snoozed_until", "TEXT")
     add_column(conn, "tasks", "snoozed_by", "TEXT")
+    # An approval a person's own Assistant decided for them: whose assistant, and the person's words it acted on.
+    add_column(conn, "approvals", "decided_via", "TEXT")
+    add_column(conn, "approvals", "decided_for_json", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_snoozed ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL")
     # A type whose tasks change status only by moving between its steps (`_task_state`).
     add_column(conn, "task_types", "steps_only", "INTEGER NOT NULL DEFAULT 0")
@@ -5251,8 +5254,12 @@ def approval_decide(conn, actor, approval_id, decision, note=""):
     if row["decision"]:
         refuse(conn, actor, "duplicate", f"{approval_id} was already {row['decision']}")
     ts = now()
-    conn.execute("UPDATE approvals SET decision=?, decided_by=?, decided_at=? WHERE id=?",
-                 (decision, actor, ts, approval_id))
+    # The person's own Assistant deciding on their words (backend/assistant.py): recorded on the approval itself, so its
+    # history says "decided by <assistant> for <person>" with the words quoted, and the person can undo it.
+    delegated = DELEGATION.get() if VIA.get() == "assistant" else None
+    conn.execute("UPDATE approvals SET decision=?, decided_by=?, decided_at=?, decided_via=?, decided_for_json=? "
+                 "WHERE id=?", (decision, actor, ts, "assistant" if delegated else None,
+                                _dump(delegated) if delegated else None, approval_id))
     event(conn, actor, "approval.decide", approval_id, {"decision": decision, "note": note})
     after = approval(conn, approval_id)
     conv = conversation(conn, (message(conn, row["message_id"]) or {}).get("conversation_id")) \
@@ -5939,7 +5946,36 @@ def approval(conn, approval_id):
     row = _one(conn, "SELECT * FROM approvals WHERE id=?", (approval_id,))
     if row:
         row["payload"] = _json(row.get("payload_json"), {}) or {}
+        row["decided_for"] = _json(row.pop("decided_for_json", None), None)
     return row
+
+
+def approval_undo(conn, actor, approval_id):
+    """The person takes back what their Assistant decided for them, while nothing has acted on it: the approval is
+    waiting for them again. A decision of their own, or one already spent, stands."""
+    _writer(conn, actor)
+    row = approval(conn, approval_id)
+    if not row:
+        refuse(conn, actor, "not-found", f"no approval {approval_id}")
+    if row["decided_by"] != actor or row.get("decided_via") != "assistant":
+        refuse(conn, actor, "identity", "only a decision your Assistant made for you can be undone here")
+    if row["consumed_at"]:
+        raise Refused("consumed", "it already ran; it can't be undone")
+    if _one(conn, "SELECT id FROM approvals WHERE payload_hash=? AND decision IS NULL AND id<>?",
+            (row["payload_hash"], approval_id)):
+        raise Refused("duplicate", "the bot already asked for this again; decide that one instead")
+    conn.execute("UPDATE approvals SET decision=NULL, decided_by=NULL, decided_at=NULL, decided_via=NULL, "
+                 "decided_for_json=NULL WHERE id=?", (approval_id,))
+    event(conn, actor, "approval.undo", approval_id, {"was": row["decision"], "decided_for": row.get("decided_for")})
+    conv = conversation(conn, (message(conn, row["message_id"]) or {}).get("conversation_id")) \
+        if row.get("message_id") else None
+    if conv:
+        _write_message(conn, KEEPER, row["requested_by"],
+                       f"Undone: the {'approval' if row['decision'] == 'approved' else 'decline'} of your {row['kind']} request was taken back. It is waiting "
+                       "for a decision again; don't act on it until then.", conv, "notice", {"approval": approval_id},
+                       None, None)
+    _recount(conn, row["requested_by"])
+    return approval(conn, approval_id)
 
 
 def approvals(conn, requested_by=None, decision=None, pending=False):
@@ -5957,6 +5993,7 @@ def approvals(conn, requested_by=None, decision=None, pending=False):
     out = _rows(conn.execute(sql + " ORDER BY created", args))
     for row in out:
         row["payload"] = _json(row.get("payload_json"), {}) or {}
+        row["decided_for"] = _json(row.pop("decided_for_json", None), None)
     return out
 
 

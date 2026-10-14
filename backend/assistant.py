@@ -20,6 +20,7 @@ import asyncio
 import json
 import re
 import secrets
+import unicodedata
 import uuid
 from pathlib import Path
 from urllib.parse import quote
@@ -77,7 +78,8 @@ def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, di
         return True
     if method != "POST":
         return False
-    if path in ("/api/v2/updates/read", "/api/v2/changelog/read", "/api/notes", "/api/v2/assistant/actions"):
+    if path in ("/api/v2/updates/read", "/api/v2/changelog/read", "/api/notes", "/api/v2/assistant/actions",
+                "/api/v2/assistant/read-back"):
         return True
     try:
         fields = json.loads(body or b"{}")
@@ -110,12 +112,43 @@ def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, di
 # its id, or `turn` for the message that started the run). The server checks the message, not the words: the person's
 # own, typed in their own Assistant room, in the last INSTRUCTION_TTL_S. The turn is the person, so their rights stay the
 # ceiling: only an approval addressed to them, only a question asked of them. A decline is undone by asking again, so it
-# is a task action; approving (send, spend, publish, merge), running a task now and the rest stay a click, and so does all
-# of it when the owner's rule "Assistant acts without asking" is off.
+# is a task action. Approving (send, spend, publish, merge) is a click on a card unless the person turned on "My
+# assistant can decide approvals for me" (`decides`, below) and the team allows it; then an approval addressed to them is
+# decided on their words too (`approval_words`). Running a task now and the rest stay a click, and so does all of it
+# when the owner's rule "Assistant acts without asking" is off.
 INSTRUCTION_TTL_S = 30 * 60
 _INSTRUCTED = [re.compile(p) for p in (r"/api/v2/tasks/[^/]+", r"/api/v2/tasks/[^/]+/(comments|links)",
                                        r"/api/v2/messages/[^/]+/answer")]
 _DECIDING = re.compile(r"/api/v2/approvals/([^/]+)")
+DECIDES_KEY = "assistant.decides_approvals"
+
+
+def decides(c, actor):
+    """Whether this person's own Assistant may decide approvals addressed to them: their own switch in Settings, which
+    only they turn on, and the team's rule (backend/team_rules.py), on unless the owner turned it off."""
+    from . import team_rules
+    row = c.execute("SELECT value_json FROM preferences WHERE actor=? AND key=?", (actor, DECIDES_KEY)).fetchone()
+    on = bool(row) and json.loads(row[0]) is True
+    allowed = team_rules.load(c)["assistant_approvals"]
+    return {"decides_approvals": on, "team_allows": allowed, "active": on and allowed}
+
+
+def approving(method, path, body=None):
+    """Whether this request approves an approval (as opposed to declining one, or anything else)."""
+    return (method == "POST" and bool(_DECIDING.fullmatch(normalize_path(path) or ""))
+            and _fields(body).get("decision") == "approved")
+
+
+def approve_hint(settings, state):
+    """What the Assistant is told when it may not approve: the one sentence it passes on to the person."""
+    where = f"Settings > {settings.assistant_name}"
+    if not state["team_allows"]:
+        return ("Approving stays the person's click on a card: the team's owner turned off assistants deciding "
+                "approvals (Settings > Humans). Tell them that in one sentence and propose a card (`hub assistant "
+                "propose`)")
+    return ("Approving is the person's click on a card until they let you decide approvals. Tell them in one sentence: "
+            f"they can turn on “My assistant can decide approvals for me” in {where}. Then propose a card "
+            "(`hub assistant propose`)")
 
 
 def _fields(body):
@@ -128,12 +161,13 @@ def _fields(body):
     return body if isinstance(body, dict) else {}
 
 
-def instructed_route(method, path, body=None):
+def instructed_route(method, path, body=None, decides=False):
+    """Whether this write may run on the person's cited words. `decides`: their Assistant may decide approvals."""
     path = normalize_path(path)
     if method != "POST" or not path or path == "/api/v2/tasks/dry-run":
         return False
     if _DECIDING.fullmatch(path):
-        return _fields(body).get("decision") == "declined"
+        return _fields(body).get("decision") == "declined" or (decides and _fields(body).get("decision") == "approved")
     return any(p.fullmatch(path) for p in _INSTRUCTED)
 
 
@@ -172,6 +206,107 @@ def require_named_approval(c, who, ref):
         raise Problem("approve_not_asked", "Approving is the person's own decision: their message must name it (approve, "
                       "merge, publish, send, spend). Decline, answer or close what they asked for, and leave the "
                       "approvals for them", 403)
+
+
+# Approving on the person's words is bound to a list they saw: the Assistant first posts its read-back (`read_back`,
+# below), which the server writes whole from the approvals themselves and records with their ids. Then the person's plain
+# yes, with nothing else from the Assistant in between, approves exactly those, never anything else addressed to them.
+AFFIRM = re.compile(r"(yes|yep|yeah|y|ok|okay|sure|go ahead|go|do it|please do|confirm(ed)?|correct|that'?s right)"
+                    r"\b[\s,.!]*(please|thanks|thank you|go ahead|do it)?[\s.!]*", re.I)
+READ_BACK = "approval.read_back"
+
+
+def plain_line(text):
+    """One read-back line, shown exactly as written: a requesting bot's payload can't add lines, a footer or a question,
+    hide part of the line behind markup (an HTML comment opened in one field and closed in another), or reorder it with
+    invisible format characters."""
+    text = "".join(ch for ch in str(text) if unicodedata.category(ch) != "Cf")
+    return re.sub(r"\s+", " ", text).strip().replace("<", "‹").replace(">", "›")
+
+
+# Known fields first, in this order; every other payload key follows, sorted, so a field added later is shown, not
+# left out. Only the hashes are not: the person can't check them and the fields beside them say what they cover.
+APPROVAL_FIELDS = ("amount", "to", "cc", "mailbox", "repo", "pr", "url", "account", "subject", "title", "what",
+                   "attachments")
+# A read-back cuts nothing: an approval with a field (or a key) longer than this stays the person's click.
+FIELD_LIMIT = 400
+KEY = re.compile(r"[A-Za-z0-9_]{1,40}")
+QUOTES = '"“”„‟″〝〞〟＂«»'
+
+
+def hidden_key(key):
+    return str(key).endswith("sha256") or key == "file_id"
+
+
+def field_text(value):
+    """One payload value written out whole: a list joined with ", ", a file as its name and size, any other object as
+    its key=value pairs; never a hash."""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(field_text(v) for v in value)
+    if isinstance(value, dict):
+        rest = " ".join(f"{k}={field_text(v)}" for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
+                        if not hidden_key(k) and k not in ("name", "size"))
+        head = (field_text(value["name"]) + (f" ({value['size']} bytes)" if "size" in value else "")
+                if "name" in value else "")
+        return " ".join(x for x in (head, rest) if x)
+    return str(value)
+
+
+def field_value(value, limit=FIELD_LIMIT):
+    """One payload value as a card or read-back shows it: one plain line, at most `limit` characters, no quotes of its
+    own to close the ones around it."""
+    text = plain_line(field_text(value)).translate({ord(q): "'" for q in QUOTES})
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def approval_fields(payload):
+    """The payload keys a card or read-back shows, known ones first."""
+    shown = [k for k in payload if not hidden_key(k)]
+    return [k for k in APPROVAL_FIELDS if k in shown] + sorted(str(k) for k in shown if k not in APPROVAL_FIELDS)
+
+
+def too_long(payload):
+    """The fields a read-back could not show whole (or whose key is not a plain name): the approval stays a click."""
+    return [str(k) for k in payload if not hidden_key(k) and (
+        not KEY.fullmatch(str(k)) or field_value(payload[k], 10 ** 6) != field_value(payload[k]))]
+
+
+def approval_id(path):
+    m = _DECIDING.fullmatch(normalize_path(path) or "")
+    return m.group(1) if m else None
+
+
+def approval_words(c, who, cited, assistant_bot, approval):
+    """What an approval the Assistant decides for the person is recorded with: their words and the read-back they
+    answered. The cited message must be a plain yes, the last thing anyone else said in the room before it (since the
+    person's previous message) the read-back the server wrote, listing this approval, and nothing the person wrote
+    after it: "wait, no" takes it back. Their own sentence, words in a file, a page, a bot's message or the read-back
+    alone never approve, and the Assistant never approves what it asked for itself."""
+    bot = "bot:" + assistant_bot
+    if (H.approval(c, approval) or {}).get("requested_by") == bot:
+        raise Problem("own_request", "You asked for this approval yourself, so it stays the person's click: propose it "
+                      "on a card (`hub assistant propose`)", 403)
+    msg = H.message(c, cited) or {}
+    words = str(msg.get("body") or "").strip()
+    room, at = msg.get("conversation_id"), str(msg.get("created") or "")
+    back = None
+    later = c.execute("SELECT 1 FROM messages WHERE conversation_id=? AND from_actor=? AND created>? AND id<>? "
+                      "AND deleted_at IS NULL LIMIT 1", (room, who.actor, at, cited)).fetchone()
+    if len(words) <= 60 and AFFIRM.fullmatch(words) and not later:
+        before = c.execute("SELECT created FROM messages WHERE conversation_id=? AND from_actor=? AND created<? "
+                           "AND id<>? AND deleted_at IS NULL ORDER BY created DESC LIMIT 1",
+                           (room, who.actor, at, cited)).fetchone()
+        last = c.execute("SELECT m.id, m.from_actor, m.body, e.detail_json FROM messages m LEFT JOIN events e "
+                         "ON e.target=m.id AND e.action=? WHERE m.conversation_id=? AND m.from_actor<>? AND m.created>=? AND m.created<=? "
+                         "AND m.id<>? AND m.deleted_at IS NULL ORDER BY m.created DESC, m.rowid DESC LIMIT 1",
+                         (READ_BACK, room, who.actor, before["created"] if before else "", at, cited)).fetchone()
+        if last and last["from_actor"] == bot and last["detail_json"]:
+            back = {"body": last["body"], "approves": (json.loads(last["detail_json"]) or {}).get("approves") or []}
+    if not back or approval not in back["approves"]:
+        raise Problem("approve_not_asked", "Approving needs the person's yes to your read-back: post the list with "
+                      "`hub approval read-back <id>...` as your reply and end the turn; their plain yes to it approves "
+                      "exactly what it lists", 403)
+    return {"words": preview(words, 300), "read_back": back["body"], "approves": back["approves"]}
 
 
 def instruction(c, who, ref):
@@ -354,8 +489,10 @@ def describe(c, method, path, body):
         verb = {"approved": "Approve", "declined": "Decline"}.get(body.get("decision"), "Decide")
         if not row:
             return f"{verb} approval {aid}"
-        detail = "; ".join(f"{k}: {v}" for k, v in (row.get("payload") or {}).items() if k in
-                           ("subject", "to", "what", "amount", "account", "url", "repo", "pr", "title"))[:240]
+        # What the person says yes to: the amount and target first, each field cleaned, capped and quoted on its own,
+        # so a long or crafted field (padding, "card; amount: 9") can't push a later one out or pose as it.
+        payload = row.get("payload") or {}
+        detail = "; ".join(f"{field_value(k, 40)}: “{field_value(payload[k])}”" for k in approval_fields(payload))
         return (f"{verb} the {row['kind']} approval requested by {who(row['requested_by'])}"
                 + (f" ({detail})" if detail else "") + f", {age(row['created'])}"
                 + (f"; reason: {preview(body['note'], 120)}" if body.get("note") else ""))
@@ -1081,6 +1218,107 @@ def install(app, store, auth, mutate, onboarding):
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner turns the " + settings.assistant_name + " on", 403)
         return mutate(request, body, lambda c: onboarding.turn_on_assistant(c, who))
+
+    @app.get("/api/v2/assistant/settings")
+    def my_settings(request: Request):
+        who = person(request)
+        with store.read() as c:
+            return {**decides(c, who.actor), "where": f"Settings > {settings.assistant_name}"}
+
+    @app.post("/api/v2/assistant/settings")
+    def set_my_settings(request: Request, body: M.AssistantSettings):
+        """Only the person, signed in to the app: never their Assistant, a bot, or a token turning it on for them."""
+        who = own(request)
+        if body.decides_approvals and who.via_token:
+            raise Problem("forbidden", "Turn this on in " + settings.app_name + " itself, in Settings > "
+                          + settings.assistant_name, 403)
+
+        def work(c):
+            before = decides(c, who.actor)["decides_approvals"]
+            c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,?,?) ON CONFLICT(actor,key) "
+                      "DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
+                      (who.actor, DECIDES_KEY, json.dumps(body.decides_approvals), H.now()))
+            if before != body.decides_approvals:
+                H.event(c, who.actor, "assistant.decides_approvals", who.actor, {"on": body.decides_approvals})
+            return {**decides(c, who.actor), "where": f"Settings > {settings.assistant_name}"}
+        return mutate(request, body, work)
+
+    @app.get("/api/v2/assistant/decisions")
+    def my_decisions(request: Request, days: int = 30):
+        """The approvals this person's Assistant decided for them, newest first, each with their words and whether it
+        can still be undone (nothing has acted on it yet)."""
+        who = own(request)
+        since = H.shift(H.now(), days=-max(1, min(days, 90)))
+        with store.read() as c:
+            rows = c.execute("SELECT a.id FROM approvals a JOIN messages m ON m.id=a.message_id WHERE a.decided_by=? "
+                             "AND a.decided_via='assistant' AND m.to_actor=? AND a.decided_at>=? "
+                             "ORDER BY a.decided_at DESC LIMIT 200", (who.actor, who.actor, since)).fetchall()
+            out = []
+            for r in rows:
+                row = H.approval(c, r["id"])
+                if row["kind"] == "support":
+                    raise Problem("approve_support", "A report to the Tico team is sent only on the person's own "
+                                  "click, so leave it out of the read-back", 403)
+                if cut := too_long(row.get("payload") or {}):
+                    raise Problem("approve_too_long", f"Approval {aid} has more in {', '.join(field_value(k, 40) for k in cut)} "
+                                  "than the read-back can show in full, so it stays the person's click: leave it out", 409)
+                what, _ = describe(c, "POST", "/api/v2/approvals/" + row["id"], {"decision": row["decision"]})
+                out.append({"id": row["id"], "kind": row["kind"], "decision": row["decision"],
+                            "what": what.split(" ", 1)[-1],          # "the publish approval requested by ..."
+                            "decided_at": row["decided_at"], "decided_for": row.get("decided_for"),
+                            "consumed_at": row["consumed_at"], "can_undo": not row["consumed_at"]})
+            return {"decisions": out, "assistant": settings.assistant_name}
+
+    @app.post("/api/v2/assistant/read-back")
+    def read_back(request: Request, body: M.AssistantReadBack):
+        """The Assistant's list of what it is about to approve for the person, posted in their chat as its reply. The
+        server writes all of it from the approvals themselves, so what the person says yes to is what runs, and records
+        the ids: only those may then be approved, on their yes (`approval_words`)."""
+        who = person(request)
+        if who.via != "assistant" or who.confirmed or not who.attempt_id:
+            raise Problem("forbidden", "Only the " + settings.assistant_name + ", in the person's own chat, reads back "
+                          "approvals", 403)
+        ids = list(dict.fromkeys(body.approvals))
+
+        def work(c):
+            state = decides(c, who.actor)
+            if not state["active"]:
+                raise Problem("approve_setting_off", approve_hint(settings, state), 403)
+            room = find_room(c, who.actor)
+            if not room:
+                raise Problem("not_found", "No Assistant chat", 404)
+            lines = []
+            for aid in ids:
+                row = H.approval(c, aid)
+                if not row or (H.message(c, row.get("message_id")) or {}).get("to_actor") != who.actor:
+                    raise Problem("forbidden", "That approval is not addressed to you", 403)
+                if row["decision"]:
+                    raise Problem("conflict", f"Approval {aid} is already decided", 409)
+                if row["requested_by"] == "bot:" + settings.assistant_bot:
+                    raise Problem("own_request", "You asked for this approval yourself, so it stays the person's "
+                                  "click: propose it on a card (`hub assistant propose`)", 403)
+                if row["kind"] == "support":
+                    raise Problem("approve_support", "A report to the Tico team is sent only on the person's own "
+                                  "click, so leave it out of the read-back", 403)
+                if cut := too_long(row.get("payload") or {}):
+                    raise Problem("approve_too_long", f"Approval {aid} has more in {', '.join(field_value(k, 40) for k in cut)} "
+                                  "than the read-back can show in full, so it stays the person's click: leave it out", 409)
+                what, _ = describe(c, "POST", "/api/v2/approvals/" + aid, {"decision": "approved"})
+                lines.append("- " + plain_line(what))
+            n = len(ids)
+            text = (f"I'll approve {'this' if n == 1 else f'these {n}'} for you:\n" + "\n".join(lines)
+                    + "\n\nReply yes to approve exactly " + ("this" if n == 1 else "these")
+                    + "; any other reply approves nothing.")
+            # The reply to the person's message: the turn's closing text is not posted after it (backend/execution.py),
+            # so their next message answers this list and nothing else.
+            turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
+                             (who.attempt_id,)).fetchone()
+            msg = H._write_message(c, "bot:" + settings.assistant_bot, who.actor, text, room, "say",
+                                   {"assistant": True, "read_back": True}, turn["message_id"] if turn else None, None,
+                                   delivered_at=H.now())
+            H.event(c, who.actor, READ_BACK, msg["id"], {"approves": ids})
+            return {"message_id": msg["id"], "approves": ids, "text": text}
+        return mutate(request, body, work)
 
     @app.post("/api/v2/assistant/actions")
     def propose(request: Request, body: M.AssistantAction):

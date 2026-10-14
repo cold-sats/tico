@@ -585,6 +585,16 @@ class ApprovalDecision(Contract):
     note: str = Field(default="", max_length=2000)
 
 
+class AssistantSettings(Contract):
+    """A person's own Assistant settings (Settings > Assistant)."""
+    decides_approvals: StrictBool
+
+
+class AssistantReadBack(Contract):
+    """The approvals the Assistant is about to approve for the person, read back in their chat first."""
+    approvals: Annotated[list[Annotated[str, Field(min_length=1, max_length=64)]], Field(min_length=1, max_length=100)]
+
+
 class ApprovalConsume(Contract):
     payload_hash: str = Field(min_length=64, max_length=64)
 
@@ -1328,6 +1338,7 @@ class AccessLimits(Contract):
 class AccessRules(Contract):
     """Team rules the owner tightens (backend/team_rules.py); only what is sent changes."""
     assistant_direct: bool | None = None
+    assistant_approvals: bool | None = None
     botops_direct: bool | None = None
     botops_manages_bots: bool | None = None
     admin_credentials: bool | None = None

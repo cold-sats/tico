@@ -524,8 +524,10 @@ def run(args, who=None):
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)
-        if sub == "decline":
-            return post("approvals/" + args.id, {"decision": "declined", "note": args.note},
+        if sub == "read-back":
+            return post("assistant/read-back", {"approvals": args.ids})
+        if sub in ("approve", "decline"):
+            return post("approvals/" + args.id, {"decision": sub + "d", "note": args.note},
                         delegate=getattr(args, "on_behalf_of", None) or False)
         payload = json.loads(Path(args.payload_file).read_text() if args.payload_file else args.payload or "{}")
         return post("approvals", {"kind": args.kind, "payload": payload, "task_id": args.task})

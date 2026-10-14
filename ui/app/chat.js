@@ -347,7 +347,11 @@ function v2MessageHTML(m) {
       <span class="spacer" style="flex:1"></span>
       <span class="tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</span></div>
     <div class="bubble ${mine ? 'you' : 'bot reply'}"><span class="who">${who}</span>${
-      mine ? esc(m.body || '') : `<div class="md">${safeMd(m.body || '', {shortLinks: true})}</div>`}${chatCopyHTML(m.body)}</div>
+      mine ? esc(m.body || '')
+        // The Assistant's read-back of what it will approve is shown exactly as written, never formatted: a requesting
+        // bot's fields can't hide part of what the person says yes to.
+        : m.refs?.read_back ? `<div class="read-back" style="white-space:pre-line">${esc(m.body || '')}</div>`
+        : `<div class="md">${safeMd(m.body || '', {shortLinks: true})}</div>`}${chatCopyHTML(m.body)}</div>
     ${(m.refs?.warnings || []).map(w => `<div class="chat-warn" title="From the runner, not the bot">${esc(w.charAt(0).toUpperCase() + w.slice(1))}</div>`).join('')}
     ${S.me?.cloud ? chatAttachmentsHTML(m.refs?.attachments || []) : ''}
     ${v2RunHTML(m)}${v2MessageCards(m)}</div>`;

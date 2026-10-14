@@ -10,7 +10,7 @@ const PEOPLE_PROXY = {cloudflare: 'Cloudflare Access', 'aws-alb': 'your Cognito 
 const PEOPLE_ROLE = {owner: 'Owner', admin: 'Admin', member: 'Member'};
 const PEOPLE_SOURCE = {google: 'Google Workspace', entra: 'Microsoft Entra ID', scim: 'SCIM'};
 // Team rules the owner turns off to tighten (backend/team_rules.py): all on by default.
-const PEOPLE_RULES = [['assistant_direct', 'Assistant acts without asking'], ['botops_direct', 'BotOps changes providers and limits without asking'],
+const PEOPLE_RULES = [['assistant_direct', 'Assistant acts without asking'], ['assistant_approvals', 'People may let their Assistant decide their approvals'], ['botops_direct', 'BotOps changes providers and limits without asking'],
   ['botops_manages_bots', 'BotOps manages every bot'],
   ['admin_credentials', 'Admins store credentials'], ['members_store_credentials', 'Members store credentials for their bots'], ['admin_sql', 'Admins see SQL'], ['member_tokens', 'Members make personal tokens'],
   ['bots_go_ahead', 'Bots go ahead on their recommendation when nobody answers']];

@@ -130,6 +130,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
     hub approval show <id>
+    hub approval read-back <id>...         the Assistant: the list it will approve, as its reply; the person's yes runs it
+    hub approval approve <id> [--note "..."] [--on-behalf-of turn]
+                                           a person approves one addressed to them (the Assistant: when they let it
+                                           decide approvals and asked)
     hub approval decline <id> [--note "why"] [--on-behalf-of turn]
                                            a person declines one addressed to them (the Assistant: when they asked)
     hub listening save --file run.json     Listening: one sweep and the posts it saw (status ok|blocked|
@@ -1268,6 +1272,14 @@ def parser():
     s = appr.add_parser("show")
     s.add_argument("id")
     s.set_defaults(fn="approval show")
+    s = appr.add_parser("read-back", help="the Assistant: list in the person's chat the approvals it will approve")
+    s.add_argument("ids", nargs="+")
+    s.set_defaults(fn="approval read-back")
+    s = appr.add_parser("approve", help="approve an approval addressed to you")
+    s.add_argument("id")
+    s.add_argument("--note", default="")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
+    s.set_defaults(fn="approval approve")
     s = appr.add_parser("decline", help="decline an approval addressed to you, with a reason")
     s.add_argument("id")
     s.add_argument("--note", default="")
