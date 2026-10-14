@@ -237,7 +237,8 @@ function kpiEditForm(k) {
 
 function kpiPanelBind(dlg, d) {
   const k = d.kpi, body = dlg.querySelector('.kpi-body');
-  const again = async () => { await kpiOpen(k.id); if (typeof goalsRefresh === 'function') { await goalsRefresh(); if (GOALS_ST && $('#goal-body')) goalsRender(GOALS_ST); } };
+  // A reply can land after the person has left this KPI (back, closed, another goal): redraw it only while it shows.
+  const again = async () => { if (dlg.open && dlg.dataset.kpi === k.id) await kpiOpen(k.id); if (typeof goalsRefresh === 'function') { await goalsRefresh(); if (GOALS_ST && $('#goal-body')) goalsRender(GOALS_ST); } };
   dlg.querySelector('[data-kpi-close]').onclick = () => dlg.close();
   bindProposals(body, again);
   const inPanel = dlg.id === 'goal-panel' && GOALS_ST;
@@ -531,8 +532,10 @@ function goalPanelDialog(state) {
     dlg.addEventListener('close', () => {
       const st = dlg._state;
       if (!st || dlg.open) return;   // the event comes late: the panel may be open again already
+      const goal = st.panel?.goal;
       st.panel = null;
-      if (st === GOALS_ST && location.hash.startsWith(GOALS + '/')) history.replaceState(null, '', GOALS);
+      // Only the address this panel set: a link followed before the event arrives names another goal and stays.
+      if (st === GOALS_ST && goal && location.hash === GOALS + '/' + encodeURIComponent(goal)) history.replaceState(null, '', GOALS);
     });
     document.body.appendChild(dlg);
   }

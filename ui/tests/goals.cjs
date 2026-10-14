@@ -92,7 +92,9 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (p === '/api/v2/kpis/k-act' && !post) return json(detail);
       if (p === '/api/v2/kpis/k-retired' && !post) return json({...detail, kpi: archivedKpi, links: [], may_edit: archivedMayEdit});
       if (p === '/api/v2/kpis/k-retired/restore' && post) { archivedKpi.archived_at = null; return json({kpi: archivedKpi}); }
-      if (p === '/api/v2/kpis/k-retired/archive' && post) { archivedKpi.archived_at = new Date().toISOString(); return json({kpi: archivedKpi}); }
+      if (p === '/api/v2/kpis/k-retired/archive' && post) { archivedKpi.archived_at = new Date().toISOString();
+        // The reply lands while the test has moved on (back, closed, a link to another goal): it must not reopen the KPI.
+        await new Promise(r => setTimeout(r, 250)); return json({kpi: archivedKpi}); }
       if (/^\/api\/v2\/kpis\/[^/]+\/readings$/.test(p) && post) return json({reading: {id: 'r-new'}});
       const link = p.match(/^\/api\/v2\/goals\/([^/]+)\/kpis$/);
       if (link && post) { goals.find(g => g.id === link[1]).kpis.push(kpi('k-link', body.name, {freshness: 'missing', latest: null, status: 'gray'})); return json({kpi: {}}); }
@@ -268,7 +270,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert.equal(await panel.locator('[data-kpi="k-retired"]').count(), 0, 'archived KPI is absent from the default active view');
     await panel.locator('[data-gp-history]').click();
     await panel.locator('.gp-history-list [data-kpi="k-retired"]').waitFor();
-    assert.match(requests.join('\n'), /GET \/api\/v2\/kpis$/);
+    assert.match(requests.join('\n'), /^GET \/api\/v2\/kpis$/m);
     assert.match(await panel.locator('.gp-history-list').innerText(), /Archived KPIs[\s\S]*Retired conversion/i);
     await panel.locator('.gp-history-list [data-kpi="k-retired"]').click();
     await panel.locator('[data-kpi-archive]').waitFor();
@@ -313,7 +315,14 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       await page.locator('[data-gm-thread]', {hasText: 'Updated the goal.'}).waitFor();
       await page.screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-phone-test.png')});
     }
-    const cmo = await row('bot:cmo').boundingBox(), seo = await row('bot:seo').locator('.gt-av').boundingBox(), ana = await row('human:ana').locator('.gt-av').boundingBox();
+    // Measured in one step: a refresh may redraw the tree between separate reads.
+    const {cmo, seo, ana} = await page.evaluate(() => {
+      const box = (owner, inner = '') => {
+        const r = document.querySelector(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont) ${inner}`).getBoundingClientRect();
+        return {x: r.x, height: r.height};
+      };
+      return {cmo: box('bot:cmo'), seo: box('bot:seo', '.gt-av'), ana: box('human:ana', '.gt-av')};
+    });
     assert(cmo.height >= 44 && cmo.height <= 80, 'name and goal on two lines: ' + cmo.height);
     assert(seo.x - ana.x <= 22, 'a smaller indent: ' + (seo.x - ana.x));
     assert.equal(await row('bot:cmo').locator('.gt-kn').isVisible(), true, 'a count instead of chips');
