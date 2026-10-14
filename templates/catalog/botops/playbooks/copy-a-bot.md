@@ -25,6 +25,8 @@ for a copy.
 - The original's files come from this computer's workspace, or, when the bot runs on another computer, from its GitHub repository
   (read-only, for a bot they may read). If the command says the original's repository isn't on this computer or GitHub, tell them its
   owner has to publish it, and stop; if it is some other failure, `hub support file "<what they asked, what the command said>"`.
+- `--computer` places the copy once it is made. Until GitHub has its history only this computer holds it, so another computer
+  is refused (`placement.problem` says which to use): leave `--computer` out, take it live here, and move it once it is published.
 - The built-in bots (the Assistant, BotOps, the Librarian, the Goal Manager) are not copied. Explain that limit in one line and offer the nearest catalog role
   (`playbooks/build-me-a-bot.md`). Do not create it or call it a copy unless they choose it.
 
