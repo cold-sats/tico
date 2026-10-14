@@ -652,26 +652,104 @@ class WaitingWithDependency(HubCase):
         self.refused('not-found', TR.relate, self.conn, CMO, task['id'], blocker['id'], 'blocked_by')
         self.assertEqual(TR.blocker_ids(self.conn, task['id']), [])
 
-    def test_a_task_waiting_on_a_person_stays_waiting_and_counts_until_they_answer(self):
+    def test_a_bots_ask_to_a_person_is_one_small_subtask_and_its_task_stays_the_bots_until_they_answer(self):
         H.status_set(self.conn, H.KEEPER, "cmo", state="idle")
         needs = lambda: H.status(self.conn, "cmo")["needs_human"]
-        task = H.task_create(self.conn, CMO, 'Fix the build host', '', CMO, private=False)
-        after = H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana',
-                              note='Restart the build host; it refuses SSH')
-        self.assertEqual((after['waiting_on'], needs()), (ANA, 1))
-        self.assertEqual(H.waiting_for(self.conn, after), 'ana to act')
-        self.assertEqual(H.sweep_stranded(self.conn, at=H.shift(H.now(), hours=48)), [])
-        self.assertEqual([t['id'] for t in H.needs_you(self.conn, 'ana')['waiting']], [task['id']])
-        H.task_comment(self.conn, ANA, task['id'], 'Restarted it')
-        self.assertEqual((H.task(self.conn, task['id'])['waiting_on'], needs()), (None, 0))
-        # A question to a person counts too, once per task, until it is answered.
-        other = H.task_create(self.conn, ANA, 'Draft the launch post', '', CMO)
-        ask = H.task_ask(self.conn, CMO, other['id'], 'Which date?')
+        ask = "Restart the build host? It refuses SSH, and I'll rerun the deploy after."
+        task = H.task_create(self.conn, CMO, 'Fix the build host', 'The deploy fails at the SSH step.', CMO, private=False)
+        after = H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana', note=ask)
+        # The task stays the bot's, blocked, and is not itself a card for Ana.
+        self.assertEqual((after['owner'], after['status'], after['waiting_on'], after['note']),
+                         (CMO, 'waiting', None, f'Blocked on Ana Rivera: {ask}'))
+        card = H.task(self.conn, after['asked_in']['id'])
+        self.assertEqual((card['owner'], card['requester'], card['title'], card['body'], card['status']),
+                         (ANA, CMO, 'Restart the build host?', ask, 'open'))
+        self.assertEqual((TR.parent_of(self.conn, card['id']), TR.blocker_ids(self.conn, task['id'])),
+                         (task['id'], [card['id']]))
+        mine = H.needs_you(self.conn, 'ana')
+        self.assertEqual(([t['id'] for t in mine['tasks']], mine['waiting']), ([card['id']], []))
         self.assertEqual(needs(), 1)
-        H.answer(self.conn, ANA, ask['id'], 'Friday')
+        self.assertEqual(H.waiting_for(self.conn, H.task(self.conn, task['id'])), 'an open child task')
+        self.assertEqual(H.sweep_stranded(self.conn, at=H.shift(H.now(), hours=48)), [])
+        # Asking again, as the note reads now or as first said, makes no second card.
+        for note in (None, ask):
+            H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana', note=note)
+        self.assertEqual(TR.child_ids(self.conn, task['id']), [card['id']])
+        self.assertEqual(H.task_comments(self.conn, card['id'], actor=ANA), [])
+        # Ana says yes: the bot hears it once, on its task, which opens again with her answer. No second ask.
+        H.task_update(self.conn, ANA, card['id'], status='done', note='Yes. Restarted it.')
+        back = H.task(self.conn, task['id'])
+        self.assertEqual((back['status'], back['note'], TR.blocker_ids(self.conn, task['id'])),
+                         ('open', 'Ana Rivera answered: Yes. Restarted it.', []))
+        told = [m['body'] for m in H.messages(self.conn, task['conversation_id']) if m['to_actor'] == CMO
+                and ('Restarted it' in m['body'] or m['body'].startswith('Unblocked'))]
+        self.assertEqual(len(told), 1, told)
+        self.assertEqual((needs(), H.needs_you(self.conn, 'ana')['tasks']), (0, []))
+        # No is an answer too.
+        other = H.task_create(self.conn, CMO, 'Buy a signing key', '', CMO, private=False)
+        card = H.task_update(self.conn, CMO, other['id'], status='waiting', waiting_on='ana',
+                             note='Buy a signing key for $5? If yes, I will order it today.')['asked_in']
+        H.task_update(self.conn, ANA, card['id'], status='declined', note='No. Use the old one.')
+        self.assertEqual((H.task(self.conn, other['id'])['status'], H.task(self.conn, other['id'])['note']),
+                         ('open', 'Ana Rivera answered: No. Use the old one.'))
+        # A question to a person counts too, once per task, until it is answered.
+        asked = H.task_create(self.conn, ANA, 'Draft the launch post', '', CMO)
+        question = H.task_ask(self.conn, CMO, asked['id'], 'Which date?')
+        self.assertEqual(needs(), 1)
+        H.answer(self.conn, ANA, question['id'], 'Friday')
         self.assertEqual(needs(), 0)
         secret = H.task_create(self.conn, CMO, 'Review the payroll export', '', CMO, private=True)
-        self.refused('private', H.task_update, self.conn, CMO, secret['id'], status='waiting', waiting_on='ben')
+        self.refused('private', H.task_update, self.conn, CMO, secret['id'], status='waiting', waiting_on='ben',
+                     note='Approve the payroll export? If yes, I will send it.')
+
+    def test_one_question_one_card_when_bots_chain_on_the_same_person(self):
+        ask = "Run the vendor trial once with the key you sent? If yes, I'll add the results to the report."
+        root = H.task_create(self.conn, CMO, 'Assess the vendor trial', '', CMO, private=False)
+        # The bot hands another bot part of the work, which then needs Ana for the same thing.
+        part = H.task_create(self.conn, CMO, 'Store the vendor key', 'Store it for the test.', SEO,
+                             parent_id=root['id'])
+        card = H.task_update(self.conn, SEO, part['id'], status='waiting', waiting_on='ana', note=ask)['asked_in']
+        # The first bot asking her the same: no second card, its task is blocked on hers.
+        again = H.task_update(self.conn, CMO, root['id'], status='waiting', waiting_on='ana', note=ask)
+        self.assertEqual(again['asked_in']['id'], card['id'])
+        self.assertIn(card['id'], TR.blocker_ids(self.conn, root['id']))
+        cards = lambda: [t['id'] for t in H.needs_you(self.conn, 'ana')['tasks']]
+        self.assertEqual((cards(), H.needs_you(self.conn, 'ana')['waiting']), ([card['id']], []))
+        self.assertEqual(H.task_comments(self.conn, card['id'], actor=ANA), [])
+        # A different ask joins the same card.
+        H.task_update(self.conn, CMO, root['id'], status='waiting', waiting_on='ana',
+                      note='Can I share the results with the vendor? If yes, I will send them the report.')
+        self.assertEqual(cards(), [card['id']])
+        self.assertEqual([m['body'] for m in H.task_comments(self.conn, card['id'], actor=ANA)],
+                         ['Can I share the results with the vendor? If yes, I will send them the report.'])
+        # One answer reaches both bots once, each on its own task, and both carry on.
+        H.task_update(self.conn, ANA, card['id'], status='done', note='Yes to both.')
+        self.assertEqual((H.task(self.conn, part['id'])['status'], H.task(self.conn, root['id'])['status']),
+                         ('open', 'waiting'))
+        for row, bot in ((part, SEO), (root, CMO)):
+            back = H.task(self.conn, row['id'])
+            self.assertEqual(back['note'], 'Ana Rivera answered: Yes to both.')
+            woken = [m for m in H.messages(self.conn, back['conversation_id'])
+                     if m['to_actor'] == bot and 'Yes to both.' in m['body']]
+            self.assertEqual(len(woken), 1, bot)
+        # The root still has its own open subtask (the other bot's part), so it stays waiting on that.
+
+    def test_bot_tasks_already_waiting_on_a_person_move_to_the_subtask_shape(self):
+        from backend import person_asks
+        plain = "Approve the venue for Friday? If yes, I'll book it."
+        moved = H.task_create(self.conn, CMO, 'Book the venue', 'All the venue notes.', CMO, private=False)
+        unclear = H.task_create(self.conn, CMO, 'Renew the domain', '', CMO, private=False)
+        for row, note in ((moved, plain), (unclear, 'Blocked on db14c907')):
+            self.conn.execute("UPDATE tasks SET status='waiting', waiting_on=?, note=? WHERE id=?", (ANA, note, row['id']))
+        self.assertEqual(person_asks.migrate(self.conn), [moved['id']])
+        self.assertEqual(person_asks.migrate(self.conn), [], 'moved once')
+        after = H.task(self.conn, moved['id'])
+        self.assertEqual((after['owner'], after['status'], after['waiting_on'], after['note']),
+                         (CMO, 'waiting', None, f'Blocked on Ana Rivera: {plain}'))
+        [card] = [H.task(self.conn, t) for t in TR.child_ids(self.conn, moved['id'])]
+        self.assertEqual((card['owner'], card['title'], card['body']), (ANA, 'Approve the venue for Friday?', plain))
+        # The one with no plain ask stays for its bot to restate (backend/restate_asks.py).
+        self.assertEqual(H.task(self.conn, unclear['id'])['waiting_on'], ANA)
 
     def test_a_bot_gives_a_person_a_plain_ask_or_is_refused(self):
         plain = "Approve the video tool trial on Thursday? If yes, I'll send the invite."
@@ -690,7 +768,9 @@ class WaitingWithDependency(HubCase):
         self.assertEqual(H.bot(self.conn, 'cmo')['state'], 'active')
         self.assertIsNone(H.task(self.conn, task['id'])['waiting_on'])
         after = H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana', note=plain)
-        self.assertEqual((after['waiting_on'], after['note'], after.get('warnings')), (ANA, plain, None))
+        self.assertEqual((after['waiting_on'], after['note'], after.get('warnings')),
+                         (None, f'Blocked on Ana Rivera: {plain}', None))
+        self.assertEqual(H.task(self.conn, after['asked_in']['id'])['body'], plain)
         # An open question to them on the task already asks (`hub task question`): no note is needed.
         asked = H.task_create(self.conn, ANA, 'Draft the launch post', '', CMO, private=False)
         H.task_ask(self.conn, CMO, asked['id'], 'Which date should it go out?')
@@ -735,18 +815,22 @@ class WaitingWithDependency(HubCase):
         self.refused('kind', wait, owner='seo')
         self.refused('private', H.task_update, self.conn, CMO, task['id'], status='waiting', waiting_on='ben',
                      private=True)
-        wait()
+        # A task that waits on a person itself (set before asks became subtasks, or one with an open question to
+        # them): a new note or owner clears it.
+        legacy = lambda: self.conn.execute("UPDATE tasks SET status='waiting', waiting_on=? WHERE id=?", (ANA, task['id']))
+        legacy()
         self.assertIsNone(H.task_update(self.conn, CMO, task['id'], note='Still down')['waiting_on'])
-        wait()
+        legacy()
         self.assertIsNone(H.task_update(self.conn, CMO, task['id'], owner='seo')['waiting_on'])
         self.assertEqual((stored('cmo'), stored('seo')), (0, 0), "the handoff recounts the old owner too")
         # Made private: the wait no longer goes in front of a person who cannot read it.
         own = H.task_create(self.conn, CMO, 'Rotate the deploy key', '', CMO, private=False)
-        H.task_update(self.conn, CMO, own['id'], status='waiting', waiting_on='ben', note='Approve the rotation')
+        self.conn.execute("UPDATE tasks SET status='waiting', waiting_on=? WHERE id=?", ('human:ben', own['id']))
         self.assertIsNone(H.task_update(self.conn, CMO, own['id'], private=True)['waiting_on'])
         # An approval on a task that waits on a person is the same wait.
         key = H.task_create(self.conn, CMO, 'Buy a signing key', '', CMO, private=False)
-        H.task_update(self.conn, CMO, key['id'], status='waiting', waiting_on='ana', note='Approve the purchase')
+        H.task_update(self.conn, CMO, key['id'], status='waiting', waiting_on='ana',
+                      note='Approve the purchase? If yes, I will order the key.')
         H.approval_request(self.conn, CMO, 'spend', {'amount': 5, 'account': 'ops', 'what': 'a key'}, task_id=key['id'])
         self.assertEqual((H.status_live(self.conn, 'cmo')['needs_human'], stored('cmo')), (1, 1))
         # A plain reply answers a question; deleting the reply reopens it.

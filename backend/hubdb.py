@@ -2789,9 +2789,9 @@ def _queue_end(conn, owner, top=False):
     return (hi if hi is not None else 0.0) + 1.0
 
 
-def _unblock(conn, done_task):
+def _unblock(conn, done_task, told=()):
     """A finished task frees whatever waited on it; a bot owner hears about it once nothing else
-    blocks the task."""
+    blocks the task. `told` are the tasks already woken about it (_answered)."""
     for blocked_id in TR.blocked_ids(conn, done_task["id"]):
         row = task(conn, blocked_id)
         if task_private(conn, done_task) and (not task_private(conn, row) or not all(
@@ -2799,8 +2799,30 @@ def _unblock(conn, done_task):
             continue                  # do not copy private completion into a wider task
         TR.remove_blocker(conn, KEEPER, row["id"], done_task["id"], keeper_note=f"unblocked: {done_task['title']}")
         conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (row["id"],))
-        if row["status"] in ACTIVE_STATUSES and not TR.blocker_ids(conn, row["id"]):
+        if row["status"] in ACTIVE_STATUSES and not TR.blocker_ids(conn, row["id"]) and row["id"] not in told:
             _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} is finished.")
+
+
+def _answered(conn, task_id, card, told=None):
+    """`card`, a person's subtask a bot's task was blocked on (_ask_in_subtask), is done or declined: when nothing
+    else holds the task, it opens again with their answer as its note, and its bot is woken on it once, unless
+    `told` (_subtask_wake) already woke it there. Returns whether this was such a task."""
+    row = task(conn, task_id)
+    name = person_name(conn, card["owner"])
+    if (not row or not is_bot(row["owner"]) or row["status"] != "waiting"
+            or not str(row.get("note") or "").startswith(BLOCKED_ON.format(name=name, ask=""))):
+        return False
+    if task_private(conn, card) and not task_private(conn, row):
+        return False
+    said = str(card.get("note") or "").strip() or ("Done." if card["status"] == "done" else "Declined.")
+    note = f"{name} answered: {said}"
+    if not waiting_for(conn, row):
+        _set_status(conn, KEEPER, row, "open", note=note)
+    conn.execute("UPDATE tasks SET note=?, version=version+1 WHERE id=?", (note, row["id"]))
+    _task_event(conn, row["id"], KEEPER, "note", row.get("note"), note, "")
+    if row["owner"] != told or TR.parent_of(conn, card["id"]) != row["id"]:
+        _wake(conn, row, row["owner"], f"{name} answered: {card['title']}\n{said}", refs={"subtask": card["id"]})
+    return True
 
 
 PR_URL = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)/?$", re.IGNORECASE)
@@ -3787,6 +3809,18 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                          f"{STRANDED_GRACE_HOURS} hours: file a subtask for whoever must act (hub task create "
                          f"--parent {task_id} --owner <bot or person>), relate a blocker, name the person with --on, "
                          "or set --due for when to look again"]
+    # A bot that needs a person on its own task asks them in one small subtask they own (_ask_in_subtask): the task
+    # stays the bot's, blocked on it, and is never itself a card in their Needs you. An open question to them on the
+    # task (`hub task question`) is already that card, so the task waits on them as before.
+    asked_in = None
+    if (waiting_on and is_bot(actor) and actor == row["owner"] and is_human(waiting_on)
+            and not any(a["to_actor"] == waiting_on for a in open_task_asks(conn, row))):
+        said = str(note if note is not None else row.get("note") or "").strip()
+        if said.startswith(BLOCKED_ON.format(name=person_name(conn, waiting_on), ask="")):
+            said = said.split(": ", 1)[1]          # the note this rule wrote, sent back as it was
+        require_person_ask(conn, actor, waiting_on, said, "waiting")
+        asked_in = _ask_in_subtask(conn, actor, row, waiting_on, said)
+        note, waiting_on = BLOCKED_ON.format(name=person_name(conn, asked_in["owner"]), ask=said), ""
     if number is not None and number == row.get("number"):
         number = None               # sent back unchanged
     wanted = {k: v for k, v in (("lane", lane), ("labels", labels), ("number", number)) if v is not None}
@@ -3942,8 +3976,12 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     subtask_told = None if closing_step else _subtask_wake(conn, actor, after, row["status"], note, quiet)
     if subtask_told == after["requester"]:
         notify_requester = False
+    # A person answering a bot's ask (_ask_in_subtask), yes or no: each task blocked on it opens again.
+    answered = set()
+    if status in ("done", "declined") and row["status"] != status and is_human(after["owner"]) and not closing_step:
+        answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, tid, after, subtask_told)}
     if status == "done":
-        _unblock(conn, after)
+        _unblock(conn, after, told=answered)
     # A decline always goes back: nobody is doing the work, which is news whoever asked for it.
     if notify_requester:
         refs = None
@@ -4001,7 +4039,59 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     recount(conn, [after["owner"], after["requester"], row["owner"]])   # the old owner too, on a handoff
     if not closing_step:
         _parent_finished(conn, after, row["status"], actor, told=subtask_told)
+    if asked_in:
+        after = {**after, "asked_in": {k: asked_in[k] for k in ("id", "title", "owner")}}
     return {**after, "warnings": plain} if plain else after
+
+
+BLOCKED_ON = "Blocked on {name}: {ask}"
+
+
+def person_name(conn, person):
+    return (human(conn, person) or {}).get("name") or actor_id(person)
+
+
+def _ask_title(ask):
+    """A subtask's title from the ask: its first question, else its first sentence."""
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", str(ask).strip()) if s.strip()]
+    return next((s for s in sentences if s.endswith("?")), sentences[0] if sentences else str(ask).strip())
+
+
+def person_card(conn, row, person):
+    """The open card already in front of `person` in this task's tree, or None: a subtask a bot gave them, or a
+    bot's question subtask waiting on them. The task itself and its ancestors are not cards for them."""
+    above = TR.ancestors(conn, row["id"])
+    root = above[-1] if above else row["id"]
+    skip = {row["id"], *above}
+    for tid in TR.descendant_ids(conn, root):
+        card = task(conn, tid)
+        if tid in skip or not card or card["status"] not in ACTIVE_STATUSES:
+            continue
+        if task_private(conn, card) and not task_private(conn, row):
+            continue
+        if card["owner"] == person and is_bot(card["requester"]) or (
+                is_bot(card["owner"]) and card.get("waiting_on") == person):
+            return card
+    return None
+
+
+def _ask_in_subtask(conn, actor, row, person, ask):
+    """One question, one card: `actor`, the bot that owns `row`, needs `person`. Unless the task's tree already has
+    an open card for them (person_card), file one small subtask they own whose title is the ask (its question, when
+    it has one) and whose body is the ask; their Needs you shows it with Yes and No when it asks a yes-or-no
+    question. A second bot in the same tree asking them adds its ask to that card as a comment instead. The task is
+    blocked on the card; when they finish it, the bot hears it once on the task and the task opens again
+    (_unblock). Returns the card."""
+    card = person_card(conn, row, person)
+    if card is None:
+        card = task_create(conn, actor, _ask_title(ask), ask, person, parent_id=row["id"], lint=False)
+        event(conn, actor, "task.ask_subtask", row["id"], {"subtask": card["id"], "to": person})
+    elif ask not in (card["title"], str(card.get("body") or "").strip(), str(card.get("note") or "").strip()) and not any(
+            str(m.get("body") or "").strip() == ask for m in task_comments(conn, card["id"], actor=actor)):
+        task_comment(conn, actor, card["id"], ask)
+    if card["id"] not in TR.blocker_ids(conn, row["id"]):
+        TR.add_blocker(conn, actor, row["id"], card["id"], note="asked in a subtask")
+    return card
 
 
 def _waiting_person(conn, actor, row, value, status, owner=None, private=None):
@@ -5139,7 +5229,7 @@ def status_counts(conn, actor):
     `needs_human` is one per thing that waits on a person: a live task the bot filed for a person,
     its own task set waiting on a person (`waiting_on`), a live task carrying its unanswered question
     to a person, and an undecided approval it asked for. A task counts once whichever of these it
-    has, its approval included."""
+    has, its approval included, as does a task blocked on a person's subtask (_ask_in_subtask)."""
     live = ACTIVE_STATUSES
     marks = ",".join("?" * len(live))
     open_tasks = conn.execute(
@@ -5153,7 +5243,10 @@ def status_counts(conn, actor):
         f"WHERE m.conversation_id=t.conversation_id AND {MESSAGE_TASK_SQL}=t.id AND m.kind='ask' "
         f"AND m.from_actor=? AND m.to_actor LIKE 'human:%' AND m.deleted_at IS NULL AND {OPEN_ASK_SQL}))",
         (*live, actor, actor, actor, actor, actor))}
-    approvals = sum(not r[0] or r[0] not in waits for r in conn.execute(
+    held = waits | {r[0] for r in conn.execute(
+        "SELECT r.to_task FROM task_relations r JOIN tasks t ON t.id=r.from_task WHERE r.kind='blocks' "
+        f"AND t.requester=? AND t.owner LIKE 'human:%' AND t.status IN ({marks})", (actor, *live))}
+    approvals = sum(not r[0] or r[0] not in held for r in conn.execute(
         "SELECT task_id FROM approvals WHERE requested_by=? AND decision IS NULL", (actor,)))
     return open_tasks, len(waits) + approvals
 
