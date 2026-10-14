@@ -47,8 +47,9 @@ def trusting(env, *directories):
                     for d in dict.fromkeys(str(d) for d in directories) if d and '\n' not in d)
     path = Path(_trust) / (hashlib.sha256(lines.encode()).hexdigest()[:20] + '.gitconfig')
     if not path.exists():
-        made = path.with_name(f'{path.name}.{os.getpid()}.tmp')
-        made.write_text('[safe]\n' + lines)
+        handle, made = tempfile.mkstemp(dir=path.parent, suffix='.tmp')     # one per call: pool threads share a pid
+        with os.fdopen(handle, 'w') as out:
+            out.write('[safe]\n' + lines)
         os.chmod(made, 0o644)
         os.replace(made, path)
     return {**env, 'GIT_CONFIG_GLOBAL': str(path)}

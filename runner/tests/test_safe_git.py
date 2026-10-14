@@ -75,6 +75,7 @@ def test_the_trust_file_names_only_the_given_directories_and_anyone_can_read_it(
     env = safe_git.trusting({'PATH': '/bin'}, '/m/a "b".git', '/m/a "b".git', '/m/c\\d.git', 'bad\nline', '')
     path = env['GIT_CONFIG_GLOBAL']
     assert env['PATH'] == '/bin' and oct(os.stat(path).st_mode & 0o777) == '0o644'
-    listed = subprocess.run(['git', 'config', '--file', path, '--get-all', 'safe.directory'], capture_output=True, text=True)
+    listed = subprocess.run(['git', 'config', '--file', path, '--get-all', 'safe.directory'], cwd=tmp_path,
+                            capture_output=True, text=True)
     assert listed.stdout.splitlines() == ['/m/a "b".git', '/m/c\\d.git']
     assert safe_git.trusting({}, '/m/a "b".git', '/m/c\\d.git')['GIT_CONFIG_GLOBAL'] == path     # the same file, reused
