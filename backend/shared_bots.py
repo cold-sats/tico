@@ -218,6 +218,7 @@ def cascade_archive(c, actor, source):
         c.execute("UPDATE bots SET state='archived' WHERE slug=?", (slug,))
         c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(config), slug))
         H.event(c, actor, "bot.branch_archived", slug, {"source": source, "previous": state})
+        H.setup_finished(c, slug, archived=True)
 
 
 def cascade_restore(c, actor, source):
@@ -277,6 +278,7 @@ def retire_assignments(c):
             config["status"] = "archived"
             c.execute("UPDATE bots SET state='archived' WHERE slug=?", (bot,))
             c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(config), bot))
+        H.setup_finished(c, bot, archived=True)
         c.execute("DELETE FROM assignments WHERE bot=?", (bot,))
         c.execute("UPDATE jobs SET state='cancelled' WHERE bot=? AND state='queued'", (bot,))
         source = H.bot(c, str(config.get("shared_from") or ""))

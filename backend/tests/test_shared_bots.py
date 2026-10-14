@@ -134,6 +134,18 @@ def test_original_archive_preserves_paused_and_independently_archived_branches(a
         assert H.bot(c, 'cpo-ana')['state'] == 'archived'
 
 
+def test_archiving_the_original_closes_a_parked_branch_setup_reminder(api):
+    """A branch archived with its original no longer needs its setup finished, so its reminder leaves Needs you."""
+    share(api)
+    branch(api, runner(api, 'cara'))
+    with api.app.state.store.transaction() as c:
+        reminder = H._setup_reminder(c, 'cpo-cara')
+    post(api, 'bots/cpo/archive', {'expected_revision': revision(api, 'cpo')})
+    with api.app.state.store.read() as c:
+        assert H.task(c, reminder['id'])['status'] == 'done'
+        assert 'was archived' in H.task(c, reminder['id'])['note']
+
+
 def test_name_only_roster_marks_branches_without_exposing_the_original(api):
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET config_json=json_set(config_json, '$.shared_from', 'finance') WHERE bot='cpo'")

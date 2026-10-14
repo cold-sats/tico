@@ -35,7 +35,8 @@ def test_the_old_written_bot_default_is_cleared_once(api):
 
 def test_a_retired_assignment_hands_its_task_back_awake_but_waits_out_a_running_turn(api):
     """Temporary assignments are retired (#420): an open task goes back to its role through the handoff,
-    which queues the role's turn; an assignment with a turn still out is left for a later startup."""
+    which queues the role's turn, and its setup reminder is closed; an assignment with a turn still out is
+    left for a later startup."""
     from backend.shared_bots import retire_assignments
     from backend.store import H
     from backend.tests.test_api import post, runner
@@ -50,12 +51,15 @@ def test_a_retired_assignment_hands_its_task_back_awake_but_waits_out_a_running_
         c.execute("UPDATE jobs SET state='done' WHERE bot='ops'")
         c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) "
                   "VALUES('a1',?,'ops-a1',?,0,'h','running',?,?)", (job, machine["runner_id"], H.now(), H.now()))
+        reminder = H._setup_reminder(c, "ops-a1")
         retire_assignments(c)
         assert H.task(c, task["id"])["owner"] == "bot:ops-a1"
         assert H.bot(c, "ops-a1")["state"] == "active"
+        assert H.task(c, reminder["id"])["status"] == "open"
         c.execute("UPDATE attempts SET state='completed' WHERE id='a1'")
         retire_assignments(c)
         retire_assignments(c)
         assert H.task(c, task["id"])["owner"] == "bot:ops"
         assert H.bot(c, "ops-a1")["state"] == "archived"
+        assert H.task(c, reminder["id"])["status"] == "done", "a retired actor's setup reminder leaves Needs you"
         assert c.execute("SELECT count(*) FROM jobs WHERE bot='ops' AND state='queued'").fetchone()[0] == 1
