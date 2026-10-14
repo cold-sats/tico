@@ -184,10 +184,7 @@ export TICO_MAIL_VENV="${TICO_MAIL_VENV:-${TICO_TOOLS_DIR:-$HOME/tools}/mail-ven
 export TICO_SUPERVISED=1 TICO_RUNNER_SELF_UPDATE=0
 # The runner also supervises the meeting-importer and Close jobs the hub assigns here (runner/sidejobs.py).
 export TICO_SIDE_JOBS="${TICO_SIDE_JOBS:-1}"
-# TICO_RUNNER_ENGINE=rust runs the Rust runner (runner-rs/); it calls this image's Python for enrolment,
-# side jobs and the other jobs it has not taken over. The Python runner stays the default.
-if [ "${TICO_RUNNER_ENGINE:-python}" = rust ]; then
-  export TICO_ROOT=/opt/tico TICO_RUNNER_PYTHON=/opt/tico/.venv/bin/python
-  exec tico-runner --config "$CONFIG" run
-fi
+# TICO_RUNNER_ENGINE=rust (or "engine": "rust" in runner.json) makes `python -m runner run` hand the process
+# to this image's Rust runner, $TICO_RUNNER_BIN (runner/engine.py); a computer it cannot run yet comes back
+# to the Python runner instead of stopping. The Python runner stays the default.
 exec python -m runner --config "$CONFIG" run

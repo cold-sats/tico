@@ -50,16 +50,22 @@ pub fn usage_tokens(stats: &Value) -> (i64, i64, i64) {
     (inp, out, if total != 0 { total } else { inp + out })
 }
 
-/// The settings.json the CLI reads from this host's home: API-key auth, the effort's thinking level.
-pub fn settings_file(model: &str, effort: Option<&str>) -> Value {
-    json!({
+/// The settings.json the CLI reads from this host's home: API-key auth, the effort's thinking level, and the
+/// bot's declared remote MCP servers. The file keeps their `${VAR}` placeholders, which the CLI expands from
+/// the turn's environment; the home is this host's own, so the operator's servers are not here.
+pub fn settings_file(model: &str, effort: Option<&str>, servers: &[Value]) -> Value {
+    let mut file = json!({
         "experimental": {"dynamicModelConfiguration": true},
         "security": {"auth": {"selectedType": "gemini-api-key", "enforcedType": "gemini-api-key"}},
         "modelConfigs": {"customOverrides": [{
             "match": {"model": model},
             "modelConfig": {"generateContentConfig": {"thinkingConfig": {"thinkingLevel": effort_for(effort)}}},
         }]},
-    })
+    });
+    if !servers.is_empty() {
+        file["mcpServers"] = Value::Object(crate::mcp::gemini_config(servers));
+    }
+    file
 }
 
 /// True when a bot's primary or fallback harness is the Gemini CLI, which needs GEMINI_API_KEY.
@@ -205,7 +211,7 @@ impl GeminiHost {
         env
     }
 
-    fn prepare_home(&self, model: &str, effort: Option<&str>) -> std::io::Result<()> {
+    fn prepare_home(&self, model: &str, effort: Option<&str>, servers: &[Value]) -> std::io::Result<()> {
         use std::io::Write;
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         std::fs::create_dir_all(&self.0.home)?;
@@ -213,7 +219,7 @@ impl GeminiHost {
         let tmp = self.0.home.join(format!("settings-{}.json", uuid::Uuid::new_v4().simple()));
         let written = (|| {
             let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
-            f.write_all((serde_json::to_string_pretty(&settings_file(model, effort)).unwrap() + "\n").as_bytes())?;
+            f.write_all((serde_json::to_string_pretty(&settings_file(model, effort, servers)).unwrap() + "\n").as_bytes())?;
             std::fs::rename(&tmp, self.0.home.join("settings.json"))
         })();
         let _ = std::fs::remove_file(&tmp);
@@ -253,7 +259,7 @@ impl GeminiHost {
                 return Err(failed("Gemini API key is not configured for this bot"));
             }
             let model = t.settings.model.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| DEFAULT_MODEL.into());
-            self.prepare_home(&model, effort.or(t.settings.effort.as_deref()))
+            self.prepare_home(&model, effort.or(t.settings.effort.as_deref()), &t.settings.mcp_servers)
                 .map_err(|e| failed(format!("could not write the Gemini settings: {e}")))?;
             let launched = self.launch(thread_id, &t).map_err(|e| failed(format!("could not start gemini: {e}")))?;
             inner.turn = Some((thread_id.into(), turn.clone()));
@@ -518,7 +524,9 @@ mod tests {
             host.stop().await;
         }
         let written: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("home/settings.json")).unwrap()).unwrap();
-        assert_eq!(written, settings_file("gemini-3.8-flash", Some("low")));
+        assert_eq!(written, settings_file("gemini-3.8-flash", Some("low"), &[]));
+        let declared = [json!({"name": "linear", "transport": "http", "url": "https://mcp.linear.app/mcp", "headers": {"Authorization": "Bearer ${LINEAR_KEY}"}})];
+        assert_eq!(settings_file("m", None, &declared)["mcpServers"], json!({"linear": {"httpUrl": "https://mcp.linear.app/mcp", "headers": {"Authorization": "Bearer ${LINEAR_KEY}"}}}));
         assert_eq!(std::fs::read_to_string(dir.join("args.log.prompt")).unwrap(), "hello");
         std::fs::remove_dir_all(dir).unwrap();
     }

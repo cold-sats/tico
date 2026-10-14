@@ -104,7 +104,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --uid 10003 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash bot
 COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
-# TICO_RUNNER_ENGINE=rust runs this instead of `python -m runner run` (docker/runner-entrypoint.sh).
+# TICO_RUNNER_ENGINE=rust hands `python -m runner run` to this binary (TICO_RUNNER_BIN, runner/engine.py).
 COPY --from=runner-bin /out/tico-runner /usr/local/bin/tico-runner
 # node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/
@@ -128,7 +128,7 @@ WORKDIR /opt/tico
 # The tools directory is in the volume, so installed model CLIs survive a restart or a new image. It is
 # last on PATH, so `docker exec` shells find the CLIs the runner installed.
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TICO_VERSION=${TICO_VERSION} TICO_RELEASE=${TICO_VERSION} \
-    GIT_TERMINAL_PROMPT=0 DISABLE_AUTOUPDATER=1 HOME=/home/runner TICO_TOOLS_DIR=/home/runner/tools \
+    GIT_TERMINAL_PROMPT=0 DISABLE_AUTOUPDATER=1 HOME=/home/runner TICO_TOOLS_DIR=/home/runner/tools TICO_RUNNER_BIN=/usr/local/bin/tico-runner \
     PATH=/opt/tico/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/runner/tools/bin
 LABEL org.opencontainers.image.version=${TICO_VERSION} \
       org.opencontainers.image.source=https://github.com/ticoteam/tico \

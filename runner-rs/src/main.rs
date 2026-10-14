@@ -219,6 +219,10 @@ async fn start(command: Command, config: config::Config) -> i32 {
             for line in &lines {
                 util::log(&format!("Tico runner: {line}; this runner does not do that yet"));
             }
+            drop(_lock);
+            if let Some(why) = python_fallback() {
+                util::log(&format!("Tico runner: could not hand this computer to the Python runner ({why})"));
+            }
             util::log("Tico runner: not starting: run this computer on the Python runner (python -m runner run) until those bots move or the Rust runner supports them");
             return 3;
         }
@@ -249,4 +253,19 @@ async fn start(command: Command, config: config::Config) -> i32 {
         let _ = task.await;
     }
     0
+}
+
+/// Started through `python -m runner run` (runner/engine.py): hand the process back to that Python runner,
+/// switched to its own engine for this start. Returns only on failure, with why; None when not started so.
+fn python_fallback() -> Option<String> {
+    use std::os::unix::process::CommandExt;
+    let argv: Vec<String> = serde_json::from_str(&std::env::var("TICO_RUNNER_PYTHON_ARGV").ok()?).ok()?;
+    let (program, args) = argv.split_first()?;
+    util::log("Tico runner: running this computer on the Python runner instead");
+    let err = std::process::Command::new(program)
+        .args(args)
+        .env("TICO_RUNNER_ENGINE", "python")
+        .env_remove("TICO_RUNNER_PYTHON_ARGV")
+        .exec();
+    Some(err.to_string())
 }

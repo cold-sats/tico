@@ -290,9 +290,6 @@ pub fn unsupported(entry: &Value) -> Vec<String> {
     if !harness.is_empty() && harness != runtime && !(runtime == "gemini" && harness == "antigravity") {
         needs.push(format!("the {harness} harness"));
     }
-    if crate::util::truthy(entry.get("mail_agent")) {
-        needs.push("the mail agent".into());
-    }
     needs
 }
 
@@ -510,6 +507,29 @@ pub fn disk_usage(path: &Path) -> Option<(u64, u64)> {
 /// AGENT.md of each bot this computer hosts, once and then only when the file changes
 /// (`changed_agent_instructions`). Versions are (mtime ns, size); None for a missing file.
 #[allow(clippy::type_complexity)]
+/// The AGENT.md each inbox bot hosted here runs from, for Mail (service.py mail_agent_instructions).
+pub fn mail_agent_instructions(config: &Config, assignments: &[Value]) -> Map<String, Value> {
+    let mine = config.runner_id();
+    let mut result = Map::new();
+    for entry in assignments {
+        if !crate::util::truthy(entry.get("mail_agent")) || mine.is_empty() || text_of(&entry["runner_id"]) != mine {
+            continue;
+        }
+        let bot = text_of(&entry["bot"]);
+        let path = local_path(config, &bot).join("AGENT.md");
+        match std::fs::symlink_metadata(&path).ok().filter(|m| m.is_file()) {
+            None => {
+                result.insert(bot, json!(""));
+            }
+            Some(m) if m.len() <= 100_000 => {
+                result.insert(bot, json!(String::from_utf8_lossy(&std::fs::read(&path).unwrap_or_default())));
+            }
+            Some(_) => crate::util::log(&format!("Tico runner: {bot}: AGENT.md is too large to show in Mail")),
+        }
+    }
+    result
+}
+
 pub fn changed_agent_instructions(
     config: &Config,
     assignments: &[Value],

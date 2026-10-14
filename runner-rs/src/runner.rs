@@ -263,7 +263,7 @@ impl Runner {
             "capabilities": crate::lanes::capabilities(),
             "capacity": self.capacity,
             "readiness": readiness_doc,
-            "mail_agent_instructions": {},
+            "mail_agent_instructions": readiness::mail_agent_instructions(&self.config, &assignments),
             "agent_instructions": agent_instructions,
         });
         crate::readiness_extra::extend(&mut body["readiness"], &runtimes, &checks, &notes, &self.client, hosted).await;
