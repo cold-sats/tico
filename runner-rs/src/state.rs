@@ -50,6 +50,7 @@ pub struct Unfinished {
     pub payload: String,
     #[allow(dead_code)]
     pub phase: String,
+    #[allow(dead_code)]
     pub completion: Option<String>,
 }
 
@@ -155,6 +156,30 @@ impl State {
         })
     }
 
+    /// The result recovery sends for `aid`, read again now rather than from an earlier listing: the one saved,
+    /// or an interrupted one saved in the same transaction when there is none. None once it is synced or
+    /// historical. A turn that finished after the listing keeps its own result.
+    pub fn recovery(&self, aid: &str, text: &str) -> Result<Option<Value>, String> {
+        self.with(|c| {
+            let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let row: Option<(String, Option<String>)> =
+                tx.query_row("SELECT phase, completion FROM attempts WHERE id=?", params![aid], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+            let done = match row {
+                None => None,
+                Some((phase, _)) if phase == "synced" || phase == "historical" => None,
+                Some((_, Some(saved))) => Some(serde_json::from_str(&saved).unwrap_or(Value::Null)),
+                Some((_, None)) => {
+                    let seq: i64 = tx.query_row("SELECT coalesce(max(seq),0) FROM events WHERE attempt_id=?", params![aid], |r| r.get(0))?;
+                    let done = json!({"outcome": "interrupted", "text": text, "last_seq": seq});
+                    tx.execute("UPDATE attempts SET phase='uploading',completion=? WHERE id=?", params![done.to_string(), aid])?;
+                    Some(done)
+                }
+            };
+            tx.commit()?;
+            Ok(done)
+        })
+    }
+
     pub fn unfinished(&self) -> Result<Vec<Unfinished>, String> {
         self.with(|c| {
             let mut stmt = c.prepare("SELECT id, payload, phase, completion FROM attempts WHERE phase NOT IN ('synced','historical')")?;
@@ -226,6 +251,24 @@ mod tests {
 
     fn temp() -> PathBuf {
         std::env::temp_dir().join(format!("tico-state-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn recovery_keeps_a_result_saved_after_the_listing() {
+        let state = State::open(&temp()).unwrap();
+        for id in ["done", "lost", "sent"] {
+            state.record(&json!({"id": id})).unwrap();
+        }
+        let listed = state.unfinished().unwrap();
+        assert_eq!(listed.len(), 3);
+        // After the listing: one turn finishes on its own, one result reaches the server.
+        state.finish("done", json!({"outcome": "completed", "text": "hi"}).as_object().unwrap()).unwrap();
+        state.phase("sent", "synced").unwrap();
+        let why = "Runner restarted during execution";
+        assert_eq!(state.recovery("done", why).unwrap().unwrap()["outcome"], "completed");
+        assert_eq!(state.recovery("lost", why).unwrap().unwrap()["outcome"], "interrupted");
+        assert_eq!(state.recovery("lost", why).unwrap().unwrap()["outcome"], "interrupted");
+        assert!(state.recovery("sent", why).unwrap().is_none());
     }
 
     #[test]

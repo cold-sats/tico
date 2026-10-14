@@ -14,6 +14,8 @@ mod prompt;
 mod readiness;
 mod redact;
 mod runner;
+mod safegit;
+mod signin;
 mod state;
 mod util;
 
@@ -96,6 +98,11 @@ async fn start(command: Command, config: config::Config) -> i32 {
     }
     let _lock = lock::acquire(&state_dir.join("runner.lock")).unwrap_or_else(|e| fail(&e));
     let state = state::State::open(&state_dir).unwrap_or_else(|e| fail(&e));
+    if let Some(line) = runner::local_refusal() {
+        util::log(&format!("Tico runner: {line}; this runner does not do that yet"));
+        util::log("Tico runner: not starting: run this computer on the Python runner (python -m runner run)");
+        return 3;
+    }
     let mut service = runner::Runner::new(config, client.clone(), state);
     match service.refusals().await {
         Ok(lines) if !lines.is_empty() => {

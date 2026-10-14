@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value};
 
+use crate::client::Client;
 use crate::config::Config;
+use crate::signin::{self, SignIn};
 use crate::env::which;
 use crate::util::text_of;
 
@@ -46,7 +48,7 @@ pub fn codex_models() -> Vec<String> {
 }
 
 /// One runtime's row: installed, signed in, version, models, controls, detail, goals, commands.
-pub async fn runtime_readiness(runtime: &str) -> Map<String, Value> {
+pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, assignments: &[Value]) -> Map<String, Value> {
     let exe = if DRIVEN.contains(&runtime) { executable(runtime) } else { None };
     let authenticated: &str;
     let detail: String;
@@ -63,7 +65,20 @@ pub async fn runtime_readiness(runtime: &str) -> Map<String, Value> {
         Some(path) => {
             let p = path.to_string_lossy().to_string();
             if runtime == "codex" {
-                match run(&[&p, "login", "status"], 8).await {
+                let mut status = run(&[&p, "login", "status"], 8).await;
+                let signed = |s: &Option<(bool, String, String)>| s.as_ref().is_some_and(|(ok, out, err)| *ok && format!("{out}\n{err}").to_lowercase().contains("logged in"));
+                // A box with an API key and no browser: sign in once, for the bots that use Codex, or with the
+                // key the company gave every computer.
+                if status.is_some() && !signed(&status) {
+                    sign.team_model_keys(client, "codex").await;
+                    if sign.headless_secret("codex").is_some()
+                        && (sign.team_key_only("codex") || signin::assigned(assignments, "codex"))
+                        && sign.codex_key_login(path).await
+                    {
+                        status = run(&[&p, "login", "status"], 8).await;
+                    }
+                }
+                match status {
                     Some((ok, out, err)) => {
                         let output = format!("{out}\n{err}").trim().to_lowercase();
                         if ok && output.contains("logged in") {
@@ -82,8 +97,12 @@ pub async fn runtime_readiness(runtime: &str) -> Map<String, Value> {
             } else {
                 let status = run(&[&p, "auth", "status", "--json"], CLAUDE_AUTH_TIMEOUT_S).await;
                 let parsed: Option<Value> = status.as_ref().and_then(|(_, out, _)| serde_json::from_str::<Value>(out).ok()).filter(|v| v.is_object());
-                // A token in the environment signs the CLI in on a headless box even when `auth status` says otherwise.
-                let token = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].into_iter().find(|n| std::env::var(n).is_ok_and(|v| !v.is_empty()));
+                if !parsed.as_ref().is_some_and(|s| s["loggedIn"] == true) {
+                    sign.team_model_keys(client, "claude").await;
+                }
+                // A key in the environment, `_shared.env` or the company's file signs the CLI in on a headless box
+                // even when `auth status` says otherwise.
+                let token = sign.headless_secret("claude").map(|(name, _)| name);
                 if let Some(s) = parsed.as_ref().filter(|s| s["loggedIn"] == true) {
                     authenticated = "ready";
                     let method = text_of(&s["authMethod"]);
@@ -127,12 +146,12 @@ pub async fn runtime_readiness(runtime: &str) -> Map<String, Value> {
     row
 }
 
-pub async fn runtime_report() -> Map<String, Value> {
+pub async fn runtime_report(sign: &SignIn, client: &Client, assignments: &[Value]) -> Map<String, Value> {
     let mut report = Map::new();
     let mut names: Vec<&str> = RUNTIMES.to_vec();
     names.sort();
     for runtime in names {
-        report.insert(runtime.into(), Value::Object(runtime_readiness(runtime).await));
+        report.insert(runtime.into(), Value::Object(runtime_readiness(runtime, sign, client, assignments).await));
     }
     report
 }
@@ -220,11 +239,17 @@ pub fn manifest_keys(text: &str) -> Map<String, Value> {
     keys
 }
 
+/// Read-only git in a bot's checkout, as runner git always runs (crate::safegit): no hooks or fsmonitor, no secrets.
 async fn git(path: &Path, args: &[&str]) -> Option<(bool, String)> {
-    let p = path.to_string_lossy().to_string();
-    let mut argv = vec!["git", "-C", &p];
-    argv.extend_from_slice(args);
-    run(&argv, 5).await.map(|(ok, out, _)| (ok, out))
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.args(crate::safegit::args(path))
+        .args(args)
+        .env_clear()
+        .envs(crate::safegit::clean_environment(&crate::env::process_environment()))
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(5), cmd.output()).await.ok()?.ok()?;
+    Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into()))
 }
 
 /// Each assigned bot's row: what blocks its turns here (`problems`) and what only warns.

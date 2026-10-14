@@ -74,8 +74,8 @@ struct Shared {
     pending: Mutex<HashMap<i64, oneshot::Sender<Reply>>>,
     next_id: AtomicI64,
     alive: AtomicBool,
-    pid: Mutex<Option<u32>>,
-    child: Mutex<Option<tokio::process::Child>>,
+    child: Mutex<Option<(super::Stopper, Arc<AtomicBool>)>>,
+    exited: tokio::sync::Mutex<Option<oneshot::Receiver<std::io::Result<std::process::ExitStatus>>>>,
     active_turn: Mutex<HashMap<String, String>>,
     done_turns: Mutex<HashSet<String>>,
     token_seen: Mutex<HashMap<String, [i64; 3]>>,
@@ -94,8 +94,8 @@ impl CodexHost {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicI64::new(0),
             alive: AtomicBool::new(false),
-            pid: Mutex::new(None),
             child: Mutex::new(None),
+            exited: tokio::sync::Mutex::new(None),
             active_turn: Mutex::new(HashMap::new()),
             done_turns: Mutex::new(HashSet::new()),
             token_seen: Mutex::new(HashMap::new()),
@@ -115,9 +115,19 @@ impl CodexHost {
         let mut child = command.spawn().map_err(|e| failed(format!("could not start codex app-server: {e}")))?;
         let stdout = child.stdout.take().ok_or_else(|| failed("codex app-server has no stdout"))?;
         *self.0.stdin.lock().await = child.stdin.take();
-        *self.0.pid.lock().unwrap() = child.id();
         log(&format!("codex: app-server started pid {}", child.id().map_or("?".into(), |p| p.to_string())));
-        *self.0.child.lock().unwrap() = Some(child);
+        let (stopper, exited) = super::own(child);
+        // `exited` resolves once; whether it has is kept here for `alive`.
+        let gone = Arc::new(AtomicBool::new(false));
+        let (relay_tx, relay_rx) = oneshot::channel();
+        let flag = gone.clone();
+        tokio::spawn(async move {
+            let status = exited.await.unwrap_or_else(|_| Err(std::io::Error::other("codex app-server reaper ended")));
+            flag.store(true, Ordering::SeqCst);
+            let _ = relay_tx.send(status);
+        });
+        *self.0.child.lock().unwrap() = Some((stopper, gone));
+        *self.0.exited.lock().await = Some(relay_rx);
         self.0.alive.store(true, Ordering::SeqCst);
         let host = self.clone();
         tokio::spawn(async move {
@@ -144,9 +154,11 @@ impl CodexHost {
     pub async fn stop(&self) {
         drop(self.0.stdin.lock().await.take());
         let child = self.0.child.lock().unwrap().take();
-        if let Some(mut child) = child {
-            super::terminate(child.id(), Duration::from_secs(5));
-            let _ = tokio::time::timeout(Duration::from_secs(6), child.wait()).await;
+        if let Some((stopper, _)) = child {
+            stopper.terminate(Duration::from_secs(5));
+            if let Some(exited) = self.0.exited.lock().await.take() {
+                let _ = tokio::time::timeout(Duration::from_secs(6), exited).await;
+            }
         }
         self.0.alive.store(false, Ordering::SeqCst);
     }
@@ -155,8 +167,8 @@ impl CodexHost {
         if !self.0.alive.load(Ordering::SeqCst) {
             return false;
         }
-        match self.0.child.lock().unwrap().as_mut() {
-            Some(c) => matches!(c.try_wait(), Ok(None)),
+        match self.0.child.lock().unwrap().as_ref() {
+            Some((_, gone)) => !gone.load(Ordering::SeqCst),
             None => false,
         }
     }

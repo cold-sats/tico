@@ -34,4 +34,5 @@ lto = true
 strip = true
 codegen-units = 1
 opt-level = 3
-panic = "abort"
+# Unwind, not abort: a bug in one turn ends that turn's task (saved as interrupted), not the runner and every turn.
+panic = "unwind"

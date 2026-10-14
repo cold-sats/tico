@@ -148,21 +148,66 @@ pub fn event(kind: &str, thread: Option<&str>, turn: Option<&str>, fields: Value
     Value::Object(ev)
 }
 
-/// Send SIGTERM, then SIGKILL after `grace` if the process is still there.
-pub fn terminate(pid: Option<u32>, grace: std::time::Duration) {
-    let Some(pid) = pid else { return };
-    unsafe {
-        libc::kill(pid as i32, libc::SIGTERM);
+/// A way to stop a child process that only one task owns and reaps (`own`). Signals go through that task, so
+/// neither SIGTERM nor the later SIGKILL can reach a pid the system has already handed to another process.
+#[derive(Clone)]
+pub struct Stopper(tokio::sync::mpsc::UnboundedSender<std::time::Duration>);
+
+impl Stopper {
+    /// SIGTERM now, SIGKILL after `grace` if the process has not exited by then. A process already reaped is
+    /// left alone.
+    pub fn terminate(&self, grace: std::time::Duration) {
+        let _ = self.0.send(grace);
     }
+}
+
+/// Hand `child` to a task of its own that waits for it and carries out `Stopper` requests. The receiver gets the
+/// exit status. Take the child's pipes before calling this.
+pub fn own(mut child: tokio::process::Child) -> (Stopper, tokio::sync::oneshot::Receiver<std::io::Result<std::process::ExitStatus>>) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<std::time::Duration>();
+    let (done, exited) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        tokio::time::sleep(grace).await;
-        unsafe {
-            // A reaped pid answers ESRCH; the reader has waited for it by then.
-            if libc::kill(pid as i32, 0) == 0 {
-                libc::kill(pid as i32, libc::SIGKILL);
+        let mut kill_at: Option<tokio::time::Instant> = None;
+        let mut asking = true;
+        let status = loop {
+            let escalate = async {
+                match kill_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            };
+            tokio::select! {
+                status = child.wait() => break status,
+                asked = rx.recv(), if asking => match asked {
+                    // Not reaped yet: only this task waits for the child, and its wait has not returned.
+                    Some(grace) => {
+                        if let Some(pid) = child.id() {
+                            unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+                        }
+                        let at = tokio::time::Instant::now() + grace;
+                        kill_at = Some(kill_at.map_or(at, |k| k.min(at)));
+                    }
+                    None => asking = false,
+                },
+                _ = escalate => {
+                    let _ = child.start_kill();
+                    kill_at = None;
+                    asking = false;
+                }
             }
-        }
+        };
+        let _ = done.send(status);
     });
+    (Stopper(tx), exited)
+}
+
+/// An exit status as Python's `returncode`: the code, or minus the signal that ended it.
+pub fn return_code(status: &std::io::Result<std::process::ExitStatus>) -> i32 {
+    use std::os::unix::process::ExitStatusExt;
+    match status {
+        Ok(s) => s.code().unwrap_or_else(|| -s.signal().unwrap_or(1)),
+        Err(_) => -1,
+    }
 }
 
 /// The two runtimes this runner runs.

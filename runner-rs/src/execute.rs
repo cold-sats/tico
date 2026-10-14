@@ -154,33 +154,24 @@ pub fn scrub_reply(text: &str) -> String {
     url.replace_all(&text, "(a file on the runner's Mac)").into_owned()
 }
 
-/// The environment git runs with outside the model: this process's, plus the turn's GitHub helper settings,
-/// never its vault grants (runner/safe_git.py environment).
+/// The environment git runs with outside the model: process settings and the turn's GitHub helper settings
+/// only (runner/safe_git.py environment).
 fn git_env(turn: &Env) -> Env {
-    let mut env: Env = std::env::vars().collect();
-    for (k, v) in turn {
-        let git_key = k.starts_with("TICO_GITHUB_")
-            || k.starts_with("GIT_CONFIG_")
-            || [crate::gitcred::SOCKET_ENV, "HUB_TOKEN", "GIT_SSH_COMMAND", "PATH"].contains(&k.as_str());
-        if git_key {
-            env.insert(k.clone(), v.clone());
-        }
-    }
-    env.insert("GIT_TERMINAL_PROMPT".into(), "0".into());
-    env.insert("GIT_OPTIONAL_LOCKS".into(), "0".into());
-    env
+    crate::safegit::environment(turn)
 }
 
+/// Runner git in a checkout: no hooks, no fsmonitor, no optional locks (safe_git.prefix).
 async fn git(path: &Path, env: &Env, args: &[&str], timeout_s: u64) -> Option<(bool, String, String)> {
     let mut cmd = tokio::process::Command::new("git");
-    cmd.arg("-C").arg(path).args(args).env_clear().envs(env).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    cmd.args(crate::safegit::args(path)).args(args).env_clear().envs(env).stdin(std::process::Stdio::null()).kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(timeout_s), cmd.output()).await.ok()?.ok()?;
     Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into()))
 }
 
-fn git_reason(stderr: &str) -> String {
-    let line = stderr.trim().lines().last().unwrap_or("git failed").trim().to_string();
-    line.chars().take(200).collect()
+/// Why git failed, scrubbed of the turn's tokens and anything shaped like a credential before it is cut.
+fn git_reason(stderr: &str, env: &Env) -> String {
+    let text = redact::git_failure(stderr, &redact::env_secrets(env), 200);
+    if text.is_empty() { "git failed".into() } else { text }
 }
 
 /// Fast-forward a clean checkout to its upstream before the turn (service.py pull_repo). "" when fine.
@@ -196,7 +187,7 @@ pub async fn pull_repo(path: &Path, env: &Env) -> String {
     }
     match git(path, &env, &["fetch", "--quiet", "--no-tags"], 45).await {
         Some((true, _, _)) => {}
-        Some((false, _, err)) => return git_reason(&err),
+        Some((false, _, err)) => return git_reason(&err, &env),
         None => return "timed out".into(),
     }
     match git(path, &env, &["merge", "--ff-only", "--quiet", "@{u}"], 45).await {
@@ -206,7 +197,7 @@ pub async fn pull_repo(path: &Path, env: &Env) -> String {
             if lower.contains("no upstream") || lower.contains("no merge") || lower.contains("unknown revision") {
                 String::new()
             } else {
-                git_reason(&err)
+                git_reason(&err, &env)
             }
         }
         None => "timed out".into(),
@@ -253,11 +244,134 @@ pub async fn push_repo(path: &Path, env: &Env) -> (i64, String) {
             } else if err.contains("uthentication") || err.contains("403") || err.contains("Permission") {
                 (ahead, "authentication".into())
             } else {
-                (ahead, git_reason(err))
+                (ahead, git_reason(err, &env))
             }
         }
         None => (ahead, "timed out".into()),
     }
+}
+
+/// Whether a remote URL names `owner/name` on github.com, however it is spelled (git_credentials._same_repository).
+fn same_repository(url: &str, repository: &str) -> bool {
+    let text = url.trim().to_lowercase();
+    let text = text.strip_suffix('/').unwrap_or(&text);
+    let text = text.strip_suffix(".git").unwrap_or(text);
+    let repo = repository.to_lowercase();
+    text.ends_with(&format!("github.com/{repo}")) || text.ends_with(&format!("github.com:{repo}"))
+}
+
+/// Give a bot's local history its first home on GitHub (git_credentials.publish_history): a checkout with commits
+/// and no upstream gets `origin` set to the bot's repository and `git push -u origin <branch>`, with the turn's own
+/// scoped token. Never forces; a remote holding history this checkout lacks is left alone and reported.
+/// (state, detail): `published`, `current` (nothing to do), `skipped` or `failed`.
+pub async fn publish_history(path: &Path, repository: &str, env: &Env) -> (&'static str, String) {
+    if repository.is_empty() || !path.join(".git").exists() {
+        return ("skipped", if repository.is_empty() { "no repository link" } else { "not a git checkout" }.into());
+    }
+    let env = git_env(env);
+    let secrets = redact::env_secrets(&env);
+    let why = |out: &str, err: &str| {
+        let text = redact::git_failure(if err.trim().is_empty() { out } else { err }, &secrets, 200);
+        if text.is_empty() { "git failed".to_string() } else { text }
+    };
+    macro_rules! run {
+        ($args:expr) => { run!($args, 15) };
+        ($args:expr, $t:expr) => {
+            match git(path, &env, $args, $t).await {
+                Some(r) => r,
+                None => return ("failed", "timed out".into()),
+            }
+        };
+    }
+    let branch = run!(&["symbolic-ref", "--short", "-q", "HEAD"]).1.trim().to_string();
+    if branch.is_empty() {
+        return ("skipped", "no branch is checked out".into());
+    }
+    if !run!(&["rev-parse", "--verify", "-q", "HEAD"]).0 {
+        return ("skipped", "no commits yet".into());
+    }
+    if run!(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).0 {
+        return ("current", String::new());
+    }
+    let wanted = format!("https://github.com/{repository}.git");
+    let (has_origin, current, _) = run!(&["config", "--get", "remote.origin.url"]);
+    let current = if has_origin { current.trim().to_string() } else { String::new() };
+    if !current.is_empty() && current != wanted && !same_repository(&current, repository) {
+        return ("failed", format!("origin is {}, not {repository}; left as it is", redact::scrub_credentials(&current, &secrets)));
+    }
+    if !has_origin {
+        let (ok, out, err) = run!(&["remote", "add", "origin", &wanted]);
+        if !ok {
+            return ("failed", format!("could not add origin: {}", why(&out, &err)));
+        }
+    } else if current.is_empty() {
+        run!(&["remote", "set-url", "origin", &wanted]);
+    }
+    let (ok, listed, err) = run!(&["ls-remote", "--heads", "origin"], 60);
+    if !ok {
+        let text = why(&listed, &err);
+        return (
+            "failed",
+            if ["uthentication", "403", "Permission", "denied"].iter().any(|w| text.contains(w)) {
+                "GitHub refused the bot's token".into()
+            } else {
+                format!("could not reach {repository}: {text}")
+            },
+        );
+    }
+    let remote: BTreeMap<String, String> = listed
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(sha, name)| (name.trim_start_matches("refs/heads/").to_string(), sha.to_string()))
+        .collect();
+    if !remote.is_empty() {
+        // Anything already there must be an ancestor of what is pushed, or this would rewrite it.
+        let names: Vec<String> = if remote.contains_key(&branch) { vec![branch.clone()] } else { remote.keys().take(20).cloned().collect() };
+        let mut fetch = vec!["fetch", "--quiet", "--no-tags", "origin"];
+        fetch.extend(names.iter().map(String::as_str));
+        let fetched = run!(&fetch, 60).0;
+        let ancestor = fetched && remote.contains_key(&branch) && run!(&["merge-base", "--is-ancestor", &remote[&branch], "HEAD"]).0;
+        if !ancestor {
+            let unrelated = fetched && {
+                // Only a definite answer counts: a shallow checkout or a git error is not proof.
+                let shallow = run!(&["rev-parse", "--is-shallow-repository"]).1.trim().to_string();
+                let mut codes = vec![];
+                if shallow == "false" {
+                    for name in &names {
+                        let sha = remote[name].clone();
+                        let code = tokio::process::Command::new("git")
+                            .args(crate::safegit::args(path))
+                            .args(["merge-base", &sha, "HEAD"])
+                            .env_clear()
+                            .envs(&env)
+                            .stdin(std::process::Stdio::null())
+                            .output()
+                            .await
+                            .ok()
+                            .and_then(|o| o.status.code());
+                        codes.push(code);
+                    }
+                }
+                !codes.is_empty() && codes.iter().all(|c| *c == Some(1))
+            };
+            let shown = names.join(", ");
+            return (
+                "failed",
+                if unrelated {
+                    format!("{repository} holds unrelated history on {shown}{}; nothing pushed", if remote.contains_key(&branch) { String::new() } else { format!(", not {branch}") })
+                } else if !remote.contains_key(&branch) {
+                    format!("{repository} already has history on {}, not {branch}; nothing pushed", remote.keys().cloned().collect::<Vec<_>>().join(", "))
+                } else {
+                    format!("{repository} already has different history on {branch}; nothing pushed")
+                },
+            );
+        }
+    }
+    let (ok, out, err) = run!(&["push", "-q", "-u", "origin", &branch], 60);
+    if !ok {
+        return ("failed", format!("push failed: {}", why(&out, &err)));
+    }
+    ("published", String::new())
 }
 
 /// The per-turn signals the renewer, the drive loop and the flusher share.
@@ -525,6 +639,31 @@ impl Runner {
         let _ = self.state.append(aid, "diagnostic", &json!({"text": text}));
     }
 
+    /// publish_history with the turn's token, logged when it changes (service.py publish).
+    async fn publish(&self, bot: &str, path: &Path, env: &Env) -> (&'static str, String) {
+        let repository = env.get(crate::gitcred::REPOSITORY_KEY).cloned().unwrap_or_default();
+        if repository.is_empty() {
+            return ("skipped", String::new());
+        }
+        let (state, detail) = {
+            let _one = self.push_lock.lock().await; // one push at a time on this computer
+            publish_history(path, &repository, env).await
+        };
+        let note = if state == "failed" { format!("{repository}: {detail}") } else { String::new() };
+        let mut notes = self.publish_notes.lock().unwrap();
+        if state == "published" {
+            log(&format!("Tico runner: {bot}: published its history to {repository}"));
+        } else if state == "failed" && notes.get(bot) != Some(&note) {
+            log(&format!("Tico runner: {bot}: could not publish its history to {repository} ({detail}); it stays on this computer"));
+        }
+        if state == "failed" {
+            notes.insert(bot.to_string(), note);
+        } else if state == "published" || state == "current" {
+            notes.remove(bot);
+        }
+        (state, detail)
+    }
+
     /// One turn, start to result. Err only when the result could not be settled; the loop then saves an
     /// interrupted result for recovery.
     pub async fn execute(self: Arc<Self>, attempt: Value) -> Result<(), String> {
@@ -576,11 +715,20 @@ impl Runner {
                     break g;
                 }
             };
+            if let Some(line) = crate::runner::local_refusal() {
+                // Never run a bot as the supervisor user when it is meant to run as another one.
+                return Err(Fail::runtime(format!("Not started: {line}")));
+            }
             if truthy(refs.get("goal_action")) || truthy(refs.get("command")) {
                 // Settled as failed with the reason, not run half-way: goals and harness commands need the Python runner.
                 let what = if truthy(refs.get("goal_action")) { "goal controls" } else { "harness commands" };
                 drove.outcome = "failed".into();
                 drove.reply = format!("This computer's runner does not run {what} yet; run it on the Python runner for this bot.");
+                // The server takes a result only for a started attempt. A control acts on the bot's current
+                // thread, so that is the thread named; nothing runs in it.
+                let thread_id = self.state.session(&bot, &conv, &runtime)?.unwrap_or_else(|| format!("unstarted-{aid}"));
+                self.client.post(&format!("attempts/{aid}/started"), &json!({"thread_id": thread_id}), Some(&format!("started:{aid}"))).await?;
+                self.state.phase(&aid, "running")?;
                 self.diagnose(&aid, &drove.reply);
                 return Ok(());
             }
@@ -607,6 +755,12 @@ impl Runner {
             if !error.is_empty() {
                 let name = execution_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 log(&format!("Tico runner: {name} pull before {bot} turn failed ({error}); using the local tree"));
+            }
+            // A checkout with no upstream yet: give its history a home first (service.py prepare_history), and
+            // run no turn on a copy that shares no history with GitHub's.
+            let (published, detail) = self.publish(&bot, &execution_path, &env).await;
+            if published == "failed" && detail.contains("unrelated history") {
+                return Err(Fail::runtime(format!("this computer's copy of {bot} shares no history with GitHub ({detail}); no turn runs on it")));
             }
             if redactor.is_some() {
                 started_at = redact::head(&execution_path);
@@ -676,7 +830,7 @@ impl Runner {
                 values.push(token.clone());
                 Arc::new(Redactor::new(&values))
             });
-            let masked = Regex::new(r"(\w+://)[^/@\s]+@").unwrap().replace_all(&scrub.scrub_text(&e.text), "$1***@").into_owned();
+            let masked = redact::scrub_credentials(&scrub.scrub_text(&e.text), &[]);
             let cause: String = masked.chars().take(300).collect();
             let detail = if cause.is_empty() { String::new() } else { format!(" ({cause})") };
             self.diagnose(&aid, &format!("{}: execution interrupted{detail}; inspect local runner", e.kind));
@@ -800,6 +954,7 @@ impl Runner {
                             let name = execution_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                             log(&format!("Tico runner: {name} has {ahead} unpushed commits and push failed ({error}); leaving it for a person"));
                         }
+                        self.publish(&bot, &execution_path, &env).await;
                     }
                     Ok(())
                 }

@@ -236,7 +236,9 @@ async fn answer(attempts: &Mutex<HashMap<String, Registered>>, client: &Client, 
 /// Why Tico could not get a GitHub token, in plain words.
 pub fn token_problem(e: &ApiError, repository: &str) -> String {
     let what = if repository.is_empty() { "for this bot's repositories".to_string() } else { format!("for {repository}") };
-    let detail: String = e.detail.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect();
+    // Scrubbed whole before it is cut: a token cut in half no longer looks like one.
+    let detail = crate::redact::scrub_credentials(&e.detail.split_whitespace().collect::<Vec<_>>().join(" "), &[]);
+    let detail: String = detail.chars().take(200).collect();
     let why = if e.code == "github_repo_not_accessible" || (e.status == 409 && detail.contains("not reachable")) {
         "the GitHub App is not installed on it or cannot reach it; add it to the App's repository access on GitHub, then check Settings > Tools > GitHub".to_string()
     } else if e.status == 403 && detail.contains("organization") {
@@ -246,7 +248,7 @@ pub fn token_problem(e: &ApiError, repository: &str) -> String {
     } else {
         "the server did not answer (APIError)".to_string()
     };
-    format!("Tico could not get a GitHub token {what}: {why}")
+    crate::redact::scrub_credentials(&format!("Tico could not get a GitHub token {what}: {why}"), &[])
 }
 
 // ----------------------------------------------------------------------------- the turn's environment

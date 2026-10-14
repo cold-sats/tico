@@ -108,7 +108,7 @@ struct Pipe {
     cost: f64,
     awaiting: Option<Instant>,
     timed_out: bool,
-    pid: Option<u32>,
+    stopper: super::Stopper,
 }
 
 impl Pipe {
@@ -223,7 +223,7 @@ impl ClaudeHost {
             }
             if let Some(p) = inner.pipe.as_mut() {
                 p.close();
-                super::terminate(p.pid, STOP_TIMEOUT);
+                p.stopper.terminate(STOP_TIMEOUT);
             }
             inner.reader.take()
         };
@@ -333,11 +333,11 @@ impl ClaudeHost {
         Ok(turn)
     }
 
-    fn open_pipe(&self, child: &mut Child, text: &str) {
+    fn open_pipe(&self, stdin: Option<tokio::process::ChildStdin>, stopper: super::Stopper, text: &str) {
         let (tx, mut rx) = mpsc::unbounded_channel::<Option<String>>();
         let first = uuid::Uuid::new_v4().to_string();
         let _ = tx.send(Some(user_line(&first, text)));
-        let mut stdin = child.stdin.take();
+        let mut stdin = stdin;
         // Its own task: a prompt can be larger than the pipe's buffer, and nothing else waits on it.
         tokio::spawn(async move {
             while let Some(Some(line)) = rx.recv().await {
@@ -358,15 +358,17 @@ impl ClaudeHost {
             cost: 0.0,
             awaiting: None,
             timed_out: false,
-            pid: child.id(),
+            stopper,
         });
     }
 
     async fn read_loop(&self, mut child: Child, mut stderr: std::fs::File, tid: String, turn: String, text: String, effort: Option<String>) {
         let mut recovered = false;
         loop {
-            self.open_pipe(&mut child, &text);
             let stdout = child.stdout.take();
+            let stdin = child.stdin.take();
+            let (stopper, exited) = super::own(child);
+            self.open_pipe(stdin, stopper, &text);
             let mut result: Option<Value> = None;
             let mut saw_event = false;
             if let Some(stdout) = stdout {
@@ -388,7 +390,7 @@ impl ClaudeHost {
                                     p.awaiting = None;
                                     p.timed_out = true;
                                     p.close();
-                                    super::terminate(p.pid, STOP_TIMEOUT); // the reader sees EOF and fails the turn
+                                    p.stopper.terminate(STOP_TIMEOUT); // the reader sees EOF and fails the turn
                                 } else {
                                     p.awaiting = None;
                                 }
@@ -430,11 +432,8 @@ impl ClaudeHost {
                     None => (false, false, false),
                 }
             };
-            let rc = match child.wait().await {
-                Ok(s) => s.code().unwrap_or_else(|| {
-                    use std::os::unix::process::ExitStatusExt;
-                    -s.signal().unwrap_or(1)
-                }),
+            let rc = match exited.await {
+                Ok(status) => super::return_code(&status),
                 Err(_) => -1,
             };
             let clean = result.as_ref().is_some_and(|r| !crate::util::truthy(r.get("is_error"))) && rc == 0;
@@ -672,7 +671,7 @@ impl ClaudeHost {
         inner.interrupted.insert(turn_id.into());
         if let Some(p) = inner.pipe.as_mut() {
             p.close();
-            super::terminate(p.pid, STOP_TIMEOUT);
+            p.stopper.terminate(STOP_TIMEOUT);
         }
     }
 }

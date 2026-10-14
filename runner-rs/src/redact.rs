@@ -129,6 +129,14 @@ impl Redactor {
         }
     }
 
+    /// Bytes scrubbed as they are: bytes that are not UTF-8 are kept, not replaced (Python's surrogateescape).
+    pub fn scrub_bytes(&self, data: &[u8]) -> Vec<u8> {
+        match &self.inner.read().unwrap().matcher {
+            Some(m) => m.replace_all_bytes(data, &vec![MASK.as_bytes(); m.patterns_len()]),
+            None => data.to_vec(),
+        }
+    }
+
     /// The same structure with every string scrubbed; keys are left as they are.
     pub fn scrub_json(&self, v: &Value) -> Value {
         match v {
@@ -159,39 +167,16 @@ impl Redactor {
             return result;
         }
         let changed = git(root, &["status", "--porcelain", "-z", "--untracked-files=all"]).unwrap_or_default();
-        let text = String::from_utf8_lossy(&changed).to_string();
-        for entry in text.split('\0') {
-            if entry.len() > 3 && &entry[..2] != " D" && &entry[..2] != "D " {
-                let name = entry[3..].rsplit(" -> ").next().unwrap_or_default();
-                let path = root.join(name);
-                let meta = std::fs::symlink_metadata(&path);
-                match meta {
-                    Ok(m) if m.is_file() && m.len() > TEXT_LIMIT => result.too_large.push(path),
-                    Ok(m) if m.is_file() => match std::fs::read(&path) {
-                        Ok(data) => {
-                            if !self.holds(&data) {
-                                continue;
-                            }
-                            if data.iter().take(8000).any(|&b| b == 0) {
-                                result.left_out.push(path);
-                                continue;
-                            }
-                            let scrubbed = self.scrub_text(&String::from_utf8_lossy(&data));
-                            let tmp = path.with_file_name(format!(".tico-scrub-{}", uuid::Uuid::new_v4().simple()));
-                            let ok = std::fs::write(&tmp, scrubbed.as_bytes())
-                                .and_then(|_| std::fs::set_permissions(&tmp, m.permissions()))
-                                .and_then(|_| std::fs::rename(&tmp, &path));
-                            if ok.is_err() {
-                                let _ = std::fs::remove_file(&tmp);
-                                result.left_out.push(path);
-                            } else {
-                                result.rewritten.push(path);
-                            }
-                        }
-                        Err(_) => result.left_out.push(path),
-                    },
-                    _ => {}
-                }
+        for name in changed_paths(&changed) {
+            let path = root.join(&name);
+            match std::fs::symlink_metadata(&path) {
+                Ok(m) if m.is_file() && m.len() > TEXT_LIMIT => result.too_large.push(path),
+                Ok(m) if m.is_file() => match self.scrub_file(root, &name) {
+                    Scrubbed::Clean => {}
+                    Scrubbed::Rewritten => result.rewritten.push(path),
+                    Scrubbed::LeftOut => result.left_out.push(path),
+                },
+                _ => {}
             }
         }
         if !since.is_empty() {
@@ -204,6 +189,152 @@ impl Redactor {
     }
 }
 
+enum Scrubbed {
+    Clean,
+    Rewritten,
+    LeftOut,
+}
+
+/// The paths `git status --porcelain -z` lists as changed and still present, relative to the checkout. Each
+/// record is `XY path`; a rename or copy (`R`/`C` in either column) is followed by its source path as a field of
+/// its own, which is skipped. Paths stay bytes: a name need not be UTF-8.
+pub fn changed_paths(out: &[u8]) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut paths = vec![];
+    let mut fields = out.split(|&b| b == 0);
+    while let Some(record) = fields.next() {
+        let (Some(&x), Some(&y), Some(&b' ')) = (record.first(), record.get(1), record.get(2)) else { continue };
+        if [x, y].iter().any(|c| *c == b'R' || *c == b'C') {
+            fields.next(); // the source path
+        }
+        let name = &record[3..];
+        if name.is_empty() || (x, y) == (b' ', b'D') || (x, y) == (b'D', b' ') {
+            continue;
+        }
+        paths.push(PathBuf::from(std::ffi::OsStr::from_bytes(name)));
+    }
+    paths
+}
+
+/// An open directory: closed on drop.
+struct Dir(std::os::fd::OwnedFd);
+
+impl Dir {
+    fn open_at(parent: Option<&Dir>, name: &std::ffi::CStr) -> std::io::Result<Dir> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let at = parent.map_or(libc::AT_FDCWD, |d| d.0.as_raw_fd());
+        let fd = unsafe { libc::openat(at, name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Dir(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) }))
+    }
+
+    fn raw(&self) -> i32 {
+        use std::os::fd::AsRawFd;
+        self.0.as_raw_fd()
+    }
+}
+
+fn cstr(bytes: &[u8]) -> std::io::Result<std::ffi::CString> {
+    std::ffi::CString::new(bytes).map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))
+}
+
+fn stat_at(dir: &Dir, name: &std::ffi::CStr) -> std::io::Result<libc::stat> {
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstatat(dir.raw(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(st)
+}
+
+impl Redactor {
+    /// Rewrite one changed file (redact.py scrub_files) with every directory on its way opened by descriptor and
+    /// without following links, so a directory swapped for a symlink after git listed the file cannot send the
+    /// read or the replacement outside the checkout. The file is replaced only if it is still the one read.
+    fn scrub_file(&self, root: &Path, name: &Path) -> Scrubbed {
+        match self.scrub_anchored(root, name) {
+            Ok(done) => done,
+            Err(_) => Scrubbed::LeftOut,
+        }
+    }
+
+    fn scrub_anchored(&self, root: &Path, name: &Path) -> std::io::Result<Scrubbed> {
+        use std::io::{Read, Write};
+        use std::os::fd::FromRawFd;
+        use std::os::unix::ffi::OsStrExt;
+        let anchored = root.canonicalize()?.join(name);
+        let parts: Vec<&std::ffi::OsStr> = anchored.components().filter_map(|c| match c {
+            std::path::Component::Normal(p) => Some(p),
+            _ => None,
+        }).collect();
+        let Some((file, parents)) = parts.split_last() else { return Ok(Scrubbed::LeftOut) };
+        if name.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            return Ok(Scrubbed::LeftOut); // `..` or an absolute name is never followed out of the checkout
+        }
+        let mut dir = Dir::open_at(None, c"/")?;
+        for part in parents {
+            dir = Dir::open_at(Some(&dir), &cstr(part.as_bytes())?)?;
+        }
+        let leaf = cstr(file.as_bytes())?;
+        let fd = unsafe { libc::openat(dir.raw(), leaf.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+        if fd < 0 {
+            let err = std::io::Error::last_os_error();
+            // A symlink is not scrubbed through: what it points at is not the checkout's.
+            if stat_at(&dir, &leaf).is_ok_and(|st| (st.st_mode & libc::S_IFMT) == libc::S_IFLNK) {
+                return Ok(Scrubbed::Clean);
+            }
+            return Err(err);
+        }
+        let mut stream = unsafe { std::fs::File::from_raw_fd(fd) };
+        let info = stream.metadata()?;
+        if !info.is_file() {
+            return Ok(Scrubbed::Clean);
+        }
+        if info.len() > TEXT_LIMIT {
+            return Ok(Scrubbed::LeftOut);
+        }
+        let mut data = vec![];
+        Read::by_ref(&mut stream).take(TEXT_LIMIT + 1).read_to_end(&mut data)?;
+        drop(stream);
+        if !self.holds(&data) {
+            return Ok(Scrubbed::Clean);
+        }
+        if data.iter().take(8000).any(|&b| b == 0) || data.len() as u64 > TEXT_LIMIT {
+            return Ok(Scrubbed::LeftOut);
+        }
+        use std::os::unix::fs::MetadataExt;
+        let mode = (info.mode() & 0o7777) as libc::mode_t;
+        let temporary = cstr(format!(".tico-scrub-{}", uuid::Uuid::new_v4().simple()).as_bytes())?;
+        let fd = unsafe {
+            libc::openat(dir.raw(), temporary.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC, mode as libc::c_uint)
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let written = (|| {
+            let mut out = unsafe { std::fs::File::from_raw_fd(fd) };
+            if unsafe { libc::fchmod(fd, mode) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            out.write_all(&self.scrub_bytes(&data))?;
+            out.sync_all()?;
+            let current = stat_at(&dir, &leaf)?;
+            if (current.st_dev as u64, current.st_ino as u64) != (info.dev(), info.ino()) {
+                return Ok(Scrubbed::LeftOut); // replaced since it was read
+            }
+            if unsafe { libc::renameat(dir.raw(), temporary.as_ptr(), dir.raw(), leaf.as_ptr()) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(Scrubbed::Rewritten)
+        })();
+        if !matches!(written, Ok(Scrubbed::Rewritten)) {
+            unsafe { libc::unlinkat(dir.raw(), temporary.as_ptr(), 0) };
+        }
+        written
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Tree {
     pub rewritten: Vec<PathBuf>,
@@ -212,21 +343,81 @@ pub struct Tree {
     pub committed: bool,
 }
 
+/// Credentials that can turn up in git's or the hub's words whoever's they are: a URL's user part, GitHub's
+/// token formats, Authorization headers and `name=value` credential pairs (redact.py _CREDENTIAL_SHAPES).
+fn credential_shapes() -> &'static [(regex::Regex, &'static str)] {
+    static SHAPES: OnceLock<Vec<(regex::Regex, &'static str)>> = OnceLock::new();
+    SHAPES.get_or_init(|| {
+        [
+            (r#"(?i)([a-z][a-z0-9+.-]*://)[^/\s@'"]+@"#, "${1}••••@"),
+            (r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,})", "••••"),
+            (r"(?i)\b((?:proxy-)?authorization\s*:\s*)(?:(?:basic|bearer|token)\s+)?\S+", "${1}••••"),
+            (r"(?i)\b(basic|bearer)\s+[A-Za-z0-9+/._~-]{8,}=*", "${1} ••••"),
+            (r"(?i)\b(password|oauth_refresh_token|access_token|token)\s*=\s*\S+", "${1}=••••"),
+        ]
+        .into_iter()
+        .map(|(p, r)| (regex::Regex::new(p).expect("credential shape"), r))
+        .collect()
+    })
+}
+
+/// `text` with `secrets`, every running turn's secrets and anything shaped like a credential masked
+/// (redact.py scrub_credentials). Always on the whole text: a token cut in half no longer looks like one.
+pub fn scrub_credentials(text: &str, secrets: &[String]) -> String {
+    let mut out = scrub_log(&Redactor::new(secrets).scrub_text(text));
+    for (pattern, replacement) in credential_shapes() {
+        out = pattern.replace_all(&out, *replacement).into_owned();
+    }
+    out
+}
+
+/// The secret values in a git environment: its tokens, by name and in TICO_GITHUB_TOKENS (redact.py env_secrets).
+pub fn env_secrets(env: &std::collections::BTreeMap<String, String>) -> Vec<String> {
+    let pairs: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    for_turn(&pairs, &[]).map(|r| r.values()).unwrap_or_default()
+}
+
+/// Why a git command failed, in git's words and safe to show (redact.py git_failure): the last meaningful lines
+/// of its stderr without progress or advice, scrubbed whole before anything is cut, at most `limit` characters.
+pub fn git_failure(stderr: &str, secrets: &[String], limit: usize) -> String {
+    static NOISE: OnceLock<regex::Regex> = OnceLock::new();
+    static REASON: OnceLock<regex::Regex> = OnceLock::new();
+    let noise = NOISE.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)^(?:hint:|cloning into|remote: (?:enumerating|counting|compressing|total)|receiving objects|resolving deltas|updating files|filtering content|checking out files|you can inspect what was checked out|and retry with|warning: clone succeeded|fatal: credential helper .* told us to quit)",
+        )
+        .unwrap()
+    });
+    let reason = REASON.get_or_init(|| {
+        regex::Regex::new(r"(?i)^(?:fatal:|error:|remote:|tico\b|git-lfs|batch response|smudge|.*\b(?:error|denied|not found|timed out|too long|failed)\b)").unwrap()
+    });
+    let mut lines: Vec<String> = vec![];
+    for raw in scrub_credentials(&stderr.replace('\r', "\n"), secrets).lines() {
+        let line = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !line.is_empty() && !noise.is_match(&line) && !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    let mut picked: Vec<&String> = lines.iter().filter(|l| reason.is_match(l)).collect();
+    if picked.is_empty() {
+        picked = lines.iter().collect();
+    }
+    let start = picked.len().saturating_sub(3);
+    let text = picked[start..].iter().map(|l| l.chars().take(200).collect::<String>()).collect::<Vec<_>>().join(" / ");
+    if text.chars().count() <= limit {
+        text
+    } else {
+        format!("{}…", text.chars().take(limit.saturating_sub(1)).collect::<String>().trim_end())
+    }
+}
+
 /// git with the clean environment `runner/safe_git.py` uses: no global or system config.
 pub fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
     let out = Command::new("git")
-        .arg("-c")
-        .arg(format!("safe.directory={}", root.display()))
-        .arg("-C")
-        .arg(root)
+        .args(crate::safegit::args(root))
         .args(args)
         .env_clear()
-        .envs(crate::env::process_environment())
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
+        .envs(crate::safegit::clean_environment(&crate::env::process_environment()))
         .stdin(std::process::Stdio::null())
         .output()
         .ok()?;
@@ -295,6 +486,34 @@ mod tests {
         let text = format!("a s3cr3t-value/x b {} c {} d hunter2hunter2 e short password", quote("s3cr3t-value/x"), b64);
         assert_eq!(r.scrub_text(&text), "a •••• b •••• c •••• d •••• e short password");
         assert!(Redactor::new(&["aaaaaaaaaaaa".into()]).is_empty(), "fewer than three distinct characters");
+    }
+
+    #[test]
+    fn a_renamed_non_ascii_file_is_parsed_and_scrubbed_in_place() {
+        // The source path of a rename is its own field; reading it as a record split a UTF-8 character.
+        let out = "R  new.txt\0漢字.txt\0 M a b.txt\0?? 漢字2.txt\0 D gone.txt\0".as_bytes();
+        let names: Vec<String> = changed_paths(out).iter().map(|p| p.display().to_string()).collect();
+        assert_eq!(names, ["new.txt", "a b.txt", "漢字2.txt"]);
+        assert!(changed_paths(b"R").is_empty() && changed_paths("漢".as_bytes()).is_empty());
+
+        let root = std::env::temp_dir().join(format!("tico-scrub-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&root).unwrap();
+        let sh = |cmd: &str| assert!(Command::new("sh").arg("-c").arg(cmd).current_dir(&root).env("GIT_CONFIG_GLOBAL", "/dev/null").output().unwrap().status.success());
+        sh("git init -q && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m init");
+        let body = "a line that stays the same\n".repeat(20);
+        std::fs::write(root.join("漢字.txt"), &body).unwrap();
+        sh("git add . && git -c user.name=t -c user.email=t@t commit -q -m add && git mv 漢字.txt 新しい.txt");
+        let mut text = body.into_bytes();
+        text.extend(b"key=granted-secret-value \xff\n");
+        std::fs::write(root.join("新しい.txt"), &text).unwrap();
+        sh("git add -A");
+        let status = git(&root, &["status", "--porcelain", "-z"]).unwrap();
+        assert!(status.starts_with(b"R  "), "{}", String::from_utf8_lossy(&status));
+        let tree = Redactor::new(&["granted-secret-value".into()]).scrub_tree(&root, "");
+        assert_eq!(tree.rewritten.len(), 1, "{tree:?}");
+        let written = std::fs::read(root.join("新しい.txt")).unwrap();
+        assert!(written.ends_with(b"key=\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2 \xff\n"), "non-UTF-8 bytes kept, secret masked");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

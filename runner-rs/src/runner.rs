@@ -36,6 +36,11 @@ pub struct Runner {
     pub socket: Option<CredentialSocket>,
     /// Attempts with a live worker here; recovery leaves them alone.
     pub active: Mutex<HashSet<String>>,
+    /// One push or history publish at a time on this computer.
+    pub push_lock: tokio::sync::Mutex<()>,
+    pub sign_in: crate::signin::SignIn,
+    /// The last history-publish failure per bot, so it is logged when it changes.
+    pub publish_notes: Mutex<HashMap<String, String>>,
     pub attempt_bots: Mutex<HashMap<String, String>>,
     pub runtime_rows: Mutex<Map<String, Value>>,
     names: Mutex<Option<Value>>,
@@ -79,6 +84,7 @@ pub fn describe(e: &ApiError) -> String {
 
 impl Runner {
     pub fn new(config: Config, client: Client, state: State) -> Runner {
+        let projects_dir = config.projects_dir();
         let capacity = machine_capacity(config.data.get("capacity"));
         Runner {
             config,
@@ -90,6 +96,9 @@ impl Runner {
             tokens: Arc::new(TokenCache::new()),
             socket: None,
             active: Mutex::new(HashSet::new()),
+            push_lock: tokio::sync::Mutex::new(()),
+            sign_in: crate::signin::SignIn::new(&projects_dir),
+            publish_notes: Mutex::new(HashMap::new()),
             attempt_bots: Mutex::new(HashMap::new()),
             runtime_rows: Mutex::new(Map::new()),
             names: Mutex::new(None),
@@ -172,16 +181,14 @@ impl Runner {
                 continue;
             }
             let sent: Result<(), ApiError> = async {
-                self.flush(&row.id).await?;
-                let completion = match &row.completion {
-                    Some(text) => serde_json::from_str(text).unwrap_or(Value::Null),
-                    None => {
-                        let mut done = Map::new();
-                        done.insert("outcome".into(), json!("interrupted"));
-                        done.insert("text".into(), json!("Runner restarted during execution"));
-                        self.state.finish(&row.id, &done).map_err(|e| ApiError::new("state", e, 0, false))?
-                    }
+                // The listing is a snapshot: a turn that ended since then saved (and maybe sent) its own result,
+                // which stands. Read the row again, under the store's lock, before deciding what to send.
+                let Some(completion) =
+                    self.state.recovery(&row.id, "Runner restarted during execution").map_err(|e| ApiError::new("state", e, 0, false))?
+                else {
+                    return Ok(());
                 };
+                self.flush(&row.id).await?;
                 self.complete(&row.id, &completion).await?;
                 self.state.phase(&row.id, "synced").map_err(|e| ApiError::new("state", e, 0, false))?;
                 Ok(())
@@ -218,7 +225,7 @@ impl Runner {
             by_bot.insert(text_of(&entry["bot"]), entry.clone());
         }
         let candidates: Vec<Value> = by_bot.into_values().collect();
-        let runtimes = readiness::runtime_report().await;
+        let runtimes = readiness::runtime_report(&self.sign_in, &self.client, &assignments).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
         let checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
         let published = self.published.lock().unwrap().clone();
@@ -258,6 +265,18 @@ impl Runner {
         Ok(())
     }
 
+}
+
+/// Why this computer cannot run on this runner whatever its bots are, checked before anything reaches the
+/// network: bots run as another user (TICO_RUNNER_BOT_UID), which this runner does not do. `execute` checks it
+/// again, so a turn never starts as the supervisor user even if startup let it through.
+pub fn local_refusal() -> Option<String> {
+    std::env::var("TICO_RUNNER_BOT_UID")
+        .is_ok_and(|v| !v.is_empty())
+        .then(|| "this computer runs bots as another user (TICO_RUNNER_BOT_UID), which needs the Python runner".to_string())
+}
+
+impl Runner {
     /// Assigned bots this runner cannot run, each with what it lacks. Read once at start: the runner then refuses
     /// to start rather than leave those bots' work unclaimed.
     pub async fn refusals(&self) -> Result<Vec<String>, ApiError> {
@@ -272,9 +291,6 @@ impl Runner {
             if !needs.is_empty() {
                 lines.push(format!("{} needs {}", text_of(&entry["bot"]), needs.join(", ")));
             }
-        }
-        if std::env::var("TICO_RUNNER_BOT_UID").is_ok_and(|v| !v.is_empty()) {
-            lines.push("this computer runs bots as another user (TICO_RUNNER_BOT_UID), which needs the Python runner".into());
         }
         Ok(lines)
     }
@@ -427,14 +443,15 @@ impl Runner {
                 Ok(Err(e)) => Some(e),
                 Err(e) => Some(format!("worker ended: {e}")),
             };
-            self.active.lock().unwrap().remove(&aid);
-            self.attempt_bots.lock().unwrap().remove(&aid);
-            clock.next_claim = None; // capacity came free: look for the next job now
             if let Some(why) = outcome {
-                // The saved reason names the error, so the turn does not read as a runner restart.
+                // The saved reason names the error, so the turn does not read as a runner restart. Saved while the
+                // attempt still counts as active, so recovery cannot save its own reason first.
                 log(&format!("Tico runner: worker {aid} failed ({why}); recovering saved attempt"));
                 let _ = self.state.interrupted(&aid, &format!("The runner stopped this turn on an error ({why}); see this computer's runner log"));
             }
+            self.active.lock().unwrap().remove(&aid);
+            self.attempt_bots.lock().unwrap().remove(&aid);
+            clock.next_claim = None; // capacity came free: look for the next job now
         }
         if maintenance.as_ref().is_some_and(|m| m.is_finished()) {
             if let Ok(Err(e)) = maintenance.take().unwrap().await {
