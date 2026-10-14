@@ -451,7 +451,7 @@ function mood(ch) {
   if (ch.type === 'human') return 'human';
   if (String(ch.message).startsWith('Stuck')) return 'stuck';
   if (!data.fresh) return 'unknown';
-  return ['running', 'paused', 'planned', 'restricted', 'unknown'].includes(ch.activity) ? (ch.activity === 'planned' ? 'paused' : ch.activity) : 'idle';
+  return ['running', 'needs', 'paused', 'planned', 'restricted', 'unknown'].includes(ch.activity) ? (ch.activity === 'planned' ? 'paused' : ch.activity) : 'idle';
 }
 function tags() {
   $('#people').replaceChildren(); characters.forEach(c => c.tag = null);
@@ -594,6 +594,52 @@ on(document, 'keydown', e => {
 on(window, 'resize', () => { renderer.setSize(innerWidth, innerHeight); composer?.setSize(innerWidth, innerHeight); });
 on(renderer.domElement, 'webglcontextlost', e => { e.preventDefault(); controller.abort(); cancelAnimationFrame(frameId); window.dispatchEvent(new Event('overview-context-lost')); });
 
+// ---------------------------------------------------------------- links: a message or handoff between two desks
+// An arc rises from one teammate to the other and a light travels along it, then the arc fades. With reduced
+// motion the arc appears whole and fades without the travelling light.
+const LINK_LIFE = 2.6, LINK_MAX = 8, links = [];
+const LINK_COLOR = {message: 0x8ff0d4, handoff: 0xffc56b};
+const linkUp = new THREE.Vector3(0, 1.9, 0);
+function deskOf(id, other) {
+  // A person can sit in several buildings: use the seat nearest the other end.
+  const seats = characters.filter(c => c.actorId === id && FLOORS[c.floor].anim.vis && (state.floor === null || c.floor === state.floor));
+  if (!other || seats.length < 2) return seats[0] || null;
+  const there = other.root.getWorldPosition(new THREE.Vector3());
+  return seats.reduce((a, b) => a.root.getWorldPosition(tmp).distanceTo(there) <= b.root.getWorldPosition(new THREE.Vector3()).distanceTo(there) ? a : b);
+}
+function dropLink(link) {
+  link.group.removeFromParent(); link.geo.dispose(); link.mat.dispose(); link.dotMat.dispose();
+  links.splice(links.indexOf(link), 1);
+}
+function link(fromId, toId, kind = 'message') {
+  if (!fromId || !toId || fromId === toId) return false;
+  const a0 = deskOf(fromId), b = deskOf(toId, a0), a = b ? deskOf(fromId, b) : a0;
+  if (!a || !b) return false;
+  world.updateWorldMatrix(true, true);
+  const start = world.worldToLocal(a.root.getWorldPosition(new THREE.Vector3()).add(linkUp));
+  const end = world.worldToLocal(b.root.getWorldPosition(new THREE.Vector3()).add(linkUp));
+  const mid = start.clone().add(end).multiplyScalar(.5); mid.y += 1.2 + start.distanceTo(end) * .32;
+  const curve = new THREE.QuadraticBezierCurve3(start, mid, end), color = LINK_COLOR[kind] || LINK_COLOR.message;
+  const geo = new THREE.TubeGeometry(curve, 48, .08, 8, false);
+  const mat = new THREE.MeshBasicMaterial({color: new THREE.Color(color).multiplyScalar(3), transparent: true, opacity: 0, depthWrite: false});
+  const dotMat = new THREE.MeshBasicMaterial({color: new THREE.Color(color).multiplyScalar(4), transparent: true, opacity: 1, depthWrite: false});
+  const group = new THREE.Group(), tube = new THREE.Mesh(geo, mat), dot = new THREE.Mesh(geos.get('ball1') || new THREE.SphereGeometry(1, 10, 8), dotMat);
+  if (!geos.has('ball1')) geos.set('ball1', dot.geometry);
+  dot.scale.setScalar(.22); dot.visible = !reduced.matches; group.add(tube, dot); world.add(group);
+  while (links.length >= LINK_MAX) dropLink(links[0]);
+  links.push({from: fromId, to: toId, kind, group, geo, mat, dotMat, dot, curve, t0: state.clock});
+  if (!reduced.matches) { hop(a, .22); hop(b, .22, .5); }
+  return true;
+}
+function animateLinks() {
+  for (const l of [...links]) {
+    const p = (state.clock - l.t0) / LINK_LIFE;
+    if (p >= 1) { dropLink(l); continue; }
+    l.mat.opacity = reduced.matches ? (p < .8 ? .85 : (1 - p) * 4.25) : Math.min(1, p * 6) * (p < .7 ? .85 : (1 - p) / .3 * .85);
+    if (l.dot.visible) { const u = Math.min(1, p / .55); l.curve.getPointAt(u, l.dot.position); l.dotMat.opacity = u < 1 ? 1 : Math.max(0, 1 - (p - .55) * 4); }
+  }
+}
+
 // ---------------------------------------------------------------- animation
 let last = 0, frameId = 0, frames = 0, loadingTimer = 0;
 const up = new THREE.Vector3(0, 1.85, 0), tmp = new THREE.Vector3(), stuckColor = new THREE.Color(0xffb547);
@@ -609,8 +655,8 @@ function animateCharacter(ch, dt, t, still, inside) {
     const off = ch.blink < 0 && !still ? .25 : 1;
     const flicker = working && !still ? .92 + Math.sin(t * 23 + i) * .05 + Math.sin(t * 3.1 + i) * .04 : 1;
     ch.faceMat.color.setScalar(1.7 * dim * flicker * off);
-    const pulse = m === 'stuck' ? (Math.sin(t * 6) > 0 ? 1 : .15) : working ? .6 + .4 * Math.sin(t * 5 + i) : m === 'idle' ? .75 + .25 * Math.sin(t * 1.4 + i) : .12;
-    ch.bulbMat.color.copy(m === 'stuck' ? stuckColor : ch.neon).multiplyScalar(3 * (still ? 1 : pulse));
+    const pulse = m === 'stuck' ? (Math.sin(t * 6) > 0 ? 1 : .15) : m === 'needs' ? .55 + .45 * Math.sin(t * 2.4 + i) : working ? .6 + .4 * Math.sin(t * 5 + i) : m === 'idle' ? .75 + .25 * Math.sin(t * 1.4 + i) : .12;
+    ch.bulbMat.color.copy(m === 'stuck' || m === 'needs' ? stuckColor : ch.neon).multiplyScalar(3 * (still ? 1 : pulse));
   } else {
     ch.blink -= dt; if (ch.blink < -.12) ch.blink = 2 + (ch.h % 40) / 10;
     const s = ch.blink < 0 && !still ? .12 : 1; ch.eyes.forEach(e => e.scale.y = .05 * s);
@@ -662,6 +708,7 @@ function animate(now) {
     m.root.position.copy(m.curve.getPointAt(pos)); m.root.position.y = .17 + Math.abs(Math.sin(t * 9 + m.phase * 10)) * .03;
     const tan = m.curve.getTangentAt(pos), back = !m.closed && (raw % 2) > 1; m.root.rotation.y = Math.atan2(tan.x, tan.z) + (back ? Math.PI : 0);
   }
+  animateLinks();
   for (const c of clouds) { c.root.position.x += c.speed * dt * (still ? 0 : 1); if (c.root.position.x > islandW / 2 + 16) c.root.position.x = -islandW / 2 - 16; }
   for (let i = 0; i < FIRE; i++) { const [x, y, z, ph, sp] = fireSeed[i]; firePos[i * 3] = x + Math.sin(t * sp + ph) * 1.2; firePos[i * 3 + 1] = y + Math.sin(t * sp * 1.3 + ph * 2) * .6; firePos[i * 3 + 2] = z + Math.cos(t * sp * .8 + ph) * 1.2; }
   fireGeo.attributes.position.needsUpdate = true; fireflies.material.opacity = inside ? .3 : .9;
@@ -677,7 +724,7 @@ function animate(now) {
   if (moving || inside || camTween) renderer.shadowMap.needsUpdate = true;
   composer ? composer.render(dt) : renderer.render(scene, camera); frames++;
   // Expose actual render progress only to the synthetic browser check; production has no per-frame DOM writes.
-  if (window.__TICO_OVERVIEW_TEST_PROBE__) { window.__TICO_OVERVIEW_TEST_PROBE__.frame = frames; window.__TICO_OVERVIEW_TEST_PROBE__.time = t; }
+  if (window.__TICO_OVERVIEW_TEST_PROBE__) Object.assign(window.__TICO_OVERVIEW_TEST_PROBE__, {frame: frames, time: t, links: links.map(l => [l.from, l.to, l.kind])});
   if (frames === 2) { $('#loading').classList.add('gone'); loadingTimer = setTimeout(() => $('#loading').hidden = true, 250); document.body.dataset.sceneReady = 'true'; }
   frameId = requestAnimationFrame(animate);
 }
@@ -702,6 +749,8 @@ if (remembered < 0 && !reduced.matches) {
 applyAnims(); renderer.compile(scene, camera);
 frameId = requestAnimationFrame(animate);
 return {
+  link,
+  clearLinks() { while (links.length) dropLink(links[0]); },
   select(key) { const id = FLOORS.findIndex(f => f.group.key === key); setFloor(id >= 0 ? id : null); },
   update(next) {
     data = next;
@@ -716,7 +765,7 @@ return {
     if (state.selected) sayHi(state.selected, false);
   },
   dispose() {
-    controller.abort(); clearTimeout(loadingTimer); cancelAnimationFrame(frameId);
+    controller.abort(); clearTimeout(loadingTimer); cancelAnimationFrame(frameId); while (links.length) dropLink(links[0]);
     scene.traverse(o => { if (o.geometry) resources.add(o.geometry); if (o.material) { resources.add(o.material); if (o.material.map) resources.add(o.material.map); } });
     geos.forEach(g => resources.add(g)); mats.forEach(m => resources.add(m)); resources.forEach(r => r.dispose?.());
     composer?.dispose(); bloom?.dispose();

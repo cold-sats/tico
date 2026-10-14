@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Overview can replay the last 24 hours on the campus.** A **Replay last 24h** button under the layout switch plays the day back on the buildings: each bot's desk shows whether it was working, needed a person or was idle at that moment, a message or a task handed between two teammates draws a glowing arc between their desks, and a short caption feed says what happened. Play, pause, three speeds, a scrubber with the time, and **Back to live** returns the current status. It reads the same history as the Replay page with the viewer's own rights, and bot focus text and run summaries stay off the campus. Reduced motion shows the arcs without the travelling light. See [Campus overview](docs/overview.md#replay-the-last-24-hours).
+
 ### Changed
 - **Your Assistant clears your Needs you when you ask.** "Clear my queue" used to get a list back, and the Assistant could close tasks but told you to decline every approval and answer every question yourself, one card each, at most 20. Now it declines approvals put to you (with a reason the bot reads), answers bots' questions in your words and closes what you asked, directly when you named it or on one card for many. The card sums the items up by kind and age ("Decline 11 publish approvals, over a month old") and lists each one with its amount or target. Approving (merge, publish, spend, send) is still only your click on a card, and the Assistant may only put an approve on one when your message names it; someone else's approvals and questions are never on your card. New `hub approval decline` and `--on-behalf-of` on `hub question answer`. See [The Assistant](docs/assistant.md).
 
