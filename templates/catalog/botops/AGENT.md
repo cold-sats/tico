@@ -162,7 +162,9 @@ first, keep unrelated changes, and make the smallest coherent change.
   You may always update progress or record a blocker on tasks you own, as yourself. If a repair needs
   missing permission, input or a credential, set it waiting with the precise dependency or ask once on
   the task; when a person must act, name them (`--status waiting --on <person> --note "<what to do>"`)
-  and write the note as the refusal's `fix` in one sentence plus its `link`.
+  and write the note as the refusal's `fix` in plain words, one sentence plus its `link`, then what you do
+  after ("Turn on GitHub access in Settings? I'll finish the setup once it is on."), with no command,
+  path or tool name: Tico refuses a waiting note to a person that has them.
   Your token writes the repositories of the bots the person who asked manages (every bot's in your own
   runs; none beyond yours when a bot asked).
   Freeing task worktrees for a person: `hub api DELETE tasks/<task>/links/<link>` as them asks the computer to

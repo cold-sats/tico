@@ -25,6 +25,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--goal ID] [--dry-run] the checks a create would fail, nothing written
                     [--next-run]           for a bot: no wake; its next run carries the task
                                            blocked on a person? --owner <person> --parent <your task>
+                                           for a person, the body's first paragraph is the ask (as --note below)
     hub task ask <id> "<question>"
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
                                            one decision as its own task, waiting on them; none for Yes / No
@@ -39,7 +40,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task restore <id>                              put a deleted task back
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
                     [--title "..."]        rename it: checked as a new task's title would be
-                    [--on PERSON]          with --status waiting: the person it waits on (their Needs you)
+                    [--on PERSON]          with --status waiting: the person it waits on (their Needs you);
+                                           --note is then your ask to them, one or two plain sentences:
+                                           "Approve the video tool trial on Thursday? If yes, I'll send the invite."
     hub task close <id> [--note "..."]
     hub task snooze <id> --until DATE      set it aside until DATE: off the lists and quiet until then
     hub task unsnooze <id>                 bring a snoozed task back now
@@ -207,12 +210,13 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            ask the decision model typed questions about a state (questions/README.md);
                                            --questions-file q.json instead of --set; --list shows the sets
     hub template list                      the bot templates this company can pick from
-    hub bot create <slug> --template T [--name "Display"]
-                                           set a chosen bot up in the workspace (BotOps only); it also registers
+    hub bot create --template T [--name "Display"] [<slug>]
+                                           set a chosen bot up in the workspace (BotOps only); the slug is picked
+                                           from the name (else the template's) and printed. It also registers
                                            the bot with Tico as the requester when a person's message started the run,
                                            and asks for its empty <org>/bot-<slug> when GitHub is connected (exits
                                            non-zero when a person must first let BotOps create repositories)
-    hub bot create <slug> --record-only [--name N] [--description D] [--reports-to R] [--template T]
+    hub bot create --record-only --name N [<slug>] [--description D] [--reports-to R] [--template T]
                                            only register a new bot with Tico (planned), as the requester (BotOps)
     hub bot check <slug>                   what preflight would still refuse about that repository
     hub bot update <slug> [--reports-to R] [--display-name N] [--description D] [--status S]
@@ -443,6 +447,9 @@ def task_problems(actor, owner, title, body, type=None):
     elif H.is_human(target) and general and H.STYLE_LINT != "off":
         # writing problems: the create is accepted with these as warnings unless TICO_STYLE_LINT=refuse
         (problems if H.STYLE_LINT == "refuse" else warnings).extend(H.lint_human_item(body, title=title))
+    if H.is_bot(actor) and H.is_human(target) and general and title:
+        # the ask that opens a person's task is always refused when it is missing or unclear
+        problems += list(filter(None, [H.person_ask_refusal(target, H.person_ask_of_body(body, title), "assign")]))
     if H.is_bot(actor) and general:
         # plain-English titles: a warning this week, a refusal once TICO_TITLE_LINT=refuse
         problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
@@ -794,7 +801,9 @@ def parser():
     s.add_argument("--owner")
     s.add_argument("--due")
     s.add_argument("--on", dest="waiting_on",
-                   help="with --status waiting: the person it waits on, so it is in their Needs you; '' clears it")
+                   help="with --status waiting: the person it waits on, so it is in their Needs you; '' clears it. "
+                        "--note is then your ask to them: one or two plain sentences saying what you need and what "
+                        "happens after, with no ids, hashes, file paths or tool names")
     s.add_argument("--goal", help='the goal this task serves; "" takes it off')
     s.add_argument("--quiet", action="store_true", help="keep detailed notes on the task")
     s.add_argument("--type", help="task type id or name")
@@ -1447,8 +1456,8 @@ def parser():
     sub.add_parser("template", help="the bot templates this company can pick from").add_subparsers(dest="sub").add_parser(
         "list", help="the bot templates this company can pick from").set_defaults(fn="template list")
     bot = sub.add_parser("bot", help="build a bot from a template (BotOps), change it, place it, its status").add_subparsers(dest="sub")
-    s = bot.add_parser("create", help="build <slug> from a template in the workspace and register it; --record-only only registers")
-    s.add_argument("slug")
+    s = bot.add_parser("create", help="build a bot from a template in the workspace and register it; --record-only only registers")
+    s.add_argument("slug", nargs="?", help="leave out: Tico picks one from --name, else the template's name")
     s.add_argument("--template", help="a template from `hub template list`")
     s.add_argument("--record-only", dest="record_only", action="store_true",
                    help="only register the bot with Tico (planned), as the person who asked; build nothing")

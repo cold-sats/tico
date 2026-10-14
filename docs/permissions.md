@@ -247,7 +247,7 @@ The commands (with MCP tools of the same names):
 
 | Command | Does |
 | --- | --- |
-| `hub bot create --record-only <slug> [--name] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; safe to repeat. `hub bot create` registers automatically in such a run |
+| `hub bot create --record-only --name N [<slug>] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; the slug is picked from the name (else the template's) unless given, and printed; safe to repeat with the slug. `hub bot create` registers automatically in such a run |
 | `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,group:legal,bot:analyst`) |
 | `hub bot owners <slug> [--add P ...] [--remove P ...]` | the bot's owners |
 | `hub bot update <slug> ...` | name, description, reports-to, status, repository |
