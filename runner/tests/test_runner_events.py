@@ -136,3 +136,19 @@ def test_a_server_without_the_stream_is_polled_as_before():
         clock.now += service.CREDENTIAL_IMPORT_POLL_S
         r.poll_credential_imports()
     assert r.client.gets == ["runner-credential-imports"] * 2
+
+
+def test_an_unset_capacity_runs_five_turns_per_core_as_memory_allows_and_a_set_one_is_kept():
+    from unittest import mock
+    from runner import service
+
+    def sized(cpus, gb):
+        pages = {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": int(gb * 2**30 / 4096)}
+        with mock.patch.object(service.os, "cpu_count", return_value=cpus), \
+                mock.patch.object(service.os, "sysconf", side_effect=pages.__getitem__):
+            return service.machine_capacity()
+    assert sized(2, 16) == 10                 # the turns wait on the model, not the two cores
+    assert sized(2, 2) == 6                   # memory caps a small box
+    assert sized(1, 1) == 4                   # never below what every runner had
+    assert sized(64, 512) == 64
+    assert service.machine_capacity(80) == 80 and service.machine_capacity("auto") >= 4

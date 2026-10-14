@@ -283,20 +283,25 @@ def self_update(root=None, running=None, run=subprocess.run):
     return bool(running and head and head != running), ""
 
 
+TURNS_PER_CPU = 5        # a turn mostly waits on its model provider, not on this computer's CPU
+TURNS_PER_GB = 3         # a model CLI and its tools take about 300 MB
+MAX_AUTO_TURNS = 64
+
+
 def machine_capacity(configured=None):
-    """How many turns this computer runs at once. A number in the config is kept as written; missing or "auto"
-    is sized to the machine, since a bot's task lanes now run side by side: a core and about 2 GB of memory per
-    turn, never below the 4 every runner had, and at most 16 so one large server does not take a whole team's queue."""
+    """How many turns this computer runs at once. A number in the config is kept as written, so an owner may go
+    higher; missing or "auto" is sized to the machine: TURNS_PER_CPU per core, as memory allows (TURNS_PER_GB),
+    never below the 4 every runner had and at most MAX_AUTO_TURNS."""
     if configured not in (None, "", "auto"):
         try:
             return max(1, int(configured))
         except (TypeError, ValueError):
             pass
     try:
-        memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 2**30
+        memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
     except (AttributeError, OSError, ValueError):
         memory_gb = 8
-    return max(4, min(os.cpu_count() or 4, memory_gb // 2, 16))
+    return max(4, min((os.cpu_count() or 1) * TURNS_PER_CPU, int(memory_gb * TURNS_PER_GB), MAX_AUTO_TURNS))
 
 
 def supervised():
