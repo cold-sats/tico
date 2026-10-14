@@ -68,6 +68,34 @@ def test_an_offline_computer_holds_its_bots(environment):
     assert checks["computers"]["status"] == "warn" and "Old laptop" in checks["computers"]["summary"]
 
 
+def test_a_computer_silent_with_work_queued_goes_to_its_owner(environment):
+    api = environment()
+    runner = enrolled(api)              # enrolled for morgan
+    add_bot(api, "helper")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('helper',?,1,?,'t')",
+                  (runner, H.now()))
+        c.execute("INSERT INTO messages(id,from_actor,to_actor,kind,body,created) VALUES('m1','human:ana','bot:helper','chat','hi',?)",
+                  (H.now(),))       # queues its job
+    morgan, quinn = as_person(api, "morgan"), as_person(api, "quinn")
+    issue = lambda headers: next(i for i in api.get("/api/status", headers=headers).json()["health_issues"]
+                                 if i["kind"] == "machine")
+    # A few minutes offline is a blip that clears itself.
+    heartbeat(api, runner, seconds_ago=300, runtimes=SIGNED_IN)
+    assert issue(morgan)["title"] == "Owner Mac is offline" and not issue(morgan)["needs_person"]
+    # Past ten minutes with work queued it is an outage: said on Health and Overview, nobody interrupted yet.
+    heartbeat(api, runner, seconds_ago=700, runtimes=SIGNED_IN)
+    assert issue(morgan)["title"] == "Owner Mac stopped checking in" and issue(morgan)["severity"] == "error"
+    assert not issue(morgan)["needs_person"]
+    body, checks = health_of(api)
+    assert checks["waiting"]["status"] == "bad" and "Owner Mac has not checked in for 11 minutes" in checks["waiting"]["summary"]
+    assert body["stuck"][0]["why"].startswith("Owner Mac has not checked in for 11 minutes")
+    # Past thirty, its owner has it in Needs you; someone else who cannot wake it does not.
+    heartbeat(api, runner, seconds_ago=1900, runtimes=SIGNED_IN)
+    assert issue(morgan)["needs_person"] and issue(morgan)["action"]
+    assert not issue(quinn)["needs_person"]
+
+
 def test_backups_local_only_and_stale(environment, monkeypatch):
     api = environment()
     old = H.shift(H.now(), hours=-30)
