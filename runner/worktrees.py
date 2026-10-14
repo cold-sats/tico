@@ -736,6 +736,8 @@ def fast_forward(path, branch, target, env):
 
 def inspect(workspace, row, env=None, cache=None):
     result = {'link_id': str(row['id'])[:100], 'state': 'unknown', 'branch': None}
+    if isinstance(row.get('updated'), str) and len(row['updated']) <= 40:
+        result['record_updated'] = row['updated']
     env = safe_git.environment(env)
     step = 'find it'
     try:
