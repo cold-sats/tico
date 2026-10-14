@@ -1,36 +1,18 @@
-"""An inbox bot gets a computer to itself.
+"""A computer may be kept for inbox bots alone.
 
 Every bot on a computer runs as the same operating-system user, and an inbox bot reads mail with a
-Google Workspace key that acts as any mailbox in the company. Any other bot on that computer could
-be talked into reading that key, so the server does not put an inbox bot beside another bot. Several
-inbox bots may share a computer only when the operator says so: they hold the same key anyway. Where one owner
-runs every computer and bot, BotOps offers that and turns it on as the person who asked (`single_owner`).
+Google Workspace key that acts as any mailbox in the company. A team that wants that key walled off
+keeps a computer for its inbox bots (`POST runners/<id>/inbox-only {"enabled": true}`); the server then
+places no other bot there. It is a choice, not a rule: an inbox bot may share any other computer.
+
+Installs from before this choice existed keep what they had: the first time the setting is needed, every
+computer that holds only inbox bots is marked as kept for them.
 """
 import json
 
 from .store import Problem, P
 
-KEY = "inbox-shared-runners"
-
-
-def shared(c):
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (KEY,)).fetchone()
-    return set(json.loads(row[0])) if row else set()
-
-
-def allow_shared(c, runner_id, allowed):
-    ids = shared(c)
-    ids.add(runner_id) if allowed else ids.discard(runner_id)
-    c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
-              (KEY, json.dumps(sorted(ids))))
-
-
-def single_owner(c):
-    """One person runs everything: every computer and every bot that is not archived has the same operator."""
-    operators = {r[0] for r in c.execute(
-        "SELECT operator FROM runners WHERE revoked_at IS NULL UNION "
-        "SELECT bc.operator FROM bot_config bc JOIN bots b ON b.slug=bc.bot WHERE b.state<>'archived'") if r[0]}
-    return len(operators) <= 1
+KEY = "inbox-only-runners"
 
 
 def _bots_by_runner(c):
@@ -42,35 +24,52 @@ def _bots_by_runner(c):
     return result
 
 
+def _seed(c, people):
+    """Computers holding only inbox bots now: what the old rule kept for them."""
+    return {runner_id for runner_id, bots in _bots_by_runner(c).items()
+            if bots and all(P.inbox_person(b, people) for b in bots)}
+
+
+def inbox_only(c, people, save=False):
+    """Ids of the computers kept for inbox bots. `save` stores the seed on a write connection."""
+    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (KEY,)).fetchone()
+    if row:
+        return set(json.loads(row[0]))
+    ids = _seed(c, people)
+    if save:
+        _store(c, ids)
+    return ids
+
+
+def _store(c, ids):
+    c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+              (KEY, json.dumps(sorted(ids))))
+
+
+def set_inbox_only(c, runner_id, enabled, people):
+    ids = inbox_only(c, people)
+    ids.add(runner_id) if enabled else ids.discard(runner_id)
+    _store(c, ids)
+
+
 def violations(c, people):
-    """Computers that break the rule now: [{runner_id, label, inbox: [...], others: [...], shared: bool}]."""
-    ids, found = shared(c), []
+    """Computers kept for inbox bots that hold another bot: [{runner_id, label, inbox: [...], others: [...]}]."""
+    ids, found = inbox_only(c, people), []
     labels = {r["id"]: r["label"] for r in c.execute("SELECT id,label FROM runners WHERE revoked_at IS NULL")}
     for runner_id, bots in _bots_by_runner(c).items():
-        if runner_id not in labels:
+        if runner_id not in labels or runner_id not in ids:
             continue
         inbox = [b for b in bots if P.inbox_person(b, people)]
         others = [b for b in bots if b not in inbox]
-        if inbox and (others or (len(inbox) > 1 and runner_id not in ids)):
+        if others:
             found.append({"runner_id": runner_id, "label": labels[runner_id], "inbox": inbox, "others": others})
     return found
 
 
 def check(c, bot, runner_id, people):
-    """Refuse putting `bot` on `runner_id` when that would mix an inbox bot with another bot."""
-    here = [b for b in _bots_by_runner(c).get(runner_id, []) if b != bot]
-    mine = bool(P.inbox_person(bot, people))
-    inbox = [b for b in here if P.inbox_person(b, people)]
-    if mine and (len(here) > len(inbox) or (inbox and runner_id not in shared(c))):
-        clash = [b for b in here if b not in inbox] or inbox
-        offer = ""
-        if len(here) == len(inbox) and single_owner(c):
-            offer = (f" Or, since one owner runs everything here, let inbox bots share it: "
-                     f"`hub api POST runners/{runner_id}/inbox-sharing '{{\"allowed\": true}}'`.")
-        raise Problem("inbox_isolation", f"{bot} reads a mailbox with a key that can open every mailbox in the team, "
-                      f"so it cannot share a computer with {', '.join(clash)}. Add a computer for {bot} "
-                      f"(Settings > Computers) and place it there." + offer, 409)
-    if not mine and inbox:
-        raise Problem("inbox_isolation", f"{', '.join(inbox)} reads a mailbox with a key that can open every mailbox in "
-                      f"the team, so this computer is kept for it alone. Add a computer for {bot} "
-                      f"(Settings > Computers) and place it there.", 409)
+    """Refuse putting a bot that is not an inbox bot on a computer kept for inbox bots."""
+    if runner_id not in inbox_only(c, people, save=True) or P.inbox_person(bot, people):
+        return
+    raise Problem("inbox_isolation", f"This computer is kept for inbox bots, whose mail key can open every mailbox in "
+                  f"the team, so {bot} cannot go there. Pick another computer, or stop keeping this one for inbox bots: "
+                  f"`hub api POST runners/{runner_id}/inbox-only '{{\"enabled\": false}}'`.", 409)

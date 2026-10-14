@@ -1,5 +1,5 @@
-"""An inbox bot gets a computer to itself: assignment is refused both ways, and Health warns about
-installs that already mix them."""
+"""A computer may be kept for inbox bots: by default an inbox bot shares any computer; a computer kept for
+them refuses other bots; installs from before the setting keep their inbox-only computers."""
 
 import uuid
 
@@ -30,23 +30,39 @@ def place(api, bot, runner, generation=0):
                     headers=signed_in())
 
 
-def test_an_inbox_bot_and_another_bot_never_share_a_computer(environment):
+def keep(api, runner, enabled=True):
+    return api.post(f"/api/v2/runners/{runner}/inbox-only", json={"enabled": enabled},
+                    headers={**signed_in(), "Idempotency-Key": str(uuid.uuid4())})
+
+
+def test_an_inbox_bot_shares_a_computer_unless_one_is_kept_for_it(environment):
     api = environment()
     runner = setup(api)
     assert place(api, "helper", runner).status_code == 200
-    refused = place(api, "mail", runner)
-    assert refused.status_code == 409 and refused.json()["error"]["code"] == "inbox_isolation"
-    assert "Add a computer" in refused.json()["error"]["detail"]
+    assert place(api, "mail", runner).status_code == 200                          # sharing is allowed
+    assert keep(api, runner).status_code == 409                                   # helper is there
     other = machine(api, "Mail Mac")["runner_id"]
-    assert place(api, "mail", other).status_code == 200
-    again = place(api, "helper", other, 1)
-    assert again.status_code == 409 and again.json()["error"]["code"] == "inbox_isolation"
+    assert keep(api, other).json() == {"enabled": True}
+    assert place(api, "mail2", other).status_code == 200                          # inbox bots may share it
+    refused = place(api, "helper", other, 1)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "inbox_isolation"
+    assert keep(api, other, False).status_code == 200
+    assert place(api, "helper", other, 1).status_code == 200
+
+
+def test_an_older_install_keeps_its_inbox_only_computer(environment):
+    api = environment()
+    runner = setup(api)
+    with api.app.state.store.transaction() as c:                                  # placed before the setting existed
+        c.execute("INSERT INTO assignments VALUES('mail',?,1,'2026-01-01T00:00:00Z','human:morgan')", (runner,))
+    refused = place(api, "helper", runner)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "inbox_isolation"
 
 
 def test_turning_on_a_helper_skips_the_computer_an_inbox_bot_keeps(environment):
     api = environment(cards=[(ASSISTANT_CARD, ASSISTANT_AGENT), (BOTOPS_CARD, ""), (LIBRARIAN_CARD, "# L\n")])
     first = setup(api)
-    assert place(api, "mail", first).status_code == 200
+    assert place(api, "mail", first).status_code == 200 and keep(api, first).status_code == 200
     turn_on = lambda: api.post("/api/v2/librarian/turn-on", json={},
                                headers={**signed_in(), "Idempotency-Key": str(uuid.uuid4())})
     refused = turn_on()
