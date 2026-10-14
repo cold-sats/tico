@@ -315,3 +315,31 @@ def test_turning_a_task_goal_off_clears_it_natively_and_a_persons_goal_never_com
         goal = chat_goals.current(c, task['conversation_id'])
         chat_goals.task_goal_ended(c, goal, task['id'], 'met', 'Summarized.')
         assert H.task(c, task['id'])['status'] != 'done'
+
+
+def test_a_persons_clear_of_a_task_goal_stands_while_task_goals_stay_on(api):
+    from backend.tests.test_member_bots import finish
+    machine, task = task_goal_world(api)
+    first = claim(api, machine)
+    finish(api, machine, first)
+    cleared = action(api, task['conversation_id'], 'clear')['goal']
+    assert cleared['status'] == 'cleared' and cleared['set_by'] == 'human:ana'
+    control = claim(api, machine)                        # the "/goal clear" control, with task goals still on
+    assert control['message']['refs']['goal_action'] == 'clear'
+    goal = get(api, f"conversations/{task['conversation_id']}/goal")['goal']
+    assert goal['id'] == cleared['id'] and goal['status'] == 'cleared' and control['chat_goal']['id'] == cleared['id']
+
+
+def test_a_persons_edit_of_a_task_goal_survives_task_goals_turning_off(api):
+    from backend.tests.test_member_bots import finish
+    machine, task = task_goal_world(api)
+    finish(api, machine, claim(api, machine))
+    edited = action(api, task['conversation_id'], 'edit', 'Publish it and tell the board')['goal']
+    assert edited['set_by'] == 'human:ana'
+    finish(api, machine, claim(api, machine))           # the edit's control
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE bot_config SET config_json=? WHERE bot=?', (encode({'runtime': 'codex'}), 'ops'))
+        H.task_comment(c, 'human:ana', task['id'], 'Use the new numbers.')
+    claim(api, machine)
+    goal = get(api, f"conversations/{task['conversation_id']}/goal")['goal']
+    assert goal['status'] == 'active' and goal['objective'] == 'Publish it and tell the board'

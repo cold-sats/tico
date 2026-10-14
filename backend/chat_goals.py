@@ -124,9 +124,9 @@ def task_goal_objective(task, objective):
 
 def task_goal_row(c, auth, conv, bot, task, objective):
     """The active native goal a bot's task turn runs under, in the task's own room, or None (the runner then
-    works the goal from its prompt line). Made here when there is none; one the keeper set for an older
-    objective is replaced. A goal a person set in the room is the room's goal. A paused or stopped goal stays
-    so: the task does not spin it up again on its next turn; a person resumes it."""
+    works the goal from its prompt line). Made here when there is none, or when the keeper's own goal was cleared
+    (the task's goal was off) or set for an older objective. A goal a person set, edited or cleared in the room is
+    theirs and stands. A paused or stopped goal stays so: the task does not spin it up again; a person resumes it."""
     if conv.get("closed_at"):
         return None
     owner, supported, _ = capabilities(c, auth, conv)
@@ -149,6 +149,10 @@ def clear_task_goal(c, conv):
     is cleared and a "/goal clear" control queued in the room, so the runner clears the native goal too.
     A goal a person set in the room is theirs and stays."""
     goal = current(c, conv["id"])
+    if goal and goal["set_by"] != H.KEEPER and goal["status"] == "cleared":
+        # A person's clear stands while the task's goal is on; once it is off, turning it on again starts a new one.
+        c.execute("UPDATE chat_goals SET set_by=? WHERE id=?", (H.KEEPER, goal["id"]))
+        return None
     if not goal or goal["set_by"] != H.KEEPER or goal["status"] not in ("active", "paused"):
         return None
     now = H.now()
@@ -225,9 +229,11 @@ def install(app, store, auth, mutate, send):
                 c.execute("INSERT INTO chat_goals VALUES(?,?,?,?,?,?,?,?,?,?)",
                           (H.new_id(), cid, bot, body.objective, status, "", who.actor, now, now, None))
             else:
-                c.execute("UPDATE chat_goals SET objective=?,status=?,note=?,updated_at=?,ended_at=? WHERE conversation_id=?",
+                # Whoever changes a goal owns it from then on: a person's clear or edit of the goal Tico set for a
+                # task is theirs, so the task's goal does not bring it back (task_goal_row) or end it (clear_task_goal).
+                c.execute("UPDATE chat_goals SET objective=?,status=?,note=?,updated_at=?,ended_at=?,set_by=? WHERE conversation_id=?",
                           (body.objective if body.action == "edit" else goal["objective"], status, "", now,
-                           now if status == "cleared" else None, cid))
+                           now if status == "cleared" else None, who.actor, cid))
             goal = current(c, cid)
             # Superseded controls must never reset a newer objective when the computer catches up.
             c.execute("UPDATE jobs SET state='cancelled' WHERE state='queued' AND message_id IN "
