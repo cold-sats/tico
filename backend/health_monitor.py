@@ -3,7 +3,7 @@ finds fixed by BotOps, and reports Tico bugs to the Tico team (docs/health-monit
 
 It is off until the owner turns it on (Settings > Health). While its bot is active, the scheduler runs `scan` once an
 hour. The scan is plain code over what the server already knows (computers' versions and the error lines their runners
-report, turns stopped by a usage limit, bots held in setup, routines on paused bots, queued work that does not start,
+report, turns stopped by a usage limit, bots held in setup, queued work that does not start,
 task worktrees that failed, the server's own CPU): it costs no model. Each finding has a key (what and where, on this
 install) and a signature (what, without where, the same on every install). A finding the last scan did not have opens
 one task for the Health Monitor, or wakes it on the task it already has, through the same path as a watcher's events
@@ -70,7 +70,6 @@ MEANING = {
     "runner_outdated": "A computer runs an older Tico release than its server, or failed to update.",
     "limited_no_fallback": "A bot's turns stopped on a usage limit and it has no fallback model.",
     "stuck_setup": "A bot has been in setup for over an hour while work waits for it.",
-    "paused_routines": "A paused bot still has routines on.",
     "computer_silent": "A computer has not checked in for 10 minutes or more while work is queued for its bots.",
     "queue_idle": "Work stayed queued 15 minutes or more on an online computer with room and no limit.",
     "worktree_error": "A task worktree failed on its computer.",
@@ -196,14 +195,6 @@ def _bot_checks(c):
         out.append(_finding("stuck_setup:" + slug, "stuck_setup", SETUP, f"{name} has been stuck in setup since {oldest[:16]}",
                             f"{name} is still in setup and holds {count} {what}(s), the oldest from {oldest[:16]} UTC.",
                             f"BotOps: finish {name}'s setup with the person it serves, or pause it so its work is not held."))
-    for r in c.execute("SELECT b.slug,b.display_name,count(*) n FROM schedules s JOIN bots b ON b.slug=s.bot "
-                       "LEFT JOIN schedule_config sc ON sc.schedule_id=s.id WHERE b.state='paused' "
-                       "AND coalesce(sc.enabled,1)=1 GROUP BY b.slug ORDER BY b.slug"):
-        name = r["display_name"] or r["slug"]
-        out.append(_finding("paused_routines:" + r["slug"], "paused_routines", SETUP,
-                            f"{name} is paused but has {r['n']} routine(s) on",
-                            f"{name} is paused, so its {r['n']} enabled routine(s) do not run, and nobody is told.",
-                            f"BotOps: resume {name} if it should be working; otherwise turn its routines off."))
     online_ids = {r["id"] for r in health._online_runners(c)}
     for row in health._waiting(c, online_ids)[2]:
         if row["reason"] == "slow":

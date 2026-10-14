@@ -198,3 +198,14 @@ def test_a_busy_process_is_reported_by_its_tico_name_only(environment, hq, proce
     assert r.status_code == 200, r.text
     message = json.loads(hq.seen[0].content)["message"]
     assert f"Process: {shown}\n" in message and "acme" not in message.lower()
+
+
+def test_a_paused_bots_routines_are_not_a_finding(environment):
+    api, _ = built(environment)                                           # pausing holds routines by design (#500)
+    api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
+    r = api.post("/api/v2/bots/coo/routines", json={"key": "weekly", "cron": "30 16 * * 5", "title": "Weekly backlog",
+                                                    "text": "Review the backlog."}, headers=signed_in())
+    assert r.status_code == 200, r.text
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='paused' WHERE slug='coo'")
+    assert scan(api) == []
