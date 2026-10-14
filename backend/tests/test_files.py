@@ -145,3 +145,26 @@ def test_a_refused_file_is_logged_once_not_every_turn(tmp_path, monkeypatch):
     for _ in range(3):
         assert files_publish.prepare(State(), "designer", "a1", tmp_path, {}) == (0, 1)
     assert len(logged) == 1 and ".js files are not published" in logged[0]
+
+
+def test_a_new_file_deep_in_a_full_folder_is_still_queued(tmp_path, monkeypatch):
+    import os
+    import sqlite3
+    monkeypatch.setattr(files_publish, "log", lambda *_: None)
+
+    class State:
+        def connect(self):
+            return sqlite3.connect(tmp_path / "state.db")
+    checkout = tmp_path / "checkout"
+    evidence = checkout / "reports" / "releases" / "evidence"
+    evidence.mkdir(parents=True)
+    for n in range(files_publish.MAX_PER_TURN * 5 + 50):
+        old = evidence / f"run-{n:03}.log"
+        old.write_text("x")
+        os.utime(old, (1_000_000, 1_000_000))
+    (checkout / "reports" / "candidates").mkdir()
+    (checkout / "reports" / "candidates" / "2026-10-14.md").write_text("# Candidate")
+    queued, refused = files_publish.prepare(State(), "release-manager", "a1", checkout, {})
+    assert queued == 1 and refused == files_publish.MAX_PER_TURN * 5 - 1
+    with State().connect() as c:
+        assert c.execute("SELECT rel FROM file_outbox").fetchall() == [("reports/candidates/2026-10-14.md",)]
