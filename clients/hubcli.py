@@ -126,7 +126,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            a change you may not make yourself, for the owner to confirm
     hub proposal list [--status pending|confirmed|rejected|all] [--goal ID] [--kpi ID]
     hub proposal decide <id> confirm|reject [--note "..."]   a person's own decision; a bot is refused
-    hub approval request --kind send|spend|publish|merge|support --payload-file f.json [--task ID]
+    hub approval request --kind send|spend|publish|merge|support --payload-file f.json [--task ID] [--supersedes ID]
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
     hub approval show <id>
@@ -1268,6 +1268,8 @@ def parser():
     s.add_argument("--payload-file", dest="payload_file")
     s.add_argument("--payload")
     s.add_argument("--task")
+    s.add_argument("--supersedes", metavar="APPROVAL_ID",
+                   help="your older undecided approval this replaces; it is withdrawn")
     s.set_defaults(fn="approval request")
     s = appr.add_parser("show")
     s.add_argument("id")

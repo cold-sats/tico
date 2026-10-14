@@ -3005,7 +3005,8 @@ def create_app(settings=None):
             auth.domain(who)
             if body.task_id:
                 auth.task(c, who, body.task_id)
-            return H.approval_request(c, who.actor, body.kind, body.payload, body.task_id)
+            return H.approval_request(c, who.actor, body.kind, body.payload, body.task_id,
+                                      supersedes=body.supersedes_approval)
         return mutate(request, body, work)
 
     @app.get("/api/v2/approvals/{aid}")
@@ -3014,12 +3015,13 @@ def create_app(settings=None):
             row = auth.approval(c, request.state.identity, aid)
             privacy.require_payload(c, request.state.identity, row)
             privacy.require_message(c, request.state.identity, H.message(c, row["message_id"]))
-            # Its history: asked, decided (by whom, and for whom when the person's Assistant decided), undone, spent.
+            # Its history: asked, decided (by whom, and for whom when the person's Assistant decided), undone, withdrawn,
+            # spent.
             history = [{"ts": e["ts"], "actor": e["actor"], "action": e["action"].removeprefix("approval."),
                         **{k: v for k, v in (H._json(e["detail_json"], {}) or {}).items()
                            if k in ("decision", "note", "via", "was", "kind")}}
                        for e in c.execute("SELECT ts,actor,action,detail_json FROM events WHERE target=? AND action IN "
-                                          "('approval.request','approval.decide','approval.undo','approval.consume') "
+                                          "('approval.request','approval.decide','approval.undo','approval.withdraw','approval.consume') "
                                           "ORDER BY ts", (aid,))]
             return {**row, "history": history}
 
