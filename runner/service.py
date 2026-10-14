@@ -102,6 +102,22 @@ def reserved_credential(key):
     return bool(key) and (not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or key in RESERVED_ENV
                           or key.startswith(RESERVED_PREFIXES))
 DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "
+# Prefix of the warning listing the `gh` and `git` commands a bot's Claude Code settings deny; backend/health.py
+# compares them with the bot's GitHub access.
+DENIES_WARNING = "Claude Code settings deny: "
+
+
+def claude_denies(path):
+    """The `gh` and `git` command prefixes a bot's `.claude/settings.json` denies (`Bash(gh pr create:*)` is
+    `gh pr create`), sorted."""
+    try:
+        deny = (json.loads((Path(path) / ".claude" / "settings.json").read_text()).get("permissions") or {}).get("deny") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(deny, list):
+        return []
+    return sorted({" ".join(m.group(1).rstrip("*: ").split()) for rule in deny if isinstance(rule, str)
+                   and (m := re.fullmatch(r"Bash\(((?:gh|git)(?:[ :*][^)]*)?)\)", rule.strip()))})
 
 
 def claude_denied(path):
@@ -109,12 +125,10 @@ def claude_denied(path):
     `.claude/settings.json` denies. Codex ignores that file, so a bot moved to Claude Code meets these denies for the
     first time mid-task."""
     try:
-        deny = (json.loads((Path(path) / ".claude" / "settings.json").read_text()).get("permissions") or {}).get("deny") or []
         named = set(re.findall(r"(?<!denies )(?<!deny )`(gh [a-z-]+ [a-z-]+)", (Path(path) / "AGENT.md").read_text(errors="ignore")))
-    except (OSError, ValueError, AttributeError):
+    except OSError:
         return []
-    prefixes = [m.group(1).rstrip("* ").strip() for rule in deny if isinstance(rule, str)
-                and (m := re.fullmatch(r"Bash\((gh [^)]*)\)", rule))]
+    prefixes = [p for p in claude_denies(path) if p.startswith("gh")]
     return sorted(command for command in named if any(command == p or command.startswith(p + " ") for p in prefixes))
 
 
@@ -1628,6 +1642,8 @@ class Runner:
             if repository_present:
                 if runtime == "claude" and (denied := claude_denied(path)):
                     warnings.append(DENIED_WARNING + ", ".join(denied) + ". Edit .claude/settings.json in its repository")
+                if runtime == "claude" and (denies := claude_denies(path)):
+                    warnings.append((DENIES_WARNING + ", ".join(denies))[:500])
                 try:
                     agent_lines = sum(1 for _ in (path / "AGENT.md").open(encoding="utf-8", errors="ignore"))
                     if agent_lines > 150:

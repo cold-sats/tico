@@ -41,6 +41,12 @@ shipped or explicitly selected question directories continue to work.
 Unchanged configuration warnings are logged once per process while retained in a bounded cache; changing destinations
 or questions rearms them. Health continues showing the current warning to owners and admins on every read.
 
+Health also catches a registry that lost its files, as a server move can. When Listening has sent posts to an inbox
+before and saved posts in the last 14 days, but `listening.yaml` is missing or has no destinations, Health shows
+**Listening** as bad with the date it last routed a post and how many it has saved since. When the registry has no
+`questions/listening-item.json` but posts were scored in the last 30 days with a later version of the set than the
+shipped one, Health names both versions so the company's own questions can be restored.
+
 ## Save, decide and resolve
 
 These are internal v2 APIs and may change between releases. Only the Listening bot (`bot:listening`) and the Team owner can save

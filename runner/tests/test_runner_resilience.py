@@ -955,3 +955,17 @@ def test_a_claude_deny_on_a_command_agent_md_asks_for_is_named(tmp_path):
     (tmp_path / "AGENT.md").write_text("Open your pull request with `gh pr create`. The settings deny `gh pr merge`.\n"
                                        "Read with `gh pr view`.\n")
     assert claude_denied(tmp_path) == ["gh pr create"]
+
+
+def test_claude_settings_denies_are_reported_as_gh_and_git_prefixes(tmp_path):
+    """Health compares these with the bot's GitHub access, so a write the access allows is not silently denied."""
+    import json as _json
+    from runner.service import claude_denies
+    assert claude_denies(tmp_path) == []
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(_json.dumps({"permissions": {"deny": [
+        "Bash(gh pr create:*)", "Bash(gh  issue *)", "Bash(git push:*)", "Bash(github-cli x)", "Bash(curl *)",
+        "Read(./.env)", 7]}}))
+    assert claude_denies(tmp_path) == ["gh issue", "gh pr create", "git push"]
+    (tmp_path / ".claude" / "settings.json").write_text("not json")
+    assert claude_denies(tmp_path) == []
