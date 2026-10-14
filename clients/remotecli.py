@@ -522,6 +522,8 @@ def run(args, who=None):
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)
+        if sub == "read-back":
+            return post("assistant/read-back", {"approvals": args.ids, "text": args.text})
         if sub in ("approve", "decline"):
             return post("approvals/" + args.id, {"decision": sub + "d", "note": args.note},
                         delegate=getattr(args, "on_behalf_of", None) or False)

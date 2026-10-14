@@ -5651,7 +5651,7 @@ def approval_undo(conn, actor, approval_id):
         if row.get("message_id") else None
     if conv:
         _write_message(conn, KEEPER, row["requested_by"],
-                       f"Undone: the {row['decision']} on your {row['kind']} approval was taken back. It is waiting "
+                       f"Undone: the {'approval' if row['decision'] == 'approved' else 'decline'} of your {row['kind']} request was taken back. It is waiting "
                        "for a decision again; don't act on it until then.", conv, "notice", {"approval": approval_id},
                        None, None)
     _recount(conn, row["requested_by"])

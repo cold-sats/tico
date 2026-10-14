@@ -678,6 +678,66 @@
         ]
       }
     },
+    "/api/v2/assistant/read-back": {
+      "post": {
+        "summary": "The Assistant only: post the list of approvals it is about to approve for you in your chat; only those may then be approved on your yes",
+        "operationId": "readBackAssistantApprovals",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantReadBack"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Assistant"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/assistant/settings": {
       "get": {
         "summary": "Your Assistant settings: whether it decides approvals for you, and whether the team allows it",
@@ -13564,6 +13624,34 @@
           "text"
         ],
         "title": "AssistantMessage"
+      },
+      "AssistantReadBack": {
+        "properties": {
+          "approvals": {
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Approvals"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Text",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "approvals"
+        ],
+        "title": "AssistantReadBack",
+        "description": "The approvals the Assistant is about to approve for the person, read back in their chat first."
       },
       "AssistantSent": {
         "type": "object",

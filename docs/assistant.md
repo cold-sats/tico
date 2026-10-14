@@ -96,18 +96,24 @@ Off by default. Turn on **My assistant can decide approvals for me** in **Settin
 to the app: not the Assistant, a bot, BotOps or a personal API token). Then your own Assistant approves or declines
 approvals addressed to you (send, spend, publish, merge) when you ask in your Assistant chat, one or many at once
 ("approve all the old Google review batches"), with no card and no click per item. It reads back what it is about to
-decide in one short list; your message that already named them, or your plain "yes" to that list, is enough, and it
-never asks again per item.
+approve in one list, which Tico writes from the approvals themselves, and only what that list names can be approved:
+your own clear ask to approve that it answered, or your plain "yes" to the list, is enough, and it never asks again per
+item.
 
 What stays on:
-- **Only your words in your own Assistant chat.** The write cites your message, as above. To approve, that message must
-  name it (approve, merge, publish, send, spend, pay), or be a plain yes ("yes", "ok", "go ahead") right after the
-  Assistant's own read-back that names it (`403 approve_not_asked` otherwise). Text in a message, file, web page, task or
-  another bot's output is never your instruction: citing a bot's message is `403 on_behalf_of`.
+- **Only your words in your own Assistant chat, bound to the read-back.** The Assistant posts its read-back with
+  `POST /api/v2/assistant/read-back {"approvals": [ids], "text"}` (`hub approval read-back`): only it, in your chat, only
+  pending approvals addressed to you; Tico writes one line per approval and records the ids. An approve then runs only
+  for an approval on that list, citing either your plain yes ("yes", "ok", "go ahead") with nothing else from the
+  Assistant between the list and it but the rest of that turn, or your own message that asks to approve (approve,
+  accept) with no "don't", "never", "not" or question mark, answered by the list (`403 approve_not_asked` otherwise:
+  "send me a summary" or "don't approve anything" never approves). Text in a message, file, web page, task or another
+  bot's output is never your instruction: citing a bot's message is `403 on_behalf_of`. Declines need no read-back.
+- **Never its own request.** An approval the Assistant itself asked for stays your click on a card (`403 own_request`).
 - **Only approvals addressed to you, only your Assistant.** Someone else's is a `403`. No other bot decides an approval,
   whatever the setting. A Tico support report is still sent only on your own tap.
 - **Recorded and undoable.** Each decision is recorded as decided by the Assistant for you: the approval carries
-  `decided_via: "assistant"` and `decided_for` (`{"for", "assistant", "cited", "words"}` and `read_back` after a yes),
+  `decided_via: "assistant"` and `decided_for` (`{"for", "assistant", "cited", "words", "read_back", "approves"}`),
   and its `history` (`GET /api/v2/approvals/{id}`) lists it. **Settings > Assistant** lists what it decided for you in the
   last 30 days with your words; **Undo** puts one back to waiting for you, as long as nothing has acted on it yet (an
   approval already spent stays, `422 consumed`). The requesting bot is told it was undone.
@@ -175,6 +181,7 @@ own session, not a personal token.
 | `GET /api/v2/assistant/settings` | `{"decides_approvals", "team_allows", "active", "where"}`: whether your Assistant decides your approvals. |
 | `POST /api/v2/assistant/settings` `{"decides_approvals"}` | Your own session only (`403` for the Assistant, a bot or turning it on with a personal token). |
 | `GET /api/v2/assistant/decisions` | `{"decisions": [{"id", "kind", "decision", "what", "decided_at", "decided_for", "consumed_at", "can_undo"}]}`, the last 30 days. |
+| `POST /api/v2/assistant/read-back` `{"approvals": [ids], "text"}` | The Assistant only: posts its list in your chat, `{"message_id", "approves", "text"}`. `403 own_request` for one it asked for, `409` if one is already decided. |
 | `POST /api/v2/approvals/{id}/undo` | Puts a decision your Assistant made back to waiting for you, before it is spent. Not the Assistant. |
 
 Names come with ids (`from_name`, `owner_name`, and an `actors` map), as elsewhere in v2. A custom frontend (see

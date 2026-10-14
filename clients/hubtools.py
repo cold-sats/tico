@@ -2500,6 +2500,16 @@ def approval_approve(api, args):
                                   key=_key(args))
 
 
+@tool("hub_approval_read_back", "Assistant only, before approving for the person: post in their chat the list of "
+      "approvals you are about to approve. The server writes each line from the approval itself; only the ones listed "
+      "may then be approved, on the person's plain yes or on their own clear ask to approve that this answers.",
+      {"ids": {"type": "array", "items": {"type": "string"}, "description": "The approval ids, up to 100"},
+       "text": _s("Optional, one line before the list, e.g. \"I'll approve these 3:\"")},
+      required=("ids",), writes=True)
+def approval_read_back(api, args):
+    return api.post("assistant/read-back", {"approvals": args["ids"], "text": args.get("text") or ""}, key=_key(args))
+
+
 @tool("hub_approval_decline", "Decline an approval addressed to you (a send, spend, publish or merge), with a short reason "
       "the requesting bot reads. A declined item can be asked for again. The Assistant declines what its person asked it to "
       "in their chat, citing that message (on_behalf_of).",
@@ -3225,7 +3235,8 @@ REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
 ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
-                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_approval_approve", "hub_question_answer",
+                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_approval_approve", "hub_approval_read_back",
+                    "hub_question_answer",
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
@@ -3245,7 +3256,7 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync",
                                    "hub_meeting_pending", "hub_meeting_approve", "hub_meeting_dismiss", "hub_meeting_restore")},
     # The Assistant only.
-    "hub_assistant_propose": ("assistant",),
+    "hub_assistant_propose": ("assistant",), "hub_approval_read_back": ("assistant",),
     "hub_approval_decline": HUMANS_AND_ASSISTANT,         # only a person decides an approval
     "hub_approval_approve": HUMANS_AND_ASSISTANT,         # ... or their own Assistant, when they let it
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,

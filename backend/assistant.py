@@ -77,7 +77,8 @@ def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, di
         return True
     if method != "POST":
         return False
-    if path in ("/api/v2/updates/read", "/api/v2/changelog/read", "/api/notes", "/api/v2/assistant/actions"):
+    if path in ("/api/v2/updates/read", "/api/v2/changelog/read", "/api/notes", "/api/v2/assistant/actions",
+                "/api/v2/assistant/read-back"):
         return True
     try:
         fields = json.loads(body or b"{}")
@@ -206,28 +207,74 @@ def require_named_approval(c, who, ref):
                       "approvals for them", 403)
 
 
-# A plain yes to the Assistant's read-back ("I'll approve these 3: ...") is the person's go-ahead for what it read back.
+# Approving on the person's words is bound to a list: the Assistant first posts its read-back (`read_back`, below), which
+# the server writes from the approvals themselves and records with their ids. Then a plain yes to it, or the person's
+# own clear "approve ..." that the read-back answered, approves exactly those, never anything else addressed to them.
 AFFIRM = re.compile(r"(yes|yep|yeah|y|ok|okay|sure|go ahead|go|do it|please do|confirm(ed)?|correct|that'?s right)"
                     r"\b[\s,.!]*(please|thanks|thank you|go ahead|do it)?[\s.!]*", re.I)
+APPROVE_ASK = re.compile(r"\b(approv(e|ed|ing)|accept)\b", re.I)
+# "Don't approve anything", "never approve without me", "approve none of them": not an ask.
+NEGATION = re.compile(r"\b(don'?t|do not|never|not|no|none|nothing|without|stop|hold|wait|unless|until)\b|n'?t\b", re.I)
+READ_BACK = "approval.read_back"
 
 
-def approval_words(c, who, cited, assistant_bot):
-    """What an approval the Assistant decides for the person is recorded with: the person's words, quoted. Their cited
-    message must name approving (approve, merge, publish, send, spend), or be a plain yes right after the Assistant's own
-    read-back that names it. Words in a file, a page, a bot's message or the read-back alone never count."""
+def approval_id(path):
+    m = _DECIDING.fullmatch(normalize_path(path) or "")
+    return m.group(1) if m else None
+
+
+def _read_back(c, room_id, bot, after, before, cited):
+    """The latest read-back the server wrote for the Assistant in this room between two moments."""
+    row = c.execute("SELECT m.id, m.body, m.created, e.detail_json FROM messages m JOIN events e ON e.target=m.id "
+                    "AND e.action=? WHERE m.conversation_id=? AND m.from_actor=? AND m.created>=? AND m.created<=? "
+                    "AND m.id<>? AND m.deleted_at IS NULL ORDER BY m.created DESC, m.rowid DESC LIMIT 1",
+                    (READ_BACK, room_id, bot, after, before, cited)).fetchone()
+    if not row:
+        return None
+    detail = json.loads(row["detail_json"] or "{}") or {}
+    return {"id": row["id"], "body": row["body"], "created": row["created"], "turn": detail.get("turn"),
+            "approves": detail.get("approves") or []}
+
+
+def _answers(c, room_id, bot, back, yes_at):
+    """Whether a yes at `yes_at` answers this read-back: nothing else the Assistant said came between, other than the
+    rest of the same turn (its closing reply)."""
+    other = c.execute("SELECT 1 FROM messages WHERE conversation_id=? AND from_actor=? AND created>=? AND created<=? "
+                      "AND id<>? AND deleted_at IS NULL AND coalesce(json_extract(refs_json,'$.turn_id'),'')<>? LIMIT 1",
+                      (room_id, bot, back["created"], yes_at, back["id"], back["turn"] or "")).fetchone()
+    return not other
+
+
+def approval_words(c, who, cited, assistant_bot, approval):
+    """What an approval the Assistant decides for the person is recorded with: the person's words, quoted, and the
+    read-back they answered. The approval must be on the Assistant's read-back, and the person's cited message must be a
+    plain yes right after it, or their own clear ask to approve (no "don't", no question) that the read-back answered.
+    Words in a file, a page, a bot's message or the read-back alone never count, and the Assistant never approves what
+    it asked for itself."""
+    bot = "bot:" + assistant_bot
+    if (H.approval(c, approval) or {}).get("requested_by") == bot:
+        raise Problem("own_request", "You asked for this approval yourself, so it stays the person's click: propose it "
+                      "on a card (`hub assistant propose`)", 403)
     msg = H.message(c, cited) or {}
     words = str(msg.get("body") or "").strip()
-    if APPROVING.search(words):
-        return {"words": preview(words, 300)}
-    before = c.execute("SELECT from_actor, body FROM messages WHERE conversation_id=? AND created<=? AND id<>? "
-                       "AND deleted_at IS NULL ORDER BY created DESC, rowid DESC LIMIT 1",
-                       (msg.get("conversation_id"), msg.get("created"), cited)).fetchone()
-    if (len(words) <= 60 and AFFIRM.fullmatch(words) and before and before["from_actor"] == "bot:" + assistant_bot
-            and APPROVING.search(str(before["body"] or ""))):
-        return {"words": preview(words, 300), "read_back": preview(before["body"], 300)}
-    raise Problem("approve_not_asked", "Approving needs the person's own words: their message must name it (approve, "
-                  "merge, publish, send, spend), or be a plain yes to your read-back of what you will approve. Read the "
-                  "list back to them first", 403)
+    room, at = msg.get("conversation_id"), str(msg.get("created") or "")
+
+    def person_said(op, order):
+        row = c.execute(f"SELECT created FROM messages WHERE conversation_id=? AND from_actor=? AND created{op}? "
+                        f"AND id<>? AND deleted_at IS NULL ORDER BY created {order} LIMIT 1",
+                        (room, who.actor, at, cited)).fetchone()
+        return row["created"] if row else None
+    back = None
+    if len(words) <= 60 and AFFIRM.fullmatch(words):
+        back = _read_back(c, room, bot, person_said("<", "DESC") or "", at, cited)
+        back = back if back and _answers(c, room, bot, back, at) else None
+    elif APPROVE_ASK.search(words) and not NEGATION.search(words) and "?" not in words:
+        back = _read_back(c, room, bot, at, person_said(">", "ASC") or "9999", cited)
+    if not back or approval not in back["approves"]:
+        raise Problem("approve_not_asked", "Approving needs your read-back first: post the list with `hub approval "
+                      "read-back <id>...`. Then a plain yes from the person, or their own clear ask to approve that "
+                      "you answered with it, approves exactly what it lists", 403)
+    return {"words": preview(words, 300), "read_back": preview(back["body"], 1000), "approves": back["approves"]}
 
 
 def instruction(c, who, ref):
@@ -1176,6 +1223,43 @@ def install(app, store, auth, mutate, onboarding):
                             "decided_at": row["decided_at"], "decided_for": row.get("decided_for"),
                             "consumed_at": row["consumed_at"], "can_undo": not row["consumed_at"]})
             return {"decisions": out, "assistant": settings.assistant_name}
+
+    @app.post("/api/v2/assistant/read-back")
+    def read_back(request: Request, body: M.AssistantReadBack):
+        """The Assistant's list of what it is about to approve for the person, posted in their chat. The server writes
+        each line from the approval itself, so what the person says yes to is what runs, and records the ids: only
+        those may then be approved on their words (`approval_words`)."""
+        who = person(request)
+        if who.via != "assistant" or who.confirmed or not who.attempt_id:
+            raise Problem("forbidden", "Only the " + settings.assistant_name + ", in the person's own chat, reads back "
+                          "approvals", 403)
+        ids = list(dict.fromkeys(body.approvals))
+
+        def work(c):
+            state = decides(c, who.actor)
+            if not state["active"]:
+                raise Problem("approve_setting_off", approve_hint(settings, state), 403)
+            room = find_room(c, who.actor)
+            if not room:
+                raise Problem("not_found", "No Assistant chat", 404)
+            lines = []
+            for aid in ids:
+                row = H.approval(c, aid)
+                if not row or (H.message(c, row.get("message_id")) or {}).get("to_actor") != who.actor:
+                    raise Problem("forbidden", "That approval is not addressed to you", 403)
+                if row["decision"]:
+                    raise Problem("conflict", f"Approval {aid} is already decided", 409)
+                if row["requested_by"] == "bot:" + settings.assistant_bot:
+                    raise Problem("own_request", "You asked for this approval yourself, so it stays the person's "
+                                  "click: propose it on a card (`hub assistant propose`)", 403)
+                what, _ = describe(c, "POST", "/api/v2/approvals/" + aid, {"decision": "approved"})
+                lines.append("- " + what)
+            text = (body.text.strip() or f"I'll approve these {len(ids)}:") + "\n" + "\n".join(lines)
+            msg = H._write_message(c, "bot:" + settings.assistant_bot, who.actor, text, room, "say",
+                                   {"assistant": True, "read_back": True}, None, None, delivered_at=H.now())
+            H.event(c, who.actor, READ_BACK, msg["id"], {"approves": ids, "turn": who.attempt_id})
+            return {"message_id": msg["id"], "approves": ids, "text": text}
+        return mutate(request, body, work)
 
     @app.post("/api/v2/assistant/actions")
     def propose(request: Request, body: M.AssistantAction):

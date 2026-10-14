@@ -469,7 +469,8 @@ def create_app(settings=None):
                             # Recorded on the approval: decided by the Assistant for the person, their words quoted.
                             record = {**record, "assistant": "bot:" + settings.assistant_bot,
                                       **assistant_mod.approval_words(c, request.state.identity, record["cited"],
-                                                                     settings.assistant_bot)}
+                                                                     settings.assistant_bot,
+                                                                     assistant_mod.approval_id(request.url.path))}
                         delegation_reset = H.DELEGATION.set(record)
             early = None
             caller = getattr(request.state, "identity", None)

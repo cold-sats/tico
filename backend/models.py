@@ -578,6 +578,12 @@ class AssistantSettings(Contract):
     decides_approvals: StrictBool
 
 
+class AssistantReadBack(Contract):
+    """The approvals the Assistant is about to approve for the person, read back in their chat first."""
+    approvals: Annotated[list[Annotated[str, Field(min_length=1, max_length=64)]], Field(min_length=1, max_length=100)]
+    text: Annotated[str, Field(max_length=500)] = ""
+
+
 class ApprovalConsume(Contract):
     payload_hash: str = Field(min_length=64, max_length=64)
 

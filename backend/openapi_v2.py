@@ -334,6 +334,9 @@ STABLE = [
      "Let your Assistant decide approvals addressed to you, or stop it. Only you, signed in to the app", None),
     ("/api/v2/assistant/decisions", "get", "Assistant", "listAssistantDecisions",
      "The approvals your Assistant decided for you, with your words and whether each can still be undone", None),
+    ("/api/v2/assistant/read-back", "post", "Assistant", "readBackAssistantApprovals",
+     "The Assistant only: post the list of approvals it is about to approve for you in your chat; only those may then "
+     "be approved on your yes", None),
     # Goals and KPIs (docs/goals-and-kpis.md)
     ("/api/v2/goal-manager/turn-on", "post", "Goals", "turnOnGoalManager",
      "Owner only: add the Goal Manager from the catalog or restore it, and activate it", None),
