@@ -67,6 +67,11 @@ def _row(it, actor):
         row["status"] = it["status"]
     if it.get("rank") is not None:
         row["rank"] = it["rank"]
+    if it.get("person_ask"):
+        row["ask"] = it["person_ask"]
+    if it.get("ask_missing"):
+        # Nothing to decide yet: the bot has been asked to say plainly what it needs (backend/restate_asks.py).
+        row["ask_missing"] = True
     if (it.get("ask") or {}).get("body"):
         row["question"] = _clip(it["ask"]["body"], 1500)
     elif it.get("body"):
@@ -134,7 +139,7 @@ def relevant(c, actor, items):
     # Decisive kinds first (an approval, a question), then the person's queue in its rank
     # order (views.needs_order: what needs a person is what is assigned to them, in order).
     out.sort(key=lambda r: needs_order(r.get("from"), r["kind"], r.get("created"),
-                                       r.get("rank") if r["kind"] == "task" else None))
+                                       r.get("rank") if r["kind"] == "task" else None, bool(r.get("ask_missing"))))
     return out
 
 
@@ -151,7 +156,7 @@ def _name(c, actor):
 
 def _rank(row):
     return needs_order(row.get("from"), row["kind"], row.get("created"),
-                       row.get("rank") if row["kind"] == "task" else None)
+                       row.get("rank") if row["kind"] == "task" else None, bool(row.get("ask_missing")))
 
 
 def lineup(c, person, rows):

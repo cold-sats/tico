@@ -151,7 +151,7 @@ TASKS = [
 # Asks to a person (rule 7 shapes them: the verb first, the reason in a line or two).
 ASKS = [
     ("refund-limit", "Decide the refund limit Support can approve alone", "bot:support", "human:ana",
-     "I recommend $200: Support refunds anything below it and asks you above it.\n"
+     "Can Support refund anything under $200 without asking you? If yes, it handles those alone and asks you about bigger ones.\n\n"
      "Nine refund requests came in last week and two were over $200. Both are waiting on this.", 1.5, "open"),
     ("pricing-copy", "Review the pricing page copy before it goes live", "bot:content", "human:ben",
      "The revised copy is on the task. Please check that the plan names match what Support tells customers.", 0.7, "open"),

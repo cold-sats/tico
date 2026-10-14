@@ -25,6 +25,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--goal ID] [--dry-run] the checks a create would fail, nothing written
                     [--next-run]           for a bot: no wake; its next run carries the task
                                            blocked on a person? --owner <person> --parent <your task>
+                                           for a person, the body's first paragraph is the ask (as --note below)
     hub task ask <id> "<question>"
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
                                            one decision as its own task, waiting on them; none for Yes / No
@@ -36,7 +37,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task restore <id>                              put a deleted task back
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
                     [--title "..."]        rename it: checked as a new task's title would be
-                    [--on PERSON]          with --status waiting: the person it waits on (their Needs you)
+                    [--on PERSON]          with --status waiting: the person it waits on (their Needs you);
+                                           --note is then your ask to them, one or two plain sentences:
+                                           "Approve the video tool trial on Thursday? If yes, I'll send the invite."
     hub task close <id> [--note "..."]
     hub task snooze <id> --until DATE      set it aside until DATE: off the lists and quiet until then
     hub task unsnooze <id>                 bring a snoozed task back now
@@ -441,6 +444,9 @@ def task_problems(actor, owner, title, body, type=None):
     elif H.is_human(target) and general and H.STYLE_LINT != "off":
         # writing problems: the create is accepted with these as warnings unless TICO_STYLE_LINT=refuse
         (problems if H.STYLE_LINT == "refuse" else warnings).extend(H.lint_human_item(body, title=title))
+    if H.is_bot(actor) and H.is_human(target) and general and title:
+        # the ask that opens a person's task is always refused when it is missing or unclear
+        problems += list(filter(None, [H.person_ask_refusal(target, H.person_ask_of_body(body, title), "assign")]))
     if H.is_bot(actor) and general:
         # plain-English titles: a warning this week, a refusal once TICO_TITLE_LINT=refuse
         problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
@@ -784,7 +790,9 @@ def parser():
     s.add_argument("--owner")
     s.add_argument("--due")
     s.add_argument("--on", dest="waiting_on",
-                   help="with --status waiting: the person it waits on, so it is in their Needs you; '' clears it")
+                   help="with --status waiting: the person it waits on, so it is in their Needs you; '' clears it. "
+                        "--note is then your ask to them: one or two plain sentences saying what you need and what "
+                        "happens after, with no ids, hashes, file paths or tool names")
     s.add_argument("--goal", help='the goal this task serves; "" takes it off')
     s.add_argument("--quiet", action="store_true", help="keep detailed notes on the task")
     s.add_argument("--type", help="task type id or name")

@@ -277,7 +277,11 @@ pulls or clones any `reads:` sibling repos beside it.
 
 **A bot needs you.** It asks with `hub task ask` (the task goes `waiting`), requests an approval,
 files a task for you, or sets its own task waiting on you (`hub task update --status waiting --on
-<you> --note "<what you need to do>"`). All of these appear in **Needs you** at the top of **Tasks** with
+<you> --note "<what you need to do>"`). A bot's waiting note, or the first paragraph of a task it gives
+you, must say in one or two plain sentences what it needs and what happens after, with no ids, file
+paths or tool names; Tico refuses it otherwise. A task a bot set waiting on you before that rule, with
+no plain ask, sits at the bottom of Needs you as "Waiting for <bot> to explain" while the bot is asked,
+once, to restate it. All of these appear in **Needs you** at the top of **Tasks** with
 **Reply**, **Approve** / **Decline**, **Done** / **Close**. Needs you is your queue: approvals and
 questions first (each blocks a bot), then your own tasks in rank order. Tickets on a numbered type
 stay on their board and come to Needs you only with a question for you ([Tasks](tasks.md)). There
