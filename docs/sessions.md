@@ -67,10 +67,11 @@ A bot works its tasks at the same time, each in its own session and worktree. Th
 runs at once from its size (`capacity` in [runner.json](environments.md#runnerjson)). Turns on the same task, and
 in the main chat, still take turns.
 
-One bot holds at most half of a computer's turns (at least one), so other bots on that computer always have room for a
-review or a release. A person's own message to the bot is not held back by this. When a turn frees, it goes to the bot
+When other bots share the computer, one bot holds at most half of its turns (at least one), so the others always have
+room for a review or a release; a bot alone on its computer uses every turn. A person's own message to the bot is not held back by this. When a turn frees, it goes to the bot
 holding the fewest turns there, then to the work that has waited longest. Work held back this way says "Waiting for a
-free turn on <computer>" in its chat and on its task.
+free turn on <computer>" in its chat and on its task. The task shows the same waiting reason as the chat (a paused bot,
+an update, a computer being set up) to anyone who can read the task.
 
 Each task session has a git worktree at `sessions/bot-<slug>/<task>` on branch `tico-session/<task>`. A bot can hold
 up to 30 worktrees, or fewer when the computer gets under 5 GB free. Nothing is removed to make room: at the limit

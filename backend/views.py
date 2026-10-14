@@ -16,7 +16,7 @@ from . import models as M
 from . import changelog as CL
 from . import providers, runner_versions
 from . import personal_tokens, rooms, team_rules, turns
-from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bot_turns, turns_here
+from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, turn_share, turns_here
 from pathlib import Path
 
 from . import read_cache
@@ -468,13 +468,14 @@ def own_sign_in(c, bot, settings=None):
 
 def free_turn(c, bot, location):
     """The computer a bot's queued work waits on for a free turn, or '': every turn there is taken, or this
-    bot already holds its share of them (execution.bot_turns)."""
+    bot already holds its share of them (execution.turn_share)."""
     machine = location.get("machine") or {}
     row = c.execute("SELECT capacity FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
     if not row:
         return ""
     held = turns_here(c, machine["runner_id"])
-    full = sum(held.values()) >= (row["capacity"] or 1) or held.get(bot, 0) >= bot_turns(row["capacity"])
+    full = (sum(held.values()) >= (row["capacity"] or 1)
+            or held.get(bot, 0) >= turn_share(c, machine["runner_id"], row["capacity"]))
     return (machine.get("label") or "its computer") if full else ""
 
 

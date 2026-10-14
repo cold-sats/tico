@@ -65,6 +65,14 @@ def bot_turns(capacity):
     return max(1, int(capacity or 1) // 2)
 
 
+def turn_share(c, runner_id, capacity):
+    """The turns one bot may hold on this computer: its share (bot_turns) when another active bot is assigned there,
+    every turn when it is alone, since then no one else's work can be waiting for them."""
+    bots = c.execute("SELECT count(*) FROM assignments a JOIN bots b ON b.slug=a.bot "
+                     "WHERE a.runner_id=? AND b.state='active'", (runner_id,)).fetchone()[0]
+    return bot_turns(capacity) if bots > 1 else int(capacity or 1)
+
+
 def turns_here(c, runner_id):
     """{bot: turns it holds on this computer now}."""
     return {r[0]: r[1] for r in c.execute("SELECT bot,count(*) FROM attempts WHERE runner_id=? "
@@ -718,7 +726,7 @@ class Execution:
         held = turns_here(c, runner["id"])
         for bot in {bot for bot, _ in mine}:
             held[bot] = max(held.get(bot, 0), sum(1 for b, _ in mine if b == bot))
-        share = bot_turns(runner["capacity"])
+        share = turn_share(c, runner["id"], runner["capacity"])
         followed = {}
         ready = readiness_document(runner["readiness_json"])
         # Unconfirmed effects hold the interrupted conversation and task until review. Other
