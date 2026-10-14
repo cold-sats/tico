@@ -20,7 +20,7 @@ import re
 from . import hubdb as H
 from .store import Problem
 from . import task_privacy as privacy
-from .views import needs_order
+from .views import needs_order, pressing
 
 KINDS = ("decide", "needs_info", "instruct", "rule", "skip", "later")
 DECISIONS = ("approve", "decline", "done", "close", "answer")
@@ -82,6 +82,10 @@ def _row(it, actor):
         row["note"] = _clip(it["note"], 300)
     if it.get("created"):
         row["created"] = it["created"]
+    if it.get("from_person"):
+        row["from_person"] = it["from_person"]
+    if it.get("pressing"):
+        row["pressing"] = True
     return row
 
 
@@ -124,8 +128,11 @@ def relevant(c, actor, items):
             kids = _children(c, it["id"], actor)
             if kids:
                 for kid in kids:
+                    # Its person: its own requester, else the parent's, worked out under the reader's rule.
                     kid = {**kid, "kind": "task", "ask": H.unanswered_ask(c, kid, actor=actor), "origin_actor": H.task_origin(c, kid),
-                           "first_line": (kid.get("body") or "").split("\n")[0]}
+                           "first_line": (kid.get("body") or "").split("\n")[0], "from_person": (kid["requester"] if H.is_human(kid["requester"]) and kid["requester"] != actor
+                                           else it.get("from_person"))}
+                    kid["pressing"] = pressing(kid)
                     if kid["ask"]:
                         kid["kind"] = "question"
                     row = _row(kid, actor)
@@ -136,10 +143,9 @@ def relevant(c, actor, items):
         if row["key"] in seen or row["key"] in snoozed:
             continue
         seen.add(row["key"]); out.append(row)
-    # Decisive kinds first (an approval, a question), then the person's queue in its rank
-    # order (views.needs_order: what needs a person is what is assigned to them, in order).
-    out.sort(key=lambda r: needs_order(r.get("from"), r["kind"], r.get("created"),
-                                       r.get("rank") if r["kind"] == "task" else None, bool(r.get("ask_missing"))))
+    # views.needs_order: what traces back to a person or presses first, then decisive kinds (an approval,
+    # a question), then the person's queue in its rank order.
+    out.sort(key=_rank)
     return out
 
 
@@ -155,13 +161,14 @@ def _name(c, actor):
 
 
 def _rank(row):
-    return needs_order(row.get("from"), row["kind"], row.get("created"),
-                       row.get("rank") if row["kind"] == "task" else None, bool(row.get("ask_missing")))
+    return needs_order(row["kind"], row.get("created"), row.get("rank") if row["kind"] == "task" else None,
+                       row.get("from_person"), row.get("pressing"), bool(row.get("ask_missing")))
 
 
 def lineup(c, person, rows):
     """Who needs the person, most important first: each group ranked by its most pressing item
-    (an approval, then a question, then the queue in rank order), more items breaking a tie.
+    (views.needs_order: a person's work or a pressing item, then an approval, a question, the queue in
+    rank order), more items breaking a tie.
     `awaiting` counts items the person already answered and whose bot has not replied yet."""
     groups = {}
     for row in rows:

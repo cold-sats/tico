@@ -3,6 +3,7 @@ the assistant's per-item report opening the next batch. backend/batch.py."""
 
 import json
 
+from backend import hubdb as H
 from backend.tests.test_api import api, get, post, setup_attempt  # noqa: F401
 
 
@@ -23,7 +24,9 @@ def approval_for_ana(api, bot="finance", kind="spend", payload=None, task=None, 
 
 def test_responses_are_recorded_not_applied_and_commit_applies_them_with_the_persons_identity(api):
     _, _, finance = setup_attempt(api, "finance")
-    approval = approval_for_ana(api, token=finance["token"])
+    # Both decisive items trace back to Ana, so the approval leads on its kind.
+    ads = post(api, "tasks", {"title": "Run the LinkedIn ads", "body": "Q4", "owner": "bot:finance"})
+    approval = approval_for_ana(api, token=finance["token"], task=ads["id"])
     ask = ask_ana(api, "finance", "Close or Apollo?", token=finance["token"])
     chore = post(api, "tasks", {"title": "Sign the lease", "body": "Ready", "owner": "human:ana"},
                  token=finance["token"])
@@ -104,3 +107,32 @@ def test_done_on_a_bots_request_needs_no_words_and_the_bot_hears_who_finished_it
     with api.app.state.store.read() as c:
         told = [r["body"] for r in c.execute("SELECT body FROM messages WHERE to_actor='bot:finance'")]
     assert "Ana marked this done: Sign the lease" in told
+
+
+def test_what_a_person_asked_for_leads_unless_a_bots_item_presses(api):
+    """Needs you, Decide and the lineup put work that traces back to a person (through a bot's subtask too) ahead
+    of what bots made for themselves; a bot's overdue or long-waiting item still goes first."""
+    _, _, finance = setup_attempt(api, "finance")
+    _, _, ops = setup_attempt(api, "ops")
+    approval = approval_for_ana(api, token=finance["token"])
+    chore = post(api, "tasks", {"title": "Rotate the report template", "body": "Housekeeping", "owner": "human:ana"},
+                 token=finance["token"])
+    quote = post(api, "tasks", {"title": "Quote for Acme", "body": "A customer", "owner": "bot:ops"}, token="ben-test")
+    confirm = post(api, "tasks", {"title": "Confirm the Acme discount", "body": "For the quote", "owner": "human:ana",
+                                  "relations": [{"task": quote["id"], "kind": "parent"}]}, token=ops["token"])
+    items = {i["id"]: i for i in get(api, "needs-you")["items"]}
+    order = list(items)
+    assert order.index(confirm["id"]) < order.index(approval["id"]) < order.index(chore["id"])
+    assert items[confirm["id"]]["from_person"] == "human:ben", "a bot's subtask keeps the person its parent came from"
+    assert not items[approval["id"]]["from_person"] and not items[chore["id"]]["from_person"]
+    b = post(api, "batch", {})
+    assert b["item"]["key"] == "task:" + confirm["id"]
+    assert [g["who"] for g in b["lineup"]] == ["bot:ops", "bot:finance"]
+
+    # Overdue, or waiting for days: a bot's item goes ahead of the person's again.
+    overdue = post(api, "tasks", {"title": "Renew the domain", "body": "Lapsed", "owner": "human:ana",
+                                  "due": H.shift(H.now(), days=-1)}, token=finance["token"])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE approvals SET created=? WHERE id=?", (H.shift(H.now(), days=-4), approval["id"]))
+    order = [i["id"] for i in get(api, "needs-you")["items"]]
+    assert order[0] == approval["id"] and order.index(overdue["id"]) < order.index(chore["id"])
