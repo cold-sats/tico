@@ -3677,8 +3677,9 @@ def create_app(settings=None):
         built = built_on.computer(c, bot) if history is not True else None
         if built and wanted and wanted["id"] != built["id"]:
             raise Problem("history_elsewhere",
-                          f"{bot}'s repository was built on {built['label']} and is not on GitHub yet, so {wanted['label']} "
-                          f"could not get it. Put it on {built['label']} first (`hub bot go-live {bot} --computer "
+                          f"{bot}'s repository was built on {built['label']} and "
+                          + ("Tico could not check GitHub's copy" if history is None else "is not on GitHub yet")
+                          + f", so {wanted['label']} could not get it. Put it on {built['label']} first (`hub bot go-live {bot} --computer "
                           f"\"{built['label']}\"`): {built['label']} publishes it to GitHub, and then it can move", 409)
         options = [wanted] if wanted else [built] if built else placing.candidates(c, auth, bot)
         if not options:
@@ -3701,7 +3702,6 @@ def create_app(settings=None):
                 refusal = exc
                 continue
             c.execute("RELEASE place_now")
-            built_on.forget(c, bot)
             return {"bot": bot, "computer": runner["label"], "placed": True, "already": False}
         raise refusal
 

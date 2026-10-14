@@ -2,9 +2,9 @@
 
 BotOps builds a bot in its own workspace (`hub bot create`, `hub bot copy`), and only that computer's runner can
 publish the history to GitHub, and only once the bot is assigned to it (runner/service.py publish_unpublished).
-A bot first placed anywhere else would wait for a repository GitHub never gets. So the build's GitHub call
+A bot first placed anywhere else would wait for a repository GitHub never gets. So BotOps's GitHub call for the build
 records which computer made it, one `registry_metadata` row `bot-built-on:<bot>`, and the first placement goes
-there while GitHub does not hold the history. The row is removed once the bot is placed.
+there while GitHub does not hold the history. The row is removed when the bot is first assigned (execution.assign).
 """
 
 from .store import H, encode
@@ -13,12 +13,13 @@ PREFIX = "bot-built-on:"
 
 
 def remember(c, bot, runner_id):
-    """Record that `runner_id`'s workspace holds `bot`'s only copy. A bot already placed somewhere keeps that."""
+    """Record that `runner_id`'s workspace holds `bot`'s only copy. The first record stands, and a bot already placed
+    somewhere keeps that."""
     if not runner_id or not H.bot(c, bot) or c.execute("SELECT 1 FROM assignments WHERE bot=?", (bot,)).fetchone():
         return
     if not c.execute("SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL", (runner_id,)).fetchone():
         return
-    c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+    c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO NOTHING",
               (PREFIX + bot, encode({"runner_id": runner_id, "at": H.now()})))
 
 

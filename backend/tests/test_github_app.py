@@ -941,3 +941,44 @@ def test_a_new_bot_whose_history_is_on_github_goes_anywhere(api, gh):
     assert waiting.status_code == 202 and waiting.json()["computer"] == "box", waiting.text
     assert _placed(api) == "r2"
 
+
+
+def _built_on(api, bot="newbie"):
+    with api.app_state.store.read() as c:
+        row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", ("bot-built-on:" + bot,)).fetchone()
+        return row and json.loads(row[0])["runner_id"]
+
+
+def test_only_botops_records_where_a_bot_was_built_and_never_over_another_record(api, gh):
+    """Another bot allowed to create repositories cannot steer a new bot's first placement, a failed create
+    records nothing, and a second call never moves the first record."""
+    from backend.repositories import save_metadata
+    connect(api, administration="true")
+    gh.permissions = {"administration": "write", "contents": "write", "metadata": "read"}
+    runner_token(api, "cmo")
+    with api.app_state.store.transaction() as c:
+        save_metadata(c, "repository-creation-grants", {"cmo": True})
+        c.execute("INSERT INTO messages(id,from_actor,to_actor,kind,body,created) VALUES('m-cmo','keeper','bot:cmo','request','hi',?)", (H.now(),))
+        job = c.execute("SELECT id FROM jobs WHERE bot='cmo'").fetchone()["id"]
+        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) "
+                  "VALUES('a1',?,'cmo','r1',1,'cmo-turn','running',?,?)", (job, H.shift(H.now(), hours=1), H.now()))
+    made = api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth("bot-test"))
+    assert made.status_code == 200, made.text
+    assert _built_on(api) is None                                  # cmo's call is not a build
+    botops_turn(api)
+    _box(api)
+    gh.generate_status = 422
+    failed = api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth("botops-test"))
+    assert failed.status_code >= 400 and _built_on(api) is None     # GitHub refused: nothing recorded
+    gh.generate_status = 201
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO registry_metadata VALUES('bot-built-on:newbie',?)", (json.dumps({"runner_id": "r2"}),))
+    assert api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth("botops-test")).status_code == 200
+    assert _built_on(api) == "r2"                                  # the first record stands
+
+
+def test_a_refusal_says_when_github_could_not_be_checked(api, gh, monkeypatch):
+    _built_by_botops(api, gh)
+    monkeypatch.setattr(api.app_state.github_app, "repository_history", lambda name: None)
+    refused = _go_live(api, computer="box")
+    assert refused.status_code == 409 and "Tico could not check GitHub's copy" in refused.json()["error"]["detail"]

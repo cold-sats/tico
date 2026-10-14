@@ -583,6 +583,8 @@ class Execution:
                   "updated_by=excluded.updated_by",
                   (bot, body.runner_id, generation + 1, H.now(), who.actor))
         H.event(c, who.actor, "bot.assigned", bot, {"runner": body.runner_id, "generation": generation + 1})
+        from . import built_on
+        built_on.forget(c, bot)                   # placed: its computer reports the checkout from now on
         if old and old["runner_id"] != body.runner_id:
             forget_report(c, old["runner_id"], bot)
         return dict(c.execute("SELECT * FROM assignments WHERE bot=?", (bot,)).fetchone())
