@@ -176,6 +176,12 @@ the requester or an authorized human accepts the result or cancels the task. Clo
 work does not mark it Done. Both statuses appear in the **Done** view; the task history keeps
 the separate completion and closing events.
 
+A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the
+task's comment box (or the note box on a Decide card) and not yet sent goes with Done as the
+outcome. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
+comment on the next line when there is one. When a bot needs a specific answer it asks a yes/no
+or choice question instead.
+
 Done stays Done, including tasks the owner requested for itself, old bot-requested tasks,
 and completed routine runs. Closing is a separate decision; it records `closed_at` and
 `closed_by`, preserving the completion time if the work was already Done. Earlier history

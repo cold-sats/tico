@@ -207,20 +207,18 @@ class Rule5Tasks(HubCase):
         return [m for m in H.messages(self.conn, row["conversation_id"])
                 if m["to_actor"] == to and m["body"].startswith(("Closed:", "Child closed:"))]
 
-    def test_human_records_a_result_to_finish_a_bot_request_but_closes_without_a_reason(self):
-        decision = H.task_create(self.conn, CMO, "Decide whether to release the draft", "Review it.", ANA)
-        self.refused("lint", H.task_update, self.conn, ANA, decision["id"], status="done")
-        self.assertEqual(H.task(self.conn, decision["id"])["status"], "open")
-        dropped = H.task_create(self.conn, CMO, "Pick a launch date", "Choose one.", ANA)
+    def test_a_person_finishes_a_bot_request_in_one_tap_and_the_bot_hears_who_did(self):
+        tapped = H.task_create(self.conn, CMO, "Decide whether to release the draft", "Review it.", ANA)
+        self.assertEqual(H.task_update(self.conn, ANA, tapped["id"], status="done")["status"], "done")
+        [told] = self.finished(tapped, CMO)
+        self.assertEqual(told["body"], "Ana Rivera marked this done: Decide whether to release the draft")
+        noted = H.task_create(self.conn, CMO, "Pick a launch date", "Choose one.", ANA)
+        H.task_update(self.conn, ANA, noted["id"], status="done", note="Keep the draft on hold; do not publish it.")
+        [told] = self.finished(noted, CMO)
+        self.assertEqual(told["body"], "Ana Rivera marked this done: Pick a launch date\nKeep the draft on hold; do not publish it.")
+        dropped = H.task_create(self.conn, CMO, "Pick a venue", "Choose one.", ANA)
         self.assertEqual(H.task_close(self.conn, ANA, dropped["id"])["status"], "closed")
         self.assertTrue(self.closed_notices(dropped, CMO), "the bot that asked is told it was closed")
-        result = H.task_update(self.conn, ANA, decision["id"], status="done",
-                               note="Keep the draft on hold; do not publish it.")
-        self.assertEqual(result["status"], "done")
-        told = [m for m in H.messages(self.conn, decision["conversation_id"])
-                if m["to_actor"] == CMO and m["body"].startswith("Finished:")]
-        self.assertEqual(len(told), 1)
-        self.assertIn("Keep the draft on hold", told[0]["body"])
 
     def test_moving_a_task_to_review_wakes_the_bot_that_asked_for_it(self):
         row = H.task_create(self.conn, CMO, "Speed up the overview checks", "Make them pass alone.", SEO)
@@ -232,7 +230,7 @@ class Rule5Tasks(HubCase):
 
     def finished(self, row, to):
         return [m for m in H.messages(self.conn, row["conversation_id"])
-                if m["to_actor"] == to and m["body"].startswith("Finished:")]
+                if m["to_actor"] == to and m["body"].startswith("Ana Rivera marked this done:")]
 
     def test_a_person_finishing_a_task_tells_every_bot_on_it_once(self):
         from backend.store import SCHEMA
@@ -255,10 +253,10 @@ class Rule5Tasks(HubCase):
         # The parent's bot hears it once, on the parent, where its session continues.
         self.assertFalse(self.finished(row, ANALYTICS))
         [on_parent] = [m for m in H.messages(self.conn, parent["conversation_id"])
-                       if m["to_actor"] == ANALYTICS and "Subtask done: Pick the hero image" in m["body"]]
+                       if m["to_actor"] == ANALYTICS and "Ana Rivera marked this subtask done: Pick the hero image" in m["body"]]
         self.assertIn("Use B.", on_parent["body"])
         quiet = {m["to_actor"]: bool(json.loads(m["refs_json"]).get("quiet")) for m in H.messages(self.conn, row["conversation_id"])
-                 if m["body"].startswith("Finished:")}
+                 if m["body"].startswith("Ana Rivera marked this done:")}
         self.assertEqual(quiet, {CMO: True, SEO: False, COO: False}, "tasks-only bots hear it quietly")
         # A private task tells only its parties: the parent's owner cannot read it.
         secret = H.task_create(self.conn, ANA, "Review the settlement", "Read it.", SEO, parent_id=parent["id"], private=True)
@@ -812,7 +810,8 @@ class WaitingWithDependency(HubCase):
                     "Approve the FY2026 budget? If yes, I send it to finance.",
                     "Move the site to ES2022? If yes, I ship it Monday.",
                     "Start the ISO27001 audit? If yes, I book the auditor.",
-                    "Build the site with Node.js? If yes, I start today."]:
+                    "Build the site with Node.js? If yes, I start today.",
+                    "Approve the trial (it ends Oct. 20)? If yes, I sign up."]:
             self.assertEqual(H.lint_person_ask(ask), [], ask)
         for ask, failed in [("Approve it. I send it. Then I book it.", "3 sentences"),
                             ("Approve PO-1234? If yes, I pay it.", 'id or hash: "PO-1234"'),

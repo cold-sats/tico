@@ -209,12 +209,13 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            ask the decision model typed questions about a state (questions/README.md);
                                            --questions-file q.json instead of --set; --list shows the sets
     hub template list                      the bot templates this company can pick from
-    hub bot create <slug> --template T [--name "Display"]
-                                           set a chosen bot up in the workspace (BotOps only); it also registers
+    hub bot create --template T [--name "Display"] [<slug>]
+                                           set a chosen bot up in the workspace (BotOps only); the slug is picked
+                                           from the name (else the template's) and printed. It also registers
                                            the bot with Tico as the requester when a person's message started the run,
                                            and asks for its empty <org>/bot-<slug> when GitHub is connected (exits
                                            non-zero when a person must first let BotOps create repositories)
-    hub bot create <slug> --record-only [--name N] [--description D] [--reports-to R] [--template T]
+    hub bot create --record-only --name N [<slug>] [--description D] [--reports-to R] [--template T]
                                            only register a new bot with Tico (planned), as the requester (BotOps)
     hub bot check <slug>                   what preflight would still refuse about that repository
     hub bot update <slug> [--reports-to R] [--display-name N] [--description D] [--status S]
@@ -1446,8 +1447,8 @@ def parser():
     sub.add_parser("template", help="the bot templates this company can pick from").add_subparsers(dest="sub").add_parser(
         "list", help="the bot templates this company can pick from").set_defaults(fn="template list")
     bot = sub.add_parser("bot", help="build a bot from a template (BotOps), change it, place it, its status").add_subparsers(dest="sub")
-    s = bot.add_parser("create", help="build <slug> from a template in the workspace and register it; --record-only only registers")
-    s.add_argument("slug")
+    s = bot.add_parser("create", help="build a bot from a template in the workspace and register it; --record-only only registers")
+    s.add_argument("slug", nargs="?", help="leave out: Tico picks one from --name, else the template's name")
     s.add_argument("--template", help="a template from `hub template list`")
     s.add_argument("--record-only", dest="record_only", action="store_true",
                    help="only register the bot with Tico (planned), as the person who asked; build nothing")

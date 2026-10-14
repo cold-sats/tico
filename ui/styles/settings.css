@@ -339,6 +339,7 @@ p:empty{display:none}
 .access-list .muted{font-size:var(--t-sm)}
 .bot-editor{width:min(680px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .bot-editor-body{padding:18px}.bot-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+[data-bot-advanced]>summary{cursor:pointer;font-size:var(--t-sm);color:var(--muted)}[data-bot-advanced]>.bot-editor-grid{margin-top:10px}
 .bot-editor-grid label{display:grid;align-content:start;gap:5px;font-size:var(--t-sm);color:var(--muted)}
 .bot-editor-grid label.bot-editor-check{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--text)}
 .bot-editor-check small{flex-basis:100%;color:var(--muted)}

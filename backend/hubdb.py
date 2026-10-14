@@ -1299,9 +1299,9 @@ LINT_TOOL = re.compile(r"\bhub\s+(?:task|message|question|approval|note|chat|doc
 
 
 # A sentence ends at . ! or ? before a capital letter, a digit or a quote, so "3 p.m. on Friday" and "U.S. customers"
-# stay one sentence; initials (U.S.) and these short titles never end one, so "Dr. Smith" does not either.
+# stay one sentence; initials (U.S.), these short titles and months never end one, so "Dr. Smith" and "Oct. 20" do not.
 LINT_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[\"'(\[A-Z0-9])")
-LINT_ABBREV = re.compile(r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs|etc|Inc|Ltd|Co|Jr|Sr|No|approx|e\.g|i\.e)\.)$")
+LINT_ABBREV = re.compile(r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs|etc|Inc|Ltd|Co|Jr|Sr|No|approx|e\.g|i\.e|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.)$")
 
 
 def lint_sentences(text):
@@ -3216,11 +3216,20 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
             conn, "SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot=? AND j.state='queued' "
             "AND json_extract(m.refs_json,'$.subtask')=? LIMIT 1", (actor_id(bot), row["id"])):
         return bot
-    said = {"done": "Subtask done", "declined": "Subtask declined"}.get(row["status"], "Subtask closed")
+    said = ({"declined": "Subtask declined", "closed": "Subtask closed"}.get(row["status"])
+            or _marked_done(conn, actor, row["title"], "this subtask"))
     # The parent's "All subtasks done" (_parent_finished) rides on this one notice, not a second wake.
     last = "" if children_summary(conn, parent["id"])["open"] else "All subtasks done\n"
-    _wake(conn, parent, bot, f"{last}{said}: {row['title']}" + (f"\n{note}" if note and not quiet else ""), refs={"subtask": row["id"]})
+    _wake(conn, parent, bot, f"{last}{said}" + (f": {row['title']}" if row["status"] != "done" else "") + (f"\n{note}" if note and not quiet else ""), refs={"subtask": row["id"]})
     return bot
+
+
+def _marked_done(conn, actor, title, what="this"):
+    """What a bot hears when a person finishes its request: who did it, and the task. Done is one tap, so a
+    note is optional; the caller adds it on the next line when there is one."""
+    from . import names
+    who = names.lookup(conn, [actor]).get(actor) or actor_id(actor)
+    return f"{who} marked {what} done: {title}"
 
 
 def _private_followups(conn, task_id):
@@ -3811,9 +3820,6 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                    f"the owner may set {'|'.join(OWNER_STATUSES)}, not {status}")
         if status == "ready" and is_bot(actor):
             refuse(conn, actor, "close", "ready to ship is set when the pull request merges, not by the bot")
-        if (status == "done" and is_human(actor) and is_human(row["owner"])
-                and is_bot(row["requester"]) and not str(note or "").strip()):
-            refuse(conn, actor, "lint", "Tell the requesting bot what you decided or completed in a note")
         # A bot parking a task it asked itself for has nobody to answer it unless it has filed
         # something to wait on first. Several stranded tasks were this.
         # Validate the requested dependency, not the old one: callers can park work and
@@ -4031,7 +4037,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                     "notify": bool(not quiet and row["status"] != status and not duplicate
                                    and linked and person.get("notify_slack_task_done") is not False)}}
         _wake(conn, after, after["requester"],
-              f"{'Finished' if status == 'done' else 'Declined'}: {after['title']}"
+              (_marked_done(conn, actor, after["title"]) if status == "done" and is_human(actor)
+               and is_bot(after["requester"]) else
+               f"{'Finished' if status == 'done' else 'Declined'}: {after['title']}")
               + (f"\n{note}" if note and not quiet else "")
               + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""), refs=refs, quiet_bots=True)
     if finishing:
@@ -4044,7 +4052,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if not who or who in told or not is_bot(who) or not bot_reads_task(conn, who, after):
                 continue
             told.add(who)
-            _wake(conn, after, who, f"Finished: {after['title']}" + (f"\n{note}" if note and not quiet else "")
+            _wake(conn, after, who, _marked_done(conn, actor, after["title"]) + (f"\n{note}" if note and not quiet else "")
                   + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""), quiet_bots=True)
     if status == "review" and row["status"] != "review" and actor != after["requester"]:
         # Review is the requester's turn. Nothing else tells a bot that asked for the work, so

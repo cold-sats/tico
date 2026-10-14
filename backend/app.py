@@ -2999,7 +2999,7 @@ def create_app(settings=None):
             created = settings_admin.create_bot(c, who, body)
             if body.template:
                 # Adding from the catalog after onboarding is the same handoff to BotOps.
-                created.update(onboarding.attach_template(c, who, body.slug, body.template,
+                created.update(onboarding.attach_template(c, who, created["slug"], body.template,
                                                           body.instructions))
             return created
         return mutate(request, body, work)
@@ -4125,10 +4125,10 @@ def create_app(settings=None):
                 raise Problem("forbidden", "Only people register bots", 403)
             created = settings_admin.register(c, who, body)
             if body.build and body.template:
-                current = onboarding._declared(c, body.slug)
+                current = onboarding._declared(c, created["slug"])
                 if not created["created"] and current.get("template") != body.template:
                     raise Problem("template", "Change the bot's template in its definition before building it", 409)
-                created.update(onboarding.attach_template(c, who, body.slug, body.template, body.instructions,
+                created.update(onboarding.attach_template(c, who, created["slug"], body.template, body.instructions,
                                                           queue_build=True, title_prefix=body.title_prefix))
             return created
         return mutate(request, body, work)
