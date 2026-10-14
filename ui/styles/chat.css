@@ -38,6 +38,16 @@
 .conv-older[hidden]{display:none}
 /* Side traffic (bots between themselves, relays, notices, notes): one muted line per run, opened in place. */
 .chat-side{margin:4px 0;color:var(--muted);font-size:var(--t-sm);line-height:1.4}
+/* A task's start or milestone in the main chat: one quiet line like a folded side line; a tap opens the task's thread */
+.chat-task-row{display:flex;align-items:baseline;gap:.4em;width:100%;min-width:0;margin:4px 0;padding:5px 0;border:0;background:none;color:var(--muted);font:inherit;font-size:var(--t-sm);line-height:1.4;text-align:left;cursor:pointer}
+.chat-task-row:hover .ct-title{color:var(--accent)}
+.chat-task-row .ct-dot{flex:none;align-self:center;width:7px;height:7px;margin:0 .45em 0 .2em;border-radius:50%;background:var(--run)}
+.chat-task-row .ct-dot.done{background:var(--ok)}
+.chat-task-row .ct-dot.blocked,.chat-task-row .ct-dot.stuck{background:var(--wait)}
+.chat-task-row .ct-dot.declined{background:var(--muted)}
+.chat-task-row .ct-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:500}
+.chat-task-row .ct-state{flex:none}
+.chat-task-row .chat-time{flex:none;margin-left:8px}
 .chat-side>summary{padding:5px 0;cursor:pointer;display:flex;align-items:baseline;min-width:0}
 .chat-side>summary::before{content:"▶";flex:none;width:1.6em;font-size:.72em}
 .chat-side[open]>summary::before{content:"▼"}
