@@ -323,7 +323,7 @@ async function decideLoad(st, c, again = false) {
 }
 
 // ---- acting
-// Finishing a bot's request on a person's own task says what was decided (the server refuses Done without it).
+// Who a card's answer goes to, named in its toast: the asking bot, the approval's requester, or the task's bot.
 const decideBot = c => actorLabel(c.type === 'pick' ? c.it.ask.from_actor : c.type === 'approve' ? c.it.requester
   : [c.it.owner, c.it.requester].find(a => String(a || '').startsWith('bot:')) || c.it.requester) || 'Tico';
 // What an action sends, as requests run in order when it commits, and what the toast says. Each request has its own
