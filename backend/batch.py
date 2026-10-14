@@ -90,6 +90,11 @@ def _row(it, actor):
         row["due"] = deadline(it)
     if it.get("recommend"):
         row["recommend"] = it["recommend"]["do"]       # what the bot would do: "do what you recommend" takes it
+    if it.get("folded"):
+        # Other bots' tasks waiting on the person for the same thing: said with the card so none is lost.
+        row["folded"] = [{k: v for k, v in (("title", _clip(f.get("title"), 160)), ("from", f.get("owner")),
+                                            ("ask", _clip(f.get("person_ask") or f.get("note"), 300))) if v}
+                         for f in it["folded"]]
     return row
 
 

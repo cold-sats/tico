@@ -94,6 +94,7 @@ async function shot(target, name) {
     assert.ok((await page.locator('.decide').textContent()).includes('Decide'));
     const dcRec = page.locator('.decide .dc-actions [data-dc="recommend"]');
     assert.ok((await dcRec.textContent()).includes('Do what you recommend'));
+    assert.match(await dc.locator('.need-folded').innerText(), /Also waiting on this[\s\S]*Switch the payroll vendor/i);
     if (SHOTS) await page.waitForTimeout(500);   // the card's entrance animation
     await shot(page, 'decide-recommend');
 
@@ -101,7 +102,7 @@ async function shot(target, name) {
     await page.evaluate(() => { location.hash = '#/tasks'; });
     await page.locator('#task-body [data-group="need:decide"] [data-recommend]').click();
     for (let i = 0; i < 50 && !taken.length; i++) await page.waitForTimeout(20);
-    assert.deepEqual(taken, [{ask: 'q-pick'}]);
+    assert.deepEqual(taken, [{ask: 'q-pick', version: 1}], 'with the version the card showed');
     await page.waitForFunction(() => !document.querySelector('#task-body [data-group="need:decide"] [data-recommend]'));
 
     // Overview: the count and what went away on its own.

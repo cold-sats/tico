@@ -22,6 +22,7 @@ from pathlib import Path
 from . import read_cache
 from .store import H, P, SNAPSHOT_BACKUP_ROWS, Problem, bot_readiness, encode, message_page, readiness_document, repo_url
 from . import task_privacy as privacy
+from . import task_relations as TR
 
 
 MIN_RUNNER_VERSION = (0, 2, 0)
@@ -666,12 +667,16 @@ def checkout_issue(add, row, busy=0):
         restart_issue(add, row, busy)
 
 
+DUE_SOON_DAYS = 7
+
+
 def needs_order(kind, created, rank=None, person=None, urgent=False, ask_missing=False, due=None):
     """Needs you is the person's queue. A card still waiting for its bot to say what it needs goes last, whatever
-    else it is; above that, what has a due date first, soonest first; then what traces back to a person, or presses;
-    then within that what blocks a bot (an approval, a question), then declined work, then their own tasks in rank
-    order."""
-    return (1 if ask_missing else 0, 0 if due else 1, str(due or ""), 0 if person or urgent else 1,
+    else it is; above that, what is overdue or due within DUE_SOON_DAYS first, soonest first (a date further off
+    does not jump the queue); then what traces back to a person, or presses; then within that what blocks a bot (an
+    approval, a question), then declined work, then their own tasks in rank order."""
+    soon = str(due) if due and str(due) <= H.shift(H.now(), days=DUE_SOON_DAYS) else ""
+    return (1 if ask_missing else 0, 0 if soon else 1, soon, 0 if person or urgent else 1,
             KIND_RANK.get(kind, 9), rank if rank is not None else float("inf"), str(created or ""))
 
 
@@ -679,11 +684,14 @@ def needs_order(kind, created, rank=None, person=None, urgent=False, ask_missing
 # or connect, something written to read and let go out, and everything else. Read from the card's own words, so the
 # same card always lands in the same group.
 NEED_GROUPS = ("decide", "pay", "connect", "review", "do")
-_NEED_PAY = re.compile(r"\b(pay|paid|payment|invoice|billing|bill|charge|subscription|renew(al)?|refund|purchase|buy|"
-                       r"top[- ]up|credit card|card on file|spend)\b", re.I)
-_NEED_CONNECT = re.compile(r"\b(sign[- ]?in|log[- ]?in|signed in|logged in|connect|reconnect|authori[sz]e|oauth|"
-                           r"api[- ]keys?|keys?|token|credentials?|password|2fa|two[- ]factor|grant access|"
-                           r"install the app)\b", re.I)
+_NEED_PAY = re.compile(r"\b(pay|paid|payment|invoices?|billing|bills|subscription|renew(al)?|refund|purchase|"
+                       r"top[- ]up|credit card|card on file|company card)\b", re.I)
+# Words that are about money only next to an amount: "spend $400", not "spend an hour"; "buy" but not "buy-in".
+_NEED_SPEND = re.compile(r"\b(spend|buy(?!-in)|charge)\b", re.I)
+_MONEY = re.compile(r"[$€£]\s?\d|\b\d[\d,.]*\s?(usd|eur|gbp|dollars?|euros?)\b", re.I)
+_NEED_CONNECT = re.compile(r"\b(sign[- ]?in|log[- ]?in|signed in|logged in|connect(?!\s+with)|reconnect|"
+                           r"authori[sz]e|oauth|api[- ]keys?|keys|api[- ]tokens?|access tokens?|credentials?|password|"
+                           r"2fa|two[- ]factor|grant access|install the app)\b", re.I)
 _NEED_REVIEW = re.compile(r"\b(review|draft|proofread|read over|look over)\b", re.I)
 # The words that open a question asking for a yes or a no (ui/app/decide.js DEC_YES_NO says the same).
 _YES_NO = frozenset("approve can could should shall may do does did is are was were will would ok okay send publish "
@@ -713,7 +721,7 @@ def need_of(item):
             item.get("what"), "decide")
     ask = item.get("ask") or {}
     words = " ".join(str(x or "") for x in (item.get("title"), item.get("person_ask"), ask.get("body")))
-    if _NEED_PAY.search(words):
+    if _NEED_PAY.search(words) or (_NEED_SPEND.search(words) and _MONEY.search(words)):
         return "pay"
     if _NEED_CONNECT.search(words):
         return "connect"
@@ -744,10 +752,25 @@ def recommendation(ask, me):
     return {"do": do, "ask": ask["id"], "option": option, "kind": default.get("kind")}
 
 
-def take_recommendation(c, auth, who, asked):
+def _whole_card(c, task, asked, me):
+    """Whether `task`, which `me` owns, exists only to put this one ask to them: the bot that asked filed it, nothing
+    else on it asks them, and it is the card the bot filed for its ask (H.ask_card) or says just that question."""
+    if task["requester"] != asked["from_actor"]:
+        return False
+    if any(a["id"] != asked["id"] and a["to_actor"] == me for a in H.open_task_asks(c, task)):
+        return False
+    said = lambda text: " ".join(str(text or "").split()).casefold()  # noqa: E731
+    return H.ask_card(c, task) == me or said(asked.get("body")) in {
+        said(task.get("title")), said(task.get("body")), said(H.person_ask_of_body(task.get("body"), task.get("title")))}
+
+
+def take_recommendation(c, auth, who, asked, version=None):
     """"Do what you recommend": `who` answers the bot's ask with what it said it would do (the option it named, picked as
-    if by hand, or a plain yes), and the card leaves their Needs you: their own card is done, a bot's task stops
-    waiting on them. The bot wakes on the answer as on any other."""
+    if by hand, or a plain yes). The card leaves their Needs you when the ask was the whole card: a task of theirs
+    that exists only to ask it is done, a bot's task stops waiting on them, and so do the bot's tasks above it that
+    waited on them for the same thing (they fold into this card). A task of theirs the ask only came up on stays
+    theirs. With `version`, a task that changed since the card was drawn is refused, not answered unseen. The bot
+    wakes on the answer as on any other."""
     from . import models as M
     from .task_review import answer_task
     if asked["to_actor"] != who.actor:
@@ -759,6 +782,10 @@ def take_recommendation(c, auth, who, asked):
         raise Problem("answered", "This question was already answered", 409)
     text = "Yes, do what you recommend: " + rec["do"]
     task_id = H.message_task_id(asked, H.conversation(c, asked["conversation_id"]))
+    task = H.task(c, task_id) if task_id else None
+    if task and version is not None and task["version"] != version:
+        raise Problem("version_conflict", "Task changed; fetch it and retry", 409)
+    finish = bool(task and task["owner"] == who.actor and _whole_card(c, task, asked, who.actor))
     if rec["option"] and task_id:
         question = asked["refs"]["questions"][0]
         answer_task(c, auth, who, task_id, M.TaskAnswer(target={"comment": asked["id"]},
@@ -767,13 +794,17 @@ def take_recommendation(c, auth, who, asked):
         H.answer(c, who.actor, asked["id"], text)
     task = H.task(c, task_id) if task_id else None
     if task and task["status"] in H.ACTIVE_STATUSES:
-        if task["owner"] == who.actor:
+        if finish:
             H.task_update(c, who.actor, task_id, status="done", note=text)
-        elif task.get("waiting_on") == who.actor:
-            c.execute("UPDATE tasks SET waiting_on=NULL, updated=? WHERE id=?", (H.now(), task_id))
-            H._task_event(c, task_id, who.actor, "waiting_on", who.actor, None, text)
+        waits = [t for t in [task, *(H.task(c, a) for a in TR.ancestors(c, task_id))]
+                 if t and t["status"] == "waiting" and t.get("waiting_on") == who.actor
+                 and (t is task or t["owner"] == asked["from_actor"])]
+        for t in waits:
+            c.execute("UPDATE tasks SET waiting_on=NULL, updated=? WHERE id=?", (H.now(), t["id"]))
+            H._task_event(c, t["id"], who.actor, "waiting_on", who.actor, None, text)
+        if waits:
             H._recount(c, who.actor)
-    return {"did": rec["do"], "task": task_id}
+    return {"did": rec["do"], "task": task_id, "done": finish}
 
 
 def _quoted(text, n=90):
@@ -812,48 +843,30 @@ def approval_title(kind, payload, task_title=""):
 
 
 def fold_related(items, c, me):
-    """One card per blocker. Cards about tasks of one family (a parent and its subtasks, or tasks one blocks) are one
-    card when only one of them is the person's to act on: their own task, or one with an ask to them. A bot's task
-    that merely waits on them for it folds into that card (its `folded` list, shown with it), so nothing it asks is
-    hidden, and the queue counts it once. A family with no such card folds into its top task; one with two or more
-    keeps every card."""
-    tasks = {str(it["id"]): it for it in items if it["kind"] in ("task", "question", "waiting")}
-    if len(tasks) < 2:
+    """One card per blocker. A bot's task that only waits on the person for what one of their cards already asks
+    folds into that card (its `folded` list, shown with it), so the queue counts it once: a waiting task above the
+    card (its parent, grandparent, ...), one the card blocks, and a waiting subtask of such a folded parent. A card is
+    the person's own task or one with an ask to them. A wait with no card above or beside it this way, or one that
+    would fold into two cards, keeps its own card: siblings under one project are not one blocker."""
+    mine = lambda it: it.get("owner") == me or (it.get("ask") or {}).get("to_actor") == me  # noqa: E731
+    waits = {str(it["id"]): it for it in items if it["kind"] == "waiting" and not mine(it)}
+    anchors = [it for it in items if it["kind"] in ("task", "question", "waiting") and mine(it)]
+    if not waits or not anchors:
         return items
-    marks = ",".join("?" * len(tasks))
-    edges = c.execute(f"SELECT from_task, to_task, kind FROM task_relations WHERE kind IN ('parent','blocked_by') "
-                      f"AND (from_task IN ({marks}) OR to_task IN ({marks}))", (*tasks, *tasks)).fetchall()
-    root = {tid: tid for tid in tasks}
-
-    def find(x):
-        while root.setdefault(x, x) != x:
-            root[x] = root[root[x]]
-            x = root[x]
-        return x
-    parents = {}
-    for a, b, kind in edges:
-        root[find(a)] = find(b)
-        if kind == "parent":
-            parents[a] = b
-    families = {}
-    for tid in tasks:
-        families.setdefault(find(tid), []).append(tasks[tid])
+    parent = {tid: TR.parent_of(c, tid) for tid in waits}
+    claims = {}
+    for anchor in anchors:
+        aid = str(anchor["id"])
+        above = {t for t in TR.ancestors(c, aid) if t in waits}
+        near = above | {t for t in TR.blocked_ids(c, aid) if t in waits} | {t for t in waits if parent[t] in above}
+        for tid in near - {aid}:
+            claims.setdefault(tid, []).append(anchor)
     gone = set()
-    for family in families.values():
-        if len(family) < 2:
-            continue
-        mine = lambda it: it.get("owner") == me or (it.get("ask") or {}).get("to_actor") == me  # noqa: E731
-        anchors = [it for it in family if mine(it)]
-        if len(anchors) > 1:
-            continue
-        anchor = anchors[0] if anchors else next((it for it in family if str(it["id"]) not in parents
-                                                  or parents[str(it["id"])] not in tasks), family[0])
-        for it in family:
-            if it is anchor or it["kind"] != "waiting" or mine(it):
-                continue
-            anchor.setdefault("folded", []).append({k: it.get(k) for k in (
+    for tid, it in waits.items():
+        if len(claims.get(tid, ())) == 1:
+            claims[tid][0].setdefault("folded", []).append({k: it.get(k) for k in (
                 "id", "title", "owner", "kind", "person_ask", "note", "status", "due")})
-            gone.add(str(it["id"]))
+            gone.add(tid)
     return [it for it in items if str(it["id"]) not in gone]
 
 
@@ -864,8 +877,12 @@ def went_away(c, me, days=7):
     since = H.shift(H.now(), days=-days)
     expired = c.execute("SELECT count(*) FROM events WHERE ts>=? AND action IN ('ask.expired','ask.went_ahead') "
                         "AND json_extract(detail_json,'$.to')=?", (since, me)).fetchone()[0]
-    withdrawn = (c.execute("SELECT count(*) FROM messages WHERE to_actor=? AND kind='ask' AND superseded_at>=?",
-                           (me, since)).fetchone()[0]
+    # A question a newer one from the same bot replaced, still open in the same thread, did not go away: it is asked
+    # again, so only one with no open successor counts.
+    withdrawn = (c.execute("SELECT count(*) FROM messages s WHERE s.to_actor=? AND s.kind='ask' AND s.superseded_at>=? "
+                           "AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.kind='ask' AND m.to_actor=s.to_actor "
+                           "AND m.from_actor=s.from_actor AND m.conversation_id=s.conversation_id AND m.rowid>s.rowid "
+                           f"AND {H.OPEN_ASK_SQL})", (me, since)).fetchone()[0]
                  + c.execute("SELECT count(*) FROM approvals a JOIN messages m ON m.id=a.message_id WHERE m.to_actor=? "
                              "AND a.decision='withdrawn' AND a.decided_at>=?", (me, since)).fetchone()[0])
     assistant = (c.execute("SELECT count(*) FROM approvals a JOIN messages m ON m.id=a.message_id WHERE m.to_actor=? "

@@ -96,6 +96,7 @@ class Answer(Contract):
 
 class TakeRecommendation(Contract):
     ask: Annotated[StrictStr, Field(min_length=1, max_length=100)]     # the bot's ask the person says yes to
+    version: Annotated[int, Field(strict=True, ge=1)] | None = None     # the card's task version: a changed task is refused
 
 
 Lane = Literal["company", "product"]

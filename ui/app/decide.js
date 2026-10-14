@@ -215,7 +215,9 @@ function decideRender(st, enter = false) {
 function decidePaintBody(st) {
   const c = decideCurrent(st), body = $('.decide .dc-body');
   if (!c || !body) return;
-  const html = c.type === 'pick' ? decidePickHTML(st, c) : c.type === 'approve' ? decideApprovalHTML(c) : decideTaskHTML(st, c);
+  // Other bots' tasks waiting on the person for the same thing are named on the card, as in Needs you.
+  const html = (c.type === 'pick' ? decidePickHTML(st, c) : c.type === 'approve' ? decideApprovalHTML(c) : decideTaskHTML(st, c))
+    + (c.type === 'approve' ? '' : foldedHTML(c.it));
   if (body.dataset.html !== html) body.innerHTML = body.dataset.html = html;
 }
 const decideTwo = c => c.type === 'pick' && c.q.options.length === 2;
@@ -374,7 +376,8 @@ function decideWriteBody(c, what, i, note) {
   }
   if (what === 'recommend') {
     const rec = c.it.recommend;
-    return {writes: [{path: '/v2/needs-you/recommended', body: {ask: rec.ask}},
+    const version = c.it.kind === 'ask' ? null : shown || c.it.version;
+    return {writes: [{path: '/v2/needs-you/recommended', body: {ask: rec.ask, ...(version ? {version} : {})}},
       ...(note ? [{path: c.it.kind === 'ask' ? `/v2/conversations/${encodeURIComponent(c.it.conversation_id)}/messages` : `/v2/tasks/${id}/comments`, body: {text: note}}] : [])],
       label: `Done what ${to} recommends · ${rec.do}`};
   }

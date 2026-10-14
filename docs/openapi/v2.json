@@ -21898,6 +21898,18 @@
             "maxLength": 100,
             "minLength": 1,
             "title": "Ask"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "additionalProperties": false,

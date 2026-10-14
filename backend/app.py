@@ -2241,7 +2241,7 @@ def create_app(settings=None):
                 raise Problem("not_found", "Question not found", 404)
             auth.conversation(c, who, asked["conversation_id"])
             privacy.require_message(c, who, asked)
-            return views.take_recommendation(c, auth, who, asked)
+            return views.take_recommendation(c, auth, who, asked, body.version)
         return mutate(request, body, work)
 
     @app.get("/api/v2/tasks")

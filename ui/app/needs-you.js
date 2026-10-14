@@ -21,19 +21,20 @@ function needsIndex() {
 }
 const needsItem = id => needsIndex().byId.get(String(id))?.it || null;
 const needsFolded = id => needsIndex().folded.has(String(id));
-// "Do what you recommend": one tap answers the bot's ask with what it said it would do, and the card goes.
-const recommendButton = (rec, cls = 'primary') => rec?.ask
-  ? `<button type="button" class="${cls}" data-recommend="${esc(rec.ask)}" title="${esc(rec.do)}">Do what you recommend</button>` : '';
+// "Do what you recommend": one tap answers the bot's ask with what it said it would do, and the card goes. It sends
+// the version of the task the card showed, so a task that changed meanwhile is refused, not answered unseen.
+const recommendButton = (rec, cls = 'primary', version = null) => rec?.ask
+  ? `<button type="button" class="${cls}" data-recommend="${esc(rec.ask)}"${version ? ` data-version="${esc(String(version))}"` : ''} title="${esc(rec.do)}">Do what you recommend</button>` : '';
 const recommendLine = (rec, from) => rec?.do
   ? `<div class="req-context need-rec"><span>${esc(actorLabel(from) || 'The bot')} recommends</span> ${esc(plainActors(rec.do))}</div>` : '';
 // The cards folded into this one: each bot's task and what it asks, so nothing it asks is hidden.
 const foldedHTML = it => (it.folded || []).length ? `<div class="req-next need-folded"><span>Also waiting on this</span><ul>${it.folded.map(f =>
   `<li><a href="#/task/${encodeURIComponent(f.id)}">${esc(plainActors(f.title || ''))}</a>${f.person_ask || f.note ? ` <span class="muted">${esc(plainActors(f.person_ask || f.note))}</span>` : ''}</li>`).join('')}</ul></div>` : '';
-async function needsRecommend(button, ask) {
+async function needsRecommend(button, ask, version) {
   const label = button.textContent;
   button.disabled = true; button.textContent = '…';
   try {
-    const done = await post('/v2/needs-you/recommended', {ask});
+    const done = await post('/v2/needs-you/recommended', {ask, ...(version ? {version} : {})});
     toast(`Done: ${done.did}`);
     button.closest('.req, .tl-row')?.remove();
     await v2Refresh();
@@ -49,7 +50,7 @@ function needsV2Item(it, folded, showName = true) {
   const title = it.title || line || V2_KIND[kind] || 'Item';
   const acts = [];
   const rec = kind === 'approval' ? null : it.recommend;
-  if (rec) acts.push(recommendButton(rec));
+  if (rec) acts.push(recommendButton(rec, 'primary', it.version));
   if (kind === 'approval') {
     acts.push(`<button class="primary" type="button" data-v2-approval="${esc(it.id)}" data-v2-decision="approved">Approve</button>`);
     acts.push(`<button class="ghost danger" type="button" data-v2-approval="${esc(it.id)}" data-v2-decision="declined">Decline</button>`);
@@ -359,7 +360,7 @@ document.addEventListener('click', ev => {
   const rec = ev.target.closest?.('[data-recommend]');
   if (!rec) return;
   ev.preventDefault(); ev.stopPropagation();
-  void needsRecommend(rec, rec.dataset.recommend);
+  void needsRecommend(rec, rec.dataset.recommend, Number(rec.dataset.version) || null);
 }, true);
 document.addEventListener('click', ev => {
   const ap = ev.target.closest('[data-v2-approval]');
