@@ -12,7 +12,7 @@ All notable changes to Tico are recorded here. The format follows
 - **Attachments can be allowed for one mailbox.** `mailboxes.<address>.allow_attachments: true` in `registry/mail-policy.yaml` lets bots attach files to drafts from that mailbox only (Legal's, say) while `defaults.allow_attachments` stays off for the rest; `false` turns one off when the default is on. `mail draft discard <draft-id>` removes an unsent draft the bot made (the older `mail discard` still works). See [Mail](docs/mail.md).
 
 ### Fixed
-- **A routine's run no longer fails to publish because of an unrelated private task.** A private task waiting for its bot's next run used to ride along into a routine's run, which made the whole run private, so the Librarian's "Refresh the map of the docs" was refused every write to the shared docs. A routine's run now leaves private next-run tasks for the bot's next ordinary run.
+- **A routine's run no longer fails to publish because of an unrelated private task.** A private task waiting for its bot's next run used to ride along into a routine's run, which made the whole run private, so the Librarian's "Refresh the map of the docs" was refused every write to the shared docs. A routine's run now leaves private next-run tasks out and gives each one a run of its own, so it is never left waiting on a bot that only runs routines.
 - **Bots don't wait on a person for a Tico limit.** The shared bot rules say that a bot blocked by a Tico limit (a missing token permission, a policy switch, a refusal) files it as a support report or a task for BotOps and waits on that, never on a person who can't lift it.
 
 ## [0.3.43] - 2026-10-14

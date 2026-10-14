@@ -160,6 +160,12 @@ class AttachAndDiscard(Writing):
         for path in (pdf, "out/letter.pdf"):                           # a relative path starts in the bot's folder
             rc, d, err = self.draft("--attach", str(path))
             self.assertEqual((rc, [a["name"] for a in d["attachments"]]), (0, ["letter.pdf"]), err)
+        # On for every mailbox but this one: its own false wins over the default.
+        self.service.drafts_by_id.clear()
+        self.write_policy(harness.POLICY.replace("  allow_attachments: false\n", "  allow_attachments: true\n")
+                          .replace("ana@acme.example: { paused: false }",
+                                   "ana@acme.example: { paused: false, allow_attachments: false }"))
+        self.assertIn("allow_attachments", self.refused(pdf))
 
     def test_an_oversized_file_is_refused_before_it_is_read(self):
         self.allow()

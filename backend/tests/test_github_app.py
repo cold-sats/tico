@@ -997,3 +997,24 @@ def test_a_refusal_says_when_github_could_not_be_checked(api, gh, monkeypatch):
     monkeypatch.setattr(api.app_state.github_app, "repository_history", lambda name: None)
     refused = _go_live(api, computer="box")
     assert refused.status_code == 409 and "Tico could not check GitHub's copy" in refused.json()["error"]["detail"]
+
+
+def test_a_refused_actions_ask_is_remembered_until_the_installation_webhook_says_it_changed(api, gh):
+    import hashlib, hmac
+    from backend import github as GH
+    connect(api)
+    runner_token(api, "cpo")
+    assert turn_token(api).status_code == 200
+    before = len(gh.of("/access_tokens"))
+    api.app_state.github_app.cache.clear()             # past the token cache: the next turn mints again
+    assert turn_token(api).status_code == 200
+    asked = [call[2]["permissions"] for call in gh.of("/access_tokens")[before:]]
+    assert len(asked) == 1 and "actions" not in asked[0]  # no second refused ask while it is remembered
+    gh.permissions = {"actions": "read"}                 # the owner accepts; GitHub says so by webhook
+    body = json.dumps({"action": "new_permissions_accepted", "installation": {"id": 77}}).encode()
+    sig = "sha256=" + hmac.new(b"whs", body, hashlib.sha256).hexdigest()
+    r = api.post(GH.PATH, content=body, headers={"X-Hub-Signature-256": sig, "X-GitHub-Event": "installation",
+                                                  "Content-Type": "application/json"})
+    assert r.status_code == 200, r.text
+    assert turn_token(api).status_code == 200
+    assert gh.of("/access_tokens")[-1][2]["permissions"]["actions"] == "read"

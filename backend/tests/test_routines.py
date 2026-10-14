@@ -149,7 +149,7 @@ def test_run_now_during_another_task_stays_queued_for_its_own_run(api):
         assert c.execute("SELECT state FROM jobs WHERE id=?", (next_attempt["job_id"],)).fetchone()[0] == "leased"
 
 
-def test_a_routine_run_stays_company_scope_and_leaves_a_private_next_run_task_for_later(api):
+def test_a_routine_run_stays_company_scope_and_a_private_next_run_task_gets_its_own_run(api):
     from backend import task_privacy as privacy
     from backend.auth import Identity
     r = setup(api)
@@ -161,4 +161,8 @@ def test_a_routine_run_stays_company_scope_and_leaves_a_private_next_run_task_fo
     assert attempt["task"]["id"] == fired[0] and not attempt.get("next_run")
     with api.app.state.store.read() as c:
         assert not privacy.private_execution(c, Identity("bot:ops", "bot", attempt_id=attempt["id"]))
-    assert get(api, "tasks/" + secret["id"])["task"]["next_run_waiting"] is True
+    # It gets a run of its own rather than waiting for one that may never come.
+    assert not get(api, "tasks/" + secret["id"])["task"].get("next_run_waiting")
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot='ops' "
+                         "AND j.state='queued' AND json_extract(m.refs_json,'$.task')=?", (secret["id"],)).fetchone()
