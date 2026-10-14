@@ -169,6 +169,8 @@ Every BotOps tool uses the requester's rights by default. A human's chat or task
 A task lends its human requester's rights only when BotOps has owned it since it was filed or the requester moved it
 to BotOps themselves (not through BotOps or the Assistant). A task anyone else moved to BotOps lends nothing of the
 requester's: a bot that moved it lends only its own rights, and what those can't do is a Confirm card to the requester.
+When the person asks BotOps in their chat to take over one of their tasks, that chat turn has their rights and can do the
+work; the move itself is BotOps', so later runs on that task lend nothing (they ask again or move it themselves).
 A bot's message or task uses only that bot's rights, including its Credential grants; BotOps never lends it a human's
 or its own wider access. The one exception is a person's own request the bot hands on: a bot filing a BotOps task may cite
 the person's message (`hub task create --owner botops --request-id turn`, or the message id). When that person wrote it

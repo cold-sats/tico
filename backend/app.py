@@ -3151,8 +3151,9 @@ def create_app(settings=None):
                 # Someone other than the person gave BotOps their task: it runs with the rights of the bot that moved
                 # it (its refusals become the person's Confirm card), never the person's.
                 if not H.is_bot(handed) or handed == who.actor:
-                    raise Problem("on_behalf_of", "Only the person who asked for this task lends their rights by giving it "
-                                  "to BotOps; ask them to confirm", 403)
+                    raise Problem("on_behalf_of", "Someone other than the person who asked for this task gave it to BotOps, "
+                                  "so it lends no one's rights; they can move it to BotOps themselves or ask in their "
+                                  "BotOps chat", 403)
                 requester = handed
             if task and initial:
                 refs = initial.get("refs") or {}
@@ -3163,6 +3164,9 @@ def create_app(settings=None):
                     auth.conversation(c, who, initial["conversation_id"])
                     H.VIA.set("botops")
                     return acting_as(auth.identity_for_actor(c, requester), task_id, "comment")
+                if refs.get("comment") and not relayed and handed is not None and initial["from_actor"] == task["requester"]:
+                    raise Problem("on_behalf_of", "A bot gave this task to BotOps, so your comment doesn't lend your rights; "
+                                  "move it to BotOps yourself or ask in your BotOps chat", 403)
                 if refs.get("comment") or relayed:
                     raise Problem("on_behalf_of", "Only the task's requester's own comment lends their rights; "
                                   "other comments and routed messages lend nothing", 403)
