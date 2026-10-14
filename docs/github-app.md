@@ -23,7 +23,7 @@ app's GitHub settings page if a bot's repository needs that.
 Run tokens carry write permissions for write grants and contents read for read grants, each with Actions read once
 the installation has it. An App made before Actions read was in its manifest keeps working without it: add
 **Actions: Read-only** on the App's GitHub settings page and accept the updated permissions on the installation, and
-the next run's token carries it (Settings > Tools > **Check permissions** picks it up at once). Mixed grants use separate tokens; see [Repositories](repositories.md). Tico checks the bot's own repository and effective grants, and refuses a bot the caller does not run or a repository outside the connected organization.
+the next run's token carries it (at once when the App's webhook is active, otherwise within six hours). Mixed grants use separate tokens; see [Repositories](repositories.md). Tico checks the bot's own repository and effective grants, and refuses a bot the caller does not run or a repository outside the connected organization.
 
 ## Set up
 
