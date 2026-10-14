@@ -505,6 +505,68 @@ class Pushing(unittest.TestCase):
         self.assertIn("Tico-Run: att-1", messages)
         self.assertIn("Tico-Run: att-2", messages)
 
+    def routine(self, aid, task):
+        return {**attempt(aid), "config": {"runtime": "codex", "max_run_minutes": 1, "session": "task"},
+                "task": {"id": task}, "lane": "task:" + task,
+                "message": {"id": "msg-" + aid, "body": "weekly check", "from_actor": "keeper"}}
+
+    def test_a_persons_chat_starts_while_a_routine_waits_for_its_worktree(self):
+        # A routine whose worktree could not be added ran its whole turn in the bot's checkout, and the person's
+        # chat with the bot waited behind it.
+        from runner import task_sessions
+        chat_done, worktree_back, asked = threading.Event(), threading.Event(), threading.Event()
+        real, ran = task_sessions.ensure, []
+
+        def ensure(main, path, task, env=None):
+            asked.set()
+            return real(main, path, task, env) if worktree_back.is_set() else ("", "could not add the task's worktree: busy")
+
+        class Turns(FakeHost):
+            def start_turn(host, thread_id, text, effort=None):
+                ran.append(Path(host.threads[thread_id]["settings"]["cwd"]).name)
+                if "weekly check" in text:
+                    chat_done.wait(5)       # a routine in the checkout holds the chat until this times out
+                return FakeHost.start_turn(host, thread_id, text, effort)
+        self.runner.host_factory = lambda attempt, env: Turns(replies=["done"])
+        self.runner.task_closed = lambda attempt: False
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(task_sessions, "ensure", side_effect=ensure), \
+                mock.patch.object(service, "WORKTREE_RETRY_S", 0.05), ThreadPoolExecutor(max_workers=1) as pool:
+            routine = pool.submit(self.runner.execute, self.routine("att-r", "t1"))
+            self.assertTrue(asked.wait(10))
+            self.runner.execute(attempt("att-c"))
+            chat_done.set()
+            self.assertFalse(routine.done())    # the chat finished while the routine waited, not after it
+            worktree_back.set()
+            routine.result(timeout=30)
+        self.assertEqual(ran, ["emp-coo", "t1"])
+        self.assertEqual([body["outcome"] for path, body in self.client.posts if path.endswith("/complete")],
+                         ["completed", "completed"])
+
+    def test_a_persons_chat_goes_before_background_turns_waiting_for_the_checkout(self):
+        # A routine with no worktree to wait for runs in the checkout, but not ahead of a person already waiting.
+        from runner import task_sessions
+        order, lock = [], self.runner.worktrees.bot_lock("coo")
+
+        class Turns(FakeHost):
+            def start_turn(host, thread_id, text, effort=None):
+                order.append("routine" if "weekly check" in text else "chat")
+                return FakeHost.start_turn(host, thread_id, text, effort)
+        self.runner.host_factory = lambda attempt, env: Turns(replies=["done"])
+        self.runner.task_closed = lambda attempt: False
+        lock.acquire()
+        with mock.patch.dict(os.environ, self.env), ThreadPoolExecutor(max_workers=2) as pool, \
+                mock.patch.object(task_sessions, "ensure", return_value=("", task_sessions.NO_UPSTREAM)):
+            routine = pool.submit(self.runner.execute, self.routine("att-r", "t1"))
+            time.sleep(1.5)                 # the routine is waiting for the checkout first
+            chat = pool.submit(self.runner.execute, attempt("att-c"))
+            deadline = time.monotonic() + 10
+            while not self.runner.person_waiting("coo") and time.monotonic() < deadline:
+                time.sleep(0.01)
+            lock.release()
+            chat.result(timeout=30)
+            routine.result(timeout=30)
+        self.assertEqual(order, ["chat", "routine"])
+
     def test_the_task_folder_is_the_bot_users_before_git_adds_the_worktree(self):
         # Under isolation git runs as the bot user; a sessions/bot-<slug> folder the supervisor made (mode 755)
         # refused it, so every task turn fell back to the checkout and the bot's turns ran one at a time.
