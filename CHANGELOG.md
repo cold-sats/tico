@@ -8,10 +8,15 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Muse Code is a harness.** Enable the Meta provider and bots can run on Meta's coding CLI (`muse`, model Muse Spark 1.3), signed in with a Meta account (device code, from Settings) or `META_API_KEY`. Runs resume their session after a restart and reach the hub and the bot's remote MCP servers. Meta's Llama stays on OpenRouter. See [Harnesses](docs/harnesses.md).
 - **Bots can check a workflow run's result.** A bot's GitHub token now reads Actions (workflow runs and their logs) in every repository it can read, so a bot that watches a deploy reads `gh run list` / `gh run view` itself instead of asking a person. It can't start, rerun or cancel a run. New GitHub Apps ask for Actions read; **an existing App needs Actions: Read-only added on its GitHub settings page and accepted on the installation**, and until then tokens are issued without it as before. See [GitHub App](docs/github-app.md#permissions-and-why).
 - **Attachments can be allowed for one mailbox.** `mailboxes.<address>.allow_attachments: true` in `registry/mail-policy.yaml` lets bots attach files to drafts from that mailbox only (Legal's, say) while `defaults.allow_attachments` stays off for the rest; `false` turns one off when the default is on. `mail draft discard <draft-id>` removes an unsent draft the bot made (the older `mail discard` still works). See [Mail](docs/mail.md).
 
 ### Changed
+- **Each computer installs only the model CLIs its bots use.** A runner used to install a harness for every provider the company enabled, on every computer. Now it installs the harness of each bot assigned to it (and of each bot's fallback), or the company default while it has no bot. The owner can turn any other one on or off per computer under **Settings > Computers > Model CLIs**; off removes the runner's own install once no turn uses it. Nothing already installed is removed on upgrade: it stays and keeps updating until the owner turns it off. Moving a bot to a computer that lacks its harness is no longer refused; the computer installs it and the check says "installing". A runner against an older server installs what its bots use and keeps what it has. See [Harnesses](docs/harnesses.md#choosing-what-a-computer-installs).
+- A bot's turn loads only the `hub` MCP server, its declared servers and its repository's `.mcp.json`: Claude Code bots on
+  the operator's own login no longer get the operator's personal servers or claude.ai connectors, and Grok skips the ones it
+  borrows from Claude and Cursor.
 - **Approvals nobody will act on leave Needs you.** An undecided approval is withdrawn (a new decision, `withdrawn`)
   when its task is closed, declined or marked done, when its bot asks again for the same thing (`hub approval request
   --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
@@ -26,6 +31,7 @@ All notable changes to Tico are recorded here. The format follows
   that accepts at most 32, the runner reports 32 and keeps working.
 
 ### Fixed
+- **A bot's unpushed commits rebase when the runner catches up on its own.** On a Docker runner, the catch-up after a refused push and the shared-branch sync ran git with no identity, so the rebase failed with "unable to auto-detect email address" and the commits stayed unpushed. On the Tico Team box this left BotOps's memory 2 commits ahead and 3 behind. These rebases now commit as the bot when its turn set one, and as Tico otherwise.
 - **A runner's event stream no longer drops on a busy server.** A quiet stream's keepalive waited for the computer's
   contact write, and with the database busy that took up to 30 s, so the runner's 45 s read timeout tripped and the stream
   dropped with `TimeoutError` (behind Cloudflare, about every 15 to 20 minutes). Keepalives on runner and page streams now go
@@ -44,6 +50,12 @@ All notable changes to Tico are recorded here. The format follows
   bot's checkout and waited for the bot's other turns, so a quick chat waited behind a long task. The folder is now
   the bot user's, including ones an older runner made.
 - **A routine's run no longer fails to publish because of an unrelated private task.** A private task waiting for its bot's next run used to ride along into a routine's run, which made the whole run private, so the Librarian's "Refresh the map of the docs" was refused every write to the shared docs. A routine's run now leaves private next-run tasks out and gives each one a run of its own, so it is never left waiting on a bot that only runs routines.
+- **A person's chat with a bot no longer waits behind a routine.** A routine or other background task whose worktree
+  couldn't be set up at once ran its whole turn in the bot's checkout, and a person's chat with that bot waited until
+  it finished. It now waits up to two minutes for its worktree, retrying, while chats go ahead; only after that, or when
+  the bot has no worktrees at all (no upstream), does it use the checkout. A person's turn waiting for the checkout
+  goes before background turns waiting for it, and a task turn skips its quick refresh of the checkout while a person
+  waits. A bot set to one thread for everything (`session: bot`) still runs its routines and chats one at a time.
 - **Bots don't wait on a person for a Tico limit.** The shared bot rules say that a bot blocked by a Tico limit (a missing token permission, a policy switch, a refusal) files it as a support report or a task for BotOps and waits on that, never on a person who can't lift it.
 
 ## [0.3.43] - 2026-10-14
