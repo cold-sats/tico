@@ -5,20 +5,23 @@ from backend.store import H
 from backend.tests.test_api import api, assign, claim, get, post, runner  # noqa: F401  (api is a fixture)
 
 
-def task_bot(api, lanes, capability="task_lanes_v2"):
+def task_bot(api, lanes, capability="task_lanes_v2", capacity=8, others=()):
     """`ops` keyed on tasks, assigned to a runner that does or does not advertise lanes."""
     with api.app.state.store.transaction() as c:
-        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='ops'").fetchone()[0])
-        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'", (json.dumps({**config, "session": "task"}),))
+        for bot in ("ops", *others):
+            config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()[0])
+            c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (json.dumps({**config, "session": "task"}), bot))
     machine = runner(api)
-    assign(api, machine, "ops")
-    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {"ops": True},
+    for bot in ("ops", *others):
+        assign(api, machine, bot)
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capacity": capacity,
+                                    "readiness": {bot: True for bot in ("ops", *others)},
                                     "capabilities": [capability] if lanes else []}, token=machine["token"])
     return machine
 
 
-def new_task(api, title):
-    return post(api, "tasks", {"owner": "ops", "title": title, "body": "Please do " + title + "."})
+def new_task(api, title, owner="ops"):
+    return post(api, "tasks", {"owner": owner, "title": title, "body": "Please do " + title + "."})
 
 
 def test_task_lanes_run_side_by_side_and_each_lane_stays_serial(api):
@@ -35,6 +38,31 @@ def test_task_lanes_run_side_by_side_and_each_lane_stays_serial(api):
     # The runner's own busy list holds a lane the server does not know is taken yet.
     third = new_task(api, "third")
     assert post(api, "jobs/claim", {"busy_lanes": ["ops|task:" + third["id"]]}, token=machine["token"])["attempt"] is None
+    assert claim(api, machine)["lane"] == "task:" + third["id"]
+
+
+def test_one_bot_holds_half_the_turns_and_a_freed_turn_goes_to_the_bot_with_fewest(api):
+    machine = task_bot(api, lanes=True, capacity=4, others=("finance",))
+    new_task(api, "first"), new_task(api, "second")
+    third = new_task(api, "third")
+    one, two = claim(api, machine), claim(api, machine)
+    assert {one["bot"], two["bot"]} == {"ops"}
+    # Two of four turns are ops's share: its third task waits with two turns free, and says why.
+    assert claim(api, machine) is None
+    assert get(api, "tasks/" + third["id"])["waiting_for"] == "Waiting for a free turn on Test Mac"
+    # Another bot's work takes a free turn at once, even though ops's job is older.
+    review = new_task(api, "review", owner="finance")
+    assert claim(api, machine)["bot"] == "finance"
+    assert get(api, "tasks/" + review["id"])["waiting_for"] == ""
+    # A person's own message to ops is never held behind its share.
+    post(api, "chat/ops", {"text": "Quick question."})
+    assert claim(api, machine)["lane"] == "main"
+    # A freed turn goes to the bot holding the fewest, before ops's older queued task.
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capacity": 8,
+                                    "readiness": {"ops": True, "finance": True}, "capabilities": ["task_lanes_v2"]},
+         token=machine["token"])
+    new_task(api, "release", owner="finance")
+    assert claim(api, machine)["bot"] == "finance"
     assert claim(api, machine)["lane"] == "task:" + third["id"]
 
 

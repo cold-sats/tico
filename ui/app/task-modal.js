@@ -471,7 +471,9 @@ function taskCommentsRender(state, data) {
   if (state.count != null && count !== state.count) void tfLoad(state.dialog, state.id);
   state.count = count;
   const files = tfFiles(state.dialog);
-  const html = lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id, can)).join('') || '<p class="muted">Nothing said yet.</p>';
+  // The bot's next run on this task, when it is queued: what it waits for, where its reply will appear.
+  const wait = data.waiting_for ? `<p class="muted task-wait" role="status">${esc(data.waiting_for)}</p>` : '';
+  const html = (lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id, can)).join('') || '<p class="muted">Nothing said yet.</p>') + wait;
   const thread = $('.task-comments', host);
   if (!can) d.askDrafts?.clear();
   if (can && askBusy(thread)) return;     // never under someone answering
