@@ -88,10 +88,12 @@ PUBLISH_WARNING = "GitHub history not published: "                     # runner/
 DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "          # runner/service.py DENIED_WARNING
 DENIES_WARNING = "Claude Code settings deny: "                         # runner/service.py DENIES_WARNING
 # GitHub writes a bot's access may allow: the command, and the `can` verbs (backend/bot_tools.py) that allow it.
-GITHUB_WRITES = (("gh pr create", ("write", "pull_requests")), ("gh pr merge", ("write", "pull_requests")),
-                 ("gh pr comment", ("write", "pull_requests")), ("gh pr review", ("write", "pull_requests")),
+# Merging and reviewing are left out: denying them to a bot that opens pull requests is a policy (a person or
+# another bot merges; no bot approves its own work), not a leftover.
+GITHUB_WRITES = (("gh pr create", ("write", "pull_requests")), ("gh pr comment", ("write", "pull_requests")),
                  ("gh pr edit", ("write", "pull_requests")), ("gh issue create", ("write", "issues")),
                  ("gh issue comment", ("write", "issues")), ("git push", ("write",)))
+WRITE_VERBS = {"write", "pull_requests", "issues"}
 
 
 def _unpublished(c):
@@ -126,11 +128,17 @@ def harness_denies(c, settings):
             tools = listing(c, settings, bot)["tools"]
         except Exception:
             continue
-        row = c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
-        own = str(repo_of((row["repo"] if row else "") or "emp-" + bot, "owner") or "").split("/")[-1].lower()
-        granted = [t for t in tools if str(t.get("service") or "").lower() in ("github", "github-app")
-                   and t.get("id") != "repo" and "own repository" not in str(t.get("detail") or "")
-                   and str((t.get("scope") or {}).get("repo") or t.get("identity") or "").split("/")[-1].lower() != own]
+        row = c.execute("SELECT repo,config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+        own = str(repo_of((row["repo"] if row else "") or "bot-" + bot, "owner") or "").split("/")[-1].lower()
+        mode = H._json(row["config_json"] if row else None, {}).get("repo_access_mode", "own")
+        github = [t for t in tools if str(t.get("service") or "").lower() in ("github", "github-app")
+                  and t.get("id") != "repo" and "own repository" not in str(t.get("detail") or "")
+                  and str((t.get("scope") or {}).get("repo") or t.get("identity") or "").split("/")[-1].lower() != own]
+        declared = [t for t in github if not str(t.get("id") or "").startswith("github-extra-")]
+        reads_only = bool(declared) and not any(WRITE_VERBS & set(t.get("can") or []) for t in declared)
+        # Write on every repository ('all', write by default) says nothing about this bot; a repository a person
+        # chose for it with write does. A bot.yaml declaring GitHub read-only means its denies are intended.
+        granted = [t for t in github if t in declared or mode == "chosen" or not reads_only]
         for command, verbs in GITHUB_WRITES:
             if not any(command == p or command.startswith(p + " ") for p in prefixes):
                 continue
@@ -231,8 +239,8 @@ def _listening_lost(c, settings):
                      (H.shift(H.now(), days=-LISTENING_ACTIVE_DAYS),)).fetchone():
         return None
     present = (settings.registry_dir / listening.LISTENING_FILE).is_file()
-    return _check("listening", "Listening", "bad",
-                  f"Listening routes nowhere: listening.yaml {'has no destinations' if present else 'is missing from the company registry'}. "
+    return _check("listening", "Listening", "warn" if present else "bad",
+                  f"Listening routes nowhere: listening.yaml {'has no valid destinations' if present else 'is missing from the company registry'}. "
                   f"It last sent a post to an inbox on {last[:10]}; {_plural(saved, 'post')} saved since went to no inbox. "
                   "Restore listening.yaml and questions/listening-item.json from the registry's previous copy.",
                   [_fix("Listening settings", "https://github.com/ticoteam/tico/blob/main/docs/listening.md")])

@@ -252,7 +252,9 @@ No template declares a `send`, `write`, `modify` or `delete` verb in `tools:`, a
 When a person later gives such a bot write access but leaves the template's denies in place, Health shows **Harness
 permissions**: the bot, the repositories it may write to and the `gh` or `git` commands its `.claude/settings.json` still
 denies (the runner reports the denies; the server compares them with the bot's access, leaving out its own repository).
-Remove the deny or take back the access.
+Remove the deny or take back the access. Denying `gh pr merge` or `gh pr review` is not counted: a bot that opens pull
+requests and leaves merging and approving to someone else is following policy. Nor is write that comes only from
+access to every repository when the bot's `bot.yaml` reads GitHub only; a repository a person chose for it with write is.
 
 ## The card
 

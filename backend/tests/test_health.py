@@ -410,8 +410,38 @@ def test_a_harness_deny_on_a_github_write_the_access_allows_is_named(environment
                                      "tools": [dict(tool, can=["read"])]})
     assert "harness_denies" not in health_of(api)[1]
     _hosted(api, runner, "monitor", {"ready": True, "runtime": "claude", "warnings": [deny],
-                                     "tools": [dict(tool, identity="emp-monitor", scope={"repo": "emp-monitor"})]})
+                                     "tools": [dict(tool, identity="bot-monitor", scope={"repo": "bot-monitor"})]})
     assert "harness_denies" not in health_of(api)[1]
+    # Denying merge and review to a bot that opens pull requests is a policy, not a leftover.
+    _hosted(api, runner, "monitor", {"ready": True, "runtime": "claude", "tools": [tool],
+                                     "warnings": ["Claude Code settings deny: gh pr merge, gh pr review, gh release create"]})
+    assert "harness_denies" not in health_of(api)[1]
+
+
+def test_a_read_only_reviewer_given_every_repository_keeps_its_denies(environment, monkeypatch):
+    """Every repository comes with write by default; a bot whose bot.yaml reads GitHub only is not flagged for it,
+    while a repository a person chose for it with write is."""
+    api = environment()
+    settings = api.app.state.store.settings
+    monkeypatch.setattr(settings, "github_owner", "acme")
+    runner = enrolled(api)
+    add_bot(api, "reviewer")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO repositories(full_name,enabled,bot_repo) VALUES('acme/product',1,0)")
+        c.execute("INSERT INTO bot_config(bot,config_json,repo,operator) VALUES('reviewer',?,'bot-reviewer','ana') ON CONFLICT(bot) DO "
+                  "UPDATE SET config_json=excluded.config_json,repo=excluded.repo", ('{"repo_access_mode": "all"}',))
+    read = {"service": "github", "identity": "acme/docs", "can": ["read"], "scope": {"repo": "acme/docs"}}
+    deny = "Claude Code settings deny: gh pr comment, gh pr create, gh pr review"
+    _hosted(api, runner, "reviewer", {"ready": True, "runtime": "claude", "warnings": [deny], "tools": [read]})
+    from backend.bot_tools import listing
+    with api.app.state.store.read() as c:
+        assert any(t["identity"] == "acme/product" and "write" in t["can"] for t in listing(c, settings, "reviewer")["tools"])
+    assert "harness_denies" not in health_of(api)[1]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='reviewer'", ('{"repo_access_mode": "chosen"}',))
+        c.execute("INSERT INTO bot_repo_access VALUES('reviewer','acme/product','write')")
+    summary = health_of(api)[1]["harness_denies"]["summary"]
+    assert "reviewer may write to acme/product" in summary and "gh pr create, gh pr comment" in summary
 
 
 def _listened(api, *, routed_days_ago, saved_days_ago, judged=None):
@@ -443,7 +473,8 @@ def test_listening_that_routed_before_but_lost_its_registry_file_is_bad(environm
     assert "listening.yaml is missing from the company registry" in check["summary"]
     assert "1 post saved since went to no inbox" in check["summary"]
     (settings.registry_dir / "listening.yaml").write_text("destinations: {}\n")
-    assert "has no destinations" in health_of(api)[1]["listening"]["summary"]
+    check = health_of(api)[1]["listening"]          # emptied on purpose is possible: a warning, not bad
+    assert check["status"] == "warn" and "has no valid destinations" in check["summary"]
 
 
 def test_listening_that_stopped_saving_posts_is_not_flagged(environment, monkeypatch):
