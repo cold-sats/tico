@@ -747,6 +747,13 @@ class WaitingWithDependency(HubCase):
         self.assertNotEqual(hidden['id'], public['id'])
         self.assertTrue(H.task_private(self.conn, H.task(self.conn, hidden['id'])))
         self.assertEqual(H.task_comments(self.conn, public['id'], actor=ANA), [])
+        # The private task's own card is still one card: a re-sent wait and a second ask both join it.
+        again = H.task_update(self.conn, CMO, secret['id'], status='waiting', waiting_on='ana',
+                              note=H.task(self.conn, secret['id'])['note'])['asked_in']
+        more = H.task_update(self.conn, CMO, secret['id'], status='waiting', waiting_on='ana',
+                             note='Also send the tax form? If yes, I will file it with the pay.')['asked_in']
+        self.assertEqual((again['id'], more['id'], TR.blocker_ids(self.conn, secret['id'])),
+                         (hidden['id'], hidden['id'], [hidden['id']]))
         # Another task given to the person is not a card to join, and finishing it answers nothing.
         other = H.task_create(self.conn, CMO, 'Move the office', '', CMO, private=False)
         lease = H.task_create(self.conn, CMO, 'Sign the lease', 'Sign the lease by Friday? I will file it after.', ANA,
@@ -778,7 +785,7 @@ class WaitingWithDependency(HubCase):
                          (question['id'], 'Blocked on Ana Rivera: Run the trial once? If yes, I will add the results to the report.', before))
         H.task_update(self.conn, CMO, question['id'], status='done', note='Ana said yes.')
         self.assertEqual((H.task(self.conn, trial['id'])['status'], H.task(self.conn, trial['id'])['note']),
-                         ('open', 'Ana Rivera answered: Ana said yes.'))
+                         ('open', f"{H.person_name(self.conn, CMO)} closed the ask to Ana Rivera: Ana said yes."))
 
     def test_bot_tasks_already_waiting_on_a_person_move_to_the_subtask_shape(self):
         from backend import person_asks

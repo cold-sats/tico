@@ -2803,10 +2803,12 @@ def _unblock(conn, done_task, told=()):
             _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} is finished.")
 
 
-def _answered(conn, task_id, card, told=None):
-    """`card`, an ask this rule filed (ask_card) that a bot's task is blocked on, is done or declined: the task's note
-    becomes the answer, it opens again when nothing else holds it, it no longer waits on a declined card, and its bot
-    is woken on it once, unless `told` (_subtask_wake) already woke it there. Returns whether this was such a task."""
+def _answered(conn, actor, task_id, card, told=None):
+    """`card`, an ask this rule filed (ask_card) that a bot's task is blocked on, is done or declined by `actor`: the
+    task's note becomes the answer, it opens again when nothing else holds it, it no longer waits on a declined card,
+    and its bot is woken on it once, unless `told` (_subtask_wake) already woke it there. The note names the person
+    as answering only when they finished the card, so a bot closing it never puts its words in their mouth. Returns
+    whether this was such a task."""
     person = ask_card(conn, card)
     row = task(conn, task_id)
     if not person or not row or not is_bot(row["owner"]) or row["status"] not in ACTIVE_STATUSES:
@@ -2815,7 +2817,8 @@ def _answered(conn, task_id, card, told=None):
         return False
     name = person_name(conn, person)
     said = str(card.get("note") or "").strip() or ("Done." if card["status"] == "done" else "Declined.")
-    note = f"{name} answered: {said}"
+    who = f"{name} answered" if actor == person else f"{person_name(conn, actor)} closed the ask to {name}"
+    note = f"{who}: {said}"
     if card["status"] != "done":
         TR.remove_blocker(conn, KEEPER, row["id"], card["id"], keeper_note=f"answered: {card['title']}")
     if row["status"] == "waiting" and not waiting_for(conn, row):
@@ -2823,7 +2826,7 @@ def _answered(conn, task_id, card, told=None):
     conn.execute("UPDATE tasks SET note=?, version=version+1 WHERE id=?", (note, row["id"]))
     _task_event(conn, row["id"], KEEPER, "note", row.get("note"), note, "")
     if row["owner"] != told or TR.parent_of(conn, card["id"]) != row["id"]:
-        _wake(conn, row, row["owner"], f"{name} answered: {card['title']}\n{said}", refs={"subtask": card["id"]})
+        _wake(conn, row, row["owner"], f"{who}: {card['title']}\n{said}", refs={"subtask": card["id"]})
     return True
 
 
@@ -3981,7 +3984,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     # A person answering a bot's ask (_ask_in_subtask), yes or no: each task blocked on it opens again.
     answered = set()
     if status in ("done", "declined") and row["status"] != status and not closing_step:
-        answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, tid, after, subtask_told)}
+        answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, actor, tid, after, subtask_told)}
     if status == "done":
         _unblock(conn, after, told=answered)
     # A decline always goes back: nobody is doing the work, which is news whoever asked for it.
@@ -4073,7 +4076,11 @@ def ask_card(conn, card):
 def person_card(conn, row, person):
     """The open card this rule already put in front of `person` in this task's tree, or None. Only a card it made
     (ask_card) is joined, never another task the person was given, and never across privacy: a private task's ask
-    stays on its own private card, and a public task never joins a private one."""
+    stays on its own private card, one per task, and a public task never joins a private one."""
+    for tid in TR.blocker_ids(conn, row["id"]):
+        card = task(conn, tid)
+        if card and card["status"] in ACTIVE_STATUSES and card["owner"] == person and ask_card(conn, card) == person:
+            return card
     if task_private(conn, row):
         return None
     above = TR.ancestors(conn, row["id"])

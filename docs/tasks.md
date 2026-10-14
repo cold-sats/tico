@@ -76,10 +76,11 @@ it. Nobody asks her again whether she answered.
 One question, one card. If this rule already filed that person a card in the task's tree (its root and everything
 under it), no second card is made: the task is blocked on the existing one, and a different ask is added to it as a
 comment. Only such cards are joined, never another task the person was given, and never across privacy: a private
-task's ask always gets its own private card. A bot's own open question to the person under the task (`hub task
+task's ask gets its own private card, one per task, which its later asks join. A bot's own open question to the person under the task (`hub task
 question`) is the card too. `hub task question` asked from a run on one of the bot's own tasks is filed under that
 task when no `--parent` is given. The answer follows the blocker link, so a progress note the bot adds while it waits
-doesn't lose it, and a declined card no longer blocks the task.
+doesn't lose it, and a declined card no longer blocks the task. The note says the person answered only when they
+finished the card; when someone else closed it, it names who did.
 
 The note must be a plain ask: one or two sentences, at most 40 words, with no ids, hashes, file paths, `s3://` links
 or tool names. Without one the update is refused, saying what failed. A task with an open structured question to
