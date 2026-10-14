@@ -18,6 +18,12 @@
 <p id="scene-instructions" class="sr-only">Each computer is a building, or a storey of one tower. People appear with their bots on each computer they work with; this does not track presence. Select a floor to see it from above. Select a teammate for details. Tap outside or press Escape to return. Drag to rotate and scroll to zoom.</p>
 <button id="back" class="campus-back" hidden>← Campus</button>
 <div id="layout" role="group" aria-label="Layout"><button data-layout="campus">Buildings</button><button data-layout="tower">Tower</button></div>
+<button id="replay-toggle" class="replay-toggle" aria-pressed="false">Replay last 24h</button>
+<section id="replay" aria-label="Replay of the last 24 hours" hidden>
+<ol id="replay-captions" aria-live="polite"></ol>
+<p id="replay-note" role="status" hidden></p>
+<div id="replay-bar" class="replay-bar"><button id="replay-play" aria-label="Play"></button><span id="replay-clock"></span><input id="replay-range" type="range" min="0" max="1000" step="1" value="0" aria-label="Replay position"><div id="replay-speeds" role="group" aria-label="Speed"></div><button id="replay-live">Back to live</button></div>
+</section>
 <nav id="floors" aria-label="Explore computers and shared pavilion"></nav>
 <nav id="people" aria-label="Teammates on this floor" hidden></nav>
 <div id="floor-heading" hidden><div><span id="floor-number"></span><h1 id="floor-title"></h1><p id="floor-subtitle"></p></div><div id="floor-step"><button id="floor-up" aria-label="Floor above">▲</button><button id="floor-down" aria-label="Floor below">▼</button></div></div>

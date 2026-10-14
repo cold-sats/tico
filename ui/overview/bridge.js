@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const origin = location.origin;
-let model = null, scene = null, topology = '', revision = 0, disposed = false, failed = false;
+let model = null, scene = null, topology = '', revision = 0, disposed = false, failed = false, replay = null, replaying = false;
 // The renderer starts downloading before the team arrives; the page preloads it too.
 const renderer = import('./building.js'); renderer.catch(() => {});
 const preferences = {layout: 'campus'};
@@ -26,14 +26,25 @@ function fallback(message) {
     list.append(section);
   }
 }
+// While a replay plays, each readable bot's desk shows its state as of the replay time; restricted bots stay
+// restricted and people stay people.
 function currentData() {
-  return {...model, offset: 0, groups: model.groups.map(g => ({...g, key: g.id}))};
+  const live = {...model, offset: 0, groups: model.groups.map(g => ({...g, key: g.id}))};
+  if (!replay) return live;
+  const desk = m => {
+    if (m.type !== 'bot' || m.state === 'restricted') return m;
+    const shown = replay.desk(m.id.slice(4)) || {state: 'idle', detail: 'Idle'};
+    return {...m, ...shown};
+  };
+  return {...live, fresh: true, groups: live.groups.map(g => ({...g, members: g.members.map(desk)}))};
 }
 function controls() {
-  $('#connection-status').hidden = model.fresh;
   $('#campus-company').textContent = model.company;
   const count = model.groups.filter(g => g.kind === 'computer').length;
-  $('#campus-summary').textContent = count + (count === 1 ? ' computer' : ' computers') + (preferences.layout === 'tower' ? ' · One tower' : ' · One connected campus');
+  $('#campus-summary').textContent = count + (count === 1 ? ' computer' : ' computers') + (replaying ? ' · Replaying the last 24 hours' : preferences.layout === 'tower' ? ' · One tower' : ' · One connected campus');
+  $('#connection-status').hidden = model.fresh || replaying;
+  $('#replay-toggle').setAttribute('aria-pressed', String(replaying));
+  document.body.classList.toggle('replaying', replaying);
   document.querySelectorAll('[data-layout]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.layout === preferences.layout)));
 }
 async function mount(quiet = false) {
@@ -65,11 +76,40 @@ for (const button of document.querySelectorAll('[data-layout]')) button.onclick 
   try { localStorage.setItem('tico-overview-layout', preferences.layout); } catch {}
   mount(true);
 };
-function dispose() { disposed = true; revision++; scene?.dispose(); scene = null; }
+// Replay: the page fetches the last 24 hours with the viewer's own rights and posts them in.
+const replayModule = () => import('./replay.js');
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function startReplay() {
+  if (!model || replaying) return;
+  replaying = true; controls();
+  $('#replay').hidden = false; $('#replay-note').hidden = false; $('#replay-note').textContent = 'Loading the last 24 hours…';
+  $('#replay-captions').replaceChildren(); $('#replay-bar').hidden = true;
+  send({type: 'tico-overview-replay-load'});
+}
+async function showReplay(message) {
+  if (!replaying || disposed) return;
+  const {createReplay} = await replayModule();
+  if (!replaying || disposed) return;
+  replay?.destroy();
+  $('#replay-bar').hidden = false;
+  replay = createReplay($('#replay'), message.data, {names: message.names || {}, words: message.words || {}, reduced: reducedMotion,
+    scene: () => scene, onState: () => scene?.update(currentData()), done: stopReplay});
+  scene?.update(currentData());
+  replay.play();
+}
+function stopReplay() {
+  replaying = false; replay?.destroy(); replay = null;
+  $('#replay').hidden = true;
+  if (model) { controls(); scene?.update(currentData()); }
+}
+$('#replay-toggle').onclick = () => replaying ? stopReplay() : startReplay();
+function dispose() { disposed = true; revision++; replay?.destroy(); replay = null; scene?.dispose(); scene = null; }
 window.addEventListener('message', event => {
   if (event.source !== parent || event.origin !== origin || disposed) return;
   if (event.data?.type === 'tico-overview-data') update(event.data.model);
   if (event.data?.type === 'tico-overview-dispose') dispose();
+  if (event.data?.type === 'tico-overview-replay-data') showReplay(event.data);
+  if (event.data?.type === 'tico-overview-replay-error' && replaying) $('#replay-note').textContent = event.data.message || 'The replay could not be loaded.';
 });
 window.addEventListener('pagehide', dispose);
 window.addEventListener('overview-context-lost', () => { failed = true; fallback('The 3D view was interrupted. Your team is still accessible below.'); });
