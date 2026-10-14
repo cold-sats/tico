@@ -3125,6 +3125,7 @@ def create_app(settings=None):
                                     (task_id,)).fetchone()
                 if creator and H.is_bot(creator["actor"]):
                     requester = creator["actor"]
+                requester = filed_for_bot(c, task_id, who) or requester
             if task and initial:
                 refs = initial.get("refs") or {}
                 relayed = any(refs.get(key) for key in ("via", "assistant", "slack", "routing"))
@@ -3280,6 +3281,18 @@ def create_app(settings=None):
                         "ORDER BY ts DESC LIMIT 1", (task["id"], requester)).fetchone() if task else None
         return H._json(row["detail_json"], {}) if row else None
 
+    def filed_for_bot(c, task_id, who):
+        """The bot a task was filed for, when BotOps filed it with rights that bot's hand-off lent (carried_request):
+        it lends what that bot's rights do, never the person's, or a carried call could file itself a task that lends
+        everything. None for any other task."""
+        made = c.execute("SELECT detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
+                         (task_id,)).fetchone()
+        lent = (H._json(made["detail_json"], {}) if made else {}).get("delegation") or {}
+        if not isinstance(lent, dict) or lent.get("run") != "carried":
+            return None
+        cited = H.message(c, lent.get("cited") or "")
+        return cited["to_actor"] if cited and H.is_bot(cited["to_actor"]) else who.actor
+
     def lending_carried(c, task, requester):
         """The carried request when it still lends the person's rights: the task is open and the message still stands,
         from that person, within DELEGATION_DAYS."""
@@ -3350,7 +3363,7 @@ def create_app(settings=None):
         made = c.execute("SELECT actor,detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
                          (task["id"],)).fetchone()
         via = H._json(made["detail_json"], {}).get("via") if made else None
-        if not made or made["actor"] != requester or via == "assistant":
+        if not made or made["actor"] != requester or via == "assistant" or filed_for_bot(c, task["id"], who):
             raise Problem("on_behalf_of", "That task was not filed by the person who asked for it", 403)
         if via and not task.get("request_id"):
             # Filed by BotOps as the person: only a continuation of their message (--request-id) counts, or a

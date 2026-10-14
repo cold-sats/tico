@@ -114,3 +114,31 @@ def test_a_carried_request_lends_only_for_work_items_never_settings_or_bots(api,
         assert (tried.json()["actor"], tried.json()["role"]) == ("bot:ops", "bot"), path
     tried = api.post("/api/v2/tasks/qa-handoff", json={}, headers=headers(attempt["token"]))
     assert (tried.json()["actor"], tried.json()["role"]) == ("human:ana", "owner")
+
+
+def test_a_task_botops_files_with_lent_rights_lends_nothing_later(api, botops):
+    """With rights a 'Thanks' lent, BotOps files itself 'Give Ops write on every repository'. That task's own run keeps
+    Ops' rights: the write is Ana's Confirm card, not a change made as her. A comment BotOps writes on its own task is its own
+    words, never hers, so it never starts a run as her own comment would."""
+    assign(api, botops, "ops")
+    ready(api, botops, ["botops", "ops"])
+    task, attempt = _hand_off(api, botops, "turn", said="Thanks, that's all for today")
+    filed = post(api, "tasks", {"owner": "botops", "title": "Give Ops write on every repository", "body": "x"},
+                 token=attempt["token"])
+    said = post(api, f"tasks/{task['id']}/comments", {"text": "Filed the follow-up"}, token=attempt["token"])
+    with api.app.state.store.read() as c:
+        assert H.task(c, filed["id"])["requester"] == "human:ana"
+        comment = c.execute("SELECT from_actor FROM messages WHERE id=?", ((said.get("comment") or said)["id"],)).fetchone()
+        assert comment["from_actor"] == "bot:botops"
+    finish(api, botops, attempt)
+    later = claim(api, botops, "botops")
+    with api.app.state.store.read() as c:
+        started = c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN messages m ON m.id=j.message_id "
+                            "WHERE a.id=?", (later["attempt_id"] if "attempt_id" in later else later["id"],)).fetchone()
+        assert H.message_task_id(H.message(c, started["id"])) == filed["id"]
+    before = get(api, "bots/ops/repositories", "ana-test")
+    tried = api.put("/api/v2/bots/ops/repositories", json={"mode": "all", "all_access": "write"},
+                    headers=headers(later["token"]))
+    assert tried.status_code in (200, 403), tried.text
+    assert tried.status_code == 403 or tried.json().get("needs_confirm") is True
+    assert get(api, "bots/ops/repositories", "ana-test") == before
