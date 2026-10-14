@@ -1247,8 +1247,10 @@ class Runner:
 
     @staticmethod
     def readiness_candidates(assignments, eligible=()):
-        """Only live assignments are readiness candidates; eligible rows are placement options."""
-        candidates = {entry["bot"]: entry for entry in assignments}
+        """Only live assignments are readiness candidates; eligible rows are placement options. An archived bot
+        keeps its assignment but is never set up or checked: its repository may be gone, and retrying it on every
+        maintenance pass kept an idle computer busy."""
+        candidates = {entry["bot"]: entry for entry in assignments if entry.get("state") != "archived"}
         return [candidates[bot] for bot in sorted(candidates)]
 
     def assigned_here(self, entry):

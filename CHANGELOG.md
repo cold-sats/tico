@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **An idle computer no longer burns CPU on archived bots.** A runner tried to set up every assigned bot on each
+  readiness pass, archived ones included, and re-read the whole bot catalog each time; with 22 archived test bots
+  whose repositories were gone, the Tico Team mail runner used most of a core while idle and kept the server busy.
+  Archived bots are skipped, and the catalog is read again only when a card changes.
+
 ### Changed
 - **A bot at its worktree limit ends its turn and is woken when its worktree is ready.** When a bot's turn asks for a task worktree while the bot already holds 30, Tico records that the task waits for one and `hub task worktree add` says so and exits with status 3: the bot ends its turn instead of waiting, so its finished worktrees can free themselves. When a place frees, Tico reserves the worktree (checking access, owner and computer again), the bot's computer checks it out and runs setup while the bot is idle, and Tico wakes the task once, in its own session, naming the ready worktree; a failed checkout or setup wakes it once with the reason. Finishing the task, a new owner or stopping the turn ends the wait. The task and Health show "Waiting for a worktree" with its age. The limit is unchanged, nothing is removed to make room, and a computer from before this release gets the old answer. See [Task worktrees](docs/worktrees.md).
 
