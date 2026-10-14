@@ -804,6 +804,22 @@ class WaitingWithDependency(HubCase):
         # The one with no plain ask stays for its bot to restate (backend/restate_asks.py).
         self.assertEqual(H.task(self.conn, unclear['id'])['waiting_on'], ANA)
 
+    def test_a_plain_ask_passes_and_shorthand_does_not(self):
+        # Abbreviations, initials, a year after a few letters, a standard's number and a product name are plain words.
+        for ask in ["Can we meet at 3 p.m. on Friday? If yes, I will book the room.",
+                    "Approve the invoice from Dr. Smith for $1,200? If yes, I pay it today.",
+                    "Should we sell to U.S. customers first? If yes, I set up the store.",
+                    "Approve the FY2026 budget? If yes, I send it to finance.",
+                    "Move the site to ES2022? If yes, I ship it Monday.",
+                    "Start the ISO27001 audit? If yes, I book the auditor.",
+                    "Build the site with Node.js? If yes, I start today."]:
+            self.assertEqual(H.lint_person_ask(ask), [], ask)
+        for ask, failed in [("Approve it. I send it. Then I book it.", "3 sentences"),
+                            ("Approve PO-1234? If yes, I pay it.", 'id or hash: "PO-1234"'),
+                            ("Approve invoice #4821?", 'id or hash: "#4821"'),
+                            ("Ship the fix in app.js?", 'file path: "app.js"')]:
+            self.assertIn(failed, "; ".join(H.lint_person_ask(ask)), ask)
+
     def test_a_bot_gives_a_person_a_plain_ask_or_is_refused(self):
         plain = "Approve the video tool trial on Thursday? If yes, I'll send the invite."
         task = H.task_create(self.conn, CMO, 'Coordinate the external agent scenario', '', CMO, private=False)
