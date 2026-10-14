@@ -1397,6 +1397,9 @@ def lint_approval(kind, payload):
     if kind == "publish" and digest not in (None, "") and not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
         # Every publisher compares against hashlib's hexdigest(), so any other shape could never publish.
         problems.append("content_sha256 must be 64 lower-case hex characters")
+    if kind == "publish" and "@" in url_authority(payload.get("url")):
+        # A card cuts a long field, so "https://trusted.example…@other.example" could hide the real host.
+        problems.append("url must not carry a user name (user@host); give the plain address")
     if kind == "support":
         problems += lint_support(payload)
     if kind == "merge" and "merge needs pr" in problems:
@@ -1404,6 +1407,15 @@ def lint_approval(kind, payload):
         problems[problems.index("merge needs pr")] = ("merge needs pr (the pull request number); for a change "
                                                       "with no pull request, file a decision task for the person instead")
     return problems
+
+
+def url_authority(url):
+    """The part of a url between "//" and the path, where user@ would go; "" when there is none. A backslash counts as
+    part of it, as browsers read one there as "/", so "https://a\\@b" is refused rather than guessed at."""
+    try:
+        return urlsplit(re.sub(r"\s", "", str(url or ""))).netloc
+    except ValueError:
+        return str(url)
 
 
 def lint_support(payload):

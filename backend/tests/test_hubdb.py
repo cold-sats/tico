@@ -330,6 +330,20 @@ class Rule6Approvals(HubCase):
         self.assertEqual(H.approval_request(self.conn, CMO, "publish",
                                             {"url": "hq-ticket:TK-0000AAAA", "content_sha256": digest})["kind"], "publish")
 
+    def test_a_publish_url_with_a_user_name_is_refused_so_a_cut_card_cannot_hide_its_host(self):
+        digest = hashlib.sha256(b"Launch notes").hexdigest()
+        for url in ("https://acme.example" + "a" * 400 + "@evil.example/post", "https://ana@evil.example",
+                    "https://acme.example:pw@evil.example/", "//acme.example@evil.example", "https://acme.example\\@evil.example",
+                    "https://acme.example\t@evil.example", "HTTPS://acme.example%2F@evil.example", "https://[::1@evil.example"):
+            e = self.refused("lint", H.approval_request, self.conn, CMO, "publish", {"url": url, "content_sha256": digest})
+            self.assertEqual("url must not carry a user name (user@host); give the plain address", e.detail)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM approvals").fetchone()[0], 0)
+        # An @ in the path, query or fragment names nobody's account on the host.
+        for url in ("https://medium.example/@acme/launch", "https://acme.example/share?to=ana@acme.example",
+                    "https://acme.example/#@team", "hq-ticket:TK-0000AAAA"):
+            self.assertEqual(H.approval_request(self.conn, CMO, "publish", {"url": url, "content_sha256": digest})["kind"],
+                             "publish")
+
     def test_a_publish_text_that_is_not_a_string_is_refused_as_such(self):
         digest = hashlib.sha256(b"Thanks, the fix is in 0.3.41.").hexdigest()
         for text in (None, 42, ["Thanks"]):

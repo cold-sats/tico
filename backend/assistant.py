@@ -214,13 +214,17 @@ def require_named_approval(c, who, ref):
 AFFIRM = re.compile(r"(yes|yep|yeah|y|ok|okay|sure|go ahead|go|do it|please do|confirm(ed)?|correct|that'?s right)"
                     r"\b[\s,.!]*(please|thanks|thank you|go ahead|do it)?[\s.!]*", re.I)
 READ_BACK = "approval.read_back"
+# Unicode's Default_Ignorable_Code_Point characters that are not format (Cf) characters: variation selectors, Hangul
+# fillers and the like render as nothing.
+IGNORABLE = re.compile("[͏ᅟᅠ឴឵᠋-᠏⁥ㅤ︀-️ﾠ￰-￸"
+                       "\U000e0000-\U000e0fff]")
 
 
 def plain_line(text):
     """One read-back line, shown exactly as written: a requesting bot's payload can't add lines, a footer or a question,
     hide part of the line behind markup (an HTML comment opened in one field and closed in another), or reorder it with
     invisible format characters."""
-    text = "".join(ch for ch in str(text) if unicodedata.category(ch) != "Cf")
+    text = "".join(ch for ch in str(text) if unicodedata.category(ch) != "Cf" and not IGNORABLE.fullmatch(ch))
     return re.sub(r"\s+", " ", text).strip().replace("<", "‹").replace(">", "›")
 
 
@@ -240,13 +244,15 @@ def hidden_key(key):
 
 def field_text(value):
     """One payload value written out whole: a list joined with ", ", a file as its name and size, any other object as
-    its key=value pairs; never a hash."""
+    its key=value pairs; never a hash. A size that is not a whole number is shown as size=..., never "(... bytes)"
+    where text could pass for a second file."""
     if isinstance(value, (list, tuple)):
         return ", ".join(field_text(v) for v in value)
     if isinstance(value, dict):
+        sized = "name" in value and type(value.get("size")) is int
         rest = " ".join(f"{k}={field_text(v)}" for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
-                        if not hidden_key(k) and k not in ("name", "size"))
-        head = (field_text(value["name"]) + (f" ({value['size']} bytes)" if "size" in value else "")
+                        if not hidden_key(k) and k != "name" and not (k == "size" and sized))
+        head = (field_text(value["name"]) + (f" ({value['size']} bytes)" if sized else "")
                 if "name" in value else "")
         return " ".join(x for x in (head, rest) if x)
     return str(value)
@@ -265,10 +271,22 @@ def approval_fields(payload):
     return [k for k in APPROVAL_FIELDS if k in shown] + sorted(str(k) for k in shown if k not in APPROVAL_FIELDS)
 
 
+def shows_blank(value):
+    """Whether part of a value has something in it yet reads back as nothing (a file with only hidden keys)."""
+    if isinstance(value, (list, tuple)):
+        return any(shows_blank(v) for v in value)
+    if isinstance(value, dict):
+        return (bool(value) and not plain_line(field_text(value))) or any(
+            shows_blank(v) for k, v in value.items() if not hidden_key(k))
+    return value not in (None, "") and not plain_line(field_text(value))
+
+
 def too_long(payload):
-    """The fields a read-back could not show whole (or whose key is not a plain name): the approval stays a click."""
+    """The fields a read-back could not show whole (or whose key is not a plain name, or that read back as nothing):
+    the approval stays a click."""
     return [str(k) for k in payload if not hidden_key(k) and (
-        not KEY.fullmatch(str(k)) or field_value(payload[k], 10 ** 6) != field_value(payload[k]))]
+        not KEY.fullmatch(str(k)) or field_value(payload[k], 10 ** 6) != field_value(payload[k])
+        or shows_blank(payload[k]))]
 
 
 def approval_id(path):
@@ -1256,12 +1274,6 @@ def install(app, store, auth, mutate, onboarding):
             out = []
             for r in rows:
                 row = H.approval(c, r["id"])
-                if row["kind"] == "support":
-                    raise Problem("approve_support", "A report to the Tico team is sent only on the person's own "
-                                  "click, so leave it out of the read-back", 403)
-                if cut := too_long(row.get("payload") or {}):
-                    raise Problem("approve_too_long", f"Approval {aid} has more in {', '.join(field_value(k, 40) for k in cut)} "
-                                  "than the read-back can show in full, so it stays the person's click: leave it out", 409)
                 what, _ = describe(c, "POST", "/api/v2/approvals/" + row["id"], {"decision": row["decision"]})
                 out.append({"id": row["id"], "kind": row["kind"], "decision": row["decision"],
                             "what": what.split(" ", 1)[-1],          # "the publish approval requested by ..."

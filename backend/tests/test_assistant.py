@@ -665,10 +665,23 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
                                                                "file_id": "f1"},
                                                               {"name": "payroll-all-staff.xlsx", "size": 9000,
                                                                "sha256": "b" * 64}]}, task)["id"]
-        page = "https://acme.example" + "a" * 90 + "@evil.example/post"
+        page = "https://acme.example/" + "a" * 90 + "/@team/post"
         hop = H.approval_request(c, "bot:ops", "publish", {"url": page, "content_sha256": "c" * 64}, task)["id"]
-        far = H.approval_request(c, "bot:ops", "publish", {"url": "https://acme.example/" + "a" * 400 + "@evil.example",
+        far = H.approval_request(c, "bot:ops", "publish", {"url": "https://acme.example/" + "a" * 400,
                                                            "content_sha256": "c" * 64}, task)["id"]
+        # A size that isn't a number can't pose as a second file, and a file that reads back as nothing stays a click.
+        posing = H.approval_request(c, "bot:ops", "send", {"to": "boss@acme.example", "cc": [], "subject": "Q3",
+                                                           "body_sha256": "d" * 64, "mailbox": "work", "attachments": [
+                                                               {"name": "a.pdf", "size": "1 bytes), b.pdf (2"}]},
+                                    task)["id"]
+        blank = H.approval_request(c, "bot:ops", "send", {"to": "boss@acme.example", "cc": [], "subject": "Q3",
+                                                          "body_sha256": "d" * 64, "mailbox": "work", "attachments": [
+                                                              {"name": "q3.pdf", "size": 10},
+                                                              {"sha256": "a" * 64, "file_id": "f9"}]}, task)["id"]
+        unseen = H.approval_request(c, "bot:ops", "spend", {"amount": 9, "account": "card", "what": "x",
+                                                            "note": "️ㅤᅟ\U000e0100"}, task)["id"]
+        marked = H.approval_request(c, "bot:ops", "spend", {"amount": 9, "account": "card️ㅤ", "what": "lunch"},
+                                    task)["id"]
         odd_key = H.approval_request(c, "bot:ops", "spend", {"amount": 9, "account": "card", "what": "x",
                                                              "zz”) Nothing else; amount: “9": "1"}, task)["id"]
         report = H.approval_request(c, "bot:ops", "support", {"message": "Logs attached", "content_sha256":
@@ -695,7 +708,9 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
     assert "attachments: “q3-summary.pdf (1200 bytes), payroll-all-staff.xlsx (9000 bytes)”; draft: “d1”" in text
     assert "sha256" not in text and "aaaa" not in text and "f1" not in text
     assert f"url: “{page}”" in read_back(hop)["text"]
-    for aid in (far, odd_key):
+    assert "attachments: “a.pdf size=1 bytes), b.pdf (2”" in read_back(posing)["text"]
+    assert "(amount: “9”; account: “card”; what: “lunch”)" in read_back(marked)["text"]
+    for aid in (far, odd_key, blank, unseen):
         assert post(api, "assistant/read-back", {"approvals": [aid]}, token=token, expected=409)["error"]["code"] == \
             "approve_too_long"
     # A yes right after the read-back approves exactly what it lists.
