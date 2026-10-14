@@ -17,6 +17,7 @@ person stops the turn that asked. A reserved worktree is then an ordinary worktr
 rules take it, and unsaved work in it is never thrown away.
 """
 import json
+import logging
 import time
 import uuid
 from types import SimpleNamespace
@@ -28,6 +29,7 @@ OPEN = ('waiting', 'reserved')
 CLOSED_TASK = ('done', 'closed', 'declined')
 SWEEP_EVERY = 60          # seconds between the scheduler's sweeps while anything waits
 _last = {'at': 0.0}
+log = logging.getLogger('tico.worktree_waits')
 
 SCHEMA = ("CREATE TABLE IF NOT EXISTS worktree_waits(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, owner TEXT NOT NULL, "
           "repo TEXT NOT NULL, generation INTEGER NOT NULL, attempt_id TEXT, state TEXT NOT NULL, link_id TEXT, "
@@ -143,7 +145,6 @@ def serve(c, owners=None, default_org=''):
     """Serve the open waits (of `owners`, else every bot's), oldest first per bot. Answers the woken wait ids."""
     if not _exists(c):
         return []
-    from . import worktrees as W
     sql = f"SELECT * FROM worktree_waits WHERE state IN {OPEN}"
     args = ()
     if owners is not None:
@@ -155,71 +156,102 @@ def serve(c, owners=None, default_org=''):
     rows = [dict(r) for r in c.execute(sql + " ORDER BY owner, created, id", args)]
     full, woken = set(), []
     for wait in rows:
-        task = H.task(c, wait['task_id'])
-        ended = _ended(c, wait, task)
-        if ended:
-            _finish(c, wait, 'cancelled', ended)
-            continue
-        if wait['state'] == 'waiting':
-            # The oldest wait that does not fit holds the bot's younger ones back: a freed place goes to it first.
-            if wait['owner'] in full:
-                continue
-            bot = H.actor_id(wait['owner'])
-            computer = _computer(c, bot)
-            if not computer_waits(c, bot):
-                # Moved to a computer that cannot prepare a worktree alone: the task is told once and asks again.
-                if _finish(c, wait, 'cancelled', "The bot's computer cannot prepare worktrees by itself"):
-                    _wake(c, wait, task, f"Tico stopped holding a place for this task's {wait['repo']} worktree: this "
-                                         "bot's computer cannot prepare one by itself. Run `hub task worktree add "
-                                         f"{wait['repo']}` again when you work on this task.")
-                continue
-            who = SimpleNamespace(actor=wait['owner'], role='bot', runner_id=computer['id'], attempt_id='')
+        # One wait that breaks must not fail the heartbeat it runs in: that would also stop the worktree cleanup
+        # that frees places. Its writes are undone, it ends with the reason, and the others are served.
+        c.execute('SAVEPOINT worktree_wait')
+        try:
+            if _serve_one(c, wait, full, default_org):
+                woken.append(wait['id'])
+        except Exception as exc:
+            c.execute('ROLLBACK TO worktree_wait')
+            log.exception('worktree wait %s failed', wait['id'])
             try:
-                link = W.provision(c, who, task, wait['repo'], default_org=default_org)
-            except Problem as problem:
-                if problem.code == 'worktree_limit':
-                    full.add(wait['owner'])
-                    continue
-                # Permission, computer or path: the wait ends and the task hears why the next time it runs.
-                if _finish(c, wait, 'cancelled', problem.detail):
-                    H._wake(c, task, wait['owner'], f"Tico stopped holding a place for this task's {wait['repo']} "
-                                                    f"worktree: {problem.detail}", refs={'worktree_wait': wait['id'], 'quiet': True})
-                continue
-            row = c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
-            detail = json.loads(row['detail_json'] or '{}')
-            detail['wait_id'] = wait['id']
-            detail.pop('error', None)
-            c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), link['link_id']))
-            c.execute("UPDATE worktree_waits SET state='reserved',link_id=?,updated=? WHERE id=?",
-                      (link['link_id'], H.now(), wait['id']))
-            H.event(c, H.KEEPER, 'worktree.wait.reserved', wait['task_id'],
-                    {'wait': wait['id'], 'link': link['link_id'], 'path': link['path']})
-            wait.update(state='reserved', link_id=link['link_id'])
-        link = c.execute("SELECT * FROM task_links WHERE id=? AND kind='worktree'", (wait['link_id'],)).fetchone()
-        if not link or link['state'] == 'removed':
-            # The reserved worktree went away before it was ready: wait for a place again.
-            c.execute("UPDATE worktree_waits SET state='waiting',link_id=NULL,updated=? WHERE id=?", (H.now(), wait['id']))
-            continue
-        detail = json.loads(link['detail_json'] or '{}')
-        ready = (link['state'] == 'present' and not detail.get('setup_pending')
-                 and detail.get('checkout_state') in ('ready', 'legacy_present'))
-        if ready:
-            if not _finish(c, wait, 'woken', 'Ready at ' + link['path']):
-                continue
-            _wake(c, wait, task, f"Your worktree for {wait['repo']} is ready at {link['path']} (branch "
-                                 f"{link['branch']}), checked out and set up. Tico held this task's place while the "
-                                 "bot was at its worktree limit; carry on with this task there.")
-            woken.append(wait['id'])
-        elif detail.get('checkout_state') == 'setup_failed' or detail.get('error'):
-            reason = str(detail.get('error') or 'Setup failed')
-            retry = ('hub task worktree setup ' if detail.get('checkout_state') in ('checkout_ready', 'setup_failed')
-                     else 'hub task worktree add ') + wait['repo']
-            if not _finish(c, wait, 'failed', reason):
-                continue
-            _wake(c, wait, task, f"Tico reserved this task's {wait['repo']} worktree at {link['path']}, but preparing "
-                                 f"it failed: {reason}. The place stays this task's; run `{retry}` to try again.")
-            woken.append(wait['id'])
+                _broken(c, wait, f'Tico could not prepare it ({type(exc).__name__})')
+            except Exception:
+                # Not even ending it worked: it stays open for the next pass, and the heartbeat goes on.
+                c.execute('ROLLBACK TO worktree_wait')
+                log.exception('worktree wait %s could not be ended', wait['id'])
+        c.execute('RELEASE worktree_wait')
     return woken
+
+
+def _broken(c, wait, reason):
+    """End a wait that failed unexpectedly: the task hears once, quietly, so a lasting fault wakes nothing again."""
+    if _finish(c, wait, 'cancelled', reason):
+        H._wake(c, H.task(c, wait['task_id']), wait['owner'],
+                f"Tico stopped holding a place for this task's {wait['repo']} worktree: {reason}. Run "
+                f"`hub task worktree add {wait['repo']}` again when you work on this task.",
+                refs={'worktree_wait': wait['id'], 'quiet': True})
+
+
+def _serve_one(c, wait, full, default_org):
+    """Serve one open wait; True when it woke its task."""
+    from . import worktrees as W
+    task = H.task(c, wait['task_id'])
+    ended = _ended(c, wait, task)
+    if ended:
+        _finish(c, wait, 'cancelled', ended)
+        return False
+    if wait['state'] == 'waiting':
+        # The oldest wait that does not fit holds the bot's younger ones back: a freed place goes to it first.
+        if wait['owner'] in full:
+            return False
+        bot = H.actor_id(wait['owner'])
+        computer = _computer(c, bot)
+        if not computer_waits(c, bot):
+            # Moved to a computer that cannot prepare a worktree alone: the task is told once and asks again.
+            if _finish(c, wait, 'cancelled', "The bot's computer cannot prepare worktrees by itself"):
+                _wake(c, wait, task, f"Tico stopped holding a place for this task's {wait['repo']} worktree: this "
+                                     "bot's computer cannot prepare one by itself. Run `hub task worktree add "
+                                     f"{wait['repo']}` again when you work on this task.")
+            return False
+        who = SimpleNamespace(actor=wait['owner'], role='bot', runner_id=computer['id'], attempt_id='')
+        try:
+            link = W.provision(c, who, task, wait['repo'], default_org=default_org, brief=True)
+        except Problem as problem:
+            if problem.code == 'worktree_limit':
+                full.add(wait['owner'])
+                return False
+            # Permission, computer or path: the wait ends and the task hears why the next time it runs.
+            if _finish(c, wait, 'cancelled', problem.detail):
+                H._wake(c, task, wait['owner'], f"Tico stopped holding a place for this task's {wait['repo']} "
+                                                f"worktree: {problem.detail}", refs={'worktree_wait': wait['id'], 'quiet': True})
+            return False
+        row = c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+        detail = json.loads(row['detail_json'] or '{}')
+        detail['wait_id'] = wait['id']
+        detail.pop('error', None)
+        c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), link['link_id']))
+        c.execute("UPDATE worktree_waits SET state='reserved',link_id=?,updated=? WHERE id=?",
+                  (link['link_id'], H.now(), wait['id']))
+        H.event(c, H.KEEPER, 'worktree.wait.reserved', wait['task_id'],
+                {'wait': wait['id'], 'link': link['link_id'], 'path': link['path']})
+        wait.update(state='reserved', link_id=link['link_id'])
+    link = c.execute("SELECT * FROM task_links WHERE id=? AND kind='worktree'", (wait['link_id'],)).fetchone()
+    if not link or link['state'] == 'removed':
+        # The reserved worktree went away before it was ready: wait for a place again.
+        c.execute("UPDATE worktree_waits SET state='waiting',link_id=NULL,updated=? WHERE id=?", (H.now(), wait['id']))
+        return False
+    detail = json.loads(link['detail_json'] or '{}')
+    ready = (link['state'] == 'present' and not detail.get('setup_pending')
+             and detail.get('checkout_state') in ('ready', 'legacy_present'))
+    if ready:
+        if not _finish(c, wait, 'woken', 'Ready at ' + link['path']):
+            return False
+        _wake(c, wait, task, f"Your worktree for {wait['repo']} is ready at {link['path']} (branch "
+                             f"{link['branch']}), checked out and set up. Tico held this task's place while the "
+                             "bot was at its worktree limit; carry on with this task there.")
+        return True
+    if detail.get('checkout_state') == 'setup_failed' or detail.get('error'):
+        reason = str(detail.get('error') or 'Setup failed')
+        retry = ('hub task worktree setup ' if detail.get('checkout_state') in ('checkout_ready', 'setup_failed')
+                 else 'hub task worktree add ') + wait['repo']
+        if not _finish(c, wait, 'failed', reason):
+            return False
+        _wake(c, wait, task, f"Tico reserved this task's {wait['repo']} worktree at {link['path']}, but preparing "
+                             f"it failed: {reason}. The place stays this task's; run `{retry}` to try again.")
+        return True
+    return False
 
 
 def preparing(c, link_id):
