@@ -227,7 +227,7 @@ without a `step` that enters or leaves done, closed or declined) is refused (`42
 person and bot, and the task window offers no Done, Close or Reopen on them. A task that should not
 be on the board is deleted instead. Working statuses still change without a step (a bot's ask sets
 waiting), and filing a task onto the type and the keeper's own automation are unaffected. Such tasks
-are not asked "Still wanted?", a met goal does not finish them, and Needs you says to move them
+are not asked "Still wanted?", their goal asks the bot to move them to a step and a met goal does not finish them, and Needs you says to move them
 rather than marking them done or closed. Without it, a bare status lands the task in the first step
 with that status, which on a board is rarely the one anyone meant.
 
