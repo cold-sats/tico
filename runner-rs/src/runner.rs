@@ -58,6 +58,8 @@ pub struct Runner {
     restart: AtomicBool,
     /// Persistent Antigravity processes kept between a conversation's turns.
     pub warm: crate::warm::WarmSessions,
+    /// What each bot's bot.yaml adds: tools, MCP servers, watchers, memory history (crate::perbot).
+    pub perbot: crate::perbot::PerBot,
 }
 
 pub fn platform() -> &'static str {
@@ -121,6 +123,7 @@ impl Runner {
             restart: AtomicBool::new(false),
             warm: crate::warm::WarmSessions::new(state.directory.join("antigravity"), capacity.max(8)),
             state,
+            perbot: crate::perbot::PerBot::default(),
         }
     }
 
@@ -185,6 +188,7 @@ impl Runner {
 
     /// Results a restart or an outage left on this computer, sent before anything new.
     pub async fn recover_output(&self) {
+        crate::files_publish::drain(&self.state, &self.client).await; // files a restart or an outage left queued
         let rows = match self.state.unfinished() {
             Ok(rows) => rows,
             Err(e) => return log(&format!("Tico runner: could not read saved results ({e}); will retry")),
@@ -243,17 +247,22 @@ impl Runner {
         self.fetch_missing(&assignments).await;
         let runtimes = readiness::runtime_report(&self.config, &self.sign_in, &self.client, &candidates).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
-        let checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
+        let mut checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
+        self.perbot.decorate(&self.config, &mut checks, &candidates);
         let notes = self.publish_notes.lock().unwrap().clone();
         let hosted: Vec<String> = candidates.iter().filter(|e| text_of(&e["runner_id"]) == self.config.runner_id()).map(|e| text_of(&e["bot"])).collect();
         let published = self.published.lock().unwrap().clone();
         let (agent_instructions, versions) = readiness::changed_agent_instructions(&self.config, &assignments, &published);
+        let mut readiness_doc = readiness::document(&runtimes, &checks, &self.state.directory);
+        if crate::mail_key::status(&self.config) == Some("exposed") {
+            readiness_doc["mail_key"] = json!("exposed"); // Health warns while bots can read the company's mail key
+        }
         let mut body = json!({
             "version": RUNNER_VERSION,
             "platform": platform(),
             "capabilities": crate::lanes::capabilities(),
             "capacity": self.capacity,
-            "readiness": readiness::document(&runtimes, &checks, &self.state.directory),
+            "readiness": readiness_doc,
             "mail_agent_instructions": {},
             "agent_instructions": agent_instructions,
         });
@@ -331,18 +340,14 @@ impl Runner {
         let _ = std::fs::write(dir.join("runtimes.json"), Value::Object(runtimes).to_string());
         self.recover_output().await;
         self.sweep_sessions(&assignments).await;
+        for bot in self.perbot.memory_due(&self.config, &assignments) {
+            let config = assignments.iter().find(|e| text_of(&e["bot"]) == bot).map(|e| e["config"].clone()).unwrap_or(Value::Null);
+            let path = crate::sessions::local_path(&self.config, &bot, &config);
+            crate::memory_history::report(&self.state, &self.client, &bot, &path, "", "", false).await;
+        }
         Ok(())
     }
 
-}
-
-/// Why this computer cannot run on this runner whatever its bots are, checked before anything reaches the
-/// network: bots run as another user (TICO_RUNNER_BOT_UID), which this runner does not do. `execute` checks it
-/// again, so a turn never starts as the supervisor user even if startup let it through.
-pub fn local_refusal() -> Option<String> {
-    std::env::var("TICO_RUNNER_BOT_UID")
-        .is_ok_and(|v| !v.is_empty())
-        .then(|| "this computer runs bots as another user (TICO_RUNNER_BOT_UID), which needs the Python runner".to_string())
 }
 
 impl Runner {
@@ -356,7 +361,7 @@ impl Runner {
             if text_of(&entry["runner_id"]) != mine {
                 continue;
             }
-            let needs = readiness::unsupported(&self.config, &entry);
+            let needs = readiness::unsupported(&entry);
             if !needs.is_empty() {
                 lines.push(format!("{} needs {}", text_of(&entry["bot"]), needs.join(", ")));
             }
@@ -553,6 +558,15 @@ impl Runner {
         if self.restart.load(Ordering::SeqCst) {
             return Ok(()); // a person asked for a restart: no new work, the running turns finish
         }
+        // Programs bots declare in `watchers:` (crate::watchers); a failure is logged and never stops the runner.
+        let assignments = self.assignments.lock().unwrap().clone();
+        let ctx = crate::watchers::Ctx {
+            client: self.client.clone(),
+            url: self.config.url(),
+            projects_dir: self.config.projects_dir(),
+            state_dir: self.state.directory.clone(),
+        };
+        self.perbot.watchers.tick(&self.config, &assignments, ctx);
         while workers.len() < self.capacity && clock.claim_due(&self.events) {
             let result = self.claim_next().await?;
             let attempt = result.get("attempt").cloned().filter(|a| a.is_object());

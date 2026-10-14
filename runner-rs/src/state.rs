@@ -61,7 +61,8 @@ fn sql(e: rusqlite::Error) -> String {
 impl State {
     pub fn open(directory: &Path) -> Result<State, String> {
         std::fs::create_dir_all(directory).map_err(|e| format!("cannot create {}: {e}", directory.display()))?;
-        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+        // 0700, or under isolation the layout bots can traverse to their gh shim (crate::isolation::protect_state).
+        crate::isolation::protect_state(directory).map_err(|e| e.to_string())?;
         let path = directory.join("runner.sqlite");
         std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(&path).map_err(|e| e.to_string())?;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
@@ -73,7 +74,8 @@ impl State {
         Ok(State { directory: directory.to_path_buf(), conn: Mutex::new(conn) })
     }
 
-    fn with<T>(&self, f: impl FnOnce(&mut Connection) -> rusqlite::Result<T>) -> Result<T, String> {
+    /// One use of the shared connection (the files outbox and memory reports keep their own tables in it).
+    pub(crate) fn with<T>(&self, f: impl FnOnce(&mut Connection) -> rusqlite::Result<T>) -> Result<T, String> {
         let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         f(&mut conn).map_err(sql)
     }

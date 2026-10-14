@@ -124,6 +124,8 @@ pub struct Settings {
     pub add_dirs: Vec<String>,
     /// A bot with branches: Claude reads only the project's settings and MCP servers (hosts/claude.py).
     pub shared: bool,
+    /// The bot's own MCP servers from bot.yaml, this harness's transports only (crate::perbot::mcp_for_run).
+    pub mcp_servers: Vec<Value>,
 }
 
 const HUB_MCP_ENV: &[&str] = &["HUB_API_URL", "HUB_TOKEN", "HUB_BOT", "HUB_EMPLOYEE", "HUB_DIR"];

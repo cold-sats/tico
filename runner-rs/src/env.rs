@@ -134,13 +134,23 @@ pub struct EnvContext<'a> {
 
 /// The turn's environment, and the vault values it carries.
 pub async fn environment(ctx: &EnvContext<'_>, attempt: &Value, vault: &mut Vault) -> Result<Env, String> {
+    environment_with(ctx, attempt, vault, None).await
+}
+
+/// `environment` with the grants already read (a watcher's, from `runner-watcher-credentials`).
+pub async fn environment_with(ctx: &EnvContext<'_>, attempt: &Value, vault: &mut Vault, granted: Option<Value>) -> Result<Env, String> {
     let bot = attempt["bot"].as_str().unwrap_or_default();
     let token = attempt["token"].as_str().unwrap_or_default();
     let mut env = process_environment();
     let mut vault_keys = BTreeSet::new();
-    if crate::util::truthy(attempt.get("credential_vault")) {
-        let client = Client::new(ctx.url, token, 15, 1)?;
-        let granted = client.get("credential-runtime").await.map_err(|e| format!("credential-runtime: {}", e.detail))?;
+    if crate::util::truthy(attempt.get("credential_vault")) || granted.is_some() {
+        let granted = match granted {
+            Some(g) => g,
+            None => {
+                let client = Client::new(ctx.url, token, 15, 1)?;
+                client.get("credential-runtime").await.map_err(|e| format!("credential-runtime: {}", e.detail))?
+            }
+        };
         let items = granted["credentials"].as_array().cloned().unwrap_or_default();
         vault.values = items.iter().map(|i| text_of(&i["value"])).collect();
         let usable: Vec<&Value> = items.iter().filter(|i| !reserved_credential(i["env"].as_str().unwrap_or_default())).collect();
@@ -164,11 +174,10 @@ pub async fn environment(ctx: &EnvContext<'_>, attempt: &Value, vault: &mut Vaul
                 return Err("Multiple granted credentials use the same environment name".into());
             }
             let value = text_of(&item["value"]);
-            if value.starts_with("op://") {
-                return Err(format!("{key} is a 1Password reference, which this runner cannot resolve yet; run this bot on the Python runner"));
-            }
             if item["kind"].as_str() == Some("file") {
-                let path = ctx.state_dir.join(format!("tico-credential-{}", uuid::Uuid::new_v4().simple()));
+                // Under isolation the state directory is closed to the bot user: the file goes where its turn reads.
+                let dir = if crate::isolation::enabled() { crate::isolation::turn_dir() } else { ctx.state_dir.to_path_buf() };
+                let path = dir.join(format!("tico-credential-{}", uuid::Uuid::new_v4().simple()));
                 let mut f = std::fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)
@@ -176,6 +185,7 @@ pub async fn environment(ctx: &EnvContext<'_>, attempt: &Value, vault: &mut Vaul
                     .open(&path)
                     .map_err(|e| format!("cannot write a credential file: {e}"))?;
                 vault.files.push(path.clone());
+                crate::isolation::chown(&path);
                 f.write_all(value.as_bytes()).map_err(|e| e.to_string())?;
                 env.insert(key.to_string(), path.display().to_string());
             } else {
@@ -183,6 +193,23 @@ pub async fn environment(ctx: &EnvContext<'_>, attempt: &Value, vault: &mut Vaul
             }
             vault_keys.insert(key.to_string());
         }
+    }
+    // 1Password references among the grants are read now (crate::op), with the token from `_shared.env`.
+    let mut refs: BTreeMap<String, String> =
+        vault_keys.iter().filter_map(|k| env.get(k).filter(|v| v.starts_with(crate::op::OP_REF)).map(|v| (k.clone(), v.clone()))).collect();
+    if !refs.is_empty() {
+        let shared = crate::signin::read_env(&ctx.projects_dir.join("secrets").join("_shared.env"));
+        let token = shared.get(crate::op::TOKEN_KEY).filter(|t| !t.is_empty()).cloned().or_else(|| std::env::var(crate::op::TOKEN_KEY).ok()).unwrap_or_default();
+        refs.insert(crate::op::TOKEN_KEY.into(), token);
+        crate::op::resolve_op_refs(&mut refs).await;
+        for k in &vault_keys {
+            if k != crate::op::TOKEN_KEY {
+                if let Some(v) = refs.get(k) {
+                    env.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        vault.values.extend(vault_keys.iter().filter_map(|k| env.get(k)).filter(|v| !v.is_empty()).cloned());
     }
     for key in SECRET_KEYS {
         if !vault_keys.contains(*key) {

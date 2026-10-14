@@ -75,6 +75,10 @@ def main():
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                   "delta": {"type": "text_delta", "text": "Working on it"}}, "parent_tool_use_id": None})
             time.sleep(float(os.environ.get("FAKE_SLOW") or 2))
+        if "PUBLISH" in text:                    # a deliverable the runner publishes as a Tico file
+            os.makedirs("reports", exist_ok=True)
+            with open(os.path.join("reports", "acme.md"), "w") as report:
+                report.write("# Acme report\n")
         reply = "Acme reply."
         if os.environ.get("ACME_API_KEY"):
             reply += " The key is " + os.environ["ACME_API_KEY"]

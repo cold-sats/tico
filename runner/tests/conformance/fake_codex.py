@@ -92,7 +92,7 @@ def main():
         if method in ("thread/start", "thread/resume"):
             threads += 1
             thread = thread or "acme-thread-%d-%d" % (os.getpid(), threads)
-            cwds[thread] = params.get("cwd")
+            cwds[thread] = params.get("cwd") or os.getcwd()
             record({"harness": "codex", "method": method, "thread": thread})
             send({"id": rid, "result": {"thread": {"id": thread}}})
         elif method == "thread/goal/set":
@@ -145,6 +145,10 @@ def main():
                 send({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "delta": "Working on it"}})
                 slow = (thread, turn, turns, time.monotonic() + float(os.environ.get("FAKE_SLOW") or 2))
                 continue
+            if "PUBLISH" in text:                # a deliverable the runner publishes as a Tico file
+                os.makedirs(os.path.join(cwds.get(thread) or os.getcwd(), "reports"), exist_ok=True)
+                with open(os.path.join(cwds.get(thread) or os.getcwd(), "reports", "acme.md"), "w") as report:
+                    report.write("# Acme report\n")
             reply = "Acme reply."
             if os.environ.get("ACME_API_KEY"):
                 reply += " The key is " + os.environ["ACME_API_KEY"]

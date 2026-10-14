@@ -184,6 +184,16 @@ impl Client {
     }
 
     pub async fn request(&self, method: Method, path: &str, body: Option<&Value>, key: Option<String>) -> Result<Value, ApiError> {
+        let data = body.map(|b| (serde_json::to_vec(b).unwrap_or_default(), "application/json"));
+        self.send(method, path, data, key).await
+    }
+
+    /// A POST of raw bytes (`application/octet-stream`), as `Client.request(raw=...)`: a file upload.
+    pub async fn post_raw(&self, path: &str, data: Vec<u8>, key: &str) -> Result<Value, ApiError> {
+        self.send(Method::POST, path, Some((data, "application/octet-stream")), Some(key.to_string())).await
+    }
+
+    async fn send(&self, method: Method, path: &str, data: Option<(Vec<u8>, &'static str)>, key: Option<String>) -> Result<Value, ApiError> {
         if !path.starts_with("/api/v2/") {
             return Err(ApiError::new("protocol", "Use a versioned Tico API path", 0, false));
         }
@@ -191,7 +201,6 @@ impl Client {
         let token = bearer(&self.token)?;
         // A task number ("tasks/#18945") is in the path, not a fragment.
         let path = path.replace('#', "%23");
-        let data = body.map(|b| serde_json::to_vec(b).unwrap_or_default());
         let mut attempt = 0u32;
         loop {
             let mut req = self
@@ -199,8 +208,8 @@ impl Client {
                 .request(method.clone(), format!("{}{}", self.url, path))
                 .header("Authorization", format!("Bearer {token}"))
                 .header("Accept", "application/json");
-            if let Some(d) = &data {
-                req = req.header("Content-Type", "application/json").header("Idempotency-Key", &key).body(d.clone());
+            if let Some((d, content_type)) = &data {
+                req = req.header("Content-Type", *content_type).header("Idempotency-Key", &key).body(d.clone());
             }
             let failure = match req.send().await {
                 Ok(resp) => {

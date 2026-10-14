@@ -23,7 +23,7 @@ const CLAUDE_AUTH_TIMEOUT_S: u64 = 30;
 
 /// `run` in `env` (a profile's homes) when given. Err(true) is a timeout, Err(false) a command that did not start.
 async fn run_env(argv: &[&str], timeout_s: u64, env: Option<&Env>) -> Result<(bool, String, String), bool> {
-    let mut cmd = tokio::process::Command::new(argv[0]);
+    let mut cmd = crate::isolation::command(argv[0]);
     cmd.args(&argv[1..]).stdin(std::process::Stdio::null()).kill_on_drop(true);
     if let Some(env) = env {
         cmd.env_clear().envs(env);
@@ -253,8 +253,7 @@ pub fn local_path(config: &Config, bot: &str) -> PathBuf {
 
 /// What an assigned bot needs that this runner does not do yet, each named for the log and the bot's
 /// readiness problems. A bot with any of these stays on the Python runner.
-pub fn unsupported(config: &Config, entry: &Value) -> Vec<String> {
-    let bot = text_of(&entry["bot"]);
+pub fn unsupported(entry: &Value) -> Vec<String> {
     let c = &entry["config"];
     let runtime = text_of(&c["runtime"]);
     let mut needs = vec![];
@@ -268,15 +267,6 @@ pub fn unsupported(config: &Config, entry: &Value) -> Vec<String> {
     if crate::util::truthy(entry.get("mail_agent")) {
         needs.push("the mail agent".into());
     }
-    let manifest = manifest_path(&local_path(config, &bot));
-    if let Ok(text) = std::fs::read_to_string(&manifest) {
-        if manifest_keys(&text).contains_key("watchers") {
-            needs.push("watchers".into());
-        }
-        if text.lines().any(|l| l.trim_start().trim_start_matches("- ").starts_with("mcp:")) {
-            needs.push("MCP servers in bot.yaml".into());
-        }
-    }
     needs
 }
 
@@ -289,28 +279,9 @@ pub fn manifest_path(folder: &Path) -> PathBuf {
     folder.join("bot.yaml")
 }
 
-/// The top-level scalar keys of a bot.yaml, read as text: this runner reads only `name`, `runtime` and `model`
-/// and whether `watchers:` or `mcp:` blocks exist, so a full YAML parser is not worth its weight here.
-pub fn manifest_keys(text: &str) -> Map<String, Value> {
-    let mut keys = Map::new();
-    for line in text.lines() {
-        if line.starts_with([' ', '\t', '#', '-']) || line.trim().is_empty() {
-            continue;
-        }
-        let Some((key, value)) = line.split_once(':') else { continue };
-        let mut value = value.trim();
-        if let Some(i) = value.find(" #") {
-            value = value[..i].trim();
-        }
-        let value = value.trim_matches(|c| c == '"' || c == '\'');
-        keys.insert(key.trim().to_string(), if value.is_empty() { Value::Null } else { json!(value) });
-    }
-    keys
-}
-
 /// Read-only git in a bot's checkout, as runner git always runs (crate::safegit): no hooks or fsmonitor, no secrets.
 async fn git(path: &Path, args: &[&str]) -> Option<(bool, String)> {
-    let mut cmd = tokio::process::Command::new("git");
+    let mut cmd = crate::isolation::command("git");
     cmd.args(crate::safegit::args(path))
         .args(args)
         .env_clear()
@@ -389,19 +360,15 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
             let d = if d.is_empty() { "Runtime sign-in is not ready".to_string() } else { d };
             problems.push(signed_out(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") }));
         }
-        for need in unsupported(config, entry) {
+        for need in unsupported(entry) {
             problems.push(format!("This computer's runner does not do {need} yet; run it on the Python runner for this bot"));
         }
         let mut configuration_valid = RUNTIMES.contains(&runtime.as_str());
         let manifest = manifest_path(&path);
-        let (mut tools, mut mail_request) = (vec![], Value::Null);
+        let (tools, mail_request): (Vec<Value>, Value) = (vec![], Value::Null);
         if repository_present && manifest.is_file() {
-            let (t, m, w) = crate::readiness_extra::declared(&bot, &manifest, &runtime, &text_of(&expected["harness"])).await;
-            (tools, mail_request) = (t, m);
-            warnings.extend(w);
-            configuration_valid = match std::fs::read_to_string(&manifest) {
-                Ok(text) => {
-                    let declared = manifest_keys(&text);
+            configuration_valid = match std::fs::read_to_string(&manifest).map(|t| crate::manifest::parse(&t)) {
+                Ok(Ok(Value::Object(declared))) => {
                     let cloud = expected["model_managed_by"] == "cloud";
                     let shared = text_of(&expected["shared_from"]);
                     let name = declared.get("name").map(text_of).filter(|n| !n.is_empty()).unwrap_or_else(|| bot.clone());
@@ -410,7 +377,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
                     };
                     (name == bot || (!shared.is_empty() && name == shared)) && same("runtime") && same("model")
                 }
-                Err(_) => false,
+                _ => false,
             };
             if !configuration_valid {
                 problems.push("Configuration differs from server".into());
@@ -485,6 +452,12 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
         if !row["published"].is_null() {
             out.insert("published".into(), row["published"].clone());
         }
+        // Declared access, no values (crate::declared_access), and what bot.yaml asks of its mail.
+        for key in ["tools", "mail_request"] {
+            if crate::util::truthy(row.get(key)) {
+                out.insert(key.into(), row[key].clone());
+            }
+        }
         out.insert("warnings".into(), row.get("warnings").cloned().unwrap_or(json!([])));
         bots.insert(text_of(&row["bot"]), Value::Object(out));
     }
@@ -546,17 +519,4 @@ pub fn changed_agent_instructions(
         versions.push((bot, version));
     }
     (result, versions)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn manifest_keys_read_top_level_scalars_only() {
-        let keys = manifest_keys("name: \"acme-ops\"  # the bot\nruntime: claude\nmodel:\naccess:\n  - service: board\n    name: x\nwatchers:\n  - a\n");
-        assert_eq!(keys["name"], "acme-ops");
-        assert_eq!(keys["runtime"], "claude");
-        assert!(keys["model"].is_null() && keys.contains_key("watchers") && !keys.contains_key("service"));
-    }
 }

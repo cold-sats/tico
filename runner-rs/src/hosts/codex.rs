@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 
 use super::{event, failed, hub_mcp_server, is_limit, Events, HostError, Settings};
@@ -111,7 +111,7 @@ impl CodexHost {
         if self.alive() {
             return Ok(());
         }
-        let mut command = Command::new("codex");
+        let mut command = crate::isolation::command("codex");
         command.arg("app-server").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).env_clear().envs(&self.0.env);
         let mut child = command.spawn().map_err(|e| failed(format!("could not start codex app-server: {e}")))?;
         let stdout = child.stdout.take().ok_or_else(|| failed("codex app-server has no stdout"))?;
@@ -381,9 +381,12 @@ impl CodexHost {
             cfg.insert("shell_environment_policy".into(), json!({"inherit": "core", "set": env}));
         }
         // The hub's own MCP server rides next to the stubbed operator ones.
+        let mut servers = cfg.get("mcp_servers").and_then(|s| s.as_object()).cloned().unwrap_or_default();
+        crate::mcp::codex_merge(&mut servers, crate::mcp::codex_config(&settings.mcp_servers, &settings.env, &self.0.env));
         if let Some(hub) = hub_mcp_server(&settings.env) {
-            let mut servers = cfg.get("mcp_servers").and_then(|s| s.as_object()).cloned().unwrap_or_default();
             servers.insert("hub".into(), hub);
+        }
+        if !servers.is_empty() {
             cfg.insert("mcp_servers".into(), Value::Object(servers));
         }
         cfg.insert("model_auto_compact_token_limit".into(), json!(super::compact_at(&settings.compact_at)));

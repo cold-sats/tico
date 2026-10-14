@@ -83,6 +83,15 @@ RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
     .venv/bin/python -c 'import backend.app, runner.service, clients.environments' \
     && .venv/bin/python -m compileall -q backend runner clients
 
+# The Rust runner (runner-rs/, docs/rust-runner.md), built on the same Debian release as the runner image so it
+# links against the same glibc. Only its sources are copied, so a change elsewhere reuses this layer.
+FROM rust:1.90-slim-bookworm@sha256:64232e656c058f4468e8d024e990acff04f0fd5a5c0a88a574dc37773d7325c9 AS runner-bin
+WORKDIR /src
+COPY runner-rs/Cargo.toml runner-rs/Cargo.lock ./
+COPY runner-rs/src ./src
+COPY LICENSE /LICENSE
+RUN cargo build --release --locked && install -D -m 0755 target/release/tico-runner /out/tico-runner
+
 FROM ${PYTHON_IMAGE} AS runner
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git curl openssh-client build-essential ripgrep jq procps \
@@ -95,6 +104,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --uid 10003 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash bot
 COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
+# TICO_RUNNER_ENGINE=rust runs this instead of `python -m runner run` (docker/runner-entrypoint.sh).
+COPY --from=runner-bin /out/tico-runner /usr/local/bin/tico-runner
 # node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/
 COPY docker/runner-entrypoint.sh /usr/local/bin/tico-runner-entrypoint
@@ -124,7 +135,7 @@ LABEL org.opencontainers.image.version=${TICO_VERSION} \
       org.opencontainers.image.licenses=LicenseRef-PolyForm-Perimeter-1.0.1
 USER 10002:10002
 VOLUME /home/runner
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s --retries=3 CMD pgrep -f 'python -m runner .* run$' >/dev/null
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s --retries=3 CMD pgrep -f '(python -m runner|tico-runner) .* run$' >/dev/null
 ENTRYPOINT ["tico-runner-entrypoint"]
 CMD ["run"]
 

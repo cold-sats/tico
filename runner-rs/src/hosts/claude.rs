@@ -9,9 +9,9 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -41,7 +41,7 @@ pub fn version_tuple(text: &str) -> Option<(u64, u64, u64)> {
 
 /// `claude --version` (or `--help`); "" when it cannot be read.
 pub async fn installed_version(cmd: &[String], flag: &str) -> String {
-    let run = Command::new(&cmd[0]).args(&cmd[1..]).arg(flag).stdin(Stdio::null()).kill_on_drop(true).output();
+    let run = crate::isolation::command(&cmd[0]).args(&cmd[1..]).arg(flag).stdin(Stdio::null()).kill_on_drop(true).output();
     match tokio::time::timeout(Duration::from_secs(5), run).await {
         Ok(Ok(out)) if out.status.success() => {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -259,7 +259,7 @@ impl ClaudeHost {
         let mut argv = self.0.cmd.clone();
         argv.push("-p".into());
         argv.extend(STREAM_ARGS.iter().map(|s| s.to_string()));
-        let mut servers = Map::new();
+        let mut servers = crate::mcp::claude_config(&t.settings.mcp_servers);
         if let Some(hub) = hub_mcp_server(&t.settings.env) {
             servers.insert("hub".into(), hub);
         }
@@ -307,7 +307,7 @@ impl ClaudeHost {
         let path = std::env::temp_dir().join(format!("tico-claude-stderr-{}", uuid::Uuid::new_v4().simple()));
         let stderr = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
         let _ = std::fs::remove_file(&path);
-        let mut command = Command::new(&argv[0]);
+        let mut command = crate::isolation::command(&argv[0]);
         command
             .args(&argv[1..])
             .stdin(Stdio::piped())

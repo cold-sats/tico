@@ -1,5 +1,4 @@
-//! The readiness rows beyond runtime sign-in and the checkout (service.py preflight and readiness): declared
-//! tools and the mail request read from bot.yaml, reserved-credential and Claude Code deny warnings, the GitHub
+//! The readiness rows beyond runtime sign-in and the checkout (service.py preflight and readiness): reserved-credential and Claude Code deny warnings, the GitHub
 //! sign-in and browser launch probes (runner/tool_probes.py), the harness report, recent errors, and the
 //! fields an older server refused, held back for ten minutes.
 
@@ -97,78 +96,6 @@ pub fn deny_warnings(path: &Path) -> Vec<String> {
         out.push(format!("{DENIES_WARNING}{}", denies.join(", ")).chars().take(500).collect());
     }
     out
-}
-
-// ---------------------------------------------------------------------------------- declared access
-
-const DECLARED: &str = r#"
-import json, sys
-sys.path.insert(0, sys.argv[1])
-import yaml
-from clients import mcp_servers
-from clients.manifest import tools_of
-from runner import declared_access
-path, held, runtime, harness = sys.argv[2], json.loads(sys.argv[3]), sys.argv[4], sys.argv[5] or None
-try:
-    with open(path) as f:
-        declared = yaml.safe_load(f.read()) or {}
-except (OSError, yaml.YAMLError):
-    print(json.dumps({"invalid": True}))
-    sys.exit(0)
-access = tools_of(declared) or []
-tools = declared_access.declared_tools(access, dict(__import__("os").environ), held=tuple(held)) if access else []
-warnings = mcp_servers.warnings_for(access, runtime, harness) if access else []
-print(json.dumps({"tools": tools, "mail_request": declared_access.mail_request(declared), "warnings": warnings}))
-"#;
-
-type Declared = (Vec<Value>, Value, Vec<String>);
-
-fn declared_cache() -> &'static Mutex<HashMap<PathBuf, (String, Declared)>> {
-    static C: OnceLock<Mutex<HashMap<PathBuf, (String, Declared)>>> = OnceLock::new();
-    C.get_or_init(Default::default)
-}
-
-/// (tools, mail_request, MCP warnings) bot.yaml declares, read with the Python runner's own code
-/// (runner/declared_access.py), again only when the file or the bot's grants change. A manifest without
-/// `tools:`, `access:`, `outbound_send:` or `forward_to:` declares none, and no Python starts.
-pub async fn declared(bot: &str, manifest: &Path, runtime: &str, harness: &str) -> Declared {
-    let none = (vec![], Value::Null, vec![]);
-    let Ok(text) = std::fs::read_to_string(manifest) else { return none };
-    let keys = ["tools:", "access:", "outbound_send:", "forward_to:"];
-    if !text.lines().any(|l| keys.iter().any(|k| l.starts_with(k))) {
-        return none;
-    }
-    let held = held(bot);
-    let stamp = {
-        use std::os::unix::fs::MetadataExt;
-        let m = std::fs::metadata(manifest).ok();
-        format!("{:?}|{:?}|{runtime}|{harness}", m.map(|m| (m.mtime(), m.mtime_nsec(), m.size())), held)
-    };
-    if let Some((s, d)) = declared_cache().lock().unwrap().get(manifest) {
-        if *s == stamp {
-            return d.clone();
-        }
-    }
-    let mut cmd = tokio::process::Command::new(crate::env::python());
-    cmd.arg("-c")
-        .arg(DECLARED)
-        .arg(crate::env::root())
-        .arg(manifest)
-        .arg(Value::from(held).to_string())
-        .arg(runtime)
-        .arg(harness)
-        .env_clear()
-        .envs(crate::env::process_environment())
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let Ok(Ok(out)) = tokio::time::timeout(Duration::from_secs(20), cmd.output()).await else { return none };
-    let Ok(value) = serde_json::from_slice::<Value>(&out.stdout) else { return none };
-    let tools = value["tools"].as_array().cloned().unwrap_or_default();
-    let warnings = value["warnings"].as_array().into_iter().flatten().map(text_of).collect();
-    let result = (tools, value["mail_request"].clone(), warnings);
-    declared_cache().lock().unwrap().insert(manifest.to_path_buf(), (stamp, result.clone()));
-    result
 }
 
 // ---------------------------------------------------------------------------------------------- probes

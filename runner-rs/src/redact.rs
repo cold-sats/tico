@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
@@ -413,7 +414,7 @@ pub fn git_failure(stderr: &str, secrets: &[String], limit: usize) -> String {
 
 /// git with the clean environment `runner/safe_git.py` uses: no global or system config.
 pub fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new("git")
+    let out = crate::isolation::std_command("git")
         .args(crate::safegit::args(root))
         .args(args)
         .env_clear()

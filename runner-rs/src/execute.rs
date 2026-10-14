@@ -172,7 +172,7 @@ fn git_env(turn: &Env) -> Env {
 
 /// Runner git in a checkout: no hooks, no fsmonitor, no optional locks (safe_git.prefix).
 async fn git(path: &Path, env: &Env, args: &[&str], timeout_s: u64) -> Option<(bool, String, String)> {
-    let mut cmd = tokio::process::Command::new("git");
+    let mut cmd = crate::isolation::command("git");
     cmd.args(crate::safegit::args(path)).args(args).env_clear().envs(env).stdin(std::process::Stdio::null()).kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(timeout_s), cmd.output()).await.ok()?.ok()?;
     Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into()))
@@ -349,7 +349,7 @@ pub async fn publish_history(path: &Path, repository: &str, env: &Env) -> (&'sta
                 if shallow == "false" {
                     for name in &names {
                         let sha = remote[name].clone();
-                        let code = tokio::process::Command::new("git")
+                        let code = crate::isolation::command("git")
                             .args(crate::safegit::args(path))
                             .args(["merge-base", &sha, "HEAD"])
                             .env_clear()
@@ -524,6 +524,23 @@ impl Runner {
     }
 
     /// publish_history with the turn's token, logged when it changes (service.py publish).
+    /// After a completed turn: its reports and artifacts as Tico files, and its memory commits (service.py).
+    async fn after_completed(&self, attempt: &Value, root: &Path, pushed: bool, skipped: &[String], memory_before: &str, own_turn: bool) {
+        let bot = text_of(&attempt["bot"]);
+        crate::files_publish::after_turn(&self.state, &self.client, attempt, root, pushed, skipped).await;
+        crate::memory_history::report(&self.state, &self.client, &bot, root, &text_of(&attempt["id"]), memory_before, own_turn).await;
+    }
+
+    /// The bot's own bot.yaml MCP servers this harness can reach (crate::perbot::mcp_for_run); each problem is a
+    /// diagnostic on the turn.
+    fn mcp_servers(&self, aid: &str, path: &Path, env: &Env, granted: &std::collections::BTreeSet<String>, runtime: &str, config: &Value) -> Vec<Value> {
+        let (servers, problems) = crate::perbot::mcp_for_run(path, env, granted, runtime, &text_of(&config["harness"]));
+        for line in problems {
+            self.diagnose(aid, &line);
+        }
+        servers
+    }
+
     async fn publish(&self, bot: &str, path: &Path, env: &Env) -> (&'static str, String) {
         let repository = env.get(crate::gitcred::REPOSITORY_KEY).cloned().unwrap_or_default();
         if repository.is_empty() {
@@ -630,6 +647,7 @@ impl Runner {
         let mut drove = Drove::interrupted();
         let mut redactor: Option<Arc<Redactor>> = None;
         let mut started_at = String::new();
+        let mut memory_before = String::new();
         let mut segments: Vec<Segment> = vec![];
         let mut carried: BTreeMap<String, Value> = BTreeMap::new();
         let mut auth_rejected: Option<(String, String)> = None;
@@ -650,10 +668,6 @@ impl Runner {
             // lane works in its own worktree and takes the checkout only to refresh it (sessions.rs).
             let p = place.insert(self.enter_lanes(&attempt, &flags.lost).await.map_err(Fail::runtime)?);
             execution_path = p.main_path.clone();
-            if let Some(line) = crate::runner::local_refusal() {
-                // Never run a bot as the supervisor user when it is meant to run as another one.
-                return Err(Fail::runtime(format!("Not started: {line}")));
-            }
             selected = self.turn_profile(&attempt)?;
             segments.push(Segment {
                 meter: Meter::default(),
@@ -670,6 +684,7 @@ impl Runner {
             }
             let socket_path = self.socket.as_ref().map(|s| {
                 s.register(&token, &bot);
+                s.set_mailboxes(&token, crate::mail_key::mailboxes(&attempt));
                 s.path.clone()
             });
             if let Some(p) = &socket_path {
@@ -701,8 +716,9 @@ impl Runner {
             }
             conv.push_str(self.place_turn(p, &mut attempt, &env, &flags.lost).await.map_err(Fail::runtime)?);
             execution_path = p.execution_path.clone();
+            memory_before = redact::head(&execution_path);
             if redactor.is_some() {
-                started_at = redact::head(&execution_path);
+                started_at = memory_before.clone();
             }
             let previous = self.state.session(&bot, &conv, &session_runtime)?;
             let minutes = config["max_run_minutes"].as_f64().or_else(|| text_of(&config["max_run_minutes"]).parse().ok()).unwrap_or(60.0);
@@ -730,6 +746,7 @@ impl Runner {
                 compact_at: config.get("compact_at").cloned().unwrap_or(Value::Null),
                 add_dirs: p.add_dirs.clone(),
                 shared: crate::sessions::is_shared(&config),
+                mcp_servers: self.mcp_servers(&aid, &execution_path, &env, &vault.names, &runtime, &config),
             };
             let mut resumed = false;
             if let Some(prev) = &previous {
@@ -817,7 +834,7 @@ impl Runner {
                 selected = self.turn_profile(&hop_attempt)?;
                 segments.push(Segment {
                     meter: Meter::default(),
-                    config: hop_config,
+                    config: hop_config.clone(),
                     profile: selected.as_ref().map(|p| p.name.clone()),
                     billing: self.billing(&hop.runtime, selected.as_ref()),
                 });
@@ -836,6 +853,7 @@ impl Runner {
                     compact_at: config.get("compact_at").cloned().unwrap_or(Value::Null),
                     add_dirs: place.as_ref().map(|p| p.add_dirs.clone()).unwrap_or_default(),
                     shared: crate::sessions::is_shared(&config),
+                    mcp_servers: self.mcp_servers(&aid, &execution_path, &hop_env, &vault.names, &hop.runtime, &hop_config),
                 };
                 let th = h.start_thread(&bot, &settings).await?;
                 thread = Some(th.clone());
@@ -1020,7 +1038,17 @@ impl Runner {
                             self.publish(&bot, &execution_path, &env).await;
                         }
                         let closed = p.session_path.is_some() && self.task_closed(&attempt).await;
-                        self.finish_place(p, &attempt, &env, &skipped, committed_secret, closed).await;
+                        let pushed = self.finish_place(p, &attempt, &env, &skipped, committed_secret).await;
+                        let relative: Vec<String> = skipped
+                            .iter()
+                            .map(|f| Path::new(f).strip_prefix(&execution_path).map_or_else(|_| f.clone(), |r| r.display().to_string()))
+                            .collect();
+                        // A task lane's commits carry their run's trailer; other lanes' commits sit beside them.
+                        let own = !crate::sessions::is_shared(&config) && p.session_path.is_none();
+                        self.after_completed(&attempt, &execution_path, pushed, &relative, &memory_before, own).await;
+                        if closed {
+                            self.drop_place(p, &env).await;
+                        }
                     }
                     Ok(())
                 }

@@ -841,24 +841,29 @@ impl Runner {
 
     /// After a completed turn: unless a commit holds a secret, a task lane's commits are finished and pushed under
     /// the checkout's git lock, any other lane pushes its checkout; a closed task's clean worktree then goes.
-    pub async fn finish_place(&self, place: &Place, attempt: &Value, env: &Env, skipped: &[String], secret: bool, closed: bool) -> bool {
+    pub async fn finish_place(&self, place: &Place, attempt: &Value, env: &Env, skipped: &[String], secret: bool) -> bool {
         let aid = text_of(&attempt["id"]);
         let Some(session) = &place.session_path else { return !secret && self.push_checkout(&place.main_path, env).await };
-        let pushed = !secret && {
+        !secret && {
             let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
             let problem = finish(session, &aid, env, skipped).await;
             if !problem.is_empty() {
                 log(&format!("Tico runner: {}: task {}'s commits stay in {} ({problem})", place.bot, place.task, session.display()));
             }
             self.push_checkout(session, env).await
-        };
-        if closed {
-            let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
-            if remove(&place.main_path, session, &place.task, env).await {
-                log(&format!("Tico runner: {}: task {} is finished; removed its worktree", place.bot, place.task));
-            }
         }
-        pushed
+    }
+
+    /// A finished task's worktree goes once its turn has ended, unless a file is still waiting to upload from it.
+    pub async fn drop_place(&self, place: &Place, env: &Env) {
+        let Some(session) = &place.session_path else { return };
+        if crate::files_publish::pending_under(&self.state, session) {
+            return;
+        }
+        let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
+        if remove(&place.main_path, session, &place.task, env).await {
+            log(&format!("Tico runner: {}: task {} is finished; removed its worktree", place.bot, place.task));
+        }
     }
 
     /// Take away the session checkouts of finished tasks that no turn's end will (service.py sweep_sessions).
@@ -916,6 +921,9 @@ impl Runner {
                 continue;
             }
             let Ok(_lane) = self.lanes.lane(&bot, &format!("task:{task}")).try_lock_owned() else { continue }; // a turn is in it
+            if crate::files_publish::pending_under(&self.state, path) {
+                continue; // a file still waiting to upload is read from the worktree, so the worktree waits for it
+            }
             let main = local_path(&self.config, &bot, &configs[&bot]);
             let _git = self.lanes.git_lock(&main).lock_owned().await;
             if remove(&main, path, &task, &crate::env::process_environment()).await {
