@@ -2888,7 +2888,7 @@ def _unblock(conn, done_task, told=()):
 
 
 def _answered(conn, actor, task_id, card, told=None):
-    """`card`, an ask this rule filed (ask_card) that a bot's task is blocked on, is done or declined by `actor`: the
+    """`card`, an ask this rule filed (ask_card) that a bot's task is blocked on, is done, declined or closed by `actor`: the
     task's note becomes the answer, it opens again when nothing else holds it, it no longer waits on a declined card,
     and its bot is woken on it once, unless `told` (_subtask_wake) already woke it there. The note names the person
     as answering only when they finished the card, so a bot closing it never puts its words in their mouth. Returns
@@ -2900,9 +2900,13 @@ def _answered(conn, actor, task_id, card, told=None):
     if task_private(conn, card) and not task_private(conn, row):
         return False
     name = person_name(conn, person)
-    said = str(card.get("note") or "").strip() or ("Done." if card["status"] == "done" else "Declined.")
-    who = f"{name} answered" if actor == person else f"{person_name(conn, actor)} closed the ask to {name}"
-    note = f"{who}: {said}"
+    said = str(card.get("note") or "").strip() or {"done": "Done.", "declined": "Declined."}.get(card["status"], "")
+    closer = "Tico" if actor == KEEPER else person_name(conn, actor)   # the keeper closes an ask that expired
+    if card["status"] == "closed":
+        who = f"{name} closed the ask" if actor == person else f"{closer} closed the ask to {name}"
+    else:
+        who = f"{name} answered" if actor == person else f"{closer} closed the ask to {name}"
+    note = f"{who}: {said}" if said else f"{who}."
     if card["status"] != "done":
         TR.remove_blocker(conn, KEEPER, row["id"], card["id"], keeper_note=f"answered: {card['title']}")
     if row["status"] == "waiting" and not waiting_for(conn, row):
@@ -2910,7 +2914,7 @@ def _answered(conn, actor, task_id, card, told=None):
     conn.execute("UPDATE tasks SET note=?, version=version+1 WHERE id=?", (note, row["id"]))
     _task_event(conn, row["id"], KEEPER, "note", row.get("note"), note, "")
     if row["owner"] != told or TR.parent_of(conn, card["id"]) != row["id"]:
-        _wake(conn, row, row["owner"], f"{who}: {card['title']}\n{said}", refs={"subtask": card["id"]})
+        _wake(conn, row, row["owner"], f"{who}: {card['title']}" + (f"\n{said}" if said else ""), refs={"subtask": card["id"]})
     return True
 
 
@@ -4279,7 +4283,13 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
         _task_event(conn, task_id, KEEPER, "children", None, "Still open: " + "; ".join(still_open), "")
     event(conn, actor, "task.close", task_id, {"note": note, **({"still_open": still_open} if still_open else {})})
     after = task(conn, task_id)
-    _unblock(conn, after)
+    # A person closing a subtask under a bot's task: the bot hears it once, on the parent.
+    subtask_told = _subtask_wake(conn, actor, after, row["status"], note, quiet)
+    # Closing an open ask card (_ask_in_subtask) settles the ask like a decline: each task blocked on it opens again.
+    answered = set()
+    if row["status"] not in ("done", "declined"):
+        answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, actor, tid, after, subtask_told)}
+    _unblock(conn, after, told=answered)
     said = (f"Closed: {after['title']}" + (f"\n{note}" if note else "")
             + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""))
     # Closing work that was already done, with nothing said, is acceptance: news, not work. It
@@ -4292,8 +4302,6 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
     # A next-run task closed before any run carried it is a cancel: the bot never saw it, so
     # there is nothing to tell it and no run to spend telling it.
     accepted = quiet or accepted or next_run_waiting(conn, row)
-    # A person closing a subtask under a bot's task: the bot hears it once, on the parent.
-    subtask_told = _subtask_wake(conn, actor, after, row["status"], note, quiet)
     # The asking side closing what the owning bot already finished (done, or handed over for review) tells
     # the bot nothing it needs: no wake. A close note that says something new still reaches it, quietly.
     finished = (is_bot(after["owner"]) and row["status"] in ("done", "review")

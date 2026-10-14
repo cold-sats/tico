@@ -709,6 +709,17 @@ class WaitingWithDependency(HubCase):
         H.task_update(self.conn, ANA, card['id'], status='declined', note='No. Use the old one.')
         self.assertEqual((H.task(self.conn, other['id'])['status'], H.task(self.conn, other['id'])['note'],
                           TR.blocker_ids(self.conn, other['id'])), ('open', 'Ana Rivera answered: No. Use the old one.', []))
+        # Closing the card settles it too: the task opens with her words, and its bot hears it once.
+        moved = H.task_create(self.conn, CMO, 'Set up the new bots', '', CMO, private=False)
+        card = H.task_update(self.conn, CMO, moved['id'], status='waiting', waiting_on='ana',
+                             note='Start setup for the new bots? If yes, I will finish it today.')['asked_in']
+        H.task_close(self.conn, ANA, card['id'], note='Replaced by a setup task I filed myself.')
+        back = H.task(self.conn, moved['id'])
+        self.assertEqual((back['status'], back['note'], TR.blocker_ids(self.conn, moved['id'])),
+                         ('open', 'Ana Rivera closed the ask: Replaced by a setup task I filed myself.', []))
+        told = [m['body'] for m in H.messages(self.conn, back['conversation_id']) if m['to_actor'] == CMO
+                and ('Replaced by' in m['body'] or m['body'].startswith('Unblocked'))]
+        self.assertEqual(len(told), 1, told)
         # A question to a person counts too, once per task, until it is answered.
         asked = H.task_create(self.conn, ANA, 'Draft the launch post', '', CMO)
         question = H.task_ask(self.conn, CMO, asked['id'], 'Which date?')
