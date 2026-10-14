@@ -9,6 +9,7 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 - A bot's task parked as waiting with only a note (nothing recorded to wait on) now warns the bot when it parks it, even on a task a person asked for, and goes back to open after two hours instead of a day; a future due date still holds it. The stall wake now tells the bot to file a subtask for whoever must act instead of parking on a note.
+- A bot that hasn't finished its setup still runs only its owner's chat, but work sent to it no longer waits out of sight: whoever sends it a task (and a bot that messages it) is told it won't start until setup is done, Run now says why instead of reporting a run as waiting, and the stall check no longer counts its never-starting runs as busy. Instead of waking it, the stall check notes on the task why it isn't starting, tells a bot that asked for it, and puts one "Finish setting up" task for that bot in a person's Needs you, which closes itself when setup is done.
 
 ## [0.3.42] - 2026-10-13
 

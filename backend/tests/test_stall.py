@@ -87,7 +87,7 @@ def test_botops_cannot_be_its_own_last_resort_and_sources_do_not_share_a_repair_
             recovery = H.task(c, detail['recovery_task'])
             assert task['id'] in recovery['body']
             assert detail['owner'] == recovery['owner']
-        assert H.wake_stalled(c) == {'woke': [], 'escalated': [], 'checked': [], 'stuck': []}
+        assert H.wake_stalled(c) == {'woke': [], 'escalated': [], 'checked': [], 'stuck': [], 'held': []}
         assert not c.execute("SELECT 1 FROM jobs WHERE bot='botops' AND state='queued'").fetchone()
 
 
@@ -106,7 +106,7 @@ def test_unavailable_botops_routes_stalled_work_to_a_human(api, state):
 
 
 def test_a_chat_task_gets_its_own_room_reports_once_and_a_quiet_session_is_checked_then_flagged(api):
-    from backend.tests.test_api import post
+    from backend.tests.test_api import headers, post
     room = post(api, "chat/finance", {"text": "Can you look at cash?"})["conversation_id"]
     with api.app.state.store.transaction() as c:
         lines = lambda: [(r[0], json.loads(r[1])) for r in c.execute(
@@ -153,3 +153,36 @@ def test_closing_what_the_bot_already_finished_does_not_wake_it_unless_the_note_
         H.task_close(c, ana, same["id"], note="Reviewed; two fixes made.")
         H.task_close(c, ana, new["id"], note="Ship the fixes to the board too.")
         assert closed_wakes(same["id"]) == [] and closed_wakes(new["id"]) == [0]     # the new note lands without a run
+
+
+def test_a_bot_still_in_setup_holds_work_from_bots_in_sight_and_is_not_busy_for_the_stall_check(api):
+    """A parked bot starts only a person's chat (execution.py claim). Work a bot or Tico sends it waits for its
+    setup: the sender is told, Run now says why, its never-starting job is not "busy", and the stall check puts
+    its setup in a person's Needs you once instead of waking it; finishing setup clears that."""
+    from backend.tests.test_api import headers, post
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("UPDATE bot_config SET onboarding_state='needs_setup' WHERE bot='finance'")
+    created = api.post("/api/v2/tasks", json={"owner": "finance", "title": "Reconcile the October invoices", "body": "Before the close."},
+                       headers=headers()).json()
+    assert "hasn't finished its setup" in created.get("warning", ""), created
+    task = created["task"]
+    refused = api.post(f"/api/v2/tasks/{task['id']}/run-now", json={}, headers=headers())
+    assert refused.status_code >= 400 and "hasn't finished its setup" in refused.text
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET requester='bot:ops' WHERE id=?", (task["id"],))   # a bot asked for it
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 1
+        aged(c, task["id"], 6)
+        assert [r["id"] for r in H.stalled_tasks(c)] == [task["id"]], "a job that never starts is not busy"
+        assert H.wake_stalled(c)["held"] == [task["id"]]
+        assert wakes(c, task["id"]) == 0
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 1
+        told = c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:ops' AND refs_json LIKE '%setup_held%'").fetchone()[0]
+        assert told == 1, "the bot that asked is told why"
+        reminder = [t for t in H.needs_you(c, "ana")["tasks"] if t["title"].startswith("Finish setting up finance")]
+        assert len(reminder) == 1 and task["id"] in reminder[0]["body"]
+        aged(c, task["id"], 60)
+        assert H.wake_stalled(c)["held"] == [], "once per task"
+    post(api, "bots/finance/onboarded", {})
+    with store.read() as c:
+        assert H.task(c, reminder[0]["id"])["status"] == "done"

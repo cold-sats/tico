@@ -547,6 +547,7 @@ class Onboarding:
         self._write_config(c, slug, declared)
         c.execute("UPDATE bot_config SET onboarding_state=? WHERE bot=?", (ONBOARDED, slug))
         H.event(c, who.actor, "bot.onboarded", slug, {})
+        H.setup_finished(c, slug)
         return {"bot": slug, "onboarding_state": ONBOARDED, "changed": True}
 
     def attach_template(self, c, who, slug, template, instructions, *, queue_build=False, title_prefix=""):
