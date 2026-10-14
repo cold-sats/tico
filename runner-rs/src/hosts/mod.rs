@@ -1,0 +1,290 @@
+//! The runtime hosts (`runner/hosts/base.py`): one runtime behind start/thread/turn/steer/interrupt calls and
+//! one event channel. Events are the Python host's dicts, as JSON, so the outbox rows match it field for field:
+//!
+//! delta {text}, message {text, final}, turn_completed {status}, turn_failed {error, limit, auth_retry},
+//! status {state}, tokens {input, output, total, usage{input, cached, output}}, rate_limits, error, diagnostic.
+
+pub mod claude;
+pub mod codex;
+
+use std::sync::OnceLock;
+
+use regex::Regex;
+use serde_json::{json, Map, Value};
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::env::Env;
+
+pub type Events = UnboundedSender<Value>;
+
+#[derive(Debug)]
+pub enum HostError {
+    /// The runtime refused a call, or died while answering one.
+    Failed(String),
+    /// `steer` wrote nothing because the turn is over or ending: the runner gives the input a turn of its own.
+    SteerRefused(String),
+}
+
+impl std::fmt::Display for HostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostError::Failed(m) | HostError::SteerRefused(m) => f.write_str(m),
+        }
+    }
+}
+
+pub fn failed(text: impl Into<String>) -> HostError {
+    HostError::Failed(text.into())
+}
+
+/// One rule for a usage limit, so every host classifies it the same way (base.py LIMIT_RE).
+pub fn limit_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)hit your usage limit|usage limit|usage_limit_reached|rate limit(?:ed)?|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
+        )
+        .unwrap()
+    })
+}
+
+fn auth_retry_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)failed to refresh oauth token|another claude code process is refreshing|exited mid-refresh|oauth_refresh_lock|lock_busy|lock_timeout|unexpected status 401 unauthorized",
+        )
+        .unwrap()
+    })
+}
+
+fn auth_rejected_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)incorrect api key|invalid[ _-]?(?:x-)?api[ _-]?key|api key (?:is )?(?:invalid|revoked|expired)|not logged in|please run /login|invalid authentication credentials|authentication_error|oauth session expired and could not be refreshed",
+        )
+        .unwrap()
+    })
+}
+
+fn secretish_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r"\b(?:sk|pk|xai|gsk|key|ghp|github_pat)[-_][A-Za-z0-9_-]{6,}|Bearer\s+\S+|[A-Za-z0-9_-]{32,}").unwrap())
+}
+
+pub fn is_limit(text: &str) -> bool {
+    limit_re().is_match(text)
+}
+
+pub fn is_auth_rejected(text: &str) -> bool {
+    auth_rejected_re().is_match(text)
+}
+
+pub fn is_auth_retryable(text: &str) -> bool {
+    auth_retry_re().is_match(text) && !is_auth_rejected(text)
+}
+
+/// One line of the provider's refusal for people to read; keys and tokens are never kept.
+pub fn rejection_reason(text: &str) -> String {
+    let line = text.lines().map(str::trim).find(|row| is_auth_rejected(row)).map(String::from).unwrap_or_default();
+    let line = if line.is_empty() { text.trim().to_string() } else { line };
+    secretish_re().replace_all(&line, "[redacted]").chars().take(200).collect()
+}
+
+pub const DEFAULT_COMPACT_AT: i64 = 250_000;
+
+/// A bot's "Compact at" in tokens: its own whole number, else DEFAULT_COMPACT_AT.
+pub fn compact_at(value: &Value) -> i64 {
+    let n = match value {
+        Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+        Value::String(s) => s.trim().parse::<i64>().ok(),
+        Value::Bool(b) => Some(*b as i64),
+        _ => None,
+    };
+    match n {
+        Some(t) if t > 0 => t,
+        _ => DEFAULT_COMPACT_AT,
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Settings {
+    pub cwd: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub env: Env,
+    pub slug: String,
+    pub compact_at: Value,
+}
+
+const HUB_MCP_ENV: &[&str] = &["HUB_API_URL", "HUB_TOKEN", "HUB_BOT", "HUB_EMPLOYEE", "HUB_DIR"];
+
+/// The hub as a stdio MCP server for one turn (`hub_mcp_server`), or None outside a turn.
+pub fn hub_mcp_server(env: &Env) -> Option<Value> {
+    if env.get("HUB_API_URL").map_or(true, |v| v.is_empty()) || env.get("HUB_TOKEN").map_or(true, |v| v.is_empty()) {
+        return None;
+    }
+    let mut vars = Map::new();
+    for k in HUB_MCP_ENV {
+        if let Some(v) = env.get(*k).filter(|v| !v.is_empty()) {
+            vars.insert(k.to_string(), json!(v));
+        }
+    }
+    let script = crate::env::root().join("clients").join("hubmcp.py");
+    Some(json!({"command": crate::env::python().display().to_string(), "args": [script.display().to_string()], "env": vars}))
+}
+
+/// An event dict: `kind`, `thread_id`, `turn_id`, then its own fields.
+pub fn event(kind: &str, thread: Option<&str>, turn: Option<&str>, fields: Value) -> Value {
+    let mut ev = Map::new();
+    ev.insert("kind".into(), json!(kind));
+    ev.insert("thread_id".into(), thread.map_or(Value::Null, |t| json!(t)));
+    ev.insert("turn_id".into(), turn.map_or(Value::Null, |t| json!(t)));
+    if let Value::Object(f) = fields {
+        ev.extend(f);
+    }
+    Value::Object(ev)
+}
+
+/// Send SIGTERM, then SIGKILL after `grace` if the process is still there.
+pub fn terminate(pid: Option<u32>, grace: std::time::Duration) {
+    let Some(pid) = pid else { return };
+    unsafe {
+        libc::kill(pid as i32, libc::SIGTERM);
+    }
+    tokio::spawn(async move {
+        tokio::time::sleep(grace).await;
+        unsafe {
+            // A reaped pid answers ESRCH; the reader has waited for it by then.
+            if libc::kill(pid as i32, 0) == 0 {
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+        }
+    });
+}
+
+/// The two runtimes this runner runs.
+#[derive(Clone)]
+pub enum Host {
+    Claude(claude::ClaudeHost),
+    Codex(codex::CodexHost),
+}
+
+impl Host {
+    pub async fn start(&self) -> Result<(), HostError> {
+        match self {
+            Host::Claude(h) => h.start().await,
+            Host::Codex(h) => h.start().await,
+        }
+    }
+
+    pub async fn stop(&self) {
+        match self {
+            Host::Claude(h) => h.stop().await,
+            Host::Codex(h) => h.stop().await,
+        }
+    }
+
+    pub fn alive(&self) -> bool {
+        match self {
+            Host::Claude(h) => h.alive(),
+            Host::Codex(h) => h.alive(),
+        }
+    }
+
+    pub fn supports_steer(&self) -> bool {
+        match self {
+            Host::Claude(h) => h.supports_steer(),
+            Host::Codex(_) => true,
+        }
+    }
+
+    pub async fn start_thread(&self, bot: &str, settings: &Settings) -> Result<String, HostError> {
+        match self {
+            Host::Claude(h) => Ok(h.start_thread(settings)),
+            Host::Codex(h) => h.start_thread(bot, settings).await,
+        }
+    }
+
+    pub async fn resume_thread(&self, thread_id: &str, settings: &Settings) -> Result<String, HostError> {
+        match self {
+            Host::Claude(h) => Ok(h.resume_thread(thread_id, settings)),
+            Host::Codex(h) => h.resume_thread(thread_id, settings).await,
+        }
+    }
+
+    pub async fn start_turn(&self, thread_id: &str, text: &str, effort: Option<&str>) -> Result<String, HostError> {
+        match self {
+            Host::Claude(h) => h.start_turn(thread_id, text, effort),
+            Host::Codex(h) => h.start_turn(thread_id, text, effort).await,
+        }
+    }
+
+    pub async fn steer(&self, thread_id: &str, turn_id: &str, text: &str) -> Result<(), HostError> {
+        match self {
+            Host::Claude(h) => h.steer(thread_id, turn_id, text),
+            Host::Codex(h) => h.steer(thread_id, turn_id, text).await,
+        }
+    }
+
+    pub async fn interrupt(&self, thread_id: &str, turn_id: &str) -> Result<(), HostError> {
+        match self {
+            Host::Claude(h) => {
+                h.interrupt(thread_id, turn_id);
+                Ok(())
+            }
+            Host::Codex(h) => h.interrupt(thread_id, turn_id).await,
+        }
+    }
+
+    pub fn session_id(&self, thread_id: &str) -> String {
+        match self {
+            Host::Claude(h) => h.session_id(thread_id),
+            Host::Codex(_) => thread_id.to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod fixtures {
+    //! runner/tests/fixtures/<harness>/*.jsonl, replayed here and by runner/tests/test_host_fixtures.py.
+    use std::path::PathBuf;
+
+    use serde_json::Value;
+
+    pub fn dir(harness: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../runner/tests/fixtures").join(harness)
+    }
+
+    /// (fixture path, the events the Python host makes of it), for every fixture of `harness`.
+    pub fn cases(harness: &str) -> Vec<(PathBuf, Vec<Value>)> {
+        let mut out = vec![];
+        let mut paths: Vec<PathBuf> = std::fs::read_dir(dir(harness)).unwrap().map(|e| e.unwrap().path()).collect();
+        paths.sort();
+        for p in paths.into_iter().filter(|p| p.extension().is_some_and(|e| e == "jsonl")) {
+            let expected: Value = serde_json::from_str(&std::fs::read_to_string(p.with_extension("expected.json")).unwrap()).unwrap();
+            out.push((p, expected.as_array().unwrap().clone()));
+        }
+        assert!(!out.is_empty(), "no {harness} fixtures");
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_python_classifiers_agree() {
+        assert!(is_limit("You've hit your usage limit"));
+        assert!(is_limit("HTTP 503 overloaded"));
+        assert!(!is_limit("all good"));
+        assert!(is_auth_retryable("OAuth: failed to refresh OAuth token"));
+        assert!(!is_auth_retryable("unexpected status 401 Unauthorized: Invalid API key"));
+        assert!(is_auth_rejected("Invalid API key · Please run /login"));
+        assert_eq!(rejection_reason("x\nInvalid API key sk-ant-abcdefghijk"), "Invalid API key [redacted]");
+        assert_eq!(compact_at(&json!("120000")), 120000);
+        assert_eq!(compact_at(&json!(0)), DEFAULT_COMPACT_AT);
+    }
+}
