@@ -2454,8 +2454,9 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
         _task_event(conn, row["id"], actor, "step", row.get("step_id"), step_id, note)
     if row.get("status") != effective:
         _task_event(conn, row["id"], actor, "status", row.get("status"), effective, note)
+        if effective in ("done", "closed", "declined", "review"):
+            TS.clear_finished(conn, actor, row)     # review hands it on: the requester looks now, not at the date
         if effective in ("done", "closed", "declined"):
-            TS.clear_finished(conn, actor, row)
             # A finished task's open questions to people are moot. Done keeps its structured questions: that is how
             # a done task asks for acceptance of what it delivered.
             supersede_asks(conn, row["id"], plain_only=effective == "done")
@@ -4855,9 +4856,10 @@ def _wake(conn, task_row, target, body, refs=None, quiet_bots=False, quiet=False
     """
     if quiet_bots and (quiet or tasks_only(conn, target)):
         refs = {**(refs or {}), "quiet": True}
-    if (is_bot(target) and TS.snoozed(task_row) and not (refs or {}).get("run_now")
-            and (refs or {}).get("wake") != "snooze"):
-        # Nobody plans to get to a snoozed task before its date: news about it waits for the bot's next run.
+    if (is_bot(target) and target == task_row.get("owner") and TS.snoozed(task_row)
+            and not (refs or {}).get("run_now") and (refs or {}).get("wake") != "snooze"):
+        # Nobody plans to get to a snoozed task before its date: news about it waits for its bot's next run.
+        # Anyone else (a requester bot handed it for review) hears as usual.
         refs = {**(refs or {}), "quiet": True}
     if not target or not _actor_exists(conn, target) or not task_private_readable(conn, target, task_row):
         return None

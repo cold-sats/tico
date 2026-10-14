@@ -140,6 +140,7 @@ before then. Its requester, its owner, anyone on it by role, or a mover snoozes 
 with `{"until": ...}`. A bare date means the start of that day, Pacific; a date-time with a zone is
 taken as it is. Snoozing again moves the date. The task keeps its status, owner, goal and place;
 `snoozed_until` and `snoozed_by` say until when and who. A snoozed task still counts toward its goal.
+When someone other than its requester snoozes a task, the requester is told.
 
 Until that moment:
 
@@ -149,13 +150,15 @@ Until that moment:
 - nothing automatic moves it: no stall wake or status check, no stranded or stuck sweep, no
   **Still wanted?** question and no **Due:** reminder. Tico's notices about it reach its owner bot
   quietly, read on the bot's next run instead of starting one, and so does another bot's comment.
-  A person's comment still reaches the bot as usual, and **Run now** still runs it.
+  A person's comment still reaches the bot as usual, **Run now** still runs it, and notices to
+  anyone else on it (a requester bot it is handed to for review) arrive as usual. A snooze survives
+  reassignment: the new owner hears of the task quietly and is woken when the date comes.
 
 When the date comes, the task is back everywhere and its owner bot gets one **Snooze over** notice,
 which also stands in for a due date that passed during the snooze. **Unsnooze** (the **…** menu, the
 **Snoozed to** chip on the task, `hub task unsnooze <id>` or `POST /api/v2/tasks/{id}/unsnooze`)
-brings it back early and wakes its owner bot once. Finishing, declining or closing a task ends its
-snooze.
+brings it back early and wakes its owner bot once. Finishing, declining or closing a task, or
+moving it to review, ends its snooze.
 
 ## Done and Closed
 

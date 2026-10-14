@@ -8,11 +8,12 @@ place; only `snoozed_until` (and `snoozed_by`) are set. Until that moment:
 - nothing automatic moves it: no stall wake, spot check, stranded or stuck sweep (`H.not_yet_due`),
   no "Still wanted?" ask, no "Due:" reminder, and the keeper's notices about it reach its owner bot
   quietly (`H._wake`), as does another bot's comment (`H.comment_wakes`). A person's comment and Run
-  now still reach the bot.
+  now still reach the bot, and notices to anyone else (a requester bot handed it for review) are as usual.
 
 When the moment passes, the scheduler clears the snooze (`wake_ended`): the task is back everywhere and
 its owner bot gets one "Snooze over" notice, which also stands in for a "Due:" reminder that fell
-inside the snooze. Finishing, declining or closing a task clears its snooze (`H._set_status`).
+inside the snooze. Finishing, declining or closing a task, or handing it on for review, clears its snooze
+(`H._set_status`). The requester is told when someone else snoozes their task.
 
 This module imports nothing from hubdb at load, so hubdb can import it.
 """
@@ -102,6 +103,10 @@ def snooze(conn, actor, task_id, until, mover=False):
     # The owner learns nobody expects it before then; a bot reads it on its next real run, not now.
     if after["owner"] != actor:
         H._wake(conn, after, after["owner"], f"Snoozed until {_label(stamp)}: {after['title']}",
+                {"snooze": stamp}, quiet_bots=True, quiet=True)
+    # Whoever asked for it is told too, so nobody parks a request without the requester knowing.
+    if after["requester"] not in (actor, after["owner"]):
+        H._wake(conn, after, after["requester"], f"Snoozed until {_label(stamp)} by {actor}: {after['title']}",
                 {"snooze": stamp}, quiet_bots=True, quiet=True)
     H.recount(conn, [after["owner"], after["requester"]])
     return after

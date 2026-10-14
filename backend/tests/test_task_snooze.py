@@ -92,3 +92,23 @@ def test_unsnoozing_early_brings_it_back_now_and_wakes_its_bot(api):
     assert back["snoozed_until"] is None and task["id"] in listed(api)
     with api.app.state.store.read() as c:
         assert notices(c, task["id"], "Unsnoozed") == 1 and jobs(c) == 1
+
+
+def test_the_requester_is_told_and_review_hands_it_back_awake(api):
+    store = api.app.state.store
+    with store.transaction() as c:
+        row = H.task_create(c, "bot:finance", "Reconcile the card", "Month end.", "bot:ops")
+        H.task_update(c, "bot:ops", row["id"], status="doing")
+        c.execute("UPDATE jobs SET state='completed'")
+        H.TS.snooze(c, "bot:ops", row["id"], ahead(30))
+        told = c.execute("SELECT refs_json FROM messages WHERE to_actor='bot:finance' AND body LIKE 'Snoozed until%'"
+                         " AND json_extract(refs_json,'$.task')=?", (row["id"],)).fetchall()
+        assert len(told) == 1 and c.execute("SELECT count(*) FROM jobs WHERE state='queued'").fetchone()[0] == 0
+        # Only its owner's news waits: a notice to the requester bot about it wakes that bot.
+        H._wake(c, H.task(c, row["id"]), "bot:finance", "Question for you: which card?", {})
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 1
+        c.execute("UPDATE jobs SET state='completed'")
+        # Handed back for review, the requester bot is woken now and the snooze is over.
+        H.task_update(c, "bot:ops", row["id"], status="review")
+        assert H.task(c, row["id"])["snoozed_until"] is None
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='finance' AND state='queued'").fetchone()[0] == 1
