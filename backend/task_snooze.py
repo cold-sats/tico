@@ -106,7 +106,8 @@ def snooze(conn, actor, task_id, until, mover=False):
                 {"snooze": stamp}, quiet_bots=True, quiet=True)
     # Whoever asked for it is told too, so nobody parks a request without the requester knowing.
     if after["requester"] not in (actor, after["owner"]):
-        H._wake(conn, after, after["requester"], f"Snoozed until {_label(stamp)} by {actor}: {after['title']}",
+        who = ((H.bot(conn, H.actor_id(actor)) if H.is_bot(actor) else None) or {}).get("name") or H.actor_id(actor)
+        H._wake(conn, after, after["requester"], f"Snoozed until {_label(stamp)} by {who}: {after['title']}",
                 {"snooze": stamp}, quiet_bots=True, quiet=True)
     H.recount(conn, [after["owner"], after["requester"]])
     return after
