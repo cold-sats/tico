@@ -43,7 +43,10 @@ not waiting on it. The human reads one message at the end.
    specific blocker.
 6. **Take it live.** `hub bot go-live <slug>` (pass the verified requested Routines as `routines` with
    `hub_bot_go_live`, or `--routines-file` with the CLI): it puts the bot on a computer (the only one, or the
-   least busy), turns it on and starts its setup with them. On `waiting_for_repository`, remember that
+   least busy), turns it on and starts its setup with them. A bot you just built goes on your computer first,
+   because its history is only in your workspace until that computer publishes it to GitHub; once GitHub has
+   it, it can move with `hub bot place <slug> --computer <name>`. A `history_elsewhere` refusal names the
+   computer to use: run go-live again with that `--computer`. On `waiting_for_repository`, remember that
    waiting for a computer to get the repository is not a failure: the bot is placed and its computer is
    fetching the repository, and Tico turns it on and starts the setup by itself once the computer has it. Say
    so, do not call go-live again or wait for it, do not copy the repository there yourself (AGENT.md rule 12),
