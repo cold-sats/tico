@@ -167,6 +167,45 @@ def test_waiters_are_served_oldest_first_without_double_booking(prepared):
     assert {r['task_id']: r['state'] for r in rows(api, 'SELECT * FROM worktree_waits')} == {tid: 'reserved', younger: 'reserved'}
 
 
+def test_one_broken_wait_ends_alone_and_the_heartbeat_still_frees_places(prepared, monkeypatch):
+    api, tid, _ = prepared
+    filler, links = setup_wait(api, tid)
+    with api.app_state.store.transaction() as c:
+        younger = H.task_create(c, 'human:ana', 'Younger', 'Later work', 'bot:cmo')['id']
+    post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test')
+    with api.app_state.store.transaction() as c:
+        turn_on(c, younger)
+    post(api, f'tasks/{younger}/worktrees', {'repo': 'Acme/product'}, 'bot-test')
+    # At the limit, serving asks on every heartbeat without listing the bot's worktrees.
+    real_holdings = W.holdings
+    monkeypatch.setattr(W, 'holdings', lambda *a: (_ for _ in ()).throw(AssertionError('holdings on a heartbeat')))
+    for _ in range(3):
+        assert beat(api) == []
+    assert {r['state'] for r in rows(api, 'SELECT * FROM worktree_waits')} == {'waiting'}
+    monkeypatch.setattr(W, 'holdings', real_holdings)
+    real = W.provision
+
+    def provision(c, who, task, *args, **kwargs):
+        if task['id'] == tid:
+            H.event(c, H.KEEPER, 'half.done', tid, {})
+            raise RuntimeError('synthetic fault')
+        return real(c, who, task, *args, **kwargs)
+    monkeypatch.setattr(W, 'provision', provision)
+    # The heartbeat that frees two places succeeds: both removals land, the broken wait ends, the other is served.
+    beat(api, [{'link_id': link, 'state': 'removed', 'branch': None} for link in links[:2]])
+    assert {r['state'] for r in rows(api, 'SELECT state FROM task_links WHERE id IN (?,?)', tuple(links[:2]))} == {'removed'}
+    state = {r['task_id']: r for r in rows(api, 'SELECT * FROM worktree_waits')}
+    assert state[tid]['state'] == 'cancelled' and 'RuntimeError' in state[tid]['reason']
+    assert state[younger]['state'] == 'reserved'
+    assert not rows(api, "SELECT * FROM events WHERE action='half.done'")
+    told = wakes(api, tid)
+    assert len(told) == 1 and json.loads(told[0]['refs_json'])['quiet'] and 'worktree add Acme/product' in told[0]['body']
+    for _ in range(3):
+        beat(api)
+        waits.tick(api.app_state.store, 'Acme', force=True)
+    assert len(wakes(api, tid)) == 1
+
+
 def test_a_restarted_server_and_computer_still_wake_once(prepared, tmp_path):
     api, tid, _ = prepared
     filler, links = setup_wait(api, tid)

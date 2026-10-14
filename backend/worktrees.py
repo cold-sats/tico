@@ -353,9 +353,11 @@ def heartbeat(c, who, reports, capable, default_org=""):
     return actions
 
 
-def provision(c, who, task, repo, path=None, branch=None, default_org=''):
+def provision(c, who, task, repo, path=None, branch=None, default_org='', brief=False):
     """The one path a task worktree is made or reused by: the owner bot's request, a person's, and a worktree wait
-    being served (backend/worktree_waits.py) all go through it, so each checks permission, ownership and computer."""
+    being served (backend/worktree_waits.py) all go through it, so each checks permission, ownership and computer.
+    `brief` refuses a bot at its limit without listing its worktrees: a wait asks on every heartbeat, and nobody reads
+    that refusal."""
     if not supported(c):
         raise Problem('worktrees_unavailable', 'The server is too old for task worktrees', 409)
     bot = H.actor_id(task['owner'])
@@ -405,6 +407,8 @@ def provision(c, who, task, repo, path=None, branch=None, default_org=''):
                     'expected_head': detail.get('expected_head'), 'checkout_target': detail.get('checkout_target'),
                     'expected_base': detail.get('expected_base')}
     count = c.execute("SELECT count(*) FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND coalesce(json_extract(l.detail_json,'$.owner'),t.owner)=? AND coalesce(l.state,'unknown')<>'removed'", (task['owner'],)).fetchone()[0]
+    if count >= LIMIT and brief:
+        raise Problem('worktree_limit', f'This bot already has {LIMIT} worktrees.', 409, extra={'limit': LIMIT})
     if count >= LIMIT:
         held = holdings(c, task['owner'])
         # Worded so a bot never removes a worktree by hand: finished ones free themselves.
