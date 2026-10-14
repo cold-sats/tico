@@ -182,6 +182,7 @@ class TaskTypeCreate(Contract):
     steps: list[TaskStepInput] = Field(default_factory=list)
     bots: TypeBots | None = None
     numbered: bool = False
+    steps_only: bool = False
 
 
 class TaskTypeUpdate(Contract):
@@ -189,6 +190,7 @@ class TaskTypeUpdate(Contract):
     steps: list[TaskStepInput] | None = None
     bots: TypeBots | None = None
     numbered: bool | None = None
+    steps_only: bool | None = None
 
 
 class QuestionOption(Contract):
@@ -201,6 +203,14 @@ class QuestionFile(Contract):
     """A picture or file shown with one option, sent with the question (backend/media.py task_question)."""
     name: Annotated[StrictStr, Field(min_length=1, max_length=200)]
     content_base64: Annotated[StrictStr, Field(min_length=1, max_length=14_000_000)]
+
+
+class IfNoAnswer(Contract):
+    """What the bot does if the person does not answer by `by` (backend/ask_deadlines.py). `kind` says what that step is:
+    only a `reversible` internal step goes ahead on its own; a send, a payment or a delete waits for an answer."""
+    do: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+    kind: Literal["reversible", "send", "spend", "delete"]
+    by: Annotated[StrictStr, Field(max_length=40)] | None = None
 
 
 class QuestionChoice(Contract):
@@ -218,6 +228,7 @@ class TaskQuestion(Contract):
     body: Text | None = None
     parent: ID | None = None
     private: StrictBool | None = None
+    if_no_answer: IfNoAnswer | None = None
 
     @model_validator(mode="after")
     def unique_labels(self):
@@ -248,6 +259,7 @@ class ReviewQuestion(Contract):
 class ReviewAsk(Contract):
     questions: list[ReviewQuestion] = Field(min_length=1, max_length=4)
     who: Annotated[StrictStr, Field(min_length=1, max_length=200)] | None = None
+    if_no_answer: IfNoAnswer | None = None
 
     @model_validator(mode="after")
     def unique_questions(self):
@@ -571,6 +583,16 @@ class ApprovalCreate(Contract):
 class ApprovalDecision(Contract):
     decision: Literal["approved", "declined"]
     note: str = Field(default="", max_length=2000)
+
+
+class AssistantSettings(Contract):
+    """A person's own Assistant settings (Settings > Assistant)."""
+    decides_approvals: StrictBool
+
+
+class AssistantReadBack(Contract):
+    """The approvals the Assistant is about to approve for the person, read back in their chat first."""
+    approvals: Annotated[list[Annotated[str, Field(min_length=1, max_length=64)]], Field(min_length=1, max_length=100)]
 
 
 class ApprovalConsume(Contract):
@@ -1316,12 +1338,15 @@ class AccessLimits(Contract):
 class AccessRules(Contract):
     """Team rules the owner tightens (backend/team_rules.py); only what is sent changes."""
     assistant_direct: bool | None = None
+    assistant_approvals: bool | None = None
     botops_direct: bool | None = None
     botops_manages_bots: bool | None = None
     admin_credentials: bool | None = None
     members_store_credentials: bool | None = None
     admin_sql: bool | None = None
     member_tokens: bool | None = None
+    bots_go_ahead: bool | None = None
+    go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 
 class AccessAllowUpdate(Contract):

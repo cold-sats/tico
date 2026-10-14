@@ -31,6 +31,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            ask a person on your task: one small subtask for them, yours stays blocked
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
                                            one decision under your task, waiting on them; none for Yes / No
+                    [--if-no-answer "Yes" --default-kind reversible|send|spend|delete] [--by D]
+                                           what you do if they don't answer: a reversible step goes ahead
+                                           after the team's days (3); asks expire after 14 days
     hub task comment <id> "<text>"         on the record with your name
     hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
     hub task comment-delete <id> <comment-id>          take back a comment you wrote
@@ -127,6 +130,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
     hub approval show <id>
+    hub approval read-back <id>...         the Assistant: the list it will approve, as its reply; the person's yes runs it
+    hub approval approve <id> [--note "..."] [--on-behalf-of turn]
+                                           a person approves one addressed to them (the Assistant: when they let it
+                                           decide approvals and asked)
     hub approval decline <id> [--note "why"] [--on-behalf-of turn]
                                            a person declines one addressed to them (the Assistant: when they asked)
     hub listening save --file run.json     Listening: one sweep and the posts it saw (status ok|blocked|
@@ -737,7 +744,9 @@ def parser():
                    help="for a bot: do not wake it; its next run, whatever starts it, carries this task")
     s.add_argument("--dry-run", dest="dry_run", action="store_true",
                    help="print the checks a create would fail and write nothing")
-    s.add_argument("--request-id", dest="request_id", help="BotOps continuation: the originating human chat message")
+    s.add_argument("--request-id", dest="request_id",
+                   help="the person's message this carries: handing BotOps something a person asked you for, their "
+                        "message id or `turn` (BotOps acts with their rights, or puts it to them as a Confirm card)")
     s.add_argument("--type", help="task type id or name; defaults to General")
     s.add_argument("--step", help="step id or name in the type")
     s.add_argument("--number", type=int, help="movers: keep an imported ticket's number")
@@ -745,11 +754,13 @@ def parser():
     types = task.add_parser("type", help="manage task types (movers only)").add_subparsers(dest="type_sub")
     bots_help = ("what every bot may do with the type's tasks: parties (only the bots on each task), "
                  "read (read and comment on all of them) or work (also change them)")
+    steps_only_help = "its tasks change status only by moving to a step, never by closing, declining, reopening or finishing"
     s = types.add_parser("create")
     s.add_argument("--name", required=True)
     s.add_argument("--steps-file", dest="steps_file")
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action="store_true", default=None, help="number each task on the type")
+    s.add_argument("--steps-only", dest="steps_only", action="store_true", default=None, help=steps_only_help)
     s.set_defaults(fn="task type create")
     s = types.add_parser("update")
     s.add_argument("id")
@@ -758,6 +769,8 @@ def parser():
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action=argparse.BooleanOptionalAction, default=None,
                    help="number each task created on or moved onto the type")
+    s.add_argument("--steps-only", dest="steps_only", action=argparse.BooleanOptionalAction, default=None,
+                   help=steps_only_help)
     s.set_defaults(fn="task type update")
     s = types.add_parser("delete")
     s.add_argument("id")
@@ -780,6 +793,12 @@ def parser():
     s.add_argument("--body")
     s.add_argument("--parent")
     s.add_argument("--private", action="store_true", default=None, help="only you and the person may read it")
+    s.add_argument("--if-no-answer", dest="if_no_answer",
+                   help="what you will do if they don't answer: an option (\"Yes\") or one plain sentence")
+    s.add_argument("--default-kind", dest="default_kind", choices=["reversible", "send", "spend", "delete"],
+                   help="what that step is, required with --if-no-answer; only reversible (internal, undoable) goes "
+                        "ahead on its own: a send, spending or a delete waits for an answer")
+    s.add_argument("--by", help="ISO-8601 date-time: go ahead then, instead of after the team's days (default 3)")
     s.set_defaults(fn="task question")
     s = task.add_parser("update")
     visibility = s.add_mutually_exclusive_group()
@@ -1253,6 +1272,14 @@ def parser():
     s = appr.add_parser("show")
     s.add_argument("id")
     s.set_defaults(fn="approval show")
+    s = appr.add_parser("read-back", help="the Assistant: list in the person's chat the approvals it will approve")
+    s.add_argument("ids", nargs="+")
+    s.set_defaults(fn="approval read-back")
+    s = appr.add_parser("approve", help="approve an approval addressed to you")
+    s.add_argument("id")
+    s.add_argument("--note", default="")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
+    s.set_defaults(fn="approval approve")
     s = appr.add_parser("decline", help="decline an approval addressed to you, with a reason")
     s.add_argument("id")
     s.add_argument("--note", default="")

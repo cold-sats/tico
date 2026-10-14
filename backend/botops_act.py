@@ -262,6 +262,23 @@ def classify(method, path, body=None, rules=None, to_bot=None):
     return None
 
 
+# What a request a bot carried for a person (app.py carried_request) does with the person's rights: their own work
+# items, never who may do what or what it costs. Everything else runs with the asking bot's rights, and a refusal
+# becomes the person's Confirm card. An allow-list, so a new route lends nothing until it is added here.
+CARRIED = _routes(
+    ("POST", r"tasks"), ("POST", r"tasks/dry-run"), ("POST", rf"tasks/{_S}"), ("POST", rf"tasks/{_S}/(comments|links|ask)"),
+    ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
+    ("POST", r"goals"), ("POST", rf"goals/{_S}"), ("POST", rf"goals/{_S}/(status|checkins|kpis)"),
+    ("POST", rf"goals/{_S}/kpis/{_S}"), ("POST", r"kpis"), ("POST", rf"kpis/{_S}"), ("POST", rf"kpis/{_S}/readings"),
+)
+
+
+def carried_lends(method, path):
+    """Whether a carried request makes this call with the person's rights (CARRIED)."""
+    path, method = normalize(path), str(method).upper()
+    return bool(path) and any(m == method and p.fullmatch(path) for m, p in CARRIED)
+
+
 def admin_only(method, path):
     path = normalize(path)
     return bool(path) and any(m == str(method).upper() and p.fullmatch(path) for m, p in ADMIN_ONLY)
@@ -365,8 +382,8 @@ def fix(path, code, status, acting, names, base=""):
                 "BotOps chat, or change " + where + " yourself")
     elif acting.role == "bot":
         asker = names.get(acting.actor) or acting.actor.split(":", 1)[-1]
-        text = (asker + " asked for this, so BotOps had only " + asker + "'s rights: say go ahead in your BotOps "
-                "chat, or change " + where + " yourself")
+        text = (asker + " asked for this without citing who wanted it, so BotOps had only " + asker + "'s rights: say "
+                "go ahead in your BotOps chat, or change " + where + " yourself")
     else:
         text = "Your role can't change this: ask an owner or admin to change " + where
     return {"fix": text, "link": (base.rstrip("/") + "/" + link) if base else link}

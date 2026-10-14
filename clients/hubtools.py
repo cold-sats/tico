@@ -487,7 +487,10 @@ def tag_update(api, args):
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
        "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task. Blocked on a "
                     "person's approval or input for your task? File it for them with your task as parent"),
-       "request_id": _s("BotOps continuation: originating human chat message id"),
+       "request_id": _s("A person's message this task carries: BotOps continuing its own chat, or another bot handing "
+                        "BotOps something a person asked it for (their message id, or `turn` for the one that "
+                        "started this run). BotOps then acts with that person's rights, or puts it to them as a "
+                        "Confirm card"),
        "type": _s("Task type id or name; defaults to General"),
        "step": _s("Step id or name within the type; sets its status"),
        "number": {"type": "integer", "minimum": 1,
@@ -654,7 +657,17 @@ def task_ask(api, args):
        "body": _s("What the decision is for; defaults to the question"),
        "parent": _s("Parent task id, when this decision is part of a bigger task"),
        "private": {"type": "boolean", "description": "Only you and the person may read it; they must already "
-                   "read the private task you are working on, and the parent"}},
+                   "read the private task you are working on, and the parent"},
+       "if_no_answer": {"type": "object", "additionalProperties": False, "required": ["do", "kind"],
+                        "description": "What you will do if they don't answer, e.g. do: \"Yes\" (an option) or a short "
+                        "plain sentence. A reversible, internal step goes ahead on its own after the team's days "
+                        "(default 3) or `by`; a send, spending or a delete waits for an answer. Unanswered asks expire "
+                        "after 14 days", "properties": {
+                            "do": _s("What you will do: one of the options, or one plain sentence", maxLength=300),
+                            "kind": {"type": "string", "enum": ["reversible", "send", "spend", "delete"],
+                                     "description": "What that step is: reversible and internal, or a send, spending "
+                                     "money or a delete"},
+                            "by": _s("ISO-8601 date-time with timezone: go ahead then instead of after the team's days")}}},
       required=("question", "on"), writes=True)
 def task_question(api, args):
     options = [dict(o) for o in args.get("options") or []]
@@ -675,6 +688,15 @@ def task_question(api, args):
     for field in ("title", "body", "parent", "private"):
         if args.get(field) is not None:
             body[field] = args[field]
+    default = args.get("if_no_answer")
+    if isinstance(default, str):                     # the CLI's --if-no-answer "..." --default-kind K [--by D]
+        if not args.get("default_kind"):
+            # Stated, never assumed: a forgotten kind on "send the reply to the vendor" would otherwise go ahead.
+            raise ValueError("Say what kind of step --if-no-answer is: --default-kind reversible, send, spend or delete")
+        default = {"do": default, "kind": args["default_kind"],
+                   **({"by": args["by"]} if args.get("by") else {})}
+    if default:
+        body["if_no_answer"] = default
     return api.post("task-questions", body, key=_key(args))
 
 
@@ -746,6 +768,8 @@ TASK_STEPS = {"type": "array", "items": {"type": "object", "properties": {
     "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)}},
     "required": ["name", "status"], "additionalProperties": False}}
 NUMBERED = {"type": "boolean", "description": "Give each task created on or moved onto the type the team's next number"}
+STEPS_ONLY = {"type": "boolean", "description": "Its tasks change status only by moving to a step: closing, declining, "
+                                               "reopening or finishing one is refused"}
 
 
 @tool("hub_task_types", "Task types and their steps, in order. Status remains the task contract.",
@@ -760,9 +784,11 @@ TYPE_BOTS = {"type": "string", "enum": ["parties", "read", "work"],
 
 
 @tool("hub_task_type_create", "Create a task type and its steps (movers only).",
-      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("name",), writes=True)
+      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED,
+       "steps_only": STEPS_ONLY}, required=("name",), writes=True)
 def task_type_create(api, args):
-    body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered"))}
+    body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered")),
+            "steps_only": bool(args.get("steps_only"))}
     if args.get("bots"):
         body["bots"] = args["bots"]
     return api.post("task-types", body, key=_key(args))
@@ -770,9 +796,9 @@ def task_type_create(api, args):
 
 @tool("hub_task_type_update", "Edit a task type (movers only). Steps replace the full list; keep retained ids. "
       "A step with tasks cannot be removed.", {"id": _s("Type id or name"), "name": _s("Type name"),
-      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("id",), writes=True)
+      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED, "steps_only": STEPS_ONLY}, required=("id",), writes=True)
 def task_type_update(api, args):
-    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered") if k in args},
+    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered", "steps_only") if k in args},
                     key=_key(args))
 
 
@@ -2497,9 +2523,28 @@ def approval_show(api, args):
     return api.get("approvals/" + args["id"])
 
 
+@tool("hub_approval_approve", "Approve an approval addressed to you (a send, spend, publish or merge). The Assistant "
+      "approves only when its person turned on \"My assistant can decide approvals for me\" and asked for it in their "
+      "chat, citing that message (on_behalf_of); otherwise the refusal says the one sentence to tell them.",
+      {"id": _s("Approval id"), "note": _s("Optional, a few words the requesting bot reads"), "on_behalf_of": ASKED},
+      required=("id",), writes=True)
+def approval_approve(api, args):
+    return _asked(api, args).post("approvals/" + args["id"], {"decision": "approved", "note": args.get("note") or ""},
+                                  key=_key(args))
+
+
+@tool("hub_approval_read_back", "Assistant only, before approving for the person: post in their chat the list of "
+      "approvals you are about to approve, as your reply, then end the turn. The server writes the whole message from "
+      "the approvals; only the ones listed may then be approved, on the person's plain yes to it.",
+      {"ids": {"type": "array", "items": {"type": "string"}, "description": "The approval ids, up to 100"}},
+      required=("ids",), writes=True)
+def approval_read_back(api, args):
+    return api.post("assistant/read-back", {"approvals": args["ids"]}, key=_key(args))
+
+
 @tool("hub_approval_decline", "Decline an approval addressed to you (a send, spend, publish or merge), with a short reason "
       "the requesting bot reads. A declined item can be asked for again. The Assistant declines what its person asked it to "
-      "in their chat, citing that message (on_behalf_of); approving is never a tool: it is their click on a card.",
+      "in their chat, citing that message (on_behalf_of).",
       {"id": _s("Approval id"), "note": _s("Why, in a few words: the requesting bot reads it"), "on_behalf_of": ASKED},
       required=("id",), writes=True)
 def approval_decline(api, args):
@@ -3222,7 +3267,8 @@ REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
 ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
-                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_question_answer",
+                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_approval_approve", "hub_approval_read_back",
+                    "hub_question_answer",
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
@@ -3242,8 +3288,9 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete", "hub_meeting_granola_status", "hub_meeting_granola_sync",
                                    "hub_meeting_pending", "hub_meeting_approve", "hub_meeting_dismiss", "hub_meeting_restore")},
     # The Assistant only.
-    "hub_assistant_propose": ("assistant",),
+    "hub_assistant_propose": ("assistant",), "hub_approval_read_back": ("assistant",),
     "hub_approval_decline": HUMANS_AND_ASSISTANT,         # only a person decides an approval
+    "hub_approval_approve": HUMANS_AND_ASSISTANT,         # ... or their own Assistant, when they let it
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,
     # Humans only (views.human_only and the batch routes refuse a bot); a bot's own posts are the other way round.
     "hub_brief": HUMANS_AND_ASSISTANT, "hub_bot_recent": HUMANS_AND_ASSISTANT,

@@ -135,7 +135,9 @@ function botTasksRender(slug, owned, asked) {
   if (!$('#t-open') || BOT?.slug !== slug) return;
   const mine = owned.tasks || [], theirs = (asked.tasks || []).filter(t => actorSlug(t.owner) !== slug);
   const latest = (a, b) => String(b.updated || b.created || '').localeCompare(String(a.updated || a.created || ''));
-  const active = mine.filter(t => V2_ACTIVE.includes(String(t.status))).sort(latest);
+  // What a person asked for (directly or under a person's task) above what the bot made itself, then the latest change.
+  const personFirst = t => t.from_person ? 0 : 1;
+  const active = mine.filter(t => V2_ACTIVE.includes(String(t.status))).sort((a, b) => personFirst(a) - personFirst(b) || latest(a, b));
   // Done: the bot's own work, most recently done first. A routine's runs (a sweep every 30
   // minutes) are not work a person asked for; they live under Recurring.
   const doneAt = t => String(t.done_at || t.closed_at || t.updated || '');

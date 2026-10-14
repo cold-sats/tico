@@ -329,7 +329,7 @@ async function taskSave(d, id, body, then, field) {
   try {
     const outcome = body.close ? 'closed' : pipelineActionStatus(cur, body);
     if ((outcome === 'done' || outcome === 'closed') && outcome !== cur.status) {
-      note = taskOutcomeNote(cur, outcome === 'closed' ? {close: true} : body);
+      note = taskOutcomeNote(cur, outcome === 'closed' ? {close: true} : body, TASK_DRAFTS.get(String(id)));
       if (note) body = {...body, note};
     }
     const state = d.dataset.peek && TASKS_ST, key = 't' + id;
@@ -593,8 +593,8 @@ function hubModalHTML(t, it, opts = {}) {
   const pos = opts.peek ? taskPeekPos(t.id) : '';
   // Done for the owner; Close as the "…" menu allows it (who may move tasks, or the task's parties)
   const rights = taskPropRights(t);
-  const canDone = !finished && t.status !== 'done' && !!myActor() && myActor() === t.owner;
-  const canClose = t.status !== 'closed' && (rights.mover || rights.party);
+  const canDone = !finished && t.status !== 'done' && !!myActor() && myActor() === t.owner && !pipelineStepsOnly(t);
+  const canClose = t.status !== 'closed' && (rights.mover || rights.party) && !pipelineStepsOnly(t);
   // The thread view's own header pieces: back, the title in the bar, and Details (task-modal.css hides the rest).
   const thread = !!opts.thread;
   return `<div class="tmodal-head">${thread ? `<button class="ghost peek-btn tthread-only tthread-back" type="button" data-thread-back aria-label="Back to chat" title="Back to chat"><svg viewBox="0 0 12 12" width="14" height="14" aria-hidden="true" focusable="false"><path d="M7.5 3l-3 3 3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>

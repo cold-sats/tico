@@ -1563,6 +1563,21 @@ CURATOR_ROUTINES = (
 )
 
 
+def nothing_to_curate(conn, settings, local):
+    """Why a daily curate run would have nothing to read, or None. Mondays always run: the sweep refreshes
+    the weekly delta page from market events."""
+    if local.weekday() == 0 or conn.execute("SELECT 1 FROM market_insights WHERE status='new' LIMIT 1").fetchone():
+        return None
+    from . import listening
+    mine = listening.destinations_of(CURATOR, listening.destinations(settings, check_questions=False))
+    if not mine:
+        return "no market insight is new, and Listening sends the Librarian nothing"
+    if conn.execute(f"SELECT 1 FROM intake_items WHERE status='new' AND destination IN ({','.join('?' * len(mine))}) "
+                    "LIMIT 1", mine).fetchone():
+        return None
+    return "no market insight or listening item is new"
+
+
 def ensure_curator(conn):
     """At boot: the Librarian's market routines, and the old Market Analyst retired. Idempotent.
 

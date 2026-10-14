@@ -333,3 +333,18 @@ def test_a_person_writing_or_try_now_lifts_a_usage_limit_cooldown_once(api):
         assert c.execute("SELECT count(*) FROM events WHERE action='limit.cleared'").fetchone()[0] == 2
     assert claim(api, machine)
     post(api, "bots/ops/limit/retry", {}, expected=409)
+
+
+def test_a_claim_that_lapsed_before_its_run_started_does_not_count_as_stopping_partway(api):
+    machine, message, lapsed = setup_attempt(api)
+    expire(api, lapsed['id'])                     # the computer never started it: back in the queue
+    ready(api, machine, ['ops'])
+    attempt = claim(api, machine)
+    assert attempt and attempt['job_id'] == lapsed['job_id']
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'once'}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/events", {'events': [{'seq': 1, 'kind': 'tool', 'payload': {'name': 'shell'}}]},
+         machine['token'])
+    expire(api, attempt['id'])
+    assert claim(api, machine) is None and job_state(api, attempt['job_id']) == 'uncertain'
+    aged(api, attempt['id'])
+    assert [d['state'] for d in sweep(api)] == ['queued']     # one real stop: resumed, not dismissed

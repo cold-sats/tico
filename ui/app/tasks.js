@@ -306,7 +306,11 @@ function taskStatusGroups(items, {always = []} = {}) {
   const people = [...buckets.keys()].filter(k => k.startsWith('needs:'))
     .sort((a, b) => needsWords(a.slice(6)).localeCompare(needsWords(b.slice(6))));
   const keys = ['needsme', ...people, 'needs-someone', 'waiting', 'doing', 'scheduled'].filter(k => buckets.has(k) || always.includes(k));
-  return keys.map(key => ({key, items: (buckets.get(key) || []).sort(key === 'scheduled' ? (a, b) => String(a.updated).localeCompare(String(b.updated)) : byRank),
+  // Needs you follows the server's queue (what a person asked for first); the rest keep their rank.
+  const needOrder = new Map((S.v2?.needs || []).map((item, index) => [String(item.id), index]));
+  const byNeed = (a, b) => (needOrder.get(String(a.id)) ?? Infinity) - (needOrder.get(String(b.id)) ?? Infinity) || byRank(a, b);
+  return keys.map(key => ({key, items: (buckets.get(key) || []).sort(key === 'scheduled' ? (a, b) => String(a.updated).localeCompare(String(b.updated))
+    : key === 'needsme' ? byNeed : byRank),
     label: key === 'needsme' ? 'Needs you' : key === 'needs-someone' ? 'Needs someone' : key.startsWith('needs:') ? needsWords(key.slice(6))
       : COMPANY_COLS.find(([k]) => k === key)?.[1] || key,
     kind: key === 'needsme' ? 'needsme' : key.startsWith('needs') ? 'needs' : key,

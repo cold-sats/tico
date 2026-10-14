@@ -953,7 +953,12 @@ def migrate(conn, adopt_legacy=False):
     # A task snoozed until a date, and who snoozed it (backend/task_snooze.py).
     add_column(conn, "tasks", "snoozed_until", "TEXT")
     add_column(conn, "tasks", "snoozed_by", "TEXT")
+    # An approval a person's own Assistant decided for them: whose assistant, and the person's words it acted on.
+    add_column(conn, "approvals", "decided_via", "TEXT")
+    add_column(conn, "approvals", "decided_for_json", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_snoozed ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL")
+    # A type whose tasks change status only by moving between its steps (`_task_state`).
+    add_column(conn, "task_types", "steps_only", "INTEGER NOT NULL DEFAULT 0")
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -1392,6 +1397,9 @@ def lint_approval(kind, payload):
     if kind == "publish" and digest not in (None, "") and not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
         # Every publisher compares against hashlib's hexdigest(), so any other shape could never publish.
         problems.append("content_sha256 must be 64 lower-case hex characters")
+    if kind == "publish" and "@" in url_authority(payload.get("url")):
+        # A card cuts a long field, so "https://trusted.example…@other.example" could hide the real host.
+        problems.append("url must not carry a user name (user@host); give the plain address")
     if kind == "support":
         problems += lint_support(payload)
     if kind == "merge" and "merge needs pr" in problems:
@@ -1399,6 +1407,24 @@ def lint_approval(kind, payload):
         problems[problems.index("merge needs pr")] = ("merge needs pr (the pull request number); for a change "
                                                       "with no pull request, file a decision task for the person instead")
     return problems
+
+
+URL_SPECIAL = ("http", "https", "ws", "wss", "ftp", "file")
+
+
+def url_authority(url):
+    """The part of a url where user@ would go, read as a browser reads it; "" when there is none. After a web scheme a
+    browser skips any run of "/" and "\\", or none ("https:a@b" is user a at host b); with no scheme, a leading pair of
+    them makes the link leave the app for another host. A backslash later counts as part of it, so "https://a\\@b" is
+    refused rather than guessed at."""
+    text = re.sub(r"[\s\x00-\x1f]", "", str(url or ""))
+    m = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):", text)
+    rest = text[m.end():] if m else text
+    if m and m.group(1).lower() not in URL_SPECIAL and not rest.startswith("//"):
+        return ""
+    if not m and not re.match(r"[/\\]{2}", rest):
+        return ""
+    return re.split(r"[/?#]", rest.lstrip("/\\"), maxsplit=1)[0]
 
 
 def lint_support(payload):
@@ -1822,6 +1848,20 @@ def _reach(conn, actor, target, allow_planned=False, allow_held=False):
     return resolved
 
 
+def _takes_tasks(conn, actor, target):
+    """A bot a person syncs in from another platform reads only its chat with them, so a task for it would
+    sit open with nobody to work it: it is refused with what to do instead."""
+    if not is_bot(target) or not _has_table(conn, "bot_config"):
+        return
+    from .harnesses import SYNCED_HARNESSES, resolve_harness
+    row = _one(conn, "SELECT b.display_name,bc.config_json FROM bots b JOIN bot_config bc ON bc.bot=b.slug "
+                     "WHERE b.slug=?", (actor_id(target),))
+    if row and resolve_harness(_json(row["config_json"], {}) or {}) in SYNCED_HARNESSES:
+        name = row["display_name"] or actor_id(target)
+        refuse(conn, actor, "external-bot", f"{name} works on another platform and only syncs its chat here, so it "
+               "never sees tasks. Write to it in its chat, or give this task to a bot that runs in Tico.")
+
+
 # ----------------------------------------------------------------------------- registry sync
 def default_human(conn):
     """Who an unaddressed human item goes to: the roster's `default_user`, else its first
@@ -2242,6 +2282,7 @@ def type_get(conn, value):
                (value, value, value))
     if row:
         row["numbered"] = bool(row.get("numbered"))
+        row["steps_only"] = bool(row.get("steps_only"))
         row["steps"] = _rows(conn.execute("SELECT * FROM task_steps WHERE type_id=? ORDER BY position,id", (row["id"],)))
     return row
 
@@ -2251,6 +2292,7 @@ def type_list(conn):
     steps = _rows(conn.execute("SELECT * FROM task_steps ORDER BY position,id"))
     for row in rows:
         row["numbered"] = bool(row.get("numbered"))
+        row["steps_only"] = bool(row.get("steps_only"))
         row["steps"] = [step for step in steps if step["type_id"] == row["id"]]
     return rows
 
@@ -2461,20 +2503,20 @@ def _type_steps(conn, actor, type_id, steps):
                      "name=excluded.name,position=excluded.position,status=excluded.status", row)
 
 
-def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     bots = _type_bots(conn, actor, bots)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,bots,numbered,created,updated) VALUES(?,?,?,?,?,?)",
-                 (ident, name, bots, int(bool(numbered)), ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,bots,numbered,steps_only,created,updated) VALUES(?,?,?,?,?,?,?)",
+                 (ident, name, bots, int(bool(numbered)), int(bool(steps_only)), ts, ts))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, steps_only=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -2486,6 +2528,8 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=No
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
     if numbered is not None:
         conn.execute("UPDATE task_types SET numbered=? WHERE id=?", (int(bool(numbered)), row["id"]))
+    if steps_only is not None:
+        conn.execute("UPDATE task_types SET steps_only=? WHERE id=?", (int(bool(steps_only)), row["id"]))
     if steps is not None:
         _type_steps(conn, actor, row["id"], steps)
     if bots is not None:
@@ -2531,7 +2575,27 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
     if effective not in TASK_STATUSES:
         refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
+    # On a steps-only type a task is finished or brought back only by a step move: a bare close, decline,
+    # done or reopen would land it in whichever step shares that status. Working statuses (an ask's
+    # waiting, a turn's doing) still change, as do filing onto the type and the keeper's own automation.
+    if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
+            and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]
+            and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)):
+        # Naming the task keeps a bot's refusals on different tickets distinct, so working a board is not
+        # counted as retrying one refused write (rule 8); a retry on the same task still is.
+        which = f"#{row['number']}" if row.get("number") else f'"{_clip(row.get("title") or "", 80)}"'
+        steps = ", ".join(s["name"] for s in typ["steps"])
+        refuse(conn, actor, "kind", f"{which} is a {typ['name']} task: it changes status only by moving it to a step "
+                                    f"({steps}), not by closing, declining, reopening or finishing it; move it, or delete it",
+               context={"what": f"task {row.get('id')}"})
     return typ["id"], chosen["id"] if chosen else None, effective
+
+
+def steps_only(conn, row):
+    """The step names of the task's type when it finishes and reopens its tasks only by a step move
+    (`_task_state`), else an empty list."""
+    typ = type_get(conn, row.get("type_id") or GENERAL_TYPE) or {}
+    return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
@@ -3589,6 +3653,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     from .shared_bots import route
     owner = route(conn, actor, owner)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
+    _takes_tasks(conn, actor, target)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     # Whoever files a subtask asked for it: it shows them as asking and their notices reach them.
     requester = actor
@@ -3918,6 +3983,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
+        _takes_tasks(conn, actor, new_owner)
         if private_tasks_default(conn, new_owner):
             sets.append("private=1")
         if is_bot(row['owner']) and 'detail_json' in {r[1] for r in conn.execute('PRAGMA table_info(task_links)')}:
@@ -4305,7 +4371,7 @@ def sweep_stranded(conn, at=None, grace_hours=STRANDED_GRACE_HOURS):
                 # Setting it open is what wakes the owner ("Open: <title>"); the note says why.
                 task_update(conn, KEEPER, row["id"], status="open",
                             note="Back to open: it was waiting, but no question, child task, blocker or "
-                                 "approval is outstanding. Continue it, ask, or mark it done or declined.")
+                                 "approval is outstanding. Continue it, ask, or finish it.")
                 moved.append((row["id"], "open"))
     return moved
 
@@ -4871,10 +4937,46 @@ def _hold_for_setup(conn, row):
     return True
 
 
+def _is_diagnostic(conn, row):
+    """A task the hub filed to find why other work is stuck or keeps stopping."""
+    if row["requester"] != KEEPER or not str(row["title"]).startswith("Find why "):
+        return False
+    return bool(conn.execute("SELECT 1 FROM events WHERE action='task.stall_escalated' "
+                             "AND json_extract(detail_json,'$.recovery_task')=? LIMIT 1", (row["id"],)).fetchone()
+                or "'s runs keep stopping" in row["title"] or "'s task stays stuck: " in row["title"])
+
+
+def _no_diagnosis(conn, row, count):
+    """Why a stuck task gets no diagnostic, or None when BotOps takes one. A diagnostic about a diagnostic
+    finds nothing new, and a person cannot repair a bot's runs: neither is filed."""
+    if _is_diagnostic(conn, row):
+        return f"this diagnostic did not move after {count} wake-ups today"
+    repair_bot = bot(conn, FLEET_MAINTAINER)
+    if row["owner"] == bot_actor(FLEET_MAINTAINER):
+        return f"BotOps's own task did not move after {count} wake-ups today, and BotOps cannot diagnose itself"
+    if not repair_bot or repair_bot["state"] != "active":
+        state = repair_bot["state"] if repair_bot else "not on this team"
+        return f"{actor_id(row['owner'])} did not move it after {count} wake-ups today, and BotOps is {state}"
+    return None
+
+
+def _settle_undiagnosed(conn, row, cause):
+    """Work the hub filed for itself closes with the cause; anyone else's task stays open and its requester is
+    told the cause, at most once a day while it stays stuck."""
+    if row["requester"] == KEEPER:
+        task_close(conn, KEEPER, row["id"], f"Closed by the stall check: {cause}.", quiet=True)
+    elif _actor_exists(conn, row["requester"]):
+        _wake(conn, row, row["requester"], f"Stuck: {row['title']}. {cause[0].upper()}{cause[1:]}. "
+              "Reassign it, run it, or close it.", {"wake": "stuck_cause"})
+    event(conn, KEEPER, "task.stall_escalated", row["id"],
+          {"bot": actor_id(row["owner"]), "recovery_task": None, "owner": None, "cause": cause})
+
+
 def wake_stalled(conn, at=None):
     """Wake the owner of each stalled task (at most once per STALL_REPEAT_MINUTES, STALL_WAKES_PER_DAY
-    a day); past that, one diagnostic per stuck task. BotOps cannot be its own last resort:
-    its stalled work, or work it cannot take while unavailable, goes to a human. A bot still in setup
+    a day); past that, one diagnostic per stuck task, for BotOps. No diagnostic is filed about another
+    diagnostic or sent to a person: when BotOps cannot take one, the stuck task carries the cause instead
+    (_settle_undiagnosed). A bot still in setup
     is not woken: its task says why once and its setup goes to a person (_hold_for_setup).
 
     Spot checks share the path, its events and its cap: a task with a recent session and no progress
@@ -4913,14 +5015,12 @@ def wake_stalled(conn, at=None):
             if count >= STALL_WAKES_PER_DAY:
                 if not conn.execute("SELECT 1 FROM events WHERE action='task.stall_escalated' AND target=? AND ts>?",
                                     (row["id"], shift(at, seconds=-86400))).fetchone():
-                    repair_bot = bot(conn, "botops")
-                    if row["owner"] != "bot:botops" and repair_bot and repair_bot["state"] == "active":
-                        owner = "bot:botops"
-                    else:
-                        owner = (row["requester"] if is_human(row["requester"]) and _actor_exists(conn, row["requester"])
-                                 else human_actor(default_human(conn)))
-                        if not _actor_exists(conn, owner):
-                            continue
+                    cause = _no_diagnosis(conn, row, count)
+                    if cause:
+                        _settle_undiagnosed(conn, row, cause)
+                        escalated.append(row["id"])
+                        continue
+                    owner = bot_actor(FLEET_MAINTAINER)
                     # Identity comes from the source event, not the human-facing title: even
                     # equally named tasks have separate diagnoses. Reuse unresolved work later.
                     previous = _one(conn, "SELECT detail_json FROM events WHERE action='task.stall_escalated' "
@@ -5175,8 +5275,12 @@ def approval_decide(conn, actor, approval_id, decision, note=""):
     if row["decision"]:
         refuse(conn, actor, "duplicate", f"{approval_id} was already {row['decision']}")
     ts = now()
-    conn.execute("UPDATE approvals SET decision=?, decided_by=?, decided_at=? WHERE id=?",
-                 (decision, actor, ts, approval_id))
+    # The person's own Assistant deciding on their words (backend/assistant.py): recorded on the approval itself, so its
+    # history says "decided by <assistant> for <person>" with the words quoted, and the person can undo it.
+    delegated = DELEGATION.get() if VIA.get() == "assistant" else None
+    conn.execute("UPDATE approvals SET decision=?, decided_by=?, decided_at=?, decided_via=?, decided_for_json=? "
+                 "WHERE id=?", (decision, actor, ts, "assistant" if delegated else None,
+                                _dump(delegated) if delegated else None, approval_id))
     event(conn, actor, "approval.decide", approval_id, {"decision": decision, "note": note})
     after = approval(conn, approval_id)
     conv = conversation(conn, (message(conn, row["message_id"]) or {}).get("conversation_id")) \
@@ -5863,7 +5967,36 @@ def approval(conn, approval_id):
     row = _one(conn, "SELECT * FROM approvals WHERE id=?", (approval_id,))
     if row:
         row["payload"] = _json(row.get("payload_json"), {}) or {}
+        row["decided_for"] = _json(row.pop("decided_for_json", None), None)
     return row
+
+
+def approval_undo(conn, actor, approval_id):
+    """The person takes back what their Assistant decided for them, while nothing has acted on it: the approval is
+    waiting for them again. A decision of their own, or one already spent, stands."""
+    _writer(conn, actor)
+    row = approval(conn, approval_id)
+    if not row:
+        refuse(conn, actor, "not-found", f"no approval {approval_id}")
+    if row["decided_by"] != actor or row.get("decided_via") != "assistant":
+        refuse(conn, actor, "identity", "only a decision your Assistant made for you can be undone here")
+    if row["consumed_at"]:
+        raise Refused("consumed", "it already ran; it can't be undone")
+    if _one(conn, "SELECT id FROM approvals WHERE payload_hash=? AND decision IS NULL AND id<>?",
+            (row["payload_hash"], approval_id)):
+        raise Refused("duplicate", "the bot already asked for this again; decide that one instead")
+    conn.execute("UPDATE approvals SET decision=NULL, decided_by=NULL, decided_at=NULL, decided_via=NULL, "
+                 "decided_for_json=NULL WHERE id=?", (approval_id,))
+    event(conn, actor, "approval.undo", approval_id, {"was": row["decision"], "decided_for": row.get("decided_for")})
+    conv = conversation(conn, (message(conn, row["message_id"]) or {}).get("conversation_id")) \
+        if row.get("message_id") else None
+    if conv:
+        _write_message(conn, KEEPER, row["requested_by"],
+                       f"Undone: the {'approval' if row['decision'] == 'approved' else 'decline'} of your {row['kind']} request was taken back. It is waiting "
+                       "for a decision again; don't act on it until then.", conv, "notice", {"approval": approval_id},
+                       None, None)
+    _recount(conn, row["requested_by"])
+    return approval(conn, approval_id)
 
 
 def approvals(conn, requested_by=None, decision=None, pending=False):
@@ -5881,6 +6014,7 @@ def approvals(conn, requested_by=None, decision=None, pending=False):
     out = _rows(conn.execute(sql + " ORDER BY created", args))
     for row in out:
         row["payload"] = _json(row.get("payload_json"), {}) or {}
+        row["decided_for"] = _json(row.pop("decided_for_json", None), None)
     return out
 
 

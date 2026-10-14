@@ -230,6 +230,8 @@ STABLE = [
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
     ("/api/v2/approvals/{aid}", "get", "Needs you", "getApproval", "One approval request", None),
     ("/api/v2/approvals/{aid}", "post", "Needs you", "decideApproval", "Approve or reject", None),
+    ("/api/v2/approvals/{aid}/undo", "post", "Needs you", "undoApproval",
+     "Take back a decision your Assistant made for you, while nothing has acted on it", None),
     ("/api/v2/meetings", "get", "Meetings", "listMeetings", "Meetings; review=pending reads your own queue", "MeetingReviewList"),
     ("/api/v2/meetings/import", "post", "Meetings", "importMeeting", "Import into your Pending queue unless shared explicitly or automatically", None),
     ("/api/v2/meetings/settings", "get", "Meetings", "getMeetingReviewSettings", "Your meeting review preference and Team default", "MeetingReviewPreferences"),
@@ -326,6 +328,15 @@ STABLE = [
      "AssistantActionResult"),
     ("/api/v2/assistant/actions/{aid}/cancel", "post", "Assistant", "cancelAssistantAction",
      "Drop a proposal; it never runs", "AssistantActionResult"),
+    ("/api/v2/assistant/settings", "get", "Assistant", "getAssistantSettings",
+     "Your Assistant settings: whether it decides approvals for you, and whether the team allows it", None),
+    ("/api/v2/assistant/settings", "post", "Assistant", "setAssistantSettings",
+     "Let your Assistant decide approvals addressed to you, or stop it. Only you, signed in to the app", None),
+    ("/api/v2/assistant/decisions", "get", "Assistant", "listAssistantDecisions",
+     "The approvals your Assistant decided for you, with your words and whether each can still be undone", None),
+    ("/api/v2/assistant/read-back", "post", "Assistant", "readBackAssistantApprovals",
+     "The Assistant only: post the list of approvals it is about to approve for you in your chat; only those may then "
+     "be approved on your yes", None),
     # Goals and KPIs (docs/goals-and-kpis.md)
     ("/api/v2/goal-manager/turn-on", "post", "Goals", "turnOnGoalManager",
      "Owner only: add the Goal Manager from the catalog or restore it, and activate it", None),
@@ -481,7 +492,7 @@ SCHEMAS = {
     "Conversation": obj({"id": "s", "kind": "s", "subject": "s", "participants": items({"type": "string"}),
                          "created": "s", "last_message_at": "s", "closed_at": "n"}),
     "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "position": "i", "status": "s"}),
-    "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
+    "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "steps_only": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
                     bots={"type": ["string", "null"], "enum": ["read", "work", None],
                           "description": "What every bot may do with the type's tasks beyond its own: read "
                                          "(read, comment, file subtasks) or work (also change them); null keeps "

@@ -79,7 +79,7 @@ function occurrenceTableHTML(rows) {
       return `<tr>
         <td>${esc(occurrenceLabel(o))}</td>
         <td><span class="pill ${pill[o.outcome] || ''}">${esc(word[o.outcome] || o.outcome || '—')}</span></td>
-        <td>${status ? `<span class="pill ${pill[status] || ''}">${esc(status)}</span>` : '<span class="muted">—</span>'}</td>
+        <td>${status ? `<span class="pill ${pill[status] || ''}">${esc(status)}</span>` : o.reason ? `<span class="muted">${esc(o.reason)}</span>` : '<span class="muted">—</span>'}</td>
         <td class="tnum">${o.started ? esc(fmt(o.started)) : '<span class="muted">—</span>'}</td>
         <td class="tnum">${o.duration_s != null ? esc(durationWords(o.duration_s)) : (exit && exit !== 'completed' ? `<span class="pill ${pill[exit] || ''}">${esc(exit)}</span>` : '<span class="muted">—</span>')}</td>
         <td>${o.task_id ? `<a class="linkish" href="#/task/${esc(o.task_id)}">Open</a>` : ''}</td>

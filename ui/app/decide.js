@@ -1,6 +1,7 @@
 /* ui/app/decide.js — Decide: everything on the person's plate as one queue of cards, answered one at a time with two
-   big buttons. Questions bots asked first (a pick between options, images inline), then approvals, then the rest of
-   their tasks (waiting on them, then theirs). An answer, Done or a comment hands the task back to the bot; it is sent
+   big buttons. What a person asked for comes first, then what bots made (unless it is due or old); within each,
+   questions bots asked (a pick between options, images inline), then approvals, then the rest of their tasks
+   (waiting on them, then theirs). An answer, Done or a comment hands the task back to the bot; it is sent
    when its toast runs out or the next action lands, so Undo never needs the server.
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
@@ -44,7 +45,17 @@ function decideCards(items) {
       .push({key: 'task:' + it.id, type: 'task', it, at: it.created, yn: !it.ask_missing && decideYesNoAsk(decideAskText(it))});
   }
   const old = (a, b) => String(a.at || '').localeCompare(String(b.at || ''));
-  return [...asks.sort(old), ...approvals.sort(old), ...waiting.sort(old), ...mine.sort(old), ...unexplained.sort(old)];
+  const all = [...asks.sort(old), ...approvals.sort(old), ...waiting.sort(old), ...mine.sort(old)];
+  // What a person asked for leads (the server's needs_order), and so does a bot's item that presses: due, or old.
+  const first = c => !!(c.it.from_person || c.it.pressing);
+  return [...all.filter(first), ...all.filter(c => !first(c)), ...unexplained.sort(old)];
+}
+// "From Ana" beside the name when the card's work traces back to another person than the one shown;
+// "You asked" when it is the viewer's own request a bot is bringing back.
+function decideFromPerson(it, shown) {
+  const p = it.from_person;
+  if (!p || p === shown) return '';
+  return p === myActor() ? 'You asked' : `From ${actorLabel(p)}`;
 }
 const decideCount = () => S.me?.role === 'bot' ? 0 : decideCards(S.v2?.needs).length;
 // The Tasks page's way in: "Decide · N", only when there is something. A phone has it in the header, a wide
@@ -169,12 +180,12 @@ function decideRender(st, enter = false) {
     : (c.it.waiting_on === myActor() || c.it.kind === 'waiting') && String(c.it.owner).startsWith('bot:') ? c.it.owner
     : c.it.requester || c.it.owner;
   const decide = decideDecision(c);
-  const name = actorLabel(from) || 'Tico', chat = decideChatHref(from);
+  const name = actorLabel(from) || 'Tico', chat = decideChatHref(from), origin = decideFromPerson(c.it, from);
   // A bot's face and name open the bot, as the side rail does; the face is a second way in for the pointer, the name the one for keys.
   const face = chat ? `<a class="dc-who-face" href="${esc(chat)}" tabindex="-1" aria-hidden="true">${actorFace(from, 32)}</a>` : actorFace(from, 32);
   stage.innerHTML = `<article class="dc-card${enter ? ' in' : ''}" data-key="${esc(c.key)}">
     <div class="dc-who">${face}
-      <div class="dc-who-text"><div class="dc-who-name">${chat ? `<a class="dc-who-link" href="${esc(chat)}" title="${esc(`Open ${name}`)}">${esc(name)}</a>` : esc(name)}</div>
+      <div class="dc-who-text"><div class="dc-who-name">${chat ? `<a class="dc-who-link" href="${esc(chat)}" title="${esc(`Open ${name}`)}">${esc(name)}</a>` : esc(name)}${origin ? `<span class="dc-origin"> · ${esc(origin)}</span>` : ''}</div>
         <div class="dc-who-sub">${esc(c.type !== 'task' ? plainActors(c.it.title || '') : decideMeta(c.it))}</div></div>
       <span class="pill ${decide ? 'needs' : ''}">${decide ? 'Decide' : 'Task'}</span></div>
     <div class="dc-body"></div>
@@ -235,7 +246,16 @@ function decidePickHTML(st, c) {
     ? `<ul class="dc-descs">${q.options.map(o => `<li><b>${esc(o.label)}</b>${desc(o)}</li>`).join('')}</ul>` : '';
   else opts = `<div class="dc-tiles">${q.options.map((o, i) =>
     `<button type="button" class="dc-tile${o.file ? ' pic' : ''}" data-dc="pick" data-i="${i}">${o.file ? decidePicture(st, c, o) : ''}<span class="dc-tl"><b class="tnum">${i + 1}</b><span class="dc-l">${esc(o.label)}</span></span>${desc(o)}</button>`).join('')}</div>`;
-  return `<p class="dc-q">${esc(q.question)}</p>${context}${opts}`;
+  return `<p class="dc-q">${esc(q.question)}</p>${context}${decideDefault(c)}${opts}`;
+}
+// What the bot does if nobody answers (backend/ask_deadlines.py): on its own by a date, or only with an answer.
+function decideDefault(c) {
+  const ask = c.it.ask, d = ask?.refs?.if_no_answer;
+  if (!d?.do) return '';
+  const bot = actorLabel(ask.from_actor), at = ask.goes_ahead_at ? new Date(ask.goes_ahead_at) : null;
+  const when = at && !isNaN(at) ? at.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'}) : '';
+  return `<p class="dc-ctx dc-default">${esc(when ? `If you don't answer by ${when}, ${bot} goes ahead: ${d.do}`
+    : `${bot} recommends: ${d.do}. It waits for your answer.`)}</p>`;
 }
 const DEC_APPROVAL_Q = {send: 'Send this email?', spend: 'Approve this spend?', publish: 'Publish this?', merge: 'Merge this?',
   support: 'Send this to Tico support?'};

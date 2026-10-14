@@ -567,22 +567,49 @@ def conversation_snapshot(c, cid, who=None, settings=None):
     return {**page, "execution": execution, "goal": current(c, cid)}
 
 
-# What needs a person, in the order they work it. Bot requests rank above inbox items from mail, since helping the bots matters more. A request
-# from a bot about its own work comes first, the person's own tasks next, and what an inbox
-# bot lifted out of mail last; within a source the decisive kinds lead, oldest first.
-SOURCE_RANK = {"bot": 0, "self": 1, "mail": 2}
+# What needs a person, in the order they work it. Work that traces back to a person leads: a person asked for it,
+# or it hangs under a task a person asked for. Work bots made for themselves or each other follows, unless it is
+# pressing: due within a day or overdue, or waiting PRESSING_DAYS (DECISIVE_DAYS for an approval or a question,
+# which holds its bot up). Within a tier the decisive kinds lead, then the queue in rank order, oldest first.
+PRESSING_DAYS = 3
+DECISIVE_DAYS = 1
 # A bot's task set waiting on the person blocks that bot just as its question does.
 KIND_RANK = {"approval": 0, "question": 1, "ask": 1, "waiting": 1, "declined": 2, "task": 3, "report": 4}
 # A card whose bot has not yet said plainly what it needs (`ask_missing`) waits at the very bottom: there is nothing
 # for the person to do on it until the bot restates it (backend/restate_asks.py asks it to).
-UNEXPLAINED_RANK = 5
 
 
-def needs_source(actor):
-    actor = str(actor or "")
-    if actor.startswith("bot:"):
-        return "mail" if actor.endswith("-inbox") else "bot"
-    return "self"
+def person_origin(c, row, visible_sql, me=None):
+    """The person a task traces back to: its requester when that is a person, else the nearest ancestor's.
+    `visible_sql` is the reader's task rule (Auth.task_sql), so the walk stops at a task they may not open and
+    the order never says what it holds. `me`'s own to-do (they asked themselves) does not count: it would lift
+    their whole list over every bot. None for work bots made for themselves or each other."""
+    def readable(tid):
+        return c.execute(f"SELECT * FROM tasks WHERE id=? AND ({visible_sql})", (tid,)).fetchone()
+    if not row or not readable(row["id"]):
+        return None
+    if me and row.get("requester") == row.get("owner") == me:
+        return None
+    if H.is_human(row.get("requester")):
+        return row["requester"]
+    from .task_relations import ancestors
+    for tid in ancestors(c, row["id"]):
+        parent = readable(tid)
+        if not parent:
+            return None
+        if H.is_human(parent["requester"]):
+            return parent["requester"]
+    return None
+
+
+def pressing(it, now=None):
+    """A bot's item that may go ahead of a person's: due within a day or overdue, or waiting long enough."""
+    now = now or H.now()
+    due = it.get("due")
+    if due and str(due) <= H.shift(now, days=1):
+        return True
+    days = DECISIVE_DAYS if KIND_RANK.get(it.get("kind"), 9) <= 1 else PRESSING_DAYS
+    return bool(it.get("created")) and str(it["created"]) <= H.shift(now, days=-days)
 
 
 CHECKOUT_BEHIND_HOURS = 1
@@ -639,12 +666,12 @@ def checkout_issue(add, row, busy=0):
         restart_issue(add, row, busy)
 
 
-def needs_order(source_actor, kind, created, rank=None, ask_missing=False):
-    """Needs you is the person's queue: what blocks a bot
-    first (an approval, a question), then declined work, then their own tasks in rank order, and last a card
-    still waiting for its bot to explain what it needs. Who sent it no longer orders it; the rank does."""
-    return (UNEXPLAINED_RANK if ask_missing else KIND_RANK.get(kind, 9), rank if rank is not None else float("inf"),
-            str(created or ""))
+def needs_order(kind, created, rank=None, person=None, urgent=False, ask_missing=False):
+    """Needs you is the person's queue. A card still waiting for its bot to say what it needs goes last, whatever
+    else it is; above that, what traces back to a person, or presses, first; then within that what blocks a bot
+    (an approval, a question), then declined work, then their own tasks in rank order."""
+    return (1 if ask_missing else 0, 0 if person or urgent else 1, KIND_RANK.get(kind, 9),
+            rank if rank is not None else float("inf"), str(created or ""))
 
 
 def person_ask(row, kind, me, ask):
@@ -760,7 +787,10 @@ def needs_items(c, auth, who, task_view, older=None):
     """The person's queue. A task there only for a question older than H.ASK_OLDER_DAYS goes to `older` instead
     (a list the caller passes), out of the queue and its count."""
     raw = H.needs_you(c, who.actor)
+    visible = auth.task_sql(c, who)
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
+    from . import ask_deadlines, team_rules
+    rules = team_rules.load(c)
     items = []
     for kind in ("tasks", "waiting", "declined"):
         for row in raw[kind]:
@@ -770,10 +800,14 @@ def needs_items(c, auth, who, task_view, older=None):
                 continue
             open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
+            if ask and (ask.get("refs") or {}).get("if_no_answer"):
+                ask["goes_ahead_at"] = ask_deadlines.deadline(ask, rules)     # when the bot's default goes ahead
             item = {**task_view(row),
                     "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
                     "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
-                    "first_line": (row.get("body") or "").split("\n")[0]}
+                    "first_line": (row.get("body") or "").split("\n")[0],
+                    "from_person": (ask["from_actor"] if ask and H.is_human(ask["from_actor"])
+                                    else person_origin(c, row, visible, who.actor))}
             item["person_ask"], item["ask_missing"] = person_ask(row, item["kind"], who.actor, ask)
             if (item["kind"] == "question" and row["owner"] != who.actor and H.ask_older(ask)
                     and not any(a["to_actor"] == who.actor and not H.ask_older(a) for a in open_asks)):
@@ -790,7 +824,8 @@ def needs_items(c, auth, who, task_view, older=None):
         item = {"kind": "ask", "id": msg["id"], "message_id": msg["id"], "title": _clip(msg["body"], 160),
                 "first_line": (msg["body"] or "").split("\n")[0], "body": msg["body"], "requester": msg["from_actor"],
                 "origin_actor": msg["from_actor"], "conversation_id": msg["conversation_id"],
-                "created": msg["created"], "ask": ask}
+                "created": msg["created"], "ask": ask,
+                "from_person": msg["from_actor"] if H.is_human(msg["from_actor"]) else None}
         if H.ask_older(msg):
             ask["older"] = True
             if older is not None:
@@ -802,7 +837,8 @@ def needs_items(c, auth, who, task_view, older=None):
         if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
             item = {**row, "kind": "approval", "what": row["kind"],
                     "title": "Approve this " + row["kind"],
-                    "requester": row["requested_by"], "conversation_id": msg["conversation_id"]}
+                    "requester": row["requested_by"], "conversation_id": msg["conversation_id"],
+                    "from_person": person_origin(c, H.task(c, row["task_id"]) if row.get("task_id") else None, visible)}
             if row["kind"] == "send":
                 item["attachment_files"] = approval_files(c, auth, who, row.get("payload"))
             if row["kind"] == "support":
@@ -811,9 +847,11 @@ def needs_items(c, auth, who, task_view, older=None):
                 item["title"] = "Send this to Tico support?"
                 item["support"] = {"to": hq_url().split("://", 1)[-1].split("/", 1)[0]}
             items.append(item)
-    return sorted(items, key=lambda x: needs_order(
-        x["requester"] if x["kind"] == "approval" else (x.get("ask") or {}).get("from_actor") or x.get("origin_actor") or x.get("requester"),
-        x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None, bool(x.get("ask_missing"))))
+    at = H.now()
+    for item in items:
+        item["pressing"] = pressing(item, at)
+    return sorted(items, key=lambda x: needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
+                                                   x.get("from_person"), x["pressing"], bool(x.get("ask_missing"))))
 
 
 FLEET_CACHE_S = 15

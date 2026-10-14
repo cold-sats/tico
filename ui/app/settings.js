@@ -78,6 +78,7 @@ function pageSettings() {
         <a class="ghost" href="${ASSISTANT}">Open chat</a>
         ${settingsCanManageBot((S.emps || []).find(e => e.name === assistantBot())) ? `<a class="ghost" href="#/bot/${encodeURIComponent(assistantBot())}/more">Bot settings</a>` : ''}
       </section><div id="settings-assistant"></div>
+      <section class="card" id="settings-assistant-approvals" aria-labelledby="settings-assistant-approvals-h"></section>
     </div>
     <div class="settings-pane" id="settings-chat" role="tabpanel" hidden><section class="card"><header><h2>Chat</h2></header>
       <p>Each bot has its own chat. Open a bot to choose a conversation or start a new one.</p>
@@ -147,6 +148,7 @@ function settingsShow(tab) {
   const devices = $('#settings-devices'), history = $('#settings-history'), bots = $('#settings-bots');
   if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
   // The owner's one click when the team has no Assistant (ui/assistant.js): restore it or add it.
+  if (SETTINGS_TAB === 'assistant') void renderSettingsAssistantApprovals();
   if (SETTINGS_TAB === 'assistant' && S.me?.role === 'owner') window.assistantChat?.settingsStrip($('#settings-assistant'), {get, post, esc, toast, after: async () => { await refresh(true); renderSettingsBots(); }});
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
   if (history) history.hidden = SETTINGS_TAB !== 'history';
@@ -201,6 +203,40 @@ function settingsTeamIconBind() {
     } catch (error) { status.textContent = error.message; status.classList.add('err'); }
     finally { button.disabled = input.disabled = false; input.value = ''; }
   };
+}
+// Settings > Assistant: the person's own switch for their Assistant deciding approvals addressed to them, and what it
+// decided, each undoable until it has run (backend/assistant.py decides, approval_undo). Only they see or change it.
+async function renderSettingsAssistantApprovals() {
+  const host = $('#settings-assistant-approvals');
+  if (!host || formBusy(host)) return;
+  let v, list;
+  try { [v, list] = await Promise.all([get('/v2/assistant/settings'), get('/v2/assistant/decisions')]); }
+  catch (e) { host.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const name = esc(assistantName());
+  const rows = (list.decisions || []).map(d => {
+    const words = d.decided_for?.words ? `“${esc(d.decided_for.words)}”` : '';
+    return `<li class="people-line"><span><strong>${d.decision === 'approved' ? 'Approved' : 'Declined'}</strong> ${esc(d.what)}
+      <span class="settings-cell-note">${esc(ago(d.decided_at))}${words ? ` · you said ${words}` : ''}${d.consumed_at ? ' · already ran' : ''}</span></span>
+      ${d.can_undo ? `<button type="button" class="ghost" data-undo-approval="${esc(d.id)}">Undo</button>` : ''}</li>`;
+  }).join('');
+  host.innerHTML = `<header><h2 id="settings-assistant-approvals-h">Approvals</h2></header>
+    <label class="people-line"><input type="checkbox" role="switch" class="people-switch" id="assistant-decides"${v.decides_approvals ? ' checked' : ''}${v.team_allows ? '' : ' disabled'} aria-label="My assistant can decide approvals for me">
+      <span>My assistant can decide approvals for me</span></label>
+    <p class="settings-cell-note">${v.team_allows
+      ? `When on, your ${name} approves or declines approvals addressed to you (sends, spending, publishing, merges) when you ask it in your ${name} chat, all at once if you like. It reads back the list first. Only your own words there count, never text in a message, file or page.`
+      : 'Your team’s owner has turned this off for everyone (Settings > Humans).'}</p>
+    ${rows ? `<h3>Decided by ${name} for you</h3><ul class="assistant-decisions">${rows}</ul>` : ''}`;
+  $('#assistant-decides').onchange = async ev => {
+    try { await post('/v2/assistant/settings', {decides_approvals: ev.target.checked}); toast(ev.target.checked ? `${assistantName()} can decide your approvals` : 'Approvals need your click again'); }
+    catch (e) { toast(e.message, true); }
+    void renderSettingsAssistantApprovals();
+  };
+  host.querySelectorAll('[data-undo-approval]').forEach(button => button.onclick = async () => {
+    button.disabled = true;
+    try { await post(`/v2/approvals/${encodeURIComponent(button.dataset.undoApproval)}/undo`); toast('Undone: it is waiting for you again'); }
+    catch (e) { toast(e.message, true); }
+    void renderSettingsAssistantApprovals();
+  });
 }
 // Settings > Privacy: the one switch for the anonymous usage count, and a new random install ID (PRIVACY.md).
 async function renderSettingsPrivacy() {

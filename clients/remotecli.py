@@ -285,6 +285,8 @@ def run(args, who=None):
                 body["bots"] = args.bots
             if args.numbered is not None:
                 body["numbered"] = args.numbered
+            if getattr(args, "steps_only", None) is not None:
+                body["steps_only"] = args.steps_only
             return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
         if sub == "types":
             if args.delete:
@@ -522,8 +524,10 @@ def run(args, who=None):
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)
-        if sub == "decline":
-            return post("approvals/" + args.id, {"decision": "declined", "note": args.note},
+        if sub == "read-back":
+            return post("assistant/read-back", {"approvals": args.ids})
+        if sub in ("approve", "decline"):
+            return post("approvals/" + args.id, {"decision": sub + "d", "note": args.note},
                         delegate=getattr(args, "on_behalf_of", None) or False)
         payload = json.loads(Path(args.payload_file).read_text() if args.payload_file else args.payload or "{}")
         return post("approvals", {"kind": args.kind, "payload": payload, "task_id": args.task})
