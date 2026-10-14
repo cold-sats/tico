@@ -40,7 +40,8 @@ def test_an_ask_whose_wait_fails_still_returns_its_id_and_a_retry_is_not_sent_tw
 def test_a_task_waiting_on_a_person_nobody_asked_shows_in_health_until_they_are_asked(api):
     tid = post(api, "tasks", {"owner": "ops", "title": "Renew the Acme domain", "body": "x"})["id"]
     with api.app.state.store.transaction() as c:
-        H.task_update(c, "bot:ops", tid, status="waiting", waiting_on="ana")
+        H.task_update(c, "bot:ops", tid, status="waiting", waiting_on="ana",
+                      note="Renew the Acme domain for a year? If yes, I'll pay the invoice.")
         c.execute("UPDATE task_events SET ts=? WHERE task_id=? AND field='waiting_on'",
                   (H.shift(H.now(), hours=-2), tid))
 
