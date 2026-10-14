@@ -83,13 +83,15 @@ RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
     .venv/bin/python -c 'import backend.app, runner.service, clients.environments' \
     && .venv/bin/python -m compileall -q backend runner clients
 
-# The Rust runner (runner-rs/, docs/rust-runner.md), built on the same Debian release as the runner image so it
+# The Rust runner (runner-rs/, opt-in per computer: runner/engine.py), built on the same Debian release as the runner image so it
 # links against the same glibc. Only its sources are copied, so a change elsewhere reuses this layer.
 FROM rust:1.90-slim-bookworm@sha256:64232e656c058f4468e8d024e990acff04f0fd5a5c0a88a574dc37773d7325c9 AS runner-bin
-WORKDIR /src
+WORKDIR /src/runner-rs
 COPY runner-rs/Cargo.toml runner-rs/Cargo.lock ./
 COPY runner-rs/src ./src
-COPY LICENSE /LICENSE
+# The harness manifests are compiled in (harness_tools.rs BUILT_IN), from ../runner/harnesses.
+COPY runner/harnesses /src/runner/harnesses
+COPY LICENSE /src/LICENSE
 RUN cargo build --release --locked && install -D -m 0755 target/release/tico-runner /out/tico-runner
 
 FROM ${PYTHON_IMAGE} AS runner

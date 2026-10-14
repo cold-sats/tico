@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
+use serde_json::Value;
+
 use crate::client::ApiError;
 use crate::events::BACKUP_POLL_S;
 use crate::runner::{describe, Runner};
@@ -17,8 +19,8 @@ type Slot<T> = Arc<tokio::sync::Mutex<T>>;
 #[derive(Default)]
 struct HarnessRelay {
     relay: Option<crate::harness_tools::Relay>,
-    providers: Vec<String>,
-    providers_at: Option<Instant>,
+    default_runtime: String,
+    default_at: Option<Instant>,
 }
 
 struct Relays {
@@ -122,25 +124,19 @@ pub fn poll(runner: &Arc<Runner>) {
         tokio::spawn(async move {
             let tools = crate::harness_tools::init(&me.config);
             let result = async {
-                // Install on demand: only what the company's enabled providers and this runner's bots need.
-                if harness.providers_at.is_none_or(|t| t.elapsed().as_secs_f64() >= 60.0) {
-                    harness.providers_at = Some(Instant::now());
+                // Install on demand: what this computer's bots run on (primary and fallback), plus what the owner
+                // turned on here; a computer with no bots yet takes the company's default runtime.
+                if harness.default_at.is_none_or(|t| t.elapsed().as_secs_f64() >= 60.0) {
+                    harness.default_at = Some(Instant::now());
                     if let Ok(c) = me.client.get("config").await {
-                        if let Some(list) = c["enabled_providers"].as_array() {
-                            harness.providers = list.iter().map(text_of).collect();
+                        if let Some(value) = c["default_runtime"].as_str() {
+                            harness.default_runtime = value.to_string();
                         }
                     }
                     if let Ok(rows) = me.client.get("runners/assignments").await {
-                        let runtimes: Vec<String> = rows
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .map(|row| text_of(&row["config"]["runtime"]))
-                            .filter(|r| !r.is_empty())
-                            .collect::<HashSet<_>>()
-                            .into_iter()
-                            .collect();
-                        tools.lock().unwrap().want(&harness.providers, &runtimes);
+                        let rows = rows.as_array().cloned().unwrap_or_default();
+                        let runtimes = harness_runtimes(&rows, &harness.default_runtime);
+                        tools.lock().unwrap().want(&runtimes.into_iter().collect::<Vec<_>>());
                     }
                 }
                 let active = me.active.lock().unwrap().clone();
@@ -152,4 +148,21 @@ pub fn poll(runner: &Arc<Runner>) {
             note("harness", result, "harness step");
         });
     }
+}
+
+/// The runtimes this computer installs a harness for (service.harness_runtimes): each assigned bot's and its
+/// fallback's; with no bots, the company's default.
+pub fn harness_runtimes(rows: &[Value], default_runtime: &str) -> HashSet<String> {
+    let mut found = HashSet::new();
+    for row in rows {
+        found.insert(text_of(&row["config"]["runtime"]));
+        if let Some(hop) = crate::fallback::configured(&row["config"]) {
+            found.insert(hop.runtime);
+        }
+    }
+    found.remove("");
+    if found.is_empty() && !default_runtime.is_empty() {
+        found.insert(default_runtime.to_string());
+    }
+    found
 }

@@ -1,5 +1,5 @@
 """The one switch between runner engines: `python -m runner run` hands the process to the Rust runner
-(runner-rs/, docs/rust-runner.md) when runner.json says `"engine": "rust"` or the environment says
+(runner-rs/) when runner.json says `"engine": "rust"` or the environment says
 TICO_RUNNER_ENGINE=rust (the environment wins, so TICO_RUNNER_ENGINE=python turns it off for one start).
 
 The binary is $TICO_RUNNER_BIN (the Docker image's), else this checkout's runner-rs/target/release/tico-runner,

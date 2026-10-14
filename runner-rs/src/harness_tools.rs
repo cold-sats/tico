@@ -30,7 +30,7 @@ const POLICIES: &[&str] = &["latest", "pinned"];
 const AUTH_METHODS: &[&str] = &["device-code", "subscription", "api-key"];
 const ACTIONS: &[&str] = &["update", "pin", "unpin"];
 /// The adapters runner/hosts/ has (a manifest's `host` must name one).
-const HOSTS: &[&str] = &["antigravity", "claude", "codex", "cursor", "gemini", "grok", "pi", "fake"];
+const HOSTS: &[&str] = &["antigravity", "claude", "codex", "cursor", "gemini", "grok", "musecode", "pi", "fake"];
 const VERSION_TIMEOUT_S: u64 = 60;
 pub const CHECK_EVERY_S: f64 = 24.0 * 3600.0;
 const RETRY_AFTER_S: f64 = 30.0 * 60.0;
@@ -43,6 +43,7 @@ const BUILT_IN: &[(&str, &str)] = &[
     ("cursor-agent.toml", include_str!("../../runner/harnesses/cursor-agent.toml")),
     ("gemini-cli.toml", include_str!("../../runner/harnesses/gemini-cli.toml")),
     ("grok.toml", include_str!("../../runner/harnesses/grok.toml")),
+    ("muse-code.toml", include_str!("../../runner/harnesses/muse-code.toml")),
     ("pi.toml", include_str!("../../runner/harnesses/pi.toml")),
 ];
 
@@ -435,7 +436,9 @@ pub struct Harnesses {
     state_path: PathBuf,
     pub manifests: BTreeMap<String, Manifest>,
     check_every: f64,
-    wanted: HashSet<String>,
+    pub wanted: HashSet<String>,
+    needed: HashSet<String>,           // what this computer's bots run on: always installed
+    choices: BTreeMap<String, bool>,   // the owner's on/off per harness for this computer; empty from an older server
     requests: Vec<Job>,
     job: Option<(Job, Slot)>,
     staged: BTreeMap<String, Job>,
@@ -477,6 +480,8 @@ impl Harnesses {
             manifests,
             check_every: CHECK_EVERY_S,
             wanted: HashSet::new(),
+            needed: HashSet::new(),
+            choices: BTreeMap::new(),
             requests: vec![],
             job: None,
             staged: BTreeMap::new(),
@@ -566,21 +571,41 @@ impl Harnesses {
         version
     }
 
-    /// Harnesses the enabled providers, and the runtimes assigned bots run on, need.
-    pub fn want(&mut self, providers: &[String], runtimes: &[String]) -> HashSet<String> {
-        let mut found = HashSet::new();
-        for p in providers {
-            if let Some(m) = self.manifests.values().find(|m| m.providers.contains(p)) {
-                found.insert(m.id.clone());
-            }
-        }
-        for r in runtimes {
-            if let Some(m) = self.manifests.values().find(|m| &m.host == r) {
-                found.insert(m.id.clone());
-            }
-        }
-        self.wanted = found.clone();
-        found
+    pub fn harness_for_runtime(&self, runtime: &str) -> Option<&Manifest> {
+        self.manifests.values().find(|m| m.host == runtime)
+    }
+
+    /// Install the harnesses these runtimes (this computer's bots, primary and fallback) run on, plus the ones
+    /// the owner turned on here. The company's other providers are not installed.
+    pub fn want<S: AsRef<str>>(&mut self, runtimes: &[S]) -> HashSet<String> {
+        self.needed = runtimes.iter().filter_map(|r| self.harness_for_runtime(r.as_ref()).map(|m| m.id.clone())).collect();
+        self.rewant()
+    }
+
+    /// The owner's on/off per harness for this computer (`{id: bool}`), as the server keeps it.
+    pub fn choose(&mut self, choices: &Map<String, Value>) -> HashSet<String> {
+        self.choices = choices
+            .iter()
+            .filter(|(k, _)| self.manifests.contains_key(*k))
+            .map(|(k, v)| (k.clone(), crate::util::truthy(Some(v))))
+            .collect();
+        self.rewant()
+    }
+
+    fn rewant(&mut self) -> HashSet<String> {
+        self.wanted = self.needed.iter().cloned().chain(self.choices.iter().filter(|(_, on)| **on).map(|(k, _)| k.clone())).collect();
+        self.wanted.clone()
+    }
+
+    /// Off on this computer: the owner said so and none of its bots runs on it.
+    fn turned_off(&self, id: &str) -> bool {
+        self.choices.get(id) == Some(&false) && !self.needed.contains(id)
+    }
+
+    /// The bot problem while this runner installs the runtime's harness ("Codex is installing"), else None.
+    pub fn installing(&self, runtime: &str) -> Option<String> {
+        let m = self.harness_for_runtime(runtime)?;
+        (self.wanted.contains(&m.id) && !self.backing_off(m)).then(|| format!("{} is installing", m.name))
     }
 
     /// Apply an owner's action: (state, message) with state done | failed | queued.
@@ -624,7 +649,26 @@ impl Harnesses {
                 continue;
             }
             let job = self.staged.remove(&id).unwrap();
+            if self.turned_off(&id) {
+                if let Some((dir, _)) = &job.staged {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+                if !job.request.is_empty() {
+                    self.results.push((job.request.clone(), "failed".into(), format!("{} is turned off on this computer", m.name)));
+                }
+                continue;
+            }
             self.commit(&m, job);
+        }
+        for (id, m) in self.manifests.clone() {
+            // Turned off: removed at a moment no turn uses it and nothing is being installed for it.
+            if self.turned_off(&id)
+                && !busy.contains(&m.host)
+                && !self.staged.contains_key(&id)
+                && self.job.as_ref().is_none_or(|(j, _)| j.harness != id)
+            {
+                self.remove(&m);
+            }
         }
         if self.job.is_none() {
             if let Some(job) = self.next() {
@@ -703,8 +747,8 @@ impl Harnesses {
                 }
                 continue;
             };
-            if source != "tools" {
-                continue; // the person's own install: theirs to update
+            if source != "tools" || self.turned_off(&id) {
+                continue; // the person's own install, or one on its way out
             }
             let installed = self.detect(&m, &path, 15);
             if policy == "pinned" && installed != pin {
@@ -718,6 +762,25 @@ impl Harnesses {
             }
         }
         None
+    }
+
+    /// Uninstall what this runner installed for `m`. A person's own install is theirs.
+    fn remove(&mut self, m: &Manifest) {
+        let (root, entry) = (self.tools.join(&m.id), self.bin_dir().join(&m.executable));
+        let link = std::fs::symlink_metadata(&entry).is_ok_and(|md| md.file_type().is_symlink());
+        if !root.exists() && !link {
+            return;
+        }
+        if link {
+            let _ = std::fs::remove_file(&entry);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        self.versions.clear();
+        for key in ["checked", "latest", "failed"] {
+            self.section(key).remove(&m.id);
+        }
+        self.save();
+        log(&format!("Tico runner: removed {}; it is turned off on this computer", m.name));
     }
 
     /// Make the staged install the one in use. Called only with no running turn on this host.
@@ -1073,6 +1136,11 @@ impl Relay {
     pub async fn tick(&mut self, h: &Arc<Mutex<Harnesses>>, client: &Client, busy: HashSet<String>, ask: bool) -> Result<(), crate::client::ApiError> {
         if ask {
             let reply = client.get("runner-harness-actions").await?;
+            // The owner's on/off per harness here. A server from before the setting sends none: the computer
+            // then installs what its bots run on and keeps what it already has.
+            if let Some(choices) = reply["choices"].as_object() {
+                h.lock().unwrap().choose(choices);
+            }
             for row in reply["actions"].as_array().cloned().unwrap_or_default() {
                 let id = text_of(&row["id"]);
                 if !row.is_object() || id.is_empty() || self.known.contains_key(&id) {
@@ -1109,7 +1177,7 @@ mod tests {
     #[test]
     fn shipped_manifests_parse_and_claim_once() {
         let all = built_in();
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), 7);
         let claude = &all["claude-code"];
         assert_eq!((claude.host.as_str(), claude.method(), claude.bin_relative().as_str()), ("claude", "npm", "node_modules/.bin/claude"));
         let login = claude.login.as_ref().unwrap();
@@ -1156,5 +1224,29 @@ mod tests {
         let bin = Path::new("/t/bin");
         assert_eq!(path_with("/usr/bin:/bin", bin), "/usr/bin:/bin:/t/bin");
         assert_eq!(path_with("/usr/bin:/t/bin", bin), "/usr/bin:/t/bin");
+    }
+
+    #[test]
+    fn a_computer_wants_what_its_bots_run_on_and_removes_what_the_owner_turned_off() {
+        let dir = std::env::temp_dir().join(format!("tico-harness-{}", uuid::Uuid::new_v4().simple()));
+        let mut h = Harnesses::new(dir.join("tools"), dir.join("harnesses.json"), built_in());
+        assert_eq!(h.want(&["claude", "nope"]), HashSet::from(["claude-code".to_string()]));
+        let choices = json!({"codex": true, "claude-code": false, "cursor-agent": false, "unknown": true});
+        assert_eq!(h.choose(choices.as_object().unwrap()), HashSet::from(["claude-code".to_string(), "codex".to_string()]));
+        assert!(!h.turned_off("claude-code") && h.turned_off("cursor-agent")); // a bot here still needs Claude Code
+        assert_eq!(h.installing("codex").as_deref(), Some("Codex is installing"));
+        assert!(h.installing("cursor").is_none());
+        // A turned-off install this runner made is removed when no turn uses it.
+        let cursor = h.manifests["cursor-agent"].clone();
+        std::fs::create_dir_all(dir.join("tools").join("cursor-agent").join("x")).unwrap();
+        std::fs::create_dir_all(h.bin_dir()).unwrap();
+        std::os::unix::fs::symlink("../cursor-agent/current/x", h.bin_dir().join(&cursor.executable)).unwrap();
+        h.step(&HashSet::from(["cursor".to_string()]));
+        assert!(dir.join("tools").join("cursor-agent").exists()); // busy: kept
+        h.check_every = f64::INFINITY;
+        h.step(&HashSet::new());
+        assert!(!dir.join("tools").join("cursor-agent").exists());
+        assert!(std::fs::symlink_metadata(h.bin_dir().join(&cursor.executable)).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

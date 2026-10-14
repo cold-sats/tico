@@ -375,7 +375,8 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
                 problems.push("Antigravity CLI is not on PATH".into());
             }
         } else if runtimes.get(&runtime).is_none_or(|r| r["installed"] != true) {
-            problems.push("Runtime executable is not on PATH".into());
+            let installing = crate::harness_tools::shared().and_then(|h| h.try_lock().ok()?.installing(&runtime));
+            problems.push(installing.unwrap_or_else(|| "Runtime executable is not on PATH".into()));
         } else if status["authenticated"] == "rejected" {
             problems.push(signed_out(text_of(&status["detail"])));
         } else if status["authenticated"] == "missing" || status["authenticated"] == "failed" {
