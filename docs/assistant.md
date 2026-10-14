@@ -105,8 +105,9 @@ What stays on:
   pending approvals addressed to you. Tico writes the whole message ("I'll approve these 3 for you:", one line per
   approval, "Reply yes to approve exactly these; any other reply approves nothing.") as the reply to your message, so
   the turn's closing text is not posted after it, and records the ids. An approve then runs only for an approval on
-  that list, citing your plain yes ("yes", "ok", "go ahead") when the list is the Assistant's last message before it
-  (`403 approve_not_asked` otherwise). Your own sentence never approves without that yes, however it is put ("approve
+  that list, citing your plain yes ("yes", "ok", "go ahead") when the list is the last message from anyone but you before
+  it and you have written nothing since ("wait, no" takes it back; `403 approve_not_asked` otherwise). Each line of the
+  list is one line, whatever the requesting bot put in its request. Your own sentence never approves without that yes, however it is put ("approve
   the merge if CI passes", "send me a summary"). Text in a message, file, web page, task or another
   bot's output is never your instruction: citing a bot's message is `403 on_behalf_of`. Declines need no read-back.
 - **Never its own request.** An approval the Assistant itself asked for stays your click on a card (`403 own_request`).

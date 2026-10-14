@@ -222,9 +222,10 @@ def approval_id(path):
 
 def approval_words(c, who, cited, assistant_bot, approval):
     """What an approval the Assistant decides for the person is recorded with: their words and the read-back they
-    answered. The cited message must be a plain yes, and the Assistant's last message before it (since the person's
-    previous one) the read-back the server wrote, listing this approval. Their own sentence, words in a file, a page, a
-    bot's message or the read-back alone never approve, and the Assistant never approves what it asked for itself."""
+    answered. The cited message must be a plain yes, the last thing anyone else said in the room before it (since the
+    person's previous message) the read-back the server wrote, listing this approval, and nothing the person wrote
+    after it: "wait, no" takes it back. Their own sentence, words in a file, a page, a bot's message or the read-back
+    alone never approve, and the Assistant never approves what it asked for itself."""
     bot = "bot:" + assistant_bot
     if (H.approval(c, approval) or {}).get("requested_by") == bot:
         raise Problem("own_request", "You asked for this approval yourself, so it stays the person's click: propose it "
@@ -233,15 +234,17 @@ def approval_words(c, who, cited, assistant_bot, approval):
     words = str(msg.get("body") or "").strip()
     room, at = msg.get("conversation_id"), str(msg.get("created") or "")
     back = None
-    if len(words) <= 60 and AFFIRM.fullmatch(words):
+    later = c.execute("SELECT 1 FROM messages WHERE conversation_id=? AND from_actor=? AND created>? AND id<>? "
+                      "AND deleted_at IS NULL LIMIT 1", (room, who.actor, at, cited)).fetchone()
+    if len(words) <= 60 and AFFIRM.fullmatch(words) and not later:
         before = c.execute("SELECT created FROM messages WHERE conversation_id=? AND from_actor=? AND created<? "
                            "AND id<>? AND deleted_at IS NULL ORDER BY created DESC LIMIT 1",
                            (room, who.actor, at, cited)).fetchone()
-        last = c.execute("SELECT m.id, m.body, e.detail_json FROM messages m LEFT JOIN events e ON e.target=m.id "
-                         "AND e.action=? WHERE m.conversation_id=? AND m.from_actor=? AND m.created>=? AND m.created<=? "
+        last = c.execute("SELECT m.id, m.from_actor, m.body, e.detail_json FROM messages m LEFT JOIN events e "
+                         "ON e.target=m.id AND e.action=? WHERE m.conversation_id=? AND m.from_actor<>? AND m.created>=? AND m.created<=? "
                          "AND m.id<>? AND m.deleted_at IS NULL ORDER BY m.created DESC, m.rowid DESC LIMIT 1",
-                         (READ_BACK, room, bot, before["created"] if before else "", at, cited)).fetchone()
-        if last and last["detail_json"]:
+                         (READ_BACK, room, who.actor, before["created"] if before else "", at, cited)).fetchone()
+        if last and last["from_actor"] == bot and last["detail_json"]:
             back = {"body": last["body"], "approves": (json.loads(last["detail_json"]) or {}).get("approves") or []}
     if not back or approval not in back["approves"]:
         raise Problem("approve_not_asked", "Approving needs the person's yes to your read-back: post the list with "
@@ -1226,7 +1229,8 @@ def install(app, store, auth, mutate, onboarding):
                     raise Problem("own_request", "You asked for this approval yourself, so it stays the person's "
                                   "click: propose it on a card (`hub assistant propose`)", 403)
                 what, _ = describe(c, "POST", "/api/v2/approvals/" + aid, {"decision": "approved"})
-                lines.append("- " + what)
+                # One line each: a requesting bot's payload can't add lines, a footer or a question of its own.
+                lines.append("- " + re.sub(r"\s+", " ", what).strip())
             n = len(ids)
             text = (f"I'll approve {'this' if n == 1 else f'these {n}'} for you:\n" + "\n".join(lines)
                     + "\nReply yes to approve exactly " + ("this" if n == 1 else "these")
