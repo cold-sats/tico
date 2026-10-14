@@ -16,8 +16,6 @@ Generated, do not edit by hand:
 
 - `tico-1024.png`: the tile inset on Apple's grid, the master for the desktop app icon (`scripts/app.sh`).
 - `tico-slack.png`: full-bleed 512 px square for the Slack app's icon, uploaded by hand in the Slack app settings.
-- `tico-menubar.png` / `tico-menubar@2x.png`: 16 and 32 px black-with-alpha template images. AppKit tints
-  them for light and dark menu bars. The 32 px file is `app/icons/tray.png`.
 - `../favicon-32.png`, `../apple-touch-icon.png` (180 px, full-bleed), `../icon-192.png`, `../icon-512.png`,
   `../icon-maskable-512.png` (mark inside the safe zone; the manifest marks it `maskable`).
 - `app/icons/*`: the desktop bundle's icons (`icon.icns`, `icon.ico` and the PNGs `tauri.conf.json` lists).

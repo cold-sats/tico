@@ -15,11 +15,21 @@ its `/healthz` check as Tico, saves the address in the app's config folder, then
 Sign in as you would in a browser. HTTPS is required; `http://localhost` and `http://127.0.0.1`
 are allowed for a server on your Computer. A failed check shows an error below the field.
 
-Use **Change server…** in the generic app's menu or tray menu to connect to another server.
+Use **Change server…** in the generic app's menu to connect to another server.
 The app saves the address and restarts automatically to replace its native permissions.
 Only the selected server's origin can use native IPC; Access and external sign-in pages that
-remain in the window receive no native permissions. Tico keeps
-its tray icon when you close the main window. Click it to show or hide the window.
+remain in the window receive no native permissions.
+
+Tico is one ordinary window with the Mac's own title bar: drag it by its title on any page and
+resize it from any edge, down to 360 by 400 pixels. At 760 pixels wide or less the page switches to its
+compact layout (the same one a phone uses). The app remembers where you left the window and how big
+it was, separately for each Tico app on the Mac, and opens there next time. It centres the window
+only on the first launch, or when the display it was last on is no longer connected.
+
+Tico puts nothing in the Mac's top menu bar. On macOS, closing the window hides it and the app
+keeps running: click Tico's Dock icon to bring the window back, and use **Quit** (⌘Q) to quit.
+The Dock icon's badge is how many things need you. **View → Search…** (⌘K) and
+**View → Reload** (⌘R) are in the app's menu. On Windows and Linux, closing the window quits.
 
 The app checks for signed updates automatically, installs them and relaunches. Generic builds
 use the public GitHub release manifest; your server's web interface updates with the server.
@@ -66,7 +76,7 @@ hub session for protected update files. Downloads remain behind Cloudflare Acces
 
 Use this only when an installed company shell at version 0.3.20 needs to reach the official
 CI-signed 0.3.21 release. Root supplies the installed `.app`, HTTPS company hub, the exact updater
-feed already configured for that company, and its existing environment and tray settings from the
+feed already configured for that company, and its existing environment settings from the
 managed verification checkout. Keep those private values in the local shell; do not put them in this
 public document or a commit. `UPDATE_URL` may be a separate configured public runner feed, so retain
 its exact value rather than substituting the generic GitHub feed or assuming the hub hosts updates.
@@ -85,7 +95,6 @@ TEAM_APP="/absolute/path/to/the/current/Team.app"
 HUB_URL="https://<company-hub-host>/"
 UPDATE_URL="https://<existing-company-update-feed>/download/latest.json"
 ENV_SLUG="<existing-company-environment-slug>"
-TRAY_LABEL="<existing-tray-label-or-empty>"
 BUILD_ROOT="$(mktemp -d /tmp/tico-bridge-0.3.20.XXXXXX)"
 OVERRIDE="$BUILD_ROOT/tauri.override.json"
 INFO="$TEAM_APP/Contents/Info.plist"
@@ -94,19 +103,18 @@ APP_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$INFO")"
 APP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO")"
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO")"
 test "$APP_VERSION" = "0.3.20"
-python3 - "$BUNDLE_ID" "$APP_NAME" "$APP_EXECUTABLE" "$HUB_URL" "$UPDATE_URL" "$TRAY_LABEL" "$OVERRIDE" <<'PY'
+python3 - "$BUNDLE_ID" "$APP_NAME" "$APP_EXECUTABLE" "$HUB_URL" "$UPDATE_URL" "$OVERRIDE" <<'PY'
 import json
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
-bundle_id, name, executable, hub, feed, tray_label, output = sys.argv[1:8]
+bundle_id, name, executable, hub, feed, output = sys.argv[1:7]
 for label, value in (("company hub", hub), ("company updater feed", feed)):
     parsed = urlsplit(value)
     assert parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password \
         and not parsed.query and not parsed.fragment, f"{label} must be an HTTPS URL without credentials, query or fragment"
 assert bundle_id and name and executable, "installed company app identity is incomplete"
-assert len(tray_label) <= 4 and tray_label.isascii() and (not tray_label or tray_label.isalnum()), "tray label must be empty or 1-4 ASCII letters/digits"
 config = json.loads(Path("app/tauri.conf.json").read_text())
 assert config["plugins"]["updater"].get("pubkey"), "the checked-in official updater public key is missing"
 generic_feed = "https://github.com/ticoteam/tico/releases/latest/download/latest.json"
@@ -122,7 +130,7 @@ PY
 (
   cd app
   TICO_HUB_URL="$HUB_URL" TICO_APP_NAME="$APP_NAME" TICO_ENV_SLUG="$ENV_SLUG" \
-    TICO_TRAY_LABEL="$TRAY_LABEL" TICO_LOCAL_TOKEN_FILE="" CARGO_TARGET_DIR="$BUILD_ROOT/cargo-target" \
+    TICO_LOCAL_TOKEN_FILE="" CARGO_TARGET_DIR="$BUILD_ROOT/cargo-target" \
     cargo tauri build --target universal-apple-darwin --bundles app --no-sign --config "$OVERRIDE" -- --locked
 )
 ```
