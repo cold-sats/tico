@@ -2490,9 +2490,19 @@ def approval_show(api, args):
     return api.get("approvals/" + args["id"])
 
 
+@tool("hub_approval_approve", "Approve an approval addressed to you (a send, spend, publish or merge). The Assistant "
+      "approves only when its person turned on \"My assistant can decide approvals for me\" and asked for it in their "
+      "chat, citing that message (on_behalf_of); otherwise the refusal says the one sentence to tell them.",
+      {"id": _s("Approval id"), "note": _s("Optional, a few words the requesting bot reads"), "on_behalf_of": ASKED},
+      required=("id",), writes=True)
+def approval_approve(api, args):
+    return _asked(api, args).post("approvals/" + args["id"], {"decision": "approved", "note": args.get("note") or ""},
+                                  key=_key(args))
+
+
 @tool("hub_approval_decline", "Decline an approval addressed to you (a send, spend, publish or merge), with a short reason "
       "the requesting bot reads. A declined item can be asked for again. The Assistant declines what its person asked it to "
-      "in their chat, citing that message (on_behalf_of); approving is never a tool: it is their click on a card.",
+      "in their chat, citing that message (on_behalf_of).",
       {"id": _s("Approval id"), "note": _s("Why, in a few words: the requesting bot reads it"), "on_behalf_of": ASKED},
       required=("id",), writes=True)
 def approval_decline(api, args):
@@ -3215,7 +3225,7 @@ REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
 ASSISTANT_WRITES = {"hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
-                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_question_answer",
+                    "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_approval_approve", "hub_question_answer",
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
@@ -3237,6 +3247,7 @@ AUDIENCE = {
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
     "hub_approval_decline": HUMANS_AND_ASSISTANT,         # only a person decides an approval
+    "hub_approval_approve": HUMANS_AND_ASSISTANT,         # ... or their own Assistant, when they let it
     "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,
     # Humans only (views.human_only and the batch routes refuse a bot); a bot's own posts are the other way round.
     "hub_brief": HUMANS_AND_ASSISTANT, "hub_bot_recent": HUMANS_AND_ASSISTANT,

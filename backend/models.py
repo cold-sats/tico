@@ -573,6 +573,11 @@ class ApprovalDecision(Contract):
     note: str = Field(default="", max_length=2000)
 
 
+class AssistantSettings(Contract):
+    """A person's own Assistant settings (Settings > Assistant)."""
+    decides_approvals: StrictBool
+
+
 class ApprovalConsume(Contract):
     payload_hash: str = Field(min_length=64, max_length=64)
 
@@ -1313,6 +1318,7 @@ class AccessLimits(Contract):
 class AccessRules(Contract):
     """Team rules the owner tightens (backend/team_rules.py); only what is sent changes."""
     assistant_direct: bool | None = None
+    assistant_approvals: bool | None = None
     botops_direct: bool | None = None
     botops_manages_bots: bool | None = None
     admin_credentials: bool | None = None

@@ -308,6 +308,7 @@ def create_app(settings=None):
     from .assistant import write_allowed as assistant_writes, own_room as assistant_room, create_proposal
     from .assistant import describe as describe_action
     from .assistant import instructed_route as assistant_instructed, instruction as assistant_instruction
+    from . import assistant as assistant_mod
     from . import botops_act
 
     def assistant_owns(task_id, actor, shared=False):
@@ -334,6 +335,10 @@ def create_app(settings=None):
     def assistant_direct():
         with store.read() as c:
             return team_rules.load(c)["assistant_direct"]
+
+    def assistant_decides(actor):
+        with store.read() as c:
+            return assistant_mod.decides(c, actor)
 
     @app.middleware("http")
     async def request_guard(request, call_next):
@@ -440,18 +445,32 @@ def create_app(settings=None):
                     # chat: the turn cites their message and it runs as them, recorded via assistant for that message
                     # (backend/assistant.py).
                     asked = request.headers.get(botops_act.HEADER)
+                    raw = getattr(request, "_body", b"")
+                    # Approving on the person's words: only when they let their Assistant decide approvals (and the
+                    # team allows it); otherwise the one sentence it tells them about the setting.
+                    approves = (request.state.identity.via == "assistant"
+                                and assistant_mod.approving(request.method, request.url.path, raw))
+                    state = assistant_decides(request.state.identity.actor) if approves else None
+                    if approves and not state["active"]:
+                        raise Problem("approve_setting_off", assistant_mod.approve_hint(settings, state), 403)
                     if not (asked and request.state.identity.via == "assistant" and assistant_direct()
-                            and assistant_instructed(request.method, request.url.path,
-                                                     getattr(request, "_body", b""))):
+                            and assistant_instructed(request.method, request.url.path, raw, decides=bool(approves))):
                         raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
                                       "own. A task change, comment or link, declining an approval or answering a bot's "
                                       "question that the person clearly asked for in this chat runs when you cite their "
                                       "message (`--on-behalf-of turn`). Otherwise propose it with `hub assistant propose` "
                                       "(or POST /api/v2/assistant/actions), several actions on one card (path "
-                                      "/api/v2/assistant/batch); approving is only ever a card. The person confirms it in "
+                                      "/api/v2/assistant/batch); approving is a card unless the person lets you "
+                                      "decide approvals, then their cited words. The person confirms a card in "
                                       + settings.app_name, 403)
                     with store.read() as c:
-                        delegation_reset = H.DELEGATION.set(assistant_instruction(c, request.state.identity, asked))
+                        record = assistant_instruction(c, request.state.identity, asked)
+                        if approves:
+                            # Recorded on the approval: decided by the Assistant for the person, their words quoted.
+                            record = {**record, "assistant": "bot:" + settings.assistant_bot,
+                                      **assistant_mod.approval_words(c, request.state.identity, record["cited"],
+                                                                     settings.assistant_bot)}
+                        delegation_reset = H.DELEGATION.set(record)
             early = None
             caller = getattr(request.state, "identity", None)
             if caller:
@@ -2912,6 +2931,8 @@ def create_app(settings=None):
     def set_preference(request: Request, key: str, body: M.Preference):
         who = request.state.identity
         auth.domain(who)
+        if key.startswith("assistant."):
+            raise Problem("forbidden", "Your Assistant's settings are set in Settings > " + settings.assistant_name, 403)
         if key == "meetings.auto_share":
             views.human_only(who)
             if not isinstance(body.value, bool):
@@ -2944,7 +2965,14 @@ def create_app(settings=None):
             row = auth.approval(c, request.state.identity, aid)
             privacy.require_payload(c, request.state.identity, row)
             privacy.require_message(c, request.state.identity, H.message(c, row["message_id"]))
-            return row
+            # Its history: asked, decided (by whom, and for whom when the person's Assistant decided), undone, spent.
+            history = [{"ts": e["ts"], "actor": e["actor"], "action": e["action"].removeprefix("approval."),
+                        **{k: v for k, v in (H._json(e["detail_json"], {}) or {}).items()
+                           if k in ("decision", "note", "via", "was", "kind")}}
+                       for e in c.execute("SELECT ts,actor,action,detail_json FROM events WHERE target=? AND action IN "
+                                          "('approval.request','approval.decide','approval.undo','approval.consume') "
+                                          "ORDER BY ts", (aid,))]
+            return {**row, "history": history}
 
     @app.post("/api/v2/approvals/{aid}")
     def decide(request: Request, aid: str, body: M.ApprovalDecision):
@@ -2957,6 +2985,17 @@ def create_app(settings=None):
                 require_person(who)
             privacy.require_payload(c, who, row)
             return H.approval_decide(c, who.actor, aid, body.decision, body.note)
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/approvals/{aid}/undo")
+    def undo_decision(request: Request, aid: str, body: M.Empty):
+        """The person takes back what their Assistant decided for them, before anything acted on it. Their own click."""
+        who = request.state.identity
+        if who.via:
+            raise Problem("forbidden", "Only the person undoes this, in Settings > " + settings.assistant_name, 403)
+        def work(c):
+            auth.approval(c, who, aid, decide=True)
+            return H.approval_undo(c, who.actor, aid)
         return mutate(request, body, work)
 
     @app.post("/api/v2/approvals/{aid}/consume")

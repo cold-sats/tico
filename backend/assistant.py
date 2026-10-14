@@ -110,12 +110,43 @@ def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, di
 # its id, or `turn` for the message that started the run). The server checks the message, not the words: the person's
 # own, typed in their own Assistant room, in the last INSTRUCTION_TTL_S. The turn is the person, so their rights stay the
 # ceiling: only an approval addressed to them, only a question asked of them. A decline is undone by asking again, so it
-# is a task action; approving (send, spend, publish, merge), running a task now and the rest stay a click, and so does all
-# of it when the owner's rule "Assistant acts without asking" is off.
+# is a task action. Approving (send, spend, publish, merge) is a click on a card unless the person turned on "My
+# assistant can decide approvals for me" (`decides`, below) and the team allows it; then an approval addressed to them is
+# decided on their words too (`approval_words`). Running a task now and the rest stay a click, and so does all of it
+# when the owner's rule "Assistant acts without asking" is off.
 INSTRUCTION_TTL_S = 30 * 60
 _INSTRUCTED = [re.compile(p) for p in (r"/api/v2/tasks/[^/]+", r"/api/v2/tasks/[^/]+/(comments|links)",
                                        r"/api/v2/messages/[^/]+/answer")]
 _DECIDING = re.compile(r"/api/v2/approvals/([^/]+)")
+DECIDES_KEY = "assistant.decides_approvals"
+
+
+def decides(c, actor):
+    """Whether this person's own Assistant may decide approvals addressed to them: their own switch in Settings, which
+    only they turn on, and the team's rule (backend/team_rules.py), on unless the owner turned it off."""
+    from . import team_rules
+    row = c.execute("SELECT value_json FROM preferences WHERE actor=? AND key=?", (actor, DECIDES_KEY)).fetchone()
+    on = bool(row) and json.loads(row[0]) is True
+    allowed = team_rules.load(c)["assistant_approvals"]
+    return {"decides_approvals": on, "team_allows": allowed, "active": on and allowed}
+
+
+def approving(method, path, body=None):
+    """Whether this request approves an approval (as opposed to declining one, or anything else)."""
+    return (method == "POST" and bool(_DECIDING.fullmatch(normalize_path(path) or ""))
+            and _fields(body).get("decision") == "approved")
+
+
+def approve_hint(settings, state):
+    """What the Assistant is told when it may not approve: the one sentence it passes on to the person."""
+    where = f"Settings > {settings.assistant_name}"
+    if not state["team_allows"]:
+        return ("Approving stays the person's click on a card: the team's owner turned off assistants deciding "
+                "approvals (Settings > Humans). Tell them that in one sentence and propose a card (`hub assistant "
+                "propose`)")
+    return ("Approving is the person's click on a card until they let you decide approvals. Tell them in one sentence: "
+            f"they can turn on “My assistant can decide approvals for me” in {where}. Then propose a card "
+            "(`hub assistant propose`)")
 
 
 def _fields(body):
@@ -128,12 +159,13 @@ def _fields(body):
     return body if isinstance(body, dict) else {}
 
 
-def instructed_route(method, path, body=None):
+def instructed_route(method, path, body=None, decides=False):
+    """Whether this write may run on the person's cited words. `decides`: their Assistant may decide approvals."""
     path = normalize_path(path)
     if method != "POST" or not path or path == "/api/v2/tasks/dry-run":
         return False
     if _DECIDING.fullmatch(path):
-        return _fields(body).get("decision") == "declined"
+        return _fields(body).get("decision") == "declined" or (decides and _fields(body).get("decision") == "approved")
     return any(p.fullmatch(path) for p in _INSTRUCTED)
 
 
@@ -172,6 +204,30 @@ def require_named_approval(c, who, ref):
         raise Problem("approve_not_asked", "Approving is the person's own decision: their message must name it (approve, "
                       "merge, publish, send, spend). Decline, answer or close what they asked for, and leave the "
                       "approvals for them", 403)
+
+
+# A plain yes to the Assistant's read-back ("I'll approve these 3: ...") is the person's go-ahead for what it read back.
+AFFIRM = re.compile(r"(yes|yep|yeah|y|ok|okay|sure|go ahead|go|do it|please do|confirm(ed)?|correct|that'?s right)"
+                    r"\b[\s,.!]*(please|thanks|thank you|go ahead|do it)?[\s.!]*", re.I)
+
+
+def approval_words(c, who, cited, assistant_bot):
+    """What an approval the Assistant decides for the person is recorded with: the person's words, quoted. Their cited
+    message must name approving (approve, merge, publish, send, spend), or be a plain yes right after the Assistant's own
+    read-back that names it. Words in a file, a page, a bot's message or the read-back alone never count."""
+    msg = H.message(c, cited) or {}
+    words = str(msg.get("body") or "").strip()
+    if APPROVING.search(words):
+        return {"words": preview(words, 300)}
+    before = c.execute("SELECT from_actor, body FROM messages WHERE conversation_id=? AND created<=? AND id<>? "
+                       "AND deleted_at IS NULL ORDER BY created DESC, rowid DESC LIMIT 1",
+                       (msg.get("conversation_id"), msg.get("created"), cited)).fetchone()
+    if (len(words) <= 60 and AFFIRM.fullmatch(words) and before and before["from_actor"] == "bot:" + assistant_bot
+            and APPROVING.search(str(before["body"] or ""))):
+        return {"words": preview(words, 300), "read_back": preview(before["body"], 300)}
+    raise Problem("approve_not_asked", "Approving needs the person's own words: their message must name it (approve, "
+                  "merge, publish, send, spend), or be a plain yes to your read-back of what you will approve. Read the "
+                  "list back to them first", 403)
 
 
 def instruction(c, who, ref):
@@ -1076,6 +1132,50 @@ def install(app, store, auth, mutate, onboarding):
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner turns the " + settings.assistant_name + " on", 403)
         return mutate(request, body, lambda c: onboarding.turn_on_assistant(c, who))
+
+    @app.get("/api/v2/assistant/settings")
+    def my_settings(request: Request):
+        who = person(request)
+        with store.read() as c:
+            return {**decides(c, who.actor), "where": f"Settings > {settings.assistant_name}"}
+
+    @app.post("/api/v2/assistant/settings")
+    def set_my_settings(request: Request, body: M.AssistantSettings):
+        """Only the person, signed in to the app: never their Assistant, a bot, or a token turning it on for them."""
+        who = own(request)
+        if body.decides_approvals and who.via_token:
+            raise Problem("forbidden", "Turn this on in " + settings.app_name + " itself, in Settings > "
+                          + settings.assistant_name, 403)
+
+        def work(c):
+            before = decides(c, who.actor)["decides_approvals"]
+            c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,?,?) ON CONFLICT(actor,key) "
+                      "DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
+                      (who.actor, DECIDES_KEY, json.dumps(body.decides_approvals), H.now()))
+            if before != body.decides_approvals:
+                H.event(c, who.actor, "assistant.decides_approvals", who.actor, {"on": body.decides_approvals})
+            return {**decides(c, who.actor), "where": f"Settings > {settings.assistant_name}"}
+        return mutate(request, body, work)
+
+    @app.get("/api/v2/assistant/decisions")
+    def my_decisions(request: Request, days: int = 30):
+        """The approvals this person's Assistant decided for them, newest first, each with their words and whether it
+        can still be undone (nothing has acted on it yet)."""
+        who = own(request)
+        since = H.shift(H.now(), days=-max(1, min(days, 90)))
+        with store.read() as c:
+            rows = c.execute("SELECT a.id FROM approvals a JOIN messages m ON m.id=a.message_id WHERE a.decided_by=? "
+                             "AND a.decided_via='assistant' AND m.to_actor=? AND a.decided_at>=? "
+                             "ORDER BY a.decided_at DESC LIMIT 200", (who.actor, who.actor, since)).fetchall()
+            out = []
+            for r in rows:
+                row = H.approval(c, r["id"])
+                what, _ = describe(c, "POST", "/api/v2/approvals/" + row["id"], {"decision": row["decision"]})
+                out.append({"id": row["id"], "kind": row["kind"], "decision": row["decision"],
+                            "what": what.split(" ", 1)[-1],          # "the publish approval requested by ..."
+                            "decided_at": row["decided_at"], "decided_for": row.get("decided_for"),
+                            "consumed_at": row["consumed_at"], "can_undo": not row["consumed_at"]})
+            return {"decisions": out, "assistant": settings.assistant_name}
 
     @app.post("/api/v2/assistant/actions")
     def propose(request: Request, body: M.AssistantAction):
