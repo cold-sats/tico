@@ -2684,6 +2684,9 @@ class Runner:
                     """Drain the host until the turn ends: (outcome, reply, tokens, limited, retryable)."""
                     reply, tokens, outcome, limited, retryable = "", {}, "interrupted", False, False
                     acted, last_flush, complete = False, 0, False
+                    sent_at, unsent = 0, False   # the last flush that carried output; output appended since
+                    spoke = False                # the turn's first text went out: it is not held behind a status post
+                    wait_events = getattr(host, "wait_events", None) or done.wait
                     earlier = ""                 # the replies of turns before a carried one, kept in the answer
                     earlier_tokens = {}          # and their token counts, summed into the run's
 
@@ -2773,6 +2776,9 @@ class Runner:
                             if kind in ("delta", "message", "tokens", "status", "error", "tool", "diagnostic", "turn_failed"):
                                 clean = redact(event)
                                 self.state.append(aid, "error" if kind == "turn_failed" else kind, clean)
+                                unsent = True
+                                if kind in ("delta", "message") and not spoke:
+                                    spoke, sent_at = True, 0
                                 if kind == "message" and (event.get("final") or not reply):
                                     reply = clean.get("text", "")
                                 if kind == "tokens":
@@ -2808,10 +2814,22 @@ class Runner:
                             turn = self.carry_inputs(aid, host, thread, carried, config.get("reasoning_effort"))
                             outcome, complete, earlier, reply = "interrupted", False, answer(), ""
                             earlier_tokens, tokens = spent(), {}
+                        if unsent and not complete and time.monotonic() - sent_at >= 1:
+                            # Leading edge: output after a quiet second, and the turn's first text, go out now
+                            # rather than at the next 1 s mark. At most one more post a turn than before.
+                            try:
+                                self.flush(aid)
+                                sent_at, unsent = time.monotonic(), False
+                            except APIError as exc:
+                                if not exc.retryable:
+                                    raise
                         if time.monotonic() - last_flush >= 1:
                             try:
                                 host.poll_goal(thread)
-                                self.flush(aid)
+                                if time.monotonic() - sent_at >= 1:
+                                    self.flush(aid)
+                                    if unsent:
+                                        sent_at, unsent = time.monotonic(), False
                                 if goal_running:
                                     latest = self.client.get(f"attempts/{aid}/goal").get("goal")
                                     if not latest or latest["id"] != goal["id"] or latest["updated_at"] != revision:
@@ -2830,7 +2848,8 @@ class Runner:
                             complete = True
                         if not host.alive() and not complete:
                             raise RuntimeError("Local runtime exited unexpectedly")
-                        done.wait(0.1)
+                        if not complete:          # a finished turn goes straight to its last flush and complete
+                            wait_events(0.1)
                     text = answer()
                     if goal_paused[0]:
                         text = (text + "\n\n" if text else "") + goal_paused[0]
