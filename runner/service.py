@@ -3667,9 +3667,13 @@ class Runner:
             self.maintenance = None
         if self.maintenance is None:
             # Readiness is worked out every 15 s as before; the server reads behind it run on the stream's word.
-            if self.wants("config", None):
-                self._providers_at = float("-inf")     # the company's providers changed: read them now
-            full = self.wants("sync", 15)
+            changed = self.wants("config", None)
+            if changed:
+                # The company's providers changed: read them, and the default runtime a computer with no bots
+                # installs, in a full pass now.
+                self._providers_at = float("-inf")
+                self._default_runtime_at = float("-inf")
+            full = self.wants("sync", 15) or changed
             forced = self.wants("heartbeat", None)
             if full or forced or time.monotonic() - self.last_heartbeat >= 15:
                 self.maintenance = self.maintenance_pool.submit(self.maintain, full, forced)
