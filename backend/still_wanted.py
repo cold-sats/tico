@@ -45,6 +45,8 @@ def idle_tasks(conn, at=None):
     for row in H._rows(conn.execute(
             f"SELECT * FROM tasks WHERE status IN ({marks}) AND updated<? "
             "AND coalesce(checkpoint_at,'')<? ORDER BY updated", (*H.ACTIVE_STATUSES, cutoff, cutoff))):
+        if H.TS.snoozed(row, at):
+            continue                     # set aside until a date: its owner hears when that comes
         if row.get("stale_asked_at") and row["stale_asked_at"] >= _last_activity(row):
             continue                     # already asked in this idle stretch
         if _live(conn, row["id"]) or H.unanswered_ask(conn, row):

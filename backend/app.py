@@ -2203,7 +2203,7 @@ def create_app(settings=None):
               offset: int = 0, sort: str = "queue", type: str | None = None, step: str | None = None,
               number: int | None = None, updated_since: str | None = None, brief: bool = False,
               member: str | None = None, role: str | None = None, changed_after: str | None = None,
-              ids: str | None = None):
+              ids: str | None = None, snoozed: str | None = None):
         from . import task_reads as reads
         who = request.state.identity
         auth.domain(who)
@@ -2236,6 +2236,8 @@ def create_app(settings=None):
                 step_ids = [s["id"] for s in steps if step in (s["id"], s["name"])]
                 if not step_ids:
                     raise Problem("step", "No step " + step + (" in " + typ["name"] if typ else ""), 422)
+            if snoozed not in (None, "hide", "only", "all"):
+                raise Problem("snoozed", "snoozed is hide, only or all", 422)
             if number is not None and not 1 <= number <= 999_999_999:
                 raise Problem("number", "number is a task number, from 1", 422)
             since = H.parse_ts(updated_since) if updated_since else None
@@ -2260,7 +2262,10 @@ def create_app(settings=None):
             filters = dict(status=status.split(",") if status and status != "all" else None, lane=lane, label=label,
                            order=sort, type_id=typ["id"] if typ else None, step_ids=step_ids, number=number,
                            updated_since=views.since_time(updated_since) if since else None, visible_sql=visible_sql,
-                           member=member, role=TRo.role_name(role) if role else None)
+                           member=member, role=TRo.role_name(role) if role else None,
+                           # A snoozed task is off every list until its date unless asked for by id, number or filter.
+                           snoozed=None if snoozed == "all" or (snoozed is None and (ids is not None or number is not None))
+                           else snoozed or "hide")
             if typed is not None:
                 filters["ids"] = [tid for tid in found.values() if tid]
             def brief_rows(rows):
@@ -2634,6 +2639,31 @@ def create_app(settings=None):
                     auth.require_write(c, who, H.actor_id(row["owner"]))
             after, queued = H.task_run_now(c, who.actor, task_id)
             return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who), "queued": queued}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/tasks/{tid}/snooze")
+    def task_snooze(request: Request, tid: str, body: M.TaskSnooze):
+        """Snooze a task until a date: off the board, lists and Needs you, and quiet, until then
+        (backend/task_snooze.py). The requester, the owner, anyone on it by role, or a mover."""
+        def work(c):
+            from . import task_snooze as TS
+            who = request.state.identity
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
+            after = TS.snooze(c, who.actor, task_id, body.until, mover=mover(c, who))
+            return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who)}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/tasks/{tid}/unsnooze")
+    def task_unsnooze(request: Request, tid: str, body: M.Empty):
+        """End a snooze early: the task is back now and its owner bot is woken once."""
+        def work(c):
+            from . import task_snooze as TS
+            who = request.state.identity
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
+            after = TS.unsnooze(c, who.actor, task_id, mover=mover(c, who))
+            return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/ask")

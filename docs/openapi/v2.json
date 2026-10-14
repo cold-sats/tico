@@ -10512,7 +10512,7 @@
     },
     "/api/v2/tasks": {
       "get": {
-        "summary": "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, brief=true leaves out bodies. Each answer carries a `cursor`; changed_after=<cursor> with the same filters answers only the tasks changed since (`tasks`) and the ids that left (`gone`), or `reset: true` to read in full. A full read has an ETag: If-None-Match answers 304 when nothing changed",
+        "summary": "Tasks the caller can see; type, step, number and updated_since filter, member=<actor> keeps the tasks that person or bot is on in some role (role=<name> narrows it to one), sort=step orders a board's columns, brief=true leaves out bodies. Snoozed tasks are left out unless snoozed=only|all or asked for by ids or number. Each answer carries a `cursor`; changed_after=<cursor> with the same filters answers only the tasks changed since (`tasks`) and the ids that left (`gone`), or `reset: true` to read in full. A full read has an ETag: If-None-Match answers 304 when nothing changed",
         "operationId": "listTasks",
         "parameters": [
           {
@@ -10761,6 +10761,22 @@
                 }
               ],
               "title": "Ids"
+            }
+          },
+          {
+            "name": "snoozed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snoozed"
             }
           }
         ],
@@ -11995,6 +12011,148 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v2/tasks/{tid}/snooze": {
+      "post": {
+        "summary": "Set a task aside until `until` (an ISO-8601 date or date-time): off lists and Needs you, and quiet, until then, when its owner bot is woken once. Its requester, owner, anyone on it by role, or a mover",
+        "operationId": "snoozeTask",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskSnooze"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v2/tasks/{tid}/unsnooze": {
+      "post": {
+        "summary": "Bring a snoozed task back now; its owner bot is woken once",
+        "operationId": "unsnoozeTask",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResult"
+                }
               }
             }
           },
@@ -21458,6 +21616,20 @@
             ],
             "description": "The person a waiting task waits on; the task is in their Needs you"
           },
+          "snoozed_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set aside until this moment (UTC): off lists and Needs you, and quiet, until then"
+          },
+          "snoozed_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who snoozed it"
+          },
           "roles": {
             "type": "object",
             "description": "Who is on the task, by role: each role a short name the team chooses (developer, reviewer, qa ...) with its actors in the order they were added; a role nobody holds is absent, and one actor may hold several roles. Tico gives roles no meaning or rights. Task update and create take the same shape to replace a role's people ([] clears one)",
@@ -22191,6 +22363,22 @@
           "who"
         ],
         "additionalProperties": true
+      },
+      "TaskSnooze": {
+        "properties": {
+          "until": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 10,
+            "title": "Until"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "until"
+        ],
+        "title": "TaskSnooze"
       },
       "TaskStep": {
         "type": "object",

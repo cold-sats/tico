@@ -563,6 +563,22 @@ def task_run(api, args):
     return api.post(f"tasks/{args['id']}/run-now", {}, key=_key(args))
 
 
+@tool("hub_task_snooze", "Set a task aside until a date: it leaves the board, task lists and Needs you, and nothing "
+      "wakes its bot about it (no stall wake, Still wanted? or Due reminder; a person's comment still does) until "
+      "then, when it is back and its owner bot is woken once. Its requester, owner, anyone on it by role, or a mover. "
+      "Snoozing again moves the date.",
+      {"id": TASK_ID, "until": _s("An ISO-8601 date (the start of that day, Pacific) or date-time with a zone")},
+      required=("id", "until"), writes=True)
+def task_snooze(api, args):
+    return api.post(f"tasks/{args['id']}/snooze", {"until": args["until"]}, key=_key(args))
+
+
+@tool("hub_task_unsnooze", "Bring a snoozed task back now, before its date; its owner bot is woken once.",
+      {"id": TASK_ID}, required=("id",), writes=True)
+def task_unsnooze(api, args):
+    return api.post(f"tasks/{args['id']}/unsnooze", {}, key=_key(args))
+
+
 @tool("hub_task_list", "Tasks you may see, filtered; each has its full `id` and an 8-character `short_id` that every task tool accepts. Your own come back in queue order: the "
       "first is what to do next. `all` also returns every bot you may see (the board: `{tasks, bots}`). `stuck` is "
       "BotOps's sweep: every bot's open work that has not moved in a day and waits on nobody (no human owes an "
@@ -586,11 +602,13 @@ def task_run(api, args):
                "description": "The board: every task and every bot you may see, as `{tasks, bots}`"},
        "stuck": {"type": "boolean", "default": False,
                  "description": "Only open work untouched for `hours` that waits on nobody (BotOps's sweep)"},
-       "hours": {"type": "integer", "description": "With `stuck`: untouched for at least this many hours (default 24)"}})
+       "hours": {"type": "integer", "description": "With `stuck`: untouched for at least this many hours (default 24)"},
+       "snoozed": {"type": "string", "enum": ["hide", "only", "all"],
+                   "description": "Snoozed tasks: hide (default), only them, or all"}})
 def task_list(api, args):
     if args.get("stuck"):
         return api.get("tasks/stuck", hours=args.get("hours") or 24)["tasks"]
-    more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since") if args.get(name)}
+    more = {name: args[name] for name in ("type", "step", "sort", "number", "updated_since", "snoozed") if args.get(name)}
     if args.get("member"):
         more["member"] = _target(api, args["member"])
         if args.get("role"):

@@ -131,6 +131,32 @@ Decide. **Keep** restarts the clock; **Close** closes the task as theirs with a 
 closes without the answer, and the task is asked again only after new activity and another idle
 week (`stale_asked_at`).
 
+## Snoozing a task
+
+**Snooze** sets a task aside until a date: it tells its bot or person that nobody plans to get to it
+before then. Its requester, its owner, anyone on it by role, or a mover snoozes it from the task's
+**…** menu (Tomorrow, Next week, In two weeks, In a month, or a typed date), with
+`hub task snooze <id> --until 2026-11-02`, `hub_task_snooze` or `POST /api/v2/tasks/{id}/snooze`
+with `{"until": ...}`. A bare date means the start of that day, Pacific; a date-time with a zone is
+taken as it is. Snoozing again moves the date. The task keeps its status, owner, goal and place;
+`snoozed_until` and `snoozed_by` say until when and who. A snoozed task still counts toward its goal.
+
+Until that moment:
+
+- it is off the board, the Open list, Needs you, Decide and `hub task list`. The **Snoozed** tab on
+  the Tasks page (shown while something is snoozed), `hub task list --snoozed only|all` and
+  `GET /api/v2/tasks?snoozed=only|all` list it; a read by id or number always finds it.
+- nothing automatic moves it: no stall wake or status check, no stranded or stuck sweep, no
+  **Still wanted?** question and no **Due:** reminder. Tico's notices about it reach its owner bot
+  quietly, read on the bot's next run instead of starting one, and so does another bot's comment.
+  A person's comment still reaches the bot as usual, and **Run now** still runs it.
+
+When the date comes, the task is back everywhere and its owner bot gets one **Snooze over** notice,
+which also stands in for a due date that passed during the snooze. **Unsnooze** (the **…** menu, the
+**Snoozed to** chip on the task, `hub task unsnooze <id>` or `POST /api/v2/tasks/{id}/unsnooze`)
+brings it back early and wakes its owner bot once. Finishing, declining or closing a task ends its
+snooze.
+
 ## Done and Closed
 
 **Done** means the owner reports that the work is complete, with a result note. **Closed** means
