@@ -670,6 +670,11 @@ def test_a_steps_only_type_changes_status_only_by_a_step_move(api):
     # A working status still changes without a step: the bot's ask sets it waiting.
     assert post(api, path + '/ask', {'text': 'Which page?'}, token=ops)
     assert get(api, path)['task']['status'] == 'waiting'
+    # A bot refused Done on more tickets than the quarantine limit is not quarantined: each names its ticket.
+    for n in range(H.QUARANTINE_AT + 1):
+        other = post(api, 'tasks', {'owner': 'ops', 'title': f'Fix page {n}', 'body': 'Please.', 'type': typ['id']})
+        post(api, 'tasks/' + other['id'], {'version': other['version'], 'status': 'done'}, token=ops, expected=422)
+    post(api, path + '/comments', {'text': 'Still on it.'}, token=ops)
     # A step move changes the status, Done included, and back out of it.
     assert post(api, path, {'version': version(), 'step': 'Done'})['status'] == 'closed'
     post(api, path, {'version': version(), 'status': 'open'}, expected=422)

@@ -2543,14 +2543,21 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
     if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
             and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]
             and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)):
-        refuse(conn, actor, "kind", f"A {typ['name']} task changes status only by moving it to a step, "
-                                    "not by closing, declining, reopening or finishing it; move it, or delete it")
+        # Naming the task keeps a bot's refusals on different tickets distinct, so working a board is not
+        # counted as retrying one refused write (rule 8); a retry on the same task still is.
+        which = f"#{row['number']}" if row.get("number") else f'"{_clip(row.get("title") or "", 80)}"'
+        steps = ", ".join(s["name"] for s in typ["steps"])
+        refuse(conn, actor, "kind", f"{which} is a {typ['name']} task: it changes status only by moving it to a step "
+                                    f"({steps}), not by closing, declining, reopening or finishing it; move it, or delete it",
+               context={"what": f"task {row.get('id')}"})
     return typ["id"], chosen["id"] if chosen else None, effective
 
 
 def steps_only(conn, row):
-    """Whether the task's type finishes and reopens its tasks only by a step move (`_task_state`)."""
-    return bool((type_get(conn, row.get("type_id") or GENERAL_TYPE) or {}).get("steps_only"))
+    """The step names of the task's type when it finishes and reopens its tasks only by a step move
+    (`_task_state`), else an empty list."""
+    typ = type_get(conn, row.get("type_id") or GENERAL_TYPE) or {}
+    return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
@@ -4201,7 +4208,7 @@ def sweep_stranded(conn, at=None, grace_hours=STRANDED_GRACE_HOURS):
                 # Setting it open is what wakes the owner ("Open: <title>"); the note says why.
                 task_update(conn, KEEPER, row["id"], status="open",
                             note="Back to open: it was waiting, but no question, child task, blocker or "
-                                 "approval is outstanding. Continue it, ask, or mark it done or declined.")
+                                 "approval is outstanding. Continue it, ask, or finish it.")
                 moved.append((row["id"], "open"))
     return moved
 

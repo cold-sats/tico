@@ -122,9 +122,12 @@ def report(c, attempt, payload):
 TASK_GOAL_CHARS = 3500
 
 
-def task_goal_objective(task, objective):
-    """What a task's native goal holds the bot to: the task's own objective, then marking it done."""
-    tail = f"\nThen mark task {task['id']} done with a summary (hub task update {task['id']} --status done --note ...)."
+def task_goal_objective(task, objective, steps=()):
+    """What a task's native goal holds the bot to: the task's own objective, then marking it done, or on a
+    steps-only type (`steps`, its step names) moving it to the step its work has reached."""
+    tail = (f"\nThen move task {task['id']} to the step its work has reached ({', '.join(steps)}) with a summary "
+            f"(hub task update {task['id']} --step \"<step>\" --note ...)." if steps else
+            f"\nThen mark task {task['id']} done with a summary (hub task update {task['id']} --status done --note ...).")
     return objective[:TASK_GOAL_CHARS - len(tail)].rstrip() + tail
 
 
@@ -138,7 +141,7 @@ def task_goal_row(c, auth, conv, bot, task, objective):
     owner, supported, _ = capabilities(c, auth, conv)
     if owner != bot or not supported:
         return None
-    objective = task_goal_objective(task, objective)
+    objective = task_goal_objective(task, objective, H.steps_only(c, task))
     goal = current(c, conv["id"])
     if goal and (goal["set_by"] != H.KEEPER or goal["objective"] == objective and goal["status"] != "cleared"):
         return goal if goal["status"] == "active" else None
@@ -187,8 +190,9 @@ def task_goal_ended(c, goal, task_id, status, note):
         from .execution import current_task_goal
         wanted = current_task_goal(c, goal["bot"], row)
         # A steps-only type's task is finished by the bot moving it to a step, not by its goal being met.
-        if (row["status"] in ("open", "doing") and goal["set_by"] == H.KEEPER and wanted
-                and goal["objective"] == task_goal_objective(row, wanted["objective"]) and not H.steps_only(c, row)):
+        steps = H.steps_only(c, row)
+        if (row["status"] in ("open", "doing") and goal["set_by"] == H.KEEPER and wanted and not steps
+                and goal["objective"] == task_goal_objective(row, wanted["objective"], steps)):
             H.task_update(c, row["owner"], task_id, status="done", note=(note or "Goal met.")[:4000])
         return
     if status in ("paused", "stopped"):
