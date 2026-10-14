@@ -18,6 +18,8 @@ from backend.tests.test_support import FakeHQ
 
 TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "catalog" / "health-monitor"
 SECRET_TASK = "Acme payroll for March"
+CANARY = "Acme Payroll Mac"                  # a computer's label: local, never in a report
+SECRET_BOT = "acme-payroll-bot"
 
 
 @pytest.fixture
@@ -33,7 +35,7 @@ def hq(monkeypatch):
 def built(environment):
     api = environment(seed={}, cards=BASE)
     shutil.copytree(TEMPLATE, Path(api.app.state.store.settings.catalog_dir) / "health-monitor")
-    runner = machine(api)
+    runner = machine(api, label=CANARY)
     draft(api)
     api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
     return api, runner
@@ -106,6 +108,7 @@ def test_a_finding_wakes_it_once_is_filed_once_without_task_text_and_a_repeat_go
     sent = json.loads(request.content)
     assert set(sent) == {"message", "version", "install_id", "diagnostics"}
     assert "Signature: hm-" in sent["message"] and SECRET_TASK not in request.content.decode()
+    assert CANARY not in sent["message"] and runner["runner_id"] not in sent["message"]
     with api.app.state.store.read() as c:                                 # the owner's ticket, not the bot's
         assert c.execute("SELECT actor FROM support_tickets").fetchone()[0].startswith("human:")
     again = api.post(f"/api/v2/health-monitor/findings/{key}/report", json={}, headers=bot).json()
@@ -131,3 +134,58 @@ def test_with_the_rule_off_a_report_is_an_approval_and_nothing_leaves(environmen
                  headers=as_monitor(api))
     assert r.status_code == 200 and r.json()["approval"], r.text
     assert hq.seen == []
+
+
+def test_a_setup_finding_naming_a_bot_is_never_reported_to_hq(environment, hq):
+    api, runner = built(environment)
+    api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
+    with api.app.state.store.transaction() as c:
+        H.event(c, H.KEEPER, "attempt.limited", SECRET_BOT, {"bot": SECRET_BOT})
+    runner_errors(api, runner, ["2026-10-14T10:00Z Tico runner: research has unpushed commits and push failed"])
+    found = scan(api)
+    assert "limited_no_fallback:" + SECRET_BOT in found and "push_stuck:" + runner["runner_id"] in found
+    bot = as_monitor(api)
+    for rule in (True, False):                                   # neither filed nor put to a person to send
+        api.put("/api/v2/access/rules", json={"health_monitor_reports": rule}, headers=signed_in())
+        for key in ("limited_no_fallback:" + SECRET_BOT, "push_stuck:" + runner["runner_id"]):
+            r = api.post(f"/api/v2/health-monitor/findings/{key}/report", json={}, headers=bot)
+            assert r.status_code == 409 and r.json()["error"]["code"] == "not_a_tico_bug", r.text
+    assert hq.seen == []
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM health_reports").fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM approvals WHERE kind='support'").fetchone()[0] == 0
+
+
+def test_a_declined_approval_lets_the_signature_be_reported_again(environment, hq):
+    api, runner = built(environment)
+    api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
+    api.put("/api/v2/access/rules", json={"health_monitor_reports": False}, headers=signed_in())
+    runner_errors(api, runner, STREAM)
+    scan(api)
+    url, bot = f"/api/v2/health-monitor/findings/event_stream:{runner['runner_id']}/report", as_monitor(api)
+    first = api.post(url, json={}, headers=bot).json()["approval"]
+    pending = api.post(url, json={}, headers=bot).json()
+    assert pending["approval"] == first and pending["again"]          # still waiting for the person
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE approvals SET decision='declined' WHERE id=?", (first,))
+    second = api.post(url, json={}, headers=bot).json()
+    assert second["approval"] and second["approval"] != first and "again" not in second
+    assert hq.seen == []
+
+
+@pytest.mark.parametrize("process,shown", [
+    ("container:acme-tico-1", "a Tico container"),
+    ("container:acme-server-1", "the Tico server container"),
+    ("process:AcmePayroll", "a process"),
+    ("process:python3", "process python3"),
+])
+def test_a_busy_process_is_reported_by_its_tico_name_only(environment, hq, process, shown):
+    api, _ = built(environment)
+    api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
+    bot = as_monitor(api)
+    key = api.post("/api/v2/health-monitor/local-findings", json={"process": process, "cpu": 90, "mb": 300},
+                   headers=bot).json()["key"]
+    r = api.post(f"/api/v2/health-monitor/findings/{key}/report", json={}, headers=bot)
+    assert r.status_code == 200, r.text
+    message = json.loads(hq.seen[0].content)["message"]
+    assert f"Process: {shown}\n" in message and "acme" not in message.lower()

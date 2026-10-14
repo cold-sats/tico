@@ -14,7 +14,8 @@ All notable changes to Tico are recorded here. The format follows
   queued work that does not start while its computer has room, failed task worktrees, a server busy while idle), and its
   watcher checks the computer it runs on for processes busy two hours running. It wakes the Health Monitor only for
   something new. A setup problem becomes a task for BotOps with the fix; a Tico bug becomes one support ticket per
-  signature, written from the finding with the redacted diagnostics bundle (never task or message text), and a "seen
+  signature, written from the check alone with the redacted diagnostics bundle (never a bot's or computer's name, task
+  or message text; a setup problem is never sent), and a "seen
   again" message on that ticket when it comes back. The team rule "Health Monitor may file Tico bug reports without
   asking" (on by default) skips the Needs you card. `hub health-monitor findings` and `hub health-monitor report`. See
   [Health Monitor](docs/health-monitor.md).

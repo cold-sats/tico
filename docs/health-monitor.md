@@ -34,16 +34,22 @@ the task it has; a finding still there an hour later says nothing; one that goes
 
 ## What it does with a finding
 
-- **setup**: it gives BotOps a task with the fix. BotOps does it under its own rules.
+- **setup**: it gives BotOps a task with the fix. BotOps does it under its own rules. A setup finding is never sent to
+  the Tico team: its text names this install's bots and computers, and `report` refuses it (409 `not_a_tico_bug`),
+  with or without the team rule below.
 - **tico-bug**: `hub health-monitor report <key>` files a support ticket to the Tico team. The server writes the message
-  from the finding (title, check, signature, kind, version, how often) and attaches the redacted
-  [diagnostics bundle](support.md). Task text, message text and people's words are never sent. One ticket per signature;
+  from the check alone (check, what it means and the fix in fixed words, signature, kind, version, how often) and attaches
+  the redacted [diagnostics bundle](support.md). The finding's own text (which names computers and bots), task text,
+  message text and people's words are never sent. A busy process is named only when it is one of Tico's own (`python3`,
+  `uvicorn`, `node`, `git`, `docker`, `caddy`, `cloudflared`, `tico`, or a Tico compose service's container); anything
+  else is "a process" or "a Tico container". One ticket per signature;
   when the finding comes back, a "Seen again" message goes on the same ticket. The ticket is the owner's: replies show on
   their Support page. At most 5 new reports a day.
 
 The team rule **Health Monitor may file Tico bug reports without asking** (`health_monitor_reports`, on by default, in
 Settings > Health and `PUT /api/v2/access/rules`) lets it file without a Needs you card. With it off, each report is a
-`support` approval a person reads first, sent with `hub support send --approval <id>` once approved.
+`support` approval a person reads first, sent with `hub support send --approval <id>` once approved. A declined or
+withdrawn approval clears the report, so the next `report` of that signature asks again.
 `TICO_SUPPORT=off` turns reporting off with the rest of support.
 
 ## On the Tico team's side

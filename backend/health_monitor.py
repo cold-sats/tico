@@ -77,6 +77,17 @@ MEANING = {
     "local_busy": "A process or container on a computer running Tico was busy in two hourly checks in a row while idle.",
     **{p[0]: p[4] + "." for p in LOG_PATTERNS},
 }
+# What a Tico bug report says the fix is: one constant per tico-bug check, never a finding's own text.
+BUG_FIX = {
+    "queue_idle": "Tico bug: queued work should start within a minute while its computer has room.",
+    "server_cpu": "Tico bug: a background loop is working while nobody uses the server.",
+    "local_busy": "Tico bug: a Tico process or container should be quiet while no turn runs.",
+    **{p[0]: p[5] for p in LOG_PATTERNS if p[1] == BUG},
+}
+# Names a report may carry for a busy process or container: Tico's own. Anything else (a container named after a
+# company or project, another app) goes out as "a process" or "a Tico container".
+TICO_PROCESSES = {"python", "python3", "uvicorn", "node", "git", "docker", "caddy", "cloudflared", "tico"}
+TICO_SERVICES = {"server", "slack", "caddy", "cloudflared", "updater", "runner"}   # compose.yaml, docker/runner.compose.yaml
 
 
 class LocalFinding(Contract):
@@ -86,13 +97,22 @@ class LocalFinding(Contract):
     mb: float = Field(ge=0, le=10000000)
 
 
+def public_process(process):
+    """`process:<name>` or `container:<name>` as a report may name it: a known Tico name, never a local one."""
+    what, name = process.split(":", 1)
+    if what == "process":
+        return f"process {name}" if name in TICO_PROCESSES else "a process"
+    parts = [p for p in name.lower().split("-") if not p.isdigit()]    # compose: <project>-<service>-<n>
+    return f"the Tico {parts[-1]} container" if parts and parts[-1] in TICO_SERVICES else "a Tico container"
+
+
 def record_local(c, body):
     """The bot's local finding as a server finding, so `report` files it like any other. Returns its key."""
     what, name = body.process.split(":", 1)
     item = _finding("local_busy:" + body.process, "local_busy", BUG, f"{what.capitalize()} {name} is busy while idle",
                     f"{what.capitalize()} {name} used {body.cpu:.0f}% CPU and {body.mb:.0f} MB of memory in two hourly "
                     "checks in a row on a computer running Tico.",
-                    "Tico bug: a Tico process or container should be quiet while no turn runs.", subject=name)
+                    BUG_FIX["local_busy"], subject=public_process(body.process))
     now = H.now()
     c.execute("INSERT INTO health_findings(key,signature,check_id,kind,title,detail,fix,first_seen,last_seen,present,"
               "occurrences) VALUES(?,?,?,?,?,?,?,?,?,0,1) ON CONFLICT(key) DO UPDATE SET detail=excluded.detail,"
@@ -183,7 +203,7 @@ def _bot_checks(c):
                                 f"{row['name']}'s work is queued but no turn starts",
                                 f"{row['queued']} job(s) for {row['name']} queued since {str(row['oldest'])[:16]} UTC on "
                                 f"{row['computer']}, which is online, not full and not limited.",
-                                "Tico bug: queued work should start within a minute while its computer has room."))
+                                BUG_FIX["queue_idle"]))
     from .worktrees import supported
     if supported(c):
         for r in c.execute("SELECT t.owner,l.detail_json FROM task_links l JOIN tasks t ON t.id=l.task_id "
@@ -213,7 +233,7 @@ def _server_checks(c):
     return [_finding("server_cpu", "server_cpu", BUG, f"The server used {cpu:g}% CPU for an hour while idle",
                      f"Average CPU {cpu:g}% over the last hour with {requests} requests. Busiest SQL: "
                      + ("; ".join(top) or "none recorded") + ".",
-                     "Tico bug: a background loop is working while nobody uses the server.")]
+                     BUG_FIX["server_cpu"])]
 
 
 def findings(c, settings):
@@ -269,16 +289,17 @@ def scan(c, auth, settings):
 
 # ---------------------------------------------------------------------------------------------------- reporting
 def report_message(c, row):
-    """The ticket text, written here from the finding alone: no task, message or person's words go in it."""
+    """The ticket text, written here from the check alone: no finding text (it names bots and computers), task, message
+    or person's words go in it."""
     from . import releases
     seen = c.execute("SELECT count(*) n, sum(occurrences) times FROM health_findings WHERE signature=?",
                      (row["signature"],)).fetchone()
-    process = row["key"].split(":", 2)[-1] if row["check_id"] == "local_busy" else ""
+    process = public_process(row["key"].split(":", 1)[1]) if row["check_id"] == "local_busy" else ""
     return (f"[Health Monitor] {row['check_id']}: {MEANING.get(row['check_id'], row['check_id'])}\n\n"
             + (f"Process: {process}\n" if process else "")
             + f"Signature: {row['signature']}\nKind: {row['kind']}\nTico: {releases.version()}\n"
             f"First seen: {row['first_seen'][:16]} UTC; seen {seen['times'] or 1} time(s) in {seen['n']} place(s).\n\n"
-            "What it means: " + row["fix"] + "\n\nThe redacted diagnostics bundle is attached.")
+            "What it means: " + BUG_FIX.get(row["check_id"], "Tico bug.") + "\n\nThe redacted diagnostics bundle is attached.")
 
 
 def report(c_factory, support, auth, settings, who, key):
@@ -291,8 +312,13 @@ def report(c_factory, support, auth, settings, who, key):
         if not row:
             raise Problem("not_found", "No such finding", 404)
         row = dict(row)
+        if row["kind"] != BUG:
+            # A setup finding is this install's to fix (BotOps), and its text names local bots and computers: it never
+            # goes to HQ, not even as an approval a person could send.
+            raise Problem("not_a_tico_bug", "Only a Tico bug is reported to the Tico team; BotOps fixes a setup finding.", 409)
         filed = c.execute("SELECT * FROM health_reports WHERE signature=?", (row["signature"],)).fetchone()
         filed = dict(filed) if filed else None
+        cleared = None
         allowed = team_rules.load(c)[RULE]
         owner = auth.owner_identity(c)
         message = report_message(c, row)
@@ -301,9 +327,18 @@ def report(c_factory, support, auth, settings, who, key):
                              ("approval:" + filed["approval_id"],)).fetchone()
             if done:
                 filed["ticket_id"] = done["id"]
+            else:
+                asked = c.execute("SELECT decision FROM approvals WHERE id=?", (filed["approval_id"],)).fetchone()
+                if not asked or (asked["decision"] and asked["decision"] != "approved"):
+                    cleared = filed["approval_id"]   # declined, withdrawn or gone: the signature can be reported again
         since = H.shift(H.now(), hours=-24)
         today = c.execute("SELECT count(*) FROM health_reports WHERE created>? AND ticket_id IS NOT NULL",
                           (since,)).fetchone()[0]
+    if cleared:
+        with store.transaction() as c:
+            c.execute("DELETE FROM health_reports WHERE signature=? AND approval_id=? AND ticket_id IS NULL",
+                      (row["signature"], cleared))
+        filed = None
     if filed and filed["ticket_id"]:
         if row["occurrences"] <= filed["reported_occurrences"]:
             return {"signature": row["signature"], "ticket": filed["ticket_id"], "again": True}
