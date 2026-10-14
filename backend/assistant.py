@@ -224,6 +224,16 @@ def plain_line(text):
     return re.sub(r"\s+", " ", text).strip().replace("<", "‹").replace(">", "›")
 
 
+APPROVAL_FIELDS = ("amount", "to", "repo", "pr", "url", "account", "subject", "title", "what")
+
+
+def field_value(value, limit=100):
+    """One payload value as a card or read-back shows it: one plain line, at most `limit` characters, no quotes of its
+    own to close the ones around it."""
+    text = plain_line(value).replace("“", "'").replace("”", "'").replace('"', "'")
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
 def approval_id(path):
     m = _DECIDING.fullmatch(normalize_path(path) or "")
     return m.group(1) if m else None
@@ -437,8 +447,10 @@ def describe(c, method, path, body):
         verb = {"approved": "Approve", "declined": "Decline"}.get(body.get("decision"), "Decide")
         if not row:
             return f"{verb} approval {aid}"
-        detail = "; ".join(f"{k}: {v}" for k, v in (row.get("payload") or {}).items() if k in
-                           ("subject", "to", "what", "amount", "account", "url", "repo", "pr", "title"))[:240]
+        # What the person says yes to: the amount and target first, each field cleaned, capped and quoted on its own,
+        # so a long or crafted field (padding, "card; amount: 9") can't push a later one out or pose as it.
+        payload = row.get("payload") or {}
+        detail = "; ".join(f"{k}: “{field_value(payload[k])}”" for k in APPROVAL_FIELDS if k in payload)
         return (f"{verb} the {row['kind']} approval requested by {who(row['requested_by'])}"
                 + (f" ({detail})" if detail else "") + f", {age(row['created'])}"
                 + (f"; reason: {preview(body['note'], 120)}" if body.get("note") else ""))

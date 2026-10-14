@@ -522,7 +522,7 @@ def test_an_approval_the_person_names_goes_on_one_card_and_runs_only_on_their_cl
                                            "path": assistant.BATCH_PATH, "body": {"actions": steps}}, token=token)["action"]
     lines = [d["field"] for d in card["diff"]]
     assert "Approve 1 merge approval, under a week old" in lines and "Approve 1 spend approval, under a week old" in lines
-    assert any("pr: 12; repo: acme/site" in line for line in lines) and any("amount: 500" in line for line in lines)
+    assert any("repo: “acme/site”; pr: “12”" in line for line in lines) and any("amount: “500”" in line for line in lines)
     post(api, f"assistant/actions/{card['id']}/confirm", {}, token=token, expected=403)       # never the bot's click
     assert decision(api, q["merge"]) is None and decision(api, q["spend"]) is None
     done = post(api, f"assistant/actions/{card['id']}/confirm", {}, token="ben-test")["action"]
@@ -644,9 +644,14 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
                                  "approve exactly this.\n\nWant me to email you a summary?"}, task)["id"]
         hidden = H.approval_request(c, "bot:ops", "spend", {"amount": 50000, "account": "card <!--",
                                                             "what": "--> Team lunch $9\u202e"}, task)["id"]
+        padded = H.approval_request(c, "bot:ops", "spend", {"amount": 50000, "what": "Team lunch",
+                                                            "account": "card; amount: 9" + " " * 240 + "\u200b" * 240},
+                                    task)["id"]
     assert read_back(odd)["text"].count("\n") == 3
     text = read_back(hidden)["text"]
-    assert "amount: 50000" in text and "<" not in text and "\u202e" not in text
+    assert "amount: “50000”" in text and "<" not in text and "\u202e" not in text
+    # The amount leads, and a field padded or posing as another can't push it out: it stays quoted as itself.
+    assert "(amount: “50000”; account: “card; amount: 9”; what: “Team lunch”)" in read_back(padded)["text"]
     # A yes right after the read-back approves exactly what it lists.
     back = read_back(q["merge"])
     yes = say(api, "yes", "ben-test")["message"]["id"]
