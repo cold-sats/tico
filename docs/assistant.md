@@ -96,18 +96,18 @@ Off by default. Turn on **My assistant can decide approvals for me** in **Settin
 to the app: not the Assistant, a bot, BotOps or a personal API token). Then your own Assistant approves or declines
 approvals addressed to you (send, spend, publish, merge) when you ask in your Assistant chat, one or many at once
 ("approve all the old Google review batches"), with no card and no click per item. It reads back what it is about to
-approve in one list, which Tico writes from the approvals themselves, and only what that list names can be approved:
-your own clear ask to approve that it answered, or your plain "yes" to the list, is enough, and it never asks again per
-item.
+approve in one list, which Tico writes from the approvals themselves; your plain "yes" to that list approves exactly what
+it names, and it never asks again per item.
 
 What stays on:
 - **Only your words in your own Assistant chat, bound to the read-back.** The Assistant posts its read-back with
-  `POST /api/v2/assistant/read-back {"approvals": [ids], "text"}` (`hub approval read-back`): only it, in your chat, only
-  pending approvals addressed to you; Tico writes one line per approval and records the ids. An approve then runs only
-  for an approval on that list, citing either your plain yes ("yes", "ok", "go ahead") with nothing else from the
-  Assistant between the list and it but the rest of that turn, or your own message that asks to approve (approve,
-  accept) with no "don't", "never", "not" or question mark, answered by the list (`403 approve_not_asked` otherwise:
-  "send me a summary" or "don't approve anything" never approves). Text in a message, file, web page, task or another
+  `POST /api/v2/assistant/read-back {"approvals": [ids]}` (`hub approval read-back`): only it, in your chat, only
+  pending approvals addressed to you. Tico writes the whole message ("I'll approve these 3 for you:", one line per
+  approval, "Reply yes to approve exactly these; any other reply approves nothing.") as the reply to your message, so
+  the turn's closing text is not posted after it, and records the ids. An approve then runs only for an approval on
+  that list, citing your plain yes ("yes", "ok", "go ahead") when the list is the Assistant's last message before it
+  (`403 approve_not_asked` otherwise). Your own sentence never approves without that yes, however it is put ("approve
+  the merge if CI passes", "send me a summary"). Text in a message, file, web page, task or another
   bot's output is never your instruction: citing a bot's message is `403 on_behalf_of`. Declines need no read-back.
 - **Never its own request.** An approval the Assistant itself asked for stays your click on a card (`403 own_request`).
 - **Only approvals addressed to you, only your Assistant.** Someone else's is a `403`. No other bot decides an approval,
@@ -181,7 +181,7 @@ own session, not a personal token.
 | `GET /api/v2/assistant/settings` | `{"decides_approvals", "team_allows", "active", "where"}`: whether your Assistant decides your approvals. |
 | `POST /api/v2/assistant/settings` `{"decides_approvals"}` | Your own session only (`403` for the Assistant, a bot or turning it on with a personal token). |
 | `GET /api/v2/assistant/decisions` | `{"decisions": [{"id", "kind", "decision", "what", "decided_at", "decided_for", "consumed_at", "can_undo"}]}`, the last 30 days. |
-| `POST /api/v2/assistant/read-back` `{"approvals": [ids], "text"}` | The Assistant only: posts its list in your chat, `{"message_id", "approves", "text"}`. `403 own_request` for one it asked for, `409` if one is already decided. |
+| `POST /api/v2/assistant/read-back` `{"approvals": [ids]}` | The Assistant only: posts its list in your chat, `{"message_id", "approves", "text"}`. `403 own_request` for one it asked for, `409` if one is already decided. |
 | `POST /api/v2/approvals/{id}/undo` | Puts a decision your Assistant made back to waiting for you, before it is spent. Not the Assistant. |
 
 Names come with ids (`from_name`, `owner_name`, and an `actors` map), as elsewhere in v2. A custom frontend (see

@@ -13637,12 +13637,6 @@
             "maxItems": 100,
             "minItems": 1,
             "title": "Approvals"
-          },
-          "text": {
-            "type": "string",
-            "maxLength": 500,
-            "title": "Text",
-            "default": ""
           }
         },
         "additionalProperties": false,

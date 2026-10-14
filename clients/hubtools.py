@@ -2501,13 +2501,12 @@ def approval_approve(api, args):
 
 
 @tool("hub_approval_read_back", "Assistant only, before approving for the person: post in their chat the list of "
-      "approvals you are about to approve. The server writes each line from the approval itself; only the ones listed "
-      "may then be approved, on the person's plain yes or on their own clear ask to approve that this answers.",
-      {"ids": {"type": "array", "items": {"type": "string"}, "description": "The approval ids, up to 100"},
-       "text": _s("Optional, one line before the list, e.g. \"I'll approve these 3:\"")},
+      "approvals you are about to approve, as your reply, then end the turn. The server writes the whole message from "
+      "the approvals; only the ones listed may then be approved, on the person's plain yes to it.",
+      {"ids": {"type": "array", "items": {"type": "string"}, "description": "The approval ids, up to 100"}},
       required=("ids",), writes=True)
 def approval_read_back(api, args):
-    return api.post("assistant/read-back", {"approvals": args["ids"], "text": args.get("text") or ""}, key=_key(args))
+    return api.post("assistant/read-back", {"approvals": args["ids"]}, key=_key(args))
 
 
 @tool("hub_approval_decline", "Decline an approval addressed to you (a send, spend, publish or merge), with a short reason "

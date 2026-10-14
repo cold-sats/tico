@@ -549,8 +549,18 @@ def test_the_assistant_decides_approvals_in_bulk_once_the_person_turns_it_on(api
         post(api, "assistant/read-back", {"approvals": q["old"]}, token=who, expected=403)
     post(api, "assistant/read-back", {"approvals": [*q["old"], q["hers"]]}, token=token, expected=403)
     back = post(api, "assistant/read-back", {"approvals": q["old"]}, token=token)
-    assert back["text"].startswith("I'll approve these 3:") and "post-0" in back["text"]
-    # On his words: every old batch on the list, no card and no click each; nothing else.
+    assert back["text"].startswith("I'll approve these 3 for you:\n- Approve the publish") and "post-0" in back["text"]
+    assert back["text"].endswith("Reply yes to approve exactly these; any other reply approves nothing.")
+    # His own sentence never approves, however clear: only his yes to the list he saw.
+    assert asked(api, "approvals/" + q["old"][0], approve, token, "turn", expected=403)["error"]["code"] == "approve_not_asked"
+    # The read-back is the turn's reply: its closing text is not posted after it.
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "read-back"}, token=r["token"])
+    post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "text": "Want me to email this?",
+                                                     "last_seq": 0}, token=r["token"])
+    assert say(api, "yes", "ben-test")["fast"] is False
+    attempt = post(api, "jobs/claim", {}, token=r["token"])["attempt"]
+    token = attempt["token"]
+    # On his yes: every old batch on the list, no card and no click each; nothing else.
     for aid in q["old"]:
         asked(api, "approvals/" + aid, approve, token, "turn")
     assert [decision(api, aid) for aid in q["old"]] == ["approved"] * 3
@@ -560,7 +570,7 @@ def test_the_assistant_decides_approvals_in_bulk_once_the_person_turns_it_on(api
     row = get(api, "approvals/" + q["old"][0], "ben-test")
     assert row["decided_by"] == "human:ben" and row["decided_via"] == "assistant"
     assert row["decided_for"] == {"for": "human:ben", "cited": turn_message(api, attempt), "run": "asked",
-                                  "assistant": "bot:coo", "words": "Approve all the old publish batches",
+                                  "assistant": "bot:coo", "words": "yes",
                                   "read_back": assistant.preview(back["text"], 1000), "approves": q["old"]}
     assert [(h["action"], h.get("via")) for h in row["history"]] == [("request", None), ("decide", "assistant")]
     # Still never someone else's, and no other bot decides anything.
@@ -572,7 +582,7 @@ def test_the_assistant_decides_approvals_in_bulk_once_the_person_turns_it_on(api
         H.approval_consume(c, "bot:ops", q["old"][1])
     listed = {d["id"]: d for d in get(api, "assistant/decisions", "ben-test")["decisions"]}
     assert set(listed) == set(q["old"]) and listed[q["old"][1]]["can_undo"] is False
-    assert listed[q["old"][0]]["decided_for"]["words"] == "Approve all the old publish batches"
+    assert listed[q["old"][0]]["decided_for"]["words"] == "yes"
     asked(api, f"approvals/{q['old'][0]}/undo", {}, token, "turn", expected=403)          # his click, not the bot's
     assert post(api, f"approvals/{q['old'][0]}/undo", {}, token="ben-test")["decision"] is None
     post(api, f"approvals/{q['old'][1]}/undo", {}, token="ben-test", expected=422)
@@ -602,25 +612,22 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
     # A bot's message (or a file's text, which reaches the turn the same way) is not his instruction.
     read_back(q["merge"])
     assert refused(injected) == "on_behalf_of"
-    # His words count only as a clear ask to approve, or a plain yes to the read-back: not a mention of sending,
-    # a "don't", a question, or a yes to something else.
+    # Only a plain yes to the read-back counts: not his own sentence, however it is put, nor a yes to something the
+    # Assistant said after the list.
     assert refused("turn") == "approve_not_asked"
-    for text in ("Don't approve anything, just tell me what's waiting", "Never approve without asking me first",
-                 "Can you approve the merge?"):
+    for text in ("Approve the merge", "Approve the merge if CI passes", "Don't approve anything"):
         ask = say(api, text, "ben-test")["message"]["id"]
         read_back(q["merge"])
         assert refused(ask) == "approve_not_asked", text
     with api.app.state.store.transaction() as c:
-        H._write_message(c, "bot:coo", "human:ben", "Want me to send you a summary by email tomorrow?",
-                         assistant.find_room(c, "human:ben"), "say", {"assistant": True}, None, None)
+        H._write_message(c, "bot:coo", "human:ben", "Want me to email you this list tomorrow?",
+                         assistant.find_room(c, "human:ben"), "say", {"assistant": True, "turn_id": attempt["id"]},
+                         None, None)
     assert refused(say(api, "yes please", "ben-test")["message"]["id"]) == "approve_not_asked"
     # Never what the Assistant asked for itself.
     assert post(api, "assistant/read-back", {"approvals": [own]}, token=token, expected=403)["error"]["code"] == "own_request"
-    # A yes to the read-back (its turn's closing reply may come between) approves exactly what it lists.
+    # A yes right after the read-back approves exactly what it lists.
     back = read_back(q["merge"])
-    with api.app.state.store.transaction() as c:
-        H._write_message(c, "bot:coo", "human:ben", "Say yes and I'll go ahead.", assistant.find_room(c, "human:ben"),
-                         "say", {"assistant": True, "turn_id": attempt["id"]}, None, None)
     yes = say(api, "yes", "ben-test")["message"]["id"]
     asked(api, "approvals/" + q["merge"], approve, token, yes)
     assert refused(yes, q["spend"]) == "approve_not_asked" and refused(yes, own) == "own_request"
