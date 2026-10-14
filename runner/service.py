@@ -3507,6 +3507,13 @@ class Runner:
                     body["worktrees"] = [{k: v for k, v in r.items() if k != "record_updated"} for r in body["worktrees"]]
                     self._reports_worktree_stamp = False
                     continue
+                if exc.status == 422 and "commit" in body and re.search(r"(?:^|[ ;])body\.commit(?:[.: ;]|$)", detail):
+                    # A server rolled back since it said it takes the commit: the rest still goes, and the commit
+                    # waits until `runners/desired` says so again.
+                    body.pop("commit")
+                    if getattr(self, "follower", None) is not None:
+                        self.follower.features = {**self.follower.features, "runner_commit": False}
+                    continue
                 if exc.status == 422 and "capabilities" in detail and "task_goals_v1" in body.get("capabilities", []):
                     # A server from before task goals never hands a task room's goal; only the new one goes.
                     body["capabilities"].remove("task_goals_v1")
