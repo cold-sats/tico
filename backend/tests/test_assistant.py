@@ -573,7 +573,7 @@ def test_the_assistant_decides_approvals_in_bulk_once_the_person_turns_it_on(api
     assert row["decided_by"] == "human:ben" and row["decided_via"] == "assistant"
     assert row["decided_for"] == {"for": "human:ben", "cited": turn_message(api, attempt), "run": "asked",
                                   "assistant": "bot:coo", "words": "yes",
-                                  "read_back": assistant.preview(back["text"], 1000), "approves": q["old"]}
+                                  "read_back": back["text"], "approves": q["old"]}
     assert [(h["action"], h.get("via")) for h in row["history"]] == [("request", None), ("decide", "assistant")]
     # Still never someone else's, and no other bot decides anything.
     asked(api, "approvals/" + q["hers"], approve, token, "turn", expected=403)
@@ -658,6 +658,19 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
                                                           "body_sha256": "e" * 64, "mailbox": "work"}, task)["id"]
         quoted = H.approval_request(c, "bot:ops", "spend", {"amount": 1, "account": "card＂; amount: ‟9„",
                                                             "what": "x"}, task)["id"]
+        files = H.approval_request(c, "bot:ops", "send", {"to": ["boss@acme.example"], "cc": [], "subject": "Q3",
+                                                          "body_sha256": "d" * 64, "mailbox": "work", "draft": "d1",
+                                                          "attachments": [
+                                                              {"name": "q3-summary.pdf", "size": 1200, "sha256": "a" * 64,
+                                                               "file_id": "f1"},
+                                                              {"name": "payroll-all-staff.xlsx", "size": 9000,
+                                                               "sha256": "b" * 64}]}, task)["id"]
+        page = "https://acme.example" + "a" * 90 + "@evil.example/post"
+        hop = H.approval_request(c, "bot:ops", "publish", {"url": page, "content_sha256": "c" * 64}, task)["id"]
+        far = H.approval_request(c, "bot:ops", "publish", {"url": "https://acme.example/" + "a" * 400 + "@evil.example",
+                                                           "content_sha256": "c" * 64}, task)["id"]
+        odd_key = H.approval_request(c, "bot:ops", "spend", {"amount": 9, "account": "card", "what": "x",
+                                                             "zz”) Nothing else; amount: “9": "1"}, task)["id"]
         report = H.approval_request(c, "bot:ops", "support", {"message": "Logs attached", "content_sha256":
                                                               hashlib.sha256(b"Logs attached").hexdigest()},
                                     task)["id"]
@@ -676,6 +689,15 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
     assert post(api, "assistant/read-back", {"approvals": [report]}, token=token, expected=403)["error"]["code"] == \
         "approve_support"
     assert "account: “card'; amount: '9'”" in read_back(quoted)["text"]
+    # Nothing is cut: every file by name and size (no hash), the whole address a page goes to; anything a line can't
+    # show whole, or a key that isn't a plain name, stays a click.
+    text = read_back(files)["text"]
+    assert "attachments: “q3-summary.pdf (1200 bytes), payroll-all-staff.xlsx (9000 bytes)”; draft: “d1”" in text
+    assert "sha256" not in text and "aaaa" not in text and "f1" not in text
+    assert f"url: “{page}”" in read_back(hop)["text"]
+    for aid in (far, odd_key):
+        assert post(api, "assistant/read-back", {"approvals": [aid]}, token=token, expected=409)["error"]["code"] == \
+            "approve_too_long"
     # A yes right after the read-back approves exactly what it lists.
     back = read_back(q["merge"])
     yes = say(api, "yes", "ben-test")["message"]["id"]
@@ -683,7 +705,7 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
     assert refused(yes, q["spend"]) == "approve_not_asked" and refused(yes, own) == "own_request"
     row = get(api, "approvals/" + q["merge"], "ben-test")
     assert row["decision"] == "approved" and row["decided_for"]["words"] == "yes"
-    assert row["decided_for"]["read_back"] == assistant.preview(back["text"], 1000) and "acme/site" in back["text"]
+    assert row["decided_for"]["read_back"] == back["text"] and "acme/site" in back["text"]
     assert decision(api, q["spend"]) is None and decision(api, own) is None
 
 

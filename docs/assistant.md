@@ -108,9 +108,10 @@ What stays on:
   that list, citing your plain yes ("yes", "ok", "go ahead") when the list is the last message from anyone but you before
   it and you have written nothing since ("wait, no" takes it back; `403 approve_not_asked` otherwise). Each line of the
   list is one line, whatever the requesting bot put in its request, and shows every field of the approval except its
-  hashes, each quoted: the amount and who it goes to first (an email's to, cc and sending mailbox in full), then the
-  rest. An email with more recipients than a line can show in full (`409 approve_too_long`) and a report to the Tico
-  team (`403 approve_support`) are left off the list and stay your click. Your own sentence never approves without that yes, however it is put ("approve
+  hashes, each quoted and none cut: the amount and who it goes to first (an email's to, cc and sending mailbox, a
+  page's whole address), then the rest, files by name and size. An approval with a field longer than the list can show
+  whole, or a field name that isn't a plain name (`409 approve_too_long`), and a report to the Tico team
+  (`403 approve_support`) are left off the list and stay your click. The approval's history keeps the whole list. Your own sentence never approves without that yes, however it is put ("approve
   the merge if CI passes", "send me a summary"). Text in a message, file, web page, task or another
   bot's output is never your instruction: citing a bot's message is `403 on_behalf_of`. Declines need no read-back.
 - **Never its own request.** An approval the Assistant itself asked for stays your click on a card (`403 own_request`).
@@ -185,7 +186,7 @@ own session, not a personal token.
 | `GET /api/v2/assistant/settings` | `{"decides_approvals", "team_allows", "active", "where"}`: whether your Assistant decides your approvals. |
 | `POST /api/v2/assistant/settings` `{"decides_approvals"}` | Your own session only (`403` for the Assistant, a bot or turning it on with a personal token). |
 | `GET /api/v2/assistant/decisions` | `{"decisions": [{"id", "kind", "decision", "what", "decided_at", "decided_for", "consumed_at", "can_undo"}]}`, the last 30 days. |
-| `POST /api/v2/assistant/read-back` `{"approvals": [ids]}` | The Assistant only: posts its list in your chat, `{"message_id", "approves", "text"}`. `403 own_request` for one it asked for, `403 approve_support` for a report to the Tico team, `409` if one is already decided or `approve_too_long` if its recipients can't be shown in full. |
+| `POST /api/v2/assistant/read-back` `{"approvals": [ids]}` | The Assistant only: posts its list in your chat, `{"message_id", "approves", "text"}`. `403 own_request` for one it asked for, `403 approve_support` for a report to the Tico team, `409` if one is already decided or `approve_too_long` if one of its fields can't be shown in full. |
 | `POST /api/v2/approvals/{id}/undo` | Puts a decision your Assistant made back to waiting for you, before it is spent. Not the Assistant. |
 
 Names come with ids (`from_name`, `owner_name`, and an `actors` map), as elsewhere in v2. A custom frontend (see

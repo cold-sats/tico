@@ -226,35 +226,49 @@ def plain_line(text):
 
 # Known fields first, in this order; every other payload key follows, sorted, so a field added later is shown, not
 # left out. Only the hashes are not: the person can't check them and the fields beside them say what they cover.
-APPROVAL_FIELDS = ("amount", "to", "cc", "mailbox", "repo", "pr", "url", "account", "subject", "title", "what")
-RECIPIENT_FIELDS = ("to", "cc", "mailbox")
-RECIPIENT_LIMIT = 400
+APPROVAL_FIELDS = ("amount", "to", "cc", "mailbox", "repo", "pr", "url", "account", "subject", "title", "what",
+                   "attachments")
+# A read-back cuts nothing: an approval with a field (or a key) longer than this stays the person's click.
+FIELD_LIMIT = 400
+KEY = re.compile(r"[A-Za-z0-9_]{1,40}")
 QUOTES = '"“”„‟″〝〞〟＂«»'
 
 
-def field_value(value, limit=100):
-    """One payload value as a card or read-back shows it: one plain line (a list joined with ", "), at most `limit`
-    characters, no quotes of its own to close the ones around it."""
+def hidden_key(key):
+    return str(key).endswith("sha256") or key == "file_id"
+
+
+def field_text(value):
+    """One payload value written out whole: a list joined with ", ", a file as its name and size, any other object as
+    its key=value pairs; never a hash."""
     if isinstance(value, (list, tuple)):
-        value = ", ".join(str(v) for v in value)
-    text = plain_line(value).translate({ord(q): "'" for q in QUOTES})
+        return ", ".join(field_text(v) for v in value)
+    if isinstance(value, dict):
+        rest = " ".join(f"{k}={field_text(v)}" for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
+                        if not hidden_key(k) and k not in ("name", "size"))
+        head = (field_text(value["name"]) + (f" ({value['size']} bytes)" if "size" in value else "")
+                if "name" in value else "")
+        return " ".join(x for x in (head, rest) if x)
+    return str(value)
+
+
+def field_value(value, limit=FIELD_LIMIT):
+    """One payload value as a card or read-back shows it: one plain line, at most `limit` characters, no quotes of its
+    own to close the ones around it."""
+    text = plain_line(field_text(value)).translate({ord(q): "'" for q in QUOTES})
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
 def approval_fields(payload):
     """The payload keys a card or read-back shows, known ones first."""
-    shown = [k for k in payload if not str(k).endswith("sha256")]
+    shown = [k for k in payload if not hidden_key(k)]
     return [k for k in APPROVAL_FIELDS if k in shown] + sorted(str(k) for k in shown if k not in APPROVAL_FIELDS)
 
 
-def field_limit(key):
-    """Who an email goes to is written out in full (up to RECIPIENT_LIMIT, past which the read-back refuses it)."""
-    return RECIPIENT_LIMIT if key in RECIPIENT_FIELDS else 100
-
-
-def recipients_cut(payload):
-    return [k for k in RECIPIENT_FIELDS if k in payload and field_value(payload[k], 10 ** 6) != field_value(
-        payload[k], RECIPIENT_LIMIT)]
+def too_long(payload):
+    """The fields a read-back could not show whole (or whose key is not a plain name): the approval stays a click."""
+    return [str(k) for k in payload if not hidden_key(k) and (
+        not KEY.fullmatch(str(k)) or field_value(payload[k], 10 ** 6) != field_value(payload[k]))]
 
 
 def approval_id(path):
@@ -292,7 +306,7 @@ def approval_words(c, who, cited, assistant_bot, approval):
         raise Problem("approve_not_asked", "Approving needs the person's yes to your read-back: post the list with "
                       "`hub approval read-back <id>...` as your reply and end the turn; their plain yes to it approves "
                       "exactly what it lists", 403)
-    return {"words": preview(words, 300), "read_back": preview(back["body"], 1000), "approves": back["approves"]}
+    return {"words": preview(words, 300), "read_back": back["body"], "approves": back["approves"]}
 
 
 def instruction(c, who, ref):
@@ -473,7 +487,7 @@ def describe(c, method, path, body):
         # What the person says yes to: the amount and target first, each field cleaned, capped and quoted on its own,
         # so a long or crafted field (padding, "card; amount: 9") can't push a later one out or pose as it.
         payload = row.get("payload") or {}
-        detail = "; ".join(f"{k}: “{field_value(payload[k], field_limit(k))}”" for k in approval_fields(payload))
+        detail = "; ".join(f"{field_value(k, 40)}: “{field_value(payload[k])}”" for k in approval_fields(payload))
         return (f"{verb} the {row['kind']} approval requested by {who(row['requested_by'])}"
                 + (f" ({detail})" if detail else "") + f", {age(row['created'])}"
                 + (f"; reason: {preview(body['note'], 120)}" if body.get("note") else ""))
@@ -1240,9 +1254,9 @@ def install(app, store, auth, mutate, onboarding):
                 if row["kind"] == "support":
                     raise Problem("approve_support", "A report to the Tico team is sent only on the person's own "
                                   "click, so leave it out of the read-back", 403)
-                if cut := recipients_cut(row.get("payload") or {}):
-                    raise Problem("approve_too_long", f"Approval {aid} has more {' and '.join(cut)} than the read-back "
-                                  "can show in full, so it stays the person's click: leave it out", 409)
+                if cut := too_long(row.get("payload") or {}):
+                    raise Problem("approve_too_long", f"Approval {aid} has more in {', '.join(field_value(k, 40) for k in cut)} "
+                                  "than the read-back can show in full, so it stays the person's click: leave it out", 409)
                 what, _ = describe(c, "POST", "/api/v2/approvals/" + row["id"], {"decision": row["decision"]})
                 out.append({"id": row["id"], "kind": row["kind"], "decision": row["decision"],
                             "what": what.split(" ", 1)[-1],          # "the publish approval requested by ..."
@@ -1281,9 +1295,9 @@ def install(app, store, auth, mutate, onboarding):
                 if row["kind"] == "support":
                     raise Problem("approve_support", "A report to the Tico team is sent only on the person's own "
                                   "click, so leave it out of the read-back", 403)
-                if cut := recipients_cut(row.get("payload") or {}):
-                    raise Problem("approve_too_long", f"Approval {aid} has more {' and '.join(cut)} than the read-back "
-                                  "can show in full, so it stays the person's click: leave it out", 409)
+                if cut := too_long(row.get("payload") or {}):
+                    raise Problem("approve_too_long", f"Approval {aid} has more in {', '.join(field_value(k, 40) for k in cut)} "
+                                  "than the read-back can show in full, so it stays the person's click: leave it out", 409)
                 what, _ = describe(c, "POST", "/api/v2/approvals/" + aid, {"decision": "approved"})
                 lines.append("- " + plain_line(what))
             n = len(ids)
