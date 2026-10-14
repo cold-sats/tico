@@ -224,14 +224,37 @@ def plain_line(text):
     return re.sub(r"\s+", " ", text).strip().replace("<", "‹").replace(">", "›")
 
 
-APPROVAL_FIELDS = ("amount", "to", "repo", "pr", "url", "account", "subject", "title", "what")
+# Known fields first, in this order; every other payload key follows, sorted, so a field added later is shown, not
+# left out. Only the hashes are not: the person can't check them and the fields beside them say what they cover.
+APPROVAL_FIELDS = ("amount", "to", "cc", "mailbox", "repo", "pr", "url", "account", "subject", "title", "what")
+RECIPIENT_FIELDS = ("to", "cc", "mailbox")
+RECIPIENT_LIMIT = 400
+QUOTES = '"“”„‟″〝〞〟＂«»'
 
 
 def field_value(value, limit=100):
-    """One payload value as a card or read-back shows it: one plain line, at most `limit` characters, no quotes of its
-    own to close the ones around it."""
-    text = plain_line(value).replace("“", "'").replace("”", "'").replace('"', "'")
+    """One payload value as a card or read-back shows it: one plain line (a list joined with ", "), at most `limit`
+    characters, no quotes of its own to close the ones around it."""
+    if isinstance(value, (list, tuple)):
+        value = ", ".join(str(v) for v in value)
+    text = plain_line(value).translate({ord(q): "'" for q in QUOTES})
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def approval_fields(payload):
+    """The payload keys a card or read-back shows, known ones first."""
+    shown = [k for k in payload if not str(k).endswith("sha256")]
+    return [k for k in APPROVAL_FIELDS if k in shown] + sorted(str(k) for k in shown if k not in APPROVAL_FIELDS)
+
+
+def field_limit(key):
+    """Who an email goes to is written out in full (up to RECIPIENT_LIMIT, past which the read-back refuses it)."""
+    return RECIPIENT_LIMIT if key in RECIPIENT_FIELDS else 100
+
+
+def recipients_cut(payload):
+    return [k for k in RECIPIENT_FIELDS if k in payload and field_value(payload[k], 10 ** 6) != field_value(
+        payload[k], RECIPIENT_LIMIT)]
 
 
 def approval_id(path):
@@ -450,7 +473,7 @@ def describe(c, method, path, body):
         # What the person says yes to: the amount and target first, each field cleaned, capped and quoted on its own,
         # so a long or crafted field (padding, "card; amount: 9") can't push a later one out or pose as it.
         payload = row.get("payload") or {}
-        detail = "; ".join(f"{k}: “{field_value(payload[k])}”" for k in APPROVAL_FIELDS if k in payload)
+        detail = "; ".join(f"{k}: “{field_value(payload[k], field_limit(k))}”" for k in approval_fields(payload))
         return (f"{verb} the {row['kind']} approval requested by {who(row['requested_by'])}"
                 + (f" ({detail})" if detail else "") + f", {age(row['created'])}"
                 + (f"; reason: {preview(body['note'], 120)}" if body.get("note") else ""))
@@ -1214,6 +1237,12 @@ def install(app, store, auth, mutate, onboarding):
             out = []
             for r in rows:
                 row = H.approval(c, r["id"])
+                if row["kind"] == "support":
+                    raise Problem("approve_support", "A report to the Tico team is sent only on the person's own "
+                                  "click, so leave it out of the read-back", 403)
+                if cut := recipients_cut(row.get("payload") or {}):
+                    raise Problem("approve_too_long", f"Approval {aid} has more {' and '.join(cut)} than the read-back "
+                                  "can show in full, so it stays the person's click: leave it out", 409)
                 what, _ = describe(c, "POST", "/api/v2/approvals/" + row["id"], {"decision": row["decision"]})
                 out.append({"id": row["id"], "kind": row["kind"], "decision": row["decision"],
                             "what": what.split(" ", 1)[-1],          # "the publish approval requested by ..."
@@ -1249,6 +1278,12 @@ def install(app, store, auth, mutate, onboarding):
                 if row["requested_by"] == "bot:" + settings.assistant_bot:
                     raise Problem("own_request", "You asked for this approval yourself, so it stays the person's "
                                   "click: propose it on a card (`hub assistant propose`)", 403)
+                if row["kind"] == "support":
+                    raise Problem("approve_support", "A report to the Tico team is sent only on the person's own "
+                                  "click, so leave it out of the read-back", 403)
+                if cut := recipients_cut(row.get("payload") or {}):
+                    raise Problem("approve_too_long", f"Approval {aid} has more {' and '.join(cut)} than the read-back "
+                                  "can show in full, so it stays the person's click: leave it out", 409)
                 what, _ = describe(c, "POST", "/api/v2/approvals/" + aid, {"decision": "approved"})
                 lines.append("- " + plain_line(what))
             n = len(ids)

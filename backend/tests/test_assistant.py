@@ -2,6 +2,8 @@
 needs no bot turn, a bot turn that acts as the person and never more, and side effects that wait for the
 person's own click."""
 
+import hashlib
+
 import pytest
 
 from backend import assistant
@@ -647,11 +649,33 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
         padded = H.approval_request(c, "bot:ops", "spend", {"amount": 50000, "what": "Team lunch",
                                                             "account": "card; amount: 9" + " " * 240 + "\u200b" * 240},
                                     task)["id"]
+        email = H.approval_request(c, "bot:ops", "send", {"to": "boss@acme.example", "cc": ["leak@evil.example"],
+                                                          "subject": "Q3 numbers", "body_sha256": "d" * 64,
+                                                          "mailbox": "ceo@acme.example", "reply_to": "x@evil.example"},
+                                   task)["id"]
+        crowd = H.approval_request(c, "bot:ops", "send", {"to": "boss@acme.example", "subject": "Hi",
+                                                          "cc": [f"person{i}@acme.example" for i in range(30)],
+                                                          "body_sha256": "e" * 64, "mailbox": "work"}, task)["id"]
+        quoted = H.approval_request(c, "bot:ops", "spend", {"amount": 1, "account": "card＂; amount: ‟9„",
+                                                            "what": "x"}, task)["id"]
+        report = H.approval_request(c, "bot:ops", "support", {"message": "Logs attached", "content_sha256":
+                                                              hashlib.sha256(b"Logs attached").hexdigest()},
+                                    task)["id"]
     assert read_back(odd)["text"].count("\n") == 3
     text = read_back(hidden)["text"]
     assert "amount: “50000”" in text and "<" not in text and "\u202e" not in text
     # The amount leads, and a field padded or posing as another can't push it out: it stays quoted as itself.
     assert "(amount: “50000”; account: “card; amount: 9”; what: “Team lunch”)" in read_back(padded)["text"]
+    # Every field of an email shows, the recipients in full, and any field not on the known list after them; only the
+    # hash is left out. Too many recipients to show and it stays a click, as does a report to the Tico team.
+    assert ("(to: “boss@acme.example”; cc: “leak@evil.example”; mailbox: “ceo@acme.example”; subject: “Q3 numbers”; "
+            "reply_to: “x@evil.example”)") in read_back(email)["text"]
+    assert "sha256" not in read_back(email)["text"]
+    assert post(api, "assistant/read-back", {"approvals": [crowd]}, token=token, expected=409)["error"]["code"] == \
+        "approve_too_long"
+    assert post(api, "assistant/read-back", {"approvals": [report]}, token=token, expected=403)["error"]["code"] == \
+        "approve_support"
+    assert "account: “card'; amount: '9'”" in read_back(quoted)["text"]
     # A yes right after the read-back approves exactly what it lists.
     back = read_back(q["merge"])
     yes = say(api, "yes", "ben-test")["message"]["id"]
