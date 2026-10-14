@@ -249,6 +249,14 @@ def require_payload(c, who, payload, principal=None, checked_for=None):
             principal = "bot:" + attempt["bot"]
             if not attempt_readable(c, principal, attempt.get("id")):
                 raise Problem("privacy", "This execution is no longer available", 403)
+    if (who.role == "runner" and principal == who.actor and isinstance(payload, dict)
+            and isinstance(payload.get("worktree_actions"), list)):
+        # A computer is never a task participant, so its heartbeat's worktree actions are each read as the bot
+        # it hosts that owns the worktree; the rest of the heartbeat is still read as the computer.
+        if not all(worktree_action_readable(c, who, action) for action in payload["worktree_actions"]):
+            raise Problem("privacy", "This response contains a task you can no longer read", 403)
+        require_payload(c, who, {k: v for k, v in payload.items() if k != "worktree_actions"}, principal, checked_for)
+        return payload
     if principal != checked_for and not readable(c, principal, references(c, payload)):
         raise Problem("privacy", "This response contains a task you can no longer read", 403)
     if isinstance(payload, dict):
@@ -279,6 +287,18 @@ def require_payload(c, who, payload, principal=None, checked_for=None):
             if isinstance(value, (dict, list)):
                 require_payload(c, who, value, principal, principal)
     return payload
+
+
+def worktree_action_readable(c, who, action):
+    """Whether a computer may be sent this worktree action: its task is readable by anyone, or by the bot that owns
+    the worktree while that bot is hosted on this computer."""
+    ids = references(c, action)
+    if readable(c, who.actor, ids):
+        return True
+    owner = action.get("owner") if isinstance(action, dict) else None
+    hosted = isinstance(owner, str) and c.execute("SELECT 1 FROM assignments WHERE bot=? AND runner_id=?",
+                                                  (owner, who.runner_id)).fetchone()
+    return bool(hosted) and readable(c, "bot:" + owner, ids)
 
 
 def attempt_readable(c, actor, aid, memo=None):
