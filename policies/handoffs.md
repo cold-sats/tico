@@ -131,8 +131,10 @@ keep the product work in the product lane. That human task is the ask. Do not ca
 `hub question ask` or `hub message send` to the owner for the same question; each sends another notification. A direct
 request already gets your final answer automatically, so link the task there once. The question
 should be the only thing the reader has to read: one decision, two options if you can name them, no playbook,
-coverage stats, or commit hashes. The human task title starts with a verb, its first line contains
-the question, and its body stays under 120 words outside a quoted draft. Do not paste the original
+coverage stats, or commit hashes. The human task title starts with a verb, its body's first paragraph is
+the ask (one or two plain sentences saying what you need and what happens after, at most 40 words, with no ids,
+hashes, file paths, `s3://` links or tool names; Tico refuses one that breaks this), and its body stays under
+120 words outside a quoted draft. A waiting note on a task you set waiting on a person is the same ask. Do not paste the original
 brief into the task note. A decision is a General task: a task on a custom type is a ticket on that
 type's board, which these checks leave alone, not a place for an ask.
 

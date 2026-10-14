@@ -249,7 +249,7 @@ exception, so the computer keeps reporting the others.
 ## What BotOps does
 
 BotOps works one setup task at a time, following `playbooks/set-up-a-bot.md` in its own repository:
-read the task, `hub bot create <slug> --template <template> --name "<Display>"`, put the reviewed
+read the task, `hub bot create --template <template> --name "<Display>"` (Tico picks the slug from the name), put the reviewed
 instructions into `AGENT.md` (or tailor the template's to the answers), run `hub bot check <slug>`
 and fix every failure, then commit the result.
 
@@ -316,8 +316,8 @@ state are also placed. Existing assignments and repository grants stay in place.
 
 - **Settings → Bots → Add from template.** The same cards, minus the bots that already exist. A starter is created parked, exactly as Create
   makes it; any other template is created `planned` with the same BotOps task the wizard would have filed.
-- **From a BotOps task**, inside a run: `hub bot create <slug> --template <template> --name
-  "<Display>"`, then `hub bot check <slug>`. Both need `HUB_WORKSPACE`, which the runner puts in
+- **From a BotOps task**, inside a run: `hub bot create --template <template> --name
+  "<Display>"`, then `hub bot check <slug>` with the slug it printed. Both need `HUB_WORKSPACE`, which the runner puts in
   every run's environment.
 - **An agent you already run elsewhere**: a [Hermes](hermes-agents.md) or [OpenClaw](openclaw-agents.md) profile
   becomes a bot with a pairing code, no template; see [Connect an external agent](connect-an-agent.md#an-agent-that-is-a-bot-not-you).
@@ -327,7 +327,7 @@ state are also placed. Existing assignments and repository grants stay in place.
   **Settings → Bots** afterwards.
 
 The pickers key a bot by its card's slug, so each template yields one bot there. A second bot from
-the same template is one of the two command line routes, with a slug of your own.
+the same template is one of the two command line routes; Tico gives it a slug of its own (`-2`).
 
 ## Adding a template
 

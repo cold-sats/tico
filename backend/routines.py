@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from clients.manifest import tools_of
 from clients.routines import DEFAULT_ZONE, validate_schedules
 from . import people as P, task_privacy as privacy
+from .harnesses import SYNCED_SQL
 from .scheduler import next_due, stamp
 from .store import H, Problem, encode
 
@@ -60,6 +61,7 @@ def create(c, actor, bot, fields, *, key=None, at=None):
     again updates it in place (a bot that sets up its own routines every turn makes one)."""
     at = _clock(at)
     entry = validate(fields)
+    H._takes_tasks(c, actor, "bot:" + bot)        # every run of a routine is a task
     if key is not None:
         existing = c.execute("SELECT id FROM schedules WHERE bot=? AND routine_key=?", (bot, key)).fetchone()
         if existing:
@@ -161,7 +163,9 @@ def no_input(c, settings, schedule, local):
     """Why a built-in routine's run would have nothing to work on, or None: such a run is skipped rather than
     opening a task its bot can only close."""
     from . import market
-    if schedule["bot"] == market.CURATOR.split(":", 1)[1] and schedule["routine_key"] == "curate-the-market":
+    # Only the routine as shipped: a team that changed its text may have given it other work.
+    if (schedule["bot"] == market.CURATOR.split(":", 1)[1] and schedule["routine_key"] == "curate-the-market"
+            and (schedule["playbook"] or "").strip() == market.CURATE_TEXT.strip()):
         return market.nothing_to_curate(c, settings, local)
     return None
 
@@ -196,6 +200,9 @@ def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, aut
                      "WHERE s.event_name=? AND b.state='active' AND coalesce(sc.enabled,1)=1 AND s.deleted_at IS NULL "
                      "AND NOT EXISTS(SELECT 1 FROM bot_config bc WHERE bc.bot=s.bot "
                      "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
+                     # a bot synced in from another platform never sees a task (hubdb._takes_tasks)
+                     "AND NOT EXISTS(SELECT 1 FROM bot_config xc WHERE xc.bot=s.bot "
+                     "AND json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ")) "
                      "ORDER BY s.id", (kind,)).fetchall()
     for schedule in rows:
         occurrence = f"{kind}:{subject}"
@@ -368,8 +375,8 @@ def occurrences(c, schedule_id, limit=OCCURRENCE_LIMIT, *, who, auth):
     event = bool(schedule and schedule["event_name"])
     rows = c.execute(
         "SELECT o.occurrence,o.outcome,o.task_id,t.status,t.title "
-        "FROM schedule_occurrences o JOIN tasks t ON t.id=o.task_id WHERE o.schedule_id=? "
-        f"AND ({auth.task_sql(c, who)}) "
+        "FROM schedule_occurrences o LEFT JOIN tasks t ON t.id=o.task_id WHERE o.schedule_id=? "
+        f"AND (o.task_id IS NULL OR ({auth.task_sql(c, who)})) "
         "ORDER BY o.occurrence DESC LIMIT ?",
         (schedule_id, limit)).fetchall()
     ids = list(dict.fromkeys(found["task_id"] for found in rows if found["task_id"]))
@@ -386,13 +393,20 @@ def occurrences(c, schedule_id, limit=OCCURRENCE_LIMIT, *, who, auth):
     result = []
     for found in rows:
         attempt = attempts.get(found["task_id"]) or {}
+        why = None
+        if found["outcome"] == "skipped":
+            # A run skipped for want of input opened no task; its reason is on its occurrence event.
+            why = c.execute("SELECT json_extract(detail_json,'$.reason') FROM events WHERE action='schedule.occurrence' "
+                            "AND target=? AND json_extract(detail_json,'$.occurrence')=? ORDER BY rowid DESC LIMIT 1",
+                            (schedule_id, found["occurrence"])).fetchone()
+            why = why[0] if why else None
         started, finished = H.parse_ts(attempt.get("started")), H.parse_ts(attempt.get("finished"))
         duration = max(0, round((finished - started).total_seconds())) if started and finished else None
         result.append({
             "occurrence": found["occurrence"], "outcome": _outcome(found["outcome"], event),
             "task_id": found["task_id"], "status": found["status"] or None, "title": found["title"] or None,
             "started": attempt.get("started"), "finished": attempt.get("finished"),
-            "duration_s": duration, "exit": attempt.get("state")})
+            "duration_s": duration, "exit": attempt.get("state"), **({"reason": why} if why else {})})
     return result
 
 

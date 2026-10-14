@@ -8,6 +8,7 @@ import json
 import re
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from backend import hubdb as H
@@ -670,53 +671,80 @@ class WaitingWithDependency(HubCase):
         secret = H.task_create(self.conn, CMO, 'Review the payroll export', '', CMO, private=True)
         self.refused('private', H.task_update, self.conn, CMO, secret['id'], status='waiting', waiting_on='ben')
 
-    def test_a_parent_its_subtask_and_the_persons_own_task_waiting_on_one_thing_are_one_card_and_wake_together(self):
+    def test_tasks_waiting_on_a_person_for_one_thing_are_one_card_and_wake_together_but_another_ask_keeps_its_own(self):
         told = lambda bot, words: self.conn.execute("SELECT count(*) FROM messages WHERE to_actor=? AND body LIKE ?",
                                                     (bot, f"%{words}%")).fetchone()[0]
-        mine = H.task_create(self.conn, CMO, 'Approve the ad budget', '', ANA, private=False)
+        budget = 'Can I spend $500 on the ads? If yes, I launch them today.'
+        mine = H.task_create(self.conn, CMO, 'Approve the ad budget', budget, ANA, private=False)
         parent = H.task_create(self.conn, ANA, 'Launch the ads', '', CMO, private=False)
         child = H.task_create(self.conn, CMO, 'Set up the ad account', '', SEO, parent_id=parent['id'], private=False)
         TR.relate(self.conn, CMO, parent['id'], mine['id'], 'blocked_by')
-        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note='Approve the budget.')
-        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note='Approve the budget.')
+        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note=budget)
+        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note=budget)
+        # A subtask under her own task that asks something else is not hidden behind it.
+        other = H.task_create(self.conn, CMO, 'Book the venue', '', SEO, parent_id=mine['id'], private=False)
+        H.task_update(self.conn, SEO, other['id'], status='waiting', waiting_on='ana',
+                      note='Can I pay the $4,000 venue deposit? If yes, I book it today.')
         needs = H.needs_you(self.conn, 'ana')
-        self.assertEqual(([t['id'] for t in needs['tasks']], needs['waiting']), ([mine['id']], []))
+        self.assertEqual(([t['id'] for t in needs['tasks']], [t['id'] for t in needs['waiting']]),
+                         ([mine['id']], [other['id']]))
         H.task_update(self.conn, ANA, mine['id'], status='done', note='Approved.')
         self.assertEqual([H.task(self.conn, t['id'])['waiting_on'] for t in (parent, child)], [None, None])
         self.assertEqual((told(CMO, 'Unblocked: Launch the ads'), told(SEO, 'acted on "Launch the ads"')), (1, 1))
+        self.assertEqual(H.task(self.conn, other['id'])['waiting_on'], ANA)
         # With no task of hers, the parent is the one card; her answer there wakes the subtask too.
-        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note='Pick the launch day.')
-        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note='Pick the launch day.')
-        self.assertEqual([t['id'] for t in H.needs_you(self.conn, 'ana')['waiting']], [parent['id']])
+        day = 'Can we launch on Monday? If yes, I schedule it.'
+        H.task_update(self.conn, CMO, parent['id'], status='waiting', waiting_on='ana', note=day)
+        H.task_update(self.conn, SEO, child['id'], status='waiting', waiting_on='ana', note=day)
+        self.assertEqual([t['id'] for t in H.needs_you(self.conn, 'ana')['waiting']], [parent['id'], other['id']])
         H.task_comment(self.conn, ANA, parent['id'], 'Monday')
         self.assertEqual((H.task(self.conn, child['id'])['waiting_on'], told(SEO, 'acted on')), (None, 2))
 
-    def test_a_waiting_note_for_a_person_is_linted_as_their_ask(self):
-        lints = lambda tid: [e[0] for e in self.conn.execute(
-            "SELECT new FROM task_events WHERE task_id=? AND field='lint' ORDER BY ts", (tid,))]
+    def test_a_plain_ask_passes_and_shorthand_does_not(self):
+        # Abbreviations, initials, a year after a few letters, a standard's number and a product name are plain words.
+        for ask in ["Can we meet at 3 p.m. on Friday? If yes, I will book the room.",
+                    "Approve the invoice from Dr. Smith for $1,200? If yes, I pay it today.",
+                    "Should we sell to U.S. customers first? If yes, I set up the store.",
+                    "Approve the FY2026 budget? If yes, I send it to finance.",
+                    "Move the site to ES2022? If yes, I ship it Monday.",
+                    "Start the ISO27001 audit? If yes, I book the auditor.",
+                    "Build the site with Node.js? If yes, I start today.",
+                    "Approve the trial (it ends Oct. 20)? If yes, I sign up."]:
+            self.assertEqual(H.lint_person_ask(ask), [], ask)
+        for ask, failed in [("Approve it. I send it. Then I book it.", "3 sentences"),
+                            ("Approve PO-1234? If yes, I pay it.", 'id or hash: "PO-1234"'),
+                            ("Approve invoice #4821?", 'id or hash: "#4821"'),
+                            ("Ship the fix in app.js?", 'file path: "app.js"')]:
+            self.assertIn(failed, "; ".join(H.lint_person_ask(ask)), ask)
+
+    def test_a_bot_gives_a_person_a_plain_ask_or_is_refused(self):
+        plain = "Approve the video tool trial on Thursday? If yes, I'll send the invite."
         task = H.task_create(self.conn, CMO, 'Coordinate the external agent scenario', '', CMO, private=False)
-        # The bot's working notes as the ask: ids, a page of status. Saved, waiting on Ana, with warnings.
-        notes = ('Engineering answer db14c907 resolves initial inquiry 8719e1a6: public example is independent static '
-                 'Larkspur. Docs task Doing; no sample edit/deploy or duplicate human question. Waiting on a call.')
-        after = H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana', note=notes)
-        self.assertEqual((after['waiting_on'], after['note']), (ANA, notes))
-        self.assertTrue(any('"db14c907"' in w for w in after['warnings']), after['warnings'])
-        self.assertTrue(any('working notes' in w for w in after['warnings']), after['warnings'])
-        self.assertEqual(len(lints(task['id'])), 1)
-        # One plain sentence to the person passes.
-        plain = H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana',
-                              note='Tell me whether the public example should show the agent demo.')
-        self.assertNotIn('warnings', plain)
-        # No note at all says nothing to them, unless a question to them on the task already asks.
-        bare = H.task_create(self.conn, CMO, 'Renew the domain', '', CMO, private=False)
-        self.assertIn('say in one plain sentence', H.task_update(
-            self.conn, CMO, bare['id'], status='waiting', waiting_on='ana')['warnings'][0])
+        # No ask, or the bot's shorthand as the ask, is refused even with the style warnings off, saying what
+        # failed, the rule and an example. Retrying it never quarantines the bot: it is a writing fix.
+        with unittest.mock.patch.object(H, 'STYLE_LINT', 'off'):
+            for note, failed in [(None, 'is missing'), ('Waiting on Ana re db14c907 / reports/2026-10-14-trial.md',
+                                                        'has an id or hash: "db14c907"; has a file path')]:
+                for _ in range(H.QUARANTINE_AT + 2):
+                    with self.assertRaises(H.Refused) as refused:
+                        H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana', note=note)
+                self.assertEqual(refused.exception.rule, 'lint')
+                self.assertIn(f'Your ask to ana {failed}', refused.exception.detail)
+                self.assertIn(f'Example: "{H.LINT_ASK_EXAMPLE}"', refused.exception.detail)
+        self.assertEqual(H.bot(self.conn, 'cmo')['state'], 'active')
+        self.assertIsNone(H.task(self.conn, task['id'])['waiting_on'])
+        after = H.task_update(self.conn, CMO, task['id'], status='waiting', waiting_on='ana', note=plain)
+        self.assertEqual((after['waiting_on'], after['note'], after.get('warnings')), (ANA, plain, None))
+        # An open question to them on the task already asks (`hub task question`): no note is needed.
         asked = H.task_create(self.conn, ANA, 'Draft the launch post', '', CMO, private=False)
         H.task_ask(self.conn, CMO, asked['id'], 'Which date should it go out?')
-        self.assertNotIn('warnings', H.task_update(self.conn, CMO, asked['id'], status='waiting', waiting_on='ana'))
-        # A note on a task that waits on nobody is not an ask.
-        self.assertNotIn('warnings', H.task_update(self.conn, CMO, bare['id'], status='doing', note=notes))
-        self.assertEqual(H.lint_waiting_note('Restart the build host; it refuses SSH', ANA), [])
+        self.assertEqual(H.task_update(self.conn, CMO, asked['id'], status='waiting', waiting_on='ana')['waiting_on'], ANA)
+        # A task given to a person opens its body with the ask; the rest of the body is details.
+        with self.assertRaises(H.Refused) as refused:
+            H.task_create(self.conn, CMO, 'Approve the video tool trial', 'Approve the video tool trial\n\nSee reports/x.md', ANA)
+        self.assertIn('first paragraph of the task body', refused.exception.detail)
+        made = H.task_create(self.conn, CMO, 'Approve the video tool trial', f'{plain}\n\nThe notes: reports/x.md', ANA)
+        self.assertEqual(made['owner'], ANA)
 
     def test_a_waiting_note_flags_ids_and_hashes_not_amounts_dates_or_words(self):
         flagged = lambda note: [p for p in H.lint_waiting_note(note, ANA) if p.startswith('id in the note')]

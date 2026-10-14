@@ -9,7 +9,7 @@ from croniter import croniter
 from . import goals as G
 from . import placement
 from .batch_work import isolated
-from .harnesses import SYNCED_HARNESSES
+from .harnesses import SYNCED_SQL
 from .statuses import PARKED_SQL
 from .store import H, encode, sweep_idempotency, sweep_mail
 
@@ -54,7 +54,7 @@ class Scheduler:
                              "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
                              # a bot synced in from another platform never sees a task (hubdb._takes_tasks)
                              "AND NOT EXISTS(SELECT 1 FROM bot_config xc WHERE xc.bot=s.bot "
-                             "AND json_extract(xc.config_json,'$.harness') IN ('" + "','".join(SYNCED_HARNESSES) + "')) "
+                             "AND json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ")) "
                              # a starter bot runs nothing on its own until it says its setup is done
                              "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot "
                              "AND pc.onboarding_state IN " + PARKED_SQL + ")").fetchall()   # `on:` routines fire from routines.emit
@@ -200,6 +200,13 @@ class Scheduler:
             self.stranded = at
             with self.store.transaction() as c:
                 H.sweep_stranded(c, stamp(at))
+            # ...and bot tasks waiting on a person with no plain ask: their bot is asked once to restate it.
+            try:
+                from . import restate_asks
+                with self.store.transaction() as c:
+                    restate_asks.ask_restate(c)
+            except Exception as exc:
+                failures.append({"restate_asks": type(exc).__name__})
         if self.still_wanted is None or at - self.still_wanted >= timedelta(days=1):
             self.still_wanted = at
             # Once a day: a task idle for a week gets one "Still wanted?" to its person (backend/still_wanted.py).

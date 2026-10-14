@@ -12,7 +12,10 @@
 - One ask per need. When the question changes, ask the new one: it replaces the old, unanswered one.
 - Reports go in your repo under `reports/YYYY-MM-DD-<slug>.md`. When a person is to read one,
   attach it to the task (`hub task attach <task-id> reports/<file>.md`) and put the link it prints
-  in your note. A path on your Mac or an `s3://` URI is not a link anyone can open.
+  in a comment. A path on your Mac or an `s3://` URI is not a link anyone can open.
+- An ask to a person (a waiting note, or the first paragraph of a task you give them) is one or two plain
+  sentences: what you need and what happens after ("Approve the video tool trial for Thursday? If yes,
+  I'll send the invite."). Tico refuses one with ids, hashes, paths, `s3://` links or tool names.
 - Durable learnings go in `memory/learnings.md`. Decisions and their reasons in `memory/decisions.md`.
 - Shared knowledge goes to the hub via PR to `docs/`.
 - Follow `documentation.md`: bot-local docs are autonomous, ordinary shared internal `docs/` PRs

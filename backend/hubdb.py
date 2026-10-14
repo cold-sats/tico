@@ -1254,6 +1254,8 @@ def lint_title(title):
 LINT_HEX_ID = re.compile(r"(?<![\w/.-])(?=[0-9a-f-]*\d)(?=[0-9a-f-]*[a-f])"
                          r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){1,4}(?:[0-9a-f]{8})?|[0-9a-f]{7,40})(?![\w/-]|\.[\w/-])", re.I)
 LINT_CURRENCY = "$£€¥"
+# A year after a few letters (FY2026, CY2025, ES2022) or a standard's number (ISO27001) names a thing, not a record.
+LINT_NAMED_NUMBER = re.compile(r"[A-Z]{1,4}-?(?:19|20)\d{2}|ISO-?\d+")
 LINT_WAIT_WORDS = 40
 
 
@@ -1267,7 +1269,8 @@ def lint_waiting_note(note, person, asked=False):
     problems = []
     # An amount ("$250000") is not a reference number. Only here: a title keeps LINT_IDENT as it is.
     m = LINT_HEX_ID.search(text) or next((i for i in LINT_IDENT.finditer(text)
-                                          if not (i.start() and text[i.start() - 1] in LINT_CURRENCY)), None)
+                                          if not (i.start() and text[i.start() - 1] in LINT_CURRENCY)
+                                          and not LINT_NAMED_NUMBER.fullmatch(i.group(0))), None)
     if m:
         problems.append(f'id in the note for {name}: "{m.group(0)}" - say what it is in plain words')
     n = len(text.split())
@@ -1279,6 +1282,99 @@ def lint_waiting_note(note, person, asked=False):
     if m:
         problems.append(f'internal jargon in the note for {name}: "{m.group(0)}"')
     return problems
+
+
+# The ask a bot puts to a person, when it sets a task waiting on them or gives them a task: what their card leads
+# with, read by someone busy. Unlike the warnings above it is always refused, whatever TICO_STYLE_LINT says: a card
+# with no plain ask costs the person more than the bot's retry costs the bot. Paths, links to stored objects and
+# tool or field names are the bot's own shorthand; an http(s) link is something a person can open, so it stays.
+LINT_ASK_WORDS = 40
+LINT_ASK_EXAMPLE = "Approve the video tool trial on Thursday? If yes, I'll send the invite."
+LINT_S3 = re.compile(r"\bs3://\S*", re.I)
+LINT_PATH = re.compile(r"(?<![\w:/.-])(?:~|\.{1,2})?/[\w.@-]+/[\w.@/-]*"                  # /Users/x, ~/x, ./x/y
+                       r"|(?<![\w/.-])[\w.-]+(?:/[\w.-]+)+\.[A-Za-z][\w]{0,4}\b"              # reports/x.md
+                       r"|\b(?!(?-i:[A-Z][\w-]*\.(?:js|ts))\b)[\w-]+\.(?:py|js|cjs|mjs|ts|tsx|md|json|ya?ml|toml|sh|sql|log|ipynb)\b",  # not Node.js
+                       re.I)
+LINT_TOOL = re.compile(r"\bhub\s+(?:task|message|question|approval|note|chat|doc|file|goal|kpi|bot|routine|update|tool|calendar|meeting|support|team|tag|human|group|conversation|whoami|sql)\b|(?<![\w-])--[a-z][\w-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|`[^`]+`")
+
+
+# A sentence ends at . ! or ? before a capital letter, a digit or a quote, so "3 p.m. on Friday" and "U.S. customers"
+# stay one sentence; initials (U.S.), these short titles and months never end one, so "Dr. Smith" and "Oct. 20" do not.
+LINT_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[\"'(\[A-Z0-9])")
+LINT_ABBREV = re.compile(r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs|etc|Inc|Ltd|Co|Jr|Sr|No|approx|e\.g|i\.e|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.)$")
+
+
+def lint_sentences(text):
+    """How many sentences an ask has, not counting a stop after an abbreviation or initials as an end."""
+    parts, start = [], 0
+    for m in LINT_SENTENCE_END.finditer(text):
+        if not LINT_ABBREV.search(text[start:m.start()]):
+            parts.append(text[start:m.start()])
+            start = m.end()
+    return len([s for s in [*parts, text[start:]] if s.strip()])
+
+
+def lint_person_ask(text):
+    """The problems with an ask to a person, empty when it passes: there is one, it is one or two sentences of at
+    most LINT_ASK_WORDS words, and it carries no ids, hashes, file paths, s3:// links or tool and field names.
+    Deterministic on purpose: the same words always pass or fail, so a bot can fix them in one retry."""
+    text = str(text or "").strip()
+    if not text:
+        return ["is missing"]
+    problems = []
+    n = len(text.split())
+    sentences = lint_sentences(text)
+    if n > LINT_ASK_WORDS or sentences > 2:
+        problems.append(f"is {n} words in {sentences} sentence{'s' if sentences != 1 else ''}")
+    m = LINT_S3.search(text)
+    if m:
+        problems.append(f'has an s3:// link: "{m.group(0)}"')
+    plain = LINT_S3.sub(" ", re.sub(r"https?://\S+", " ", text))
+    m = LINT_HEX_ID.search(plain) or next((i for i in LINT_IDENT.finditer(plain)
+                                           if not (i.start() and plain[i.start() - 1] in LINT_CURRENCY)
+                                           and not LINT_NAMED_NUMBER.fullmatch(i.group(0))), None)
+    if m:
+        problems.append(f'has an id or hash: "{m.group(0)}"')
+    m = LINT_PATH.search(plain)
+    if m:
+        problems.append(f'has a file path: "{m.group(0)}"')
+    m = LINT_TOOL.search(plain) or LINT_CODES.search(plain) or LINT_JARGON.search(plain)
+    if m:
+        problems.append(f'has a tool or field name: "{m.group(0)}"')
+    return problems
+
+
+def person_ask_of_body(body, title=""):
+    """The ask in a task given to a person: the body's first paragraph, after a first line that only repeats the
+    title. The rest of the body is details."""
+    lines = str(body or "").strip().splitlines()
+    if lines and str(title or "").strip() and lines[0].strip() == str(title).strip():
+        lines = lines[1:]
+    return re.split(r"\n\s*\n", "\n".join(lines).strip(), 1)[0].strip()
+
+
+def person_ask_refusal(person, text, where):
+    """What a refusal of this ask says, or "" when it passes: what failed, the rule and an example, so the bot fixes
+    it in one retry. `where` is "waiting" (the waiting note) or "assign" (the body of a task given to them)."""
+    problems = lint_person_ask(text)
+    if not problems:
+        return ""
+    name = actor_id(person)
+    place = ("the waiting note (--note)" if where == "waiting"
+             else "the first paragraph of the task body (--body)")
+    return (f"Your ask to {name} {'; '.join(problems)}. The rule: {place} is one or two plain sentences saying what "
+            f"you need from {name} and what happens after, at most {LINT_ASK_WORDS} words, with no ids, hashes, file "
+            f"paths, s3:// links or tool names; put details in a comment or further down the body. "
+            f'Example: "{LINT_ASK_EXAMPLE}"')
+
+
+def require_person_ask(conn, actor, person, text, where):
+    """Refuse a bot's write that leaves `person` without a plain ask. A writing refusal (rule `lint`) is recorded
+    but never counts toward a quarantine (_escalate): it is corrected by rewriting, not a sign the bot reaches
+    where it should not."""
+    detail = person_ask_refusal(person, text, where)
+    if detail:
+        refuse(conn, actor, "lint", detail)
 
 
 def lint_approval(kind, payload):
@@ -3224,7 +3320,7 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
         # Needs you. The bot sets it waiting on them again if it still needs something.
         conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (task_id,))
         _task_event(conn, task_id, actor, "waiting_on", actor, None, "")
-    if is_human(actor):
+    if row["status"] == "waiting" and row.get("waiting_on") == actor:
         _release_waiting(conn, {**row, "waiting_on": None}, actor)
     if ask or row.get("waiting_on") == actor:
         _recount(conn, row["owner"])
@@ -3531,6 +3627,9 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     # ticket on that type's board, written the way the board writes them, not an ask.
     if not title:
         refuse(conn, actor, "lint", "give it a title that says what you are asking for")
+    if is_bot(actor) and is_human(target) and lint and general:
+        # A bot giving a person work opens the body with the ask: their card leads with it (lint_person_ask).
+        require_person_ask(conn, actor, target, person_ask_of_body(body, title), "assign")
     warnings = (style_problems(conn, actor, lint_human_item(body, title=title), severity)
                 if is_human(target) and lint and general else [])
     # A ticket keeps the board's own references ("#18945", "(B/F)") in its title.
@@ -3790,10 +3889,21 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     # A note that waits on a person is put in front of them, so it is checked like a title or body.
     checked = ("title", "body", "note") if person else ("title", "body")
     # ...and it is read as the ask: one plain request to them, not the bot's working notes (warned, as titles are).
+    # The note is refused without a plain ask (require_person_ask), unless an open question to them on the task
+    # already asks (`hub task question`): the card leads with that question, and the note is only warned about.
     if person and is_bot(actor) and is_human(person) and (person != row.get("waiting_on") or note is not None):
         asked = any(a["to_actor"] == person for a in open_task_asks(conn, row))
-        plain = plain + style_problems(conn, actor, lint_waiting_note(
-            note if note is not None else row.get("note"), person, asked))
+        said = note if note is not None else row.get("note")
+        if asked:
+            plain = plain + style_problems(conn, actor, lint_waiting_note(said, person, asked))
+        else:
+            require_person_ask(conn, actor, person, said, "waiting")
+    # A bot handing a General task to a person opens its body with the ask, as on create.
+    if owner is not None and is_bot(actor) and type_id == GENERAL_TYPE:
+        handed = resolve_actor(conn, owner)
+        if is_human(handed) and handed != row["owner"]:
+            require_person_ask(conn, actor, handed, person_ask_of_body(
+                body if body is not None else row.get("body"), title or row["title"]), "assign")
     for field, value in (("title", title), ("note", note), ("due", due), ("body", body), ("lane", lane)):
         if value is None:
             continue
@@ -4701,12 +4811,13 @@ def _no_diagnosis(conn, row, count):
 
 
 def _settle_undiagnosed(conn, row, cause):
-    """Work the hub filed for itself closes with the cause; anyone else's task keeps it, with the cause said
-    once on the task for its requester to act on."""
+    """Work the hub filed for itself closes with the cause; anyone else's task stays open and its requester is
+    told the cause, at most once a day while it stays stuck."""
     if row["requester"] == KEEPER:
         task_close(conn, KEEPER, row["id"], f"Closed by the stall check: {cause}.", quiet=True)
-    else:
-        task_comment(conn, KEEPER, row["id"], f"Stuck: {cause}. Reassign it, run it, or close it.", wake=False)
+    elif _actor_exists(conn, row["requester"]):
+        _wake(conn, row, row["requester"], f"Stuck: {row['title']}. {cause[0].upper()}{cause[1:]}. "
+              "Reassign it, run it, or close it.", {"wake": "stuck_cause"})
     event(conn, KEEPER, "task.stall_escalated", row["id"],
           {"bot": actor_id(row["owner"]), "recovery_task": None, "owner": None, "cause": cause})
 
@@ -5688,11 +5799,19 @@ def needs_you(conn, who):
     # A bot's task set waiting on this person: one concrete ask, its title and waiting note.
     waiting = [t for t in _rows(conn.execute("SELECT * FROM tasks WHERE status='waiting' AND waiting_on=? "
                                              "ORDER BY created", (actor,))) if t["id"] not in seen and not TS.snoozed(t)]
-    # One card per blocker: a task waiting on this person behind a card already listed (its blocker is their
-    # task, or its parent is on the list) is that card's; finishing or answering it wakes them all.
-    listed = seen | {t["id"] for t in waiting}
-    waited = [t for t in waiting if TR.parent_of(conn, t["id"]) not in listed
-              and not seen.intersection(TR.blocker_ids(conn, t["id"]))]
+    # One card per blocker: a task waiting on this person for the same thing as a card already listed (its
+    # parent waits on them too, or their own task blocks it) is that card's, and finishing or answering the card
+    # wakes them all. A task with an ask of its own keeps its own card.
+    cards = {t["id"]: t for t in asked + owned + waiting}
+    waits = {t["id"] for t in waiting}
+    words = lambda text: " ".join(str(text or "").split()).casefold()
+    def same_ask(t, card):
+        # The card's ask is its waiting note, or for a task of theirs the body's opening paragraph.
+        mine = words(t.get("note"))
+        return not mine or mine in (words(card.get("note")), words(str(card.get("body") or "").split("\n\n")[0]))
+    waited = [t for t in waiting
+              if not ((parent := TR.parent_of(conn, t["id"])) in waits and same_ask(t, cards[parent]))
+              and not any(b in seen and same_ask(t, cards[b]) for b in TR.blocker_ids(conn, t["id"]))]
     return {"actor": actor,
             "tasks": asked + owned,
             "waiting": waited,

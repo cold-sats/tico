@@ -79,7 +79,8 @@ def test_no_diagnostic_is_filed_about_a_diagnostic_or_for_a_person_and_the_stuck
         diagnostics = [dict(r) for r in c.execute("SELECT * FROM tasks WHERE requester='keeper'")]
         # BotOps's own stuck work gets no diagnostic of its own; the finance task gets one, for BotOps.
         assert [(d['owner'], stuck['id'] in d['body']) for d in diagnostics] == [('bot:botops', True)]
-        assert 'BotOps cannot diagnose itself' in H.task_comments(c, own['id'])[-1]['body']
+        assert c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:finance' "
+                         "AND body LIKE '%BotOps cannot diagnose itself%'").fetchone()[0] == 1
         # The diagnostic sticks too: it closes with the cause, and nothing is filed about it.
         capped(c, diagnostics[0])
         c.execute("UPDATE jobs SET state='completed'")
@@ -94,7 +95,8 @@ def test_no_diagnostic_is_filed_about_a_diagnostic_or_for_a_person_and_the_stuck
         c.execute("UPDATE jobs SET state='completed'")
         assert H.wake_stalled(c)['escalated'] == [later['id']]
         assert c.execute("SELECT count(*) FROM tasks WHERE requester='keeper'").fetchone()[0] == 1
-        assert 'BotOps is paused' in H.task_comments(c, later['id'])[-1]['body']
+        assert c.execute("SELECT count(*) FROM messages WHERE to_actor='human:ben' AND body LIKE '%BotOps is paused%'"
+                         ).fetchone()[0] == 1
         assert H.task(c, later['id'])['status'] == 'open'
 
 
