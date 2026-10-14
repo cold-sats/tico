@@ -1039,7 +1039,8 @@ class Execution:
                     # A routine runs in company scope: a private task carried in would make the whole run
                     # private, and its shared outputs (the docs map, a report) refused. It gets a run of its
                     # own instead, since a bot that only runs routines may never have another.
-                    c.execute("UPDATE tasks SET next_run=0 WHERE id=?", (item["id"],))
+                    c.execute("UPDATE tasks SET next_run=0, updated=? WHERE id=?", (H.now(), item["id"]))
+                    H._task_event(c, item["id"], H.KEEPER, "next_run", "1", "0", "a routine left it out: its own run")
                     H._wake(c, item, item["owner"], f"Next-run task: {item['title']}", refs={"wake": "next-run"})
                     continue
                 c.execute("UPDATE tasks SET carried_by=? WHERE id=?", (aid, item["id"]))

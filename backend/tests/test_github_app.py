@@ -1004,11 +1004,14 @@ def test_a_refused_actions_ask_is_remembered_until_the_installation_webhook_says
     from backend import github as GH
     connect(api)
     runner_token(api, "cpo")
+    # The webhook also queues a repository sync that mints its own token, so read only the turn's asks.
+    turns = lambda: [call[2]["permissions"] for call in gh.of("/access_tokens")
+                     if call[2].get("repositories") == ["emp-cpo"]]
     assert turn_token(api).status_code == 200
-    before = len(gh.of("/access_tokens"))
+    before = len(turns())
     api.app_state.github_app.cache.clear()             # past the token cache: the next turn mints again
     assert turn_token(api).status_code == 200
-    asked = [call[2]["permissions"] for call in gh.of("/access_tokens")[before:]]
+    asked = turns()[before:]
     assert len(asked) == 1 and "actions" not in asked[0]  # no second refused ask while it is remembered
     gh.permissions = {"actions": "read"}                 # the owner accepts; GitHub says so by webhook
     body = json.dumps({"action": "new_permissions_accepted", "installation": {"id": 77}}).encode()
@@ -1017,4 +1020,4 @@ def test_a_refused_actions_ask_is_remembered_until_the_installation_webhook_says
                                                   "Content-Type": "application/json"})
     assert r.status_code == 200, r.text
     assert turn_token(api).status_code == 200
-    assert gh.of("/access_tokens")[-1][2]["permissions"]["actions"] == "read"
+    assert turns()[-1]["actions"] == "read"
