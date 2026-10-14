@@ -2441,14 +2441,20 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
     if effective not in TASK_STATUSES:
         refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
-    # On a steps-only type the steps are the only states: a bare status (close, decline, reopen, done)
-    # would land the task in whichever step shares it. Filing onto the type and the keeper's own
-    # automation still set one.
+    # On a steps-only type a task is finished or brought back only by a step move: a bare close, decline,
+    # done or reopen would land it in whichever step shares that status. Working statuses (an ask's
+    # waiting, a turn's doing) still change, as do filing onto the type and the keeper's own automation.
     if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
-            and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]):
+            and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]
+            and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)):
         refuse(conn, actor, "kind", f"A {typ['name']} task changes status only by moving it to a step, "
                                     "not by closing, declining, reopening or finishing it; move it, or delete it")
     return typ["id"], chosen["id"] if chosen else None, effective
+
+
+def steps_only(conn, row):
+    """Whether the task's type finishes and reopens its tasks only by a step move (`_task_state`)."""
+    return bool((type_get(conn, row.get("type_id") or GENERAL_TYPE) or {}).get("steps_only"))
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):

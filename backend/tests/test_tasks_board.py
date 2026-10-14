@@ -661,12 +661,15 @@ def test_a_steps_only_type_changes_status_only_by_a_step_move(api):
     assert typ['steps_only'] is True
     ticket = post(api, 'tasks', {'owner': 'ops', 'title': 'Fix the guest message times', 'body': 'Please.',
                                  'type': typ['id'], 'step': 'On Deck'})
-    path = 'tasks/' + ticket['id']
+    path, ops = 'tasks/' + ticket['id'], bot_token(api, 'ops')
     version = lambda: get(api, path)['task']['version']
     # Closing, declining or reopening, by a person or by the bot on it, is refused.
     for token, change in (('ana-test', {'close': True}), ('ana-test', {'status': 'declined'}),
-                          (bot_token(api, 'ops'), {'status': 'done', 'note': 'Fixed.'})):
+                          (ops, {'status': 'done', 'note': 'Fixed.'})):
         assert post(api, path, {'version': version(), **change}, token=token, expected=422)['error']['code'] == 'kind'
+    # A working status still changes without a step: the bot's ask sets it waiting.
+    assert post(api, path + '/ask', {'text': 'Which page?'}, token=ops)
+    assert get(api, path)['task']['status'] == 'waiting'
     # A step move changes the status, Done included, and back out of it.
     assert post(api, path, {'version': version(), 'step': 'Done'})['status'] == 'closed'
     post(api, path, {'version': version(), 'status': 'open'}, expected=422)

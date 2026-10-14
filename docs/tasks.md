@@ -221,12 +221,15 @@ The digits alone are not read as a number, since a cut-short id can look the sam
 
 Numbers range from 1 to 999999999; an exhausted sequence refuses a new number without creating a task.
 
-A mover can also make a custom type **steps only**: its tasks change status only by moving to a step.
-Closing, declining, reopening or finishing one directly (`close`, or a `status` that differs from the
-current one without a `step`) is refused (`422 kind`) for every person and bot, and the web app
-offers no Done, Close or Reopen on them. A task that should not be on the board is deleted instead.
-Filing a task onto the type and the keeper's own automation are unaffected. Without it, a bare status
-lands the task in the first step with that status, which on a board is rarely the one anyone meant.
+A mover can also make a custom type **steps only**: its tasks are finished or brought back only by
+moving to a step. Closing, declining, reopening or finishing one directly (`close`, or a `status`
+without a `step` that enters or leaves done, closed or declined) is refused (`422 kind`) for every
+person and bot, and the task window offers no Done, Close or Reopen on them. A task that should not
+be on the board is deleted instead. Working statuses still change without a step (a bot's ask sets
+waiting), and filing a task onto the type and the keeper's own automation are unaffected. Such tasks
+are not asked "Still wanted?", a met goal does not finish them, and Needs you says to move them
+rather than marking them done or closed. Without it, a bare status lands the task in the first step
+with that status, which on a board is rarely the one anyone meant.
 
 A task also has a place within its step, `step_rank`, lower first, apart from `rank`, its place in
 its owner's queue. A task that enters a step, when it is created or its step, type or status

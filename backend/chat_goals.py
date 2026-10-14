@@ -186,8 +186,9 @@ def task_goal_ended(c, goal, task_id, status, note):
         # ("summarize where it is") being met says nothing about the task (its "Goal met" line is in the room).
         from .execution import current_task_goal
         wanted = current_task_goal(c, goal["bot"], row)
+        # A steps-only type's task is finished by the bot moving it to a step, not by its goal being met.
         if (row["status"] in ("open", "doing") and goal["set_by"] == H.KEEPER and wanted
-                and goal["objective"] == task_goal_objective(row, wanted["objective"])):
+                and goal["objective"] == task_goal_objective(row, wanted["objective"]) and not H.steps_only(c, row)):
             H.task_update(c, row["owner"], task_id, status="done", note=(note or "Goal met.")[:4000])
         return
     if status in ("paused", "stopped"):
