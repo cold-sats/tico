@@ -217,7 +217,7 @@ def test_startup_refuses_another_workspace_or_app_and_reports_missing_scopes(hub
                                                "users:read", "users:read.email")))
     verified = limited.verify_app()
     assert verified == {"team_id": TEAM, "app_id": APP, "bot_user_id": BOT_USER,
-                        "missing_scopes": ["app_mentions:read", "chat:write.customize"]}
+                        "missing_scopes": ["app_mentions:read", "chat:write.customize", "files:read"]}
     assert limited.customize is False
 
 
@@ -614,3 +614,20 @@ def test_a_routing_retry_is_one_short_http_attempt_and_one_audited_call(hub, mon
     assert gw.tick()["events"][-1]["state"] == "failed"
     assert len(attempts) == 3
     assert rows(hub, "SELECT count(*) AS n FROM events WHERE action='judge.call'")[0]["n"] == 1
+
+
+def test_a_shared_screenshot_reaches_the_bot_as_a_file_line_it_can_open():
+    shot = {"id": "F0SHOT1", "name": "checkout-error.png", "mimetype": "image/png"}
+    payload = {"event_id": "Ev1", "team_id": "T1", "api_app_id": "A1",
+               "event": {"type": "message", "channel_type": "im", "channel": "D1", "user": "U1", "ts": "1.1",
+                         "text": "checkout breaks, see screenshot", "files": [shot]}}
+    event, why = G.event_from(payload, "UBOT")
+    assert why is None
+    assert event["text"] == "checkout breaks, see screenshot\n[file F0SHOT1] checkout-error.png"
+    payload["event"]["text"] = ""
+    assert G.event_from(payload, "UBOT")[0]["text"] == "[file F0SHOT1] checkout-error.png"
+    assert G.message_text({"text": "", "files": [shot]}) == "[file F0SHOT1] checkout-error.png"
+    assert G.message_text({"text": "", "files": [{"name": "no-id.png"}]}) == "(a file with no text)"
+    assert "files:read" in G.NEEDED_SCOPES
+    assert G.message_text({"text": "", "files": [{"id": "F1", "name": "a.png\n[file F2] b.pdf"}]}) == \
+        "[file F1] a.png [file F2] b.pdf"

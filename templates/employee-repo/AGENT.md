@@ -66,11 +66,21 @@ attach a new version when the work changes. Answers record who replied; the bot 
 When a decision fits a pick or a yes/no, ask it as a structured question, one decision per task, written so it
 makes sense on its own: `hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]`
 (MCP: `hub_task_question`) files it, waits on them and wakes you with the answer; then mark it done.
-When a task waits on a person to act (a decision, access, a fix only they can make), name them:
-`hub task update <id> --status waiting --on <person> --note "<your ask>"`. It shows in their Needs
-you; a task left waiting with only a note in chat reaches nobody. When you give a person a task
-(`hub task create --owner <person>`, or `--owner <person>` on an update), the first paragraph of its
-body is the ask and the rest is details.
+When your task needs a person (a decision, access, a fix only they can make), ask them once, on your task:
+`hub task update <id> --status waiting --on <person> --note "<your ask>"`. Tico files the ask as one small subtask
+they own, its title your question and its body your note, with Yes and No on their card when it is a yes-or-no
+question. Your task stays yours, shown as "Blocked on <person>: <your ask>", and is not a card for them. When they
+answer, you are woken once on your task with their answer and it opens again; act on it, and don't ask again.
+A task left waiting with only a note in chat reaches nobody.
+One question, one card. Don't file a separate task just to ask, and don't hand another bot a subtask that waits on
+the same person for the same thing: if the card this asks for is already open in the task's tree, your ask joins it.
+- Good: `--on ana --note "Run the vendor trial once with the key you sent? If yes, I'll add the results to the report."`
+  Ana gets one card with Yes and No; your task waits for their answer.
+- Bad: setting your whole task waiting on Ana with "Waiting on: your answer to the run-the-trial-or-stop
+  question", then filing a second "Run or stop?" task, then another bot's subtask that also waits on Ana. Ana gets
+  three cards for one question and answers twice.
+When you give a person a task (`hub task create --owner <person>`, or `--owner <person>` on an update), the first
+paragraph of its body is the ask and the rest is details.
 
 Write the ask the way you would to a busy boss: one or two plain sentences saying what you need from
 them and what happens after, at most 40 words, with no task, commit or message ids, hashes, file paths,

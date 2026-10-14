@@ -27,8 +27,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            blocked on a person? --owner <person> --parent <your task>
                                            for a person, the body's first paragraph is the ask (as --note below)
     hub task ask <id> "<question>"
+    hub task update <id> --status waiting --on <person> --note "<plain ask>"
+                                           ask a person on your task: one small subtask for them, yours stays blocked
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
-                                           one decision as its own task, waiting on them; none for Yes / No
+                                           one decision under your task, waiting on them; none for Yes / No
     hub task comment <id> "<text>"         on the record with your name
     hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
     hub task comment-delete <id> <comment-id>          take back a comment you wrote

@@ -872,6 +872,8 @@ class WorktreeStatus(Contract):
     last_commit: str | None = Field(default=None, max_length=100)
     size_mb: float = Field(default=0, ge=0)
     error: str | None = Field(default=None, max_length=300)
+    # The record's `updated` stamp this report was built from; a report older than the record is stale.
+    record_updated: str | None = Field(default=None, max_length=40)
 
 
 class Heartbeat(Contract):

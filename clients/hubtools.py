@@ -639,10 +639,10 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_question", "Put one decision to a person as its own task, in one call: a pick between 2 to 6 "
+@tool("hub_task_question", "Put one decision to a person as a small task, in one call: a pick between 2 to 6 "
       "options (an option may carry an image or file) or, with no options, Yes / No. The task is yours and waits on "
-      "them; their answer wakes you and you mark it done. One decision per task; write the question so it makes "
-      "sense on its own.",
+      "them; asked from a run on one of your tasks it is filed under that task. Their answer wakes you and you mark it "
+      "done. One decision per task; write the question so it makes sense on its own.",
       {"question": _s("The question, readable with no other context", maxLength=300),
        "on": _s("The person who decides: their id"),
        "options": {"type": "array", "minItems": 2, "maxItems": 6, "description": "The choices; omit for Yes / No",
@@ -694,11 +694,11 @@ def task_question(api, args):
        "owner": _s("Hand the task to this bot or person"),
        "due": _s("ISO-8601 date-time with timezone"),
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
-       "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you. "
-                        "The note is then your ask to them: one or two plain sentences saying what you need and what "
-                        "happens after, at most 40 words, no ids, hashes, file paths, s3:// links or tool names "
-                        "(refused otherwise), e.g. \"Approve the video tool trial for Thursday? If yes, I'll send "
-                        "the invite.\" An empty string clears it"),
+       "waiting_on": _s("With status waiting: the person you need (their id). The note is your ask to them: one or two "
+                        "plain sentences saying what you need and what happens after, at most 40 words, no ids, hashes, "
+                        "file paths, s3:// links or tool names (refused otherwise), e.g. \"Approve the video tool trial "
+                        "for Thursday? If yes, I'll send the invite.\" It becomes one small task for them; this task "
+                        "stays yours, blocked on it, and opens again with their answer. An empty string clears it"),
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
                                 "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
@@ -826,7 +826,7 @@ def task_comment_delete(api, args):
 
 @tool("hub_task_delete", "Delete a task made by mistake, such as a duplicate: it goes to the trash and can be "
       "restored. Only a person signed in as themselves may: the task's requester, or someone who may move any "
-      "task. A task carrying work (a bot turn, a file, an approval, a subtask) is refused; close it instead.",
+      "task. A task carrying work (a bot turn, a bot's own file, an approval, a subtask) is refused; close it instead.",
       {"id": TASK_ID}, required=("id",), writes=True)
 def task_delete(api, args):
     return api.post(f"tasks/{args['id']}/delete", {}, key=_key(args))

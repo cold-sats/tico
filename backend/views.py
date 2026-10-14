@@ -16,7 +16,7 @@ from . import models as M
 from . import changelog as CL
 from . import providers, runner_versions
 from . import personal_tokens, rooms, team_rules, turns
-from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
+from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, turn_share, turns_here
 from pathlib import Path
 
 from . import read_cache
@@ -466,6 +466,65 @@ def own_sign_in(c, bot, settings=None):
     return (verdict.get("problem") or "its model is not signed in") if verdict.get("sign_in") else ""
 
 
+def free_turn(c, bot, location):
+    """The computer a bot's queued work waits on for a free turn, or '': every turn there is taken, or this
+    bot already holds its share of them (execution.turn_share)."""
+    machine = location.get("machine") or {}
+    row = c.execute("SELECT capacity FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
+    if not row:
+        return ""
+    held = turns_here(c, machine["runner_id"])
+    full = (sum(held.values()) >= (row["capacity"] or 1)
+            or held.get(bot, 0) >= turn_share(c, machine["runner_id"], row["capacity"]))
+    return (machine.get("label") or "its computer") if full else ""
+
+
+def queued_label(c, bot, location, settings=None):
+    """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words."""
+    bot_state = H.bot(c, bot)["state"]
+    label, readiness_reason = "Saved — queued", ""
+    draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot,)).fetchone()
+    # A drain is either Tico updating itself (the deploy finishes each
+    # bot's current run, then holds new ones until it is back) or a person pausing it.
+    if draining and deploy_draining(c, bot):
+        label = "Saved — Tico is updating; this starts when the update finishes"
+    elif draining:
+        label = "Saved — this bot is paused; this starts when it's resumed"
+    elif bot_state != "active":
+        label = "Saved — bot " + bot_state
+    elif not location["online"]:
+        label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
+    elif not location["awake"]:
+        label = "Saved — waiting for " + ((location["machine"] or {}).get("label")
+                                          or "a registered computer") + " to stay awake"
+    elif not location["ready"]:
+        problems = (location.get("readiness") or {}).get("problems") or []
+        if any(str(p).startswith("No AI provider is chosen") for p in problems):
+            readiness_reason = "missing_provider"
+            label = "Saved — no AI provider is chosen"
+        elif (verdict := own_sign_in(c, bot, settings)):
+            # Only this bot's own model, on its own computer: a bot that waits on anything else keeps its own reason.
+            readiness_reason = "model_sign_in"
+            label = "Saved — " + verdict
+        else:
+            label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
+    elif (computer := free_turn(c, bot, location)):
+        label = "Saved — waiting for a free turn on " + computer
+    return label, readiness_reason
+
+
+def task_wait(c, task_id, settings=None):
+    """What this task's queued run waits for ("Waiting for a free turn on Studio Mac"), or '' when none is queued."""
+    job = c.execute("SELECT j.bot FROM jobs j JOIN messages m ON m.id=j.message_id "
+                    "JOIN conversations cv ON cv.id=m.conversation_id "
+                    f"WHERE j.state='queued' AND {H.MESSAGE_TASK_SQL}=? ORDER BY j.created LIMIT 1", (task_id,)).fetchone()
+    if not job:
+        return ""
+    label = queued_label(c, job["bot"], machine(c, job["bot"]), settings)[0]
+    reason = label.removeprefix("Saved — ")
+    return "Queued" if reason == "queued" else reason[:1].upper() + reason[1:]
+
+
 def conversation_snapshot(c, cid, who=None, settings=None):
     page = privacy.page(c, who, cid) if who else message_page(c, cid)
     job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until,a.stop_requested FROM jobs j JOIN messages m ON m.id=j.message_id "
@@ -484,7 +543,6 @@ def conversation_snapshot(c, cid, who=None, settings=None):
         elif state == "input":
             state = "running"
         location = machine(c, job["bot"])
-        bot_state = H.bot(c, job["bot"])["state"]
         label = {"queued": "Saved — queued", "leased": "Starting", "running": "Working",
                  "completed": "Complete", "cancelled": "Delivery dismissed", "uncertain": "Stopped — saved for later"}.get(state, state)
         if state == "cancelled" and job["stop_requested"]:
@@ -495,31 +553,7 @@ def conversation_snapshot(c, cid, who=None, settings=None):
             label = "Reply failed — your message is saved"
         readiness_reason = ""
         if state == "queued":
-            draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (job["bot"],)).fetchone()
-            # A drain is either Tico updating itself (the deploy finishes each
-            # bot's current run, then holds new ones until it is back) or a person pausing it.
-            if draining and deploy_draining(c, job["bot"]):
-                label = "Saved — Tico is updating; this starts when the update finishes"
-            elif draining:
-                label = "Saved — this bot is paused; this starts when it's resumed"
-            elif bot_state != "active":
-                label = "Saved — bot " + bot_state
-            elif not location["online"]:
-                label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
-            elif not location["awake"]:
-                label = "Saved — waiting for " + ((location["machine"] or {}).get("label")
-                                                  or "a registered computer") + " to stay awake"
-            elif not location["ready"]:
-                problems = (location.get("readiness") or {}).get("problems") or []
-                if any(str(p).startswith("No AI provider is chosen") for p in problems):
-                    readiness_reason = "missing_provider"
-                    label = "Saved — no AI provider is chosen"
-                elif (verdict := own_sign_in(c, job["bot"], settings)):
-                    # Only this bot's own model, on its own computer: a bot that waits on anything else keeps its own reason.
-                    readiness_reason = "model_sign_in"
-                    label = "Saved — " + verdict
-                else:
-                    label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
+            label, readiness_reason = queued_label(c, job["bot"], location, settings)
         parts = []
         if state in ("leased", "running"):
             parts = turns.reply_parts([(e["kind"], json.loads(e["payload_json"]), e["created"]) for e in c.execute(

@@ -102,6 +102,22 @@ def reserved_credential(key):
     return bool(key) and (not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or key in RESERVED_ENV
                           or key.startswith(RESERVED_PREFIXES))
 DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "
+# Prefix of the warning listing the `gh` and `git` commands a bot's Claude Code settings deny; backend/health.py
+# compares them with the bot's GitHub access.
+DENIES_WARNING = "Claude Code settings deny: "
+
+
+def claude_denies(path):
+    """The `gh` and `git` command prefixes a bot's `.claude/settings.json` denies (`Bash(gh pr create:*)` is
+    `gh pr create`), sorted."""
+    try:
+        deny = (json.loads((Path(path) / ".claude" / "settings.json").read_text()).get("permissions") or {}).get("deny") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(deny, list):
+        return []
+    return sorted({" ".join(m.group(1).rstrip("*: ").split()) for rule in deny if isinstance(rule, str)
+                   and (m := re.fullmatch(r"Bash\(((?:gh|git)(?:[ :*][^)]*)?)\)", rule.strip()))})
 
 
 def claude_denied(path):
@@ -109,12 +125,10 @@ def claude_denied(path):
     `.claude/settings.json` denies. Codex ignores that file, so a bot moved to Claude Code meets these denies for the
     first time mid-task."""
     try:
-        deny = (json.loads((Path(path) / ".claude" / "settings.json").read_text()).get("permissions") or {}).get("deny") or []
         named = set(re.findall(r"(?<!denies )(?<!deny )`(gh [a-z-]+ [a-z-]+)", (Path(path) / "AGENT.md").read_text(errors="ignore")))
-    except (OSError, ValueError, AttributeError):
+    except OSError:
         return []
-    prefixes = [m.group(1).rstrip("* ").strip() for rule in deny if isinstance(rule, str)
-                and (m := re.fullmatch(r"Bash\((gh [^)]*)\)", rule))]
+    prefixes = [p for p in claude_denies(path) if p.startswith("gh")]
     return sorted(command for command in named if any(command == p or command.startswith(p + " ") for p in prefixes))
 
 
@@ -1142,8 +1156,10 @@ class Runner:
         if last and last["key"] == key and time.monotonic() - last["at"] < FETCH_RETRY_S:
             return last["problem"]
         problem = ""
+        if (path / ".git").exists() and git_credentials.empty_clone(path):
+            git_credentials.discard_partial(path, True)        # an older runner's clone of the still-empty repository
         if (path / ".git").exists():
-            problem = f"{repository} is checked out here but has no AGENT.md"      # a clone of an empty repository
+            problem = f"{repository} is checked out here but has no AGENT.md"
         elif personal:
             detail = clone_shared(path, config)
             if not detail:
@@ -1628,6 +1644,8 @@ class Runner:
             if repository_present:
                 if runtime == "claude" and (denied := claude_denied(path)):
                     warnings.append(DENIED_WARNING + ", ".join(denied) + ". Edit .claude/settings.json in its repository")
+                if runtime == "claude" and (denies := claude_denies(path)):
+                    warnings.append((DENIES_WARNING + ", ".join(denies))[:500])
                 try:
                     agent_lines = sum(1 for _ in (path / "AGENT.md").open(encoding="utf-8", errors="ignore"))
                     if agent_lines > 150:
@@ -3245,6 +3263,8 @@ class Runner:
             body["profiles"] = self.profile_report()
         if hasattr(self, "worktrees") and time.monotonic() >= getattr(self, "_worktrees_after", 0):
             body["worktrees"] = self.worktrees.poll() if full else self.worktrees.latest()
+            if not getattr(self, "_reports_worktree_stamp", False):
+                body["worktrees"] = [{k: v for k, v in r.items() if k != "record_updated"} for r in body["worktrees"]]
         runtime_rows = body["readiness"].get("runtimes", {}).values()
         if not getattr(self, "_reports_credential_source", False):
             for row in runtime_rows:
@@ -3275,6 +3295,7 @@ class Runner:
         if hasattr(self, "worktrees") and (full or actions):
             self.worktrees.poll(actions)
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
+        self._reports_worktree_stamp = bool((beat or {}).get("worktree_record_stamp"))
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
             # A person pressed Restart: take main if that is safe, then restart once nothing runs.
@@ -3330,6 +3351,11 @@ class Runner:
                         for state in profile.get("runtimes", {}).values():
                             state.pop("weekly", None)
                     continue  # Older servers keep receiving the existing sign-in report.
+                if extra and "record_updated" in detail and any("record_updated" in r for r in body.get("worktrees") or []):
+                    # A server from before stamped reports still gets every worktree report, unstamped.
+                    body["worktrees"] = [{k: v for k, v in r.items() if k != "record_updated"} for r in body["worktrees"]]
+                    self._reports_worktree_stamp = False
+                    continue
                 if exc.status == 422 and "capabilities" in detail and "task_goals_v1" in body.get("capabilities", []):
                     # A server from before task goals never hands a task room's goal; only the new one goes.
                     body["capabilities"].remove("task_goals_v1")

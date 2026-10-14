@@ -22,6 +22,7 @@ from clients.agent_skill import WHO_NEEDS_ME
 
 from . import go_live as pending_go_lives
 from . import repo_waits
+from . import built_on
 from . import agents, batch, external_sync, inbox_isolation, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
 from . import team_rules, usage_limits
 from . import task_privacy as privacy
@@ -2443,6 +2444,7 @@ def create_app(settings=None):
                                                    + auth.task_sql(c, who) + ") ORDER BY (rank IS NULL), rank, created",
                                                    (tid,)))]
             from .task_review import comment_rights
+            from .views import task_wait
             try:
                 comment_rights(c, auth, who, tid)
                 can_comment = True
@@ -2454,6 +2456,7 @@ def create_app(settings=None):
                     "children": children,
                     "comments": H.task_comments(c, tid, actor=privacy.actor(request.state.identity)),
                     "mover": mover(c, request.state.identity),
+                    "waiting_for": task_wait(c, tid, settings),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
     def task_create(c, who, body, lint=True, asked=None):
@@ -2822,7 +2825,7 @@ def create_app(settings=None):
     @app.post("/api/v2/tasks/{tid}/delete")
     def task_delete(request: Request, tid: str, body: M.Empty):
         """A person deletes a task made by mistake: its human requester, or anyone who may move any
-        task. Bots and delegated sessions close instead. A task carrying work (a bot turn, a file,
+        task. Bots and delegated sessions close instead. A task carrying work (a bot turn, a bot's own file,
         an approval, a subtask) is refused, so deleting never takes away what someone did. The task
         goes to the trash, from which it can be restored."""
         who = request.state.identity
@@ -3647,8 +3650,20 @@ def create_app(settings=None):
                           + ". The computers: " + (", ".join(r["label"] for r in rows) or "none yet"), 404)
         return hit[0]
 
-    def place_now(c, who, bot, computer=""):
-        """`hub bot place`: on the computer named, or the one the company's own rule picks (backend/placement.py)."""
+    def history_on_github(bot):
+        """Before the write (GitHub is never called while holding it): for a never-placed bot built on a computer,
+        whether GitHub holds its history yet (True, False, or None when it cannot be learned). None for any other bot."""
+        with store.read() as c:
+            if not built_on.computer(c, bot):
+                return None
+            repository = bot_repository(c, settings, bot)
+        service = getattr(app.state, "github_app", None)
+        return service.repository_history(repository) if service and repository else None
+
+    def place_now(c, who, bot, computer="", history=None):
+        """`hub bot place`: on the computer named, or the one the company's own rule picks (backend/placement.py).
+        A new bot whose history is only on the computer that built it goes there first (`history` is not True): that
+        computer publishes it to GitHub, and from then on it can move like any other."""
         settings_admin._manager(c, who, bot)
         row = H.bot(c, bot)
         if not row:
@@ -3661,7 +3676,14 @@ def create_app(settings=None):
         from .agents import external_harness
         if external_harness(c, bot):
             raise Problem("harness", "This bot is run by an external agent; it has no computer to place it on", 422)
-        options = [wanted] if wanted else placing.candidates(c, auth, bot)
+        built = built_on.computer(c, bot) if history is not True else None
+        if built and wanted and wanted["id"] != built["id"]:
+            raise Problem("history_elsewhere",
+                          f"{bot}'s repository was built on {built['label']} and "
+                          + ("Tico could not check GitHub's copy" if history is None else "is not on GitHub yet")
+                          + f", so {wanted['label']} could not get it. Put it on {built['label']} first (`hub bot go-live {bot} --computer "
+                          f"\"{built['label']}\"`): {built['label']} publishes it to GitHub, and then it can move", 409)
+        options = [wanted] if wanted else [built] if built else placing.candidates(c, auth, bot)
         if not options:
             raise Problem("no_computer", "No computer can take this bot yet: add one, or ask an admin to open one to members' bots", 409)
         generation = current["generation"] if current else 0
@@ -3741,7 +3763,8 @@ def create_app(settings=None):
     @app.post("/api/v2/bots/{bot}/place")
     def place_bot(request: Request, bot: str, body: M.BotPlace):
         who = request.state.identity
-        return mutate(request, body, lambda c: place_now(c, who, bot, body.computer))
+        history = history_on_github(bot)
+        return mutate(request, body, lambda c: place_now(c, who, bot, body.computer, history))
 
     GO_LIVE_PENDING = pending_go_lives.PREFIX
 
@@ -3898,13 +3921,14 @@ def create_app(settings=None):
         (202, state `waiting_for_repository`)."""
         who = request.state.identity
         github, missing = repository_on_github(bot)
+        history = history_on_github(bot)
 
         def work(c):
             if body.routines is not None:
                 check_routines(c, who, bot, body.routines)
             # An external agent (a Hermes profile) has a credential, not a computer.
             placed = ({"computer": None, "placed": False} if agents.external_harness(c, bot)
-                      else place_now(c, who, bot, body.computer))
+                      else place_now(c, who, bot, body.computer, history))
             if placed.get("proposed"):
                 return placed                     # a computer that needs the person's own click: nothing else yet
             row = H.bot(c, bot)

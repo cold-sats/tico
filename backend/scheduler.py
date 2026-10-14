@@ -193,6 +193,14 @@ class Scheduler:
             self.stranded = at
             with self.store.transaction() as c:
                 H.sweep_stranded(c, stamp(at))
+            # ...bot tasks waiting on a person with a plain ask become the bot's task blocked on one small subtask
+            # the person owns...
+            try:
+                from . import person_asks
+                with self.store.transaction() as c:
+                    person_asks.migrate(c)
+            except Exception as exc:
+                failures.append({"person_asks": type(exc).__name__})
             # ...and bot tasks waiting on a person with no plain ask: their bot is asked once to restate it.
             try:
                 from . import restate_asks
