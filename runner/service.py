@@ -3088,7 +3088,7 @@ class Runner:
                     settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
                                              effort=hop["reasoning_effort"], env=hop_env, slug=bot,
                                              compact_at=config.get("compact_at"),
-                                             add_dirs=[str(path) for _, path in worktree_dirs],
+                                                 add_dirs=[str(path) for _, path in worktree_dirs],
                                              mcp_servers=self.mcp_for_run(attempt, execution_path, hop_env, hop["runtime"],
                                                                           hop["harness"], diagnose))
                     thread = host.start_thread(bot, settings)
