@@ -329,7 +329,7 @@ async function taskSave(d, id, body, then, field) {
   try {
     const outcome = body.close ? 'closed' : pipelineActionStatus(cur, body);
     if ((outcome === 'done' || outcome === 'closed') && outcome !== cur.status) {
-      note = taskOutcomeNote(cur, outcome === 'closed' ? {close: true} : body);
+      note = taskOutcomeNote(cur, outcome === 'closed' ? {close: true} : body, TASK_DRAFTS.get(String(id)));
       if (note) body = {...body, note};
     }
     const state = d.dataset.peek && TASKS_ST, key = 't' + id;
