@@ -2,6 +2,7 @@
 changes reach only the computer they concern, as hints with no values; a resume sends only what came
 since, a client past the log is reset, and a revoked computer's stream ends."""
 import json
+import sqlite3
 
 import pytest
 
@@ -73,3 +74,18 @@ def test_the_stream_tells_its_computer_keeps_it_seen_and_ends_once_revoked(api, 
     assert seen > H.shift(H.now(), seconds=-3)
     post(api, f"runners/{a['runner_id']}/revoke", {})
     mine.until(topic("expired"))
+
+
+def test_a_quiet_stream_keeps_sending_keepalives_while_the_database_is_busy(api, live):
+    # The contact write behind a keepalive waits for the write lock; the keepalive does not.
+    computer = runner(api, label="A")
+    stream = live(computer["token"], path="/api/v2/runners/me/events")
+    stream.until(topic("ready"))
+    holder = sqlite3.connect(str(api.app.state.store.settings.db_path), isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        for _ in range(3):
+            stream.until(topic("keepalive"), timeout=5)
+    finally:
+        holder.rollback()
+        holder.close()
