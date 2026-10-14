@@ -8,6 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Closing a bot's question card settles it.** When you close the small card a bot gave you instead of answering it, the bot's task no longer stays "Blocked on" you: it opens again with your note, and the bot hears it once.
 - **Slack file downloads cope with long or odd names and keep to a private folder.** `connectors/slack.py file` cuts a shared file's name to 200 bytes and drops control characters, so a long name or one with a NUL byte no longer crashes the download; a name the file system still refuses is a clear failure that saves nothing. The default folder is now the user's own `slack-files-<uid>` under the temp folder, made private, and one another local user owns (or a link) is refused. The `saved` line prints on one line. See [Slack](integrations/slack.md).
 
 ## [0.3.43] - 2026-10-14
