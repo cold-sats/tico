@@ -376,7 +376,7 @@ function renderSettingsMachines() {
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
       <div class="machine-enroll-status" id="machine-enroll-status"></div></div>`;
-  el.querySelector('[data-machines-list]').innerHTML = `<p class="settings-cell-note">Computers run your bots. The operator manages the computer; each bot can use its own named subscription.</p>${list}`;
+  el.querySelector('[data-machines-list]').innerHTML = `<p class="settings-cell-note">Computers run your bots. The operator manages the computer; each bot can use its own named subscription.</p>${window.runnerOutdatedBanner?.(SETTINGS_DATA.machines, S.me?.id, settingsPersonName) || ''}${list}`;
   el.querySelectorAll('details[data-machine-details]').forEach(node => { node.open = expanded.has(node.dataset.machineDetails); });
   const machineDefaultLabel = () => $('#machine-kind').value === 'linux' && S.config?.local ? 'This computer'
     : `${settingsPersonName($('#machine-operator').value)}'s ${({linux: 'server', windows: 'PC'})[$('#machine-kind').value] || 'Mac'}`;

@@ -83,7 +83,8 @@ class MuseCode(unittest.TestCase):
             prompt = Path(argv[argv.index("--prompt-file") + 1])
             procs.append((argv, kwargs, prompt.read_text()))
             return FakeProc(lines, rc)
-        h = MuseCodeHost(bot="coo", spawn=spawn, state_dir=self.tmp.name)
+        self.config_home = Path(self.tmp.name) / "config"
+        h = MuseCodeHost(bot="coo", spawn=spawn, state_dir=Path(self.tmp.name) / "state", config_home=self.config_home)
         h.start()
         return h, procs
 
@@ -99,7 +100,7 @@ class MuseCode(unittest.TestCase):
         self.assertEqual(argv[argv.index("--reasoning-effort") + 1], "medium")
         self.assertEqual(prompt, "Say hi")                                       # in a file, not argv
         self.assertNotIn("Say hi", argv)
-        self.assertEqual(list(Path(self.tmp.name).iterdir()), [])                # and the file is gone after
+        self.assertEqual(list((Path(self.tmp.name) / "state").iterdir()), [])     # and the file is gone after
         # The hub and the remote server are per-run settings; secrets stay `${VAR}` in the environment.
         overrides = [argv[i + 1] for i, a in enumerate(argv) if a == "-c"]
         hub = json.loads(next(o for o in overrides if o.startswith("mcp_servers.hub=")).split("=", 1)[1])
@@ -114,6 +115,38 @@ class MuseCode(unittest.TestCase):
         self.assertEqual([(e["turn_id"], e["status"]) for e in got if e["kind"] == "turn_completed"], [(turn, "completed")])
         # A restarted runner resumes the same session by its id.
         self.assertEqual(h.resume_thread("coo", tid, self.settings), tid)
+
+    def test_a_real_recorded_tool_call_is_reported(self):
+        """Muse 1.4.7 announces a tool as task.lifecycle.proposed with task_kind "tool.<name>"."""
+        fixtures = Path(__file__).parent / "fixtures" / "musecode"
+        lines = [json.loads(row) for row in (fixtures / "real-tool.jsonl").read_text().splitlines() if row.strip()]
+        h, _ = self.host(lines)
+        h.start_turn(h.start_thread("coo", self.settings), "x")
+        got = [{k: v for k, v in e.items() if k in ("kind", "name", "tool", "phase", "text", "delta_kind", "final",
+                                                    "status", "state")} for e in events(h) if e["kind"] != "tokens"]
+        self.assertEqual(got, json.loads((fixtures / "real-tool.expected.json").read_text()))
+
+    def test_the_operators_own_muse_servers_never_load(self):
+        """Muse loads every server in $XDG_CONFIG_HOME/muse/settings.json and refuses `-c` on those names, so
+        a turn runs on Tico's own Muse folder, and any servers in it are taken out first."""
+        operator = Path(self.tmp.name) / "home" / ".config" / "muse"
+        operator.mkdir(parents=True)
+        (operator / "settings.json").write_text('{"schema_version": 1, "mcpServers": {"personal": {"command": "x"}}}')
+        h, procs = self.host(ECHO)
+        (self.config_home / "muse").mkdir(parents=True)
+        (self.config_home / "muse" / "settings.json").write_text(
+            '{"schema_version": 1, "tui": {"x": true}, "mcpServers": {"stray": {"command": "y"}}}')
+        settings = {**self.settings, "env": {**self.settings["env"], "HOME": str(operator.parents[1]),
+                                             "XDG_CONFIG_HOME": str(operator.parent)}}
+        h.start_turn(h.start_thread("coo", settings), "x")
+        events(h)
+        argv, kwargs, _ = procs[0]
+        self.assertEqual(kwargs["env"]["XDG_CONFIG_HOME"], str(self.config_home))
+        self.assertEqual(json.loads((self.config_home / "muse" / "settings.json").read_text()),
+                         {"schema_version": 1, "tui": {"x": True}})
+        self.assertIn("mcpServers", (operator / "settings.json").read_text())      # the operator's file is untouched
+        servers = sorted(a.split("=", 1)[0] for a in argv if a.startswith("mcp_servers."))
+        self.assertEqual(servers, ["mcp_servers.hub", "mcp_servers.linear"])
 
     def test_a_failed_terminal_fails_the_turn_with_its_reason_and_counts_its_tokens(self):
         h, _ = self.host(FAILED, rc=1)
@@ -146,15 +179,29 @@ class Readiness(unittest.TestCase):
 
     def test_signed_out_is_missing_and_a_login_file_or_key_is_ready(self):
         row = self.runner.runtime_readiness("musecode", [])
-        self.assertEqual((row["authenticated"], row["detail"]), ("missing", "Muse login required (muse login) or META_API_KEY"))
+        self.assertEqual((row["authenticated"], row["detail"]), ("missing", "Muse sign-in required (sign in from Tico) or META_API_KEY"))
         self.assertEqual(row["models"], ["muse-spark-1.3"])
-        auth = self.home / ".config" / "muse" / "auth.json"
+        operator = self.home / ".config" / "muse" / "auth.json"      # the operator's own login is not the bots'
+        operator.parent.mkdir(parents=True)
+        operator.write_text("{}")
+        self.assertEqual(self.runner.runtime_readiness("musecode", [])["authenticated"], "missing")
+        auth = self.runner.muse_config_home() / "muse" / "auth.json"
         auth.parent.mkdir(parents=True)
         auth.write_text("{}")
         self.assertEqual(self.runner.runtime_readiness("musecode", [])["detail"], "Signed in with a Meta account")
         auth.unlink()
         with mock.patch.dict(os.environ, {"META_API_KEY": "k"}):
             self.assertEqual(self.runner.runtime_readiness("musecode", [])["detail"], "Signed in with META_API_KEY")
+
+    def test_a_computer_wide_key_that_reports_ready_reaches_the_turn(self):
+        attempt = {"bot": "coo", "token": "t", "config": {"runtime": "musecode"}}
+        with mock.patch.dict(os.environ, {"META_API_KEY": "computer-key"}):
+            self.assertEqual(self.runner.runtime_readiness("musecode", [])["authenticated"], "ready")
+            self.assertEqual(self.runner.environment(attempt)["META_API_KEY"], "computer-key")
+        self.assertNotIn("META_API_KEY", self.runner.environment(attempt))
+        other = {**attempt, "config": {"runtime": "claude"}}
+        with mock.patch.dict(os.environ, {"META_API_KEY": "computer-key"}):
+            self.assertNotIn("META_API_KEY", self.runner.environment(other))
 
 
 @pytest.mark.slow
@@ -193,7 +240,7 @@ class Hardening(unittest.TestCase):
         self.assertEqual([e["text"] for e in got if e["kind"] == "message" and e["final"]], ["The answer"])
 
     def test_an_unreadable_config_folder_is_a_failed_check_not_a_raised_heartbeat(self):
-        folder = Path(self.tmp.name) / ".config" / "muse"
+        folder = Path(self.tmp.name) / "musecode" / "config" / "muse"
         folder.mkdir(parents=True)
         (folder / "auth.json").write_text("{}")
         os.chmod(folder, 0)
@@ -202,6 +249,7 @@ class Hardening(unittest.TestCase):
             self.skipTest("running as root")
         from runner import service as S
         runner = S.Runner.__new__(S.Runner)
+        runner.host_state = Path(self.tmp.name)
         runner.team_model_keys = lambda *a: None
         runner.headless_login = lambda *a: ""
         with mock.patch.dict(os.environ, {"HOME": self.tmp.name}), \

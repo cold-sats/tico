@@ -54,7 +54,10 @@ def profile_command(parser, args, config):
         parser.error(f"{command[0]} is not on PATH")
     print(f"Signing in to {args.runtime} for profile {args.name} in {profile.home(args.runtime)}")
     # Interactive on purpose: the CLI owns the browser flow and prints its own instructions.
-    raise SystemExit(subprocess.run(command, env=profile.environment(args.runtime)).returncode)
+    env = profile.environment(args.runtime)
+    if args.runtime == "musecode":
+        env["MUSE_NO_AUTO_UPDATE"] = "1"     # the runner updates its harnesses itself
+    raise SystemExit(subprocess.run(command, env=env).returncode)
 
 
 def main(argv=None):
@@ -116,6 +119,11 @@ def main(argv=None):
         print(json.dumps({"runner_id": result["runner_id"], "config": str(args.config), "operator": result["operator"]}))
         return
     config = json.loads(args.config.read_text())
+    if args.command == "run":
+        # One switch for Docker, launchd and systemd: `"engine": "rust"` or TICO_RUNNER_ENGINE=rust hands this
+        # process to the Rust runner before the lock is taken; any problem stays here (runner/engine.py).
+        from . import engine
+        engine.maybe_exec(config, list(sys.argv[1:] if argv is None else argv))
     if args.command == "profile":
         return profile_command(parser, args, config)
     config.setdefault("state_dir", str(args.config.parent / ("state-" + config["runner_id"])))
