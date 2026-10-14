@@ -12104,6 +12104,53 @@
                               }
                             ],
                             "title": "Who"
+                          },
+                          "if_no_answer": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "description": "What the bot does if the person does not answer by `by` (backend/ask_deadlines.py). `kind` says what that step is:\nonly a `reversible` internal step goes ahead on its own; a send, a payment or a delete waits for an answer.",
+                                "properties": {
+                                  "do": {
+                                    "maxLength": 300,
+                                    "minLength": 1,
+                                    "title": "Do",
+                                    "type": "string"
+                                  },
+                                  "kind": {
+                                    "enum": [
+                                      "reversible",
+                                      "send",
+                                      "spend",
+                                      "delete"
+                                    ],
+                                    "title": "Kind",
+                                    "type": "string"
+                                  },
+                                  "by": {
+                                    "anyOf": [
+                                      {
+                                        "maxLength": 40,
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "title": "By"
+                                  }
+                                },
+                                "required": [
+                                  "do",
+                                  "kind"
+                                ],
+                                "title": "IfNoAnswer",
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -17655,6 +17702,46 @@
         ],
         "additionalProperties": true
       },
+      "IfNoAnswer": {
+        "properties": {
+          "do": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Do"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reversible",
+              "send",
+              "spend",
+              "delete"
+            ],
+            "title": "Kind"
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "do",
+          "kind"
+        ],
+        "title": "IfNoAnswer",
+        "description": "What the bot does if the person does not answer by `by` (backend/ask_deadlines.py). `kind` says what that step is:\nonly a `reversible` internal step goes ahead on its own; a send, a payment or a delete waits for an answer."
+      },
       "InboundTask": {
         "properties": {
           "key": {
@@ -20568,6 +20655,16 @@
               }
             ],
             "title": "Who"
+          },
+          "if_no_answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IfNoAnswer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
