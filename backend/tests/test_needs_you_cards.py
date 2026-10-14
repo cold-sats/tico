@@ -157,3 +157,22 @@ def test_a_question_asked_again_did_not_go_away(api):
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE messages SET superseded_at=? WHERE id=?", (H.now(), newer["id"]))
     assert get(api, "needs-you")["went_away"]["withdrawn"] == 2
+
+
+def test_a_wait_above_another_open_card_stays_after_a_one_tap_answer(api):
+    _, _, finance = setup_attempt(api, "finance")
+    launch = post(api, "tasks", {"title": "Q4 launch", "body": "x", "owner": "bot:finance"})
+    with api.app.state.store.transaction() as c:
+        venue = H.task_create(c, "bot:finance", "Which venue?", "Which venue should we book?", "human:ana",
+                              parent_id=launch["id"])
+        H.task_create(c, "bot:finance", "Sign the catering contract", "Can you sign it?", "human:ana",
+                      parent_id=launch["id"])
+        c.execute("UPDATE tasks SET status='waiting', waiting_on='human:ana', note=? WHERE id=?",
+                  ("Waiting on Ana to approve paying the $4,000 Stripe invoice.", launch["id"]))
+        asked = H.say(c, "bot:finance", "human:ana", "Which venue should we book?", kind="ask",
+                      conversation_id=H.task(c, venue["id"])["conversation_id"],
+                      refs={"task": venue["id"], "if_no_answer": {"do": "The Loft", "kind": "reversible"}})
+    assert post(api, "needs-you/recommended", {"ask": asked["id"]})["done"] is True
+    assert get(api, f"tasks/{launch['id']}")["task"]["waiting_on"] == "human:ana"
+    items = get(api, "needs-you")["items"]
+    assert launch["id"] in {i["id"] for i in items} | {f["id"] for i in items for f in i.get("folded") or []}

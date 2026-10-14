@@ -764,6 +764,17 @@ def _whole_card(c, task, asked, me):
         said(task.get("title")), said(task.get("body")), said(H.person_ask_of_body(task.get("body"), task.get("title")))}
 
 
+def _another_card_under(c, row, answered, me):
+    """Whether a card of `me`'s other than `answered` (their own task, or one with an ask to them) is still open below
+    `row`: then `row`'s wait may be for that one, and answering `answered` does not end it."""
+    for t in H.descendants(c, row["id"]):
+        if t["id"] == answered or t["status"] not in H.ACTIVE_STATUSES:
+            continue
+        if t["owner"] == me or any(a["to_actor"] == me for a in H.open_task_asks(c, t)):
+            return True
+    return False
+
+
 def take_recommendation(c, auth, who, asked, version=None):
     """"Do what you recommend": `who` answers the bot's ask with what it said it would do (the option it named, picked as
     if by hand, or a plain yes). The card leaves their Needs you when the ask was the whole card: a task of theirs
@@ -798,7 +809,7 @@ def take_recommendation(c, auth, who, asked, version=None):
             H.task_update(c, who.actor, task_id, status="done", note=text)
         waits = [t for t in [task, *(H.task(c, a) for a in TR.ancestors(c, task_id))]
                  if t and t["status"] == "waiting" and t.get("waiting_on") == who.actor
-                 and (t is task or t["owner"] == asked["from_actor"])]
+                 and (t is task or t["owner"] == asked["from_actor"] and not _another_card_under(c, t, task_id, who.actor))]
         for t in waits:
             c.execute("UPDATE tasks SET waiting_on=NULL, updated=? WHERE id=?", (H.now(), t["id"]))
             H._task_event(c, t["id"], who.actor, "waiting_on", who.actor, None, text)
