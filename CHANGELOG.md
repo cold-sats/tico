@@ -10,6 +10,9 @@ All notable changes to Tico are recorded here. The format follows
 ### Changed
 - **Subtasks continue their parent task's session.** A bot's turn on a subtask runs in the session, lane and worktree of the topmost parent it also owns, and that root carries the primary session and checkpoint. A bot blocked on a person files a subtask for them under its task, and is woken on the parent when they finish it. `subtask_session: own` keeps the old one-session-per-subtask behavior. See [Tasks](docs/tasks.md#subtasks-and-prs).
 
+### Fixed
+- **A bot's answer in a chat that began with a "New task" notice no longer counts as unsolicited.** When a person assigned a task before writing, the keeper's notice was the chat's first message, so every answer the bot gave them there was linted and counted against its 10 unsolicited messages a day. The `tico-sync` skill for Hermes and OpenClaw also passes the message it answers.
+
 ## [0.3.41] - 2026-10-13
 
 ### Added

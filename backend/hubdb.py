@@ -1840,9 +1840,12 @@ def _pair_conversation(conn, actor, other, kind, subject="", allow_held=False):
 
 
 def _opener(conn, conversation_id):
-    """Who started this conversation: the first message's sender, else whoever opened it."""
-    first = _one(conn, "SELECT from_actor FROM messages WHERE conversation_id=? "
-                       "ORDER BY created LIMIT 1", (conversation_id,))
+    """Who started this conversation: the first message's sender, else whoever opened it.
+
+    The keeper's notices do not count: a "New task" notice can land first in a person's chat with a
+    bot, and the person's own message after it is what the bot answers."""
+    first = _one(conn, "SELECT from_actor FROM messages WHERE conversation_id=? AND from_actor<>? "
+                       "ORDER BY created LIMIT 1", (conversation_id, KEEPER))
     if first:
         return first["from_actor"]
     row = _one(conn, "SELECT actor FROM events WHERE action='conversation.open' AND target=? "
