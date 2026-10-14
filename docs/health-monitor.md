@@ -14,7 +14,6 @@ Once an hour, while it is on, the server checks the install in plain code (`back
 | `computer_silent` | setup | A computer has not checked in for 10 minutes or more while work is queued for its bots |
 | `limited_no_fallback` | setup | A bot's turns stopped on a subscription or spend limit in the last day and it has no fallback model |
 | `stuck_setup` | setup | A bot has been in setup over an hour while work waits for it |
-| `paused_routines` | setup | A paused bot still has routines on (they do not run) |
 | `worktree_error` | setup | A task worktree failed on its computer |
 | `push_stuck` | setup | A runner reports a checkout with commits it cannot push (diverged) |
 | `cannot_fetch` | setup | A runner keeps failing to fetch a bot's repository |
