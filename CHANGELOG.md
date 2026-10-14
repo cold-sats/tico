@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Approvals nobody will act on leave Needs you.** An undecided approval is withdrawn (a new decision, `withdrawn`)
+  when its task is closed, declined or marked done, when its bot asks again for the same thing (`hub approval request
+  --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
+  recipient and subject, pull request or spend), and after 14 days undecided. The bot hears once, without a run, and
+  may ask again. An hourly sweep also clears approvals and questions to people still open on tasks that ended earlier.
+  The Release Manager asks for a release by its release page, so a re-cut replaces the first ask. A task that has
+  ended takes no new approval.
 - **A bot at its worktree limit ends its turn and is woken when its worktree is ready.** When a bot's turn asks for a task worktree while the bot already holds 30, Tico records that the task waits for one and `hub task worktree add` says so and exits with status 3: the bot ends its turn instead of waiting, so its finished worktrees can free themselves. When a place frees, Tico reserves the worktree (checking access, owner and computer again), the bot's computer checks it out and runs setup while the bot is idle, and Tico wakes the task once, in its own session, naming the ready worktree; a failed checkout or setup wakes it once with the reason. Finishing the task, a new owner or stopping the turn ends the wait. The task and Health show "Waiting for a worktree" with its age. The limit is unchanged, nothing is removed to make room, and a computer from before this release gets the old answer. See [Task worktrees](docs/worktrees.md).
 
 ### Fixed
