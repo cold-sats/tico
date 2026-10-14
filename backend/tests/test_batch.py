@@ -117,22 +117,24 @@ def test_what_a_person_asked_for_leads_unless_a_bots_item_presses(api):
     approval = approval_for_ana(api, token=finance["token"])
     chore = post(api, "tasks", {"title": "Rotate the report template", "body": "Housekeeping", "owner": "human:ana"},
                  token=finance["token"])
+    todo = post(api, "tasks", {"title": "Book the venue", "body": "For the offsite", "owner": "human:ana"})
     quote = post(api, "tasks", {"title": "Quote for Acme", "body": "A customer", "owner": "bot:ops"}, token="ben-test")
     confirm = post(api, "tasks", {"title": "Confirm the Acme discount", "body": "For the quote", "owner": "human:ana",
                                   "relations": [{"task": quote["id"], "kind": "parent"}]}, token=ops["token"])
     items = {i["id"]: i for i in get(api, "needs-you")["items"]}
     order = list(items)
     assert order.index(confirm["id"]) < order.index(approval["id"]) < order.index(chore["id"])
+    assert order.index(approval["id"]) < order.index(todo["id"]), "a person's own to-do does not lift over a bot's ask"
     assert items[confirm["id"]]["from_person"] == "human:ben", "a bot's subtask keeps the person its parent came from"
     assert not items[approval["id"]]["from_person"] and not items[chore["id"]]["from_person"]
     b = post(api, "batch", {})
     assert b["item"]["key"] == "task:" + confirm["id"]
     assert [g["who"] for g in b["lineup"]] == ["bot:ops", "bot:finance"]
 
-    # Overdue, or waiting for days: a bot's item goes ahead of the person's again.
+    # Overdue, or waiting (a day for an approval, which holds its bot up): a bot's item goes ahead again.
     overdue = post(api, "tasks", {"title": "Renew the domain", "body": "Lapsed", "owner": "human:ana",
                                   "due": H.shift(H.now(), days=-1)}, token=finance["token"])
     with api.app.state.store.transaction() as c:
-        c.execute("UPDATE approvals SET created=? WHERE id=?", (H.shift(H.now(), days=-4), approval["id"]))
+        c.execute("UPDATE approvals SET created=? WHERE id=?", (H.shift(H.now(), days=-2), approval["id"]))
     order = [i["id"] for i in get(api, "needs-you")["items"]]
     assert order[0] == approval["id"] and order.index(overdue["id"]) < order.index(chore["id"])
