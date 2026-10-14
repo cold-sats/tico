@@ -159,3 +159,32 @@ def test_the_stream_reader_ignores_keepalive_comments_and_waits_longer_than_the_
     got = [item for item in RE.connect(client) if item[0] != "keepalive"]
     assert got == [("runner", "9", {"seq": 9, "kind": "work"})]
     assert opened[0] >= 50 * 1.5                     # the longest keepalive interval the server allows, with room
+
+
+def test_an_unset_capacity_runs_five_turns_per_core_as_memory_allows_and_a_set_one_is_kept():
+    from unittest import mock
+    from runner import service
+
+    def sized(cpus, gb):
+        pages = {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": int(gb * 2**30 / 4096)}
+        with mock.patch.object(service.os, "cpu_count", return_value=cpus), \
+                mock.patch.object(service.os, "sysconf", side_effect=pages.__getitem__):
+            return service.machine_capacity()
+    assert sized(2, 16) == 10                 # the turns wait on the model, not the two cores
+    assert sized(2, 2) == 6                   # memory caps a small box
+    assert sized(1, 1) == 4                   # never below what every runner had
+    assert sized(64, 512) == 64
+    assert service.machine_capacity(80) == 80 and service.machine_capacity("auto") >= 4
+    assert service.machine_capacity(1000) == 256
+
+
+def test_a_server_from_before_larger_capacities_still_gets_a_heartbeat_at_32():
+    from unittest.mock import Mock
+    from clients.tico import APIError
+    runner = Runner.__new__(Runner)
+    runner.client = Mock()
+    runner.client.post.side_effect = [APIError("validation", "body.capacity: Input should be less than or equal to 32", 422),
+                                      {"ok": True}]
+    body = {"capacity": 60, "readiness": {}}
+    assert runner.report_heartbeat(body) == {"ok": True}
+    assert runner.client.post.call_args.args[1]["capacity"] == 32
