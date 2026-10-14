@@ -86,6 +86,10 @@ def _row(it, actor):
         row["from_person"] = it["from_person"]
     if it.get("pressing"):
         row["pressing"] = True
+    if it.get("due"):
+        row["due"] = it["due"]
+    if it.get("recommend"):
+        row["recommend"] = it["recommend"]["do"]       # what the bot would do: "do what you recommend" takes it
     return row
 
 
@@ -164,7 +168,7 @@ def _name(c, actor):
 
 def _rank(row):
     return needs_order(row["kind"], row.get("created"), row.get("rank") if row["kind"] == "task" else None,
-                       row.get("from_person"), row.get("pressing"), bool(row.get("ask_missing")))
+                       row.get("from_person"), row.get("pressing"), bool(row.get("ask_missing")), row.get("due"))
 
 
 def lineup(c, person, rows):

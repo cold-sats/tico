@@ -666,12 +666,210 @@ def checkout_issue(add, row, busy=0):
         restart_issue(add, row, busy)
 
 
-def needs_order(kind, created, rank=None, person=None, urgent=False, ask_missing=False):
+def needs_order(kind, created, rank=None, person=None, urgent=False, ask_missing=False, due=None):
     """Needs you is the person's queue. A card still waiting for its bot to say what it needs goes last, whatever
-    else it is; above that, what traces back to a person, or presses, first; then within that what blocks a bot
-    (an approval, a question), then declined work, then their own tasks in rank order."""
-    return (1 if ask_missing else 0, 0 if person or urgent else 1, KIND_RANK.get(kind, 9),
-            rank if rank is not None else float("inf"), str(created or ""))
+    else it is; above that, what has a due date first, soonest first; then what traces back to a person, or presses;
+    then within that what blocks a bot (an approval, a question), then declined work, then their own tasks in rank
+    order."""
+    return (1 if ask_missing else 0, 0 if due else 1, str(due or ""), 0 if person or urgent else 1,
+            KIND_RANK.get(kind, 9), rank if rank is not None else float("inf"), str(created or ""))
+
+
+# What a card takes, as the groups Needs you shows in this order: a yes/no or a pick, money, an account to sign in to
+# or connect, something written to read and let go out, and everything else. Read from the card's own words, so the
+# same card always lands in the same group.
+NEED_GROUPS = ("decide", "pay", "connect", "review", "do")
+_NEED_PAY = re.compile(r"\b(pay|paid|payment|invoice|billing|bill|charge|subscription|renew(al)?|refund|purchase|buy|"
+                       r"top[- ]up|credit card|card on file|spend)\b", re.I)
+_NEED_CONNECT = re.compile(r"\b(sign[- ]?in|log[- ]?in|signed in|logged in|connect|reconnect|authori[sz]e|oauth|"
+                           r"api[- ]keys?|keys?|token|credentials?|password|2fa|two[- ]factor|grant access|"
+                           r"install the app)\b", re.I)
+_NEED_REVIEW = re.compile(r"\b(review|draft|proofread|read over|look over)\b", re.I)
+# The words that open a question asking for a yes or a no (ui/app/decide.js DEC_YES_NO says the same).
+_YES_NO = frozenset("approve can could should shall may do does did is are was were will would ok okay send publish "
+                    "merge ship go sign confirm proceed accept allow agree have has want renew book buy pay launch post "
+                    "keep cancel".split())
+
+
+def yes_no_ask(text):
+    """Whether `text`'s first question asks for a yes or a no: it opens with such a word and offers no "or"."""
+    question = next((s for s in re.split(r"(?<=[.!?])\s+", str(text or "").strip()) if s.endswith("?")), "")
+    if not question or re.search(r"\bor\b", question, re.I):
+        return False
+    return re.sub(r"[^a-z]", "", question.split()[0].lower()) in _YES_NO
+
+
+def need_of(item):
+    """The group a Needs you card goes in (NEED_GROUPS)."""
+    kind = item.get("kind")
+    if kind == "approval":
+        return {"spend": "pay", "send": "review", "publish": "review", "support": "review", "merge": "review"}.get(
+            item.get("what"), "decide")
+    ask = item.get("ask") or {}
+    words = " ".join(str(x or "") for x in (item.get("title"), item.get("person_ask"), ask.get("body")))
+    if _NEED_PAY.search(words):
+        return "pay"
+    if _NEED_CONNECT.search(words):
+        return "connect"
+    if kind in ("question", "ask") or item.get("recommend"):
+        return "decide"
+    if _NEED_REVIEW.search(words):
+        return "review"
+    if kind != "declined" and yes_no_ask(item.get("person_ask") or ask.get("body")):
+        return "decide"
+    return "do"
+
+
+def recommendation(ask, me):
+    """What the bot that asked `me` recommends ({"do", "ask", "option"}), from what it said it would do if nobody
+    answered (`if_no_answer`), or None. `option` is the label of the one question's option it names, so taking it
+    answers that question exactly as picking it would."""
+    if not ask or ask.get("to_actor") != me or not H.is_bot(ask.get("from_actor")):
+        return None
+    default = (ask.get("refs") or {}).get("if_no_answer") or {}
+    do = str(default.get("do") or "").strip()
+    if not do:
+        return None
+    questions = (ask.get("refs") or {}).get("questions") or []
+    option = None
+    if len(questions) == 1 and not questions[0].get("multi"):
+        option = next((o["label"] for o in questions[0].get("options") or []
+                       if str(o.get("label") or "").strip().casefold() == do.casefold()), None)
+    return {"do": do, "ask": ask["id"], "option": option, "kind": default.get("kind")}
+
+
+def take_recommendation(c, auth, who, asked):
+    """"Do what you recommend": `who` answers the bot's ask with what it said it would do (the option it named, picked as
+    if by hand, or a plain yes), and the card leaves their Needs you: their own card is done, a bot's task stops
+    waiting on them. The bot wakes on the answer as on any other."""
+    from . import models as M
+    from .task_review import answer_task
+    if asked["to_actor"] != who.actor:
+        raise Problem("forbidden", "Only the person it asked takes its recommendation", 403)
+    rec = recommendation(asked, who.actor)
+    if not rec:
+        raise Problem("no_recommendation", "This question carries no recommendation to take", 409)
+    if not c.execute(f"SELECT 1 FROM messages m WHERE m.id=? AND {H.OPEN_ASK_SQL}", (asked["id"],)).fetchone():
+        raise Problem("answered", "This question was already answered", 409)
+    text = "Yes, do what you recommend: " + rec["do"]
+    task_id = H.message_task_id(asked, H.conversation(c, asked["conversation_id"]))
+    if rec["option"] and task_id:
+        question = asked["refs"]["questions"][0]
+        answer_task(c, auth, who, task_id, M.TaskAnswer(target={"comment": asked["id"]},
+                                                        answers={question["id"]: [rec["option"]]}), wake=True)
+    else:
+        H.answer(c, who.actor, asked["id"], text)
+    task = H.task(c, task_id) if task_id else None
+    if task and task["status"] in H.ACTIVE_STATUSES:
+        if task["owner"] == who.actor:
+            H.task_update(c, who.actor, task_id, status="done", note=text)
+        elif task.get("waiting_on") == who.actor:
+            c.execute("UPDATE tasks SET waiting_on=NULL, updated=? WHERE id=?", (H.now(), task_id))
+            H._task_event(c, task_id, who.actor, "waiting_on", who.actor, None, text)
+            H._recount(c, who.actor)
+    return {"did": rec["do"], "task": task_id}
+
+
+def _quoted(text, n=90):
+    return "'" + _clip(text, n) + "'" if str(text or "").strip() else ""
+
+
+def _who(addresses):
+    """"Jennie Ooten", "jennie@acme.example and 2 others": the name in "Name <address>" when there is one."""
+    names = [m.group(1).strip().strip('"') if (m := re.match(r"\s*([^<]+?)\s*<[^>]+>\s*$", str(a))) else str(a).strip()
+             for a in (addresses if isinstance(addresses, list) else [addresses]) if str(a or "").strip()]
+    if not names:
+        return ""
+    return names[0] + (f" and {len(names) - 1} other{'s' if len(names) > 2 else ''}" if len(names) > 1 else "")
+
+
+def approval_title(kind, payload, task_title=""):
+    """What an approval card says it approves, from its payload (title, subject, what or action) or its task's title:
+    "Send: 'Rental owner referrals' to Jennie Ooten". "Approve this <kind>" only when neither names anything."""
+    p = payload if isinstance(payload, dict) else {}
+    text = lambda key: str(p.get(key) or "").strip() if isinstance(p.get(key), (str, int, float)) else ""  # noqa: E731
+    named = next((text(k) for k in ("title", "subject", "what", "action") if text(k)), "") or str(task_title or "").strip()
+    if kind == "send":
+        to = _who(p.get("to"))
+        return "Send: " + (_quoted(named) or "an email") + (f" to {to}" if to else "")
+    if kind == "spend":
+        amount = text("amount")
+        return "Pay" + (f" {amount}" if amount else "") + (f": {_clip(text('what') or named, 90)}" if text("what") or named else "")
+    if kind == "merge":
+        pr = text("pr").lstrip("#")
+        where = " ".join(x for x in (text("repo"), f"#{pr}" if pr else "") if x)
+        return "Merge: " + (_quoted(text("title") or task_title) or where or "a pull request") + (
+            f" ({where})" if where and (text("title") or task_title) else "")
+    if named:
+        return kind.capitalize() + ": " + _quoted(named)
+    return "Approve this " + kind
+
+
+def fold_related(items, c, me):
+    """One card per blocker. Cards about tasks of one family (a parent and its subtasks, or tasks one blocks) are one
+    card when only one of them is the person's to act on: their own task, or one with an ask to them. A bot's task
+    that merely waits on them for it folds into that card (its `folded` list, shown with it), so nothing it asks is
+    hidden, and the queue counts it once. A family with no such card folds into its top task; one with two or more
+    keeps every card."""
+    tasks = {str(it["id"]): it for it in items if it["kind"] in ("task", "question", "waiting")}
+    if len(tasks) < 2:
+        return items
+    marks = ",".join("?" * len(tasks))
+    edges = c.execute(f"SELECT from_task, to_task, kind FROM task_relations WHERE kind IN ('parent','blocked_by') "
+                      f"AND (from_task IN ({marks}) OR to_task IN ({marks}))", (*tasks, *tasks)).fetchall()
+    root = {tid: tid for tid in tasks}
+
+    def find(x):
+        while root.setdefault(x, x) != x:
+            root[x] = root[root[x]]
+            x = root[x]
+        return x
+    parents = {}
+    for a, b, kind in edges:
+        root[find(a)] = find(b)
+        if kind == "parent":
+            parents[a] = b
+    families = {}
+    for tid in tasks:
+        families.setdefault(find(tid), []).append(tasks[tid])
+    gone = set()
+    for family in families.values():
+        if len(family) < 2:
+            continue
+        mine = lambda it: it.get("owner") == me or (it.get("ask") or {}).get("to_actor") == me  # noqa: E731
+        anchors = [it for it in family if mine(it)]
+        if len(anchors) > 1:
+            continue
+        anchor = anchors[0] if anchors else next((it for it in family if str(it["id"]) not in parents
+                                                  or parents[str(it["id"])] not in tasks), family[0])
+        for it in family:
+            if it is anchor or it["kind"] != "waiting" or mine(it):
+                continue
+            anchor.setdefault("folded", []).append({k: it.get(k) for k in (
+                "id", "title", "owner", "kind", "person_ask", "note", "status", "due")})
+            gone.add(str(it["id"]))
+            if it.get("due") and (not anchor.get("due") or str(it["due"]) < str(anchor["due"])):
+                anchor["due"] = it["due"]
+    return [it for it in items if str(it["id"]) not in gone]
+
+
+def went_away(c, me, days=7):
+    """How many of `me`'s Needs you items left this week without them: an ask that expired or went ahead on its bot's
+    default, an ask or approval withdrawn (superseded by a newer one, or no longer needed), and what their Assistant
+    answered for them."""
+    since = H.shift(H.now(), days=-days)
+    expired = c.execute("SELECT count(*) FROM events WHERE ts>=? AND action IN ('ask.expired','ask.went_ahead') "
+                        "AND json_extract(detail_json,'$.to')=?", (since, me)).fetchone()[0]
+    withdrawn = (c.execute("SELECT count(*) FROM messages WHERE to_actor=? AND kind='ask' AND superseded_at>=?",
+                           (me, since)).fetchone()[0]
+                 + c.execute("SELECT count(*) FROM approvals a JOIN messages m ON m.id=a.message_id WHERE m.to_actor=? "
+                             "AND a.decision='withdrawn' AND a.decided_at>=?", (me, since)).fetchone()[0])
+    assistant = (c.execute("SELECT count(*) FROM approvals a JOIN messages m ON m.id=a.message_id WHERE m.to_actor=? "
+                           "AND a.decided_via='assistant' AND a.decided_at>=?", (me, since)).fetchone()[0]
+                 + c.execute("SELECT count(*) FROM messages WHERE from_actor=? AND kind='answer' AND created>=? "
+                             "AND json_extract(refs_json,'$.via')='assistant'", (me, since)).fetchone()[0])
+    return {"expired": expired, "withdrawn": withdrawn, "assistant": assistant,
+            "total": expired + withdrawn + assistant, "days": days}
 
 
 def person_ask(row, kind, me, ask):
@@ -809,6 +1007,7 @@ def needs_items(c, auth, who, task_view, older=None):
                     "from_person": (ask["from_actor"] if ask and H.is_human(ask["from_actor"])
                                     else person_origin(c, row, visible, who.actor))}
             item["person_ask"], item["ask_missing"] = person_ask(row, item["kind"], who.actor, ask)
+            item["recommend"] = next((r for a in open_asks if (r := recommendation(a, who.actor))), None)
             if (item["kind"] == "question" and row["owner"] != who.actor and H.ask_older(ask)
                     and not any(a["to_actor"] == who.actor and not H.ask_older(a) for a in open_asks)):
                 ask["older"] = True
@@ -820,12 +1019,13 @@ def needs_items(c, auth, who, task_view, older=None):
         if not privacy.message_readable(c, privacy.actor(who), msg):
             continue
         msg["refs"] = H._json(msg.get("refs_json"), {}) or {}
-        ask = {k: msg[k] for k in ("id", "from_actor", "to_actor", "body", "created", "conversation_id")}
+        ask = {k: msg[k] for k in ("id", "from_actor", "to_actor", "body", "created", "conversation_id", "refs")}
         item = {"kind": "ask", "id": msg["id"], "message_id": msg["id"], "title": _clip(msg["body"], 160),
                 "first_line": (msg["body"] or "").split("\n")[0], "body": msg["body"], "requester": msg["from_actor"],
                 "origin_actor": msg["from_actor"], "conversation_id": msg["conversation_id"],
                 "created": msg["created"], "ask": ask,
-                "from_person": msg["from_actor"] if H.is_human(msg["from_actor"]) else None}
+                "from_person": msg["from_actor"] if H.is_human(msg["from_actor"]) else None,
+                "recommend": recommendation(ask, who.actor)}
         if H.ask_older(msg):
             ask["older"] = True
             if older is not None:
@@ -835,8 +1035,14 @@ def needs_items(c, auth, who, task_view, older=None):
     for row in raw["approvals"]:
         msg = H.message(c, row["message_id"])
         if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
+            # Its task's title and due date only when the person may read that task.
+            try:
+                task = auth.task(c, who, row["task_id"]) if row.get("task_id") else None
+            except Problem:
+                task = None
             item = {**row, "kind": "approval", "what": row["kind"],
-                    "title": "Approve this " + row["kind"],
+                    "title": approval_title(row["kind"], row.get("payload"), (task or {}).get("title")),
+                    "due": (task or {}).get("due"),
                     "requester": row["requested_by"], "conversation_id": msg["conversation_id"],
                     "from_person": person_origin(c, H.task(c, row["task_id"]) if row.get("task_id") else None, visible)}
             if row["kind"] == "send":
@@ -847,11 +1053,14 @@ def needs_items(c, auth, who, task_view, older=None):
                 item["title"] = "Send this to Tico support?"
                 item["support"] = {"to": hq_url().split("://", 1)[-1].split("/", 1)[0]}
             items.append(item)
+    items = fold_related(items, c, who.actor)
     at = H.now()
     for item in items:
         item["pressing"] = pressing(item, at)
+        item["need"] = need_of(item)
     return sorted(items, key=lambda x: needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
-                                                   x.get("from_person"), x["pressing"], bool(x.get("ask_missing"))))
+                                                   x.get("from_person"), x["pressing"], bool(x.get("ask_missing")),
+                                                   x.get("due")))
 
 
 FLEET_CACHE_S = 15
@@ -1436,7 +1645,7 @@ def install_views(app, store, auth, mutate, task_view):
             older = []
             items = needs_items(c, auth, who, task_view, older)
             return ({"actor": who.actor, "count": len(items)} if count
-                    else {"actor": who.actor, "items": items, "older": older})
+                    else {"actor": who.actor, "items": items, "older": older, "went_away": went_away(c, who.actor)})
 
     @app.get("/api/v2/tico/fleet")
     def tico_fleet(request: Request):

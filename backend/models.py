@@ -94,6 +94,10 @@ class Answer(Contract):
     unknown: bool = False
 
 
+class TakeRecommendation(Contract):
+    ask: Annotated[StrictStr, Field(min_length=1, max_length=100)]     # the bot's ask the person says yes to
+
+
 Lane = Literal["company", "product"]
 # A task's number: one sequence for the whole team, like one board's ticket numbers.
 TaskNumber = Annotated[int, Field(ge=1, le=999_999_999)]
