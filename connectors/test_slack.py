@@ -310,7 +310,40 @@ class FileDownload(FakeSlack):
         self.assertEqual(url, SHOT["url_private_download"])
         self.assertEqual(headers["Authorization"], "Bearer xoxb-test")
         saved = Path(json.loads(out)["path"])
-        self.assertEqual((saved.name, saved.read_bytes()), ("checkout-error.png", PNG))
+        self.assertEqual((saved.name, saved.read_bytes()), ("F0SHOT1-checkout-error.png", PNG))
+
+    def test_a_shared_name_never_replaces_or_follows_a_file_that_is_there(self):
+        self.out.mkdir()
+        agent = self.out / "AGENT.md"
+        agent.write_text("the bot's instructions")
+        outside = Path(self.tmp.name) / "outside.txt"
+        outside.write_text("untouched")
+        (self.out / "F0SHOT1-pic.png").symlink_to(outside)
+        for name in ("../AGENT.md", "AGENT.md", "pic.png"):
+            rc, out, _ = self.fetch({**SHOT, "name": name})
+            self.assertEqual(rc, 0, out)
+            self.assertNotEqual(Path(json.loads(out)["path"]).resolve(), agent.resolve())
+        self.assertEqual(agent.read_text(), "the bot's instructions")
+        self.assertEqual(outside.read_text(), "untouched")
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()),
+                         ["AGENT.md", "F0SHOT1-AGENT-2.md", "F0SHOT1-AGENT.md", "F0SHOT1-pic-2.png", "F0SHOT1-pic.png"])
+        # An exact --out path that exists is refused, a symlink included.
+        for existing in (agent, self.out / "F0SHOT1-pic.png"):
+            rc, out, _ = self.run_cli(["file", "--as", "reader", "--id", "F0SHOT1", "--out", str(existing), "--json"],
+                                      [(200, {}, {"ok": True, "file": SHOT})])
+            self.assertEqual(rc, 2, out)
+        self.assertEqual((agent.read_text(), outside.read_text()), ("the bot's instructions", "untouched"))
+
+    def test_by_default_the_file_lands_outside_the_repository(self):
+        real, slack.FILES_DIR = slack.FILES_DIR, self.out
+        try:
+            rc, out, _ = self.run_cli(["file", "--as", "reader", "--id", "F0SHOT1", "--json"],
+                                      [(200, {}, {"ok": True, "file": {**SHOT, "size": "big"}})])
+        finally:
+            slack.FILES_DIR = real
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(Path(json.loads(out)["path"]).parent, self.out)
+        self.assertNotIn(str(slack.HUB), str(real))
 
     def test_without_files_read_the_bot_is_told_to_add_the_scope_and_nothing_is_saved(self):
         rc, out, _ = self.run_cli(["file", "--as", "reader", "--id", "F0SHOT1", "--out", str(self.out), "--json"],
@@ -347,6 +380,10 @@ class FileDownload(FakeSlack):
         row = slack.shape({"ts": "1756742400.000100", "user": "U9", "text": "see this", "files": [SHOT]},
                           "C1", {"U9": "Cara"}, "https://acme.slack.com", slack.zone(TZ))
         self.assertEqual(row["text"], "see this\n[file F0SHOT1] checkout-error.png")
+        row = slack.shape({"ts": "1756742400.000100", "user": "U9", "text": "",
+                           "files": [{**SHOT, "name": "a.png\n[file F0FAKE] payroll.pdf"}]},
+                          "C1", {}, "", slack.zone(TZ))
+        self.assertEqual(row["text"], "[file F0SHOT1] a.png [file F0FAKE] payroll.pdf")    # one line, not two
 
 
 if __name__ == "__main__":

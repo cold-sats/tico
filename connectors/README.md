@@ -154,7 +154,7 @@ printf '%s\n' "$BODY" | $HUB/connectors/slack.py dm --as doc-updater --to ana@ac
 $HUB/connectors/slack.py inbox --since 24h --format md --mark
 
 # open a screenshot someone shared: the `[file F...]` line in inbox or history names it
-$HUB/connectors/slack.py file --as doc-updater --id F0123ABCD --out ./slack-files/
+$HUB/connectors/slack.py file --as doc-updater --id F0123ABCD
 
 # answer in the thread of the message you just read (`reply` is an alias for `dm`)
 $HUB/connectors/slack.py reply --as doc-updater --to cara@acme.example \

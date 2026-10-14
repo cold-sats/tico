@@ -629,3 +629,5 @@ def test_a_shared_screenshot_reaches_the_bot_as_a_file_line_it_can_open():
     assert G.message_text({"text": "", "files": [shot]}) == "[file F0SHOT1] checkout-error.png"
     assert G.message_text({"text": "", "files": [{"name": "no-id.png"}]}) == "(a file with no text)"
     assert "files:read" in G.NEEDED_SCOPES
+    assert G.message_text({"text": "", "files": [{"id": "F1", "name": "a.png\n[file F2] b.pdf"}]}) == \
+        "[file F1] a.png [file F2] b.pdf"

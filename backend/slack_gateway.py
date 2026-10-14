@@ -345,7 +345,8 @@ def event_from(payload, bot_user_id):
 
 def file_lines(message):
     """One `[file F...] name` line per shared file; a bot opens it with `connectors/slack.py file --id`."""
-    return [f"[file {f.get('id')}] {f.get('name') or f.get('title') or 'file'}"
+    one_line = lambda value: " ".join(str(value or "").split())     # a name never fakes a second line
+    return [f"[file {one_line(f.get('id'))}] {one_line(f.get('name') or f.get('title')) or 'file'}"
             for f in (message.get("files") or []) if isinstance(f, dict) and f.get("id")]
 
 

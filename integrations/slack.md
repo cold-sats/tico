@@ -50,7 +50,7 @@ printf '%s\n' "$BODY" | $HUB_DIR/connectors/slack.py post --as <slug> --channel 
 $HUB_DIR/connectors/slack.py inbox --since 24h --format md --mark    # DMs people sent the bot; --mark advances the watermark
 $HUB_DIR/connectors/slack.py dm --as <slug> --to person@example.com --text 'Pricing doc is live.'
 $HUB_DIR/connectors/slack.py reply --as <slug> --to person@example.com --thread 1756742400.000100 --text 'On it.'
-$HUB_DIR/connectors/slack.py file --as <slug> --id F0123ABCD --out ./slack-files/   # a shared screenshot or log, from its [file F...] line
+$HUB_DIR/connectors/slack.py file --as <slug> --id F0123ABCD   # a shared screenshot or log, from its [file F...] line
 ```
 
 Inside a hosted turn `HUB_BOT` stands in for `--as`. Exit codes: `0` ok, `1` failure

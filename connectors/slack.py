@@ -8,7 +8,7 @@
   connectors/slack.py join --channel C0000000002
   connectors/slack.py dm --as doc-updater --to someone@example.com --text 'the pricing doc is live'
   connectors/slack.py inbox --since 24h --format md --mark
-  connectors/slack.py file --as qa-triage --id F0123ABCD --out ./slack-files
+  connectors/slack.py file --as qa-triage --id F0123ABCD
 
 One Slack app serves the whole company. The token is `SLACK_BOT_TOKEN` in the run's environment
 (the runner loads it from <projects>/secrets/_shared.env). Install: see connectors/README.md.
@@ -48,7 +48,7 @@ Nothing in Slack wakes a bot. People DM the bot; `inbox` is how a run reads thos
 Exit codes: 0 ok, 1 failure (auth, network, Slack error), 2 policy refusal.
 """
 
-import argparse, json, os, re, sys, time
+import argparse, json, os, re, sys, tempfile, time
 import urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -76,6 +76,7 @@ INBOX_FILE = PROJECTS / "runtime" / "slack-inbox.json"
 USER_CACHE_TTL = 24 * 3600
 MAX_POST_CHARS = 4000
 MAX_FILE_BYTES = 50 * 1024 * 1024
+FILES_DIR = Path(tempfile.gettempdir()) / "slack-files"   # outside every repository
 DEFAULT_TZ = "America/Los_Angeles"
 API = "https://slack.com/api/"
 SECRETS_HINT = "<projects>/secrets/_shared.env"
@@ -553,9 +554,31 @@ def check_file_url(url):
     return url
 
 
+def one_line(text):
+    return " ".join(str(text or "").split())
+
+
 def file_name(info):
-    name = Path(str(info.get("name") or "").replace("\\", "/")).name.strip()
-    return name if name not in ("", ".", "..") else str(info.get("id") or "slack-file")
+    """`<file id>-<name>`: the sharer picks the name, so it never names an existing file on its own."""
+    name = one_line(Path(str(info.get("name") or "").replace("\\", "/")).name)
+    fid = re.sub(r"[^A-Za-z0-9]", "", str(info.get("id") or "")) or "F"
+    return f"{fid}-{name}" if name not in ("", ".", "..") else fid
+
+
+def save_new(path, raw, folder):
+    """Write a new file and never replace or follow one: O_EXCL|O_NOFOLLOW; in a folder, -2, -3 on a clash."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    stem, suffix = path.stem, path.suffix
+    for n in range(1, 100 if folder else 2):
+        target = path if n == 1 else path.with_name(f"{stem}-{n}{suffix}")
+        try:
+            fd = os.open(target, flags, 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+        return target
+    raise Refused(f"{path} already exists; nothing was saved.", "Pass --out a new file name or a folder.")
 
 
 def check_inbox_scope(manifest, slug):
@@ -982,7 +1005,7 @@ def fetch_history(channel_id, start, end, threads, users, team_url, tz):
 
 def file_lines(m):
     """One `[file F...] name` line per file on a message; `file --id` downloads it."""
-    return [f"[file {f.get('id')}] {f.get('name') or f.get('title') or 'file'}"
+    return [f"[file {one_line(f.get('id'))}] {one_line(f.get('name') or f.get('title')) or 'file'}"
             for f in (m.get("files") or []) if isinstance(f, dict) and f.get("id")]
 
 
@@ -1183,10 +1206,12 @@ def cmd_file(args):
     if slug:
         check_file_scope(manifest, slug, info)
     url = check_file_url(info.get("url_private_download") or info.get("url_private"))
-    if int(info.get("size") or 0) > MAX_FILE_BYTES:
-        raise Refused(f"File {args.id} is {info.get('size')} bytes, over the {MAX_FILE_BYTES} byte limit.")
-    out = Path(args.out).expanduser()
-    if out.is_dir() or str(args.out).endswith(("/", os.sep)):
+    size = info.get("size")
+    if isinstance(size, (int, float)) and size > MAX_FILE_BYTES:
+        raise Refused(f"File {args.id} is {size} bytes, over the {MAX_FILE_BYTES} byte limit.")
+    out = Path(args.out).expanduser() if args.out else FILES_DIR
+    folder = not args.out or out.is_dir() or str(args.out).endswith(("/", os.sep))
+    if folder:
         out = out / file_name(info)
     status, hdrs, raw = _download(url, {"Authorization": "Bearer " + token_or_die(), "User-Agent": "tico-slack/1"},
                                   60, MAX_FILE_BYTES)
@@ -1202,7 +1227,7 @@ def cmd_file(args):
     if len(raw) > MAX_FILE_BYTES:
         raise Refused(f"File {args.id} is over the {MAX_FILE_BYTES} byte limit.")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(raw)
+    out = save_new(out, raw, folder)
     row = {"ok": True, "id": info.get("id"), "name": info.get("name"), "mimetype": info.get("mimetype"),
            "bytes": len(raw), "path": str(out)}
     if args.json:
@@ -1288,7 +1313,9 @@ def build_parser():
     f.add_argument("--as", dest="as_slug", default=None,
                    help="employee slug; defaults to HUB_BOT in a hosted run")
     f.add_argument("--id", required=True, help="the file id, F..., from a `[file F...]` line")
-    f.add_argument("--out", default=".", help="a file path, or a folder to save it in under its own name")
+    f.add_argument("--out", default=None,
+                   help=f"a new file path, or a folder to save it in as <id>-<name> (default {FILES_DIR}); "
+                        "an existing file is never replaced")
     f.set_defaults(func=cmd_file)
 
     j = common(sub.add_parser("join", help="join a public channel"))
