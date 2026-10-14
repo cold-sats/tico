@@ -48,6 +48,7 @@ pub struct State {
 pub struct Unfinished {
     pub id: String,
     pub payload: String,
+    #[allow(dead_code)]
     pub phase: String,
     pub completion: Option<String>,
 }
@@ -159,6 +160,27 @@ impl State {
             let mut stmt = c.prepare("SELECT id, payload, phase, completion FROM attempts WHERE phase NOT IN ('synced','historical')")?;
             let rows = stmt.query_map([], |r| Ok(Unfinished { id: r.get(0)?, payload: r.get(1)?, phase: r.get(2)?, completion: r.get(3)? }))?;
             rows.collect()
+        })
+    }
+
+    /// The files in `files` (path, stamp) not yet reported for this bot at that stamp; remembers them all, and
+    /// forgets a file gone from the list so it is reported again if it comes back.
+    pub fn unreported(&self, bot: &str, files: &[(String, String)]) -> Result<Vec<String>, String> {
+        self.with(|c| {
+            let tx = c.transaction()?;
+            let seen: std::collections::HashMap<String, String> = {
+                let mut q = tx.prepare("SELECT path,stamp FROM left_out_reported WHERE bot=?")?;
+                let rows = q.query_map([bot], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+                rows.collect::<rusqlite::Result<_>>()?
+            };
+            for path in seen.keys().filter(|p| !files.iter().any(|(f, _)| f == *p)) {
+                tx.execute("DELETE FROM left_out_reported WHERE bot=? AND path=?", (bot, path))?;
+            }
+            for (path, stamp) in files {
+                tx.execute("INSERT OR REPLACE INTO left_out_reported VALUES(?,?,?)", (bot, path, stamp))?;
+            }
+            tx.commit()?;
+            Ok(files.iter().filter(|(p, s)| seen.get(p) != Some(s)).map(|(p, _)| p.clone()).collect())
         })
     }
 

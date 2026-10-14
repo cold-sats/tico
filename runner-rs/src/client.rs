@@ -164,6 +164,7 @@ impl Client {
         self.request(Method::GET, &format!("/api/v2/{path}"), None, None).await
     }
 
+    #[allow(dead_code)] // the status and doctor reads with a query come in step 2
     pub async fn get_query(&self, path: &str, query: &[(&str, String)]) -> Result<Value, ApiError> {
         let suffix = if query.is_empty() {
             String::new()

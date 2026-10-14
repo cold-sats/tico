@@ -25,6 +25,7 @@ impl Config {
     }
 
     /// Write it back atomically, 0600, keeping every key.
+    #[allow(dead_code)]
     pub fn save(&self) -> Result<(), String> {
         let dir = self.path.parent().unwrap_or(Path::new("."));
         let tmp = dir.join(format!(".runner.json.{}", uuid::Uuid::new_v4().simple()));

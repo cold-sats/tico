@@ -30,44 +30,6 @@ fn executable(runtime: &str) -> Option<PathBuf> {
     which(runtime, &std::env::var("PATH").unwrap_or_default())
 }
 
-fn command(name: &str, help: &str, args: &str) -> Value {
-    json!({"name": name, "args": args, "help": help, "kind": "harness"})
-}
-
-/// The harness commands a bot's chat offers (runner/goals.py capabilities). Goals are never claimed here:
-/// this runner does not run goal turns.
-async fn commands(runtime: &str, exe: &Path, version: &str) -> Vec<Value> {
-    if runtime == "claude" {
-        let re = regex::Regex::new(r"(\d+)\.(\d+)\.(\d+)").unwrap();
-        let new_enough = re.captures(version).is_some_and(|c| {
-            let n = |i: usize| c[i].parse::<u64>().unwrap_or(0);
-            (n(1), n(2), n(3)) >= (2, 1, 212)
-        });
-        if new_enough {
-            return vec![
-                command("compact", "Compact this conversation", "[instructions]"),
-                command("clear", "Clear the harness conversation", ""),
-                command("model", "Change the harness model", "[model]"),
-            ];
-        }
-        return vec![];
-    }
-    let dir = std::env::temp_dir().join(format!("tico-goal-schema-{}", uuid::Uuid::new_v4().simple()));
-    let mut found = vec![];
-    let exe = exe.to_string_lossy().to_string();
-    let out = dir.to_string_lossy().to_string();
-    if let Some((true, _, _)) = run(&[&exe, "app-server", "generate-json-schema", "--experimental", "--out", &out], 10).await {
-        if dir.join("v2/ThreadCompactStartParams.json").exists() {
-            found.push(command("compact", "Compact this conversation", ""));
-        }
-        if dir.join("v2/ReviewStartParams.json").exists() {
-            found.push(command("review", "Review changes", "[instructions]"));
-        }
-    }
-    let _ = std::fs::remove_dir_all(&dir);
-    found
-}
-
 pub fn codex_models() -> Vec<String> {
     let home = std::env::var("CODEX_HOME")
         .map(PathBuf::from)
@@ -86,7 +48,8 @@ pub fn codex_models() -> Vec<String> {
 /// One runtime's row: installed, signed in, version, models, controls, detail, goals, commands.
 pub async fn runtime_readiness(runtime: &str) -> Map<String, Value> {
     let exe = if DRIVEN.contains(&runtime) { executable(runtime) } else { None };
-    let (mut authenticated, mut detail) = ("unknown", "Authentication cannot be checked without starting the runtime".to_string());
+    let authenticated: &str;
+    let detail: String;
     let mut version = String::new();
     match &exe {
         None if !DRIVEN.contains(&runtime) => {
@@ -150,10 +113,8 @@ pub async fn runtime_readiness(runtime: &str) -> Map<String, Value> {
         "claude" => CLAUDE_MODELS.iter().map(|s| s.to_string()).collect(),
         _ => vec![],
     };
-    let commands = match &exe {
-        Some(path) => commands(runtime, path, &version).await,
-        None => vec![],
-    };
+    // Harness commands (/compact, /clear, /model) and goals are not run here, so none is offered.
+    let commands: Vec<Value> = vec![];
     let mut row = Map::new();
     row.insert("installed".into(), json!(exe.is_some()));
     row.insert("authenticated".into(), json!(authenticated));
@@ -188,6 +149,47 @@ pub fn local_path(config: &Config, bot: &str) -> PathBuf {
         }
     }
     root.join(format!("bot-{bot}"))
+}
+
+/// What an assigned bot needs that this runner does not do yet, each named for the log and the bot's
+/// readiness problems. A bot with any of these stays on the Python runner.
+pub fn unsupported(config: &Config, entry: &Value) -> Vec<String> {
+    let bot = text_of(&entry["bot"]);
+    let c = &entry["config"];
+    let runtime = text_of(&c["runtime"]);
+    let mut needs = vec![];
+    if !runtime.is_empty() && !DRIVEN.contains(&runtime.as_str()) {
+        needs.push(format!("the {runtime} runtime"));
+    }
+    let harness = text_of(&c["harness"]);
+    if !harness.is_empty() && harness != runtime {
+        needs.push(format!("the {harness} harness"));
+    }
+    if crate::util::truthy(c.get("shared")) || crate::util::truthy(c.get("shared_from")) {
+        needs.push("shared bot checkouts".into());
+    }
+    if c["fallback"].is_object() && !text_of(&c["fallback"]["harness"]).is_empty() {
+        needs.push("a fallback harness".into());
+    }
+    let profiled = crate::util::truthy(entry.get("profile"))
+        || config.data.get("bot_profiles").and_then(|p| p.get(&bot)).is_some_and(|v| crate::util::truthy(Some(v)))
+        || config.data.get("default_profile").is_some_and(|v| crate::util::truthy(Some(v)));
+    if profiled {
+        needs.push("subscription profiles".into());
+    }
+    if crate::util::truthy(entry.get("mail_agent")) {
+        needs.push("the mail agent".into());
+    }
+    let manifest = manifest_path(&local_path(config, &bot));
+    if let Ok(text) = std::fs::read_to_string(&manifest) {
+        if manifest_keys(&text).contains_key("watchers") {
+            needs.push("watchers".into());
+        }
+        if text.lines().any(|l| l.trim_start().trim_start_matches("- ").starts_with("mcp:")) {
+            needs.push("MCP servers in bot.yaml".into());
+        }
+    }
+    needs
 }
 
 pub fn manifest_path(folder: &Path) -> PathBuf {
@@ -250,12 +252,15 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         } else if !RUNTIMES.contains(&runtime.as_str()) {
             problems.push("Unsupported runtime".into());
         } else if !DRIVEN.contains(&runtime.as_str()) {
-            problems.push(format!("This runner does not run {runtime} yet"));
+            // Named below with the other features this runner lacks.
         } else if status["installed"] != true {
             problems.push("Runtime executable is not on PATH".into());
         } else if status["authenticated"] == "missing" || status["authenticated"] == "failed" {
             let d = text_of(&status["detail"]);
             problems.push(if d.is_empty() { "Runtime sign-in is not ready".into() } else { d });
+        }
+        for need in unsupported(config, entry) {
+            problems.push(format!("This computer's runner does not do {need} yet; run it on the Python runner for this bot"));
         }
         let mut configuration_valid = RUNTIMES.contains(&runtime.as_str());
         let manifest = manifest_path(&path);

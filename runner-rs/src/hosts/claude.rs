@@ -90,7 +90,7 @@ pub fn user_line(mid: &str, text: &str) -> String {
 }
 
 #[derive(Clone)]
-struct Thread {
+pub(crate) struct Thread {
     settings: Settings,
     started: bool,
     fork_from: Option<String>,

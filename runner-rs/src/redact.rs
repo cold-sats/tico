@@ -106,6 +106,7 @@ impl Redactor {
         self.inner.read().unwrap().matcher.is_none()
     }
 
+    #[allow(dead_code)]
     pub fn values(&self) -> Vec<String> {
         self.inner.read().unwrap().values.clone()
     }
