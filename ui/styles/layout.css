@@ -68,7 +68,6 @@ body.native #app-nudge{display:none}
   .org-fan-item .org-fan-recent{color:var(--muted);font-size:var(--t-xs);font-weight:400}
   .toast{bottom:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 12px)}
   body.mobile-composer-focus .toast{bottom:12px}
-  #rail{flex:none}
   .ln .who{max-width:96px}.ln .age{font-size:var(--t-xs)}
   form.task .r1{grid-template-columns:1fr 1fr}form.task .r1 input{grid-column:1/-1}
   .trow :is(summary,.trow-head){grid-template-columns:40px 1fr auto}.trow :is(summary,.trow-head) .muted.tnum{display:none}

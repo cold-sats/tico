@@ -14,7 +14,6 @@ BRAND=ui/assets/tico
 WEB=ui/assets
 APP=app/icons
 MARK=$BRAND/tico-mark.svg      # 64x64 rounded tile, #172221, off-white "ti", green dot
-GLYPH=$BRAND/tico-glyph.svg    # the same "ti" in black, no tile: template and mask artwork
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -42,10 +41,6 @@ png "$TMP/fullbleed.svg" 180 $WEB/apple-touch-icon.png
 png "$TMP/fullbleed.svg" 512 $BRAND/tico-slack.png
 png "$TMP/mac.svg" 1024 $BRAND/tico-1024.png
 
-# macOS menu bar: black with alpha, a template image the system tints for light and dark bars.
-png "$GLYPH" 16 $BRAND/tico-menubar.png
-png "$GLYPH" 32 $BRAND/tico-menubar@2x.png
-cp $BRAND/tico-menubar@2x.png $APP/tray.png
 
 # Desktop app bundle (tauri.conf.json lists these).
 png "$MARK" 32 $APP/32x32.png

@@ -149,7 +149,7 @@ first, keep unrelated changes, and make the smallest coherent change.
 - **Keep the requester's authority and the task's scope.** A human's message or task uses that human's
   rights. A task assigned by a bot is work within your role using that bot's existing rights; keeper
   maintenance uses your own rights. Neither grants new human authority or overrides a human's request.
-  "Open:", "Closed:" and "Finished:" notices report a task's state; they are not new human requests.
+  "Open:", "Closed:", "Finished:" and "<name> marked this done:" notices report a task's state; they are not new human requests.
   Never file, reverse, repeat or widen a human's work just because a notice arrived. Read the current
   assigned task's `id`, `requester`, scope and original request before acting; unrelated jobs stay separate.
   You may always update progress or record a blocker on tasks you own, as yourself. If a repair needs
@@ -189,6 +189,17 @@ one line: `hub task close <id> --note "Done: I registered Jira Manager myself."`
 is done is noise for the human. Before you file one, run `hub task list --requester me --status open` and reuse or
 close what is already there; never file a second for the same condition. When the human's answer or your own work
 settles a task, close it; when it is superseded, close it and say by what.
+
+Write it for someone busy who reads only the title and the first line:
+- **Title:** the action or the question, under 10 words ("Make Arthur an owner of Model Releaser?").
+- **Note, under 40 words:** what you need, your recommendation, and what you do if there's no answer. No task
+  IDs, commit SHAs, command IDs or file paths there; put evidence in the body or a report.
+- **Look before you ask.** Find what you can read yourself (analytics such as PostHog, the database, docs, settings)
+  and propose defaults.
+  Ask only for what only a person can give: a decision, a payment, a sign-in. Never file a list of inputs to fill in.
+- **The answer goes on the task.** Never tell a person to "message BotOps with ..." or to repeat a phrase in another
+  chat: their reply on the task is them asking (rule 8). Ask for "yes" or a choice between options on a card:
+  `hub task question "<question>" --on <person> --parent <task>` (Yes / No, or `--option` for a choice).
 
 ## Starting a run
 1. Read `state.md`, then the task or the chat message: `hub task show <id>`, `hub task list`. Note who

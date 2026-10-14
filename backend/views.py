@@ -1368,7 +1368,7 @@ def install_views(app, store, auth, mutate, task_view):
 
     @app.get("/api/v2/needs-you")
     def needs(request: Request, count: bool = False):
-        """`count=1` is the number alone: the desktop app's tray asks every 30 s and shows only
+        """`count=1` is the number alone: the desktop app asks every 30 s and shows only
         that, where the full list is over 100 KB."""
         who = request.state.identity
         human_only(who)

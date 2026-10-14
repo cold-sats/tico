@@ -621,7 +621,7 @@ function tasksSelectedTasks(state) {
 const tasksSelectedTitle = (state, key) => tasksById(state).get(key.slice(1))?.title || key.slice(1);
 const asksForResult = t => String(t.owner || '').startsWith('human:') && String(t.requester || '').startsWith('bot:') && !['done', 'declined'].includes(String(t.status));
 // Each task is its own update (POST /v2/tasks/{id}) with its latest version; a 409 refetches it and tries once more.
-// A failure is named, kept selected and marked; nothing is dropped quietly. A bot's request gets its own result note.
+// A failure is named, kept selected and marked; nothing is dropped quietly. A bot's request takes its typed comment, if any.
 async function tasksBulkApply(state, describe, bodyFor) {
   const tasks = tasksSelectedTasks(state);
   if (!tasks.length || state.bulkBusy || !tasksCanSelect()) return;
@@ -630,19 +630,19 @@ async function tasksBulkApply(state, describe, bodyFor) {
   state.bulkBusy = true; state.bulkFail = new Map(); state.bulkUndo = null; state.bulkMsg = `Updating ${tasks.length}…`;
   tasksBulkBar(state);
   const failed = new Map(), closed = [];
-  let changed = 0, already = 0, skipped = 0;
+  let changed = 0, already = 0;
   for (let t of tasks) {
-    let body = bodyFor(t);
+    let body = bodyFor(t), typed = '';
     if (body === null) { already++; continue; }
     if (finishing && asksForResult(t)) {
-      const note = await taskOutcomeNote(t, describe.close ? {close: true} : {status: 'done'});
-      if (note === null) { skipped++; continue; }
-      if (note) body = {...body, note};
+      typed = taskOutcomeNote(t, describe.close ? {close: true} : {status: 'done'});
+      if (typed) body = {...body, note: typed};
     }
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         await post(`/v2/tasks/${encodeURIComponent(t.id)}`, {version: t.version, ...body});
         changed++;
+        if (typed) taskOutcomeTaken(t);
         if (describe.close) closed.push({id: t.id, title: t.title, status: t.status, step_id: t.step_id || '', owner: t.owner, typed: pipelineTypeId(t) !== 'general',
           told: !!body.note || !!actorSlug(taskRequester(t))});
         break;
@@ -665,7 +665,7 @@ async function tasksBulkApply(state, describe, bodyFor) {
   state.bulkFail = failed;
   state.selected = new Set(failed.keys());
   const names = [...failed.keys()].map(k => tasksSelectedTitle(state, k));
-  state.bulkMsg = [`${changed} ${describe.done}`, already ? `${already} already ${describe.already || 'so'}` : '', skipped ? `${skipped} skipped` : '',
+  state.bulkMsg = [`${changed} ${describe.done}`, already ? `${already} already ${describe.already || 'so'}` : '',
     failed.size ? `${failed.size} not changed: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : ''].filter(Boolean).join(', ');
   if (closed.length) state.bulkUndo = {items: closed, until: Date.now() + 10000};
   if (failed.size) toast(`${failed.size} not changed: ${[...failed.entries()].map(([k, m]) => `${tasksSelectedTitle(state, k)} (${m})`).join('; ')}`, true);
