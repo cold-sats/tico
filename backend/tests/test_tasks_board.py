@@ -86,14 +86,21 @@ def bot_token(api, slug="ops"):
 # ----------------------------------------------------------------------------- rank
 
 
-def test_completing_a_bot_requested_human_task_needs_a_result(api):
+def test_completing_a_bot_requested_human_task_needs_no_result_note(api):
     token = bot_token(api, "ops")
-    task = post(api, "tasks", {"owner": "ana", "title": "Decide the content hold",
+    tapped = post(api, "tasks", {"owner": "ana", "title": "Decide the content hold",
         "body": "Keep or change the hold?"}, token=token)
-    post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done"}, expected=422)
-    done = post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done",
+    done = post(api, "tasks/" + tapped["id"], {"version": tapped["version"], "status": "done"})
+    assert done["status"] == "done" and done["note"] == ""
+    noted = post(api, "tasks", {"owner": "ana", "title": "Decide the launch hold",
+        "body": "Keep or change the hold?"}, token=token)
+    done = post(api, "tasks/" + noted["id"], {"version": noted["version"], "status": "done",
         "note": "Keep the hold; no publication is approved."})
     assert done["status"] == "done" and done["note"] == "Keep the hold; no publication is approved."
+    with api.app.state.store.read() as c:
+        told = {r[0] for r in c.execute("SELECT body FROM messages WHERE to_actor='bot:ops'")}
+    assert {"Ana marked this done: Decide the content hold",
+            "Ana marked this done: Decide the launch hold\nKeep the hold; no publication is approved."} <= told, told
 
 
 def test_self_requested_completion_stays_done_until_explicit_close(api):

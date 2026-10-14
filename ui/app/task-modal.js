@@ -325,11 +325,11 @@ async function taskSave(d, id, body, then, field) {
   if (typeof body === 'function') { body = body(cur); if (!body) return true; }
   if (!d.propsErrs || d.propsErrs.id !== id) d.propsErrs = {id, map: new Map()};
   const errs = d.propsErrs.map;
+  let note = '';
   try {
     const outcome = body.close ? 'closed' : pipelineActionStatus(cur, body);
     if ((outcome === 'done' || outcome === 'closed') && outcome !== cur.status) {
-      const note = await taskOutcomeNote(cur, outcome === 'closed' ? {close: true} : body);
-      if (note === null) return false;
+      note = taskOutcomeNote(cur, outcome === 'closed' ? {close: true} : body);
       if (note) body = {...body, note};
     }
     const state = d.dataset.peek && TASKS_ST, key = 't' + id;
@@ -338,6 +338,7 @@ async function taskSave(d, id, body, then, field) {
     const data = body.snooze ? await post(path + '/snooze', {until: body.snooze})
       : body.unsnooze ? await post(path + '/unsnooze', {})
       : await post(path, {version: cur.version, ...body});
+    if (note) taskOutcomeTaken(cur);
     errs.delete(field);
     if (data.task && String(d.liveTask?.id) === id) d.liveTask = data.task;
     if (here() && then !== false && data.task) void taskModalShow(data.task, d);       // the server's answer, at once
