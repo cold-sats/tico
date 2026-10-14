@@ -166,6 +166,19 @@ class Choosing(Base):
         self.settle()
         self.assertTrue((bin_dir / "gemini").exists())
 
+    def test_after_a_restart_a_saved_off_removes_nothing_until_the_bots_are_read(self):
+        self.tools.want(runtimes=["codex"])
+        self.settle()
+        restarted = H.Harnesses(self.root / "tools", self.root / "state.json", clock=lambda: self.now)
+        self.addCleanup(restarted.stop)
+        self.tools = restarted
+        restarted.choose({"codex": False})          # the server's choices arrive before the bots
+        self.settle()
+        self.assertTrue((self.root / "tools" / "bin" / "codex").exists())
+        restarted.want(runtimes=["codex"])          # a bot runs on it: off never removes it
+        self.settle()
+        self.assertTrue((self.root / "tools" / "bin" / "codex").exists())
+
 
 class Updating(Base):
     def installed(self, runtimes=("codex",)):

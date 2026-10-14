@@ -288,6 +288,8 @@ class Harnesses:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="harness-install")
         self.wanted = set()
         self.needed = set()           # what this computer's bots run on: always installed
+        self.default = set()          # a computer with no bots: the company default, unless the owner turned it off
+        self.loaded = False           # the bots' runtimes have been read once; until then nothing is removed
         self.choices = {}             # the owner's on/off per harness for this computer; {} from an older server
         self.requests = []            # owner updates waiting for their turn: [Job]
         self.job = None               # the one job the worker is running
@@ -372,16 +374,16 @@ class Harnesses:
     def harness_for_runtime(self, runtime):
         return next((m for m in self.manifests.values() if m.host == runtime), None)
 
-    def want(self, runtimes=()):
+    def _ids(self, runtimes):
+        return {manifest.id for manifest in map(self.harness_for_runtime, runtimes or ()) if manifest}
+
+    def want(self, runtimes=(), default=()):
         """Install the harnesses these runtimes (this computer's bots, primary and fallback) run on, plus
-        the ones the owner turned on here. The company's other providers are not installed."""
-        found = set()
-        for runtime in runtimes or ():
-            manifest = self.harness_for_runtime(runtime)
-            if manifest:
-                found.add(manifest.id)
+        the ones the owner turned on here. The company's other providers are not installed. `default` (the
+        company default, for a computer with no bots yet) is installed unless the owner turned it off.
+        Called once the bots have been read from the server; only after that is anything removed."""
         with self.lock:
-            self.needed = found
+            self.needed, self.default, self.loaded = self._ids(runtimes), self._ids(default), True
             return self._rewant()
 
     def choose(self, choices):
@@ -391,12 +393,14 @@ class Harnesses:
             return self._rewant()
 
     def _rewant(self):
-        self.wanted = self.needed | {ident for ident, on in self.choices.items() if on}
+        self.wanted = (self.needed | {ident for ident in self.default if self.choices.get(ident) is not False}
+                       | {ident for ident, on in self.choices.items() if on})
         return set(self.wanted)
 
     def turned_off(self, ident):
-        """Off on this computer: the owner said so and none of its bots runs on it."""
-        return self.choices.get(ident) is False and ident not in self.needed
+        """Off on this computer: the owner said so and none of its bots runs on it. Never before the bots
+        have been read: a saved "off" must not remove what a bot needs while the server is still being asked."""
+        return self.loaded and self.choices.get(ident) is False and ident not in self.needed
 
     def install_plan(self, wanted=None):
         """What would be installed right now: wanted harnesses that are nowhere on this computer."""
