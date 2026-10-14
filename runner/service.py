@@ -286,15 +286,16 @@ def self_update(root=None, running=None, run=subprocess.run):
 TURNS_PER_CPU = 5        # a turn mostly waits on its model provider, not on this computer's CPU
 TURNS_PER_GB = 3         # a model CLI and its tools take about 300 MB
 MAX_AUTO_TURNS = 64
+MAX_TURNS = 256          # the most the server accepts
 
 
 def machine_capacity(configured=None):
-    """How many turns this computer runs at once. A number in the config is kept as written, so an owner may go
-    higher; missing or "auto" is sized to the machine: TURNS_PER_CPU per core, as memory allows (TURNS_PER_GB),
+    """How many turns this computer runs at once. A number in the config is kept as written (up to MAX_TURNS), so an
+    owner may go higher; missing or "auto" is sized to the machine: TURNS_PER_CPU per core, as memory allows (TURNS_PER_GB),
     never below the 4 every runner had and at most MAX_AUTO_TURNS."""
     if configured not in (None, "", "auto"):
         try:
-            return max(1, int(configured))
+            return max(1, min(int(configured), MAX_TURNS))
         except (TypeError, ValueError):
             pass
     try:
@@ -3377,6 +3378,11 @@ class Runner:
                     # A server from before task lanes knows the other capabilities; only the new one goes.
                     body["capabilities"].remove("task_lanes_v2")
                     self._task_lanes_after = time.monotonic() + 600
+                    continue
+                if exc.status == 422 and re.search(r"(?:^|[ ;])(?:body\.)?capacity:", detail) and (body.get("capacity") or 0) > 32:
+                    # A server from before larger capacities accepts at most 32 and never hands out more turns than
+                    # the runner reports, so after a rollback the runner keeps working at 32.
+                    body["capacity"] = 32
                     continue
                 root_fields = ("worktrees", "profiles", "repositories", "capabilities")
                 field = next((name for name in root_fields if name in body and re.search(
