@@ -20,6 +20,10 @@ All notable changes to Tico are recorded here. The format follows
   The Release Manager asks for a release by its release page, so a re-cut replaces the first ask. A task that has
   ended takes no new approval.
 - **A bot at its worktree limit ends its turn and is woken when its worktree is ready.** When a bot's turn asks for a task worktree while the bot already holds 30, Tico records that the task waits for one and `hub task worktree add` says so and exits with status 3: the bot ends its turn instead of waiting, so its finished worktrees can free themselves. When a place frees, Tico reserves the worktree (checking access, owner and computer again), the bot's computer checks it out and runs setup while the bot is idle, and Tico wakes the task once, in its own session, naming the ready worktree; a failed checkout or setup wakes it once with the reason. Finishing the task, a new owner or stopping the turn ends the wait. The task and Health show "Waiting for a worktree" with its age. The limit is unchanged, nothing is removed to make room, and a computer from before this release gets the old answer. See [Task worktrees](docs/worktrees.md).
+- **Computers run more turns at once by default.** A runner without a set `capacity` now runs 5 turns per CPU core
+  (as memory allows, 3 per GB; at least 4, at most 64) instead of about 1 per core. Turns mostly wait on the model
+  provider. A number in `runner.json` is still kept (up to 256), so an owner can go higher. After a rollback to a server
+  that accepts at most 32, the runner reports 32 and keeps working.
 
 ### Fixed
 - **An idle computer no longer burns CPU on archived bots.** A runner tried to set up every assigned bot on each
