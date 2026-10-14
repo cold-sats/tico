@@ -27,6 +27,7 @@ from .release_update import Follower
 from .login import POLL_S as LOGIN_POLL_S, Logins
 from .hosts.base import HostError, SteerRefused, is_auth_rejected, rejection_reason, settings as host_settings
 from .hosts.cursor import MODELS as CURSOR_HOST_MODELS
+from .hosts.musecode import MODELS as MUSE_HOST_MODELS, QUIET as MUSE_QUIET
 from .hosts.pi import MODELS as PI_HOST_MODELS
 from .outage import RECENT, Outage, describe, log
 from .state import BOT_THREAD, State, lane as turn_lane, session_key, session_task
@@ -38,7 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _UNSELECTED = object()
 
 RUNNER_VERSION = "0.5.4"
-RUNTIMES = ("codex", "grok", "claude", "gemini", "pi", "cursor")
+RUNTIMES = ("codex", "grok", "claude", "gemini", "pi", "cursor", "musecode")
 # Claude Code has no local model catalog command, so readiness reports these ids.
 # Verified against Claude Code 2.1.212 with a one-word prompt each; claude-fable-5-1
 # was refused by that CLI and accepted from 2.1.230, and the cloud catalog lists it.
@@ -55,7 +56,7 @@ CLAUDE_AUTH_TIMEOUT_SECONDS = 30
 # Environment variables that sign a CLI in without a browser, checked in this order.
 REJECT_RECHECK_S = 300      # how long a refused key or sign-in is trusted before one turn tries again
 HEADLESS_LOGIN = {"claude": ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"), "cursor": ("CURSOR_API_KEY",),
-                  "codex": ("OPENAI_API_KEY",)}
+                  "codex": ("OPENAI_API_KEY",), "musecode": ("META_API_KEY",)}
 # Codex reads its key from a login, not the environment, so the runner makes the login. A key it could not log in with
 # is not tried again for this long (a heartbeat asks every few seconds), unless the key or the home changes.
 CODEX_LOGIN_RETRY_S = 600
@@ -87,13 +88,22 @@ DEFAULT_NAMES = {"company_name": "the company", "app_name": "Tico", "assistant_n
 BOOTSTRAP_TEMPLATES = {"coo": "assistant", "botops": "botops", "librarian": "librarian", "goal-manager": "goal-manager"}
 OWN_INTERRUPT = ("Lease expired", "Execution interrupted after stop")
 FALLBACK_RUNTIME = {"antigravity": "gemini", "gemini": "gemini", "codex": "codex",
-                    "claude": "claude", "grok": "grok", "pi": "pi", "cursor": "cursor"}
+                    "claude": "claude", "grok": "grok", "pi": "pi", "cursor": "cursor", "musecode": "musecode"}
 PI_MODELS = sorted(PI_HOST_MODELS)
 CURSOR_MODELS = sorted(CURSOR_HOST_MODELS)
+MUSE_MODELS = sorted(MUSE_HOST_MODELS)
 # The server resolves a bot's runtime from its own config, then the company default; this is what
 # a runner sees when neither exists.
 # Prefix of the readiness warning that says a bot's history did not reach GitHub; backend/health.py reads it.
 PUBLISH_WARNING = "GitHub history not published: "
+
+
+def muse_auth_file(env):
+    """Where Muse Code keeps its Meta-account login for this environment (MUSE_AUTH_PATH, else the XDG config)."""
+    if env.get("MUSE_AUTH_PATH"):
+        return Path(env["MUSE_AUTH_PATH"])
+    config = env.get("XDG_CONFIG_HOME") or os.path.join(env.get("HOME") or str(Path.home()), ".config")
+    return Path(config) / "muse" / "auth.json"
 
 
 def reserved_credential(key):
@@ -1319,7 +1329,7 @@ class Runner:
                     values[key] = value
             runtime_keys = {"claude": ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
                             "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "cursor": ("CURSOR_API_KEY",),
-                            "pi": ("OPENROUTER_API_KEY",)}
+                            "pi": ("OPENROUTER_API_KEY",), "musecode": ("META_API_KEY",)}
             runtimes = {config.get("runtime"), (configured_fallback(config) or {}).get("runtime")}
             for runtime in runtimes:
                 for key in runtime_keys.get(runtime, ()):
@@ -1678,7 +1688,7 @@ class Runner:
                 if not shutil.which("agy"):
                     problems.append("Antigravity CLI is not on PATH")
             elif not runtimes[runtime]["installed"]:
-                problems.append("Runtime executable is not on PATH")
+                problems.append(self.installing(runtime) or "Runtime executable is not on PATH")
             elif status.get("authenticated") == "rejected":
                 problems.append(self.subscription_problem(entry["profile"], signed_out=True, computer=entry.get("computer_label")) if entry.get("profile")
                                 else status["detail"])
@@ -1972,6 +1982,24 @@ class Runner:
                     authenticated, detail = "failed", "Cursor sign-in check timed out"
                 except OSError:
                     authenticated, detail = "failed", "Cursor sign-in could not be checked"
+        elif runtime == "musecode":
+            # Muse Code keeps a Meta-account login in auth.json (`muse login`) and has no status command, so
+            # the file's presence is the sign-in. Its contents are never read. META_API_KEY wins over it.
+            env = {**(env or os.environ), **MUSE_QUIET}
+            if profile is None:
+                self.team_model_keys("musecode")
+            try:
+                signed = muse_auth_file(env).is_file()
+            except OSError:           # the bot user's 0700 config folder: not "signed out", and never a failed heartbeat
+                signed = None
+            if self.headless_login("musecode"):
+                authenticated, detail = "ready", "Signed in with META_API_KEY"
+            elif signed:
+                authenticated, detail = "ready", "Signed in with a Meta account"
+            elif signed is None:
+                authenticated, detail = "failed", "Muse sign-in could not be checked (its config folder is not readable)"
+            else:
+                authenticated, detail = "missing", "Muse login required (muse login) or META_API_KEY"
         elif runtime == "pi":
             relevant = [row for row in assignments if row.get("config", {}).get("runtime") == "pi"]
             missing = sorted(row["bot"] for row in relevant
@@ -1988,7 +2016,8 @@ class Runner:
                   list(CLAUDE_MODELS) if runtime == "claude" else
                   list(GEMINI_MODELS) if runtime == "gemini" else
                   list(PI_MODELS) if runtime == "pi" else
-                  list(CURSOR_MODELS) if runtime == "cursor" else [])
+                  list(CURSOR_MODELS) if runtime == "cursor" else
+                  list(MUSE_MODELS) if runtime == "musecode" else [])
         return {"installed": bool(executable), "authenticated": authenticated, "version": version,
                 "models": models, "controls": ["interrupt", "new-session"] if executable else [],
                 "detail": detail, **goals.capabilities(runtime, executable, version)}
@@ -2132,6 +2161,9 @@ class Runner:
         if runtime == "cursor":
             from .hosts.cursor import CursorHost
             return CursorHost(bot=attempt["bot"])
+        if runtime == "musecode":
+            from .hosts.musecode import MuseCodeHost
+            return MuseCodeHost(bot=attempt["bot"], state_dir=self.host_state / "musecode")
         raise RuntimeError(NO_RUNTIME if not runtime else f"Unsupported local runtime: {runtime}")
 
     def prompt(self, attempt, after=None, *, resumed=False):
@@ -2752,6 +2784,9 @@ class Runner:
                     """Drain the host until the turn ends: (outcome, reply, tokens, limited, retryable)."""
                     reply, tokens, outcome, limited, retryable = "", {}, "interrupted", False, False
                     acted, last_flush, complete = False, 0, False
+                    sent_at, unsent = 0, False   # the last flush that carried output; output appended since
+                    spoke = False                # the turn's first text went out: it is not held behind a status post
+                    wait_events = getattr(host, "wait_events", None) or done.wait
                     earlier = ""                 # the replies of turns before a carried one, kept in the answer
                     earlier_tokens = {}          # and their token counts, summed into the run's
 
@@ -2841,6 +2876,9 @@ class Runner:
                             if kind in ("delta", "message", "tokens", "status", "error", "tool", "diagnostic", "turn_failed"):
                                 clean = redact(event)
                                 self.state.append(aid, "error" if kind == "turn_failed" else kind, clean)
+                                unsent = True
+                                if kind in ("delta", "message") and not spoke:
+                                    spoke, sent_at = True, 0
                                 if kind == "message" and (event.get("final") or not reply):
                                     reply = clean.get("text", "")
                                 if kind == "tokens":
@@ -2876,10 +2914,23 @@ class Runner:
                             turn = self.carry_inputs(aid, host, thread, carried, config.get("reasoning_effort"))
                             outcome, complete, earlier, reply = "interrupted", False, answer(), ""
                             earlier_tokens, tokens = spent(), {}
+                        if unsent and not complete and time.monotonic() - sent_at >= 1:
+                            # Leading edge: output after a quiet second, and the turn's first text, go out now
+                            # rather than at the next 1 s mark. At most one more post a turn than before.
+                            try:
+                                self.flush(aid)
+                                unsent = False
+                            except APIError as exc:
+                                if not exc.retryable:
+                                    raise
+                            sent_at = time.monotonic()   # a failed post is retried a second later, not every pass
                         if time.monotonic() - last_flush >= 1:
                             try:
                                 host.poll_goal(thread)
-                                self.flush(aid)
+                                if time.monotonic() - sent_at >= 1:
+                                    self.flush(aid)
+                                    if unsent:
+                                        sent_at, unsent = time.monotonic(), False
                                 if goal_running:
                                     latest = self.client.get(f"attempts/{aid}/goal").get("goal")
                                     if not latest or latest["id"] != goal["id"] or latest["updated_at"] != revision:
@@ -2898,7 +2949,8 @@ class Runner:
                             complete = True
                         if not host.alive() and not complete:
                             raise RuntimeError("Local runtime exited unexpectedly")
-                        done.wait(0.1)
+                        if not complete:          # a finished turn goes straight to its last flush and complete
+                            wait_events(0.1)
                     text = answer()
                     if goal_paused[0]:
                         text = (text + "\n\n" if text else "") + goal_paused[0]
@@ -3249,10 +3301,10 @@ class Runner:
                 continue
             try:
                 self.flush(row["id"])
-                if row["completion"]:
-                    completion = json.loads(row["completion"])
-                else:
-                    completion = self.state.finish(row["id"], {"outcome": "interrupted", "text": "Runner restarted during execution"})
+                # The snapshot is stale by now: a turn that finished meanwhile keeps the result it saved.
+                completion = self.state.settled(row["id"], "Runner restarted during execution")
+                if completion is None:
+                    continue
                 self.complete(row["id"], completion)
                 self.state.phase(row["id"], "synced")
             except APIError as exc:
@@ -3283,13 +3335,13 @@ class Runner:
             self.assignments_seen = assignments
         else:
             repository_rows, assignments = None, self.assignments_seen
+        # Install on demand: what this computer's bots run on, plus what the owner turned on here.
+        self.tools.want(self.harness_runtimes(assignments, fetch=full))
         candidates = self.readiness_candidates(assignments)
         runtimes = self.runtime_report(candidates)
         self.runtime_rows = runtimes
         checks = self.preflight(candidates, runtimes)
         agent_instructions, instruction_versions = self.changed_agent_instructions(assignments)
-        # Install on demand: only what the enabled providers and this runner's bots need.
-        self.tools.want(self.enabled_providers(fetch=full), {row["config"].get("runtime") for row in assignments})
         # The server's release, not main, is what a runner follows once the server names one; the stream says it too.
         release = getattr(getattr(self, "events", None), "release", None)
         self.follower.poll(None if full else release)
@@ -3723,18 +3775,37 @@ class Runner:
                 self._watcher_error = describe(exc)
                 log(f"Tico runner: watcher step failed ({self._watcher_error}); will retry")
 
-    def enabled_providers(self, fetch=True):
-        """The company's enabled AI providers, from the server; the last answer when it cannot be reached
-        or was not asked (`fetch` false: a pass the event stream said nothing for)."""
-        if fetch and time.monotonic() - getattr(self, "_providers_at", -60) >= 60:
+    def installing(self, runtime):
+        """The bot problem while this runner installs the runtime's harness ("Codex is installing"), else ''."""
+        tools = getattr(self, "tools", None)
+        manifest = tools.harness_for_runtime(runtime) if tools is not None else None
+        if manifest is None or manifest.id not in tools.wanted or tools.backing_off(manifest):
+            return ""
+        return f"{manifest.name} is installing"
+
+    def harness_runtimes(self, assignments, fetch=True):
+        """The runtimes this computer installs a harness for: each assigned bot's, and its fallback's. A computer with
+        no bots yet takes the company's default, so it can be signed in before its first bot arrives."""
+        found = set()
+        for row in assignments or ():
+            config = row.get("config") or {}
+            found |= {config.get("runtime"), (configured_fallback(config) or {}).get("runtime")}
+        found.discard(None)
+        found.discard("")
+        return found or ({self.default_runtime(fetch)} - {""})
+
+    def default_runtime(self, fetch=True):
+        """The company's default runtime, from the server; the last answer when it cannot be reached or was not
+        asked (`fetch` false: a pass the event stream said nothing for)."""
+        if fetch and time.monotonic() - getattr(self, "_default_runtime_at", -60) >= 60:
             try:
-                value = (self.client.get("config") or {}).get("enabled_providers")
-                if isinstance(value, list):
-                    self._providers = [str(item) for item in value]
-                    self._providers_at = time.monotonic()
+                value = (self.client.get("config") or {}).get("default_runtime")
+                if isinstance(value, str):
+                    self._default_runtime = value
+                    self._default_runtime_at = time.monotonic()
             except Exception:
                 pass
-        return list(getattr(self, "_providers", []))
+        return getattr(self, "_default_runtime", "")
 
     def poll_logins(self):
         """Browser sign-ins are best effort: a failed poll is tried again, never a runner outage. One under
@@ -3786,6 +3857,16 @@ class Runner:
             value = body = None
         log(f"Tico runner: credential import for {bot} {'sent' if not problem else 'could not be read'}")
 
+    def idle(self, delay):
+        """Wait out one loop pause, but tick at once when the stream asks for something (a `work` event is a
+        chat message waiting: up to 0.25 s saved on every reply). A backoff after an error is waited in full."""
+        wake = getattr(getattr(self, "events", None), "wake", None)
+        if wake is None or delay > 0.25:
+            self.stop.wait(delay)
+            return
+        wake.wait(delay)
+        wake.clear()
+
     def run(self):
         try:
             self.revision = record_revision(self.state.directory)
@@ -3805,7 +3886,7 @@ class Runner:
                     delay = self.cloud.failed(exc)
                 except Exception as exc:
                     delay = self.loop.failed(exc)
-                self.stop.wait(delay)
+                self.idle(delay)
         finally:
             self.stop.set()
             self.events.close()
