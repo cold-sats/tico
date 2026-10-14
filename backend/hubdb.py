@@ -2041,6 +2041,13 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
             refuse(conn, actor, "depth",
                    f"this ask is at depth {depth}; asks stop at {MAX_ASK_DEPTH}")
         refs["depth"] = depth
+        if is_bot(actor) and is_human(target):
+            about = message_task_id({"refs": refs}, conv)
+            ended = task(conn, about) if about else None
+            # It would only be superseded (supersede_asks, approval_expiry): nobody acts on an ended task's
+            # questions. A done task still asks for acceptance of what it delivered with structured questions.
+            if ended and ended["status"] in TASK_ENDED and not (ended["status"] == "done" and refs.get("questions")):
+                refuse(conn, actor, "lint", f"task {ended['id']} is {ended['status']}; reopen it or ask on an open task")
 
     # rules 4 and 7: what a person has to read
     if is_bot(actor) and is_human(target) and kind in ("say", "notice"):
