@@ -34,6 +34,7 @@ pub fn headless_names(runtime: &str) -> &'static [&'static str] {
         "claude" => &["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
         "cursor" => &["CURSOR_API_KEY"],
         "codex" => &["OPENAI_API_KEY"],
+        "musecode" => &["META_API_KEY"],
         _ => &[],
     }
 }

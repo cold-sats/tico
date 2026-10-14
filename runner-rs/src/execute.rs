@@ -104,7 +104,7 @@ impl Meter {
     }
 }
 
-/// `subscription` when the runtime is signed in with a plan (ChatGPT, Claude), else `api` (usage.billing_for).
+/// `subscription` when the runtime is signed in with a plan (ChatGPT, Claude, Cursor, Meta), else `api` (usage.billing_for).
 pub fn billing_for(runtime: &str, detail: &str) -> &'static str {
     let lower = detail.to_lowercase();
     let key = Regex::new(r"(?i)api[ _-]?key").unwrap();
@@ -114,6 +114,7 @@ pub fn billing_for(runtime: &str, detail: &str) -> &'static str {
     match runtime {
         "codex" if lower.contains("chatgpt") => "subscription",
         "claude" | "cursor" => "subscription",
+        "musecode" if lower.contains("meta account") => "subscription",
         _ => "api",
     }
 }
@@ -575,6 +576,13 @@ impl Runner {
                 Host::Codex(CodexHost::on_home(env.clone(), tx, home.as_deref()))
             }
             "gemini" => Host::Gemini(GeminiHost::new(bot, &self.state.directory.join("gemini").join(bot), vec!["gemini".into()], tx)),
+            "musecode" => Host::MuseCode(crate::hosts::musecode::MuseCodeHost::new(
+                bot,
+                vec![crate::hosts::musecode::EXECUTABLE.into()],
+                None,
+                self.state.directory.join("musecode"),
+                tx,
+            )),
             "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
             other => return Err(Fail::runtime(format!("Unsupported local runtime: {other}"))),
         })
@@ -1180,6 +1188,8 @@ mod tests {
         assert_eq!(billing_for("claude", "Signed in with ANTHROPIC_API_KEY"), "api");
         assert_eq!(billing_for("codex", "Signed in with ChatGPT"), "subscription");
         assert_eq!(billing_for("codex", "Signed in with an API key"), "api");
+        assert_eq!(billing_for("musecode", "Signed in with a Meta account"), "subscription");
+        assert_eq!(billing_for("musecode", "Signed in with META_API_KEY"), "api");
     }
 
     #[test]

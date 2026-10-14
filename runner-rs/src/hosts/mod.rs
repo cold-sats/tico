@@ -9,6 +9,7 @@ pub mod claude;
 pub mod codex;
 pub mod gemini;
 mod native;
+pub mod musecode;
 
 use std::sync::OnceLock;
 
@@ -65,7 +66,7 @@ fn auth_rejected_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)incorrect api key|invalid[ _-]?(?:x-)?api[ _-]?key|api key (?:is )?(?:invalid|revoked|expired)|not logged in|please run /login|invalid authentication credentials|authentication_error|oauth session expired and could not be refreshed",
+            r"(?i)incorrect api key|invalid[ _-]?(?:x-)?api[ _-]?key|api key (?:is )?(?:invalid|revoked|expired)|not logged in|please run /login|invalid authentication credentials|authentication_error|oauth session expired and could not be refreshed|missing meta credentials",
         )
         .unwrap()
     })
@@ -227,6 +228,7 @@ pub enum Host {
     Gemini(gemini::GeminiHost),
     /// The gemini runtime's Antigravity harness, kept warm between turns (crate::warm).
     Antigravity(antigravity::AntigravityHost),
+    MuseCode(musecode::MuseCodeHost),
 }
 
 impl Host {
@@ -239,6 +241,10 @@ impl Host {
                 Ok(())
             }
             Host::Antigravity(h) => h.start(),
+            Host::MuseCode(h) => {
+                h.start();
+                Ok(())
+            }
         }
     }
 
@@ -248,6 +254,7 @@ impl Host {
             Host::Codex(h) => h.stop().await,
             Host::Gemini(h) => h.stop().await,
             Host::Antigravity(h) => h.stop().await,
+            Host::MuseCode(h) => h.stop().await,
         }
     }
 
@@ -257,6 +264,7 @@ impl Host {
             Host::Codex(h) => h.alive(),
             Host::Gemini(h) => h.alive(),
             Host::Antigravity(h) => h.alive(),
+            Host::MuseCode(h) => h.alive(),
         }
     }
 
@@ -265,6 +273,7 @@ impl Host {
             Host::Claude(h) => h.supports_steer(),
             Host::Codex(_) => true,
             Host::Gemini(_) | Host::Antigravity(_) => false,
+            Host::MuseCode(_) => false,
         }
     }
 
@@ -274,6 +283,7 @@ impl Host {
             Host::Codex(h) => h.start_thread(bot, settings).await,
             Host::Gemini(h) => Ok(h.start_thread(settings)),
             Host::Antigravity(h) => Ok(h.start_thread(settings)),
+            Host::MuseCode(h) => Ok(h.start_thread(settings)),
         }
     }
 
@@ -283,6 +293,7 @@ impl Host {
             Host::Codex(h) => h.resume_thread(thread_id, settings).await,
             Host::Gemini(h) => Ok(h.resume_thread(thread_id, settings)),
             Host::Antigravity(h) => h.resume_thread(thread_id, settings),
+            Host::MuseCode(h) => Ok(h.resume_thread(thread_id, settings)),
         }
     }
 
@@ -292,6 +303,7 @@ impl Host {
             Host::Codex(h) => h.start_turn(thread_id, text, effort).await,
             Host::Gemini(h) => h.start_turn(thread_id, text, effort),
             Host::Antigravity(h) => h.start_turn(thread_id, text, effort),
+            Host::MuseCode(h) => h.start_turn(thread_id, text, effort),
         }
     }
 
@@ -301,6 +313,7 @@ impl Host {
             Host::Codex(h) => h.steer(thread_id, turn_id, text).await,
             Host::Gemini(_) => Err(failed("Gemini runtime cannot steer a running turn")),
             Host::Antigravity(h) => h.steer(),
+            Host::MuseCode(_) => Err(HostError::SteerRefused("Muse Code cannot steer a running turn".into())),
         }
     }
 
@@ -319,13 +332,17 @@ impl Host {
                 h.interrupt().await;
                 Ok(())
             }
+            Host::MuseCode(h) => {
+                h.interrupt(thread_id, turn_id);
+                Ok(())
+            }
         }
     }
 
     pub fn session_id(&self, thread_id: &str) -> String {
         match self {
             Host::Claude(h) => h.session_id(thread_id),
-            Host::Codex(_) | Host::Gemini(_) | Host::Antigravity(_) => thread_id.to_string(),
+            Host::Codex(_) | Host::Gemini(_) | Host::Antigravity(_) | Host::MuseCode(_) => thread_id.to_string(),
         }
     }
 }

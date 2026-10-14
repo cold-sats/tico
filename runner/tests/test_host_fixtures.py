@@ -1,7 +1,7 @@
 """Harness wire formats both runner engines replay (runner/tests/fixtures/<harness>/*.jsonl).
 
 Each fixture is what the harness writes on stdout for one turn; `<name>.expected.json` is the events the
-Python host makes of it, with the per-run thread and turn ids left out for Claude, Gemini and Antigravity. The Rust runner's host
+Python host makes of it, with the per-run thread and turn ids left out for Claude, Gemini, Antigravity and Muse Code. The Rust runner's host
 tests (runner-rs/src/hosts) replay the same files against the same expected events, so the two engines
 read a harness the same way. `python -m runner.tests.test_host_fixtures --write` refreshes the expected files.
 """
@@ -16,6 +16,11 @@ from runner.hosts.antigravity import AntigravityHost
 from runner.hosts.claude import ClaudeHost
 from runner.hosts.codex import CodexHost
 from runner.hosts.gemini import GeminiHost
+
+try:
+    from runner.hosts.musecode import MuseCodeHost   # PR #508; without it the Muse Code fixtures are the Rust host's only
+except ImportError:
+    MuseCodeHost = None
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -104,6 +109,36 @@ def antigravity_events(path):
 
 
 READERS = {"claude": claude_events, "codex": codex_events, "gemini": gemini_events, "antigravity": antigravity_events}
+
+
+class _Muse:
+    """`muse exec --json` for one turn: the fixture's lines on stdout, then exit 0."""
+
+    def __init__(self, lines):
+        self.stdout, self.pid = iter([line + "\n" for line in lines]), 4244
+
+    def wait(self, timeout=None):
+        return 0
+
+    def terminate(self):
+        pass
+
+    kill = terminate
+
+
+def musecode_events(path):
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    with tempfile.TemporaryDirectory() as state:
+        host = MuseCodeHost(bot="acme", spawn=lambda argv, **kw: _Muse(lines), state_dir=state)
+        host.start()
+        thread = host.start_thread("acme", {"cwd": "/tmp", "env": {"PATH": "/usr/bin:/bin"}})
+        host.start_turn(thread, "hello")
+        host._reader.join(timeout=5)
+    return [{k: v for k, v in ev.items() if k not in ("thread_id", "turn_id")} for ev in host.drain()]
+
+
+if MuseCodeHost is not None:
+    READERS["musecode"] = musecode_events
 
 
 def cases():

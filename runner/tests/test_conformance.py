@@ -1,5 +1,5 @@
 """One contract, two engines: `python -m runner run` and the Rust `tico-runner run` (runner-rs/), each run as a
-real process against a real listening API, with fake `claude`, `codex`, `gemini` and `agy` executables first on
+real process against a real listening API, with fake `claude`, `codex`, `gemini`, `agy` and `muse` executables first on
 PATH (runner/tests/conformance/). Every scenario runs on both engines and every harness, and checks the result
 through the server: the claim, the streamed events, the completion and its Idempotency-Keys, granted
 credentials and their redaction, session resume, and recovery after the runner is killed mid-turn.
@@ -26,7 +26,8 @@ pytestmark = pytest.mark.slow
 
 ROOT = Path(__file__).resolve().parents[2]
 FAKES = Path(__file__).resolve().parent / "conformance"
-MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.5", "gemini": "gemini-3.8-flash", "antigravity": "gemini-3.8-flash"}
+MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.5", "gemini": "gemini-3.8-flash", "antigravity": "gemini-3.8-flash",
+          "musecode": "muse-spark-1.3"}
 RUNTIMES = {"antigravity": "gemini"}
 SECRET = "acme-synthetic-fixture-4821"
 
@@ -97,9 +98,11 @@ class Computer:
                 subprocess.run(["git", *args], check=True, env=git_env, capture_output=True)
         home, bin_dir = tmp_path / "home", tmp_path / "bin"
         (home / ".codex").mkdir(parents=True)
+        (home / ".config" / "muse").mkdir(parents=True)
+        (home / ".config" / "muse" / "auth.json").write_text("{}")     # a Meta-account login, as `muse login` leaves
         bin_dir.mkdir()
         self.log_path = tmp_path / "harness.jsonl"
-        for name in ("claude", "codex", "gemini", "agy"):
+        for name in ("claude", "codex", "gemini", "agy", "muse"):
             wrapper = bin_dir / name
             # A turn's environment keeps only process settings, so the fakes' own settings ride in the wrapper.
             fake = "".join(f"{k}='{v}' " for k, v in (env or {}).items() if k.startswith("FAKE_"))
@@ -176,7 +179,7 @@ def engine(request):
     return request.param
 
 
-@pytest.fixture(params=["claude", "codex", "gemini", "antigravity"])
+@pytest.fixture(params=["claude", "codex", "gemini", "antigravity", "musecode"])
 def harness(request):
     return request.param
 
@@ -189,6 +192,8 @@ def setup():
 
 @pytest.fixture
 def computer(api, live, tmp_path, engine, harness, setup, request):
+    if harness == "musecode" and engine == "python" and not (ROOT / "runner" / "hosts" / "musecode.py").exists():
+        pytest.skip("the Python runner's Muse Code host is PR #508")
     binary = request.getfixturevalue("rust_binary") if engine == "rust" else None
     machine = Computer(api, live, tmp_path, engine, harness, binary, **setup)
     yield machine
@@ -224,6 +229,11 @@ def test_a_chat_turn_streams_completes_and_resumes_the_bot_thread(api, computer)
         # Another conversation is another warm scope: its own process and home, so a provider conversation of its own.
         assert calls[-1]["pid"] != calls[0]["pid"] and all("--conversation" not in c["argv"] for c in calls)
         assert calls[-1]["argv"][calls[-1]["argv"].index("--model") + 1] == "gemini-3.8-flash-low"
+    elif computer.harness == "musecode":
+        # Every turn names the one Muse session Tico made for the thread; the launcher never updates itself.
+        sessions = {call["argv"][call["argv"].index("--session-id") + 1] for call in calls}
+        assert len(calls) == 2 and len(sessions) == 1
+        assert all(call["env"]["MUSE_NO_AUTO_UPDATE"] == "1" for call in calls)
     else:
         starts = [c for c in calls if c.get("method") in ("thread/start", "thread/resume")]
         assert starts[-1] == {"harness": "codex", "method": "thread/resume", "thread": starts[0]["thread"]}

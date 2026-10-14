@@ -1,6 +1,6 @@
 //! What the heartbeat says about this computer (`runtime_readiness`, `preflight` and `readiness` in
 //! runner/service.py). Only the checks the chat path needs: runtime install, version, sign-in and models for
-//! Claude, Codex and Gemini (the Gemini CLI, and `agy` for Antigravity bots), and per bot its repository, AGENT.md and bot.yaml. The server gates claims on these rows.
+//! Claude, Codex, Gemini (the Gemini CLI, and `agy` for Antigravity bots) and Muse Code, and per bot its repository, AGENT.md and bot.yaml. The server gates claims on these rows.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -14,9 +14,9 @@ use crate::profiles::{self, Profile};
 use crate::signin::{self, SignIn};
 use crate::util::text_of;
 
-pub const RUNTIMES: &[&str] = &["codex", "grok", "claude", "gemini", "pi", "cursor"];
+pub const RUNTIMES: &[&str] = &["codex", "grok", "claude", "gemini", "pi", "cursor", "musecode"];
 /// The runtimes this runner can drive; the rest report as not installed so no bot of theirs is sent here.
-pub const DRIVEN: &[&str] = &["claude", "codex", "gemini"];
+pub const DRIVEN: &[&str] = &["claude", "codex", "gemini", "musecode"];
 pub const CLAUDE_MODELS: &[&str] = &["claude-fable-5-1", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5-20251001"];
 pub const NO_RUNTIME: &str = "No AI provider is chosen: the owner picks providers and a default model in Settings > AI providers";
 const CLAUDE_AUTH_TIMEOUT_S: u64 = 30;
@@ -33,7 +33,9 @@ async fn run_env(argv: &[&str], timeout_s: u64, env: Option<&Env>) -> Result<(bo
 }
 
 fn executable(runtime: &str) -> Option<PathBuf> {
-    which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default())
+    // Muse Code's program is `muse` (harness_tools.executable_for once its manifest ships).
+    let program = if runtime == "musecode" { crate::hosts::musecode::EXECUTABLE.to_string() } else { crate::harness_tools::executable_for(runtime) };
+    which(&program, &std::env::var("PATH").unwrap_or_default())
 }
 
 pub fn codex_models(home: Option<PathBuf>) -> Vec<String> {
@@ -113,6 +115,24 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
                 let (a, d) = crate::hosts::gemini::sign_in(assignments);
                 authenticated = a;
                 detail = d;
+            } else if runtime == "musecode" {
+                // Muse Code keeps a Meta-account login in auth.json (`muse login`) and has no status command, so the
+                // file's presence is the sign-in; its contents are never read. META_API_KEY wins over it.
+                sign.team_model_keys(client, "musecode").await;
+                let signed = crate::hosts::musecode::signed_in(&crate::hosts::musecode::auth_file(&std::env::vars().collect()));
+                if sign.headless_secret("musecode").is_some() {
+                    authenticated = "ready";
+                    detail = "Signed in with META_API_KEY".into();
+                } else if signed == Some(true) {
+                    authenticated = "ready";
+                    detail = "Signed in with a Meta account".into();
+                } else if signed.is_none() {
+                    authenticated = "failed";
+                    detail = "Muse sign-in could not be checked (its config folder is not readable)".into();
+                } else {
+                    authenticated = "missing";
+                    detail = "Muse login required (muse login) or META_API_KEY".into();
+                }
             } else {
                 let status = run_env(&[&p, "auth", "status", "--json"], CLAUDE_AUTH_TIMEOUT_S, env).await;
                 let parsed: Option<Value> = status.as_ref().ok().and_then(|(_, out, _)| serde_json::from_str::<Value>(out).ok()).filter(|v| v.is_object());
@@ -140,7 +160,12 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
                     detail = "Claude login required".into();
                 }
             }
-            if let Ok((true, out, err)) = run_env(&[&p, "--version"], 5, env).await {
+            let quiet: Option<Env> = (runtime == "musecode").then(|| {
+                let mut e = env.cloned().unwrap_or_else(crate::env::process_environment);
+                e.extend(crate::hosts::musecode::QUIET.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+                e
+            });
+            if let Ok((true, out, err)) = run_env(&[&p, "--version"], 5, quiet.as_ref().or(env)).await {
                 let text = if out.trim().is_empty() { err } else { out };
                 version = text.trim().lines().next().unwrap_or_default().chars().take(100).collect();
             }
@@ -150,6 +175,7 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
         "codex" => codex_models(profile.and_then(|p| p.home("codex"))),
         "claude" => CLAUDE_MODELS.iter().map(|s| s.to_string()).collect(),
         "gemini" => crate::hosts::gemini::MODELS.iter().map(|s| s.to_string()).collect(),
+        "musecode" => crate::hosts::musecode::MODELS.iter().map(|s| s.to_string()).collect(),
         _ => vec![],
     };
     let mut row = Map::new();
