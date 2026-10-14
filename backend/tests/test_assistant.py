@@ -471,6 +471,8 @@ def test_clear_my_queue_declines_and_answers_in_bulk_and_never_approves(api):
     refused = post(api, "assistant/actions", {"summary": "Approve the merge", "path": "/api/v2/approvals/" + q["merge"],
                                               "body": approve}, token=token, expected=403)
     assert refused["error"]["code"] == "approve_not_asked"
+    post(api, "assistant/actions", {"summary": "Odd", "path": assistant.BATCH_PATH, "body": {"actions": [
+        {"path": "/api/v2/approvals/" + q["merge"], "body": ["declined"]}]}}, token=token, expected=422)
     # Ana's approval and question never go on his card.
     decline = {"decision": "declined", "note": "Before the reset"}
     steps = [{"path": "/api/v2/approvals/" + aid, "body": decline} for aid in q["old"]]

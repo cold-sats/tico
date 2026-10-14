@@ -139,7 +139,7 @@ def instructed_route(method, path, body=None):
 
 # Approving is the person's own decision. The Assistant may put an approve on a card only when the person's message in
 # their chat names it; "clear my queue" or "close 50 of these" declines, dismisses and closes, and never approves.
-APPROVING = re.compile(r"\b(approv\w*|merge[sd]?|merging|publish\w*|send|sending|spend\w*|pay|paying|ok to send)\b", re.I)
+APPROVING = re.compile(r"\b(approv\w*|merge[sd]?|merging|publish\w*|send|sending|spend\w*|pay|paying)\b", re.I)
 
 
 def approvals_in(path, body):
@@ -435,7 +435,8 @@ def batch_steps(body):
         if not isinstance(step, dict) or set(step) - {"method", "path", "body"}:
             raise Problem("operation", "Each action is {method, path, body}", 422)
         method, path, sent = str(step.get("method") or "POST"), normalize_path(step.get("path")), step.get("body") or {}
-        deciding = bool(path and _DECIDING.fullmatch(path)) and sent.get("decision") in ("approved", "declined")
+        deciding = (isinstance(sent, dict) and bool(path and _DECIDING.fullmatch(path))
+                    and sent.get("decision") in ("approved", "declined"))
         if (not isinstance(sent, dict) or not (instructed_route(method, path, sent) or (method == "POST" and deciding))
                 or any(f in sent for f in PERSON_ONLY_FIELDS)):
             raise Problem("operation", "A bulk card holds only task changes, comments and links, approval decisions and "
