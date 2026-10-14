@@ -175,6 +175,10 @@ def from_person(message):
 CHECKOUT_EVERY_S = 600
 # How often finished tasks' session checkouts are looked for between turns (Runner.sweep_sessions).
 SESSION_SWEEP_S = 600
+# How long a task turn that is not a person's waits for its worktree, retrying, before it runs in the bot's checkout:
+# in the checkout it would hold every chat with the bot behind it for its whole turn.
+WORKTREE_WAIT_S = 120
+WORKTREE_RETRY_S = 10
 
 # Keys whose values move on every report without anything having changed: left out when deciding
 # whether a heartbeat has news (runner/service.py `maintain`).
@@ -677,6 +681,7 @@ class Runner:
         self.attempt_lanes = {}              # attempt id -> (bot, lane, task id) while its turn may still be running
         self.session_git_locks = {}          # main checkout -> lock over adding, syncing and removing its task worktrees
         self.session_git_guard = threading.Lock()
+        self.person_waits = {}               # bot -> turns from a person waiting for its main checkout
         self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
         self.goal_tries = {}                 # (bot, session key) -> [goal continuations since a person last wrote, the last reason given]
         self._weekly_usage = subscription_usage.Reports()
@@ -2478,6 +2483,11 @@ class Runner:
                 return False
         return True
 
+    def person_waiting(self, bot):
+        """Whether a turn from a person is waiting for the bot's main checkout (Runner.execute)."""
+        with self.session_git_guard:
+            return self.__dict__.setdefault("person_waits", {}).get(bot, 0) > 0
+
     def session_git_lock(self, main):
         """One git step at a time on a checkout's task worktrees: adding, syncing, rebasing and removing them
         all write the repository they share."""
@@ -2592,13 +2602,42 @@ class Runner:
         session_task = self.task_session(attempt, config, lane)
         held = []                                   # the locks this turn holds, released last-first
 
+        # A person's turn goes first: every other turn waiting for the checkout lets it by, and a task turn skips
+        # its refresh of the checkout while one waits.
+        person = from_person(attempt.get("message"))
+
         def hold(lock):
             acquired = False
             while not acquired and not lost.is_set():
+                yields = lock is checkout_lock and not person
+                if yields and self.person_waiting(bot):
+                    lost.wait(0.2)
+                    continue
                 acquired = lock.acquire(timeout=1)
+                if acquired and yields and self.person_waiting(bot):
+                    lock.release()          # a person started waiting while this turn did
+                    acquired = False
             if not acquired:
                 raise RuntimeError('Attempt lease lost while waiting for worktree maintenance')
             held.append(lock)
+
+        def hold_checkout():
+            if not person:
+                return hold(checkout_lock)
+            with self.session_git_guard:
+                waits = self.__dict__.setdefault("person_waits", {})
+                waits[bot] = waits.get(bot, 0) + 1
+            try:
+                hold(checkout_lock)
+            finally:
+                with self.session_git_guard:
+                    waits[bot] -= 1
+
+        def try_checkout():
+            if self.person_waiting(bot) or not checkout_lock.acquire(blocking=False):
+                return False
+            held.append(checkout_lock)
+            return True
 
         checkout_lock = self.worktrees.bot_lock(bot)
         session_path, session_problem = None, ""
@@ -2606,10 +2645,10 @@ class Runner:
         try:
             try:
                 hold(self.worktrees.lane_lock(bot, lane))
-                if session_task and checkout_lock.acquire(blocking=False):
-                    held.append(checkout_lock)
-                elif not session_task:
-                    hold(checkout_lock)
+                if session_task:
+                    try_checkout()
+                else:
+                    hold_checkout()
                 main_path = self.local_path(bot, config)
                 selected_profile = self.turn_profile(attempt)
                 attempt["_subscription_profile"] = selected_profile
@@ -2649,20 +2688,39 @@ class Runner:
                     self.refresh_product_files(bot, config, execution_path, env if session_task else None)
                 if session_task:
                     session_path = task_sessions.path_for(self.config["projects_dir"], bot, session_task)
-                    if bot in self.__dict__.get("product_unpushed", ()):
-                        # The worktree would sync from an upstream without the refreshed product files.
-                        session_problem = "its refreshed product files are not pushed yet"
-                    else:
+
+                    def worktree():
+                        if bot in self.__dict__.get("product_unpushed", ()):
+                            # The worktree would sync from an upstream without the refreshed product files.
+                            return "", "its refreshed product files are not pushed yet"
                         with self.session_git_lock(main_path):
-                            tracked, session_problem = task_sessions.ensure(main_path, session_path, session_task, env)
-                            if not session_problem:
+                            tracked, problem = task_sessions.ensure(main_path, session_path, session_task, env)
+                            if not problem:
                                 attempt["branch_sync_problem"] = sync_shared(session_path, env)
+                        return tracked, problem
+                    tracked, session_problem = worktree()
+                    if session_problem and not person and session_problem not in task_sessions.LASTING:
+                        # In the checkout this turn would hold the bot's chats behind it for the whole turn, so it waits
+                        # for its worktree first, holding nothing a chat needs, and pushes the product files it waits on.
+                        log(f"Tico runner: {bot}: task {session_task} waits for its worktree ({session_problem})")
+                        if checkout_lock in held:
+                            held.remove(checkout_lock)
+                            checkout_lock.release()
+                        waited = time.monotonic() + WORKTREE_WAIT_S
+                        while session_problem and time.monotonic() < waited and not lost.wait(WORKTREE_RETRY_S):
+                            if bot in self.__dict__.get("product_unpushed", ()) and try_checkout():
+                                try:
+                                    self.refresh_product_files(bot, config, main_path, env)
+                                finally:
+                                    held.remove(checkout_lock)
+                                    checkout_lock.release()
+                            tracked, session_problem = worktree()
                     if session_problem:
                         # Without a worktree of its own the task's turn waits for the main checkout like any other.
                         log(f"Tico runner: {bot}: task {session_task} runs in the bot's checkout ({session_problem})")
                         session_path = None
                         if checkout_lock not in held:
-                            hold(checkout_lock)
+                            hold_checkout()
                             if is_shared(config):
                                 attempt["branch_sync_problem"] = sync_shared(execution_path, env)
                             else:
