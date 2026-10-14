@@ -65,8 +65,18 @@ LOG_PATTERNS = (
      "A runner's readiness report is refused (403)",
      "Tico bug: the server refuses the readiness report of a computer it lists."),
 )
-CHECKS = ("runner_outdated", "limited_no_fallback", "stuck_setup", "paused_routines", "queue_idle", "worktree_error",
-          "server_cpu") + tuple(p[0] for p in LOG_PATTERNS)
+# What each check means in words that hold on every install: a report says this, never a bot's, computer's or person's name.
+MEANING = {
+    "runner_outdated": "A computer runs an older Tico release than its server, or failed to update.",
+    "limited_no_fallback": "A bot's turns stopped on a usage limit and it has no fallback model.",
+    "stuck_setup": "A bot has been in setup for over an hour while work waits for it.",
+    "paused_routines": "A paused bot still has routines on.",
+    "queue_idle": "Work stayed queued 15 minutes or more on an online computer with room and no limit.",
+    "worktree_error": "A task worktree failed on its computer.",
+    "server_cpu": f"The server averaged {SERVER_CPU:g}% CPU or more for an hour with under {QUIET_REQUESTS} requests.",
+    "local_busy": "A process or container on a computer running Tico was busy in two hourly checks in a row while idle.",
+    **{p[0]: p[4] + "." for p in LOG_PATTERNS},
+}
 
 
 class LocalFinding(Contract):
@@ -263,8 +273,10 @@ def report_message(c, row):
     from . import releases
     seen = c.execute("SELECT count(*) n, sum(occurrences) times FROM health_findings WHERE signature=?",
                      (row["signature"],)).fetchone()
-    return (f"[Health Monitor] {row['check_id']}: {row['title']}\n\n"
-            f"Signature: {row['signature']}\nKind: {row['kind']}\nTico: {releases.version()}\n"
+    process = row["key"].split(":", 2)[-1] if row["check_id"] == "local_busy" else ""
+    return (f"[Health Monitor] {row['check_id']}: {MEANING.get(row['check_id'], row['check_id'])}\n\n"
+            + (f"Process: {process}\n" if process else "")
+            + f"Signature: {row['signature']}\nKind: {row['kind']}\nTico: {releases.version()}\n"
             f"First seen: {row['first_seen'][:16]} UTC; seen {seen['times'] or 1} time(s) in {seen['n']} place(s).\n\n"
             "What it means: " + row["fix"] + "\n\nThe redacted diagnostics bundle is attached.")
 
