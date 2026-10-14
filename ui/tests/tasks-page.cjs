@@ -789,7 +789,9 @@ async function bulk(browser) {
   await page.waitForFunction(() => document.querySelector('#task-peek [data-prop="status"]')?.textContent.includes('Waiting'));
   await page.locator('#task-bulk [data-bulk="clear"]').click();
   await page.keyboard.press('Escape');
-  // Done on two bot requests: one tap, no prompt, and no note when nothing was typed.
+  // Done on two bot requests: one tap, no prompt, and no note. A comment typed on one earlier and never sent is not
+  // sent with a bulk Done (nothing on screen shows it); it stays in that task's box.
+  await page.evaluate(() => TASK_DRAFTS.set('t-copy', 'Half a thought about headl'));
   await box('tt-copy').click();
   await box('tt-refund').click();
   await page.locator('#task-bulk [data-bulk="status"]').click();
@@ -797,6 +799,8 @@ async function bulk(browser) {
   await page.waitForFunction(() => /2 moved to Done/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
   assert.equal(await page.locator('dialog.task-outcome').count(), 0, 'nothing asks what was decided');
   assert.deepEqual(taskWrites(posts).slice(-2).map(x => x.body.note), [undefined, undefined]);
+  assert.equal(posts.filter(x => x.p.startsWith('/api/v2/tasks/t-copy/')).length, 0, 'not sent as a comment either');
+  assert.equal(await page.evaluate(() => TASK_DRAFTS.get('t-copy')), 'Half a thought about headl', 'the draft stays for its task');
   assert.deepEqual(errors, []);
   console.log('bulk: ok');
   await page.close();
