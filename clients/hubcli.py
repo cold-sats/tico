@@ -41,6 +41,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            --note is then your ask to them, one or two plain sentences:
                                            "Approve the video tool trial on Thursday? If yes, I'll send the invite."
     hub task close <id> [--note "..."]
+    hub task snooze <id> --until DATE      set it aside until DATE: off the lists and quiet until then
+    hub task unsnooze <id>                 bring a snoozed task back now
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
     hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done] [--member me|X [--role R]]
@@ -883,6 +885,8 @@ def parser():
     s.add_argument("--stuck", action="store_true",
                    help="only open work untouched for --hours that waits on nobody (BotOps's sweep)")
     s.add_argument("--hours", type=int, default=24, help="with --stuck: untouched for at least this many hours")
+    s.add_argument("--snoozed", choices=["only", "all"],
+                   help="snoozed tasks are left out: only lists just them, all lists them with the rest")
     s.set_defaults(fn="task list")
     s = task.add_parser("show", help="one task with its history and conversation; several ids: their fields in one read")
     s.add_argument("id", nargs="+")
@@ -890,6 +894,15 @@ def parser():
     s = task.add_parser("run", help="start a bot's task now, as the task")
     s.add_argument("id")
     s.set_defaults(fn="task run")
+    s = task.add_parser("snooze", help="set a task aside until a date: off the lists, Needs you and stall wakes "
+                        "until then, when its owner bot is woken once")
+    s.add_argument("id")
+    s.add_argument("--until", required=True,
+                   help="ISO-8601 date (the start of that day, Pacific) or date-time with a zone")
+    s.set_defaults(fn="task snooze")
+    s = task.add_parser("unsnooze", help="bring a snoozed task back now; its owner bot is woken once")
+    s.add_argument("id")
+    s.set_defaults(fn="task unsnooze")
 
     replay = sub.add_parser("replay", help="what happened in a window, as you may see it").add_subparsers(dest="sub")
     s = replay.add_parser("show", help="what happened in a window, in time order, as you may see it (JSON)")

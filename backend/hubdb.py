@@ -77,6 +77,7 @@ from pathlib import Path
 from .batch_work import isolated
 from . import task_relations as TR
 from . import task_roles as TRo
+from . import task_snooze as TS
 from clients.manifest import repo_dir
 from backend.chat_goals_schema import SCHEMA as CHAT_GOALS_SCHEMA
 from backend.repositories_schema import SCHEMA as REPOSITORIES_SCHEMA
@@ -949,6 +950,10 @@ def migrate(conn, adopt_legacy=False):
     # Set once a turn in the task's own session took in another private task: that session may
     # carry it from then on, so no later turn's reply becomes the checkpoint (execution.complete).
     add_column(conn, "tasks", "checkpoint_blocked", "INTEGER NOT NULL DEFAULT 0")
+    # A task snoozed until a date, and who snoozed it (backend/task_snooze.py).
+    add_column(conn, "tasks", "snoozed_until", "TEXT")
+    add_column(conn, "tasks", "snoozed_by", "TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS tasks_snoozed ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL")
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -2524,6 +2529,8 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
         _task_event(conn, row["id"], actor, "step", row.get("step_id"), step_id, note)
     if row.get("status") != effective:
         _task_event(conn, row["id"], actor, "status", row.get("status"), effective, note)
+        if effective in ("done", "closed", "declined", "review"):
+            TS.clear_finished(conn, actor, row)     # review hands it on: the requester looks now, not at the date
         if effective in ("done", "closed", "declined"):
             # A finished task's open questions to people are moot. Done keeps its structured questions: that is how
             # a done task asks for acceptance of what it delivered.
@@ -3264,7 +3271,7 @@ def comment_wakes(conn, actor, row, text, *, mover=False):
     or the task waits on that person (the bot asked them); anything else is saved for the bot's next
     turn on the task."""
     if is_bot(actor):
-        return True
+        return not TS.snoozed(row)
     if not (mover or actor in (row["owner"], row["requester"])):
         return False
     if not any(is_bot(a) for a in (row["owner"], row["requester"], task_origin(conn, row))):
@@ -4405,13 +4412,13 @@ def tasks_only(conn, actor):
 # under way or finished. A run that failed or was interrupted gives it back, so the next one
 # carries it again; a task the bot already moved on (doing, done) is its own business by then.
 NEXT_RUN_WAITING_SQL = (
-    "t.next_run=1 AND t.status='open' AND (t.carried_by IS NULL OR NOT EXISTS("
+    "t.next_run=1 AND t.status='open' AND t.snoozed_until IS NULL AND (t.carried_by IS NULL OR NOT EXISTS("
     "SELECT 1 FROM attempts a WHERE a.id=t.carried_by AND a.state IN ('leased','running','completed')))")
 
 
 def next_run_waiting(conn, row):
     """Whether this task (a row) is a next-run task still waiting to be carried."""
-    if not row or not row.get("next_run") or row.get("status") != "open":
+    if not row or not row.get("next_run") or row.get("status") != "open" or row.get("snoozed_until"):
         return False
     if not row.get("carried_by"):
         return True
@@ -4494,8 +4501,11 @@ STATUS_CHECK = "Status check: checkpoint where you are, or mark it blocked or do
 
 
 def not_yet_due(row, at):
-    """A task with a future due date says when to look again: the scheduler's "Due:" notice wakes
-    its owner then. Legacy dates without an offset read as Pacific."""
+    """A task with a future due date, or snoozed until a later moment, says when to look again: the
+    scheduler's "Due:" or "Snooze over" notice wakes its owner then. Legacy dates without an offset
+    read as Pacific."""
+    if TS.snoozed(row, at):
+        return True
     due = parse_ts(row.get("due")) if row.get("due") else None
     if due and due.tzinfo is None:
         from zoneinfo import ZoneInfo
@@ -4934,6 +4944,11 @@ def _wake(conn, task_row, target, body, refs=None, quiet_bots=False, quiet=False
     woken for it, whatever it opted into.
     """
     if quiet_bots and (quiet or tasks_only(conn, target)):
+        refs = {**(refs or {}), "quiet": True}
+    if (is_bot(target) and target == task_row.get("owner") and TS.snoozed(task_row)
+            and not (refs or {}).get("run_now") and (refs or {}).get("wake") != "snooze"):
+        # Nobody plans to get to a snoozed task before its date: news about it waits for its bot's next run.
+        # Anyone else (a requester bot handed it for review) hears as usual.
         refs = {**(refs or {}), "quiet": True}
     if not target or not _actor_exists(conn, target) or not task_private_readable(conn, target, task_row):
         return None
@@ -5466,13 +5481,13 @@ STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
           offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None,
-          updated_since=None, tickets=True, member=None, role=None, ids=None):
+          updated_since=None, tickets=True, member=None, role=None, ids=None, snoozed=None):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
     `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
     a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
     `tickets=False` leaves out the tasks on a numbered type. `member` keeps the tasks that actor is on
     in some role (task_roles), or in `role` when given. `ids` limits it to those tasks (a delta
-    read's changed ones)."""
+    read's changed ones). `snoozed` is "hide" (leave out snoozed tasks), "only", or None for both."""
     sql, args, where = "SELECT * FROM tasks", [], []
     if member:
         where.append(TRo.member_sql(role))
@@ -5503,6 +5518,9 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     if ids is not None:
         where.append("id IN (SELECT value FROM json_each(?))")
         args.append(json.dumps(list(ids)))
+    if snoozed in ("hide", "only"):
+        where.append("coalesce(snoozed_until,'')" + ("<=?" if snoozed == "hide" else ">?"))
+        args.append(now())
     if not tickets:
         where.append("NOT EXISTS (SELECT 1 FROM task_types WHERE task_types.id=tasks.type_id AND task_types.numbered=1)")
     if label:
@@ -5546,7 +5564,7 @@ def tasks_due_for_bots(conn, through):
     """
     return _rows(conn.execute(
         f"SELECT * FROM tasks WHERE status IN ({','.join(repr(x) for x in ACTIVE_STATUSES)}) "
-        "AND owner LIKE 'bot:%' AND due IS NOT NULL AND due!='' AND substr(due,1,10)<=? "
+        "AND owner LIKE 'bot:%' AND due IS NOT NULL AND due!='' AND substr(due,1,10)<=? AND snoozed_until IS NULL "
         "AND NOT EXISTS (SELECT 1 FROM task_reminders r WHERE r.task_id=tasks.id AND r.due=tasks.due) "
         "ORDER BY created,id", (through,)))
 
@@ -5670,19 +5688,20 @@ def needs_you(conn, who):
     # Product-lane work is a backlog a developer works through on the Product board, not a
     # decision owed today: it counts here only when it carries a question for the person.
     # The same goes for a numbered type's tickets, a board of its own.
-    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES, tickets=False)
+    # A snoozed task is nobody's to act on before its date (backend/task_snooze.py).
+    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES, tickets=False, snoozed="hide")
              if (t.get("lane") or "company") != "product"]
     seen = {t["id"] for t in owned}
-    asked = [t for t in tasks_asked_of(conn, actor) if t["id"] not in seen]
+    asked = [t for t in tasks_asked_of(conn, actor) if t["id"] not in seen and not TS.snoozed(t)]
     seen |= {t["id"] for t in asked}
     # A bot's task set waiting on this person: one concrete ask, its title and waiting note.
     waited = [t for t in _rows(conn.execute("SELECT * FROM tasks WHERE status='waiting' AND waiting_on=? "
-                                            "ORDER BY created", (actor,))) if t["id"] not in seen]
+                                            "ORDER BY created", (actor,))) if t["id"] not in seen and not TS.snoozed(t)]
     return {"actor": actor,
             "tasks": asked + owned,
             "waiting": waited,
             "approvals": pending,
-            "declined": tasks(conn, requester=actor, status="declined", tickets=False)}
+            "declined": tasks(conn, requester=actor, status="declined", tickets=False, snoozed="hide")}
 
 
 def approval(conn, approval_id):

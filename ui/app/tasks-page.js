@@ -324,9 +324,10 @@ function formFocus(root) {
   (root.querySelector('input[name=title], textarea, select') || {}).focus?.();
 }
 const mergeTaskRows = (...groups) => [...new Map(groups.flat().map(task => [task.id, task])).values()];
-const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_TASK_STATUSES}&limit=100&offset=${offset}`;
+// Snoozed tasks too: the Snoozed view shows them and every other view leaves them out (taskItems).
+const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_TASK_STATUSES}&snoozed=all&limit=100&offset=${offset}`;
 // Every status: a task that finished comes back as finished (as a live event brings it), not as gone.
-const tasksChangedPath = cursor => `/v2/tasks?lane=company&changed_after=${encodeURIComponent(cursor)}`;
+const tasksChangedPath = cursor => `/v2/tasks?lane=company&snoozed=all&changed_after=${encodeURIComponent(cursor)}`;
 async function tasksLoad(state, opts = {}) {
   const seq = ++state.loadSeq;
   // Done keeps its own paging. A reload after a change folds in its newest page; the poll does that too, but only while

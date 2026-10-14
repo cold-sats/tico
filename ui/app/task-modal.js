@@ -192,6 +192,8 @@ function taskModalBind(d, task, full = false) {
     if (saved && d.open && String(d.dataset.task) === String(task.id)) dismiss();
     else b.disabled = false;
   });
+  const unsnooze = $('[data-task-unsnooze]', d);
+  if (unsnooze) unsnooze.onclick = () => change({unsnooze: true}, undefined, 'snooze');
   taskPropsBind(d, task, change);
   const privacy = $('[data-task-private]', d);
   if (privacy) privacy.onchange = () => change({private: privacy.checked}, undefined, 'private');
@@ -332,7 +334,10 @@ async function taskSave(d, id, body, then, field) {
     }
     const state = d.dataset.peek && TASKS_ST, key = 't' + id;
     const at = state ? tasksVisibleKeys().indexOf(key) : -1;
-    const data = await post(`/v2/tasks/${encodeURIComponent(id)}`, {version: cur.version, ...body});
+    const path = `/v2/tasks/${encodeURIComponent(id)}`;
+    const data = body.snooze ? await post(path + '/snooze', {until: body.snooze})
+      : body.unsnooze ? await post(path + '/unsnooze', {})
+      : await post(path, {version: cur.version, ...body});
     errs.delete(field);
     if (data.task && String(d.liveTask?.id) === id) d.liveTask = data.task;
     if (here() && then !== false && data.task) void taskModalShow(data.task, d);       // the server's answer, at once
@@ -591,7 +596,8 @@ function hubModalHTML(t, it, opts = {}) {
   const thread = !!opts.thread;
   return `<div class="tmodal-head">${thread ? `<button class="ghost peek-btn tthread-only tthread-back" type="button" data-thread-back aria-label="Back to chat" title="Back to chat"><svg viewBox="0 0 12 12" width="14" height="14" aria-hidden="true" focusable="false"><path d="M7.5 3l-3 3 3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <span class="tthread-only tthread-title" tabindex="-1">${esc(t.title)}</span>` : ''}<span class="pill tstatus">${esc(statusWord)}</span>${blockers.length && !finished
-      ? `<span class="tchip-blocked" title="Blocked by ${esc(blockers.map(b => b.title).join(', '))}">blocked</span>` : ''}
+      ? `<span class="tchip-blocked" title="Blocked by ${esc(blockers.map(b => b.title).join(', '))}">blocked</span>` : ''}${taskSnoozed(t)
+      ? `<button type="button" class="tl-due wake tchip-snoozed" data-task-unsnooze title="Snoozed until ${esc(fmt(t.snoozed_until))} by ${esc(actorLabel(t.snoozed_by))}${rights.snooze ? '. Click to bring it back now' : ''}"${rights.snooze ? '' : ' disabled'}>Snoozed to ${esc(snoozeDay(t))}</button>` : ''}
       <span class="tmodal-owner">${actorFace(t.owner, 18)}<span class="who">${esc(actorLabel(t.owner))}</span></span>
       <span class="spacer"></span>${pos ? `<span class="peek-pos tnum" title="J / K or ↑ / ↓ move to the next or previous task">${esc(pos)}</span>` : ''}
       <span class="muted tnum tmodal-age" title="Updated ${esc(fmt(it.updated))}">${esc(ago(it.updated))}</span>

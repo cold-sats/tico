@@ -19,7 +19,7 @@ const STATUS_WORD = {open: 'Open', doing: 'Doing', waiting: 'Waiting', review: '
                      done: 'Done', closed: 'Closed', declined: 'Declined'};
 const BOARD_COLS = [...COMPANY_COLS, ['done', 'Done', 'Finished in the last 7 days']];   // legacy name, kept for the routine rows
 // The view tabs: labelled, with counts. The keys are the routes' and the saved preference's.
-const TASK_VIEWS = [['foryou', 'Needs you'], ['list', 'Open'], ['board', 'Board'], ['recurring', 'Recurring'], ['done', 'Done']];
+const TASK_VIEWS = [['foryou', 'Needs you'], ['list', 'Open'], ['board', 'Board'], ['recurring', 'Recurring'], ['snoozed', 'Snoozed'], ['done', 'Done']];
 const DONE_CAP = 20;                // The Done list shows 20 at a time
 const ACTIVE_TASK_STATUSES = 'open,doing,waiting,review,ready,declined';
 let TASKS_ST = null;
@@ -212,6 +212,16 @@ function taskDueInfo(t) {
   const late = at < Date.now();
   return {at, day, kind: 'deadline', late, words: `${late ? 'Overdue' : 'Due'} ${day}`};
 }
+// Set aside until a date (backend/task_snooze.py): only the Snoozed view shows it until then.
+function taskSnoozed(t) {
+  return !!t?.snoozed_until && !taskFinished(t) && parseServerTime(t.snoozed_until) > Date.now();
+}
+function snoozeDay(t) {
+  return new Date(parseServerTime(t.snoozed_until)).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+}
+function snoozeChip(t) {
+  return taskSnoozed(t) ? `<span class="tl-due wake" title="Snoozed until ${esc(fmt(t.snoozed_until))}">Snoozed to ${esc(snoozeDay(t))}</span>` : '';
+}
 function dueChip(t) {
   const due = taskDueInfo(t); if (!due) return '';
   return `<span class="tl-due${due.late ? ' late' : ''}${due.kind === 'wake' ? ' wake' : ''}" title="${esc(due.kind === 'wake' ? 'Looks again' : 'Due')} ${esc(fmt(new Date(due.at).toISOString()))}">${esc(due.words)}</span>`;
@@ -228,7 +238,7 @@ function rowTagChips(t, max = 2) {
   return shown + (rest > 0 ? `<span class="tlabel more" title="${esc(keys.slice(max).join(', '))}">+${rest}</span>` : '');
 }
 function taskChipsHTML(t, opts = {}) {
-  return (opts.tags === false ? '' : rowTagChips(t, opts.maxTags)) + prStateBadge(taskPRState(t)) + subProgressChip(t) + dueChip(t);
+  return (opts.tags === false ? '' : rowTagChips(t, opts.maxTags)) + prStateBadge(taskPRState(t)) + subProgressChip(t) + dueChip(t) + snoozeChip(t);
 }
 // A face for an actor: a bot's avatar, a person's photo or initials.
 function actorFace(actor, size = 18) {
